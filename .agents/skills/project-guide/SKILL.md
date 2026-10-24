@@ -34,7 +34,7 @@ For visual design or theme work, read [frontend-design](../frontend-design/SKILL
 
 Maintain docs with [documentation-maintenance](../documentation-maintenance/SKILL.md). Use the [documentation map](../../../docs/README.md), [current architecture](../../../docs/architecture.md), and [user guide](../../../docs/user-guide.md), with [technical-writing](../technical-writing/SKILL.md) and [mermaid-diagrams](../mermaid-diagrams/SKILL.md) plus their SOURCE.md notes when relevant.
 
-For verification planning and regression work, use [quality assurance](../quality-assurance/SKILL.md). For browser automation use [webapp testing](../webapp-testing/SKILL.md) with its [local guidance](../webapp-testing/SOURCE.md), reusing the existing Playwright suite.
+For focused C# unit tests, use [unit testing](../unit-testing/SKILL.md). For verification planning and regression work, use [quality assurance](../quality-assurance/SKILL.md). For browser automation use [webapp testing](../webapp-testing/SKILL.md) with its [local guidance](../webapp-testing/SOURCE.md), reusing the existing Playwright suite.
 
 For local runtime DI use `AddLocalWorkflowRuntime`; Studio and the standalone service sample share that registration. It creates no catalog or grants and preserves existing services. Verify hosted-worker/client identity and shutdown behavior. This helper is not a production durability or published NuGet contract; see [local hosting API](../../../docs/hosting-sdk.md).
 

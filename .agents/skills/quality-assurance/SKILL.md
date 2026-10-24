@@ -11,7 +11,7 @@ Read [run and validate](../run-and-validate/SKILL.md). For browser work apply [w
 
 State the expected user behavior and the failure that matters. Map each changed guarantee to the lowest useful test layer: Core invariants, actual Agent Framework adapter behavior, hosting/persistence and MCP integration, API responses, or Playwright user journeys. Include relevant negative cases, compatibility, cancellation and ownership boundaries. Prefer tests that would fail if the behavior were broken over tests that repeat implementation details. Reversible documentation or cosmetic edits do not require artificial unit tests.
 
-Use deterministic providers and disposable local MCP fixtures. Concurrency checks should synchronize on explicit barriers or observed state with bounded deadlines; avoid sleeps that merely hope a race occurred. For run control, verify node admission, event ordering, idempotent commands, cancellation while waiting, immutable revision identity, admission limits, and owner loss. In-flight work must finish before a cooperative pause is acknowledged; replay must never execute tools.
+Use [unit-testing](../unit-testing/SKILL.md) for focused C# unit-test design. Use deterministic providers and disposable local MCP fixtures. Concurrency checks should synchronize on explicit barriers or observed state with bounded deadlines; avoid sleeps that merely hope a race occurred. For run control, verify node admission, event ordering, idempotent commands, cancellation while waiting, immutable revision identity, admission limits, and owner loss. In-flight work must finish before a cooperative pause is acknowledged; replay must never execute tools.
 
 ## Verify through the real boundary
 
