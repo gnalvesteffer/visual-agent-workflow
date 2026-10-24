@@ -13,12 +13,14 @@ These endpoints inherit the Studio's development-only loopback and browser-origi
 | `POST /api/workflows/{id}/restore` | Copy a revision to the draft using `{ "revisionId": "...", "expectedGeneration": N }` |
 | `POST /api/workflows/{id}/activate` | Activate an existing published revision using the same request shape |
 | `GET /api/workflows/{id}/audit` | Read catalog mutation audit entries |
-| `POST /api/workflows/{id}/runs` | Run the active published revision using `{ "input": "text" }` |
-| `POST /api/revisions/{revisionId}/runs` | Run an exact published revision using `{ "input": "text" }` |
+| `POST /api/workflows/{id}/runs` | Run the active published revision using `{ "input": "text", "parameters": { "key": "value" } }` |
+| `POST /api/revisions/{revisionId}/runs` | Run an exact published revision using `{ "input": "text", "parameters": { "key": "value" } }` |
 
 Each successful catalog mutation increments the generation, including publishing and activation. Read the resulting draft after publishing to obtain the updated generation. A stale generation returns HTTP 409 with expected/actual generations. The caller must reload and reconcile; retrying without reconciliation can overwrite intent. Invalid definitions or cross-workflow revision references return 400. Missing workflow/revision references return 404. Running a workflow with no active publication returns 409.
 
 Publishing activates the new revision by contract. Restoring does not publish or activate anything. Neither action changes existing run snapshots. Published versions and their IDs are never replaced by activation or restore.
+
+The optional `parameters` map is available for schema-1.6 definitions. It contains string overrides only; omitted values use definition defaults. Unknown parameter IDs, oversized values and workflows without declared parameters are rejected before queueing. Resolved values are pinned in the run header for replay. Existing request bodies without `parameters` retain their behavior. See [workflow parameter contracts](workflow-parameters.md).
 
 Existing `/api/runs`, `/api/runs/{id}`, `/api/runs/{id}/events?after=N`, and cancellation endpoints continue to provide local run execution and observation. `POST /api/runs` accepts an ad-hoc definition and creates an ephemeral revision identity, whereas the published routes pin a catalog revision.
 
@@ -51,3 +53,5 @@ Schema 1.4 adds `core.condition` and `core.merge` version 1.0.0, true/false stri
 ## Approval controls
 
 Schema 1.5 adds `core.approval` before an explicit MCP tool. `POST /api/runs/{id}/approvals/{requestId}/decision` accepts only `{ "actionHash": "…", "approve": true|false }`. The decision binds to recorded server-side action metadata; no actor can be supplied in JSON. See [approval routes, responses and development attribution](approvals.md). The consumer observation route group remains GET-only.
+
+Schema 1.6 adds workflow string parameters and `core.workflow-value`; see [workflow parameter contracts](workflow-parameters.md). These values are ordinary audit data, not secrets.

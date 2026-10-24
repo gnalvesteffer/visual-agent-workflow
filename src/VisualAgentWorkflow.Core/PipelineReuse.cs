@@ -61,12 +61,42 @@ public static class PipelineReuse
             throw new ArgumentException("Reusable pipelines require processing steps and must fit the 256-node limit.");
         if (published.Version < 1) throw new ArgumentException("A published version is required.");
         var ids = steps.ToDictionary(id => id, _ => "node-" + Guid.NewGuid().ToString("N"), StringComparer.Ordinal);
+        var targetParameters = target.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
+        var parameterMap = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var parameterId in steps.Select(id => source.Nodes[id].ParameterId).Where(id => id is not null).Distinct(StringComparer.Ordinal))
+        {
+            var sourceParameter = source.Parameters![parameterId!];
+            var destinationId = parameterId!;
+            if (targetParameters.TryGetValue(destinationId, out var existing) && existing != sourceParameter)
+            {
+                var sourcePrefix = string.Concat(source.WorkflowId.Select(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-' ? character : '-'));
+                var prefix = sourcePrefix[..Math.Min(24, sourcePrefix.Length)];
+                var parameterSuffix = parameterId!.Length > 28 ? parameterId[..28] : parameterId;
+                destinationId = $"{prefix}-{parameterSuffix}";
+                var suffix = 2;
+                while (targetParameters.TryGetValue(destinationId, out existing) && existing != sourceParameter)
+                    destinationId = $"{prefix}-{parameterSuffix}-{suffix++}";
+            }
+            if (!targetParameters.ContainsKey(destinationId)) targetParameters = targetParameters.Add(destinationId, sourceParameter);
+            parameterMap[parameterId!] = destinationId;
+        }
         var nodes = target.Nodes;
         foreach (var id in steps)
-            nodes = nodes.Add(ids[id], source.Nodes[id] with
-            { Origin = new(source.WorkflowId, published.Revision.RevisionId, published.Version, published.Revision.ContentHash, id) });
+        {
+            var sourceNode = source.Nodes[id];
+            nodes = nodes.Add(ids[id], sourceNode with
+            {
+                ParameterId = sourceNode.ParameterId is { } parameterId ? parameterMap[parameterId] : null,
+                Origin = new(source.WorkflowId, published.Revision.RevisionId, published.Version, published.Revision.ContentHash, id)
+            });
+        }
         order.InsertRange(position + 1, steps.Select(id => ids[id]));
-        var definition = PipelineEditing.Reconnect(target with { SchemaVersion = "1.3", Nodes = nodes }, order);
+        var definition = PipelineEditing.Reconnect(target with
+        {
+            SchemaVersion = target.SchemaVersion == "1.6" || parameterMap.Count > 0 ? "1.6" : "1.3",
+            Nodes = nodes,
+            Parameters = targetParameters.Count == 0 ? null : targetParameters
+        }, order);
         var presentation = layout.Reconcile(definition);
         var points = steps.Select(id => sourceLayout.Nodes[id].Position)
             .Concat(source.Connections.Where(edge => ids.ContainsKey(edge.Value.Source.NodeId) && ids.ContainsKey(edge.Value.Target.NodeId))

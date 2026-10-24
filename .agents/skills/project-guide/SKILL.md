@@ -5,7 +5,7 @@ description: Use when changing, reviewing, or explaining this project, its archi
 
 # Project guide
 
-Read [the design baseline](../../../docs/design.md), [roadmap and current scope](../../../docs/roadmap.md), and [README](../../../README.md). Inspect the actual tree before naming projects, commands, or APIs. Core supports linear pipelines and schema-1.4 acyclic conditional string graphs and schema-1.5 exact-action MCP approval nodes. Parallelism, loops and richer data types remain planned.
+Read [the design baseline](../../../docs/design.md), [roadmap and current scope](../../../docs/roadmap.md), and [README](../../../README.md). Inspect the actual tree before naming projects, commands, or APIs. Core supports linear/acyclic conditional string graphs, schema-1.5 exact-action MCP approvals, and schema-1.6 string workflow parameters with explicit getter nodes. Parallelism, loops and richer data types remain planned; see [workflow parameter contracts](../../../docs/workflow-parameters.md).
 
 ## Preserve the architecture
 

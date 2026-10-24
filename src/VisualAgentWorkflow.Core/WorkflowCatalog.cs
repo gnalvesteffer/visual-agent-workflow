@@ -24,6 +24,14 @@ public interface IPublishedWorkflowClient : IWorkflowClient
     Task<RunSnapshot> StartPublishedRunAsync(Guid revisionId, string input);
 }
 
+public interface IParameterizedPublishedWorkflowClient
+{
+    Task<RunSnapshot> StartPublishedRunWithParametersAsync(Guid revisionId, string input,
+        IReadOnlyDictionary<string, string>? parameters);
+    Task<RunSnapshot> StartPublishedPausedWithParametersAsync(Guid revisionId, string input,
+        IReadOnlyDictionary<string, string>? parameters);
+}
+
 public sealed class WorkflowConflictException(string workflowId, long expected, long actual)
     : InvalidOperationException($"Workflow '{workflowId}' changed: expected generation {expected}, actual {actual}.")
 {

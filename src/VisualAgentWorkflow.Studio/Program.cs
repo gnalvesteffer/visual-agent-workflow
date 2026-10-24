@@ -105,9 +105,21 @@ app.MapPost("/api/runs", async (StartRunRequest request, IWorkflowClient client)
             return Results.BadRequest(new { error = "An input string and definition object are required." });
         var definition = WorkflowJson.Deserialize(request.Definition.GetRawText());
         if (request.StartPaused && client is not IWorkflowRunControl) return Results.BadRequest();
-        var snapshot = request.StartPaused
-            ? await ((IWorkflowRunControl)client).StartPausedRunAsync(definition, request.Input)
-            : await client.StartRunAsync(definition, request.Input);
+        if (request.Parameters is not null && client is not IParameterizedWorkflowClient) return Results.BadRequest();
+        RunSnapshot snapshot;
+        if (request.Parameters is not null)
+        {
+            var parameterized = (IParameterizedWorkflowClient)client;
+            snapshot = request.StartPaused
+                ? await parameterized.StartPausedRunWithParametersAsync(definition, request.Input, request.Parameters)
+                : await parameterized.StartRunWithParametersAsync(definition, request.Input, request.Parameters);
+        }
+        else
+        {
+            snapshot = request.StartPaused
+                ? await ((IWorkflowRunControl)client).StartPausedRunAsync(definition, request.Input)
+                : await client.StartRunAsync(definition, request.Input);
+        }
         return Results.Accepted($"/api/runs/{snapshot.Header.RunId}", snapshot);
     }
     catch (Exception error) when (error is ArgumentException or JsonException)
@@ -170,6 +182,7 @@ app.Run();
 public sealed record StartRunRequest(JsonElement Definition, string? Input)
 {
     public bool StartPaused { get; init; }
+    public Dictionary<string, string>? Parameters { get; init; }
 }
 
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]

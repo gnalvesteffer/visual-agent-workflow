@@ -11,6 +11,12 @@
             <div><strong>@(follow ? "Live / latest" : "Recorded playback")</strong> · Latest run status: @Snapshot.Status</div>
             <p class="vaw-help">State at recorded position: @VisibleStatus</p>
             <small>Run @Snapshot.Header.RunId · revision @Snapshot.Header.RevisionId</small>
+            @if (Snapshot.Header.Parameters is { Count: > 0 } parameters)
+            {
+                <details class="vaw-run-parameters"><summary>Recorded workflow parameters (@parameters.Count)</summary>
+                    <dl>@foreach (var (id, value) in parameters) { <dt>@id</dt><dd><pre>@value</pre></dd> }</dl>
+                </details>
+            }
         </header>
         <WorkflowGraphCanvas @key="Snapshot.Header.RunId" Definition="Snapshot.Header.Definition" Layout="Presentation" ReadOnly="true" NodesLabel="@(WorkflowGraph.HasRouting(Snapshot.Header.Definition) ? "Workflow nodes in topological display order" : "Pipeline nodes in execution order")" NodeClass="NodeStateClass" DeliveredConnections="Delivered" SelectedNodeId="@selectedNode" SelectedNodeIdChanged="SelectNode" InspectorTitle="Execution details">
             <ToolbarContent>

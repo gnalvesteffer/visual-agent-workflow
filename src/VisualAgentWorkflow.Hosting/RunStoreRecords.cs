@@ -5,12 +5,18 @@ namespace VisualAgentWorkflow.Hosting;
 internal static class RunStoreRecords
 {
     public static RunSnapshot Create(WorkflowRevision revision, string input)
+        => Create(revision, input, null);
+
+    public static RunSnapshot Create(WorkflowRevision revision, string input,
+        System.Collections.Immutable.ImmutableSortedDictionary<string, string>? parameters)
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(input);
         if (input.Length > 16_384) throw new ArgumentException("Run input exceeds 16,384 characters.", nameof(input));
-        return new(new(Guid.NewGuid(), revision.RevisionId, revision.ParentRevisionId, revision.Author,
-            revision.CreatedAt, revision.ContentHash, revision.Definition, input), []);
+        parameters ??= WorkflowParameters.Resolve(revision.Definition, null);
+        var header = new RunHeader(Guid.NewGuid(), revision.RevisionId, revision.ParentRevisionId, revision.Author,
+            revision.CreatedAt, revision.ContentHash, revision.Definition, input) { Parameters = parameters };
+        return new(header, []);
     }
 
     public static RunSnapshot Apply(RunSnapshot snapshot, long expectedSequence, IReadOnlyList<ExecutionEvent> events)
@@ -39,6 +45,10 @@ internal static class RunStoreRecords
             WorkflowJson.ComputeHash(snapshot.Header.Definition) != snapshot.Header.ContentHash)
             throw new InvalidDataException("Run header identity/content mismatch.");
         WorkflowValidator.ThrowIfInvalid(snapshot.Header.Definition);
+        var resolvedParameters = WorkflowParameters.Resolve(snapshot.Header.Definition, snapshot.Header.Parameters);
+        if (resolvedParameters is null != (snapshot.Header.Parameters is null) ||
+            resolvedParameters is not null && !resolvedParameters.SequenceEqual(snapshot.Header.Parameters!))
+            throw new InvalidDataException("Run parameters do not match the pinned workflow parameter schema.");
         var terminal = false;
         long sequence = 0;
         foreach (var evt in snapshot.Events)

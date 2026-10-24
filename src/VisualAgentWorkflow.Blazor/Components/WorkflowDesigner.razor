@@ -113,6 +113,13 @@
             <div class="vaw-version-run">
             <h3>Run a published version</h3>
             <label>Published run input <textarea @bind="runInput" maxlength="16384" rows="2"></textarea></label>
+            @foreach (var (parameterId, parameter) in SelectedRunParameters)
+            {
+                <label @key="parameterId">@parameter.DisplayName · @parameterId
+                    <textarea value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)" maxlength="16384" rows="2"></textarea>
+                </label>
+            }
+            @if (SelectedRunParameters.Count > 0) { <p class="vaw-help">These per-run string values override the workflow defaults and are included in the run audit record. Do not enter secrets.</p> }
             @if (Client is IPublishedWorkflowRunControl)
             { <label class="vaw-run-option"><input type="checkbox" @bind="startPublishedPaused" />Start published run paused</label> }
             <button type="button" class="vaw-primary" @onclick="RunPublished" disabled="@(busy || selectedRevisionId is null)">Run selected version</button>

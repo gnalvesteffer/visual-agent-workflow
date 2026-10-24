@@ -48,6 +48,7 @@ public partial class WorkflowDesigner
     private string? message;
     private string jsonText = "";
     private string runInput = "Hello, workflows!";
+    private readonly Dictionary<string, string> runParameters = new(StringComparer.Ordinal);
     private bool startPublishedPaused;
     private WorkflowDefinition? downloadedDefinition;
     private string downloadHref = "";
@@ -103,7 +104,7 @@ public partial class WorkflowDesigner
         definition = null; layout = null; previewLayout = null; layoutHash = null; definitionHash = null; savedHash = null;
         workflows = []; versions = []; audit = []; bindings = []; providers = [];
         preview = null; selectedRevisionId = null; activeRevisionId = null;
-        undo.Clear(); redo.Clear(); jsonText = ""; runInput = "Hello, workflows!"; startPublishedPaused = false; busy = false;
+        undo.Clear(); redo.Clear(); jsonText = ""; runInput = "Hello, workflows!"; runParameters.Clear(); startPublishedPaused = false; busy = false;
         loadedTools = null; loadedAgents = null; ResetReuse();
         await Perform(async current =>
         {
@@ -288,9 +289,23 @@ public partial class WorkflowDesigner
 
     private Task RunPublished() => Perform(async current =>
     {
-        var request = startPublishedPaused && current.Client is IPublishedWorkflowRunControl controls
-            ? controls.StartPublishedPausedRunAsync(selectedRevisionId!.Value, runInput)
-            : current.Client.StartPublishedRunAsync(selectedRevisionId!.Value, runInput);
+        var parameterOverrides = SelectedRunParameters.Count == 0 ? null : SelectedRunParameters.Keys
+            .ToDictionary(id => id, id => RunParameterValue(id, SelectedRunParameters[id]), StringComparer.Ordinal);
+        Task<RunSnapshot> request;
+        if (parameterOverrides is not null)
+        {
+            if (current.Client is not IParameterizedPublishedWorkflowClient parameterized)
+                throw new InvalidOperationException("The configured run client does not support workflow parameters.");
+            request = startPublishedPaused
+                ? parameterized.StartPublishedPausedWithParametersAsync(selectedRevisionId!.Value, runInput, parameterOverrides)
+                : parameterized.StartPublishedRunWithParametersAsync(selectedRevisionId!.Value, runInput, parameterOverrides);
+        }
+        else
+        {
+            request = startPublishedPaused && current.Client is IPublishedWorkflowRunControl controls
+                ? controls.StartPublishedPausedRunAsync(selectedRevisionId!.Value, runInput)
+                : current.Client.StartPublishedRunAsync(selectedRevisionId!.Value, runInput);
+        }
         var run = await request.WaitAsync(current.Token);
         if (!Current(current)) return;
         await OnRunStarted.InvokeAsync(run);
@@ -298,6 +313,17 @@ public partial class WorkflowDesigner
             ? "Published run created paused. Resume it from the run controls."
             : "Published run started independently of the editor.";
     });
+
+    private System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition> SelectedRunParameters =>
+        selectedRevisionId is { } revisionId
+            ? versions.FirstOrDefault(version => version.Revision.RevisionId == revisionId)?.Revision.Definition.Parameters ??
+                System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+            : System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
+
+    private string RunParameterValue(string id, WorkflowParameterDefinition parameter) =>
+        runParameters.TryGetValue(id, out var value) ? value : parameter.DefaultValue;
+
+    private void SetRunParameter(string id, ChangeEventArgs args) => runParameters[id] = args.Value?.ToString() ?? "";
 
     private void Export() { jsonText = WorkflowJson.Serialize(preview?.Revision.Definition ?? definition!); }
     private void ExportLayout() => jsonText = WorkflowLayoutJson.Serialize(

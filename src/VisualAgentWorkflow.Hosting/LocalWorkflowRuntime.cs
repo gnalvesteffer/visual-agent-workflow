@@ -9,14 +9,15 @@ namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>Bounded, process-owned execution. Paused continuations release the shared execution slot.</summary>
 public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<LocalWorkflowRuntime> logger, INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null)
-    : BackgroundService, IWorkflowClient, IWorkflowRunControl, IWorkflowApprovalClient
+    : BackgroundService, IWorkflowClient, IParameterizedWorkflowClient, IWorkflowRunControl, IWorkflowApprovalClient
 {
     // Preserve the original constructor for existing source and binary consumers.
     public LocalWorkflowRuntime(FileRunJournal journal, ILogger<LocalWorkflowRuntime> logger, INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null)
         : this((IWorkflowRunStore)journal, logger, tools, agents) { }
 
     private const int MaximumOwnedRuns = 32;
-    private sealed record Request(Guid RunId, WorkflowRevision Revision, string Input, ControlledRun Control);
+    private sealed record Request(Guid RunId, WorkflowRevision Revision, string Input,
+        System.Collections.Immutable.ImmutableSortedDictionary<string, string>? Parameters, ControlledRun Control);
     private readonly Channel<Request> queue = Channel.CreateBounded<Request>(MaximumOwnedRuns);
     private readonly ConcurrentDictionary<Guid, ControlledRun> ownedRuns = new();
     private readonly SemaphoreSlim executionSlot = new(1, 1);
@@ -60,28 +61,51 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
     }
 
     public Task<RunSnapshot> StartRunAsync(WorkflowDefinition definition, string input) =>
-        StartRevisionAsync(WorkflowRevision.Create(definition, "local-developer"), input);
+        StartRevisionWithParametersAsync(WorkflowRevision.Create(definition, "local-developer"), input, null);
+
+    public Task<RunSnapshot> StartRunWithParametersAsync(WorkflowDefinition definition, string input,
+        IReadOnlyDictionary<string, string>? parameters) =>
+        StartRevisionWithParametersAsync(WorkflowRevision.Create(definition, "local-developer"), input, parameters);
 
     public Task<RunSnapshot> StartPausedRunAsync(WorkflowDefinition definition, string input) =>
-        StartRevisionPausedAsync(WorkflowRevision.Create(definition, "local-developer"), input);
+        StartRevisionWithParametersAsync(WorkflowRevision.Create(definition, "local-developer"), input, null, startPaused: true);
 
-    public Task<RunSnapshot> StartRevisionAsync(WorkflowRevision revision, string input) => StartRevision(revision, input, false);
-    public Task<RunSnapshot> StartRevisionPausedAsync(WorkflowRevision revision, string input) => StartRevision(revision, input, true);
+    public Task<RunSnapshot> StartPausedRunWithParametersAsync(WorkflowDefinition definition, string input,
+        IReadOnlyDictionary<string, string>? parameters) =>
+        StartRevisionWithParametersAsync(WorkflowRevision.Create(definition, "local-developer"), input, parameters, startPaused: true);
 
-    private Task<RunSnapshot> StartRevision(WorkflowRevision revision, string input, bool startPaused)
+    public Task<RunSnapshot> StartRevisionAsync(WorkflowRevision revision, string input) =>
+        StartRevisionWithParametersAsync(revision, input, null);
+    public Task<RunSnapshot> StartRevisionPausedAsync(WorkflowRevision revision, string input) =>
+        StartRevisionWithParametersAsync(revision, input, null, startPaused: true);
+
+    public Task<RunSnapshot> StartRevisionWithParametersAsync(WorkflowRevision revision, string input,
+        IReadOnlyDictionary<string, string>? parameters, bool startPaused = false)
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+        var resolved = WorkflowParameters.Resolve(revision.Definition, parameters);
+        if (resolved is not null && journal is not IParameterizedWorkflowRunStore)
+            throw new NotSupportedException("The configured run store cannot persist workflow parameter evidence.");
+        return StartRevision(revision, input, resolved, startPaused);
+    }
+
+    private Task<RunSnapshot> StartRevision(WorkflowRevision revision, string input,
+        System.Collections.Immutable.ImmutableSortedDictionary<string, string>? parameters, bool startPaused)
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(input);
         if (input.Length > 16_384) throw new ArgumentException("Input exceeds 16,384 characters.", nameof(input));
         lock (admission)
         {
-            var snapshot = journal.Create(revision, input);
+            var snapshot = parameters is null
+                ? journal.Create(revision, input)
+                : ((IParameterizedWorkflowRunStore)journal).Create(revision, input, parameters);
             if (accepting && ownedRuns.Count < MaximumOwnedRuns)
             {
                 var control = new ControlledRun(journal, snapshot.Header, executionSlot);
                 if (startPaused) control.RequestPause();
                 ownedRuns[snapshot.Header.RunId] = control;
-                if (queue.Writer.TryWrite(new(snapshot.Header.RunId, revision, input, control)))
+                if (queue.Writer.TryWrite(new(snapshot.Header.RunId, revision, input, parameters, control)))
                     return Task.FromResult(journal.Get(snapshot.Header.RunId)!);
                 ownedRuns.TryRemove(snapshot.Header.RunId, out _);
                 control.Dispose();
@@ -199,8 +223,8 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, request.Control.Cancellation.Token);
         try
         {
-            await new PipelineRunner(tools, agents).ExecuteControlledAsync(request.RunId, request.Revision, request.Input,
-                request.Control.RecordAsync, request.Control, linked.Token);
+            await new PipelineRunner(tools, agents).ExecuteControlledWithParametersAsync(request.RunId, request.Revision, request.Input,
+                request.Parameters, request.Control.RecordAsync, request.Control, linked.Token);
         }
         catch (OperationCanceledException) when (linked.IsCancellationRequested) { }
         catch (Exception error)

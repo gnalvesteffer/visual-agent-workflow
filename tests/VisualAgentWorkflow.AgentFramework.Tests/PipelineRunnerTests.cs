@@ -41,6 +41,40 @@ public class PipelineRunnerTests
     }
 
     [Fact]
+    public async Task WorkflowValueNodePassesDefaultOrRunOverrideAsRecordedGraphData()
+    {
+        var definition = new WorkflowDefinition("1.6", "parameter-runtime", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["parameter"] = new(NodeTypes.WorkflowValue, "1.0.0") { ParameterId = "message" },
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["a"] = new(new("input", "out"), new("parameter", "in"), "data"),
+                ["b"] = new(new("parameter", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary())
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty.Add("message", new("Message", "default"))
+        };
+        var revision = WorkflowRevision.Create(definition, "test");
+        var events = new List<ExecutionEvent>();
+
+        var defaultOutput = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), revision, "ignored",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+        Assert.Equal("default", defaultOutput);
+        events.Clear();
+
+        var output = await new PipelineRunner().ExecuteWithParametersAsync(Guid.NewGuid(), revision, "ignored",
+            new Dictionary<string, string> { ["message"] = "override" }, evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("override", output);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "parameter" && evt.Data == "override");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Transfer && evt.ConnectionId == "b" && evt.Data == "override");
+    }
+
+    [Fact]
     public async Task ExpandedPublishedPipelineExecutesWithoutSourceCatalogOrRuntimePrefabLookup()
     {
         var source = Revision();

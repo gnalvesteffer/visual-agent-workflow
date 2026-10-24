@@ -21,6 +21,7 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Embedding](embedding.md) | Public Razor components, host services, lifecycle, and theming |
 | [Pause and resume](run-control.md) | Cooperative boundaries, controls, audit, process ownership and restart limitations |
 | [Workflow API](workflow-api.md) | Local development API and concurrency contracts |
+| [Workflow parameters](workflow-parameters.md) | Schema 1.6 string parameters, run overrides, persisted evidence, and current limits |
 | [Reusable pipelines](reusable-pipelines.md) | Version-pinned expansion, provenance, package validation, and limitations |
 | [Graph editor](graph-editor.md) | Canvas controls, layout schema, versioning, and research references |
 | [Model providers](model-providers.md) | Opt-in host configuration, official SDK adapter, bounded evidence and live qualification limits |

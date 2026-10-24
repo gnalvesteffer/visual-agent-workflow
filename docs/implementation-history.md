@@ -2,6 +2,10 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## schema-1.6 workflow parameters
+
+Workflow definitions can carry up to 64 non-secret string parameters with stable IDs, display names and defaults. The Studio can manage them, add explicit workflow-value getter nodes, and supply per-run overrides for a published revision. Existing run client/store contracts remain supported through optional parameter capabilities; built-in file/SQLite headers capture the fully resolved map for playback. Reusable pipeline expansion copies used parameter definitions and remaps conflicts. Core, Agent Framework and Hosting tests cover validation, legacy JSON omission, defaults, overrides, execution, persistence and replay; a headless browser smoke test covered author, save, publish, run and playback. Types, required parameters, exposed agent configuration pins and mutable variables remain future work. Current controls and boundaries are in [workflow parameters](workflow-parameters.md).
+
 ## Provider management and Studio theme refinement
 
 The Settings page now lists, creates, edits as a new immutable version, and deletes locally saved OpenAI-compatible provider configurations. Credentials remain protected in local Studio storage, descriptors remain secret-free, and executor registrations update immediately. The settings and standalone Studio shell use a more restrained graphite and steel-blue theme with improved hierarchy and responsive forms. Host configuration remains available for consumer services. The Studio remains a loopback-only unauthenticated prototype; multi-user credential management and workflow-reference checks before deletion are not implemented. See [provider configuration](model-providers.md) and [design system](design-system.md).

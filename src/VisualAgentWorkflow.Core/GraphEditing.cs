@@ -18,7 +18,7 @@ public static class GraphEditing
             .Add(NewId("link"), Link(branch, "true", whenTrue)).Add(NewId("link"), Link(branch, "false", whenFalse))
             .Add(NewId("link"), Link(whenTrue, "out", merge)).Add(NewId("link"), Link(whenFalse, "out", merge))
             .Add(NewId("link"), new(new(merge, "out"), edge.Value.Target, "data"));
-        return Checked(definition with { SchemaVersion = definition.SchemaVersion == "1.5" ? "1.5" : "1.4", Nodes = nodes, Connections = connections });
+        return Checked(definition with { SchemaVersion = definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : "1.4", Nodes = nodes, Connections = connections });
     }
 
     public static WorkflowDefinition InsertNodeAfter(WorkflowDefinition definition, string sourceId, string portId, NodeDefinition node)
@@ -71,7 +71,7 @@ public static class GraphEditing
         var id = NewId("approval");
         return Checked(definition with
         {
-            SchemaVersion = "1.5",
+            SchemaVersion = definition.SchemaVersion == "1.6" ? "1.6" : "1.5",
             Nodes = definition.Nodes.Add(id, new(NodeTypes.Approval, "1.0.0") { Approval = new("Review the exact MCP call before allowing it.") }),
             Connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(id, "in"), "data"))
                 .Add(NewId("link"), Link(id, "out", targetId))
@@ -103,7 +103,7 @@ public static class GraphEditing
             ? edge : throw new ArgumentException("Choose a connected output port.");
     private static void RequireProcessing(string type)
     {
-        if (type is not (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent))
+        if (type is not (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.WorkflowValue))
             throw new ArgumentException("Only processing nodes can be inserted, replaced or removed here.");
     }
 }

@@ -13,6 +13,12 @@ public interface IWorkflowRunStore
     RunSnapshot Append(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events);
 }
 
+/// <summary>Optional persistence capability for immutable per-run workflow parameter evidence.</summary>
+public interface IParameterizedWorkflowRunStore : IWorkflowRunStore
+{
+    RunSnapshot Create(WorkflowRevision revision, string input, System.Collections.Immutable.ImmutableSortedDictionary<string, string>? parameters);
+}
+
 /// <summary>The store changed after the caller's snapshot. Never blindly retry external operations.</summary>
 public sealed class WorkflowRunStoreConflictException() : InvalidOperationException("The run store sequence has changed.");
 

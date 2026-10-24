@@ -66,18 +66,28 @@ internal static class WorkflowEndpoints
             var draft = await catalog.GetDraftAsync(workflowId) ?? throw new KeyNotFoundException("Workflow not found.");
             if (draft.ActiveRevisionId is not { } revisionId) return Results.Conflict(new { error = "No published revision is active." });
             if (request.StartPaused && client is not IPublishedWorkflowRunControl) return Results.BadRequest();
-            var run = request.StartPaused
-                ? await ((IPublishedWorkflowRunControl)client).StartPublishedPausedRunAsync(revisionId, request.Input)
-                : await client.StartPublishedRunAsync(revisionId, request.Input);
+            if (request.Parameters is not null && client is not IParameterizedPublishedWorkflowClient) return Results.BadRequest();
+            var run = request.Parameters is { } parameters
+                ? request.StartPaused
+                    ? await ((IParameterizedPublishedWorkflowClient)client).StartPublishedPausedWithParametersAsync(revisionId, request.Input, parameters)
+                    : await ((IParameterizedPublishedWorkflowClient)client).StartPublishedRunWithParametersAsync(revisionId, request.Input, parameters)
+                : request.StartPaused
+                    ? await ((IPublishedWorkflowRunControl)client).StartPublishedPausedRunAsync(revisionId, request.Input)
+                    : await client.StartPublishedRunAsync(revisionId, request.Input);
             return Results.Accepted($"/api/runs/{run.Header.RunId}", run);
         });
         group.MapPost("/revisions/{revisionId:guid}/runs", async (Guid revisionId, PublishedRunRequest request, IPublishedWorkflowClient client) =>
         {
             if (request.Input is null) return Results.BadRequest();
             if (request.StartPaused && client is not IPublishedWorkflowRunControl) return Results.BadRequest();
-            var run = request.StartPaused
-                ? await ((IPublishedWorkflowRunControl)client).StartPublishedPausedRunAsync(revisionId, request.Input)
-                : await client.StartPublishedRunAsync(revisionId, request.Input);
+            if (request.Parameters is not null && client is not IParameterizedPublishedWorkflowClient) return Results.BadRequest();
+            var run = request.Parameters is { } parameters
+                ? request.StartPaused
+                    ? await ((IParameterizedPublishedWorkflowClient)client).StartPublishedPausedWithParametersAsync(revisionId, request.Input, parameters)
+                    : await ((IParameterizedPublishedWorkflowClient)client).StartPublishedRunWithParametersAsync(revisionId, request.Input, parameters)
+                : request.StartPaused
+                    ? await ((IPublishedWorkflowRunControl)client).StartPublishedPausedRunAsync(revisionId, request.Input)
+                    : await client.StartPublishedRunAsync(revisionId, request.Input);
             return Results.Accepted($"/api/runs/{run.Header.RunId}", run);
         });
     }
@@ -101,5 +111,8 @@ internal static class WorkflowEndpoints
     private sealed record SaveDraftRequest(JsonElement Definition, long ExpectedGeneration);
     private sealed record GenerationRequest(long ExpectedGeneration);
     private sealed record RevisionChangeRequest(Guid RevisionId, long ExpectedGeneration);
-    private sealed record PublishedRunRequest(string? Input, bool StartPaused = false);
+    private sealed record PublishedRunRequest(string? Input, bool StartPaused = false)
+    {
+        public Dictionary<string, string>? Parameters { get; init; }
+    }
 }

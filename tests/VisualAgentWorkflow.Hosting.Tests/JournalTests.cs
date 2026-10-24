@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Components;
@@ -97,6 +98,44 @@ public sealed class JournalTests : IDisposable
             await runtime.StopAsync(CancellationToken.None);
             var recorded = new FileRunJournal(directory).Get(run.Header.RunId)!;
             Assert.Equal(result.Events.ToArray(), recorded.Events.ToArray());
+        }
+        finally { await runtime.StopAsync(CancellationToken.None); }
+    }
+
+    [Fact]
+    public async Task ParameterOverridesAreExecutedAndPersistedWithTheRun()
+    {
+        var definition = new WorkflowDefinition("1.6", "parameter-service", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["value"] = new(NodeTypes.WorkflowValue, "1.0.0") { ParameterId = "answer" },
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["a"] = new(new("input", "out"), new("value", "in"), "data"),
+                ["b"] = new(new("value", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary())
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty.Add("answer", new("Answer", "default"))
+        };
+        using var runtime = new LocalWorkflowRuntime(new FileRunJournal(directory), NullLogger<LocalWorkflowRuntime>.Instance);
+        await runtime.StartAsync(CancellationToken.None);
+        try
+        {
+            var queued = await runtime.StartRunWithParametersAsync(definition, "ignored", new Dictionary<string, string> { ["answer"] = "override" });
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            RunSnapshot result;
+            do
+            {
+                await Task.Delay(10, timeout.Token);
+                result = (await runtime.GetRunAsync(queued.Header.RunId))!;
+            } while (!result.IsTerminal);
+
+            Assert.Equal("override", result.Events[^1].Data);
+            Assert.Equal("override", result.Header.Parameters!["answer"]);
+            Assert.Equal("override", new FileRunJournal(directory).Get(queued.Header.RunId)!.Header.Parameters!["answer"]);
         }
         finally { await runtime.StopAsync(CancellationToken.None); }
     }

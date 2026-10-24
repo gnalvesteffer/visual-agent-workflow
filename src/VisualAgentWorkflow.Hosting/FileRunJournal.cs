@@ -5,7 +5,7 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>Single-owner local development store. Atomic snapshot replacement, not a multi-worker production store.</summary>
-public sealed class FileRunJournal : IWorkflowRunStore, ILocalRuntimeOwnershipStore
+public sealed class FileRunJournal : IParameterizedWorkflowRunStore, ILocalRuntimeOwnershipStore
 {
     private readonly string directory;
     private readonly object gate = new();
@@ -20,8 +20,11 @@ public sealed class FileRunJournal : IWorkflowRunStore, ILocalRuntimeOwnershipSt
     public IDisposable AcquireRuntimeOwnership() => LocalRuntimeOwnership.Acquire(Path.Combine(directory, "runtime.owner"));
 
     public RunSnapshot Create(WorkflowRevision revision, string input)
+        => Create(revision, input, null);
+
+    public RunSnapshot Create(WorkflowRevision revision, string input, ImmutableSortedDictionary<string, string>? parameters)
     {
-        var snapshot = RunStoreRecords.Create(revision, input);
+        var snapshot = RunStoreRecords.Create(revision, input, parameters);
         lock (gate) Publish(snapshot, overwrite: false);
         return snapshot;
     }

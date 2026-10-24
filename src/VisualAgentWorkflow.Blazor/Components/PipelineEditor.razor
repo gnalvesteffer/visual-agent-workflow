@@ -1,4 +1,26 @@
 <section class="vaw-pipeline-editor" aria-label="Visual pipeline editor">
+    @if (!ReadOnly)
+    {
+        <details class="vaw-parameter-editor">
+            <summary>Workflow parameters <span class="vaw-help">@ParameterDefinitions.Count configurable values</span></summary>
+            <p class="vaw-help">Define non-secret string inputs with portable defaults. Add a Workflow value node to pass a parameter through your graph.</p>
+            @foreach (var (parameterId, parameter) in ParameterDefinitions)
+            {
+                <fieldset @key="parameterId" disabled="@Disabled">
+                    <legend>@parameter.DisplayName · @parameterId</legend>
+                    <label>Display name <input value="@parameter.DisplayName" maxlength="128" @onchange="args => UpdateParameter(parameterId, args, true)" /></label>
+                    <label>Default value <textarea value="@parameter.DefaultValue" maxlength="16384" rows="2" @onchange="args => UpdateParameter(parameterId, args, false)"></textarea></label>
+                    <button type="button" @onclick="() => Edit(() => WorkflowParameterEditing.Remove(Definition, parameterId))" disabled="@(Disabled || Definition.Nodes.Values.Any(node => node.Type == NodeTypes.WorkflowValue && node.ParameterId == parameterId))">Remove parameter</button>
+                </fieldset>
+            }
+            <div class="vaw-controls">
+                <label>Parameter ID <input @bind="newParameterId" maxlength="64" placeholder="model-name" disabled="@Disabled" /></label>
+                <label>Display name <input @bind="newParameterName" maxlength="128" placeholder="Model name" disabled="@Disabled" /></label>
+                <label>Default value <input @bind="newParameterDefault" maxlength="16384" placeholder="qwen3.8-9b" disabled="@Disabled" /></label>
+                <button type="button" @onclick="AddParameter" disabled="@Disabled">Add parameter</button>
+            </div>
+        </details>
+    }
     <WorkflowGraphCanvas @ref="canvas" @key="Definition.WorkflowId" Definition="Definition" Layout="EffectiveLayout" LayoutChanged="LayoutEdited" ReadOnly="@(ReadOnly || LayoutReadOnly)" Disabled="Disabled" SelectedNodeId="@selectedNode" SelectedNodeIdChanged="SelectNode" ConnectionSelected="ConnectionSelected" ShowNodeLibrary="@(!ReadOnly)" EnableContextMenu="@(!ReadOnly && !Disabled)" NodeCreateRequested="request => AddLibraryNode(request.Key, request.Context)" DeleteNodeRequested="id => RemoveSelected(id)">
     <ToolbarContent>@EditorActions</ToolbarContent>
     <NodeLibrary>
@@ -62,6 +84,20 @@
                             <input aria-label="Condition operand for @id" value="@node.Condition!.Operand" @onchange="args => ConditionOperand(id, args)" maxlength="1024" disabled="@(Disabled || node.Condition.Operator == "is-empty")" />
                         </label>
                         <p class="vaw-help">Ordinal, case-sensitive text comparison. Exactly one output passes the unchanged text.</p>
+                    }
+                    else if (node.Type == NodeTypes.WorkflowValue)
+                    {
+                        var parameterChoices = ParameterDefinitions;
+                        @if (!ReadOnly && parameterChoices.Count > 0)
+                        {
+                            <label>Workflow parameter
+                                <select aria-label="Workflow parameter for @id" value="@node.ParameterId" @onchange="args => BindParameter(id, args)" disabled="@Disabled">
+                                    @foreach (var (parameterId, parameter) in parameterChoices) { <option value="@parameterId">@parameter.DisplayName · @parameterId</option> }
+                                </select>
+                            </label>
+                        }
+                        else if (node.ParameterId is { } parameterId && parameterChoices.TryGetValue(parameterId, out var parameter))
+                        { <p>@parameter.DisplayName · @parameterId</p><p class="vaw-help">Passes this value onward, replacing the incoming string.</p> }
                     }
                     else if (terminal || ReadOnly)
                     {
@@ -186,6 +222,11 @@
     [Parameter] public IReadOnlyList<ToolBindingDescriptor> Bindings { get; set; } = [];
     [Parameter] public IReadOnlyList<AgentProviderDescriptor> Providers { get; set; } = [];
     private string newType = NodeTypes.Uppercase;
+    private string newParameterId = "";
+    private string newParameterName = "";
+    private string newParameterDefault = "";
+    private System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition> ParameterDefinitions =>
+        Definition.Parameters ?? System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
     private string? error;
     private string? selectedNode;
     private string selectedPort = "out";
@@ -196,6 +237,8 @@
         NodeTypes.Output => "Workflow result",
         NodeTypes.Uppercase => "Convert text to uppercase",
         NodeTypes.Reverse => "Reverse text",
+        NodeTypes.WorkflowValue => node.ParameterId is { } parameterId && ParameterDefinitions.TryGetValue(parameterId, out var parameter)
+            ? $"Workflow value · {parameter.DisplayName}" : "Workflow value",
         NodeTypes.Condition => $"{node.Condition!.Operator} · {node.Condition.Operand}",
         NodeTypes.Merge => "Continue the selected path",
         NodeTypes.Approval => "Review before the next tool call",
@@ -235,6 +278,23 @@
     private Task ConditionOperand(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
         Definition.Nodes[id] with { Condition = Definition.Nodes[id].Condition! with { Operand = args.Value?.ToString() ?? "" } }));
 
+    private async Task AddParameter()
+    {
+        var id = newParameterId.Trim();
+        await Edit(() => WorkflowParameterEditing.Add(Definition, id,
+            string.IsNullOrWhiteSpace(newParameterName) ? id : newParameterName.Trim(), newParameterDefault));
+        if (error is null) { newParameterId = ""; newParameterName = ""; newParameterDefault = ""; }
+    }
+    private Task UpdateParameter(string id, ChangeEventArgs args, bool displayName)
+    {
+        var existing = ParameterDefinitions[id];
+        var name = displayName ? args.Value?.ToString() ?? "" : existing.DisplayName;
+        var value = displayName ? existing.DefaultValue : args.Value?.ToString() ?? "";
+        return Edit(() => WorkflowParameterEditing.Update(Definition, id, name, value));
+    }
+    private Task BindParameter(string id, ChangeEventArgs args) => Edit(() => WorkflowParameterEditing.BindNode(
+        Definition, id, args.Value?.ToString() ?? ""));
+
     private Task ChangeType(string id, ChangeEventArgs args) =>
         Edit(() => ReplaceProcessing(id, FromSelection(args.Value?.ToString() ?? "", Definition.Nodes[id])));
 
@@ -244,6 +304,8 @@
         node.Tool is { } tool ? $"mcp:{tool.BindingId}:{tool.ContractHash}" : node.Type;
     private NodeDefinition FromSelection(string value, NodeDefinition? existing = null)
     {
+        if (value == NodeTypes.WorkflowValue)
+            return new(NodeTypes.WorkflowValue, "1.0.0") { ParameterId = ParameterDefinitions.Keys.FirstOrDefault() };
         var provider = Providers.SingleOrDefault(p => ProviderKey(p) == value);
         if (provider is not null) return new(NodeTypes.Agent, "1.0.0", Agent: new(provider.ProviderId, provider.Version,
             existing?.Agent?.Instructions ?? "Use assigned tools when available and return the result.", existing?.Agent?.Tools ?? []));
@@ -286,6 +348,6 @@
                 if (LayoutChanged.HasDelegate) await LayoutChanged.InvokeAsync(nextLayout);
             }
         }
-        catch (ArgumentException) { error = "The graph edit is invalid. Check port connections, node configuration and graph limits."; }
+        catch (ArgumentException exception) { error = $"The graph edit is invalid: {exception.Message}"; }
     }
 }

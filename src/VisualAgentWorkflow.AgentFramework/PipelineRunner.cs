@@ -9,16 +9,30 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
 {
     public Task<string> ExecuteAsync(Guid runId, WorkflowRevision revision, string input,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default) =>
-        ExecuteCoreAsync(runId, revision, input, record, null, cancellationToken);
+        ExecuteCoreAsync(runId, revision, input, null, record, null, cancellationToken);
+
+    public Task<string> ExecuteWithParametersAsync(Guid runId, WorkflowRevision revision, string input,
+        IReadOnlyDictionary<string, string>? parameters, Func<ExecutionEvent, ValueTask> record,
+        CancellationToken cancellationToken = default) =>
+        ExecuteCoreAsync(runId, revision, input, parameters, record, null, cancellationToken);
 
     public Task<string> ExecuteControlledAsync(Guid runId, WorkflowRevision revision, string input,
         Func<ExecutionEvent, ValueTask> record, IWorkflowExecutionGate gate, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(gate);
-        return ExecuteCoreAsync(runId, revision, input, record, gate, cancellationToken);
+        return ExecuteCoreAsync(runId, revision, input, null, record, gate, cancellationToken);
+    }
+
+    public Task<string> ExecuteControlledWithParametersAsync(Guid runId, WorkflowRevision revision, string input,
+        IReadOnlyDictionary<string, string>? parameters, Func<ExecutionEvent, ValueTask> record,
+        IWorkflowExecutionGate gate, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(gate);
+        return ExecuteCoreAsync(runId, revision, input, parameters, record, gate, cancellationToken);
     }
 
     private async Task<string> ExecuteCoreAsync(Guid runId, WorkflowRevision revision, string input,
+        IReadOnlyDictionary<string, string>? parameters,
         Func<ExecutionEvent, ValueTask> record, IWorkflowExecutionGate? gate, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(revision);
@@ -27,12 +41,13 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         if (runId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(runId));
         if (input.Length > 16_384) throw new ArgumentException("Input exceeds 16,384 characters.", nameof(input));
         WorkflowValidator.ThrowIfInvalid(revision.Definition);
+        var resolvedParameters = WorkflowParameters.Resolve(revision.Definition, parameters);
         long sequence = 0;
         ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null, string? data = null) =>
             record(new(runId, revision.RevisionId, Interlocked.Increment(ref sequence), DateTimeOffset.UtcNow,
                 kind, node, invocation, connection, data));
 
-        var workflow = BuildWorkflow(runId, revision, Emit, gate);
+        var workflow = BuildWorkflow(runId, revision, resolvedParameters, Emit, gate);
 
         await Emit(ExecutionEventKinds.Started);
         try
@@ -72,12 +87,13 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
     }
 
     private Workflow BuildWorkflow(Guid runId, WorkflowRevision revision,
+        IReadOnlyDictionary<string, string>? parameters,
         Func<string, string?, Guid?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate)
     {
         var definition = revision.Definition;
         var executors = definition.Nodes.ToDictionary(
             n => n.Key,
-            n => new StringExecutor(n.Key, n.Value, runId, revision, tools, agents, emit, gate));
+            n => new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, emit, gate));
         var builder = new WorkflowBuilder(executors[definition.EntryNodeId]);
         foreach (var edge in definition.Connections.Values)
             builder.AddEdge<GraphMessage>(executors[edge.Source.NodeId], executors[edge.Target.NodeId], message => message?.SourcePort == edge.Source.PortId);
@@ -93,6 +109,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         NodeDefinition node,
         Guid runId,
         WorkflowRevision revision,
+        IReadOnlyDictionary<string, string>? parameters,
         INodeToolBroker? tools,
         IAgentNodeExecutor? agents,
         Func<string, string?, Guid?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate) : Executor<GraphMessage, GraphMessage>(id)
@@ -116,6 +133,8 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 var result = node.Type switch
                 {
                     NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval => message,
+                    NodeTypes.WorkflowValue => parameters is null || !parameters.TryGetValue(node.ParameterId!, out var value)
+                        ? throw new InvalidOperationException("The workflow parameter was not resolved for this run.") : value,
                     NodeTypes.Uppercase => message.ToUpperInvariant(),
                     NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
                     NodeTypes.McpTool => await InvokeTool(message, invocation, cancellationToken),

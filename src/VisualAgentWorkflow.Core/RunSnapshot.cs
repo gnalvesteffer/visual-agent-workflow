@@ -1,9 +1,14 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 namespace VisualAgentWorkflow.Core;
 
 public sealed record RunHeader(Guid RunId, Guid RevisionId, Guid? ParentRevisionId, string Author,
-    DateTimeOffset CreatedAt, string ContentHash, WorkflowDefinition Definition, string Input);
+    DateTimeOffset CreatedAt, string ContentHash, WorkflowDefinition Definition, string Input)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableSortedDictionary<string, string>? Parameters { get; init; }
+}
 
 public sealed record RunSnapshot(RunHeader Header, ImmutableArray<ExecutionEvent> Events)
 {
@@ -43,4 +48,13 @@ public interface IWorkflowClient
     Task<RunSnapshot?> GetRunAsync(Guid runId);
     Task<IReadOnlyList<RunSnapshot>> ListRunsAsync();
     Task CancelRunAsync(Guid runId);
+}
+
+/// <summary>Optional run-parameter capability; separate to preserve existing host client implementations.</summary>
+public interface IParameterizedWorkflowClient
+{
+    Task<RunSnapshot> StartRunWithParametersAsync(WorkflowDefinition definition, string input,
+        IReadOnlyDictionary<string, string>? parameters);
+    Task<RunSnapshot> StartPausedRunWithParametersAsync(WorkflowDefinition definition, string input,
+        IReadOnlyDictionary<string, string>? parameters);
 }

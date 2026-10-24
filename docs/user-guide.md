@@ -1,6 +1,6 @@
 # Studio user guide
 
-The Studio creates and runs linear and conditional string-processing workflows. It supports deterministic transforms, host-approved MCP text tools, a deterministic demonstration agent, and opt-in host-configured external model providers. Free placement and wire routing organize the graph; they do not change execution semantics. Branches are authored through explicit conditional nodes.
+The Studio creates and runs linear and conditional string-processing workflows. It supports deterministic transforms, workflow-owned string parameters, host-approved MCP text tools, a deterministic demonstration agent, and opt-in host-configured external model providers. Free placement and wire routing organize the graph; they do not change execution semantics. Branches are authored through explicit conditional nodes.
 
 The default theme uses subtle graphite textures, gradient lighting and layered shadows on editor chrome, with plain node contents and payload surfaces. Embedded hosts can opt out through the [theme properties](design-system.md).
 
@@ -37,6 +37,14 @@ The **Configured providers** list is the settings page's read view. Select **Edi
 3. Right-click the canvas, a node, or a wire for **Graph actions**. You can also focus the canvas and press Space or Shift+F10, search for an action, and use arrow keys to navigate. Drag an output socket onto empty canvas to create a step on that exact path. Escape cancels the menu. Existing-node socket rewiring remains unsupported. Select a node to configure it in the properties panel. Change a processing node's operation using its dropdown. Use **Move up**, **Move down**, or **Remove** to change the connected execution sequence. Use **Undo edit** and **Redo edit** to recover local edits.
 4. For an agent, configure its instructions and requested tools. The demonstration provider explicitly does not interpret instructions. External providers appear only when enabled by the host. Their instructions, input and assigned tool results are sent to the configured model endpoint; credentials are never entered in the designer. See [model provider configuration](model-providers.md). Selecting a tool does not grant access; the backend checks policy when it runs.
 5. Select **Save draft** to persist definition and layout. Unsaved changes block switching workflows and publication until saved or discarded.
+
+### Define reusable workflow inputs
+
+1. Expand **Workflow parameters** above the graph. Add a parameter with a stable ID, display name, and default string value. IDs accept letters, digits, dashes, and underscores; values are limited to 16,384 characters.
+2. Add a **Workflow value** node from the **Inputs** section of the node library. Select which parameter it reads in the node properties. The node replaces its incoming string with that parameter and passes the selected value to the next node, so the data path stays visible in the graph.
+3. Save and publish the definition. The parameter schema and defaults travel with the workflow package. When running a published version, edit the displayed parameter values to override defaults for that run. The effective values are captured in the run header and shown in the playback inspector.
+
+Parameters are strings in this first slice; they do not create mutable graph variables or expose credentials. Run overrides never alter the published definition. Because the local run store records inputs and parameter values as audit evidence, do not enter secrets or sensitive information.
 
 The following diagram shows supported execution, not the spatial arrangement of cards. Uppercase and reverse are example deterministic steps.
 
