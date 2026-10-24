@@ -5,7 +5,7 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>Transactional local definition store. The development host supplies a placeholder actor.</summary>
-public sealed class SqliteWorkflowCatalog : IWorkflowCatalog
+public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog
 {
     private readonly string connectionString;
     private readonly string actor;
@@ -23,7 +23,7 @@ public sealed class SqliteWorkflowCatalog : IWorkflowCatalog
         using var connection = Open();
         using var transaction = connection.BeginTransaction(deferred: false);
         var schemaVersion = Convert.ToInt32(Scalar(connection, transaction, "PRAGMA user_version;"), CultureInfo.InvariantCulture);
-        if (schemaVersion is not (0 or 1)) throw new InvalidDataException("Unsupported workflow database schema.");
+        if (schemaVersion is not (0 or 1 or 2)) throw new InvalidDataException("Unsupported workflow database schema.");
         Execute(connection, transaction, """
             CREATE TABLE IF NOT EXISTS workflows (
                 workflow_id TEXT PRIMARY KEY, draft_json TEXT NOT NULL, generation INTEGER NOT NULL,
@@ -37,7 +37,11 @@ public sealed class SqliteWorkflowCatalog : IWorkflowCatalog
                 sequence INTEGER PRIMARY KEY AUTOINCREMENT, workflow_id TEXT NOT NULL REFERENCES workflows(workflow_id),
                 actor TEXT NOT NULL, timestamp TEXT NOT NULL, kind TEXT NOT NULL,
                 generation INTEGER NOT NULL, revision_id TEXT NULL, content_hash TEXT NOT NULL);
-            PRAGMA user_version = 1;
+            CREATE TABLE IF NOT EXISTS workflow_layouts (
+                workflow_id TEXT PRIMARY KEY REFERENCES workflows(workflow_id), layout_json TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS revision_layouts (
+                revision_id TEXT PRIMARY KEY REFERENCES revisions(revision_id), layout_json TEXT NOT NULL);
+            PRAGMA user_version = 2;
             """);
         transaction.Commit();
     }
@@ -58,22 +62,65 @@ public sealed class SqliteWorkflowCatalog : IWorkflowCatalog
         return Task.FromResult<IReadOnlyList<WorkflowDraft>>(drafts);
     }
 
-    public Task<WorkflowDraft> SaveDraftAsync(WorkflowDefinition definition, long expectedGeneration)
+    public Task<WorkflowDraft> SaveDraftAsync(WorkflowDefinition definition, long expectedGeneration) =>
+        Task.FromResult(SaveDesign(definition, null, expectedGeneration).Draft);
+
+    public Task<WorkflowDesign> SaveDesignAsync(WorkflowDefinition definition, WorkflowLayout layout, long expectedGeneration) =>
+        Task.FromResult(SaveDesign(definition, layout, expectedGeneration));
+
+    private WorkflowDesign SaveDesign(WorkflowDefinition definition, WorkflowLayout? layout, long expectedGeneration)
     {
         var json = WorkflowJson.Serialize(definition);
         using var connection = Open();
         using var transaction = connection.BeginTransaction(deferred: false);
         var previous = GetDraft(connection, transaction, definition.WorkflowId);
         CheckGeneration(definition.WorkflowId, expectedGeneration, previous?.Generation ?? 0);
+        // Legacy definition-only saves preserve surviving presentation identities.
+        var explicitLayout = layout is not null;
+        layout ??= previous is null ? WorkflowLayout.Create(definition) :
+            ReadLayout(connection, transaction, "workflow_layouts", "workflow_id", definition.WorkflowId, previous.Definition).Reconcile(definition);
+        var layoutJson = WorkflowLayoutJson.Serialize(layout, definition);
         var generation = checked(expectedGeneration + 1);
         Execute(connection, transaction, """
             INSERT INTO workflows(workflow_id,draft_json,generation) VALUES($id,$json,$generation)
             ON CONFLICT(workflow_id) DO UPDATE SET draft_json=$json,generation=$generation;
-            """, ("$id", definition.WorkflowId), ("$json", json), ("$generation", generation));
+            INSERT INTO workflow_layouts(workflow_id,layout_json) VALUES($id,$layout)
+            ON CONFLICT(workflow_id) DO UPDATE SET layout_json=$layout;
+            """, ("$id", definition.WorkflowId), ("$json", json), ("$layout", layoutJson), ("$generation", generation));
         Audit(connection, transaction, definition.WorkflowId, "draft.saved", generation, null, WorkflowJson.ComputeHash(definition));
+        if (explicitLayout) Audit(connection, transaction, definition.WorkflowId, "layout.saved", generation, null, WorkflowLayoutJson.ComputeHash(layout, definition));
         var draft = GetDraft(connection, transaction, definition.WorkflowId)!;
         transaction.Commit();
-        return Task.FromResult(draft);
+        return new(draft, layout);
+    }
+
+    public Task<WorkflowDesign?> GetDesignAsync(string workflowId)
+    {
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        var draft = GetDraft(connection, transaction, workflowId);
+        var result = draft is null ? null : new WorkflowDesign(draft,
+            ReadLayout(connection, transaction, "workflow_layouts", "workflow_id", workflowId, draft.Definition));
+        transaction.Commit();
+        return Task.FromResult(result);
+    }
+
+    public Task<WorkflowLayout?> GetRevisionLayoutAsync(Guid revisionId)
+    {
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        var revision = GetRevision(connection, transaction, revisionId);
+        var result = revision is null ? null : ReadLayout(connection, transaction, "revision_layouts", "revision_id", revisionId.ToString(), revision.Revision.Definition);
+        transaction.Commit();
+        return Task.FromResult(result);
+    }
+
+    private static WorkflowLayout ReadLayout(SqliteConnection connection, SqliteTransaction transaction, string table,
+        string key, string id, WorkflowDefinition definition)
+    {
+        // Table/key are private constants, never request data.
+        var json = Scalar(connection, transaction, $"SELECT layout_json FROM {table} WHERE {key}=$id;", ("$id", id)) as string;
+        return json is null ? WorkflowLayout.Create(definition) : WorkflowLayoutJson.Deserialize(json, definition);
     }
 
     /// <summary>Publishing creates an immutable version and explicitly activates it in one transaction.</summary>
@@ -92,6 +139,9 @@ public sealed class SqliteWorkflowCatalog : IWorkflowCatalog
             """, ("$revision", revision.RevisionId.ToString()), ("$id", workflowId), ("$version", version),
             ("$parent", revision.ParentRevisionId?.ToString()), ("$author", actor), ("$created", revision.CreatedAt.ToString("O")),
             ("$json", WorkflowJson.Serialize(revision.Definition)), ("$hash", revision.ContentHash));
+        var layout = ReadLayout(connection, transaction, "workflow_layouts", "workflow_id", workflowId, draft.Definition);
+        Execute(connection, transaction, "INSERT INTO revision_layouts(revision_id,layout_json) VALUES($id,$json);",
+            ("$id", revision.RevisionId.ToString()), ("$json", WorkflowLayoutJson.Serialize(layout, draft.Definition)));
         Audit(connection, transaction, workflowId, "revision.published-and-activated", checked(draft.Generation + 1), revision.RevisionId, revision.ContentHash);
         transaction.Commit();
         return Task.FromResult(new PublishedWorkflowRevision(version, revision));
@@ -130,6 +180,14 @@ public sealed class SqliteWorkflowCatalog : IWorkflowCatalog
             ? "UPDATE workflows SET draft_json=$value,generation=generation+1 WHERE workflow_id=$id;"
             : "UPDATE workflows SET active_revision=$value,generation=generation+1 WHERE workflow_id=$id;";
         Execute(connection, transaction, sql, ("$value", restore ? WorkflowJson.Serialize(revision.Definition) : revisionId.ToString()), ("$id", workflowId));
+        if (restore)
+        {
+            var layout = ReadLayout(connection, transaction, "revision_layouts", "revision_id", revisionId.ToString(), revision.Definition);
+            Execute(connection, transaction, """
+                INSERT INTO workflow_layouts(workflow_id,layout_json) VALUES($id,$json)
+                ON CONFLICT(workflow_id) DO UPDATE SET layout_json=$json;
+                """, ("$id", workflowId), ("$json", WorkflowLayoutJson.Serialize(layout, revision.Definition)));
+        }
         Audit(connection, transaction, workflowId, restore ? "draft.restored" : "revision.activated", checked(previous.Generation + 1), revisionId, revision.ContentHash);
         var result = GetDraft(connection, transaction, workflowId)!;
         transaction.Commit();

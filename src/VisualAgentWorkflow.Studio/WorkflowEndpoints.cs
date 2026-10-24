@@ -18,6 +18,21 @@ internal static class WorkflowEndpoints
             if (!string.Equals(definition.WorkflowId, workflowId, StringComparison.Ordinal)) return Results.BadRequest();
             return Results.Ok(await catalog.SaveDraftAsync(definition, request.ExpectedGeneration));
         });
+        group.MapGet("/workflows/{workflowId}/design", async (string workflowId, IWorkflowCatalog catalog) =>
+            catalog is IWorkflowDesignCatalog designs && await designs.GetDesignAsync(workflowId) is { } design
+                ? Results.Ok(design) : Results.NotFound());
+        group.MapPut("/workflows/{workflowId}/design", async (string workflowId, SaveDesignRequest request, IWorkflowCatalog catalog) =>
+        {
+            if (catalog is not IWorkflowDesignCatalog designs || request.Definition.ValueKind != JsonValueKind.Object ||
+                request.Layout.ValueKind != JsonValueKind.Object) return Results.BadRequest();
+            var definition = WorkflowJson.Deserialize(request.Definition.GetRawText());
+            if (definition.WorkflowId != workflowId) return Results.BadRequest();
+            var layout = WorkflowLayoutJson.Deserialize(request.Layout.GetRawText(), definition);
+            return Results.Ok(await designs.SaveDesignAsync(definition, layout, request.ExpectedGeneration));
+        });
+        group.MapGet("/revisions/{revisionId:guid}/layout", async (Guid revisionId, IWorkflowCatalog catalog) =>
+            catalog is IWorkflowDesignCatalog designs && await designs.GetRevisionLayoutAsync(revisionId) is { } layout
+                ? Results.Ok(layout) : Results.NotFound());
         group.MapPost("/workflows/{workflowId}/publish", async (string workflowId, GenerationRequest request, IWorkflowCatalog catalog) =>
             Results.Ok(await catalog.PublishAsync(workflowId, request.ExpectedGeneration)));
         group.MapGet("/workflows/{workflowId}/revisions", async (string workflowId, IWorkflowCatalog catalog) =>
@@ -61,6 +76,7 @@ internal static class WorkflowEndpoints
         }
     }
 
+    private sealed record SaveDesignRequest(JsonElement Definition, JsonElement Layout, long ExpectedGeneration);
     private sealed record SaveDraftRequest(JsonElement Definition, long ExpectedGeneration);
     private sealed record GenerationRequest(long ExpectedGeneration);
     private sealed record RevisionChangeRequest(Guid RevisionId, long ExpectedGeneration);
