@@ -1,8 +1,10 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/VisualAgentWorkflow.AgentFramework/VisualAgentWorkflow.AgentFramework.csproj" />
     <Project Path="src/VisualAgentWorkflow.Core/VisualAgentWorkflow.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/VisualAgentWorkflow.AgentFramework.Tests/VisualAgentWorkflow.AgentFramework.Tests.csproj" />
     <Project Path="tests/VisualAgentWorkflow.Core.Tests/VisualAgentWorkflow.Core.Tests.csproj" />
   </Folder>
 </Solution>

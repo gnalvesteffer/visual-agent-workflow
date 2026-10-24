@@ -12,6 +12,14 @@ Immutable revision snapshots carry identity, parent, author, timestamp, definiti
 
 Tests cover round trips, deterministic hashing, operation changes, restore lineage/isolation, invalid endpoints and ports, disconnected cycles, unsupported types/schemas, missing graph data, and ambiguous/unknown JSON fields.
 
+## Milestone 2: Agent Framework execution adapter
+
+The adapter references `Microsoft.Agents.AI.Workflows` 1.26.0 and translates each validated node into an `Executor<string, string>`, connects actual framework edges, and runs through `InProcessExecution.RunStreamingAsync`. No custom scheduler replaces framework execution.
+
+Each run emits platform-owned lifecycle, invocation, input/output, and connection-received events. Transfer evidence is captured inside the receiving executor, rather than inferred from source completion. Sequence numbers are scoped to this single linear run; invocation IDs identify the actual handler calls. Reverse operates on Unicode scalar values, not user-perceived grapheme clusters.
+
+Integration tests exercise framework execution, transformed output, exact delivered payloads, correlation and sequence metadata, pre-cancellation, and rejection of oversized input before execution. The initial input limit is 16,384 characters. The event callback is host-supplied; this adapter alone does not persist history or provide durable scheduling. Events contain plaintext payloads and are suitable only for controlled local development until host redaction/access policies are implemented.
+
 ## Remaining roadmap
 
-Agent Framework execution, Blazor components/host, persisted run history, MCP brokering, real agents, approvals, graph editing, durable recovery, workspace authorization, prefab/skill packages, extension isolation, collaboration, and production operations are not supplied by milestone 1. Later milestones must update this document with verified capabilities and limitations.
+Blazor components/host, persisted run history, MCP brokering, real agents, approvals, graph editing, durable recovery, workspace authorization, prefab/skill packages, extension isolation, collaboration, and production operations remain outstanding after milestone 2. Later milestones must update this document with verified capabilities and limitations.

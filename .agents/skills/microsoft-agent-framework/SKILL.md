@@ -5,7 +5,7 @@ description: Use when selecting or upgrading Microsoft Agent Framework .NET pack
 
 # Microsoft Agent Framework integration
 
-Read [project-guide](../project-guide/SKILL.md). This repository has not yet selected SDK/package versions or implemented a framework adapter. Do not treat research examples as compiled, supported contracts.
+Read [project-guide](../project-guide/SKILL.md). The adapter targets `Microsoft.Agents.AI.Workflows` 1.26.0 on .NET 10 and has deterministic integration tests for linear string pipelines. See [implementation status](../../../docs/implementation.md) for supported scope. Do not infer agent, MCP, branch, or durability support from those tests.
 
 ## Establish version-specific evidence
 
