@@ -4,6 +4,8 @@ A proposed C#/.NET platform for visually designing, executing, and observing age
 
 The product combines a standalone Blazor studio, embeddable Razor components, and an independent workflow runtime. Workflow authoring uses Blueprint-style visual scripting, with MCP tools for external operations and approved .NET extensions for specialized behavior.
 
+See the [user guide](docs/user-guide.md), [current architecture](docs/architecture.md), and [documentation map](docs/README.md).
+
 See [the design document](docs/design.md) for the agreed direction, architecture, constraints, and proposed delivery milestones.
 
 Contributors and coding assistants should read [AGENTS.md](AGENTS.md) and the [agent skill catalog](docs/agent-skills.md) before working on the project.

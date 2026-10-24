@@ -1,0 +1,6 @@
+{
+  "name": "visual-agent-workflow-documentation",
+  "private": true,
+  "description": "Development-only Mermaid validation; never shipped with the app",
+  "devDependencies": { "mermaid": "11.12.0" }
+}
