@@ -20,3 +20,7 @@ Direct package versions are centralized in `Directory.Packages.props` without up
 Existing records, public signatures, schema versions, and canonical hash formats are retained. Component async work captures the host context, honors observation cancellation, and ignores stale results. Framework inheritance remains where required; no blanket conversion of identifiers to structs, speculative result framework, blocking async bridge, or unsafe optimization was introduced.
 
 The architecture still includes synchronous SQLite catalog operations and a single-process file journal. Central package management and dependency checks do not make storage distributed or durable across active-process failures; see [implementation scope](implementation.md).
+
+## Visual design and themes
+
+The pinned, Apache-2.0 Frontend Design and Design Systems skills now guide visual changes. The [editor design system](design-system.md) records the product-specific plan, palette, typography, component states, responsive graph layout, and embedding constraints. The Studio applies this theme through scoped library tokens: compact application header, consolidated edit controls, horizontal typed nodes on wide containers, a vertical narrow layout, and paired publication/run panels. The browser review also verifies the horizontal/vertical switch and keyboard access to the scrollable graph. No frontend framework or external font dependency was added.

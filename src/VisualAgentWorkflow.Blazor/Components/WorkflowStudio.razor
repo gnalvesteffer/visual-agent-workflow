@@ -1,12 +1,14 @@
 @implements IAsyncDisposable
 
 <section class="vaw-studio">
-    <header>
-        <p class="vaw-eyebrow">VISUAL AGENT WORKFLOW</p>
-        <h1>Pipeline studio</h1>
-        <p>Run an Agent Framework pipeline. Inspect the recorded inputs, outputs, and messages.</p>
-        <p class="vaw-notice">Local development prototype · linear pipelines, approved MCP text tools, and deterministic demo agents.</p>
+    <header class="vaw-studio-header">
+        <div class="vaw-brand">
+            <svg class="vaw-brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M7 8h8v7h10v9H15v-9H7z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="7" cy="8" r="3" fill="currentColor"/><circle cx="25" cy="24" r="3" fill="currentColor"/></svg>
+            <div><p class="vaw-product-name">Visual Agent Workflow</p><h1>Pipeline studio</h1></div>
+        </div>
+        <p class="vaw-notice">Local development prototype</p>
     </header>
+    <p class="vaw-studio-description">Design a pipeline. Run it independently. Inspect every recorded step.</p>
     <div class="vaw-workspace">
         <aside class="vaw-sidebar">
             <h2>Quick template run</h2>
@@ -23,14 +25,15 @@
             {
                 <button type="button" @onclick="Cancel" disabled="@(!interactive)">Cancel selected run</button>
             }
-            <p>The backend owns execution. Closing this page does not cancel a run.</p>
+            <p class="vaw-help">Runs continue when you close the editor.</p>
             <h2>Recorded runs</h2>
             <button type="button" @onclick="Refresh" disabled="@(!interactive)">Refresh history</button>
             <ul class="vaw-history">
                 @foreach (var run in runs.Take(50))
                 {
                     <li @key="run.Header.RunId"><button type="button" @onclick="() => SelectRun(run.Header.RunId)" aria-pressed="@(snapshot?.Header.RunId == run.Header.RunId)">
-                        @run.Header.CreatedAt.ToString("u") · @run.Status
+                        <span class="vaw-history-status">@run.Status</span>
+                        <time datetime="@run.Header.CreatedAt.ToString("O")">@run.Header.CreatedAt.ToString("MMM d, HH:mm:ss")</time>
                         <small>@run.Header.RunId.ToString()[..8]</small>
                     </button></li>
                 }

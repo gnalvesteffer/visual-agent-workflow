@@ -1,12 +1,12 @@
 @implements IAsyncDisposable
 
 <section class="vaw-designer" aria-label="Workflow designer">
-    <h2>Workflow designer</h2>
-    <p>Edit a string pipeline, save a draft, and publish immutable versions.</p>
+    <header class="vaw-section-header"><div><h2>Workflow designer</h2>
+    <p>Compose a linear pipeline with tools and agents.</p></div><span class="vaw-badge">Draft workspace</span></header>
     <fieldset class="vaw-designer-fields" disabled="@(!interactive || busy)">
     @if (definition is not null)
     {
-        <div class="vaw-controls">
+        <div class="vaw-controls vaw-designer-toolbar">
             <label>Saved workflow
                 <select @key="(definition.WorkflowId, generation)" aria-label="Saved workflow" value="@definition.WorkflowId" @onchange="SelectWorkflow" disabled="@(busy || dirty)">
                     @if (generation == 0) { <option value="@definition.WorkflowId">New workflow</option> }
@@ -15,16 +15,21 @@
             </label>
             <button type="button" @onclick="NewWorkflow" disabled="@(busy || dirty)">New workflow</button>
             <button type="button" @onclick="Save" disabled="@(busy || !interactive || preview is not null)">Save draft</button>
-            <button type="button" @onclick="Publish" disabled="@(busy || dirty || generation == 0 || preview is not null)">Publish &amp; activate</button>
+            <button type="button" class="vaw-primary" @onclick="Publish" disabled="@(busy || dirty || generation == 0 || preview is not null)">Publish &amp; activate</button>
             <button type="button" @onclick="Discard" disabled="@busy">Discard local changes and reload</button>
         </div>
-        <p><strong>@definition.WorkflowId</strong> · generation @generation · @(dirty ? "Unsaved changes" : generation == 0 ? "Not saved" : "Draft saved")</p>
-        <p>Save or discard local edits before switching workflows or changing published state.</p>
+        <p class="vaw-definition-status"><strong>@definition.WorkflowId</strong> · generation @generation · @(dirty ? "Unsaved changes" : generation == 0 ? "Not saved" : "Draft saved")</p>
+        @if (dirty) { <p class="vaw-help">Save or discard edits before switching workflows.</p> }
         @if (preview is null)
         {
             <div class="vaw-controls">
                 <button type="button" @onclick="Undo" disabled="@(busy || undo.Count == 0)">Undo edit</button>
                 <button type="button" @onclick="Redo" disabled="@(busy || redo.Count == 0)">Redo edit</button>
+                @if (ToolCatalog is not null)
+                {
+                    <button type="button" @onclick="RefreshTools" disabled="@busy">Refresh MCP tools</button>
+                    <span class="vaw-help">Tool access is checked by the host on each call.</span>
+                }
             </div>
         }
         else
@@ -39,15 +44,11 @@
                 </ul>
             </details>
         }
-        @if (ToolCatalog is not null)
-        {
-            <button type="button" @onclick="RefreshTools" disabled="@busy">Refresh MCP tools</button>
-            <p>Tool bindings request access. Host policy checks each call; selecting a tool does not grant permission.</p>
-        }
         <PipelineEditor Definition="@(preview?.Revision.Definition ?? definition)" DefinitionChanged="Changed" ReadOnly="@(preview is not null)" Disabled="@busy" Bindings="bindings" Providers="providers" />
-        <section aria-label="Published workflow versions">
+        <section class="vaw-version-panel" aria-label="Published workflow versions">
+            <div class="vaw-version-management">
             <h3>Published versions</h3>
-            <p>Active version: @(versions.FirstOrDefault(v => v.Revision.RevisionId == activeRevisionId)?.Version.ToString() ?? "None")</p>
+            <p class="vaw-help">Active version: @(versions.FirstOrDefault(v => v.Revision.RevisionId == activeRevisionId)?.Version.ToString() ?? "None")</p>
             <label>Published version
                 <select aria-label="Published version" value="@selectedRevisionId" @onchange="SelectRevision" disabled="@(busy || versions.Count == 0)">
                     @foreach (var version in versions)
@@ -59,9 +60,13 @@
                 <button type="button" @onclick="Restore" disabled="@(busy || dirty || selectedRevisionId is null)">Restore selected to draft</button>
                 <button type="button" @onclick="Activate" disabled="@(busy || dirty || selectedRevisionId is null)">Activate selected version</button>
             </div>
+            </div>
+            <div class="vaw-version-run">
+            <h3>Run a published version</h3>
             <label>Published run input <textarea @bind="runInput" maxlength="16384" rows="2"></textarea></label>
-            <button type="button" @onclick="RunPublished" disabled="@(busy || selectedRevisionId is null)">Run selected version</button>
-            <p>Runs use the selected published version, including when the local draft has unsaved edits.</p>
+            <button type="button" class="vaw-primary" @onclick="RunPublished" disabled="@(busy || selectedRevisionId is null)">Run selected version</button>
+            <p class="vaw-help">Uses the selected published version, including when the draft has unsaved edits.</p>
+            </div>
         </section>
         <details>
             <summary>Import / export definition</summary>

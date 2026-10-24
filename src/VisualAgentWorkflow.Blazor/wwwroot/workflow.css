@@ -1,18 +1,21 @@
 /* Component-scoped defaults. Public --vaw-color-* tokens inherit from the host. */
 :where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) {
-    --vaw-canvas: var(--vaw-color-canvas, #10151e);
-    --vaw-surface: var(--vaw-color-surface, #182130);
-    --vaw-control: var(--vaw-color-control, #233249);
-    --vaw-text: var(--vaw-color-text, #e5edf8);
-    --vaw-muted: var(--vaw-color-muted, #bac9dd);
-    --vaw-border: var(--vaw-color-border, #34445a);
-    --vaw-control-border: var(--vaw-color-control-border, #63748c);
-    --vaw-focus: var(--vaw-color-focus, #9ec5ff);
-    --vaw-accent: var(--vaw-color-accent, #8fbcff);
-    --vaw-primary: var(--vaw-color-primary, #245fab);
-    --vaw-success: var(--vaw-color-success, #7ce1b2);
-    --vaw-error: var(--vaw-color-error, #ffb7b7);
-    --vaw-warning: var(--vaw-color-warning, #eabf62);
+    --vaw-canvas: var(--vaw-color-canvas, #17191f);
+    --vaw-surface: var(--vaw-color-surface, #20232b);
+    --vaw-control: var(--vaw-color-control, #2b303b);
+    --vaw-text: var(--vaw-color-text, #eef0f6);
+    --vaw-muted: var(--vaw-color-muted, #b5bdce);
+    --vaw-border: var(--vaw-color-border, #3b414f);
+    --vaw-control-border: var(--vaw-color-control-border, #737e93);
+    --vaw-focus: var(--vaw-color-focus, #d3c5ff);
+    --vaw-accent: var(--vaw-color-accent, #c4b5fd);
+    --vaw-primary: var(--vaw-color-primary, #6550a8);
+    --vaw-success: var(--vaw-color-success, #88ddc8);
+    --vaw-error: var(--vaw-color-error, #ffb5b8);
+    --vaw-warning: var(--vaw-color-warning, #edc683);
+    --vaw-panel-radius: var(--vaw-radius-panel, 0.5rem);
+    --vaw-control-radius: var(--vaw-radius-control, 0.375rem);
+    --vaw-mono: var(--vaw-font-mono, ui-monospace, "Cascadia Code", Consolas, monospace);
     --vaw-space-1: 0.25rem;
     --vaw-space-2: 0.5rem;
     --vaw-space-3: 0.75rem;
@@ -24,7 +27,7 @@
     color-scheme: var(--vaw-color-scheme, dark);
     background-color: var(--vaw-canvas);
     color: var(--vaw-text);
-    font-family: var(--vaw-font-family, ui-sans-serif, system-ui, sans-serif);
+    font-family: var(--vaw-font-family, "Segoe UI", "Helvetica Neue", Arial, sans-serif);
     font-size: 1rem;
     line-height: 1.5;
     overflow-wrap: anywhere;
@@ -38,25 +41,37 @@
 .vaw-studio {
     container: vaw-studio / inline-size;
     inline-size: 100%;
-    max-inline-size: 90rem;
+    max-inline-size: 110rem;
     margin-inline: auto;
-    padding: var(--vaw-space-4);
+    padding: var(--vaw-space-6);
 }
 
-.vaw-studio h1 { margin-block: var(--vaw-space-2) 0; font-size: clamp(2rem, 5cqi, 3rem); }
-:where(.vaw-studio, .vaw-designer) h2 { font-size: 1.125rem; }
-.vaw-eyebrow { color: var(--vaw-accent); font-size: 0.875rem; letter-spacing: 0.15em; }
-.vaw-notice { border-inline-start: 3px solid var(--vaw-warning); padding-inline-start: var(--vaw-space-4); color: var(--vaw-warning); }
-.vaw-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--vaw-space-6); margin-block-start: var(--vaw-space-8); }
+.vaw-studio-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--vaw-space-4); border-block-end: 1px solid var(--vaw-border); padding-block-end: var(--vaw-space-4); }
+.vaw-brand { display: flex; align-items: center; gap: var(--vaw-space-3); }
+.vaw-brand-mark { inline-size: 2.75rem; block-size: 2.75rem; color: var(--vaw-accent); }
+.vaw-product-name { margin: 0; color: var(--vaw-muted); font-size: 0.8125rem; }
+.vaw-studio h1 { margin: 0; font-size: 1.5rem; font-weight: 650; letter-spacing: -0.025em; line-height: 1.3; }
+:where(.vaw-studio, .vaw-designer, .vaw-viewer) :where(h2, h3) { font-size: 1.125rem; font-weight: 600; margin-block: 0 var(--vaw-space-2); }
+.vaw-notice { margin: 0; border: 1px solid var(--vaw-border); border-radius: var(--vaw-control-radius); padding: var(--vaw-space-2) var(--vaw-space-3); color: var(--vaw-warning); font-size: 0.8125rem; }
+.vaw-studio-description { color: var(--vaw-muted); margin-block: var(--vaw-space-3) var(--vaw-space-6); font-size: 0.875rem; }
+.vaw-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--vaw-space-4); }
 .vaw-workspace > * { min-inline-size: 0; }
 .vaw-sidebar { align-self: start; }
-:where(.vaw-sidebar, .vaw-viewer, .vaw-designer) { border: 1px solid var(--vaw-border); border-radius: 0.75rem; background-color: var(--vaw-surface); padding: var(--vaw-space-6); }
-.vaw-designer { margin-block-end: var(--vaw-space-6); }
+:where(.vaw-sidebar, .vaw-viewer, .vaw-designer) { border: 1px solid var(--vaw-border); border-radius: var(--vaw-panel-radius); background-color: var(--vaw-surface); padding: var(--vaw-space-4); }
+.vaw-designer { container: vaw-designer / inline-size; margin-block-end: var(--vaw-space-4); }
 .vaw-designer-fields { min-inline-size: 0; margin: 0; border: 0; padding: 0; }
 .vaw-designer details { margin-block-start: var(--vaw-space-4); }
+.vaw-section-header { display: flex; align-items: start; justify-content: space-between; gap: var(--vaw-space-3); flex-wrap: wrap; border-block-end: 1px solid var(--vaw-border); padding-block-end: var(--vaw-space-4); }
+.vaw-section-header p { margin: 0; color: var(--vaw-muted); font-size: 0.875rem; }
+.vaw-badge { border: 1px solid var(--vaw-border); border-radius: var(--vaw-control-radius); color: var(--vaw-accent); padding: var(--vaw-space-1) var(--vaw-space-2); font-size: 0.8125rem; }
+.vaw-help { color: var(--vaw-muted); font-size: 0.8125rem; max-inline-size: 75ch; }
+.vaw-definition-status { margin-block: var(--vaw-space-2); color: var(--vaw-muted); font-size: 0.8125rem; }
+.vaw-definition-status strong { color: var(--vaw-text); font-weight: 500; }
+.vaw-empty-state { border-inline-start: 3px solid var(--vaw-accent); padding-inline-start: var(--vaw-space-4); }
+.vaw-empty-state p { margin-block-end: 0; color: var(--vaw-muted); font-size: 0.875rem; }
 
 @container vaw-studio (min-width: 55rem) {
-    .vaw-workspace { grid-template-columns: 17.5rem minmax(0, 1fr); }
+    .vaw-workspace { grid-template-columns: 15rem minmax(0, 1fr); }
 }
 
 /* Controls use low specificity so consuming applications can override them. */
@@ -76,8 +91,9 @@
     min-block-size: 2.75rem;
     max-inline-size: 100%;
     border: 1px solid var(--vaw-control-border);
-    border-radius: 0.375rem;
-    padding: 0.625rem 0.875rem;
+    border-radius: var(--vaw-control-radius);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
     background-color: var(--vaw-control);
 }
 
@@ -92,17 +108,23 @@
 :where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) :where(button, select, textarea, input):disabled { opacity: 0.55; cursor: default; }
 :where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) :where(a) { color: var(--vaw-focus); }
 :where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) :where(button, input, select, textarea, a, summary):focus-visible { outline: 3px solid var(--vaw-focus); outline-offset: 3px; }
-.vaw-primary { background-color: var(--vaw-primary); }
+.vaw-primary { background-color: var(--vaw-primary); border-color: var(--vaw-accent); }
+:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) :where(button):not(:disabled):hover { border-color: var(--vaw-focus); box-shadow: inset 0 0 0 1px var(--vaw-focus); }
+:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) :where(summary) { cursor: pointer; color: var(--vaw-muted); font-size: 0.875rem; padding-block: var(--vaw-space-2); }
 .vaw-controls { display: flex; align-items: center; flex-wrap: wrap; gap: var(--vaw-space-3); margin-block: var(--vaw-space-4); }
 .vaw-controls :where(label) { display: flex; align-items: center; flex: 1 1 12rem; flex-wrap: wrap; gap: var(--vaw-space-2); min-inline-size: 0; max-inline-size: 100%; margin: 0; }
 .vaw-controls :where(input[type="range"]) { flex: 1 1 7rem; min-inline-size: 0; max-inline-size: 100%; }
 
 /* Run navigation and graph cards retain text labels alongside color cues. */
 .vaw-history { display: grid; gap: var(--vaw-space-2); max-block-size: 32rem; overflow-y: auto; scrollbar-gutter: stable; list-style: none; padding: 0; }
-.vaw-history button { inline-size: 100%; text-align: start; }
-.vaw-history small { display: block; margin-block-start: var(--vaw-space-1); }
+.vaw-history button { inline-size: 100%; text-align: start; background-color: var(--vaw-surface); border-color: var(--vaw-border); }
+.vaw-history button[aria-pressed="true"] { border-color: var(--vaw-accent); background-color: var(--vaw-control); }
+.vaw-history-status { display: block; color: var(--vaw-text); font-weight: 600; }
+.vaw-history time { color: var(--vaw-muted); font-size: 0.8125rem; }
+.vaw-history small { display: block; margin-block-start: var(--vaw-space-1); color: var(--vaw-muted); font-family: var(--vaw-mono); }
 .vaw-run-header small { display: block; margin-block-start: var(--vaw-space-2); color: var(--vaw-muted); }
-.vaw-graph { list-style: none; border-radius: 0.5rem; padding: var(--vaw-space-4); background-image: radial-gradient(var(--vaw-border) 1px, transparent 1px); background-size: 1.125rem 1.125rem; }
+.vaw-graph { list-style: none; border: 1px solid var(--vaw-border); border-radius: var(--vaw-panel-radius); background-color: var(--vaw-canvas); padding: var(--vaw-space-4); background-image: radial-gradient(var(--vaw-border) 1px, transparent 1px); background-size: 1.125rem 1.125rem; }
+.vaw-graph:focus-visible { outline: 3px solid var(--vaw-focus); outline-offset: 3px; }
 .vaw-node { max-inline-size: 27.5rem; margin-inline: auto; }
 .vaw-node-button { display: grid; gap: var(--vaw-space-2); inline-size: 100%; text-align: start; }
 .vaw-node-button span { font-size: 0.875rem; }
@@ -111,12 +133,40 @@
 .vaw-node-button[aria-pressed="true"] { outline: 2px solid var(--vaw-focus); }
 .vaw-connection { padding: var(--vaw-space-3); color: var(--vaw-muted); font-size: 0.875rem; }
 .vaw-delivered { color: var(--vaw-success); }
-.vaw-edit-node article { border: 1px solid var(--vaw-control-border); border-radius: 0.375rem; background-color: var(--vaw-control); padding: var(--vaw-space-4); }
+.vaw-edit-node article { border: 1px solid var(--vaw-control-border); border-block-start: 3px solid var(--vaw-accent); border-radius: var(--vaw-control-radius); background-color: var(--vaw-control); padding: var(--vaw-space-4); }
 .vaw-edit-node small { display: block; margin-block-start: var(--vaw-space-2); color: var(--vaw-muted); }
+
+/* Definition roles are visual metadata, distinct from recorded execution state. */
+.vaw-pipeline-editor { background-color: transparent; margin-block-start: var(--vaw-space-4); }
+.vaw-pipeline-editor > label { max-inline-size: 22rem; font-size: 0.875rem; }
+.vaw-node-heading { display: flex; align-items: center; flex-wrap: wrap; gap: var(--vaw-space-2); }
+.vaw-node-heading strong { font-size: 0.9375rem; }
+.vaw-node-kind { margin-inline-start: auto; color: var(--vaw-accent); font-size: 0.8125rem; }
+.vaw-port { inline-size: 0.625rem; block-size: 0.625rem; border: 2px solid var(--vaw-accent); border-radius: 50%; }
+.vaw-edit-node[data-node-type="core.input"] article { border-block-start-color: var(--vaw-success); }
+.vaw-edit-node[data-node-type="core.output"] article { border-block-start-color: var(--vaw-warning); }
+.vaw-edit-node[data-node-type="core.input"] .vaw-node-kind { color: var(--vaw-success); }
+.vaw-edit-node[data-node-type="core.output"] .vaw-node-kind { color: var(--vaw-warning); }
+.vaw-edit-node article > p { font-size: 0.8125rem; color: var(--vaw-muted); }
+.vaw-edit-node label { font-size: 0.8125rem; }
+.vaw-edit-node .vaw-controls { gap: var(--vaw-space-2); }
+.vaw-edit-node .vaw-controls button { flex: 1 1 auto; }
+.vaw-edit-node small { font-size: 0.8125rem; }
+.vaw-version-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: var(--vaw-space-6); border-block-start: 1px solid var(--vaw-border); padding-block-start: var(--vaw-space-4); margin-block-start: var(--vaw-space-6); }
+.vaw-version-panel > * { min-inline-size: 0; }
+.vaw-designer-toolbar { gap: var(--vaw-space-2); }
+
+@container vaw-designer (min-width: 48rem) {
+    .vaw-pipeline-editor .vaw-graph { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(12rem, 1fr); gap: 2rem; overflow-x: auto; padding: var(--vaw-space-6); align-items: stretch; }
+    .vaw-edit-node { position: relative; inline-size: 100%; max-inline-size: none; margin: 0; }
+    .vaw-edit-node article { block-size: 100%; min-block-size: 17rem; }
+    .vaw-edit-node .vaw-connection { position: absolute; inset-inline-start: -2rem; inset-block-start: 2.5rem; inline-size: 2rem; block-size: 1px; padding: 0; background-color: var(--vaw-control-border); font-size: 0; }
+    .vaw-edit-node .vaw-connection span { position: absolute; inset-inline-start: 0.375rem; inset-block-start: -0.75rem; font-size: 1rem; transform: rotate(-90deg); }
+}
 
 /* Payloads remain readable without expanding the surrounding page. */
 .vaw-inspector { border-block-start: 1px solid var(--vaw-border); margin-block-start: var(--vaw-space-4); }
-:where(.vaw-viewer, .vaw-designer, .vaw-pipeline-editor) pre { white-space: pre-wrap; overflow-wrap: anywhere; background-color: var(--vaw-canvas); padding: var(--vaw-space-3); }
+:where(.vaw-viewer, .vaw-designer, .vaw-pipeline-editor) pre { font-family: var(--vaw-mono); font-size: 0.875rem; white-space: pre-wrap; overflow-wrap: anywhere; background-color: var(--vaw-canvas); padding: var(--vaw-space-3); }
 .vaw-table-scroll { overflow-x: auto; }
 .vaw-viewer table { inline-size: 100%; border-collapse: collapse; text-align: start; }
 .vaw-viewer :where(th, td) { border-block-end: 1px solid var(--vaw-border); padding: var(--vaw-space-2); }

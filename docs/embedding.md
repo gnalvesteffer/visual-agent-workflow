@@ -63,3 +63,7 @@ Library CSS is scoped to component roots. Set inherited public properties on a w
 Hosts may wrap the components in `WorkflowErrorBoundary` with their own `ErrorContent` and recovery action. It logs exception types without raw exception messages; the Studio demonstrates a generic fallback and full-page reload.
 
 Interactive Server hosts must align bounded editor inputs with SignalR transport limits. Field events can contain the text more than once. The development Studio allows messages up to 8 MiB so its JSON editor can carry a bounded 1 MiB definition; HTTP body and domain limits remain independent. Production hosts must choose transport budgets alongside their concurrency and payload policies.
+
+The default [editor theme](design-system.md) uses graphite surfaces, violet authoring controls, and typed node headers. `--vaw-radius-panel`, `--vaw-radius-control`, and `--vaw-font-mono` also accept inherited host overrides. Wide editor containers show the pipeline horizontally; larger pipelines scroll inside the focusable graph region. Narrow embeds use vertical ordering. Definition-role colors do not imply execution state.
+
+When embedding `PipelineEditor` alone, its default layout is vertical. Wrap it in a `vaw-designer` element to opt into the same container-responsive horizontal layout used by `WorkflowDesigner`. Keep the query container outside dynamically replaced editor contents.

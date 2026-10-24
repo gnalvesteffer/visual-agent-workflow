@@ -89,6 +89,11 @@ def check(browser, screenshots):
         page.keyboard.press("Tab")
         assert page.evaluate("document.activeElement.matches(':focus-visible') && getComputedStyle(document.activeElement).outlineStyle !== 'none'"), "Keyboard focus must remain visible"
 
+        graph = designer.get_by_role("list", name="Editable pipeline nodes", exact=True)
+        assert graph.evaluate("element => getComputedStyle(element).display") == "grid", "Wide editor must show pipeline order horizontally"
+        graph.focus()
+        assert graph.evaluate("element => element === document.activeElement"), "Scrollable graph must be keyboard focusable"
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), "Wide graph must not expand the page"
         if screenshots:
             page.evaluate("window.scrollTo(0,0)")
             page.screenshot(path=str(screenshots / "desktop.png"))
@@ -100,6 +105,7 @@ def check(browser, screenshots):
             columns: getComputedStyle(element.querySelector('.vaw-workspace')).gridTemplateColumns.split(' ').length
         })""")
         assert dimensions["content"] <= dimensions["width"] + 1 and dimensions["columns"] == 1, dimensions
+        assert graph.evaluate("element => getComputedStyle(element).display") != "grid", "Narrow editor must restore vertical node order"
         if screenshots:
             page.evaluate("window.scrollTo(0,0)")
             page.screenshot(path=str(screenshots / "narrow-embed.png"))

@@ -10,17 +10,17 @@
             </select>
         </label>
     }
-    <ol class="vaw-graph" aria-label="Editable pipeline nodes">
+    <ol class="vaw-graph" aria-label="Editable pipeline nodes" tabindex="0">
         @for (var i = 0; i < Order.Length; i++)
         {
             var index = i;
             var id = Order[index];
             var node = Definition.Nodes[id];
             var terminal = node.Type is NodeTypes.Input or NodeTypes.Output;
-            <li class="vaw-node vaw-edit-node" data-node-id="@id" @key="id">
-                @if (index > 0) { <div class="vaw-connection">↓ string data</div> }
+            <li class="vaw-node vaw-edit-node" data-node-id="@id" data-node-type="@node.Type" @key="id">
+                @if (index > 0) { <div class="vaw-connection"><span aria-hidden="true">↓</span> string data</div> }
                 <article>
-                    <strong>@id</strong>
+                    <div class="vaw-node-heading"><span class="vaw-port" aria-hidden="true"></span><strong>@id</strong><span class="vaw-node-kind">@(node.Type == NodeTypes.Input ? "Input" : node.Type == NodeTypes.Output ? "Output" : node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform")</span></div>
                     <small>@(node.Type == NodeTypes.Input ? "out · string" : node.Type == NodeTypes.Output ? "in · string" : "in · string → out · string")</small>
                     @if (terminal || ReadOnly)
                     {

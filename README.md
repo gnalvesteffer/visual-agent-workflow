@@ -8,7 +8,7 @@ See [the design document](docs/design.md) for the agreed direction, architecture
 
 Contributors and coding assistants should read [AGENTS.md](AGENTS.md) and the [agent skill catalog](docs/agent-skills.md) before working on the project.
 
-**Status:** early implementation. The local Blazor studio visually edits linear pipelines with approved MCP text tools and deterministic demo agents, persists drafts/published versions, executes through Microsoft Agent Framework, and records model/tool evidence for playback. The editor and run viewer are reusable Razor components. See [implementation status](docs/implementation.md) for verified scope and limitations.
+**Status:** early implementation. The local Blazor studio visually edits linear pipelines with approved MCP text tools and deterministic demo agents, persists drafts/published versions, executes through Microsoft Agent Framework, and records model/tool evidence for playback. The editor and run viewer are reusable Razor components. See [implementation status](docs/implementation.md) for verified scope and limitations, and the [editor design system](docs/design-system.md) for visual conventions.
 
 ## Development
 
