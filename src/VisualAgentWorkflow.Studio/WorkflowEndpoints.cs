@@ -33,6 +33,21 @@ internal static class WorkflowEndpoints
         group.MapGet("/revisions/{revisionId:guid}/layout", async (Guid revisionId, IWorkflowCatalog catalog) =>
             catalog is IWorkflowDesignCatalog designs && await designs.GetRevisionLayoutAsync(revisionId) is { } layout
                 ? Results.Ok(layout) : Results.NotFound());
+        group.MapGet("/workflows/{workflowId}/package", async (string workflowId, IWorkflowCatalog catalog) =>
+        {
+            var design = catalog is IWorkflowDesignCatalog designs ? await designs.GetDesignAsync(workflowId) : null;
+            var draft = design?.Draft ?? (catalog is IWorkflowDesignCatalog ? null : await catalog.GetDraftAsync(workflowId));
+            return draft is null ? Results.NotFound() : Results.Text(WorkflowPackageJson.Serialize(draft.Definition,
+                design?.Layout ?? WorkflowLayout.Create(draft.Definition)), "application/json");
+        });
+        group.MapGet("/revisions/{revisionId:guid}/package", async (Guid revisionId, IWorkflowCatalog catalog) =>
+        {
+            var revision = await catalog.GetRevisionAsync(revisionId);
+            if (revision is null) return Results.NotFound();
+            var presentation = catalog is IWorkflowDesignCatalog designs ? await designs.GetRevisionLayoutAsync(revisionId) : null;
+            return Results.Text(WorkflowPackageJson.Serialize(revision.Revision.Definition,
+                presentation ?? WorkflowLayout.Create(revision.Revision.Definition)), "application/json");
+        });
         group.MapPost("/workflows/{workflowId}/publish", async (string workflowId, GenerationRequest request, IWorkflowCatalog catalog) =>
             Results.Ok(await catalog.PublishAsync(workflowId, request.ExpectedGeneration)));
         group.MapGet("/workflows/{workflowId}/revisions", async (string workflowId, IWorkflowCatalog catalog) =>

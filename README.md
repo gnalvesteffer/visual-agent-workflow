@@ -10,7 +10,7 @@ See [the design document](docs/design.md) for the agreed direction, architecture
 
 Contributors and coding assistants should read [AGENTS.md](AGENTS.md) and the [agent skill catalog](docs/agent-skills.md) before working on the project.
 
-**Status:** early implementation. The local Blazor studio visually edits linear pipelines with approved MCP text tools and deterministic demo agents, persists drafts/published versions, executes through Microsoft Agent Framework, and records model/tool evidence for playback. The editor and run viewer are reusable Razor components, with freely positioned nodes, edge sockets, reroutable wires, labels/comments, and named sections. See [roadmap and current scope](docs/roadmap.md) for verified scope and limitations, and the [editor design system](docs/design-system.md) for visual conventions.
+**Status:** early implementation. The local Blazor studio visually edits linear pipelines with approved MCP text tools and deterministic demo agents, persists drafts/published versions, executes through Microsoft Agent Framework, and records model/tool evidence for playback. The editor and run viewer are reusable Razor components, with freely positioned nodes, edge sockets, reroutable wires, labels/comments, and named sections. Published pipelines can be reused with fresh node identities; complete designs can be exported/imported as validated packages. See [roadmap and current scope](docs/roadmap.md) for verified scope and limitations, and the [editor design system](docs/design-system.md) for visual conventions.
 
 ## Development
 
@@ -47,3 +47,5 @@ python3 scripts/studio_smoke.py --browser
 The built-in MCP tools run in a trusted local stdio fixture with no external I/O or model credentials. The demo agent uses the real Agent Framework function loop with scripted responses; it does not interpret instructions or call an LLM. Workflows cannot supply executable paths or grant themselves capabilities. See [component embedding](docs/embedding.md), [runtime provider configuration](docs/runtime-configuration.md), and the [saved workflow API](docs/workflow-api.md). Free-form graph editing, branching, live-provider validation, remote MCP provisioning, and production durability remain ahead.
 
 For the [graph canvas](docs/graph-editor.md), run `python3 scripts/graph_canvas_smoke.py` against the development Studio with Playwright/Chromium installed. Pass `--browser-executable` for an existing Chromium or `--screenshots DIRECTORY` for review images.
+
+For reusable pipelines and sharing, `python3 scripts/pipeline_reuse_smoke.py` exercises exact-version insertion, section extraction, full-package import/export, and missing-tool denial in the browser.

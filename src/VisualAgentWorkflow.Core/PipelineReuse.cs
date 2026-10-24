@@ -12,7 +12,7 @@ public static class PipelineReuse
     {
         WorkflowValidator.ThrowIfInvalid(source);
         WorkflowLayoutJson.Validate(layout, source);
-        if (string.IsNullOrWhiteSpace(workflowId) || workflowId.Length > 128 ||
+        if (string.IsNullOrWhiteSpace(workflowId) || workflowId.Length > 128 || !char.IsAsciiLetterOrDigit(workflowId[0]) ||
             !workflowId.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.'))
             throw new ArgumentException("Choose a reusable pipeline ID containing only letters, digits, dots, dashes, or underscores.");
         var members = nodeIds.ToHashSet(StringComparer.Ordinal);

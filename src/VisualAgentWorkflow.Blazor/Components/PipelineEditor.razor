@@ -41,6 +41,8 @@
                     {
                         <button type="button" @onclick="() => Edit(() => PipelineEditing.InsertNodeAfter(Definition, id, FromSelection(newType)))" disabled="@(Disabled || Definition.Nodes.Count >= 256)" aria-label="Add node after @id">+ Add node after</button>
                     }
+                    @if (node.Origin is { } origin)
+                    { <p class="vaw-node-origin">Copied from @origin.WorkflowId · version @origin.Version. Local edits are independent.</p> }
                     @if (node.Tool is { } tool)
                     { <p>MCP binding: @tool.BindingId · pinned contract @tool.ContractHash[..8]</p> }
                     @if (node.Agent is { } agent)

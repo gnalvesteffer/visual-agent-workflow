@@ -31,3 +31,7 @@ Existing `/api/runs`, `/api/runs/{id}`, `/api/runs/{id}/events?after=N`, and can
 `GET /api/workflows/{workflowId}/design` returns `{ draft, layout }`. `PUT` to the same route accepts `{ definition, layout, expectedGeneration }` and saves both atomically. It shares the existing workflow generation and conflict response. `GET /api/revisions/{revisionId}/layout` returns the immutable published presentation (default positions for revisions predating layout capture). The existing definition-only endpoints remain supported. See [graph editor contracts and bounds](graph-editor.md).
 
 The development HTTP host limits the entire design request (definition plus layout) to 1 MiB, independently of the per-artifact validation limits. Large integrations must choose host transport budgets explicitly; a layout cannot raise domain or capability limits.
+
+## Portable package exports
+
+`GET /api/workflows/{workflowId}/package` exports the saved executable definition, layout, derived requirements, and content checksums as package format 1.0. The design-capable catalog reads definition/layout consistently. `GET /api/revisions/{revisionId}/package` exports an exact immutable publication and its captured layout. Missing items return 404. These read-only routes do not execute anything or expose host credentials/policy grants. Package import in Studio is a local edit followed by normal explicit design save/publication; there is no HTTP package-install endpoint. See [reuse and sharing](reusable-pipelines.md).

@@ -95,3 +95,9 @@ The runtime still supports only validated linear string pipelines. Freely positi
 ## Core reuse and portable package contracts
 
 Added extraction of consecutive processing steps into a workflow, copy-on-insert expansion of exact published versions with fresh identities, preserved layout/annotations/routes, and schema-1.3 origin metadata. Existing 1.0–1.2 serialization remains compatible. Portable package format 1.0 includes definition/layout hashes and exact derived requirements, with duplicate/unknown property and size validation. Expanded nodes use the existing runtime and per-node capability checks; no dynamic source execution or grant inheritance is added. Core and real framework execution tests cover the contracts. Studio authoring controls follow in the next milestone.
+
+## Studio reusable pipelines and package sharing
+
+Added reusable section extraction into a separate draft, exact published-version selection and insertion, source/version labels, registration-availability review, and package export/import in the shared designer. Existing catalog lifecycle/CAS applies; insertion and package import are one undoable local edit. Sources and consumers remain independent. Package exports include a consistent saved design or immutable published layout; imports preserve current workflow identity and require explicit save/publication.
+
+Real-browser validation covers selecting an older source while a newer version exists, fresh identities, expected framework output, undo/redo, annotation/layout package round trips, mismatch rejection, extraction without publishing or overwriting the consumer, stable workflow selection, and denial of an imported missing MCP binding. Existing core/runtime/canvas/embedding checks remain. This is copy-on-insert reuse, not nested runtime prefabs, auto-upgrades, source authentication, or permission transfer.

@@ -6,22 +6,22 @@ Statuses mean **Complete** (implemented and verified), **Active** (currently bei
 
 ## Current product boundary
 
-The development Studio edits and runs validated linear string pipelines through Microsoft Agent Framework. It has free node placement, edge sockets, reroutes/pinned angles, labels/comments, named sections, immutable publications, restore/activation, persisted local audit/run evidence, and recorded playback. MCP tools are node-scoped. The only agent provider is a deterministic fixture, not a live LLM.
+The development Studio edits and runs validated linear string pipelines through Microsoft Agent Framework. It has free node placement, edge sockets, reroutes/pinned angles, labels/comments, named sections, immutable publications, restore/activation, persisted local audit/run evidence, and recorded playback, plus reusable published pipelines and portable packages. MCP tools are node-scoped. The only agent provider is a deterministic fixture, not a live LLM.
 
 The backend owns execution, but active runs do not resume after host failure. The host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Free placement does not imply branching, arbitrary socket rewiring, or parallel execution.
 
-## Active milestone: reusable pipelines and sharing
+## Latest completed milestone: reusable pipelines and sharing
 
-Core contracts are complete and tested. Studio controls and end-to-end validation are active.
+Core contracts, Studio controls, and end-to-end validation are complete. The next planned increment is semantic graph authoring and conditional paths.
 
 | Deliverable | Status | Completion evidence |
 | --- | --- | --- |
 | Extract consecutive processing steps into a separate workflow | Complete | Core extraction preserves annotations and rejects invalid selections |
 | Insert an exact published source version with fresh identities | Complete | Copied requirements/source identity, bounded expansion, real framework execution without source lookup |
 | Portable definition/layout packages with hashes and requirement manifests | Complete | Canonical round trips, bounds, mismatch/unknown/duplicate-property rejection |
-| Save a labeled section as a reusable draft and choose published versions | Active | Real controls preserve the consumer draft and source history |
-| Insert a selected version with shared undo/redo and review requirements | Active | Browser checks, saved consumer output, reload and immutable source-version behavior |
-| Export/import the full package through Studio | Active | Layout/annotation preservation, local-only import, explicit save/publication, no permission transfer |
+| Save a labeled section as a reusable draft and choose published versions | Complete | Real controls preserve the consumer draft and source history |
+| Insert a selected version with shared undo/redo and review requirements | Complete | Browser checks, saved consumer output, reload and immutable source-version behavior |
+| Export/import the full package through Studio | Complete | Layout/annotation preservation, local-only import, explicit save/publication, no permission transfer |
 
 This increment uses copy-on-insert template expansion, not recursive runtime prefab calls or automatic instance upgrades. See [reusable pipeline contracts](reusable-pipelines.md).
 
@@ -29,7 +29,7 @@ This increment uses copy-on-insert template expansion, not recursive runtime pre
 
 ```mermaid
 flowchart TD
-    Reuse["Active: reusable pipelines and packages"] --> Graph["Next: semantic graph authoring and conditional paths"]
+    Reuse["Complete: reusable pipelines and packages"] --> Graph["Next: semantic graph authoring and conditional paths"]
     Graph --> Vertical["Complete the agent, branch, approval and MCP vertical slice"]
     Vertical --> Durable["Durable runtime and workspace security foundations"]
     Durable --> Assets["Versioned skills and nested prefab instances"]
@@ -79,7 +79,7 @@ Publish support boundaries only after repeatable recovery/security exercises, lo
 | MCP and agents | Node-scoped broker, pinned contracts/providers, actual framework agent/tool loop with deterministic fixtures |
 | Graph canvas | Free placement, edge sockets, SVG routing, angle pins, comments/sections, versioned layouts and read-only playback |
 | Quality and documentation | C#/Blazor/CSS/design skills, dependency boundaries, browser regression checks, architecture/user guides and locally validated Mermaid |
-| Reuse/package contracts | Schema-1.3 origin metadata, bounded version-pinned expansion and self-contained design packages |
+| Reuse and sharing | Schema-1.3 origins, version-pinned expansion, section extraction, exact-version insertion and full design package controls with browser/capability tests |
 
 Detailed tests, limitations, and historical rollout notes are in [implementation history](implementation-history.md).
 

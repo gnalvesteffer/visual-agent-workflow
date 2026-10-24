@@ -1,6 +1,6 @@
 # Reusable pipelines and portable packages
 
-Core now supports copy-on-insert reuse of a published linear pipeline. It does not introduce recursive runtime prefab calls, automatic source upgrades, capability inheritance, or arbitrary graph execution. Studio controls are being added in the following UI milestone; the contracts below are already implemented and tested.
+Core now supports copy-on-insert reuse of a published linear pipeline. It does not introduce recursive runtime prefab calls, automatic source upgrades, capability inheritance, or arbitrary graph execution. The Studio exposes section extraction, published-version insertion, requirement review, and package import/export through its existing catalog and draft lifecycle.
 
 ## Identity and execution
 
@@ -37,3 +37,15 @@ flowchart TD
 ```
 
 Core tests verify extraction, pinned copies and fresh identities, layout retention, bounds, requirement preservation, schema compatibility, round trips, and tamper rejection. An Agent Framework integration test executes expanded copies without a source catalog or prefab loader.
+
+## Studio workflow
+
+Open **Reusable pipelines**. Under **Save a section**, choose a labeled section of consecutive processing nodes, enter a unique **Reusable pipeline ID** starting with a letter/digit (up to 128 letters, digits, dots, dashes, or underscores), and select **Save section as reusable draft**. This creates an independent draft without replacing the consumer or publishing anything. Save any current edits, open the new workflow, review its tools/layout, and publish it with the normal controls.
+
+Under **Insert a published version**, choose **Reusable workflow**, **Reusable version**, and **Insert pipeline after**. The requirements list reports matching host registrations, not authorization. Select **Insert published pipeline** to create one undoable local edit; save/publish the consumer explicitly. The copies show their source/version and remain independently editable. Choosing a newer source publication affects only new explicit insertions.
+
+Under **Import / export definition**, **Copy workflow package into JSON editor** and **Download workflow package** export the viewed draft or read-only publication. **Import package into draft** validates the pasted package, preserves the current workflow ID, and atomically replaces the local definition/layout as one undoable edit. It does not save, publish, install, authorize, or execute automatically. Existing separate definition/layout import/export controls remain supported. The JSON editor accommodates the 3 MiB package bound; definition/layout validation still enforces their separate 1 MiB limits.
+
+Read-only API exports are `GET /api/workflows/{workflowId}/package` for a saved design and `GET /api/revisions/{revisionId}/package` for an immutable publication. There is no package-install endpoint or implicit permission transfer. Consuming applications can use the Core serializer and composition helpers with their host catalog.
+
+`python3 scripts/pipeline_reuse_smoke.py` tests the actual controls, exact historical version selection, source identity/fresh IDs, undo/redo, real output, package round trips and tamper rejection, extraction without publication/consumer overwrite, selected-workflow identity, and backend denial of an imported unavailable tool. Use `--browser-executable` for an installed Chromium and `--screenshots DIRECTORY` for review images. This supplements existing adapter, catalog, capability, and canvas tests.

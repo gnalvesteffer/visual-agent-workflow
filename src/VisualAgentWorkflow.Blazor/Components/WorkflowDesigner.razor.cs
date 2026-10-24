@@ -102,7 +102,7 @@ public partial class WorkflowDesigner
         workflows = []; versions = []; audit = []; bindings = []; providers = [];
         preview = null; selectedRevisionId = null; activeRevisionId = null;
         undo.Clear(); redo.Clear(); jsonText = ""; runInput = "Hello, workflows!"; busy = false;
-        loadedTools = null; loadedAgents = null;
+        loadedTools = null; loadedAgents = null; ResetReuse();
         await Perform(async current =>
         {
             var drafts = await current.Catalog.ListDraftsAsync().WaitAsync(current.Token);
@@ -121,6 +121,7 @@ public partial class WorkflowDesigner
 
     private void NewWorkflow()
     {
+        ResetReuse();
         var next = PipelineTemplates.Create("uppercase") with { WorkflowId = "workflow-" + Guid.NewGuid().ToString("N") };
         SetDesign(next, WorkflowLayout.Create(next));
         generation = 0; activeRevisionId = null; selectedRevisionId = null; preview = null;
@@ -134,6 +135,8 @@ public partial class WorkflowDesigner
         definition = value; layout = presentation;
         definitionHash = WorkflowJson.ComputeHash(value);
         layoutHash = WorkflowLayoutJson.ComputeHash(presentation, value);
+        if (!presentation.Sections.ContainsKey(reusableSectionId)) reusableSectionId = "";
+        if (!value.Nodes.TryGetValue(insertAfterNode, out var after) || after.Type == NodeTypes.Output) insertAfterNode = value.EntryNodeId;
     }
 
     private async Task Load(WorkflowDraft draft, Binding current, bool resetHistory = true)

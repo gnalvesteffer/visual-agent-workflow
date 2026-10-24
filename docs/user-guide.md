@@ -62,12 +62,22 @@ For a quick test, choose a pipeline in **Quick template run**, enter **Input**, 
 
 Select a run under **Recorded runs**. Click a node's execution card to inspect its recorded input/output. **Previous event**, **Next event**, the recorded-position slider, and **Follow latest** control playback. Green wires correspond to recorded transfer events; moving cards cannot fabricate execution evidence. Historical viewing makes no live model/tool calls. **Cancel selected run** explicitly requests cancellation; closing the page does not.
 
+## Reuse a section or published workflow
+
+1. Create a named section containing consecutive processing nodes. Exclude input/output terminals.
+2. Open **Reusable pipelines**, choose **Section to save**, enter a unique **Reusable pipeline ID**, and select **Save section as reusable draft**. This creates a separate draft and leaves the current workflow unchanged.
+3. Save any current edits, open that new draft in **Saved workflow**, review it, and publish it. Reusable pipelines use the same explicit version lifecycle as other workflows.
+4. In a consumer workflow, open **Reusable pipelines** and choose **Reusable workflow**, an exact **Reusable version**, and **Insert pipeline after**.
+5. Review the listed requirements, then select **Insert published pipeline**. Use **Undo edit** if needed, then save and publish the consumer explicitly.
+
+Inserted steps have fresh identities and retain their copied annotations and exact tool/provider requirements. They show which source/version they came from. Later source publications do not rewrite existing copies, and edits to a copy do not change the source. This is template expansion, not a nested runtime call or automatic upgrade. Host authorization still applies to each new node.
+
 ## Share and recover local work
 
-**Import / export definition** provides executable JSON and a separate graph-layout sidecar. Export into the editor or use the download links. Import validates the graph, retains the current workflow identity, and remains local until saved. Layout import validates node/connection references against the current definition. Neither import grants tool permissions, installs assemblies, or executes a workflow.
+Open **Import / export definition**. Use **Copy workflow package into JSON editor** or **Download workflow package** to share the full definition/layout and declared requirements. To import, create or select a draft, paste the package into **Workflow JSON**, and choose **Import package into draft**. Checksum/manifest validation detects mismatched contents; it does not authenticate the sender. Review user-authored text and requirements before sharing or executing.
+
+Package import keeps the current workflow ID, stages one undoable local edit, and requires explicit save/publication. It grants no tools, installs no code, and starts no run. Missing registrations are listed; even a matching registration still needs host policy permission. Existing executable JSON and separate layout sidecar downloads/imports remain available. Layouts validate node/connection references against the current definition.
 
 The catalog and run history survive normal host restarts. Unsaved browser edits do not. Interrupted runs are recorded as interrupted rather than automatically retried. A stale tool contract, unavailable provider, denied grant, or oversized input can fail a run; inspect its evidence and correct the draft/configuration rather than assuming it was rolled back or retried.
 
-Branches, arbitrary socket rewiring, nested sections, full reusable prefab assets, collaborative editing, live model configuration, durable approvals/recovery, and production authentication remain future work. Follow [roadmap and current scope](roadmap.md) for current scope and [graph controls](graph-editor.md) for detailed limits.
-
-The Core library now provides version-pinned reuse and package contracts; their Studio controls are the next UI milestone. See [reusable pipelines](reusable-pipelines.md) for current contract scope.
+Branches, arbitrary socket rewiring, nested sections/prefab instances, collaborative editing, live model configuration, durable approvals/recovery, and production authentication remain future work. Follow the [roadmap](roadmap.md) for current scope and [graph controls](graph-editor.md) for detailed limits.

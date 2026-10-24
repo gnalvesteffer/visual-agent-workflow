@@ -32,3 +32,4 @@ jobs:
           python3 scripts/studio_smoke.py --browser
           python3 scripts/ui_skill_review.py
           python3 scripts/graph_canvas_smoke.py
+          python3 scripts/pipeline_reuse_smoke.py

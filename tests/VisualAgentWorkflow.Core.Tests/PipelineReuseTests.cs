@@ -44,6 +44,7 @@ public sealed class PipelineReuseTests
         var source = Definition(count: 3); var layout = WorkflowLayout.Create(source);
         foreach (var ids in new[] { Array.Empty<string>(), ["step-0", "step-2"], ["input"], ["missing"] })
             Assert.Throws<ArgumentException>(() => PipelineReuse.Extract(source, layout, ids, "reusable"));
+        Assert.Throws<ArgumentException>(() => PipelineReuse.Extract(source, layout, ["step-0"], ".."));
     }
 
     [Fact]

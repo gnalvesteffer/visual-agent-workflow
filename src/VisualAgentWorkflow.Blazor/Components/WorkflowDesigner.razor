@@ -8,7 +8,7 @@
     {
         <div class="vaw-controls vaw-designer-toolbar">
             <label>Saved workflow
-                <select @key="(definition.WorkflowId, generation)" aria-label="Saved workflow" value="@definition.WorkflowId" @onchange="SelectWorkflow" disabled="@(busy || dirty)">
+                <select @key="(definition.WorkflowId, generation, workflows)" aria-label="Saved workflow" value="@definition.WorkflowId" @onchange="SelectWorkflow" disabled="@(busy || dirty)">
                     @if (generation == 0) { <option value="@definition.WorkflowId">New workflow</option> }
                     @foreach (var item in workflows) { <option @key="item.Definition.WorkflowId" value="@item.Definition.WorkflowId">@item.Definition.WorkflowId</option> }
                 </select>
@@ -46,6 +46,53 @@
         }
         @if (Catalog is not IWorkflowDesignCatalog) { <p class="vaw-help">This host does not save graph layout. Position and annotation editing are disabled.</p> }
         <PipelineEditor Layout="@(preview is not null ? previewLayout ?? WorkflowLayout.Create(preview.Revision.Definition) : layout)" LayoutChanged="ChangedLayout" LayoutReadOnly="@(Catalog is not IWorkflowDesignCatalog)" Definition="@(preview?.Revision.Definition ?? definition)" DefinitionChanged="Changed" ReadOnly="@(preview is not null)" Disabled="@busy" Bindings="bindings" Providers="providers" />
+        <details class="vaw-reuse-panel">
+            <summary>Reusable pipelines</summary>
+            <p class="vaw-help">Save consecutive processing steps as a separate workflow. Published versions are copied with fresh identities; source updates do not change existing copies.</p>
+            <div class="vaw-layout-columns">
+                <section aria-label="Save reusable section">
+                    <h3>Save a section</h3>
+                    <label>Section to save
+                        <select aria-label="Section to save" @bind="reusableSectionId" disabled="@(preview is not null || layout?.Sections.Count == 0)">
+                            <option value="">Choose a section</option>
+                            @foreach (var (id, section) in layout?.Sections ?? System.Collections.Immutable.ImmutableSortedDictionary<string, GraphSection>.Empty)
+                            { <option @key="id" value="@id">@section.Label</option> }
+                        </select>
+                    </label>
+                    <label>Reusable pipeline ID <input aria-label="Reusable pipeline ID" @bind="reusablePipelineId" maxlength="128" /></label>
+                    <button type="button" @onclick="SaveReusableSection" disabled="@(preview is not null || reusableSectionId.Length == 0 || Catalog is not IWorkflowDesignCatalog)">Save section as reusable draft</button>
+                    <p class="vaw-help">Creates a separate draft. Open, review, and publish it before reuse. Input/output nodes cannot be section members.</p>
+                </section>
+                <section aria-label="Insert reusable pipeline">
+                    <h3>Insert a published version</h3>
+                    <label>Reusable workflow
+                        <select aria-label="Reusable workflow" value="@reusableWorkflowId" @onchange="ChooseReusableWorkflow">
+                            <option value="">Choose a published workflow</option>
+                            @foreach (var workflow in workflows.Where(w => w.HeadRevisionId is not null))
+                            { <option @key="workflow.Definition.WorkflowId" value="@workflow.Definition.WorkflowId">@workflow.Definition.WorkflowId</option> }
+                        </select>
+                    </label>
+                    <label>Reusable version
+                        <select aria-label="Reusable version" value="@reusableRevisionId" @onchange="ChooseReusableVersion" disabled="@(reusableVersions.Count == 0)">
+                            @foreach (var version in reusableVersions)
+                            { <option @key="version.Revision.RevisionId" value="@version.Revision.RevisionId">Version @version.Version · @version.Revision.ContentHash[..8]</option> }
+                        </select>
+                    </label>
+                    <label>Insert pipeline after
+                        <select aria-label="Insert pipeline after" value="@(insertAfterNode.Length == 0 || !definition.Nodes.ContainsKey(insertAfterNode) ? definition.EntryNodeId : insertAfterNode)" @onchange="args => insertAfterNode = args.Value?.ToString() ?? definition.EntryNodeId">
+                            @foreach (var id in PipelineEditing.OrderedNodes(definition).Where(id => definition.Nodes[id].Type != NodeTypes.Output))
+                            { <option @key="id" value="@id">@(layout?.Nodes[id].Label is { Length: > 0 } label ? label : id)</option> }
+                        </select>
+                    </label>
+                    <button type="button" @onclick="InsertReusablePipeline" disabled="@(preview is not null || reusableRevisionId is null)">Insert published pipeline</button>
+                    <ul class="vaw-requirements">
+                        @foreach (var requirement in reusableRequirements)
+                        { <li @key="requirement">@requirement.Kind · @requirement.Id @requirement.Version: @RequirementAvailability(requirement)</li> }
+                    </ul>
+                    <p class="vaw-help">Listed requirements are not permission grants. The host authorizes each actual node invocation.</p>
+                </section>
+            </div>
+        </details>
         <section class="vaw-version-panel" aria-label="Published workflow versions">
             <div class="vaw-version-management">
             <h3>Published versions</h3>
@@ -72,7 +119,7 @@
         <details>
             <summary>Import / export definition</summary>
             <p>Import replaces this draft's graph and keeps its workflow ID. It does not grant capabilities or execute code.</p>
-            <label>Workflow JSON <textarea @bind="jsonText" rows="8" maxlength="1048576"></textarea></label>
+            <label>Workflow JSON <textarea @bind="jsonText" rows="8" maxlength="3145728"></textarea></label>
             <div class="vaw-controls">
                 <button type="button" @onclick="Export" disabled="@busy">Copy definition into JSON editor</button>
                 <button type="button" @onclick="Import" disabled="@(busy || preview is not null)">Import JSON into draft</button>
@@ -80,7 +127,15 @@
                 <button type="button" @onclick="ExportLayout" disabled="@busy">Copy graph layout into JSON editor</button>
                 <button type="button" @onclick="ImportLayout" disabled="@(busy || preview is not null || Catalog is not IWorkflowDesignCatalog)">Import graph layout into draft</button>
                 <a download="workflow.layout.json" href="@LayoutDownloadHref">Download graph layout</a>
+                <button type="button" @onclick="ExportPackage" disabled="@busy">Copy workflow package into JSON editor</button>
+                <button type="button" @onclick="ImportPackage" disabled="@(busy || preview is not null || Catalog is not IWorkflowDesignCatalog)">Import package into draft</button>
+                <a download="workflow.package.json" href="@PackageDownloadHref">Download workflow package</a>
             </div>
+            <p class="vaw-help">Packages include definition, layout, checksums, and declared requirements. Imports retain this workflow's ID and grant no permissions.</p>
+            <ul class="vaw-requirements">
+                @foreach (var requirement in packageRequirements)
+                { <li @key="requirement">@requirement.Kind · @requirement.Id @requirement.Version: @RequirementAvailability(requirement)</li> }
+            </ul>
         </details>
         <details>
             <summary>Catalog audit (@audit.Count entries)</summary>
