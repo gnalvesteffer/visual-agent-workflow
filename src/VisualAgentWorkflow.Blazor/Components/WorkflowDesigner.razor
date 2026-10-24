@@ -39,7 +39,12 @@
                 </ul>
             </details>
         }
-        <PipelineEditor Definition="@(preview?.Revision.Definition ?? definition)" DefinitionChanged="Changed" ReadOnly="@(preview is not null)" Disabled="@busy" />
+        @if (ToolCatalog is not null)
+        {
+            <button @onclick="RefreshTools" disabled="@busy">Refresh MCP tools</button>
+            <p>Tool bindings request access. Host policy checks each call; selecting a tool does not grant permission.</p>
+        }
+        <PipelineEditor Definition="@(preview?.Revision.Definition ?? definition)" DefinitionChanged="Changed" ReadOnly="@(preview is not null)" Disabled="@busy" Bindings="bindings" />
         <section aria-label="Published workflow versions">
             <h3>Published versions</h3>
             <p>Active version: @(versions.FirstOrDefault(v => v.Revision.RevisionId == activeRevisionId)?.Version.ToString() ?? "None")</p>
@@ -82,6 +87,8 @@
     [Parameter, EditorRequired] public IWorkflowCatalog Catalog { get; set; } = default!;
     [Parameter, EditorRequired] public IPublishedWorkflowClient Client { get; set; } = default!;
     [Parameter] public EventCallback<RunSnapshot> OnRunStarted { get; set; }
+    [Parameter] public IToolBindingCatalog? ToolCatalog { get; set; }
+    private IReadOnlyList<ToolBindingDescriptor> bindings = [];
     private WorkflowDefinition? definition;
     private long generation;
     private Guid? activeRevisionId;
@@ -106,6 +113,7 @@
     {
         workflows = await Catalog.ListDraftsAsync();
         if (workflows.Count > 0) await Load(workflows[0]); else NewWorkflow();
+        if (ToolCatalog is not null) bindings = await ToolCatalog.ListBindingsAsync();
     });
 
     protected override void OnAfterRender(bool firstRender)
@@ -199,6 +207,7 @@
         await OnRunStarted.InvokeAsync(run); message = "Published run started independently of the editor.";
     });
     private void Export() { jsonText = WorkflowJson.Serialize(preview?.Revision.Definition ?? definition!); }
+    private Task RefreshTools() => Perform(async () => { bindings = await ToolCatalog!.ListBindingsAsync(); message = "MCP tool catalog refreshed. Existing contracts remain pinned."; });
     private Task Import() => Perform(() =>
     {
         var imported = WorkflowJson.Deserialize(jsonText) with { WorkflowId = definition!.WorkflowId };

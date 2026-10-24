@@ -23,12 +23,22 @@ public static class PipelineEditing
     public static WorkflowDefinition InsertAfter(WorkflowDefinition definition, string afterNodeId, string type)
     {
         RequireTransform(type);
+        return InsertNodeAfter(definition, afterNodeId, new(type, "1.0.0"));
+    }
+
+    public static WorkflowDefinition InsertNodeAfter(WorkflowDefinition definition, string afterNodeId, NodeDefinition node)
+    {
+        RequireEditable(node.Type);
         var order = OrderedNodes(definition).ToList();
         var position = order.IndexOf(afterNodeId);
         if (position < 0 || position == order.Count - 1) throw new ArgumentException("Insert after an existing non-output node.", nameof(afterNodeId));
         var id = "node-" + Guid.NewGuid().ToString("N");
         order.Insert(position + 1, id);
-        return Reconnect(definition with { Nodes = definition.Nodes.Add(id, new(type, "1.0.0")) }, order);
+        return Reconnect(definition with
+        {
+            SchemaVersion = node.Type == NodeTypes.McpTool ? "1.1" : definition.SchemaVersion,
+            Nodes = definition.Nodes.Add(id, node)
+        }, order);
     }
 
     public static WorkflowDefinition Remove(WorkflowDefinition definition, string nodeId)
@@ -60,6 +70,20 @@ public static class PipelineEditing
         return definition with { Nodes = definition.Nodes.SetItem(nodeId, new(type, "1.0.0")) };
     }
 
+    public static WorkflowDefinition ReplaceNode(WorkflowDefinition definition, string nodeId, NodeDefinition node)
+    {
+        WorkflowValidator.ThrowIfInvalid(definition);
+        RequireTransformNode(definition, nodeId);
+        RequireEditable(node.Type);
+        var result = definition with
+        {
+            SchemaVersion = node.Type == NodeTypes.McpTool ? "1.1" : definition.SchemaVersion,
+            Nodes = definition.Nodes.SetItem(nodeId, node)
+        };
+        WorkflowValidator.ThrowIfInvalid(result);
+        return result;
+    }
+
     private static WorkflowDefinition Reconnect(WorkflowDefinition definition, IReadOnlyList<string> order)
     {
         var existing = definition.Connections.ToDictionary(e => (e.Value.Source.NodeId, e.Value.Target.NodeId), e => e.Key);
@@ -77,7 +101,13 @@ public static class PipelineEditing
     private static void RequireTransformNode(WorkflowDefinition definition, string nodeId)
     {
         if (!definition.Nodes.TryGetValue(nodeId, out var node)) throw new ArgumentException("Unknown node.", nameof(nodeId));
-        RequireTransform(node.Type);
+        RequireEditable(node.Type);
+    }
+
+    private static void RequireEditable(string type)
+    {
+        if (type is not (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.McpTool))
+            throw new ArgumentException("Only registered processing nodes can be edited.", nameof(type));
     }
 
     private static void RequireTransform(string type)

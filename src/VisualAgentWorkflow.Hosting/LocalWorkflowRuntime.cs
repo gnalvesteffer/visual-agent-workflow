@@ -8,7 +8,7 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>Bounded, server-owned development execution queue. UI request cancellation never owns runs.</summary>
-public sealed class LocalWorkflowRuntime(FileRunJournal journal, ILogger<LocalWorkflowRuntime> logger)
+public sealed class LocalWorkflowRuntime(FileRunJournal journal, ILogger<LocalWorkflowRuntime> logger, INodeToolBroker? tools = null)
     : BackgroundService, IWorkflowClient
 {
     private sealed record Request(Guid RunId, WorkflowRevision Revision, string Input, CancellationTokenSource Cancellation);
@@ -65,7 +65,7 @@ public sealed class LocalWorkflowRuntime(FileRunJournal journal, ILogger<LocalWo
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, request.Cancellation.Token);
                 try
                 {
-                    await new PipelineRunner().ExecuteAsync(request.RunId, request.Revision, request.Input,
+                    await new PipelineRunner(tools).ExecuteAsync(request.RunId, request.Revision, request.Input,
                         evt => { journal.Append(evt); return ValueTask.CompletedTask; }, linked.Token);
                 }
                 catch (OperationCanceledException) when (linked.IsCancellationRequested) { }

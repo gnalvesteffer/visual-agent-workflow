@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @inject IWorkflowClient Client
 @inject IWorkflowCatalog Catalog
+@inject IToolBindingCatalog Tools
 
 <PageTitle>Visual Agent Workflow</PageTitle>
-<WorkflowStudio Client="Client" Catalog="Catalog" />
+<WorkflowStudio Client="Client" Catalog="Catalog" ToolCatalog="Tools" />

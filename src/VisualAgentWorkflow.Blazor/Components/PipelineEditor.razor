@@ -5,6 +5,7 @@
             <select aria-label="New node operation" @bind="newType" disabled="@Disabled">
                 <option value="@NodeTypes.Uppercase">Uppercase</option>
                 <option value="@NodeTypes.Reverse">Reverse</option>
+                @foreach (var binding in Bindings) { <option value="@ToolKey(binding)">@binding.DisplayName</option> }
             </select>
         </label>
     }
@@ -27,9 +28,12 @@
                     else
                     {
                         <label>Operation for @id
-                            <select aria-label="Operation for @id" value="@node.Type" @onchange="args => ChangeType(id, args)" disabled="@Disabled">
+                            <select aria-label="Operation for @id" value="@NodeKey(node)" @onchange="args => ChangeType(id, args)" disabled="@Disabled">
                                 <option value="@NodeTypes.Uppercase">Uppercase</option>
                                 <option value="@NodeTypes.Reverse">Reverse</option>
+                                @if (node.Tool is { } pinned && !Bindings.Any(b => b.BindingId == pinned.BindingId && b.ContractHash == pinned.ContractHash))
+                                { <option value="@NodeKey(node)">Pinned MCP binding unavailable: @pinned.BindingId</option> }
+                                @foreach (var binding in Bindings) { <option value="@ToolKey(binding)">@binding.DisplayName</option> }
                             </select>
                         </label>
                         <div class="vaw-controls">
@@ -40,8 +44,10 @@
                     }
                     @if (!ReadOnly && node.Type != NodeTypes.Output)
                     {
-                        <button @onclick="() => Edit(() => PipelineEditing.InsertAfter(Definition, id, newType))" disabled="@(Disabled || Definition.Nodes.Count >= 256)" aria-label="Add node after @id">+ Add node after</button>
+                        <button @onclick="() => Edit(() => PipelineEditing.InsertNodeAfter(Definition, id, FromSelection(newType)))" disabled="@(Disabled || Definition.Nodes.Count >= 256)" aria-label="Add node after @id">+ Add node after</button>
                     }
+                    @if (node.Tool is { } tool)
+                    { <p>MCP binding: @tool.BindingId · pinned contract @tool.ContractHash[..8]</p> }
                 </article>
             </li>
         }
@@ -54,12 +60,21 @@
     [Parameter] public EventCallback<WorkflowDefinition> DefinitionChanged { get; set; }
     [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public bool Disabled { get; set; }
+    [Parameter] public IReadOnlyList<ToolBindingDescriptor> Bindings { get; set; } = [];
     private string newType = NodeTypes.Uppercase;
     private string? error;
     private System.Collections.Immutable.ImmutableArray<string> Order => PipelineEditing.OrderedNodes(Definition);
 
     private Task ChangeType(string id, ChangeEventArgs args) =>
-        Edit(() => PipelineEditing.ChangeOperation(Definition, id, args.Value?.ToString() ?? ""));
+        Edit(() => PipelineEditing.ReplaceNode(Definition, id, FromSelection(args.Value?.ToString() ?? "")));
+
+    private static string ToolKey(ToolBindingDescriptor binding) => $"mcp:{binding.BindingId}:{binding.ContractHash}";
+    private static string NodeKey(NodeDefinition node) => node.Tool is { } tool ? $"mcp:{tool.BindingId}:{tool.ContractHash}" : node.Type;
+    private NodeDefinition FromSelection(string value)
+    {
+        var binding = Bindings.SingleOrDefault(b => ToolKey(b) == value);
+        return binding is null ? new(value, "1.0.0") : new(NodeTypes.McpTool, "1.0.0", new(binding.BindingId, binding.ContractHash));
+    }
 
     private async Task Edit(Func<WorkflowDefinition> edit)
     {

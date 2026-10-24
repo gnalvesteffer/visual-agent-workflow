@@ -4,7 +4,7 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.AgentFramework;
 
 /// <summary>Translates the supported string pipeline into actual Agent Framework executors and edges.</summary>
-public sealed class PipelineRunner
+public sealed class PipelineRunner(INodeToolBroker? tools = null)
 {
     public async Task<string> ExecuteAsync(
         Guid runId,
@@ -28,7 +28,7 @@ public sealed class PipelineRunner
         var incoming = definition.Connections.ToDictionary(e => e.Value.Target.NodeId, e => e.Key);
         var executors = definition.Nodes.ToDictionary(
             n => n.Key,
-            n => new StringExecutor(n.Key, n.Value.Type, incoming.GetValueOrDefault(n.Key), Emit));
+            n => new StringExecutor(n.Key, n.Value, runId, revision, tools, incoming.GetValueOrDefault(n.Key), Emit));
         var builder = new WorkflowBuilder(executors[definition.EntryNodeId]);
         foreach (var edge in definition.Connections.Values)
             builder.AddEdge(executors[edge.Source.NodeId], executors[edge.Target.NodeId]);
@@ -70,7 +70,10 @@ public sealed class PipelineRunner
 
     private sealed class StringExecutor(
         string id,
-        string type,
+        NodeDefinition node,
+        Guid runId,
+        WorkflowRevision revision,
+        INodeToolBroker? tools,
         string? incomingConnection,
         Func<string, string?, Guid?, string?, string?, ValueTask> emit) : Executor<string, string>(id)
     {
@@ -82,15 +85,24 @@ public sealed class PipelineRunner
             if (incomingConnection is not null)
                 await emit(ExecutionEventKinds.Transfer, Id, invocation, incomingConnection, message);
             await emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, message);
-            var result = type switch
+            var result = node.Type switch
             {
                 NodeTypes.Input or NodeTypes.Output => message,
                 NodeTypes.Uppercase => message.ToUpperInvariant(),
                 NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
+                NodeTypes.McpTool => await InvokeTool(message, invocation, cancellationToken),
                 _ => throw new InvalidOperationException("Unsupported executor type.")
             };
             await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, result);
             return result;
+        }
+
+        private async Task<string> InvokeTool(string input, Guid invocation, CancellationToken cancellationToken)
+        {
+            if (tools is null) throw new InvalidOperationException("No tool broker is configured.");
+            await using var scope = tools.OpenScope(new(runId, revision, Id, invocation,
+                (kind, data) => emit(kind, Id, invocation, null, data)));
+            return await scope.InvokeAsync(node.Tool!.BindingId, input, cancellationToken);
         }
     }
 }

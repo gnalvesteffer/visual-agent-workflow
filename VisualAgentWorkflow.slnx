@@ -4,11 +4,13 @@
     <Project Path="src/VisualAgentWorkflow.Blazor/VisualAgentWorkflow.Blazor.csproj" />
     <Project Path="src/VisualAgentWorkflow.Core/VisualAgentWorkflow.Core.csproj" />
     <Project Path="src/VisualAgentWorkflow.Hosting/VisualAgentWorkflow.Hosting.csproj" />
+    <Project Path="src/VisualAgentWorkflow.Mcp/VisualAgentWorkflow.Mcp.csproj" />
     <Project Path="src/VisualAgentWorkflow.Studio/VisualAgentWorkflow.Studio.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/VisualAgentWorkflow.AgentFramework.Tests/VisualAgentWorkflow.AgentFramework.Tests.csproj" />
     <Project Path="tests/VisualAgentWorkflow.Core.Tests/VisualAgentWorkflow.Core.Tests.csproj" />
     <Project Path="tests/VisualAgentWorkflow.Hosting.Tests/VisualAgentWorkflow.Hosting.Tests.csproj" />
+    <Project Path="tests/VisualAgentWorkflow.Mcp.Tests/VisualAgentWorkflow.Mcp.Tests.csproj" />
   </Folder>
 </Solution>

@@ -34,7 +34,7 @@ Verified checks include journal reopening/terminal immutability, sequence/revisi
 
 ## Remaining roadmap
 
-MCP brokering, real agents, approvals, arbitrary graph editing, layout/dependency bundle schemas, durable recovery, workspace authorization and full administrative audit, prefab/skill packages, extension isolation, collaboration, and production operations remain outstanding. Later milestones must update this document with verified capabilities and limitations.
+Live model-backed agents, approvals, arbitrary graph editing, layout/dependency bundle schemas, durable recovery, workspace authorization and full administrative audit, prefab/skill packages, extension isolation, collaboration, and production operations remain outstanding. Later milestones must update this document with verified capabilities and limitations.
 
 ## Milestone 4: transactional workflow catalog
 
@@ -59,3 +59,15 @@ Definition JSON can be downloaded, exported into a text editor, and imported int
 Core tests cover identity preservation, insertion/reorder/removal, operation diffs, terminal and unknown-operation rejection, and the node limit. Real-browser smoke checks cover editing/undo/redo, two publications, recorded output from the selected version, read-only historical preview, restore as a third publication, competing tabs with conflict recovery, JSON import, and mobile overflow. Accessible names and disabled-until-interactive controls are tested through actual controls. The saved-workflow selector is keyed by identity/generation to preserve alignment when its options change after initial save.
 
 This is a visual linear pipeline editor, not the full Blueprint-style free-form canvas. There is no drag-to-wire, layout persistence, branching, multi-user live synchronization, or automatic save yet. SQLite catalog persistence does not change the development-only security or file run-journal recovery limitations.
+
+## Milestone 6: node-scoped MCP tools
+
+Added an MCP adapter using ModelContextProtocol 2.3.0, verified against its package XML and source commit `9a327829ef066c44a0d737c58bf3c7617d7c701c`. A trusted host registers logical tool bindings and connection factories. Workflow nodes store only binding requirements and contract fingerprints, never commands, connection URLs, credentials, or permission grants. The designer lists registered bindings and can replace/insert a processing node with an MCP tool.
+
+Schema 1.1 adds `core.mcp-tool` with a single string input/output. Existing schema 1.0 definitions and their hashes remain unchanged because absent optional configuration is omitted from JSON. The tool contract fingerprint covers the tool name and normalized input/output schemas, not its external implementation behavior. Calls rediscover and compare the actual contract before dispatch. Unavailable or drifted bindings fail rather than being silently upgraded.
+
+Invocation scopes are created by the trusted runtime from the immutable node definition. Effective access requires both the node declaration and a host policy grant; guessed aliases and grants belonging to another node do not confer access. Authorization is rechecked before dispatch. Scopes reject use after disposal and enforce at most eight calls, 16,384-character input/output limits, and a default ten-second deadline per operation. No automatic retry is performed. Registrations default to non-read-only and are denied until explicitly designated read-only by the host; MCP annotations alone never authorize calls.
+
+The development host registers a known stdio fixture with pure uppercase/reverse tools and an explicit policy allowing those two aliases. Server commands are fixed by host code, and child processes do not inherit host environment variables or credentials. This is not a server sandbox: the fixture is trusted code. Arbitrary user executables, remote server configuration, authentication, writes, approvals, generalized JSON arguments, resources, sampling, and elicitation are not implemented.
+
+Recorded events include requests, denials, authorization with binding/server/tool/contract and input, outputs, and sanitized failures. Cancellation/transport loss after dispatch is labeled outcome-unknown where observed; it is not represented as confirmed rollback. The local plaintext capture and file-journal limitations remain. Unit/integration checks exercise real stdio discovery/calls, scope isolation, contract mismatch, revocation, input bounds, pre-dispatch connection timeout without retry, non-read-only denial, and old hash compatibility. HTTP/browser checks exercise pipeline execution and saved binding selection. They do not establish production remote-service security or durable side-effect recovery.

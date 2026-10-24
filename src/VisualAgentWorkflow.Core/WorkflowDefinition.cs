@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 namespace VisualAgentWorkflow.Core;
 
@@ -10,7 +11,8 @@ public sealed record WorkflowDefinition(
     ImmutableSortedDictionary<string, NodeDefinition> Nodes,
     ImmutableSortedDictionary<string, ConnectionDefinition> Connections);
 
-public sealed record NodeDefinition(string Type, string TypeVersion);
+public sealed record NodeDefinition(string Type, string TypeVersion,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ToolBindingRequest? Tool = null);
 public sealed record PortReference(string NodeId, string PortId);
 public sealed record ConnectionDefinition(PortReference Source, PortReference Target, string Kind);
 
@@ -21,7 +23,8 @@ public static class NodeTypes
     public const string Uppercase = "core.text.uppercase";
     public const string Reverse = "core.text.reverse";
     public const string Output = "core.output";
+    public const string McpTool = "core.mcp-tool";
 
     public static bool IsSupported(string? type) =>
-        type is Input or Uppercase or Reverse or Output;
+        type is Input or Uppercase or Reverse or Output or McpTool;
 }

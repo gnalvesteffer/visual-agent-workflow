@@ -116,6 +116,43 @@ def catalog_check():
     print("Catalog save/conflict, publish, restore, activate, pinned execution, and audit checks passed.")
 
 
+def mcp_check():
+    bindings = get("/api/tool-bindings")
+    reverse = next(binding for binding in bindings if binding["bindingId"] == "demo.reverse")
+    definition = get("/api/templates/default")
+    definition["schemaVersion"] = "1.1"
+    definition["nodes"]["step-1"] = {"type": "core.mcp-tool", "typeVersion": "1.0.0", "tool": {
+        "bindingId": reverse["bindingId"], "contractHash": reverse["contractHash"]}}
+    definition["nodes"]["step-2"]["type"] = "core.text.uppercase"
+
+    def execute(candidate):
+        with request("/api/runs", {"definition": candidate, "input": "abc"}) as response:
+            started = json.load(response)
+        deadline = time.monotonic() + 15
+        while True:
+            snapshot = get("/api/runs/" + started["header"]["runId"])
+            if snapshot["isTerminal"]:
+                return snapshot
+            assert time.monotonic() < deadline
+            time.sleep(0.05)
+
+    result = execute(definition)
+    assert result["status"] == "completed" and result["events"][-1]["data"] == "CBA"
+    tool_events = [event for event in result["events"] if event["kind"].startswith("tool.")]
+    assert [event["kind"] for event in tool_events] == ["tool.requested", "tool.authorized", "tool.completed"]
+    assert all(event["nodeId"] == "step-1" and event["invocationId"] for event in tool_events)
+    definition["nodes"]["step-1"]["tool"]["bindingId"] = "not-granted"
+    denied = execute(definition)
+    assert denied["status"] == "failed"
+    assert any(event["kind"] == "tool.denied" for event in denied["events"])
+    assert not any(event["kind"] == "tool.authorized" for event in denied["events"])
+    definition["nodes"]["step-1"]["tool"] = {"bindingId": reverse["bindingId"], "contractHash": "0" * 64}
+    drifted = execute(definition)
+    assert drifted["status"] == "failed"
+    assert not any(event["kind"] == "tool.authorized" for event in drifted["events"])
+    print("Actual MCP pipeline execution, correlated recording, denied binding, and contract-drift checks passed.")
+
+
 def browser_check(executable):
     from playwright.sync_api import expect, sync_playwright
 
@@ -145,6 +182,7 @@ def browser_check(executable):
             assert not errors, errors
             print("Browser run controls, output inspector, playback, reload, and mobile overflow checks passed.")
             designer_check(browser)
+            mcp_designer_check(browser)
         finally:
             browser.close()
 
@@ -241,6 +279,38 @@ def designer_check(browser):
     print("Browser graph edits/undo, publication, pinned run, version preview/restore, cross-tab conflicts, and JSON import passed.")
 
 
+def mcp_designer_check(browser):
+    from playwright.sync_api import expect
+
+    page = browser.new_page(viewport={"width": 1280, "height": 1000})
+    page.goto(BASE)
+    designer = page.get_by_role("region", name="Workflow designer", exact=True)
+    expect(designer.get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
+    designer.get_by_role("button", name="New workflow", exact=True).click()
+    designer.get_by_text("New workflow created locally. Save its draft before publishing.", exact=True).wait_for()
+    workflow_id = designer.get_by_label("Saved workflow", exact=True).input_value()
+    designer.get_by_label("Operation for step-1", exact=True).select_option(label="MCP · reverse")
+    designer.get_by_text("MCP binding: demo.reverse", exact=False).wait_for()
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    designer.get_by_role("button", name="Publish & activate", exact=True).click()
+    designer.get_by_text("Published and activated version 1.", exact=True).wait_for()
+    designer.get_by_label("Published run input", exact=True).fill("abc")
+    designer.get_by_role("button", name="Run selected version", exact=True).click()
+    page.get_by_role("button", name="output core.output Completed", exact=True).click()
+    expect(page.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("cba")
+    viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
+    viewer.get_by_text("Recorded events at this position", exact=False).click()
+    viewer.get_by_role("cell", name="tool.completed", exact=True).wait_for()
+    assert get("/api/workflows/" + workflow_id)["definition"]["schemaVersion"] == "1.1"
+    page.reload()
+    expect(designer.get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
+    designer.get_by_label("Saved workflow", exact=True).select_option(workflow_id)
+    expect(designer.get_by_label("Operation for step-1", exact=True)).to_have_value(
+        "mcp:demo.reverse:" + get("/api/workflows/" + workflow_id)["definition"]["nodes"]["step-1"]["tool"]["contractHash"])
+    page.close()
+    print("Browser MCP binding selection, published execution, recorded tool result, and reload passed.")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--browser", action="store_true", help="Also exercise real browser controls; requires Playwright and Chromium")
@@ -248,5 +318,6 @@ if __name__ == "__main__":
     arguments = parser.parse_args()
     api_check()
     catalog_check()
+    mcp_check()
     if arguments.browser:
         browser_check(arguments.browser_executable)

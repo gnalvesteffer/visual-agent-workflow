@@ -24,3 +24,5 @@ A .NET interface, restricted context, Roslyn, or AssemblyLoadContext is not a sa
 Use controlled fixtures to exercise cross-node and cross-tenant access denial, guessed tool names, revoked grants, approval reuse, and nested permission escalation when affected. For worker changes, test attempted direct I/O under actual isolation. A mocked denial does not establish containment. Never probe unrelated public systems.
 
 Report concrete threats, evidence, mitigation, and remaining limitations. Do not claim production security from a code-only review.
+
+The implemented MCP boundary is `VisualAgentWorkflow.Mcp/McpToolBroker`: node requirements intersect host policy on each call. Registrations default to non-read-only and are denied; the development host explicitly enables only two pure fixture tools. Tool connections are host code, never imported definition fields. Run `VisualAgentWorkflow.Mcp.Tests` for real stdio, denial, drift, revocation, bounds, and timeout checks. A trusted stdio child with a restricted environment is not a sandbox. Preserve schema 1.0 hashes when extending optional node configuration.

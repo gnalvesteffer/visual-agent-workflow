@@ -12,8 +12,8 @@ public static class WorkflowValidator
         var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
 
-        if (definition.SchemaVersion != "1.0")
-            Error("schema.unsupported", "schemaVersion", "Only schema version 1.0 is supported.");
+        if (definition.SchemaVersion is not ("1.0" or "1.1"))
+            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 and 1.1.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.Nodes is null || definition.Connections is null)
@@ -31,6 +31,16 @@ public static class WorkflowValidator
             if (string.IsNullOrWhiteSpace(id)) Error("node.id", "nodes", "Node IDs must be nonempty.");
             if (node is null || !NodeTypes.IsSupported(node.Type) || node.TypeVersion != "1.0.0")
                 Error("node.unsupported", $"nodes.{id}", "Unknown node type or implementation version.");
+            if (node is null) continue;
+            if (node.Type == NodeTypes.McpTool)
+            {
+                if (definition.SchemaVersion == "1.0")
+                    Error("node.schema", $"nodes.{id}", "MCP nodes require schema 1.1.");
+                if (node.Tool is not { } tool || !ValidBinding(tool))
+                    Error("tool.binding", $"nodes.{id}.tool", "A logical binding and SHA-256 contract hash are required.");
+            }
+            else if (node.Tool is not null)
+                Error("tool.unexpected", $"nodes.{id}.tool", "This node type cannot declare an MCP tool.");
         }
 
         if (string.IsNullOrWhiteSpace(definition.EntryNodeId) ||
@@ -90,4 +100,8 @@ public static class WorkflowValidator
         if (issues.Length > 0)
             throw new ArgumentException(string.Join("; ", issues.Select(i => $"{i.Code}: {i.Message}")), nameof(definition));
     }
+
+    private static bool ValidBinding(ToolBindingRequest tool) =>
+        !string.IsNullOrWhiteSpace(tool.BindingId) && tool.BindingId.Length <= 128 &&
+        tool.ContractHash is { Length: 64 } && tool.ContractHash.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
 }
