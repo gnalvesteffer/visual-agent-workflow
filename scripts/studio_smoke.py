@@ -7,18 +7,20 @@ runs in the studio's development journal; use a disposable local data directory.
 import argparse
 import json
 import time
+import uuid
 import urllib.error
 import urllib.request
 
 BASE = "http://127.0.0.1:5099"
 
 
-def request(path, body=None, headers=None):
+def request(path, body=None, headers=None, method=None):
     return urllib.request.urlopen(
         urllib.request.Request(
             BASE + path,
             data=None if body is None else json.dumps(body).encode(),
             headers={"Content-Type": "application/json", **(headers or {})},
+            method=method,
         ),
         timeout=10,
     )
@@ -29,9 +31,9 @@ def get(path):
         return json.load(response)
 
 
-def expect_denial(path, body, headers, status):
+def expect_denial(path, body, headers, status, method=None):
     try:
-        with request(path, body, headers):
+        with request(path, body, headers, method):
             raise AssertionError(f"Expected HTTP {status}")
     except urllib.error.HTTPError as error:
         assert error.code == status, error.code
@@ -67,6 +69,51 @@ def api_check():
     invalid = {**definition, "schemaVersion": "unsupported"}
     expect_denial("/api/runs", {"definition": invalid, "input": "x"}, None, 400)
     print(f"API execution, output, event cursor, validation, and local access checks passed: {run_id}")
+
+
+def catalog_check():
+    definition = get("/api/templates/default")
+    workflow_id = "smoke-" + uuid.uuid4().hex
+    definition["workflowId"] = workflow_id
+    path = "/api/workflows/" + workflow_id
+
+    def mutate(suffix, body, method="POST"):
+        with request(path + suffix, body, method=method) as response:
+            return json.load(response)
+
+    draft = mutate("/draft", {"definition": definition, "expectedGeneration": 0}, "PUT")
+    expect_denial(path + "/draft", {"definition": definition, "expectedGeneration": 0}, None, 409, "PUT")
+    expect_denial(path + "/runs", {"input": "abc"}, None, 409)
+    first = mutate("/publish", {"expectedGeneration": draft["generation"]})
+    first_id = first["revision"]["revisionId"]
+    draft = get(path)
+    definition["nodes"]["step-2"]["type"] = "core.text.uppercase"
+    draft = mutate("/draft", {"definition": definition, "expectedGeneration": draft["generation"]}, "PUT")
+    second = mutate("/publish", {"expectedGeneration": draft["generation"]})
+    draft = get(path)
+    draft = mutate("/restore", {"revisionId": first_id, "expectedGeneration": draft["generation"]})
+    assert draft["activeRevisionId"] == second["revision"]["revisionId"]
+    third = mutate("/publish", {"expectedGeneration": draft["generation"]})
+    assert third["version"] == 3
+    assert third["revision"]["contentHash"] == first["revision"]["contentHash"]
+    assert third["revision"]["parentRevisionId"] == second["revision"]["revisionId"]
+    draft = get(path)
+    mutate("/activate", {"revisionId": first_id, "expectedGeneration": draft["generation"]})
+    run = mutate("/runs", {"input": "abc"})
+    deadline = time.monotonic() + 10
+    while True:
+        recorded = get("/api/runs/" + run["header"]["runId"])
+        if recorded["isTerminal"]:
+            break
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    assert recorded["status"] == "completed" and recorded["events"][-1]["data"] == "CBA"
+    assert recorded["header"]["revisionId"] == first_id
+    assert [r["version"] for r in get(path + "/revisions")] == [3, 2, 1]
+    audit = get(path + "/audit")
+    assert len(audit) == 7 and audit[-1]["kind"] == "revision.activated"
+    assert all(entry["actor"] == "local-developer" for entry in audit)
+    print("Catalog save/conflict, publish, restore, activate, pinned execution, and audit checks passed.")
 
 
 def browser_check(executable):
@@ -107,5 +154,6 @@ if __name__ == "__main__":
     parser.add_argument("--browser-executable", help="Optional path to an existing Chromium executable")
     arguments = parser.parse_args()
     api_check()
+    catalog_check()
     if arguments.browser:
         browser_check(arguments.browser_executable)

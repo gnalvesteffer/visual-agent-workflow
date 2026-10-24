@@ -4,6 +4,7 @@ using VisualAgentWorkflow.Blazor;
 using VisualAgentWorkflow.Core;
 using VisualAgentWorkflow.Hosting;
 using VisualAgentWorkflow.Studio.Components;
+using VisualAgentWorkflow.Studio;
 
 var builder = WebApplication.CreateBuilder(args);
 if (!builder.Environment.IsDevelopment())
@@ -13,7 +14,10 @@ builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddSingleton(new FileRunJournal(Path.Combine(builder.Environment.ContentRootPath, ".local", "runs")));
 builder.Services.AddSingleton<LocalWorkflowRuntime>();
-builder.Services.AddSingleton<IWorkflowClient>(services => services.GetRequiredService<LocalWorkflowRuntime>());
+builder.Services.AddSingleton<IWorkflowCatalog>(new SqliteWorkflowCatalog(Path.Combine(builder.Environment.ContentRootPath, ".local", "workflows.db")));
+builder.Services.AddSingleton<PublishedWorkflowClient>();
+builder.Services.AddSingleton<IPublishedWorkflowClient>(services => services.GetRequiredService<PublishedWorkflowClient>());
+builder.Services.AddSingleton<IWorkflowClient>(services => services.GetRequiredService<PublishedWorkflowClient>());
 builder.Services.AddHostedService(services => services.GetRequiredService<LocalWorkflowRuntime>());
 var app = builder.Build();
 
@@ -42,6 +46,7 @@ app.Use(async (context, next) =>
 });
 app.UseStaticFiles();
 app.UseAntiforgery();
+app.MapWorkflowEndpoints();
 app.MapGet("/api/templates/default", () => Results.Text(WorkflowJson.Serialize(PipelineTemplates.Create("uppercase-reverse")), "application/json"));
 app.MapPost("/api/runs", async (StartRunRequest request, IWorkflowClient client) =>
 {

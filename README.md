@@ -25,7 +25,7 @@ No model credentials or external services are needed for core tests. Keep packag
 ## Run the development studio
 
 ```sh
-dotnet run --project src/VisualAgentWorkflow.Studio --configuration Release --no-build --environment Development
+dotnet run --project src/VisualAgentWorkflow.Studio --configuration Release --no-build -- --environment Development
 ```
 
 The console reports the local listening address on port 5099. The prototype requires Development mode and restricts requests to loopback peers/hosts and same-origin browser access. Do not expose it through a public reverse proxy. It has no workspace authentication and records plaintext input/output under `src/VisualAgentWorkflow.Studio/.local/runs/` (ignored by Git). Use disposable, non-sensitive inputs.
@@ -42,4 +42,4 @@ Optional real-browser checks require Python Playwright and its Chromium browser 
 python3 scripts/studio_smoke.py --browser
 ```
 
-See [component embedding](docs/embedding.md). Full visual graph editing, real agents, MCP integration, persistent workflow publication, and production durability are subsequent milestones.
+See [component embedding](docs/embedding.md) and the [saved workflow API](docs/workflow-api.md). Full visual graph editing, real agents, MCP integration, and production durability are subsequent milestones.

@@ -34,4 +34,16 @@ Verified checks include journal reopening/terminal immutability, sequence/revisi
 
 ## Remaining roadmap
 
-MCP brokering, real agents, approvals, arbitrary graph editing, persistent workflow draft/publication/history services, layout/dependency bundle schemas, durable recovery, workspace authorization and administrative audit, prefab/skill packages, extension isolation, collaboration, and production operations remain outstanding after milestone 3. Later milestones must update this document with verified capabilities and limitations.
+MCP brokering, real agents, approvals, arbitrary graph editing, layout/dependency bundle schemas, durable recovery, workspace authorization and full administrative audit, prefab/skill packages, extension isolation, collaboration, and production operations remain outstanding. Later milestones must update this document with verified capabilities and limitations.
+
+## Milestone 4: transactional workflow catalog
+
+The development host now persists drafts, numbered immutable published revisions, active/head pointers, and catalog audit entries in `.local/workflows.db` using Microsoft.Data.Sqlite 10.0.13. Definition changes use immediate SQLite transactions and require an expected generation. Stale save, publish, restore, and activation requests return HTTP 409 without changes or extra audit entries. Publishing creates a new numbered revision and activates it atomically. Restoring an older revision changes the draft only; publishing that draft creates a new revision whose parent is the current head. Activating an older published revision changes the active pointer without rewriting the draft or publication history.
+
+Published execution resolves the stored revision identity and content. Editing the draft afterward cannot change that run's definition. A convenience endpoint runs the active revision; another runs a specifically selected published revision. Ad-hoc template execution remains available separately.
+
+Catalog mutations append actor, timestamp, kind, generation, revision identity, and content hash to the audit table in the same transaction. The actor is still the development placeholder `local-developer`; this is not authenticated administrative audit, tamper evidence, or run-access auditing. Revision reads validate stored content hashes; hashes do not prove authenticity. The initial database schema is version 1 and unknown schema versions fail explicitly.
+
+Tests and the API smoke check cover persistent history, restore lineage, activation, concurrent writer conflicts across independent store instances, transactionally consistent audit entries, rejected cross-workflow revisions, and execution of the original published content after draft edits. The run journal and scheduling limitations from milestone 3 remain unchanged.
+
+See [workflow API](workflow-api.md) for routes. Draft/revision UI controls are the next milestone.

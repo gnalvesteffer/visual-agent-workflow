@@ -22,10 +22,13 @@ public sealed class LocalWorkflowRuntime(FileRunJournal journal, ILogger<LocalWo
     }
 
     public Task<RunSnapshot> StartRunAsync(WorkflowDefinition definition, string input)
+        => StartRevisionAsync(WorkflowRevision.Create(definition, "local-developer"), input);
+
+    public Task<RunSnapshot> StartRevisionAsync(WorkflowRevision revision, string input)
     {
+        ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(input);
         if (input.Length > 16_384) throw new ArgumentException("Input exceeds 16,384 characters.", nameof(input));
-        var revision = WorkflowRevision.Create(definition, "local-developer");
         var snapshot = journal.Create(revision, input);
         var cancellation = new CancellationTokenSource();
         cancellations[snapshot.Header.RunId] = cancellation;
