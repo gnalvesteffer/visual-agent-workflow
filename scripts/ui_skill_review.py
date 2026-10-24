@@ -90,9 +90,11 @@ def check(browser, screenshots):
         assert page.evaluate("document.activeElement.matches(':focus-visible') && getComputedStyle(document.activeElement).outlineStyle !== 'none'"), "Keyboard focus must remain visible"
 
         graph = designer.get_by_role("list", name="Editable pipeline nodes", exact=True)
-        assert graph.evaluate("element => getComputedStyle(element).display") == "grid", "Wide editor must show pipeline order horizontally"
-        graph.focus()
-        assert graph.evaluate("element => element === document.activeElement"), "Scrollable graph must be keyboard focusable"
+        canvas = designer.get_by_label("Workflow graph canvas. Scroll or drag the background to pan.", exact=True)
+        expect(designer.locator('.vaw-graph-editor')).to_have_attribute("data-ready", "true")
+        assert graph.locator('li').first.evaluate("element => getComputedStyle(element).position") == "absolute", "Canvas nodes must be freely positioned"
+        canvas.focus()
+        assert canvas.evaluate("element => element === document.activeElement"), "Scrollable graph must be keyboard focusable"
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), "Wide graph must not expand the page"
         if screenshots:
             page.evaluate("window.scrollTo(0,0)")
@@ -105,7 +107,7 @@ def check(browser, screenshots):
             columns: getComputedStyle(element.querySelector('.vaw-workspace')).gridTemplateColumns.split(' ').length
         })""")
         assert dimensions["content"] <= dimensions["width"] + 1 and dimensions["columns"] == 1, dimensions
-        assert graph.evaluate("element => getComputedStyle(element).display") != "grid", "Narrow editor must restore vertical node order"
+        assert canvas.evaluate("element => element.scrollWidth > element.clientWidth"), "Narrow hosts must contain graph scrolling"
         if screenshots:
             page.evaluate("window.scrollTo(0,0)")
             page.screenshot(path=str(screenshots / "narrow-embed.png"))

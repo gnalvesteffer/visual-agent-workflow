@@ -13,6 +13,8 @@ public partial class WorkflowStudio
     private string input = "Hello, workflows!";
     private IReadOnlyList<RunSnapshot> runs = [];
     private RunSnapshot? snapshot;
+    private WorkflowLayout? runLayout;
+    private IWorkflowCatalog? boundCatalog;
     private bool starting;
     private bool interactive;
     private bool disposed;
@@ -28,7 +30,8 @@ public partial class WorkflowStudio
 
     protected override async Task OnParametersSetAsync()
     {
-        if (disposed || ReferenceEquals(boundClient, Client)) return;
+        if (disposed || ReferenceEquals(boundClient, Client) && ReferenceEquals(boundCatalog, Catalog)) return;
+        boundCatalog = Catalog;
         boundClient = Client;
         clientVersion++;
         contextLifetime?.Cancel();
@@ -37,7 +40,7 @@ public partial class WorkflowStudio
         contextToken = contextLifetime.Token;
         selectionVersion++;
         runs = [];
-        snapshot = null;
+        snapshot = null; runLayout = null;
         historyError = null;
         actionError = null;
         starting = false;
@@ -122,7 +125,8 @@ public partial class WorkflowStudio
             var run = await client.StartRunAsync(PipelineTemplates.Create(operation), input).WaitAsync(contextToken);
             if (!Current(client, version)) return;
             selectionVersion++;
-            snapshot = run;
+            snapshot = run; runLayout = null;
+            await LoadRunLayout(run, selectionVersion, client, version);
             await RefreshHistory();
         }
         catch (OperationCanceledException) when (disposed) { }
@@ -142,7 +146,11 @@ public partial class WorkflowStudio
         try
         {
             var run = await client.GetRunAsync(id).WaitAsync(contextToken);
-            if (Current(client, version) && selection == selectionVersion) snapshot = run;
+            if (Current(client, version) && selection == selectionVersion)
+            {
+                snapshot = run; runLayout = null;
+                await LoadRunLayout(run, selection, client, version);
+            }
         }
         catch (OperationCanceledException) when (disposed) { }
         catch { if (Current(client, version)) actionError = "Could not load the selected run. Try refreshing history."; }
@@ -155,9 +163,27 @@ public partial class WorkflowStudio
         {
             if (!Current(client, version)) return;
             selectionVersion++;
-            snapshot = run;
+            snapshot = run; runLayout = null;
+            await LoadRunLayout(run, selectionVersion, client, version);
             await RefreshHistory();
         });
+    }
+
+    private async Task LoadRunLayout(RunSnapshot? run, long selection, IWorkflowClient client, long version)
+    {
+        var catalog = Catalog;
+        if (run is null || catalog is not IWorkflowDesignCatalog designs) return;
+        try
+        {
+            var presentation = await designs.GetRevisionLayoutAsync(run.Header.RevisionId).WaitAsync(contextToken);
+            if (Current(client, version) && selection == selectionVersion && ReferenceEquals(catalog, Catalog)) runLayout = presentation;
+        }
+        catch (OperationCanceledException) when (disposed || contextToken.IsCancellationRequested) { }
+        catch
+        {
+            if (Current(client, version) && selection == selectionVersion)
+                actionError = "The recorded layout could not be loaded. Execution evidence is shown with default positions.";
+        }
     }
 
     private async Task Cancel()

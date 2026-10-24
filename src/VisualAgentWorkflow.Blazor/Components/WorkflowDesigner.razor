@@ -44,7 +44,8 @@
                 </ul>
             </details>
         }
-        <PipelineEditor Definition="@(preview?.Revision.Definition ?? definition)" DefinitionChanged="Changed" ReadOnly="@(preview is not null)" Disabled="@busy" Bindings="bindings" Providers="providers" />
+        @if (Catalog is not IWorkflowDesignCatalog) { <p class="vaw-help">This host does not save graph layout. Position and annotation editing are disabled.</p> }
+        <PipelineEditor Layout="@(preview is not null ? previewLayout ?? WorkflowLayout.Create(preview.Revision.Definition) : layout)" LayoutChanged="ChangedLayout" LayoutReadOnly="@(Catalog is not IWorkflowDesignCatalog)" Definition="@(preview?.Revision.Definition ?? definition)" DefinitionChanged="Changed" ReadOnly="@(preview is not null)" Disabled="@busy" Bindings="bindings" Providers="providers" />
         <section class="vaw-version-panel" aria-label="Published workflow versions">
             <div class="vaw-version-management">
             <h3>Published versions</h3>
@@ -76,6 +77,9 @@
                 <button type="button" @onclick="Export" disabled="@busy">Copy definition into JSON editor</button>
                 <button type="button" @onclick="Import" disabled="@(busy || preview is not null)">Import JSON into draft</button>
                 <a download="workflow.json" href="@DownloadHref">Download viewed definition</a>
+                <button type="button" @onclick="ExportLayout" disabled="@busy">Copy graph layout into JSON editor</button>
+                <button type="button" @onclick="ImportLayout" disabled="@(busy || preview is not null || Catalog is not IWorkflowDesignCatalog)">Import graph layout into draft</button>
+                <a download="workflow.layout.json" href="@LayoutDownloadHref">Download graph layout</a>
             </div>
         </details>
         <details>

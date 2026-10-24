@@ -26,3 +26,4 @@ jobs:
           trap 'kill "$studio_pid" 2>/dev/null || true' EXIT
           python3 scripts/studio_smoke.py --browser
           python3 scripts/ui_skill_review.py
+          python3 scripts/graph_canvas_smoke.py

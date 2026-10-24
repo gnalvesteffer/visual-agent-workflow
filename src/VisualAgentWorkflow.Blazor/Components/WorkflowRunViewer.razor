@@ -18,26 +18,14 @@
             </label>
             <span>@Position / @Snapshot.Events.Length events</span>
         </div>
-        <ol class="vaw-graph" aria-label="Pipeline nodes in execution order">
-            @foreach (var nodeId in OrderedNodes())
-            {
-                var node = Snapshot.Header.Definition.Nodes[nodeId];
-                var state = VisibleEvents.LastOrDefault(e => e.NodeId == nodeId && e.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
-                var received = VisibleEvents.LastOrDefault(e => e.NodeId == nodeId && e.Kind == ExecutionEventKinds.Transfer);
-                <li @key="nodeId" class="vaw-node @(state?.Kind == ExecutionEventKinds.NodeCompleted ? "vaw-complete" : state?.Kind is ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled ? "vaw-failed" : "")">
-                    @if (nodeId != Snapshot.Header.Definition.EntryNodeId)
-                    {
-                        <div class="vaw-connection @(received is null ? "" : "vaw-delivered")">
-                            ↓ @(received is null ? "Awaiting message" : $"Message received · {received.ConnectionId}")
-                        </div>
-                    }
-                    <button type="button" class="vaw-node-button" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId)">
-                        <strong>@nodeId</strong><span>@node.Type</span>
-                        <span>@StateLabel(state)</span>
-                    </button>
-                </li>
-            }
-        </ol>
+        <WorkflowGraphCanvas @key="Snapshot.Header.RunId" Definition="Snapshot.Header.Definition" Layout="Presentation" ReadOnly="true" NodesLabel="Pipeline nodes in execution order" NodeClass="NodeStateClass" DeliveredConnections="Delivered">
+            <NodeContent Context="nodeId">
+                @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); }
+                <button type="button" class="vaw-node-button" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId)">
+                    <strong>@nodeId</strong><span>@node.Type</span><span>@StateLabel(state)</span>
+                </button>
+            </NodeContent>
+        </WorkflowGraphCanvas>
         @if (selectedNode is not null)
         {
             var started = VisibleEvents.LastOrDefault(e => e.NodeId == selectedNode && e.Kind == ExecutionEventKinds.NodeStarted);
@@ -70,6 +58,16 @@
 
 @code {
     [Parameter] public RunSnapshot? Snapshot { get; set; }
+    [Parameter] public WorkflowLayout? Layout { get; set; }
+    private WorkflowLayout Presentation = default!;
+    private ExecutionEvent? State(string id) => VisibleEvents.LastOrDefault(e => e.NodeId == id && e.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
+    private string NodeStateClass(string id) => State(id)?.Kind switch
+    {
+        ExecutionEventKinds.NodeCompleted => "vaw-complete",
+        ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled => "vaw-failed",
+        _ => ""
+    };
+    private IReadOnlySet<string> Delivered => VisibleEvents.Where(e => e.Kind == ExecutionEventKinds.Transfer && e.ConnectionId is not null).Select(e => e.ConnectionId!).ToHashSet(StringComparer.Ordinal);
     private Guid? currentRun;
     private bool follow = true;
     private int cursor;
@@ -79,6 +77,7 @@
 
     protected override void OnParametersSet()
     {
+        if (Snapshot is not null) Presentation = Layout ?? (currentRun == Snapshot.Header.RunId && Presentation is not null ? Presentation : WorkflowLayout.Create(Snapshot.Header.Definition));
         if (currentRun == Snapshot?.Header.RunId) return;
         currentRun = Snapshot?.Header.RunId;
         selectedNode = null;
@@ -101,18 +100,4 @@
         if (int.TryParse(args.Value?.ToString(), out var value)) { cursor = value; follow = false; }
     }
 
-    private IEnumerable<string> OrderedNodes()
-    {
-        if (Snapshot is null) yield break;
-        var definition = Snapshot.Header.Definition;
-        var current = definition.EntryNodeId;
-        var visited = new HashSet<string>();
-        while (visited.Add(current))
-        {
-            yield return current;
-            var next = definition.Connections.Values.SingleOrDefault(e => e.Source.NodeId == current);
-            if (next is null) yield break;
-            current = next.Target.NodeId;
-        }
-    }
 }

@@ -1,5 +1,5 @@
 /* Component-scoped defaults. Public --vaw-color-* tokens inherit from the host. */
-:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) {
+:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) {
     --vaw-canvas: var(--vaw-color-canvas, #17191f);
     --vaw-surface: var(--vaw-color-surface, #20232b);
     --vaw-control: var(--vaw-color-control, #2b303b);
@@ -33,7 +33,7 @@
     overflow-wrap: anywhere;
 }
 
-:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) :where(*, *::before, *::after) {
+:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) :where(*, *::before, *::after) {
     box-sizing: border-box;
 }
 
@@ -75,18 +75,18 @@
 }
 
 /* Controls use low specificity so consuming applications can override them. */
-:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) :where(label) {
+:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) :where(label) {
     display: block;
     margin-block: var(--vaw-space-4);
 }
 
-:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) :where(button, select, textarea, input) {
+:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) :where(button, select, textarea, input) {
     font: inherit;
     color: inherit;
     accent-color: var(--vaw-focus);
 }
 
-:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) :where(button, select, textarea) {
+:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) :where(button, select, textarea) {
     min-inline-size: 0;
     min-block-size: 2.75rem;
     max-inline-size: 100%;
@@ -97,20 +97,20 @@
     background-color: var(--vaw-control);
 }
 
-:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) :where(select, textarea) {
+:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) :where(select, textarea) {
     inline-size: 100%;
     margin-block-start: var(--vaw-space-2);
     background-color: var(--vaw-canvas);
 }
 
-:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) :where(textarea) { resize: vertical; resize: block; }
-:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) :where(button) { cursor: pointer; }
-:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) :where(button, select, textarea, input):disabled { opacity: 0.55; cursor: default; }
-:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) :where(a) { color: var(--vaw-focus); }
-:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) :where(button, input, select, textarea, a, summary):focus-visible { outline: 3px solid var(--vaw-focus); outline-offset: 3px; }
+:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) :where(textarea) { resize: vertical; resize: block; }
+:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) :where(button) { cursor: pointer; }
+:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) :where(button, select, textarea, input):disabled { opacity: 0.55; cursor: default; }
+:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) :where(a) { color: var(--vaw-focus); }
+:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) :where(button, input, select, textarea, a, summary):focus-visible { outline: 3px solid var(--vaw-focus); outline-offset: 3px; }
 .vaw-primary { background-color: var(--vaw-primary); border-color: var(--vaw-accent); }
-:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) :where(button):not(:disabled):hover { border-color: var(--vaw-focus); box-shadow: inset 0 0 0 1px var(--vaw-focus); }
-:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) :where(summary) { cursor: pointer; color: var(--vaw-muted); font-size: 0.875rem; padding-block: var(--vaw-space-2); }
+:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) :where(button):not(:disabled):hover { border-color: var(--vaw-focus); box-shadow: inset 0 0 0 1px var(--vaw-focus); }
+:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) :where(summary) { cursor: pointer; color: var(--vaw-muted); font-size: 0.875rem; padding-block: var(--vaw-space-2); }
 .vaw-controls { display: flex; align-items: center; flex-wrap: wrap; gap: var(--vaw-space-3); margin-block: var(--vaw-space-4); }
 .vaw-controls :where(label) { display: flex; align-items: center; flex: 1 1 12rem; flex-wrap: wrap; gap: var(--vaw-space-2); min-inline-size: 0; max-inline-size: 100%; margin: 0; }
 .vaw-controls :where(input[type="range"]) { flex: 1 1 7rem; min-inline-size: 0; max-inline-size: 100%; }
@@ -173,7 +173,7 @@
 .vaw-error { color: var(--vaw-error); }
 
 @media (prefers-reduced-motion: reduce) {
-    :where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor) :where(*) {
+    :where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) :where(*) {
         animation: none;
         transition: none;
         scroll-behavior: auto;
@@ -184,3 +184,51 @@
     .vaw-graph { background-image: none; }
     .vaw-node-button[aria-pressed="true"] { outline-color: Highlight; }
 }
+
+/* Blueprint-style canvas: logical graph coordinates live inside a bounded scroll viewport. */
+.vaw-graph-editor { min-inline-size: 0; background-color: var(--vaw-surface); }
+.vaw-canvas-toolbar { border: 1px solid var(--vaw-border); border-block-end: 0; border-radius: var(--vaw-panel-radius) var(--vaw-panel-radius) 0 0; margin-block: 0; padding: var(--vaw-space-2); }
+.vaw-canvas-toolbar strong { font-size: 0.875rem; margin-inline-end: var(--vaw-space-2); }
+.vaw-canvas-viewport { position: relative; block-size: 40rem; max-block-size: 75vh; min-block-size: 20rem; inline-size: 100%; overflow: auto; overscroll-behavior: contain; border: 1px solid var(--vaw-control-border); border-radius: 0 0 var(--vaw-panel-radius) var(--vaw-panel-radius); background-color: var(--vaw-canvas); touch-action: none; }
+.vaw-canvas-viewport:focus-visible { outline: 3px solid var(--vaw-focus); outline-offset: 3px; }
+.vaw-canvas-extent { position: relative; }
+.vaw-canvas-world { position: absolute; inset: 0 auto auto 0; transform-origin: top left; background-image: radial-gradient(var(--vaw-border) 1px, transparent 1px); background-size: 16px 16px; }
+.vaw-wires { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; overflow: visible; pointer-events: none; z-index: 1; }
+.vaw-wire { fill: none; stroke: var(--vaw-accent); stroke-width: 3; pointer-events: stroke; cursor: pointer; stroke-linejoin: round; }
+.vaw-wire:hover, .vaw-wire-selected { stroke: var(--vaw-focus); stroke-width: 5; }
+.vaw-wire-delivered { stroke: var(--vaw-success); }
+.vaw-graph-editor .vaw-free-graph { display: block; position: absolute; inset: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; pointer-events: none; overflow: visible; z-index: 2; }
+.vaw-free-graph .vaw-node { position: absolute; inline-size: 280px; max-inline-size: none; margin: 0; pointer-events: auto; }
+.vaw-free-graph .vaw-edit-node article { block-size: auto; min-block-size: 0; padding: 0; overflow: visible; box-shadow: 0 4px 16px #0003; }
+.vaw-graph-editor .vaw-node-drag { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--vaw-space-2); inline-size: 100%; text-align: start; border: 0; border-radius: 0; border-block-end: 1px solid var(--vaw-border); padding: var(--vaw-space-3); cursor: grab; touch-action: none; user-select: none; background-color: var(--vaw-control); }
+.vaw-node-drag strong { max-inline-size: 100%; font-size: 0.9375rem; overflow-wrap: anywhere; }
+.vaw-node-body { padding: var(--vaw-space-3); font-size: 0.875rem; }
+.vaw-node-body > p { color: var(--vaw-muted); font-size: 0.8125rem; }
+.vaw-socket-row { position: relative; display: flex; justify-content: space-between; min-block-size: 2.75rem; padding-inline: var(--vaw-space-3); gap: var(--vaw-space-3); align-items: center; }
+.vaw-socket-label { color: var(--vaw-muted); font-size: 0.8125rem; }
+.vaw-socket-output { margin-inline-start: auto; }
+.vaw-socket { position: absolute; top: calc(50% - 8px); inline-size: 16px; block-size: 16px; border: 3px solid var(--vaw-accent); border-radius: 50%; background-color: var(--vaw-canvas); }
+.vaw-socket-input .vaw-socket { left: -9px; }
+.vaw-socket-output .vaw-socket { right: -9px; }
+.vaw-node-comment { margin: 0 var(--vaw-space-3); padding: var(--vaw-space-2); border-inline-start: 2px solid var(--vaw-warning); color: var(--vaw-text); background-color: var(--vaw-canvas); font-size: 0.8125rem; max-block-size: 8rem; overflow: auto; white-space: pre-wrap; }
+.vaw-section-box { position: absolute; border: 2px dashed var(--vaw-control-border); border-radius: var(--vaw-panel-radius); background-color: color-mix(in srgb, var(--vaw-accent) 6%, transparent); pointer-events: none; }
+.vaw-section-title { position: absolute; top: -2px; left: -2px; max-inline-size: 100%; color: var(--vaw-text); background-color: var(--vaw-control); pointer-events: auto; cursor: grab; touch-action: none; z-index: 3; }
+.vaw-graph-editor .vaw-reroute { position: absolute; inline-size: 44px; block-size: 44px; min-block-size: 44px; padding: 0; transform: translate(-50%, -50%); background: transparent; border: 0; border-radius: 50%; z-index: 4; touch-action: none; cursor: grab; }
+.vaw-reroute-dot { display: block; inline-size: 14px; block-size: 14px; border: 3px solid var(--vaw-accent); border-radius: 50%; background: var(--vaw-canvas); margin: auto; }
+.vaw-angle-pin { position: absolute; top: 0; right: 0; color: var(--vaw-warning); }
+.vaw-layout-inspector { margin-block-start: var(--vaw-space-3); }
+.vaw-layout-inspector fieldset { border: 0; margin: 0; padding: var(--vaw-space-3) 0; min-inline-size: 0; }
+.vaw-layout-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: var(--vaw-space-6); }
+.vaw-layout-columns > section { min-inline-size: 0; }
+.vaw-layout-columns :where(input:not([type="checkbox"])) { inline-size: 100%; min-inline-size: 0; min-block-size: 2.75rem; margin-block-start: var(--vaw-space-2); padding: var(--vaw-space-2); border: 1px solid var(--vaw-control-border); border-radius: var(--vaw-control-radius); background-color: var(--vaw-canvas); }
+.vaw-coordinate-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--vaw-space-2); }
+.vaw-layout-columns .vaw-member-choice { display: flex; align-items: center; gap: var(--vaw-space-2); margin-block: var(--vaw-space-2); min-block-size: 2.75rem; }
+.vaw-member-choice input { inline-size: 1.25rem; block-size: 1.25rem; flex-shrink: 0; }
+.vaw-section-settings, .vaw-waypoint-settings { border-block-start: 1px solid var(--vaw-border); margin-block-start: var(--vaw-space-4); padding-block-start: var(--vaw-space-3); }
+@media (forced-colors: active) {
+    .vaw-canvas-world { background-image: none; }
+    .vaw-wire { stroke: CanvasText; }
+    .vaw-socket, .vaw-reroute-dot { border-color: CanvasText; }
+}
+
+.vaw-graph-editor[data-disabled="true"] .vaw-node-drag { cursor: default; }

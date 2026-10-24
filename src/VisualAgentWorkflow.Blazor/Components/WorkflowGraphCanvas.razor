@@ -1,0 +1,153 @@
+@implements IAsyncDisposable
+
+<section class="vaw-graph-editor" @ref="root" data-disabled="@(!CanEdit ? "true" : "false")" data-ready="@(ready ? "true" : "false")">
+    <div class="vaw-controls vaw-canvas-toolbar">
+        <strong>Graph canvas</strong>
+        <button type="button" @onclick="() => Zoom(-0.1)" disabled="@(zoom <= 0.5)" aria-label="Zoom out graph">−</button>
+        <span>@Math.Round(zoom * 100)%</span>
+        <button type="button" @onclick="() => Zoom(0.1)" disabled="@(zoom >= 1.5)" aria-label="Zoom in graph">+</button>
+        <button type="button" @onclick="AutoLayout" disabled="@(!CanEdit)">Arrange nodes</button>
+        <span class="vaw-help">@(ReadOnly ? "Recorded layout. Drag the background to pan; use the playback controls to inspect evidence." : "Drag headers to move. Drag the background to pan. Double-click a wire to add a reroute.")</span>
+    </div>
+    <div class="vaw-canvas-viewport" tabindex="0" aria-label="Workflow graph canvas. Scroll or drag the background to pan.">
+        <div class="vaw-canvas-extent" style="@ExtentStyle">
+            <div class="vaw-canvas-world" style="@WorldStyle">
+                @foreach (var (id, section) in Layout.Sections)
+                {
+                    <div @key="id" class="vaw-section-box" style="@SectionStyle(section)" data-section="@id" data-members="@System.Text.Json.JsonSerializer.Serialize(section.NodeIds)">
+                        <button type="button" class="vaw-section-title" data-drag-section="@id" disabled="@(!CanEdit)" aria-label="Move section @section.Label" @onkeydown="args => SectionKey(id, args)">@section.Label</button>
+                    </div>
+                }
+                <svg class="vaw-wires" aria-hidden="true">
+                    @foreach (var (id, connection) in Definition.Connections)
+                    {
+                        var route = Route(id);
+                        @for (var segment = 0; segment <= route.Points.Length; segment++)
+                        {
+                            <path @key="(id, segment)" class="vaw-wire @(selectedWire == id ? "vaw-wire-selected" : "") @(DeliveredConnections?.Contains(id) == true ? "vaw-wire-delivered" : "")" data-wire="@id" data-segment="@segment" data-source="@connection.Source.NodeId" data-target="@connection.Target.NodeId" data-style="@route.Style" data-points="@PointsJson(route)" />
+                        }
+                    }
+                </svg>
+                <ol class="vaw-graph vaw-free-graph" aria-label="@NodesLabel">
+                    @foreach (var id in Order)
+                    {
+                        var node = Definition.Nodes[id];
+                        var presentation = Layout.Nodes[id];
+                        <li @key="id" class="vaw-node vaw-edit-node @(NodeClass?.Invoke(id))" data-node-id="@id" data-node-type="@node.Type" data-x="@Number(presentation.Position.X)" data-y="@Number(presentation.Position.Y)" style="@PositionStyle(presentation.Position)">
+                            <article>
+                                <button type="button" class="vaw-node-drag" data-drag-node="@id" title="Drag to move, or use arrow keys. Hold Shift for larger steps." aria-label="@(ReadOnly ? $"Inspect node {id}" : $"Move node {id}")" @onclick="() => selectedNode = id" @onkeydown="args => NodeKey(id, args)">
+                                    <strong>@Title(id)</strong><span class="vaw-node-kind">@Kind(node)</span>
+                                </button>
+                                <div class="vaw-socket-row">
+                                    @if (node.Type != NodeTypes.Input)
+                                    { <span class="vaw-socket-label vaw-socket-input"><span class="vaw-socket" data-socket="in" title="String input" aria-hidden="true"></span>in · string</span> }
+                                    @if (node.Type != NodeTypes.Output)
+                                    { <span class="vaw-socket-label vaw-socket-output">out · string<span class="vaw-socket" data-socket="out" title="String output" aria-hidden="true"></span></span> }
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(presentation.Comment))
+                                { <p class="vaw-node-comment">@presentation.Comment</p> }
+                                <div class="vaw-node-body">@NodeContent(id)</div>
+                            </article>
+                        </li>
+                    }
+                </ol>
+                @foreach (var (id, route) in Layout.Wires)
+                {
+                    @for (var index = 0; index < route.Points.Length; index++)
+                    {
+                        var pointIndex = index;
+                        var waypoint = route.Points[index];
+                        <button @key="(id, index)" type="button" class="vaw-reroute" style="@PositionStyle(waypoint.Position)" data-drag-wire="@id" data-point="@index" data-x="@Number(waypoint.Position.X)" data-y="@Number(waypoint.Position.Y)" aria-label="Reroute @(index + 1) on @id" @onclick="() => SelectWire(id)" @onkeydown="args => WaypointKey(id, pointIndex, args)">
+                            <span class="vaw-reroute-dot" aria-hidden="true"></span>
+                            @if (waypoint.Angle is not null) { <span class="vaw-angle-pin" aria-hidden="true">⌁</span> }
+                        </button>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+    <details class="vaw-layout-inspector">
+        <summary>Labels, comments, sections, and wire routing</summary>
+        <fieldset disabled="@(!CanEdit)">
+            <div class="vaw-layout-columns">
+                <section aria-label="Node presentation">
+                    <h3>Node details</h3>
+                    <label>Node to organize
+                        <select aria-label="Node to organize" @bind="selectedNode">
+                            @foreach (var id in Order) { <option @key="id" value="@id">@Title(id) (@id)</option> }
+                        </select>
+                    </label>
+                    @if (selectedNode is { } nodeId && Layout.Nodes.TryGetValue(nodeId, out var detail))
+                    {
+                        <label>Node label <input aria-label="Node label" value="@detail.Label" maxlength="160" @onchange="args => Label(nodeId, args)" /></label>
+                        <label>Node comment <textarea aria-label="Node comment" rows="3" maxlength="4000" value="@detail.Comment" @onchange="args => Comment(nodeId, args)"></textarea></label>
+                        <div class="vaw-coordinate-fields">
+                            <label>Node X <input type="number" min="0" max="32768" step="8" value="@Number(detail.Position.X)" @onchange="args => Coordinate(nodeId, args, true)" /></label>
+                            <label>Node Y <input type="number" min="0" max="32768" step="8" value="@Number(detail.Position.Y)" @onchange="args => Coordinate(nodeId, args, false)" /></label>
+                        </div>
+                    }
+                </section>
+                <section aria-label="Graph sections">
+                    <h3>Named sections</h3>
+                    <label>New section label <input @bind="sectionLabel" maxlength="160" /></label>
+                    @foreach (var id in Order)
+                    {
+                        <label class="vaw-member-choice" @key="id"><input type="checkbox" aria-label="Include @id in section" checked="@members.Contains(id)" @onchange="args => ToggleMember(id, args)" />@Title(id)</label>
+                    }
+                    <button type="button" @onclick="CreateSection" disabled="@(members.Count == 0 || Layout.Sections.Count >= 64)">Group selected nodes</button>
+                    @foreach (var (id, section) in Layout.Sections)
+                    {
+                        <div @key="id" class="vaw-section-settings">
+                            <label>Section label <input aria-label="Section label @id" value="@section.Label" maxlength="160" @onchange="args => RenameSection(id, args)" /></label>
+                            <span class="vaw-help">@section.NodeIds.Length nodes</span>
+                            <button type="button" @onclick="() => RemoveSection(id)" aria-label="Ungroup @section.Label">Ungroup</button>
+                        </div>
+                    }
+                </section>
+                <section aria-label="Wire presentation">
+                    <h3>Wire routing</h3>
+                    <label>Wire
+                        <select aria-label="Wire to organize" value="@selectedWire" @onchange="args => SelectWire(args.Value?.ToString())">
+                            @foreach (var (id, wire) in Definition.Connections) { <option @key="id" value="@id">@wire.Source.NodeId → @wire.Target.NodeId</option> }
+                        </select>
+                    </label>
+                    @if (selectedWire is { } wireId)
+                    {
+                        var route = Route(wireId);
+                        <label>Wire style <select aria-label="Wire style" value="@route.Style" @onchange="args => Style(wireId, args)"><option value="curve">Curved</option><option value="orthogonal">Right-angle</option></select></label>
+                        <button type="button" @onclick="() => AddMidpoint(wireId)" disabled="@(route.Points.Length >= 32)">Add reroute point</button>
+                        <button type="button" @onclick="() => ClearRoute(wireId)">Reset wire route</button>
+                        @for (var index = 0; index < route.Points.Length; index++)
+                        {
+                            var pointIndex = index;
+                            var point = route.Points[index];
+                            <div @key="(wireId, index)" class="vaw-waypoint-settings">
+                                <strong>Reroute @(index + 1)</strong>
+                                <div class="vaw-coordinate-fields">
+                                    <label>X <input aria-label="Waypoint @(index + 1) X" type="number" min="0" max="32768" value="@Number(point.Position.X)" @onchange="args => WaypointCoordinate(wireId, pointIndex, args, true)" /></label>
+                                    <label>Y <input aria-label="Waypoint @(index + 1) Y" type="number" min="0" max="32768" value="@Number(point.Position.Y)" @onchange="args => WaypointCoordinate(wireId, pointIndex, args, false)" /></label>
+                                </div>
+                                <label>Pinned angle
+                                    <select aria-label="Pinned angle for waypoint @(index + 1)" value="@(point.Angle is { } angle ? Number(angle) : "auto")" @onchange="args => Angle(wireId, pointIndex, args)">
+                                        <option value="auto">Automatic</option>
+                                        @if (point.Angle is { } customAngle && customAngle % 45 != 0)
+                                        { <option value="@Number(customAngle)">@customAngle°</option> }
+                                        @foreach (var angleValue in route.Style == "orthogonal" ? new[] { 0, 90, 180, 270 } : new[] { 0, 45, 90, 135, 180, 225, 270, 315 })
+                                        { <option @key="angleValue" value="@angleValue">@angleValue°</option> }
+                                    </select>
+                                </label>
+                                @if (route.Style == "curve")
+                                {
+                                    <label>Custom tangent angle <input type="number" aria-label="Custom angle for waypoint @(index + 1)" min="0" max="359.999" step="any" value="@(point.Angle is { } custom ? Number(custom) : "")" placeholder="Automatic" @onchange="args => Angle(wireId, pointIndex, args)" /></label>
+                                }
+                                <button type="button" @onclick="() => RemoveWaypoint(wireId, pointIndex)">Remove reroute @(index + 1)</button>
+                            </div>
+                        }
+                    }
+                </section>
+            </div>
+        </fieldset>
+    </details>
+    <p class="vaw-error" role="alert" data-canvas-error hidden>The layout edit could not reach the editor. Reconnect and refresh before retrying.</p>
+    @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
+</section>

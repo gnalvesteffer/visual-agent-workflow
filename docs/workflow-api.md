@@ -29,3 +29,5 @@ Existing `/api/runs`, `/api/runs/{id}`, `/api/runs/{id}/events?after=N`, and can
 ## Graph presentation
 
 `GET /api/workflows/{workflowId}/design` returns `{ draft, layout }`. `PUT` to the same route accepts `{ definition, layout, expectedGeneration }` and saves both atomically. It shares the existing workflow generation and conflict response. `GET /api/revisions/{revisionId}/layout` returns the immutable published presentation (default positions for revisions predating layout capture). The existing definition-only endpoints remain supported. See [graph editor contracts and bounds](graph-editor.md).
+
+The development HTTP host limits the entire design request (definition plus layout) to 1 MiB, independently of the per-artifact validation limits. Large integrations must choose host transport budgets explicitly; a layout cannot raise domain or capability limits.

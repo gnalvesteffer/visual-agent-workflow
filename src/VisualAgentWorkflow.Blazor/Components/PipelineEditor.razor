@@ -10,18 +10,9 @@
             </select>
         </label>
     }
-    <ol class="vaw-graph" aria-label="Editable pipeline nodes" tabindex="0">
-        @for (var i = 0; i < Order.Length; i++)
-        {
-            var index = i;
-            var id = Order[index];
-            var node = Definition.Nodes[id];
-            var terminal = node.Type is NodeTypes.Input or NodeTypes.Output;
-            <li class="vaw-node vaw-edit-node" data-node-id="@id" data-node-type="@node.Type" @key="id">
-                @if (index > 0) { <div class="vaw-connection"><span aria-hidden="true">↓</span> string data</div> }
-                <article>
-                    <div class="vaw-node-heading"><span class="vaw-port" aria-hidden="true"></span><strong>@id</strong><span class="vaw-node-kind">@(node.Type == NodeTypes.Input ? "Input" : node.Type == NodeTypes.Output ? "Output" : node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform")</span></div>
-                    <small>@(node.Type == NodeTypes.Input ? "out · string" : node.Type == NodeTypes.Output ? "in · string" : "in · string → out · string")</small>
+    <WorkflowGraphCanvas @key="Definition.WorkflowId" Definition="Definition" Layout="EffectiveLayout" LayoutChanged="LayoutEdited" ReadOnly="@(ReadOnly || LayoutReadOnly)" Disabled="Disabled">
+        <NodeContent Context="id">
+            @{ var node = Definition.Nodes[id]; var index = Order.IndexOf(id); var terminal = node.Type is NodeTypes.Input or NodeTypes.Output; }
                     @if (terminal || ReadOnly)
                     {
                         <p>@node.Type</p>
@@ -81,10 +72,8 @@
                             }
                         </ul>
                     }
-                </article>
-            </li>
-        }
-    </ol>
+        </NodeContent>
+    </WorkflowGraphCanvas>
     @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
 </section>
 
@@ -93,6 +82,16 @@
     [Parameter] public EventCallback<WorkflowDefinition> DefinitionChanged { get; set; }
     [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public bool Disabled { get; set; }
+    [Parameter] public WorkflowLayout? Layout { get; set; }
+    [Parameter] public EventCallback<WorkflowLayout> LayoutChanged { get; set; }
+    [Parameter] public bool LayoutReadOnly { get; set; }
+    private WorkflowLayout? localLayout;
+    private WorkflowLayout EffectiveLayout => Layout ?? localLayout!;
+    private Task LayoutEdited(WorkflowLayout value)
+    {
+        localLayout = value;
+        return LayoutChanged.InvokeAsync(value);
+    }
     [Parameter] public IReadOnlyList<ToolBindingDescriptor> Bindings { get; set; } = [];
     [Parameter] public IReadOnlyList<AgentProviderDescriptor> Providers { get; set; } = [];
     private string newType = NodeTypes.Uppercase;
@@ -104,6 +103,9 @@
     {
         if (ReferenceEquals(orderedDefinition, Definition)) return;
         Order = PipelineEditing.OrderedNodes(Definition);
+        localLayout = orderedDefinition?.WorkflowId != Definition.WorkflowId
+            ? WorkflowLayout.Create(Definition)
+            : (localLayout ?? WorkflowLayout.Create(Definition)).Reconcile(Definition);
         orderedDefinition = Definition;
         error = null;
     }

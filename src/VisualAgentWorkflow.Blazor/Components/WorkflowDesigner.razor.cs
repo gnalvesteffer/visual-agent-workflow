@@ -24,6 +24,10 @@ public partial class WorkflowDesigner
     private IReadOnlyList<ToolBindingDescriptor> bindings = [];
     private IReadOnlyList<AgentProviderDescriptor> providers = [];
     private WorkflowDefinition? definition;
+    private WorkflowLayout? layout;
+    private WorkflowLayout? previewLayout;
+    private string? layoutHash;
+    private sealed record DesignState(WorkflowDefinition Definition, WorkflowLayout Layout);
     private long generation;
     private Guid? activeRevisionId;
     private Guid? selectedRevisionId;
@@ -31,11 +35,12 @@ public partial class WorkflowDesigner
     private IReadOnlyList<WorkflowDraft> workflows = [];
     private IReadOnlyList<PublishedWorkflowRevision> versions = [];
     private IReadOnlyList<WorkflowAuditEntry> audit = [];
-    private readonly Stack<WorkflowDefinition> undo = new();
-    private readonly Stack<WorkflowDefinition> redo = new();
+    private readonly Stack<DesignState> undo = new();
+    private readonly Stack<DesignState> redo = new();
     private string? definitionHash;
     private string? savedHash;
-    private bool dirty => definition is not null && definitionHash != savedHash;
+    private string? DesignHash => definitionHash is null ? null : definitionHash + ":" + layoutHash;
+    private bool dirty => definition is not null && DesignHash != savedHash;
     private bool busy;
     private bool interactive;
     private string? error;
@@ -59,6 +64,25 @@ public partial class WorkflowDesigner
         }
     }
 
+    private WorkflowLayout? downloadedLayout;
+    private WorkflowDefinition? layoutDownloadDefinition;
+    private string layoutDownloadHref = "";
+    private string LayoutDownloadHref
+    {
+        get
+        {
+            var viewed = preview?.Revision.Definition ?? definition;
+            var presentation = preview is not null ? previewLayout ?? WorkflowLayout.Create(preview.Revision.Definition) : layout;
+            if (viewed is not null && presentation is not null &&
+                (!ReferenceEquals(viewed, layoutDownloadDefinition) || !ReferenceEquals(presentation, downloadedLayout)))
+            {
+                layoutDownloadHref = "data:application/json;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(WorkflowLayoutJson.Serialize(presentation, viewed)));
+                layoutDownloadDefinition = viewed; downloadedLayout = presentation;
+            }
+            return layoutDownloadHref;
+        }
+    }
+
     protected override async Task OnParametersSetAsync()
     {
         if (disposed) return;
@@ -74,7 +98,7 @@ public partial class WorkflowDesigner
         binding = new(Catalog, Client, contextLifetime.Token);
         previous?.Cancel();
         previous?.Dispose();
-        definition = null; definitionHash = null; savedHash = null;
+        definition = null; layout = null; previewLayout = null; layoutHash = null; definitionHash = null; savedHash = null;
         workflows = []; versions = []; audit = []; bindings = []; providers = [];
         preview = null; selectedRevisionId = null; activeRevisionId = null;
         undo.Clear(); redo.Clear(); jsonText = ""; runInput = "Hello, workflows!"; busy = false;
@@ -97,26 +121,31 @@ public partial class WorkflowDesigner
 
     private void NewWorkflow()
     {
-        SetDefinition(PipelineTemplates.Create("uppercase") with { WorkflowId = "workflow-" + Guid.NewGuid().ToString("N") });
+        var next = PipelineTemplates.Create("uppercase") with { WorkflowId = "workflow-" + Guid.NewGuid().ToString("N") };
+        SetDesign(next, WorkflowLayout.Create(next));
         generation = 0; activeRevisionId = null; selectedRevisionId = null; preview = null;
         versions = []; audit = []; undo.Clear(); redo.Clear(); jsonText = "";
-        savedHash = definitionHash;
+        savedHash = DesignHash;
         error = null; message = "New workflow created locally. Save its draft before publishing.";
     }
 
-    private void SetDefinition(WorkflowDefinition value)
+    private void SetDesign(WorkflowDefinition value, WorkflowLayout presentation)
     {
-        definition = value;
+        definition = value; layout = presentation;
         definitionHash = WorkflowJson.ComputeHash(value);
+        layoutHash = WorkflowLayoutJson.ComputeHash(presentation, value);
     }
 
     private async Task Load(WorkflowDraft draft, Binding current, bool resetHistory = true)
     {
+        var design = current.Catalog is IWorkflowDesignCatalog designs
+            ? await designs.GetDesignAsync(draft.Definition.WorkflowId).WaitAsync(current.Token) : null;
+        if (design is not null) draft = design.Draft;
         var metadata = await ReadMetadata(current, draft.Definition.WorkflowId);
         if (!Current(current)) return;
-        SetDefinition(draft.Definition);
+        SetDesign(draft.Definition, design?.Layout ?? WorkflowLayout.Create(draft.Definition));
         generation = draft.Generation; activeRevisionId = draft.ActiveRevisionId;
-        savedHash = definitionHash;
+        savedHash = DesignHash;
         ApplyMetadata(metadata);
         if (resetHistory)
         {
@@ -163,14 +192,20 @@ public partial class WorkflowDesigner
 
     private void Changed(WorkflowDefinition next)
     {
-        if (definition is null) return;
-        var hash = WorkflowJson.ComputeHash(next);
-        if (hash == definitionHash) return;
-        undo.Push(definition); redo.Clear(); definition = next; definitionHash = hash; error = null; message = null;
+        if (definition is null || layout is null || WorkflowJson.ComputeHash(next) == definitionHash) return;
+        undo.Push(new(definition, layout)); redo.Clear();
+        SetDesign(next, layout.Reconcile(next)); error = null; message = null;
     }
 
-    private void Undo() { if (undo.TryPop(out var previous)) { redo.Push(definition!); SetDefinition(previous); message = null; } }
-    private void Redo() { if (redo.TryPop(out var next)) { undo.Push(definition!); SetDefinition(next); message = null; } }
+    private void ChangedLayout(WorkflowLayout next)
+    {
+        if (definition is null || layout is null || WorkflowLayoutJson.ComputeHash(next, definition) == layoutHash) return;
+        undo.Push(new(definition, layout)); redo.Clear();
+        SetDesign(definition, next); error = null; message = null;
+    }
+
+    private void Undo() { if (undo.TryPop(out var previous)) { redo.Push(new(definition!, layout!)); SetDesign(previous.Definition, previous.Layout); message = null; } }
+    private void Redo() { if (redo.TryPop(out var next)) { undo.Push(new(definition!, layout!)); SetDesign(next.Definition, next.Layout); message = null; } }
 
     private Task SelectWorkflow(ChangeEventArgs args) => Perform(async current =>
     {
@@ -184,7 +219,9 @@ public partial class WorkflowDesigner
 
     private Task Save() => Perform(async current =>
     {
-        var draft = await current.Catalog.SaveDraftAsync(definition!, generation).WaitAsync(current.Token);
+        var draft = current.Catalog is IWorkflowDesignCatalog designs
+            ? (await designs.SaveDesignAsync(definition!, layout!, generation).WaitAsync(current.Token)).Draft
+            : await current.Catalog.SaveDraftAsync(definition!, generation).WaitAsync(current.Token);
         await Load(draft, current, resetHistory: false);
         if (Current(current)) message = "Draft saved.";
     });
@@ -209,7 +246,13 @@ public partial class WorkflowDesigner
         if (Current(current)) message = "Local changes discarded; saved state loaded.";
     });
 
-    private void Preview() { preview = versions.FirstOrDefault(v => v.Revision.RevisionId == selectedRevisionId); }
+    private Task Preview() => Perform(async current =>
+    {
+        var selected = versions.FirstOrDefault(v => v.Revision.RevisionId == selectedRevisionId);
+        var presentation = selected is not null && current.Catalog is IWorkflowDesignCatalog designs
+            ? await designs.GetRevisionLayoutAsync(selected.Revision.RevisionId).WaitAsync(current.Token) : null;
+        if (Current(current)) { preview = selected; previewLayout = presentation; }
+    });
     private Task Restore() => Perform(async current =>
     {
         if (dirty) throw new InvalidOperationException();
@@ -237,6 +280,16 @@ public partial class WorkflowDesigner
     });
 
     private void Export() { jsonText = WorkflowJson.Serialize(preview?.Revision.Definition ?? definition!); }
+    private void ExportLayout() => jsonText = WorkflowLayoutJson.Serialize(
+        preview is not null ? previewLayout ?? WorkflowLayout.Create(preview.Revision.Definition) : layout!, preview?.Revision.Definition ?? definition!);
+    private Task ImportLayout() => Perform(_ =>
+    {
+        if (preview is not null || Catalog is not IWorkflowDesignCatalog) return Task.CompletedTask;
+        ChangedLayout(WorkflowLayoutJson.Deserialize(jsonText, definition!));
+        message = "Graph layout imported locally. Save and publish explicitly.";
+        return Task.CompletedTask;
+    });
+
     private Task RefreshTools() => Perform(async current =>
     {
         await Choices(current);
@@ -260,7 +313,7 @@ public partial class WorkflowDesigner
         catch (WorkflowConflictException)
         { if (Current(current)) error = "Another editor changed this workflow. Your local edits are preserved. Discard local changes and reload before continuing."; }
         catch (Exception exception) when (exception is ArgumentException or System.Text.Json.JsonException)
-        { if (Current(current)) error = "Invalid workflow or JSON. Only supported, valid string pipelines can be saved or imported."; }
+        { if (Current(current)) error = "Invalid workflow, layout, or JSON. Check the supported pipeline and graph limits."; }
         catch
         { if (Current(current)) error = "The operation failed. Local edits are preserved; reload saved state before retrying."; }
         finally { if (Current(current)) busy = false; }

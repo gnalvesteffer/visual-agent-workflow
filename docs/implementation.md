@@ -58,7 +58,7 @@ Definition JSON can be downloaded, exported into a text editor, and imported int
 
 Core tests cover identity preservation, insertion/reorder/removal, operation diffs, terminal and unknown-operation rejection, and the node limit. Real-browser smoke checks cover editing/undo/redo, two publications, recorded output from the selected version, read-only historical preview, restore as a third publication, competing tabs with conflict recovery, JSON import, and mobile overflow. Accessible names and disabled-until-interactive controls are tested through actual controls. The saved-workflow selector is keyed by identity/generation to preserve alignment when its options change after initial save.
 
-This is a visual linear pipeline editor, not the full Blueprint-style free-form canvas. There is no drag-to-wire, layout persistence, branching, multi-user live synchronization, or automatic save yet. SQLite catalog persistence does not change the development-only security or file run-journal recovery limitations.
+At this milestone, authoring was a visual linear pipeline editor. The later graph-canvas milestone below adds free placement and layout persistence; arbitrary drag-to-wire, branching, multi-user live synchronization, and automatic save remain unsupported. SQLite catalog persistence does not change the development-only security or file run-journal recovery limitations.
 
 ## Milestone 6: node-scoped MCP tools
 
@@ -85,3 +85,11 @@ Agent events record provider/model identity, tool aliases/requirements, lifecycl
 Provider faults are recorded without exception details. Active cancellation is tested through the workflow: framework streams may end normally on cancellation, so the adapter checks the execution token before declaring missing output. Failed/cancelled node events prevent terminated nodes from remaining labeled Running in live/history views. No automatic retry or durable provider resumption is introduced.
 
 Integration tests cover the real agent-to-MCP round trip, model evidence, no-tool server isolation, denied requirements before model creation, provider version mismatch, sanitized provider failure, active cancellation, guessed function names, configuration validation, schema preservation, and semantic round trips. HTTP/browser smoke checks cover agent publication, instructions and node tool assignment, recorded model rounds, and persisted reload. Live external-provider behavior remains unrun. See [runtime configuration](runtime-configuration.md).
+
+## Graph canvas, routing, and annotations
+
+Added a shared Razor canvas with edge-mounted string sockets, freely positioned nodes, browser-local drag previews, pan/zoom, SVG wires, reroute points, pinned curve tangents, and orthogonal routes. Numeric fields and keyboard nudges complement pointer gestures. Nodes support user labels/comments. Named section frames track explicit membership and move their nodes together. Shared undo/redo includes presentation and semantic edits.
+
+Presentation is a separate, bounded `WorkflowLayout` artifact. SQLite schema 2 migrates existing catalog data and atomically saves layout plus definition under one workflow generation. Published revisions capture immutable layouts; preview, restore, reload, and recorded playback retain them. Layout-only edits leave execution definitions and hashes unchanged. Separate JSON sidecar import/export preserves existing definition contracts. Legacy host catalogs remain compatible with presentation edits disabled.
+
+The runtime still supports only validated linear string pipelines. Freely positioning cards does not add branching, arbitrary rewiring, collaborative editing, or durable scheduling. See [graph editor research, controls, contracts, and verification](graph-editor.md).
