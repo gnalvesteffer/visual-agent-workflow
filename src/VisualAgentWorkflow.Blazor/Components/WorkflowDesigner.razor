@@ -1,0 +1,221 @@
+@using System.Text
+
+<section class="vaw-designer" aria-label="Workflow designer">
+    <h2>Workflow designer</h2>
+    <p>Edit a string pipeline, save a draft, and publish immutable versions.</p>
+    <fieldset class="vaw-designer-fields" disabled="@(!interactive || busy)">
+    @if (definition is not null)
+    {
+        <div class="vaw-controls">
+            <label>Saved workflow
+                <select @key="(definition.WorkflowId, generation)" aria-label="Saved workflow" value="@definition.WorkflowId" @onchange="SelectWorkflow" disabled="@(busy || dirty)">
+                    @if (generation == 0) { <option value="@definition.WorkflowId">New workflow</option> }
+                    @foreach (var item in workflows) { <option @key="item.Definition.WorkflowId" value="@item.Definition.WorkflowId">@item.Definition.WorkflowId</option> }
+                </select>
+            </label>
+            <button @onclick="NewWorkflow" disabled="@(busy || dirty)">New workflow</button>
+            <button @onclick="Save" disabled="@(busy || !interactive || preview is not null)">Save draft</button>
+            <button @onclick="Publish" disabled="@(busy || dirty || generation == 0 || preview is not null)">Publish &amp; activate</button>
+            <button @onclick="Discard" disabled="@busy">Discard local changes and reload</button>
+        </div>
+        <p><strong>@definition.WorkflowId</strong> · generation @generation · @(dirty ? "Unsaved changes" : generation == 0 ? "Not saved" : "Draft saved")</p>
+        <p>Save or discard local edits before switching workflows or changing published state.</p>
+        @if (preview is null)
+        {
+            <div class="vaw-controls">
+                <button @onclick="Undo" disabled="@(busy || undo.Count == 0)">Undo edit</button>
+                <button @onclick="Redo" disabled="@(busy || redo.Count == 0)">Redo edit</button>
+            </div>
+        }
+        else
+        {
+            <p role="status">Viewing published version @preview.Version (read-only).</p>
+            <button @onclick="() => preview = null">Return to draft</button>
+            <details>
+                <summary>Changes from this version to the current draft</summary>
+                <ul>
+                    @foreach (var change in WorkflowDifference.Compare(preview.Revision.Definition, definition))
+                    { <li>@change.Kind @change.Id: @(change.Before ?? "Absent") → @(change.After ?? "Absent")</li> }
+                </ul>
+            </details>
+        }
+        <PipelineEditor Definition="@(preview?.Revision.Definition ?? definition)" DefinitionChanged="Changed" ReadOnly="@(preview is not null)" Disabled="@busy" />
+        <section aria-label="Published workflow versions">
+            <h3>Published versions</h3>
+            <p>Active version: @(versions.FirstOrDefault(v => v.Revision.RevisionId == activeRevisionId)?.Version.ToString() ?? "None")</p>
+            <label>Published version
+                <select aria-label="Published version" value="@selectedRevisionId" @onchange="SelectRevision" disabled="@(busy || versions.Count == 0)">
+                    @foreach (var version in versions)
+                    { <option @key="version.Revision.RevisionId" value="@version.Revision.RevisionId">Version @version.Version · @version.Revision.CreatedAt.ToString("u")</option> }
+                </select>
+            </label>
+            <div class="vaw-controls">
+                <button @onclick="Preview" disabled="@(busy || selectedRevisionId is null)">View selected version</button>
+                <button @onclick="Restore" disabled="@(busy || dirty || selectedRevisionId is null)">Restore selected to draft</button>
+                <button @onclick="Activate" disabled="@(busy || dirty || selectedRevisionId is null)">Activate selected version</button>
+            </div>
+            <label>Published run input <textarea @bind="runInput" maxlength="16384" rows="2"></textarea></label>
+            <button @onclick="RunPublished" disabled="@(busy || selectedRevisionId is null)">Run selected version</button>
+            <p>Runs use the selected published version, including when the local draft has unsaved edits.</p>
+        </section>
+        <details>
+            <summary>Import / export definition</summary>
+            <p>Import replaces this draft's graph and keeps its workflow ID. It does not grant capabilities or execute code.</p>
+            <label>Workflow JSON <textarea @bind="jsonText" rows="8" maxlength="1048576"></textarea></label>
+            <div class="vaw-controls">
+                <button @onclick="Export" disabled="@busy">Copy definition into JSON editor</button>
+                <button @onclick="Import" disabled="@(busy || preview is not null)">Import JSON into draft</button>
+                <a download="workflow.json" href="@DownloadHref">Download viewed definition</a>
+            </div>
+        </details>
+        <details>
+            <summary>Catalog audit (@audit.Count entries)</summary>
+            <ul>@foreach (var entry in audit) { <li>@entry.Timestamp.ToString("u") · @entry.Actor · @entry.Kind · generation @entry.Generation</li> }</ul>
+        </details>
+    }
+    @if (message is not null) { <p role="status">@message</p> }
+    @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
+    </fieldset>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public IWorkflowCatalog Catalog { get; set; } = default!;
+    [Parameter, EditorRequired] public IPublishedWorkflowClient Client { get; set; } = default!;
+    [Parameter] public EventCallback<RunSnapshot> OnRunStarted { get; set; }
+    private WorkflowDefinition? definition;
+    private long generation;
+    private Guid? activeRevisionId;
+    private Guid? selectedRevisionId;
+    private PublishedWorkflowRevision? preview;
+    private IReadOnlyList<WorkflowDraft> workflows = [];
+    private IReadOnlyList<PublishedWorkflowRevision> versions = [];
+    private IReadOnlyList<WorkflowAuditEntry> audit = [];
+    private readonly Stack<WorkflowDefinition> undo = new();
+    private readonly Stack<WorkflowDefinition> redo = new();
+    private string? savedHash;
+    private bool dirty => definition is not null && WorkflowJson.ComputeHash(definition) != savedHash;
+    private bool busy;
+    private bool interactive;
+    private string? error;
+    private string? message;
+    private string jsonText = "";
+    private string runInput = "Hello, workflows!";
+    private string DownloadHref => "data:application/json;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(WorkflowJson.Serialize(preview?.Revision.Definition ?? definition!)));
+
+    protected override async Task OnInitializedAsync() => await Perform(async () =>
+    {
+        workflows = await Catalog.ListDraftsAsync();
+        if (workflows.Count > 0) await Load(workflows[0]); else NewWorkflow();
+    });
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender) { interactive = true; StateHasChanged(); }
+    }
+
+    private void NewWorkflow()
+    {
+        definition = PipelineTemplates.Create("uppercase") with { WorkflowId = "workflow-" + Guid.NewGuid().ToString("N") };
+        generation = 0; activeRevisionId = null; selectedRevisionId = null; preview = null;
+        versions = []; audit = []; undo.Clear(); redo.Clear(); jsonText = "";
+        savedHash = WorkflowJson.ComputeHash(definition);
+        error = null; message = "New workflow created locally. Save its draft before publishing.";
+    }
+
+    private async Task Load(WorkflowDraft draft)
+    {
+        definition = draft.Definition; generation = draft.Generation; activeRevisionId = draft.ActiveRevisionId;
+        savedHash = WorkflowJson.ComputeHash(definition);
+        preview = null; undo.Clear(); redo.Clear(); jsonText = "";
+        await Metadata();
+        selectedRevisionId = draft.ActiveRevisionId ?? draft.HeadRevisionId;
+    }
+
+    private async Task Metadata()
+    {
+        workflows = await Catalog.ListDraftsAsync();
+        versions = await Catalog.ListRevisionsAsync(definition!.WorkflowId);
+        audit = await Catalog.ReadAuditAsync(definition.WorkflowId);
+    }
+
+    private void Changed(WorkflowDefinition next)
+    {
+        if (definition is null || WorkflowJson.ComputeHash(next) == WorkflowJson.ComputeHash(definition)) return;
+        undo.Push(definition); redo.Clear(); definition = next; error = null; message = null;
+    }
+
+    private void Undo() { if (undo.TryPop(out var previous)) { redo.Push(definition!); definition = previous; message = null; } }
+    private void Redo() { if (redo.TryPop(out var next)) { undo.Push(definition!); definition = next; message = null; } }
+    private Task SelectWorkflow(ChangeEventArgs args) => Perform(async () =>
+    {
+        if (dirty) return;
+        var draft = await Catalog.GetDraftAsync(args.Value?.ToString() ?? "") ?? throw new KeyNotFoundException();
+        await Load(draft);
+    });
+    private void SelectRevision(ChangeEventArgs args)
+    { selectedRevisionId = Guid.TryParse(args.Value?.ToString(), out var id) ? id : null; preview = null; }
+
+    private Task Save() => Perform(async () =>
+    {
+        var draft = await Catalog.SaveDraftAsync(definition!, generation);
+        definition = draft.Definition; generation = draft.Generation; activeRevisionId = draft.ActiveRevisionId;
+        savedHash = WorkflowJson.ComputeHash(definition);
+        await Metadata(); message = "Draft saved.";
+    });
+
+    private Task Publish() => Perform(async () =>
+    {
+        if (dirty || generation == 0) throw new InvalidOperationException();
+        var published = await Catalog.PublishAsync(definition!.WorkflowId, generation);
+        await Load((await Catalog.GetDraftAsync(definition.WorkflowId))!);
+        selectedRevisionId = published.Revision.RevisionId;
+        message = $"Published and activated version {published.Version}.";
+    });
+
+    private Task Discard() => Perform(async () =>
+    {
+        var draft = definition is null ? null : await Catalog.GetDraftAsync(definition.WorkflowId);
+        if (draft is null) NewWorkflow(); else await Load(draft);
+        message = "Local changes discarded; saved state loaded.";
+    });
+
+    private void Preview() { preview = versions.FirstOrDefault(v => v.Revision.RevisionId == selectedRevisionId); }
+    private Task Restore() => Perform(async () =>
+    {
+        if (dirty) throw new InvalidOperationException();
+        var draft = await Catalog.RestoreDraftAsync(definition!.WorkflowId, selectedRevisionId!.Value, generation);
+        await Load(draft); message = "Version restored to draft. Publish to create a new version; active runs are unchanged.";
+    });
+    private Task Activate() => Perform(async () =>
+    {
+        if (dirty) throw new InvalidOperationException();
+        var draft = await Catalog.ActivateAsync(definition!.WorkflowId, selectedRevisionId!.Value, generation);
+        generation = draft.Generation; activeRevisionId = draft.ActiveRevisionId;
+        await Metadata(); message = "Selected version activated for new workflow runs.";
+    });
+    private Task RunPublished() => Perform(async () =>
+    {
+        var run = await Client.StartPublishedRunAsync(selectedRevisionId!.Value, runInput);
+        await OnRunStarted.InvokeAsync(run); message = "Published run started independently of the editor.";
+    });
+    private void Export() { jsonText = WorkflowJson.Serialize(preview?.Revision.Definition ?? definition!); }
+    private Task Import() => Perform(() =>
+    {
+        var imported = WorkflowJson.Deserialize(jsonText) with { WorkflowId = definition!.WorkflowId };
+        Changed(imported); message = "Definition imported locally. Save and publish explicitly.";
+        return Task.CompletedTask;
+    });
+
+    private async Task Perform(Func<Task> action)
+    {
+        if (busy) return;
+        busy = true; error = null; message = null;
+        try { await action(); }
+        catch (WorkflowConflictException)
+        { error = "Another editor changed this workflow. Your local edits are preserved. Discard local changes and reload before continuing."; }
+        catch (Exception exception) when (exception is ArgumentException or System.Text.Json.JsonException)
+        { error = "Invalid workflow or JSON. Only supported, valid string pipelines can be saved or imported."; }
+        catch { error = "The operation failed. Your local draft is preserved; inspect the backend diagnostics."; }
+        finally { busy = false; }
+    }
+}

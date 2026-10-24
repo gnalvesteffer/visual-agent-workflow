@@ -46,4 +46,16 @@ Catalog mutations append actor, timestamp, kind, generation, revision identity, 
 
 Tests and the API smoke check cover persistent history, restore lineage, activation, concurrent writer conflicts across independent store instances, transactionally consistent audit entries, rejected cross-workflow revisions, and execution of the original published content after draft edits. The run journal and scheduling limitations from milestone 3 remain unchanged.
 
-See [workflow API](workflow-api.md) for routes. Draft/revision UI controls are the next milestone.
+See [workflow API](workflow-api.md) for routes.
+
+## Milestone 5: reusable visual pipeline authoring and version controls
+
+Added `PipelineEditor` and `WorkflowDesigner` Razor components and integrated them into Studio through the public catalog/client interfaces. Users can create a workflow, insert approved transformations, choose operations, reorder/remove nodes, undo/redo edits, save a draft, and publish/activate a numbered version. Rewiring is automatic for the linear model; stable node IDs and unrelated connection IDs are retained. Input/output terminals cannot be removed or moved. The supported 256-node limit also applies to edits.
+
+The designer can preview a published revision read-only, compare structural changes by stable identity, return to its current draft, restore an older revision into the draft, activate a published revision, and run a selected exact version. Unsaved draft changes are distinct from published execution. Local edits block workflow switching/publication until saved or explicitly discarded. A stale save displays a conflict and preserves the local graph rather than silently reloading or overwriting server state.
+
+Definition JSON can be downloaded, exported into a text editor, and imported into the current draft. Imports validate the supported schema/operations, retain the current workflow ID, and remain local until explicitly saved/published. This is definition sharing only, not a complete prefab/dependency bundle or automatic capability binding.
+
+Core tests cover identity preservation, insertion/reorder/removal, operation diffs, terminal and unknown-operation rejection, and the node limit. Real-browser smoke checks cover editing/undo/redo, two publications, recorded output from the selected version, read-only historical preview, restore as a third publication, competing tabs with conflict recovery, JSON import, and mobile overflow. Accessible names and disabled-until-interactive controls are tested through actual controls. The saved-workflow selector is keyed by identity/generation to preserve alignment when its options change after initial save.
+
+This is a visual linear pipeline editor, not the full Blueprint-style free-form canvas. There is no drag-to-wire, layout persistence, branching, multi-user live synchronization, or automatic save yet. SQLite catalog persistence does not change the development-only security or file run-journal recovery limitations.

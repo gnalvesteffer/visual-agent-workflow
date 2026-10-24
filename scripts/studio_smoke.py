@@ -1,7 +1,7 @@
 """Functional smoke check against an already running local development studio.
 
-Uses only the standard library unless --browser is selected. Creates recorded test
-runs in the studio's development journal; use a disposable local data directory.
+Uses only the standard library unless --browser is selected. Creates workflows,
+publications, audit entries, and recorded runs; use disposable local data.
 """
 
 import argparse
@@ -144,8 +144,101 @@ def browser_check(executable):
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), "Mobile horizontal overflow"
             assert not errors, errors
             print("Browser run controls, output inspector, playback, reload, and mobile overflow checks passed.")
+            designer_check(browser)
         finally:
             browser.close()
+
+
+def designer_check(browser):
+    from playwright.sync_api import expect
+
+    page = browser.new_page(viewport={"width": 1280, "height": 1000})
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(BASE)
+    designer = page.get_by_role("region", name="Workflow designer", exact=True)
+    expect(designer.get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
+    designer.get_by_role("button", name="New workflow", exact=True).click()
+    designer.get_by_text("New workflow created locally. Save its draft before publishing.", exact=True).wait_for()
+    workflow_id = designer.get_by_label("Saved workflow", exact=True).input_value()
+    nodes = designer.locator('ol[aria-label="Editable pipeline nodes"] > li')
+    expect(nodes).to_have_count(3)
+    designer.get_by_label("New node operation", exact=True).select_option("core.text.reverse")
+    designer.get_by_role("button", name="Add node after step-1", exact=True).click()
+    expect(nodes).to_have_count(4)
+    inserted_id = nodes.nth(2).get_attribute("data-node-id")
+    designer.get_by_role("button", name=f"Move {inserted_id} up", exact=True).click()
+    expect(nodes.nth(1)).to_have_attribute("data-node-id", inserted_id)
+    designer.get_by_role("button", name="Undo edit", exact=True).click()
+    expect(nodes.nth(2)).to_have_attribute("data-node-id", inserted_id)
+    designer.get_by_role("button", name=f"Remove {inserted_id}", exact=True).click()
+    expect(nodes).to_have_count(3)
+    designer.get_by_role("button", name="Undo edit", exact=True).click()
+    expect(nodes).to_have_count(4)
+    designer.get_by_role("button", name="Redo edit", exact=True).click()
+    expect(nodes).to_have_count(3)
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    designer.get_by_role("button", name="Publish & activate", exact=True).click()
+    designer.get_by_text("Published and activated version 1.", exact=True).wait_for()
+    designer.get_by_role("button", name="Add node after step-1", exact=True).click()
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    designer.get_by_role("button", name="Publish & activate", exact=True).click()
+    designer.get_by_text("Published and activated version 2.", exact=True).wait_for()
+    designer.get_by_label("Published run input", exact=True).fill("abc")
+    designer.get_by_role("button", name="Run selected version", exact=True).click()
+    page.get_by_role("button", name="output core.output Completed", exact=True).click()
+    expect(page.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("CBA")
+    version_select = designer.get_by_label("Published version", exact=True)
+    version_one = version_select.locator("option").evaluate_all("options => options.find(o => o.textContent.startsWith('Version 1 ')).value")
+    version_select.select_option(version_one)
+    designer.get_by_role("button", name="View selected version", exact=True).click()
+    designer.get_by_text("Viewing published version 1 (read-only).", exact=True).wait_for()
+    expect(nodes).to_have_count(3)
+    expect(designer.get_by_role("button", name="Add node after input", exact=True)).to_have_count(0)
+    designer.get_by_role("button", name="Return to draft", exact=True).click()
+    expect(nodes).to_have_count(4)
+    designer.get_by_role("button", name="Restore selected to draft", exact=True).click()
+    expect(nodes).to_have_count(3)
+    designer.get_by_role("button", name="Publish & activate", exact=True).click()
+    designer.get_by_text("Published and activated version 3.", exact=True).wait_for()
+
+    other = browser.new_page()
+    other.on("pageerror", lambda error: errors.append(str(error)))
+    other.goto(BASE)
+    second = other.get_by_role("region", name="Workflow designer", exact=True)
+    expect(second.get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
+    second.get_by_label("Saved workflow", exact=True).select_option(workflow_id)
+    expect(second.get_by_label("Published version", exact=True).locator("option")).to_have_count(3)
+    designer.get_by_label("Operation for step-1", exact=True).select_option("core.text.reverse")
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    designer.get_by_text("Draft saved.", exact=True).wait_for()
+    second.get_by_role("button", name="Add node after input", exact=True).click()
+    second.get_by_role("button", name="Save draft", exact=True).click()
+    expect(second.get_by_role("alert")).to_contain_text("Your local edits are preserved")
+    expect(second.locator('ol[aria-label="Editable pipeline nodes"] > li')).to_have_count(4)
+    second.get_by_role("button", name="Discard local changes and reload", exact=True).click()
+    expect(second.locator('ol[aria-label="Editable pipeline nodes"] > li')).to_have_count(3)
+    expect(second.get_by_label("Operation for step-1", exact=True)).to_have_value("core.text.reverse")
+    other.close()
+
+    designer.get_by_text("Import / export definition", exact=True).click()
+    designer.get_by_role("button", name="Copy definition into JSON editor", exact=True).click()
+    expect(designer.get_by_label("Workflow JSON", exact=True)).not_to_have_value("")
+    exported = json.loads(designer.get_by_label("Workflow JSON", exact=True).input_value())
+    assert exported["workflowId"] == workflow_id
+    exported["workflowId"] = "unrelated-import-id"
+    exported["nodes"]["step-1"]["type"] = "core.text.uppercase"
+    designer.get_by_label("Workflow JSON", exact=True).fill(json.dumps(exported))
+    designer.get_by_role("button", name="Import JSON into draft", exact=True).click()
+    expect(designer.get_by_label("Operation for step-1", exact=True)).to_have_value("core.text.uppercase")
+    assert designer.get_by_label("Saved workflow", exact=True).input_value() == workflow_id
+    designer.get_by_role("button", name="Undo edit", exact=True).click()
+    expect(designer.get_by_label("Operation for step-1", exact=True)).to_have_value("core.text.reverse")
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), "Designer mobile overflow"
+    assert not errors, errors
+    page.close()
+    print("Browser graph edits/undo, publication, pinned run, version preview/restore, cross-tab conflicts, and JSON import passed.")
 
 
 if __name__ == "__main__":

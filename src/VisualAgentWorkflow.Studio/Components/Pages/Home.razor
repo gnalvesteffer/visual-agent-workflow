@@ -1,6 +1,7 @@
 @page "/"
 @rendermode InteractiveServer
 @inject IWorkflowClient Client
+@inject IWorkflowCatalog Catalog
 
 <PageTitle>Visual Agent Workflow</PageTitle>
-<WorkflowStudio Client="Client" />
+<WorkflowStudio Client="Client" Catalog="Catalog" />

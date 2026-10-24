@@ -5,3 +5,5 @@ TestResults/
 *.user
 *.suo
 .local/
+__pycache__/
+*.pyc

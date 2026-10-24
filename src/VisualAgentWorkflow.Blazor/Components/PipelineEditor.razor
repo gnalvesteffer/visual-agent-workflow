@@ -1,0 +1,70 @@
+<section class="vaw-pipeline-editor" aria-label="Visual pipeline editor">
+    @if (!ReadOnly)
+    {
+        <label>New node operation
+            <select aria-label="New node operation" @bind="newType" disabled="@Disabled">
+                <option value="@NodeTypes.Uppercase">Uppercase</option>
+                <option value="@NodeTypes.Reverse">Reverse</option>
+            </select>
+        </label>
+    }
+    <ol class="vaw-graph" aria-label="Editable pipeline nodes">
+        @for (var i = 0; i < Order.Length; i++)
+        {
+            var index = i;
+            var id = Order[index];
+            var node = Definition.Nodes[id];
+            var terminal = node.Type is NodeTypes.Input or NodeTypes.Output;
+            <li class="vaw-node vaw-edit-node" data-node-id="@id" @key="id">
+                @if (index > 0) { <div class="vaw-connection">↓ string data</div> }
+                <article>
+                    <strong>@id</strong>
+                    <small>@(node.Type == NodeTypes.Input ? "out · string" : node.Type == NodeTypes.Output ? "in · string" : "in · string → out · string")</small>
+                    @if (terminal || ReadOnly)
+                    {
+                        <p>@node.Type</p>
+                    }
+                    else
+                    {
+                        <label>Operation for @id
+                            <select aria-label="Operation for @id" value="@node.Type" @onchange="args => ChangeType(id, args)" disabled="@Disabled">
+                                <option value="@NodeTypes.Uppercase">Uppercase</option>
+                                <option value="@NodeTypes.Reverse">Reverse</option>
+                            </select>
+                        </label>
+                        <div class="vaw-controls">
+                            <button @onclick="() => Edit(() => PipelineEditing.Move(Definition, id, -1))" disabled="@(Disabled || index == 1)" aria-label="Move @id up">Move up</button>
+                            <button @onclick="() => Edit(() => PipelineEditing.Move(Definition, id, 1))" disabled="@(Disabled || index == Order.Length - 2)" aria-label="Move @id down">Move down</button>
+                            <button @onclick="() => Edit(() => PipelineEditing.Remove(Definition, id))" disabled="@Disabled" aria-label="Remove @id">Remove</button>
+                        </div>
+                    }
+                    @if (!ReadOnly && node.Type != NodeTypes.Output)
+                    {
+                        <button @onclick="() => Edit(() => PipelineEditing.InsertAfter(Definition, id, newType))" disabled="@(Disabled || Definition.Nodes.Count >= 256)" aria-label="Add node after @id">+ Add node after</button>
+                    }
+                </article>
+            </li>
+        }
+    </ol>
+    @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public WorkflowDefinition Definition { get; set; } = default!;
+    [Parameter] public EventCallback<WorkflowDefinition> DefinitionChanged { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    private string newType = NodeTypes.Uppercase;
+    private string? error;
+    private System.Collections.Immutable.ImmutableArray<string> Order => PipelineEditing.OrderedNodes(Definition);
+
+    private Task ChangeType(string id, ChangeEventArgs args) =>
+        Edit(() => PipelineEditing.ChangeOperation(Definition, id, args.Value?.ToString() ?? ""));
+
+    private async Task Edit(Func<WorkflowDefinition> edit)
+    {
+        if (ReadOnly || Disabled) return;
+        try { error = null; await DefinitionChanged.InvokeAsync(edit()); }
+        catch (ArgumentException) { error = "This edit is not supported by the validated string-pipeline model."; }
+    }
+}

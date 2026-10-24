@@ -5,11 +5,11 @@
         <p class="vaw-eyebrow">VISUAL AGENT WORKFLOW</p>
         <h1>Pipeline studio</h1>
         <p>Run an Agent Framework pipeline. Inspect the recorded inputs, outputs, and messages.</p>
-        <p class="vaw-notice">Local development prototype · no agents, MCP calls, or full graph editing yet.</p>
+        <p class="vaw-notice">Local development prototype · linear pipelines only; agents and MCP calls are not yet implemented.</p>
     </header>
     <div class="vaw-workspace">
         <aside class="vaw-sidebar">
-            <h2>New run</h2>
+            <h2>Quick template run</h2>
             <label>Pipeline
                 <select @bind="operation">
                     <option value="uppercase">Uppercase</option>
@@ -38,6 +38,10 @@
         </aside>
         <main>
             @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
+            @if (Catalog is not null && Client is IPublishedWorkflowClient publishedClient)
+            {
+                <WorkflowDesigner Catalog="Catalog" Client="publishedClient" OnRunStarted="PublishedRunStarted" />
+            }
             <WorkflowRunViewer Snapshot="snapshot" />
         </main>
     </div>
@@ -45,6 +49,7 @@
 
 @code {
     [Parameter, EditorRequired] public IWorkflowClient Client { get; set; } = default!;
+    [Parameter] public IWorkflowCatalog? Catalog { get; set; }
     private string operation = "uppercase-reverse";
     private string input = "Hello, workflows!";
     private IReadOnlyList<RunSnapshot> runs = [];
@@ -103,6 +108,7 @@
     }
 
     private async Task SelectRun(Guid id) { snapshot = await Client.GetRunAsync(id); }
+    private async Task PublishedRunStarted(RunSnapshot run) { snapshot = run; await Refresh(); }
     private async Task Cancel() { if (snapshot is not null) await Client.CancelRunAsync(snapshot.Header.RunId); await Refresh(); }
 
     public async ValueTask DisposeAsync()
