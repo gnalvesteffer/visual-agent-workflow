@@ -6,13 +6,13 @@ Statuses mean **Complete** (implemented and verified), **Active** (currently bei
 
 ## Current product boundary
 
-The development Studio edits and runs validated linear and conditional string graphs through Microsoft Agent Framework. It has free node placement, edge sockets, reroutes/pinned angles, labels/comments, named sections, immutable publications, restore/activation, persisted local audit/run evidence, and recorded playback, plus reusable published pipelines and portable packages. MCP tools are node-scoped. The default agent provider is a deterministic fixture. An opt-in host-configured OpenAI SDK adapter is protocol-verified; credentialed live-service qualification remains outstanding.
+The development Studio edits and runs validated linear and conditional string graphs through Microsoft Agent Framework. It has free node placement, edge sockets, reroutes/pinned angles, labels/comments, named sections, immutable publications, restore/activation, persisted local audit/run evidence, and recorded playback, plus reusable published pipelines and portable packages. Agent nodes can configure instructions/provider/model and select node-scoped host-registered MCP tools; the standalone Studio currently registers only two built-in text tools and has no user-configurable MCP server or skill library. Model providers can be managed in Studio settings. The default agent provider is a deterministic fixture; the opt-in OpenAI SDK adapter is protocol-verified, while credentialed live-service qualification remains outstanding.
 
 The backend owns execution. Studio/ordinary queued runs still interrupt after host failure; a separate opt-in host explicitly resumes deterministic saved checkpoints. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Free placement does not imply arbitrary socket rewiring or parallel execution. Conditional routing is an explicit validated operation.
 
-## Latest completed milestone: Studio model provider settings
+## Latest completed milestone: Provider management and Studio theme refinement
 
-A dedicated Settings page adds version-pinned OpenAI Chat Completions providers at runtime. API credentials are protected in local Studio storage, descriptors remain secret-free, and new providers appear immediately in the agent library. Host configuration remains available for consumer services. The Studio remains a loopback-only unauthenticated prototype; multi-user credential management is not implemented. See [provider configuration](model-providers.md).
+The Settings page can list, add, version, and delete locally saved OpenAI-compatible providers. API credentials are protected in local Studio storage, descriptors remain secret-free, and new provider versions appear immediately in agent nodes. The Studio theme and provider-management layout were refined. Host configuration remains available for consumer services. The Studio remains a loopback-only unauthenticated prototype; multi-user credential management is not implemented. See [provider configuration](model-providers.md) and [design system](design-system.md).
 
 ## Previous completed milestone: canvas-first creation workbench
 
@@ -81,8 +81,10 @@ flowchart TD
     Models --> Store["Complete: atomic run storage boundary"]
     Store --> Recovery["Complete: explicit deterministic checkpoint recovery"]
     Recovery --> Assess["Complete: read-only run reconciliation"]
-    Assess --> Durable["Next: host-attributed reconciliation decisions"]
-    Durable --> Assets["Versioned skills and nested prefab instances"]
+    Assess --> Agents["Next: configurable MCP servers, tools, and agent skills"]
+    Agents --> Orchestration["Planned: typed data and complex graph orchestration"]
+    Orchestration --> Assets["Planned: nested versioned workflow prefabs"]
+    Orchestration --> Durable["Later: host-attributed reconciliation decisions"]
     Assets --> Extensions["Approved extensions in isolated workers"]
     Durable --> Collaboration["Workspace sharing and collaboration"]
     Extensions --> Production["Production qualification"]
@@ -111,9 +113,30 @@ Native superstep state, a versioned/bounded recovery envelope, atomic checkpoint
 
 The assessment distinguishes a saved suspension, advanced checkpoint evidence, unresolved work, invalid/missing frames and terminal status. Consumer and embedded observation paths expose the explanation without making live calls or decisions. See [run reconciliation](run-reconciliation.md).
 
-### Next: host-attributed reconciliation decision records
+### Next: configurable MCP servers, tools, and per-agent skills
 
-Define explicit operator decisions for recorded uncertain outcomes, bound to the exact run/cursor/call identity with authenticated host-derived actors and append-only evidence. Distinguish a human assertion from a provider's actual response and preserve prior uncertainty. A decision must not silently retry external calls, rewrite history, grant tools, auto-approve or enable recovery of unsupported graphs. Observation stays read-only; production identity and authorization remain prerequisites for public controls.
+The next milestone makes agent nodes useful with user-owned capabilities. Today the designer already edits agent instructions, chooses an available model provider, and assigns selected tools to an individual agent node. The standalone Studio's tool catalog, however, is hard-coded to the two built-in `uppercase` and `reverse` fixture tools; there is no server-management UI or reusable skill catalog. Consumer hosts can supply their own trusted registrations, but that does not let a workflow author configure the Studio's catalog.
+
+Deliver one coherent authoring flow:
+
+1. Add and manage host-owned MCP server connections in Studio settings, then discover and inspect each server's tools, descriptions, and input/output schemas. Start with standard stdio and Streamable HTTP transports only after a compatibility/security spike confirms the pinned client APIs and required limits.
+2. Keep server endpoints, process commands, credentials, and policy outside workflow definitions. Studio settings belong to the local operator; consumer services continue to register trusted server connections and authorization policy in their own host. Imported workflow packages may declare logical server/tool requirements but cannot select endpoints, launch processes, or grant credentials.
+3. Let authors assign an explicit set of discovered MCP tool contracts to each agent node. Keep that set node-scoped and version-pinned; a catalog listing is discoverability, not permission. The host must authorize each model-selected invocation, and current approval nodes must not be presented as gates for calls made inside an agent loop.
+4. Add a versioned skill library and a per-agent skill selector. A skill may carry reviewed instructions, parameters, and bounded supporting resources. Pin exact skill versions in published workflows and preserve them through package export/import and recorded playback. Skill content cannot grant tools, change server policy, or expand the agent's explicit capabilities. Define the skill package and resource-resolution contract before importing external skill formats.
+5. Expand agent-node configuration with provider-supported controls such as reasoning effort. Store the setting on the individual agent node and map it through the provider adapter only where the selected provider/model supports it. Discover and expose provider capabilities; validate unsupported values and clearly show when a setting cannot be honored. Do not imply a provider-neutral value has identical semantics across vendors, or silently send unsupported options.
+6. Give agents clear diagnostics when servers are unavailable, a tool schema drifts, a pinned skill version is missing, or a selected model setting is unsupported. Persist exact resolved server/tool/contract, skill, provider/model, and effective supported-setting identities in publication requirements and bounded run evidence; keep credentials and authorization secrets out of both.
+
+Treat a configured stdio process as trusted code running under the Studio/service process identity. Apply explicit operator consent, allowlisted launch configuration, bounded startup/discovery/invocation, cancellation, and secret isolation. A server connection is not an MCP security boundary. This milestone remains local-development and host-integrated functionality; it does not make the unauthenticated Studio a multi-user secrets manager or production service.
+
+The milestone is complete when a user can configure an approved MCP server, discover a tool, assign it to one agent, attach a versioned skill and supported reasoning effort to that agent, publish and run the workflow, and replay evidence showing the exact tool, skill, provider/model, and effective setting versions—while a second agent without those assignments cannot access them.
+
+### Planned: typed data and complex graph orchestration
+
+Build on the agent-capability foundation with schema-backed JSON and other reviewed typed ports, mapping and validation nodes, validated arbitrary socket rewiring, deliberate parallel fan-out/fan-in joins, bounded loops, and richer failure/cancellation behavior. These are executable semantics, not just canvas arrangements. Prove representative graphs against the pinned Microsoft Agent Framework adapter before fixing each node or control-flow contract; preserve event ordering, exact-version dependencies, and truthful playback. Keep loops, joins, concurrency, payloads, and tool calls bounded and diagnosable.
+
+### Later: host-attributed reconciliation decision records
+
+After the agent-authoring priority, define explicit operator decisions for recorded uncertain outcomes, bound to the exact run/cursor/call identity with authenticated host-derived actors and append-only evidence. Distinguish a human assertion from a provider's actual response and preserve prior uncertainty. A decision must not silently retry external calls, rewrite history, grant tools, auto-approve or enable recovery of unsupported graphs. Observation stays read-only; production identity and authorization remain prerequisites for public controls.
 
 ### Planned: durable execution and security foundations
 
@@ -121,9 +144,9 @@ Define storage ownership, transactional run state/event capture, concurrency, ch
 
 Add workspace identity, backend authorization, authenticated audit actors, payload access/redaction, retention, encryption choices, quotas, and credential handling. Do not expose the current development host as a production service. This foundation precedes claims of dependable production operation or multi-tenant sharing.
 
-### Planned: richer no-code workflows and reusable assets
+### Planned: further reusable assets and specialization
 
-Expand beyond string ports with reviewed typed schemas and authoring diagnostics. Add validated arbitrary socket rewiring and explicit conditional-block removal rather than treating canvas movement or topological order as execution edits. Extend the supported graph patterns with deliberate parallel joins, bounded loops, richer typed data transformations, and versioned skills assigned through the designer. Evolve template copies into nested prefab instances with pinned dependencies, explicit upgrades/overrides, cycle detection, and readable invocation scopes. Preserve historical playback when sources/providers are absent.
+Add explicit conditional-block removal rather than treating canvas movement or topological order as execution edits. Evolve template copies into nested workflow prefab instances with pinned dependencies, declared inputs/outputs, explicit upgrades/overrides, cycle detection, and readable invocation scopes. Preserve historical playback when sources/providers are absent.
 
 ### Planned: approved extension workers
 

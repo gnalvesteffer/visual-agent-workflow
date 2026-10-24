@@ -83,13 +83,15 @@ Initial node categories:
 | Data | Constants, typed objects, field selection, list operations |
 | Computation | Arithmetic, comparison, text transformation, validation |
 | Control flow | Branch, switch, bounded loop, parallel branches, join |
-| Agents | Agent invocation, instructions, assigned skills and tools |
+| Agents | Agent invocation, provider/model, instructions, assigned skills and tools, and provider-supported reasoning controls |
 | External operations | Explicitly granted MCP tool invocation |
 | Interaction | Human approval, wait for input |
 | Composition | Versioned prefab/subworkflow invocation |
 | Extensions | Host-approved .NET node implementations |
 
 Define data flow, execution dependencies, and configuration references explicitly. A connection must have one documented meaning; visual proximity must never imply execution behavior. Specify join policy, loop bounds, error propagation, ordering, cancellation, and retry behavior before implementing each control node.
+
+Agent-node settings are per node and versioned with the workflow. Optional controls such as reasoning effort are capability-aware: adapters expose which values a provider/model supports, map them to that provider's semantics, and surface unsupported choices instead of silently ignoring them. Do not assume similarly named controls have identical behavior across providers. Record the requested and effective setting with the model/provider identity in bounded run evidence, without recording credentials.
 
 Provide configuration editors, input/output inspectors, semantic diagnostics, and compatibility errors. Keep layout-library models out of persisted execution contracts. Evaluate Blazor.Diagrams as a canvas foundation, including realistic graph sizes and streamed updates. Decide interaction hosting based on measured responsiveness rather than assuming every pointer movement can tolerate server round trips.
 
@@ -132,7 +134,7 @@ Platform logging, cancellation, controlled clock/randomness, and workflow state 
 
 ## Skills
 
-Assign skills to specific agents through the designer. Skills can contain versioned instructions, parameters, and supporting resources. Published workflows pin their skill versions.
+Maintain a reusable, versioned skill library with stable IDs, metadata, immutable revisions, and bounded supporting resources. The designer lists skills available to that workspace/host and lets authors attach exact skill versions to individual agents. Published workflows pin their skill versions so editing a library entry cannot silently change a workflow.
 
 Skill attachment does not grant tool permissions. Skill content that describes an operation must still operate within the receiving agent's explicitly authorized capabilities. Define a concrete skill package format and supported resource behavior during implementation; do not assume every external skill format has identical execution semantics.
 
