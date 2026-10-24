@@ -1,3 +1,4 @@
+using System.Text.Json;
 using VisualAgentWorkflow.AgentFramework;
 using VisualAgentWorkflow.Blazor;
 using VisualAgentWorkflow.Core;
@@ -9,7 +10,8 @@ namespace VisualAgentWorkflow.Mcp.Tests;
 
 public sealed class RealModelInferenceTests
 {
-    private const string ExpectedResponse = "ORANGE";
+    private const string ModelResponse = "ORANGE";
+    private const string ExpectedResponse = "EGNARO";
 
     [RealModelFact]
     [Trait("Category", "RealModel")]
@@ -34,21 +36,37 @@ public sealed class RealModelInferenceTests
             InvocationTimeout = TimeSpan.FromMinutes(2)
         };
         var provider = OpenAIProviders.Create(options, () => "local-inference-test-key");
-        var broker = new McpToolBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var broker = new McpToolBroker(BrokerTests.Registrations(), new DemoToolPolicy());
+        var reverse = (await broker.ListBindingsAsync()).Single(binding => binding.BindingId == "demo.reverse");
         var agents = new AgentNodeExecutor([provider], broker);
         var definition = PipelineEditing.ReplaceNode(PipelineTemplates.Create("uppercase"), "step-1",
             new(NodeTypes.Agent, "1.0.0", Agent: new(provider.Descriptor.ProviderId, provider.Descriptor.Version,
-                $"Output exactly the word {ExpectedResponse}, with no punctuation.", [])));
+                $"Output exactly the word {ModelResponse}, with no punctuation.", [])));
+        definition = GraphEditing.InsertNodeAfter(definition, "step-1", "out",
+            new(NodeTypes.McpTool, "1.0.0", new(reverse.BindingId, reverse.ContractHash)));
         var events = new List<ExecutionEvent>();
 
         var output = await new PipelineRunner(broker, agents).ExecuteAsync(Guid.NewGuid(),
-            WorkflowRevision.Create(definition, "local-model-ci"), "What word should you output? /no_think",
+            WorkflowRevision.Create(definition, "local-model-mcp-workflow"),
+            "What word should the workflow pass to its next node? /no_think",
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
         Assert.Equal(ExpectedResponse, output.Trim());
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded);
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentCompleted);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+            HasStringProperty(evt.Data, "bindingId", reverse.BindingId) &&
+            HasStringProperty(evt.Data, "input", ModelResponse));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted &&
+            HasStringProperty(evt.Data, "output", ExpectedResponse));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentCompleted);
+    }
+
+    private static bool HasStringProperty(string? data, string property, string expected)
+    {
+        if (data is null) return false;
+        using var json = JsonDocument.Parse(data);
+        return json.RootElement.TryGetProperty(property, out var value) && value.GetString() == expected;
     }
 }
 
