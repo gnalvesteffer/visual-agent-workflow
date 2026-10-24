@@ -1,4 +1,6 @@
-# Implementation status
+# Implementation history
+
+Historical delivery notes and validation evidence. Use the [roadmap](roadmap.md) for current priorities and remaining work, the [architecture guide](architecture.md) for the current implementation, and the [user guide](user-guide.md) for tasks. Earlier milestone limitations describe that point in development; later entries supersede them.
 
 ## Milestone 1: core definition and revision contracts
 
@@ -31,10 +33,6 @@ A single-process file journal retains immutable run definition/revision snapshot
 The development host accepts only loopback peers/hosts and rejects foreign browser origins (including WebSocket upgrades) and cross-site requests. It refuses non-Development startup. These controls are not authentication; do not expose it through a public reverse proxy. Recorded inputs/outputs are plaintext. No arbitrary extensions or external I/O are enabled. Actor attribution is the placeholder `local-developer`, not an authenticated audit identity.
 
 Verified checks include journal reopening/terminal immutability, sequence/revision mismatch rejection, interrupted-run handling, backend-owned execution, and rendering recorded payloads with no execution services registered. Functional local HTTP checks exercise real framework execution, output, event cursors, invalid definitions, and host/origin denial. Chromium checks exercise actual run controls, output inspection, recorded stepping, reload, mobile overflow, and absence of browser runtime errors. These do not establish a complete accessibility review or production security. The earlier completed HTTP run was also retrieved after restarting the host.
-
-## Remaining roadmap
-
-Live model-backed agents, approvals, arbitrary graph editing, layout/dependency bundle schemas, durable recovery, workspace authorization and full administrative audit, prefab/skill packages, extension isolation, collaboration, and production operations remain outstanding. Later milestones must update this document with verified capabilities and limitations.
 
 ## Milestone 4: transactional workflow catalog
 

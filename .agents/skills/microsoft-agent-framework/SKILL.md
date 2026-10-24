@@ -5,7 +5,7 @@ description: Use when selecting or upgrading Microsoft Agent Framework .NET pack
 
 # Microsoft Agent Framework integration
 
-Read [project-guide](../project-guide/SKILL.md). The adapter targets Agent Framework 1.26.0 on .NET 10. Tests cover linear workflows, real stdio MCP tools, and `ChatClientAgent` function loops with a deterministic `IChatClient`. See [implementation status](../../../docs/implementation.md) for supported scope. These checks do not validate live LLM providers, branches, or durability.
+Read [project-guide](../project-guide/SKILL.md). The adapter targets Agent Framework 1.26.0 on .NET 10. Tests cover linear workflows, real stdio MCP tools, and `ChatClientAgent` function loops with a deterministic `IChatClient`. See [roadmap and current scope](../../../docs/roadmap.md) for supported scope. These checks do not validate live LLM providers, branches, or durability.
 
 ## Establish version-specific evidence
 

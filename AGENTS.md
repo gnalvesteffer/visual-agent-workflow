@@ -2,7 +2,7 @@
 
 Read [project-guide](.agents/skills/project-guide/SKILL.md) before changing this repository. Read the focused skill whose description matches the task; the [skill catalog](docs/agent-skills.md) lists them. Do not run every review for every change.
 
-The repository is in early implementation. [docs/design.md](docs/design.md) owns the product direction; [docs/implementation.md](docs/implementation.md) records implemented scope and limitations. Do not describe roadmap features as implemented.
+The repository is in early implementation. [docs/design.md](docs/design.md) owns the product direction; [docs/roadmap.md](docs/roadmap.md) tracks priorities, implemented scope, and limitations. Do not describe roadmap features as implemented.
 
 Use the existing checkout; cloud tasks already run in an isolated environment. Do not create a worktree unless requested. Preserve unrelated changes and inspect Git status before and after work.
 

@@ -71,7 +71,7 @@ Only linear string pipelines are executable today. Uppercase/reverse are determi
 
 SQLite stores drafts, immutable revisions, layouts, and catalog audit. The file journal separately stores each run's pinned definition and append-only execution evidence. These stores do not share a transaction. The journal is single-process; after a host restart, unfinished runs are marked interrupted instead of being silently resumed or replayed. Historical payload viewing makes no live calls.
 
-The development host permits only loopback/same-origin access and refuses non-Development startup. These checks are containment, not authentication. Audit actors are development placeholders; captured text is plaintext. There is no workspace authorization, distributed ownership, transactional crash repair, encryption/redaction, approval durability, extension sandbox, or production readiness claim. See [runtime configuration](runtime-configuration.md) and [implementation status](implementation.md) before integrating a host.
+The development host permits only loopback/same-origin access and refuses non-Development startup. These checks are containment, not authentication. Audit actors are development placeholders; captured text is plaintext. There is no workspace authorization, distributed ownership, transactional crash repair, encryption/redaction, approval durability, extension sandbox, or production readiness claim. See [runtime configuration](runtime-configuration.md) and [roadmap and current scope](roadmap.md) before integrating a host.
 
 ## Reuse and sharing contracts
 

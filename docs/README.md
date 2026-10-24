@@ -6,7 +6,8 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | --- | --- |
 | [User guide](user-guide.md) | Tasks through the actual Studio controls, including recovery and limitations |
 | [Architecture](architecture.md) | Implemented components, dependency direction, persistence, runtime ownership, and trust boundaries |
-| [Implementation status](implementation.md) | Delivered milestones and verified scope |
+| [Roadmap](roadmap.md) | Completed, active, next, and planned milestones with explicit scope |
+| [Implementation history](implementation-history.md) | Detailed historical delivery notes, validation, and limitations |
 | [Product design](design.md) | Agreed direction and proposed future capabilities; not a deployment description |
 | [Embedding](embedding.md) | Public Razor components, host services, lifecycle, and theming |
 | [Workflow API](workflow-api.md) | Local development API and concurrency contracts |

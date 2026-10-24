@@ -19,7 +19,7 @@ Direct package versions are centralized in `Directory.Packages.props` without up
 
 Existing records, public signatures, schema versions, and canonical hash formats are retained. Component async work captures the host context, honors observation cancellation, and ignores stale results. Framework inheritance remains where required; no blanket conversion of identifiers to structs, speculative result framework, blocking async bridge, or unsafe optimization was introduced.
 
-The architecture still includes synchronous SQLite catalog operations and a single-process file journal. Central package management and dependency checks do not make storage distributed or durable across active-process failures; see [implementation scope](implementation.md).
+The architecture still includes synchronous SQLite catalog operations and a single-process file journal. Central package management and dependency checks do not make storage distributed or durable across active-process failures; see [roadmap and current scope](roadmap.md).
 
 ## Visual design and themes
 
