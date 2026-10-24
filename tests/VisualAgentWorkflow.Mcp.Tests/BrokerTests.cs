@@ -33,13 +33,18 @@ public class BrokerTests
     {
         var broker = new McpToolBroker(Registrations(), new DemoToolPolicy());
         var bindings = await broker.ListBindingsAsync();
-        Assert.Equal(2, bindings.Count);
+        Assert.Equal(3, bindings.Count);
         var reverse = bindings.Single(b => b.BindingId == "demo.reverse");
         var events = new List<string>();
         await using var scope = broker.OpenScope(Invocation(Revision(reverse), events));
         Assert.Single(await scope.ListToolsAsync());
         Assert.Equal("🌍 olleh", await scope.InvokeAsync("demo.reverse", "hello 🌍"));
         Assert.Equal(new[] { ExecutionEventKinds.ToolRequested, ExecutionEventKinds.ToolAuthorized, ExecutionEventKinds.ToolCompleted }, events);
+
+        var submitAnswer = bindings.Single(b => b.BindingId == "demo.submit-answer");
+        await using var answerScope = broker.OpenScope(Invocation(Revision(submitAnswer), []));
+        Assert.Equal("2", await answerScope.InvokeAsync(submitAnswer.BindingId, "2"));
+        await Assert.ThrowsAsync<ToolInvocationException>(() => answerScope.InvokeAsync(submitAnswer.BindingId, "1 + 1 = 2"));
     }
 
     [Fact]
