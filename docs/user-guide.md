@@ -2,7 +2,7 @@
 
 The Studio creates and runs linear and conditional string-processing workflows. It supports deterministic transforms, host-approved MCP text tools, a deterministic demonstration agent, and opt-in host-configured external model providers. Free placement and wire routing organize the graph; they do not change execution semantics. Branches are authored through explicit conditional nodes.
 
-The default theme uses subtle graphite textures on editor chrome, with plain node contents and payload surfaces. Embedded hosts can opt out through the [theme properties](design-system.md).
+The default theme uses subtle graphite textures and gradient lighting on editor chrome, with plain node contents and payload surfaces. Embedded hosts can opt out through the [theme properties](design-system.md).
 
 Use disposable text in the local development app. It records inputs, outputs, and comments in local storage without workspace authentication or payload encryption.
 

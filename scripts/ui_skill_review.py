@@ -52,6 +52,11 @@ def check(browser, screenshots):
         assert "url(" not in chrome.evaluate("element=>getComputedStyle(element).backgroundImage")
         page.locator(".vaw-studio").evaluate("element=>element.style.removeProperty('--vaw-panel-texture')")
 
+        # Gradient lighting is independent of the optional image textures.
+        page.locator(".vaw-studio").evaluate("element=>{element.style.setProperty('--vaw-panel-texture','none');element.style.setProperty('--vaw-chrome-gradient','none');}")
+        assert "linear-gradient" not in designer.locator(".vaw-library-entry").first.evaluate("element=>getComputedStyle(element).backgroundImage")
+        page.locator(".vaw-studio").evaluate("element=>{element.style.removeProperty('--vaw-panel-texture');element.style.removeProperty('--vaw-chrome-gradient');}")
+
         # Compare an unrelated host control with/without the library stylesheet.
         untouched = page.evaluate("""() => {
             const host = document.createElement('section');
