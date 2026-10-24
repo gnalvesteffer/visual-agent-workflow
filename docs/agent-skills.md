@@ -13,6 +13,7 @@ The structure follows `gnalvesteffer/ai-newspaper`: a project guide plus focused
 | [Workflow runtime review](../.agents/skills/workflow-runtime-review/SKILL.md) | Changing Agent Framework integration, scheduling, recovery, approvals, or external effects |
 | [Audit and playback review](../.agents/skills/audit-playback-review/SKILL.md) | Changing events, audit records, payload capture, reconnect, or historical playback |
 | [Graph experience review](../.agents/skills/graph-experience-review/SKILL.md) | Changing visual authoring, live observation, accessibility, or component embedding |
+| [CSS](../.agents/skills/css/SKILL.md) | Writing or reviewing CSS layout, responsive behavior, typography, theming, specificity, or stylesheet organization; see [source and license](../.agents/skills/css/SOURCE.md) |
 | [Version and compatibility review](../.agents/skills/version-compatibility-review/SKILL.md) | Changing definitions, prefabs, schemas, imports, collaboration, dependencies, or releases |
 
-Keep each `SKILL.md` frontmatter limited to a stable `name` and a descriptive `description` identifying when to use it. Add scripts only when they exercise a real implemented workflow and have been tested. Update the catalog when skills are added or renamed.
+For repository-authored skills, keep `SKILL.md` frontmatter limited to a stable `name` and a descriptive `description` identifying when to use it. Preserve valid upstream metadata in vendored skills, along with their license and pinned provenance. Add scripts only when they exercise a real implemented workflow and have been tested. Update the catalog when skills are added or renamed.

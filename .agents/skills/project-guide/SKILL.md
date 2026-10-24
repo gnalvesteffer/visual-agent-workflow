@@ -21,3 +21,5 @@ Read [the design baseline](../../../docs/design.md), [implementation status](../
 Before selecting dependencies or implementing a public contract, identify the smallest representative proof and its failure cases. Record unresolved choices and compatibility tradeoffs in the design document or a focused linked decision document. Do not turn illustrative package names or JSON fragments into assumed supported APIs.
 
 Use the [catalog](../../../docs/agent-skills.md) to select the relevant review. Update README and design documentation when behavior or architectural decisions change. Keep proposed work distinct from implemented and tested behavior.
+
+For stylesheet work, read the vendored [CSS skill](../css/SKILL.md) and its [local integration guidance](../css/SOURCE.md), then use [graph-experience-review](../graph-experience-review/SKILL.md) for actual UI validation. Keep library styles and tokens scoped so embedding does not alter the host application's global styles.
