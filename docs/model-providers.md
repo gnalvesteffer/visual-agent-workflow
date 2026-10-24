@@ -66,7 +66,7 @@ Only functions explicitly assigned to the node are exposed; broker preflight pre
 
 The pinned integration uses Agent Framework 1.26.0, Microsoft.Extensions.AI.OpenAI 10.10.1 and OpenAI 2.14.0. Package selection was checked against the official [`dotnet-1.26.0` source](https://github.com/microsoft/agent-framework/tree/9c8a3514a15a702f81bfda456d80c7ccaa4d2712/dotnet), including its OpenAI Chat Completions sample and central package versions. Lockfiles pin the restored dependency graph.
 
-Unit/integration tests exercise actual SDK HTTP serialization through a controlled handler, tool loops with real stdio MCP, policy denial, cancellation, timeout, response bounds, redirect rejection, secret-free errors and disposal. `python3 scripts/provider_smoke.py --dotnet /path/to/dotnet --browser-executable /path/to/chromium` uses a local protocol fixture to exercise Studio authoring/publication/run/playback and independent direct/queued service execution, missing/version-mismatched providers and rate-limit handling. It makes no model calls. A separate Linux CI job downloads a pinned Qwen3 0.6B Q4_0 GGUF, then runs it using the prebuilt [`llama.cpp` server container](https://github.com/ggml-org/llama.cpp/blob/master/docs/docker.md). It caches the model weights, pins the server container by digest, and runs `RealModelInferenceTests` through the actual OpenAI-compatible provider, Agent Framework, and workflow graph. The workflow asks “What is 1+1?” and verifies that the model response contains the correct final numeric answer and that model/agent events were recorded. CI does not compile llama.cpp. This validates one small model's basic inference path; it does not qualify arbitrary compatible servers, broad semantic answer quality, tool calling, or credentialed hosted providers. The demo MCP catalog also includes `submit_answer`, which accepts only an integer string; broker tests exercise its MCP contract independently from real-model inference.
+Unit/integration tests exercise actual SDK HTTP serialization through a controlled handler, tool loops with real stdio MCP, policy denial, cancellation, timeout, response bounds, redirect rejection, secret-free errors and disposal. `python3 scripts/provider_smoke.py --dotnet /path/to/dotnet --browser-executable /path/to/chromium` uses a local protocol fixture to exercise Studio authoring/publication/run/playback and independent direct/queued service execution, missing/version-mismatched providers and rate-limit handling. It makes no model calls. A separate Linux CI job downloads [Qwen3-1.7B-Q4_K_M](https://huggingface.co/ggml-org/Qwen3-1.7B-GGUF/tree/daeb8e2d528a760970442092f6bf1e55c3b659eb) (Apache-2.0, about 1.28 GB), then runs it using the prebuilt [`llama.cpp` server container](https://github.com/ggml-org/llama.cpp/blob/master/docs/docker.md). It caches the model weights, pins the model revision, file hash, and server image digest, and runs `RealModelInferenceTests` through the actual OpenAI-compatible provider, Agent Framework, workflow graph, and stdio MCP broker. The workflow asks “What is 1+1?”; the model calls its assigned `submit_answer` tool with `2`, and the test verifies the accepted tool input, recorded model/tool events, and final numeric answer. CI does not compile llama.cpp. This validates one small model's arithmetic and constrained tool-call path; it does not qualify arbitrary compatible servers, broad semantic answer quality, or credentialed hosted providers. The demo MCP catalog's `submit_answer` tool accepts only an integer string.
 
 To run the opt-in inference test locally, download the pinned model revision and start the pinned llama.cpp server image:
 
@@ -75,25 +75,27 @@ set -e
 trap 'docker stop vaw-llama-server >/dev/null 2>&1 || true' EXIT
 mkdir -p /tmp/vaw-models
 curl --fail --location --retry 3 --retry-all-errors \
-  --output /tmp/vaw-models/Qwen3-0.6B-Q4_0.gguf \
-  https://huggingface.co/ggml-org/Qwen3-0.6B-GGUF/resolve/13ac06624948e4d8589cb4b6f90100837342fcb8/Qwen3-0.6B-Q4_0.gguf
+  --output /tmp/vaw-models/Qwen3-1.7B-Q4_K_M.gguf \
+  https://huggingface.co/ggml-org/Qwen3-1.7B-GGUF/resolve/daeb8e2d528a760970442092f6bf1e55c3b659eb/Qwen3-1.7B-Q4_K_M.gguf
+test "$(stat --format=%s /tmp/vaw-models/Qwen3-1.7B-Q4_K_M.gguf)" = 1282439264
+echo "d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5  /tmp/vaw-models/Qwen3-1.7B-Q4_K_M.gguf" | sha256sum --check --status
 docker run --detach --name vaw-llama-server \
   --publish 127.0.0.1:11434:8080 \
   --volume /tmp/vaw-models:/models:ro \
   ghcr.io/ggml-org/llama.cpp@sha256:20c4196fc08b459a34ef78aaa05b101333b2fac687e30ec99f37b3c9dc071b44 \
-  -m /models/Qwen3-0.6B-Q4_0.gguf --host 0.0.0.0 --port 8080 \
-  --alias qwen3-0.6b --ctx-size 2048 --threads 4 --threads-batch 4 --parallel 1 --n-predict 64
+  -m /models/Qwen3-1.7B-Q4_K_M.gguf --host 0.0.0.0 --port 8080 \
+  --alias qwen3-1.7b --ctx-size 2048 --threads 4 --threads-batch 4 --parallel 1 --n-predict 64 --jinja
 for attempt in $(seq 1 60); do
   curl --fail --silent http://127.0.0.1:11434/health && break
   sleep 1
 done
 VAW_RUN_REAL_MODEL_TESTS=1 \
 VAW_REAL_MODEL_ENDPOINT=http://127.0.0.1:11434/v1/ \
-VAW_REAL_MODEL_NAME=qwen3-0.6b \
+VAW_REAL_MODEL_NAME=qwen3-1.7b \
 dotnet test tests/VisualAgentWorkflow.Mcp.Tests --filter 'Category=RealModel'
 ```
 
-The test rejects non-loopback HTTP endpoints and uses a placeholder credential accepted by the local llama.cpp server; it sends no requests to an external model provider. Without `VAW_RUN_REAL_MODEL_TESTS=1`, the test is reported as skipped in ordinary cross-platform test runs. Qwen3's `/no_think` marker keeps this test short. The answer assertion checks the final integer in the model response, allowing concise explanations such as `1 + 1 = 2.` while verifying the result. It does not test model-directed function calling.
+The test rejects non-loopback HTTP endpoints and uses a placeholder credential accepted by the local llama.cpp server; it sends no requests to an external model provider. Without `VAW_RUN_REAL_MODEL_TESTS=1`, the test is reported as skipped in ordinary cross-platform test runs. Qwen3's `/no_think` marker keeps this test short. It verifies the actual model-directed `submit_answer` call and checks the final integer in the response, allowing concise explanations such as `1 + 1 = 2.`.
 
 Before claiming live support, an operator must supply authorized credentials through host configuration and qualify a chosen deployment: instruction/text behavior, assigned MCP tool calls, resolved model/usage evidence, cancellation/timeouts, authentication/rate-limit/unavailable failures, secret handling and operational limits. That credentialed qualification remains planned. The fixture does not establish behavior of every OpenAI-compatible server, Responses API, native Azure configuration, audio/vision, streaming or production durability. See the [roadmap](roadmap.md).
 

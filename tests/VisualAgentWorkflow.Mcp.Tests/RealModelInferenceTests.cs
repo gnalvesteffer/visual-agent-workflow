@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using VisualAgentWorkflow.AgentFramework;
 using VisualAgentWorkflow.Blazor;
@@ -35,11 +36,14 @@ public sealed class RealModelInferenceTests
             InvocationTimeout = TimeSpan.FromMinutes(2)
         };
         var provider = OpenAIProviders.Create(options, () => "local-inference-test-key");
-        var broker = new McpToolBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var broker = new McpToolBroker(BrokerTests.Registrations(), new DemoToolPolicy());
+        var submitAnswer = (await broker.ListBindingsAsync()).Single(binding => binding.BindingId == "demo.submit-answer");
         var agents = new AgentNodeExecutor([provider], broker);
         var definition = PipelineEditing.ReplaceNode(PipelineTemplates.Create("uppercase"), "step-1",
             new(NodeTypes.Agent, "1.0.0", Agent: new(provider.Descriptor.ProviderId, provider.Descriptor.Version,
-                "Solve the arithmetic question. Give the numeric answer clearly.", [])));
+                "Solve the arithmetic question. You must submit the final numeric answer by calling " +
+                "the submit_answer tool with only a base-10 integer. After the tool accepts it, answer " +
+                "with only that number.", [new ToolBindingRequest(submitAnswer.BindingId, submitAnswer.ContractHash)])));
         var events = new List<ExecutionEvent>();
 
         var output = await new PipelineRunner(broker, agents).ExecuteAsync(Guid.NewGuid(),
@@ -50,9 +54,21 @@ public sealed class RealModelInferenceTests
         var answers = Regex.Matches(output, @"(?<!\d)-?\d+(?!\d)");
         Assert.NotEmpty(answers);
         Assert.Equal(ExpectedResponse, answers[answers.Count - 1].Value);
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested));
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ModelResponded));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+            HasStringProperty(evt.Data, "bindingId", submitAnswer.BindingId) &&
+            HasStringProperty(evt.Data, "input", ExpectedResponse));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted &&
+            HasStringProperty(evt.Data, "output", ExpectedResponse));
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentCompleted);
+    }
+
+    private static bool HasStringProperty(string? data, string property, string expected)
+    {
+        if (data is null) return false;
+        using var json = JsonDocument.Parse(data);
+        return json.RootElement.TryGetProperty(property, out var value) && value.GetString() == expected;
     }
 }
 

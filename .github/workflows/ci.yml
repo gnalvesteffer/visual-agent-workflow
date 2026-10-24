@@ -35,18 +35,18 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/qwen3-gguf
-          key: qwen3-0.6b-q4_0-13ac06624948e4d8
-      - name: Download the pinned small Qwen3 GGUF
+          key: qwen3-1.7b-q4_k_m-daeb8e2d528a7609
+      - name: Download the pinned Qwen3 1.7B GGUF
         shell: bash
         run: |
-          model="${{ runner.temp }}/qwen3-gguf/Qwen3-0.6B-Q4_0.gguf"
+          model="${{ runner.temp }}/qwen3-gguf/Qwen3-1.7B-Q4_K_M.gguf"
           if [[ ! -s "$model" ]]; then
             curl --fail --location --retry 3 --retry-all-errors \
               --output "$model" \
-              'https://huggingface.co/ggml-org/Qwen3-0.6B-GGUF/resolve/13ac06624948e4d8589cb4b6f90100837342fcb8/Qwen3-0.6B-Q4_0.gguf'
+              'https://huggingface.co/ggml-org/Qwen3-1.7B-GGUF/resolve/daeb8e2d528a760970442092f6bf1e55c3b659eb/Qwen3-1.7B-Q4_K_M.gguf'
           fi
-          test "$(stat --format=%s "$model")" = 428970080
-          echo "da2572f16c06133561ce56accaa822216f2391ef4d37fba427801cd6736417d4  $model" | sha256sum --check --status
+          test "$(stat --format=%s "$model")" = 1282439264
+          echo "d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5  $model" | sha256sum --check --status
       - name: Start the prebuilt llama.cpp server
         shell: bash
         run: |
@@ -54,8 +54,8 @@ jobs:
             --publish 127.0.0.1:11434:8080 \
             --volume "${{ runner.temp }}/qwen3-gguf:/models:ro" \
             ghcr.io/ggml-org/llama.cpp@sha256:20c4196fc08b459a34ef78aaa05b101333b2fac687e30ec99f37b3c9dc071b44 \
-            -m /models/Qwen3-0.6B-Q4_0.gguf --host 0.0.0.0 --port 8080 \
-            --alias qwen3-0.6b --ctx-size 2048 --threads 4 --threads-batch 4 --parallel 1 --n-predict 64
+            -m /models/Qwen3-1.7B-Q4_K_M.gguf --host 0.0.0.0 --port 8080 \
+            --alias qwen3-1.7b --ctx-size 2048 --threads 4 --threads-batch 4 --parallel 1 --n-predict 64 --jinja
           for attempt in {1..60}; do
             if curl --fail --silent http://127.0.0.1:11434/health >/dev/null; then
               break
@@ -67,7 +67,7 @@ jobs:
         env:
           VAW_RUN_REAL_MODEL_TESTS: "1"
           VAW_REAL_MODEL_ENDPOINT: http://127.0.0.1:11434/v1/
-          VAW_REAL_MODEL_NAME: qwen3-0.6b
+          VAW_REAL_MODEL_NAME: qwen3-1.7b
         run: dotnet test tests/VisualAgentWorkflow.Mcp.Tests --no-build --no-restore --configuration Release --filter "Category=RealModel" --logger "console;verbosity=normal"
   integration:
     name: Linux integration and browser checks
