@@ -19,3 +19,6 @@
 .vaw-provider-card dt { color: #b5bdce; }
 .vaw-provider-card dd { margin: 0; overflow-wrap: anywhere; }
 .vaw-provider-settings input { width: 100%; min-height: 2.75rem; margin-top: .5rem; padding: .5rem .75rem; border: 1px solid #737e93; border-radius: .375rem; background: #17191f; color: #eef0f6; font: inherit; }
+
+.vaw-provider-option { display: flex; align-items: center; gap: .75rem; }
+.vaw-provider-option input { width: auto; min-height: auto; margin: 0; }

@@ -26,7 +26,7 @@ Open the loopback address printed by the host, normally port 5099. Keep the back
 
 ## Configure model providers
 
-Open **Studio settings** in the top navigation. In **Add a provider**, enter a unique provider ID and version, display name, model, HTTPS Chat Completions endpoint, timeout, and API key. Select **Save provider**. The key is protected in local Studio storage and is never returned by the settings page. The new version appears immediately under **Agents** in the node library. Add a new version when changing model or endpoint so existing published workflows retain their pinned provider version. The settings page is part of the loopback-only unauthenticated development Studio; do not expose it through a public proxy. See [provider settings and runtime bounds](model-providers.md).
+Open **Studio settings** in the top navigation. In **Add a provider**, enter a unique provider ID and version, display name, model, endpoint, and timeout. For local LM Studio, use `http://localhost:1234/v1`, check **Allow plain HTTP for a loopback endpoint**, and leave the API key empty unless you enabled authentication. Copy the model identifier shown by LM Studio into **Model**. Select **Save provider**. The key is protected in local Studio storage and is never returned by the settings page. The new version appears immediately under **Agents** in the node library. Add a new version when changing model or endpoint so existing published workflows retain their pinned provider version. The settings page is part of the loopback-only unauthenticated development Studio; do not expose it through a public proxy. See [provider settings and runtime bounds](model-providers.md).
 
 ## Create and edit a workflow
 

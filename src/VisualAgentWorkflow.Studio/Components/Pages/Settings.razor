@@ -15,7 +15,7 @@
             <article class="vaw-provider-card">
                 <h3>@provider.DisplayName</h3>
                 <p>@provider.ProviderId · version @provider.Version</p>
-                <dl><dt>Model</dt><dd>@provider.Model</dd><dt>Endpoint</dt><dd>@provider.Endpoint</dd><dt>Credential</dt><dd>Stored securely</dd></dl>
+                <dl><dt>Model</dt><dd>@provider.Model</dd><dt>Endpoint</dt><dd>@provider.Endpoint</dd><dt>Credential</dt><dd>@(provider.AllowInsecureLoopback ? "Local endpoint · key optional" : "Stored securely")</dd></dl>
             </article>
         }
     </section>
@@ -28,9 +28,10 @@
             <label>Display name <input @bind="form.DisplayName" /></label>
             <label>Model <input @bind="form.Model" /></label>
             <label>Endpoint <input @bind="form.Endpoint" /></label>
+            <label class="vaw-provider-option"><input type="checkbox" @bind="form.AllowInsecureLoopback" />Allow plain HTTP for a loopback endpoint</label>
             <label>Timeout in seconds <input type="number" min="1" max="120" @bind="form.TimeoutSeconds" /></label>
-            <label>API key <input type="password" autocomplete="new-password" @bind="form.ApiKey" /></label>
-            <p class="vaw-help">Use HTTPS. The API key is encrypted in Studio storage and is never shown again.</p>
+            <label>API key (optional for local LM Studio) <input type="password" autocomplete="new-password" @bind="form.ApiKey" /></label>
+            <p class="vaw-help">HTTPS is required except when you explicitly allow HTTP for a loopback address such as localhost or 127.0.0.1. LM Studio can run without an API key. Other credentials are encrypted in Studio storage and never shown again.</p>
             <button type="submit" class="vaw-primary" disabled="@saving">@(saving ? "Saving…" : "Save provider")</button>
         </form>
         @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
@@ -47,7 +48,8 @@
         [System.ComponentModel.DataAnnotations.Required] public string Model { get; set; } = "gpt-4.1";
         [System.ComponentModel.DataAnnotations.Required] public string Endpoint { get; set; } = "https://api.openai.com/v1/";
         [System.ComponentModel.DataAnnotations.Range(1, 120)] public int TimeoutSeconds { get; set; } = 30;
-        [System.ComponentModel.DataAnnotations.Required] public string ApiKey { get; set; } = "";
+        public string ApiKey { get; set; } = "";
+        public bool AllowInsecureLoopback { get; set; }
     }
     private ProviderForm form = new();
     private IReadOnlyList<StudioModelProviderView> providers = [];
@@ -60,10 +62,10 @@
         saving = true; error = null; message = null;
         try
         {
-            Providers.Add(form.ProviderId, form.Version, form.DisplayName, form.Model, form.Endpoint, form.TimeoutSeconds, form.ApiKey);
+            Providers.Add(form.ProviderId, form.Version, form.DisplayName, form.Model, form.Endpoint, form.TimeoutSeconds, form.ApiKey, form.AllowInsecureLoopback);
             providers = Providers.List();
             form.ApiKey = "";
-            form = new() { ProviderId = "", Version = "1.0.0", DisplayName = "", Model = "", Endpoint = "https://api.openai.com/v1/" };
+            form = new() { ProviderId = "", Version = "1.0.0", DisplayName = "", Model = "", Endpoint = "https://api.openai.com/v1/", AllowInsecureLoopback = false };
             message = "Provider saved. It is now available in the workflow node library.";
         }
         catch (ArgumentException exception) { error = exception.Message; }
