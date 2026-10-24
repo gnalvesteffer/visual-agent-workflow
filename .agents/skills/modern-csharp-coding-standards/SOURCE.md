@@ -17,3 +17,7 @@ Read [project-guide](../project-guide/SKILL.md) first. User requirements and est
 Keep published records and identifiers compatible. Value objects are not universally structs: consider default values, copying, serialization, and existing contracts. Prefer composition but retain required framework inheritance such as ErrorBoundary. Use cancellation for observation without canceling backend-owned runs. Do not add blocking async bridges, unsafe accessors, unsafe blocks, pooled buffers, or blanket ConfigureAwait(false) in UI code. Profile before low-level optimization. Upstream snippets are illustrative, not compiled project code.
 
 Related upstream skill names are suggestions, not installed dependencies. Update only at an explicit reviewed commit, retaining license and required reference files and updating these digests.
+
+## Declarative readability requirement
+
+Write C# that reads declaratively, with intention-revealing names, pure transformations, immutable updates, named predicates, and pattern matching where these improve clarity. Read and apply the shared [declarative code guidance](../clean-code/declarative-code.md). Make authorization, transactions, awaited effects, cancellation, and ordering visible. LINQ is appropriate for queries, not hidden side effects; retain straightforward loops where clearer and avoid cosmetic DSLs, dense chains, or changes to behavior/performance merely for style. This requirement supplements the unchanged upstream skill.

@@ -7,3 +7,7 @@ Pinned commit: `7682ca77710e0971eab4e0ae5dddfa281aea0ba5`. SKILL.md and Apache-2
 Skill SHA-256: `bac5e58e0d0a0579736bace8d5c113bf818b1105605617dad857c1f6a26807a4`
 
 Read [project-guide](../project-guide/SKILL.md). Apply guidance to concrete duplicated responsibilities and unclear behavior, not mechanical rewrites. Framework conventions and public compatibility take precedence over naming preferences. Test meaningful behavior; do not add tests that merely repeat constants or implementation. Preserve upstream files when updating; record a reviewed commit, license, and new digest here.
+
+## Declarative readability requirement
+
+Write code that reads declaratively: express the intended result and domain rules through meaningful operations, predicates, and pure transformations. Read and apply the repository-owned [declarative code guidance](declarative-code.md), including its C# example and review questions. Keep ordered side effects explicit and use loops when they communicate the behavior more clearly; do not introduce abstractions or force LINQ for appearance. This local addition supplements the unchanged upstream skill.
