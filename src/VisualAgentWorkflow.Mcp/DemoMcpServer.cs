@@ -13,11 +13,14 @@ namespace VisualAgentWorkflow.Mcp;
 /// <summary>Known pure-text development fixture, not a user-provided executable or sandbox.</summary>
 public static class DemoMcpServer
 {
+    private const string ProtocolVersion = "2025-11-25";
+
     public static async Task RunAsync()
     {
         var builder = Host.CreateApplicationBuilder();
         builder.Logging.ClearProviders();
-        builder.Services.AddMcpServer().WithStdioServerTransport().WithTools<TextTools>();
+        builder.Services.AddMcpServer(options => options.ProtocolVersion = ProtocolVersion)
+            .WithStdioServerTransport().WithTools<TextTools>();
         await builder.Build().RunAsync();
     }
 
@@ -32,7 +35,8 @@ public static class DemoMcpServer
                 InheritEnvironmentVariables = false,
                 EnvironmentVariables = new Dictionary<string, string?> { ["DOTNET_ROOT"] = runtimeRoot }
             });
-            return await McpClient.CreateAsync(transport, cancellationToken: cancellationToken);
+            var options = new McpClientOptions { ProtocolVersion = ProtocolVersion };
+            return await McpClient.CreateAsync(transport, options, cancellationToken: cancellationToken);
         }
         return
         [

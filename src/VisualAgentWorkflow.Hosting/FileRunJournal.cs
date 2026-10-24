@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Text.Json;
 using VisualAgentWorkflow.Core;
@@ -7,13 +8,17 @@ namespace VisualAgentWorkflow.Hosting;
 /// <summary>Single-owner local development store. Atomic snapshot replacement, not a multi-worker production store.</summary>
 public sealed class FileRunJournal : IParameterizedWorkflowRunStore, ILocalRuntimeOwnershipStore
 {
+    private static readonly ConcurrentDictionary<string, object> DirectoryGates = new(
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+
     private readonly string directory;
-    private readonly object gate = new();
+    private readonly object gate;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     public FileRunJournal(string directory)
     {
-        this.directory = Path.GetFullPath(directory);
+        this.directory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+        gate = DirectoryGates.GetOrAdd(this.directory, static _ => new object());
         Directory.CreateDirectory(this.directory);
     }
 

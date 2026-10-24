@@ -4,7 +4,7 @@ Delivered milestones are listed in reverse chronological order. This page record
 
 ## Cross-platform definition hashes and file-journal replacement
 
-Windows CI exposed two portability defects: indented JSON used CRLF when hashing workflow definitions, and a transient Windows file-access denial could fail atomic snapshot replacement during concurrent observation. Serialization now normalizes line endings to LF, preserving the existing canonical hash. File snapshot replacement retries transient I/O/access denials for a short bounded period before surfacing persistent failures. The affected hash and concurrent-observer tests pass locally on Linux; a rerun on Windows CI remains the platform verification.
+Windows CI exposed portability defects: indented JSON used CRLF when hashing workflow definitions, and file replacement could fail while another in-process store instance read the snapshot. Serialization now normalizes line endings to LF, preserving the existing canonical hash. File journal instances for one path now share an in-process access gate, with bounded retries for transient OS file-access denials. The local stdio MCP fixture pins an initialize-capable protocol version so cold startup cannot cause a false fallback from the newer discover probe. Linux tests verify these changes; Windows CI remains the platform verification.
 
 ## schema-1.6 workflow parameters
 
