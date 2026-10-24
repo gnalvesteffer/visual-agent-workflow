@@ -43,3 +43,7 @@ Set inherited `--vaw-workspace-texture: none` and `--vaw-panel-texture: none` to
 ## Subtle gradient lighting
 
 Workspace chrome, panels, toolbars, library actions and node headers use a restrained vertical highlight-to-shade gradient (about 3% white to 6% black). Primary buttons receive the same lighting. Gradients layer above the existing material overlays; node bodies, text inputs, payloads and the graph grid stay plain. They convey surface depth, never execution state. Hosts can set inherited `--vaw-chrome-gradient: none` for flat lighting independently of the texture opt-outs. Forced-colors mode removes decorative gradients as well as textures. This is a CSS-only presentation change with no architecture, execution or serialization changes.
+
+## Surface elevation
+
+Soft layered shadows lift nodes above the recessed graph, separate editor panels, and give contextual menus stronger elevation. Toolbars, library actions and primary buttons use a small contact shadow and inset highlight. Controls do not move on hover, and focus outlines remain explicit. Inherited `--vaw-shadow-node`, `--vaw-shadow-panel`, `--vaw-shadow-floating`, `--vaw-shadow-inset` and `--vaw-shadow-control` accept host overrides or `none`. Forced-colors mode suppresses every decorative shadow, including hover states. This presentation-only change affects no runtime or architecture contracts.

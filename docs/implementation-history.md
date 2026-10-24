@@ -235,3 +235,9 @@ The final zero-warning Release build, workbench gesture/fullscreen/false-arm sui
 Added restrained vertical gradient lighting to workspace chrome, panels, toolbars, library actions, primary buttons and node headers. The effect layers above the graphite materials while graph geometry, payloads, forms and node bodies remain plain. Hosts can disable lighting independently with `--vaw-chrome-gradient: none`; forced colors removes it automatically. Architecture and serialized/runtime contracts are unaffected by this CSS-only change.
 
 The theme/embedding browser review and full workbench creation/false-arm/fullscreen/playback suite passed against the running app. The theme check also exercises inherited gradient opt-out. Updated screenshots were inspected; documentation links and whitespace checks pass. No new .NET tests or Mermaid diagrams were needed for this presentation-only increment.
+
+### Layered surface shadows
+
+Refined node, panel, menu and inset shadows into a consistent elevation hierarchy, with small contact shadows/highlights on toolbars and action buttons. Added independent inherited host overrides for each surface role. Forced colors suppresses all decorative shadows, including interactive states, while explicit focus outlines remain. Updated theme/embedding/user documentation; architecture and runtime behavior are unchanged.
+
+The theme browser review passed with node-shadow opt-out and forced-colors checks, alongside existing contrast/focus/reflow/transport coverage. The workbench creation, false-arm insertion, fullscreen, keyboard and recorded-playback suite passed. Updated screenshots were reviewed; documentation links and whitespace checks pass. No .NET or diagram changes were required.

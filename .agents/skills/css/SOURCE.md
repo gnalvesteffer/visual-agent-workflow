@@ -13,3 +13,5 @@
 For this repository, pair the upstream CSS guidance with [graph-experience-review](../graph-experience-review/SKILL.md). Preserve the embeddable Razor library's styling boundary: put library defaults and custom properties under its component root rather than changing the consuming application's global `:root`, body, or element styles. Application-level tokens remain the host's choice. Project architecture and user instructions take precedence over generic styling recommendations.
 
 To update, inspect the upstream skill and license at an explicit new commit, copy the required files together, refresh the commit and digest here, and validate frontmatter, references, and attribution. Do not automatically import other upstream skills or application changes.
+
+For decorative elevation, provide inherited role-based shadow overrides and preserve explicit focus outlines. Forced-colors suppression must cover nodes, panels, floating menus and hover states, not just textured chrome. The theme browser review verifies node-shadow opt-out and forced-colors removal.

@@ -57,6 +57,12 @@ def check(browser, screenshots):
         assert "linear-gradient" not in designer.locator(".vaw-library-entry").first.evaluate("element=>getComputedStyle(element).backgroundImage")
         page.locator(".vaw-studio").evaluate("element=>{element.style.removeProperty('--vaw-panel-texture');element.style.removeProperty('--vaw-chrome-gradient');}")
 
+        node_surface=designer.locator(".vaw-edit-node article").first
+        assert node_surface.evaluate("element=>getComputedStyle(element).boxShadow") != "none"
+        page.locator(".vaw-studio").evaluate("element=>element.style.setProperty('--vaw-shadow-node','none')")
+        assert node_surface.evaluate("element=>getComputedStyle(element).boxShadow") == "none"
+        page.locator(".vaw-studio").evaluate("element=>element.style.removeProperty('--vaw-shadow-node')")
+
         # Compare an unrelated host control with/without the library stylesheet.
         untouched = page.evaluate("""() => {
             const host = document.createElement('section');
@@ -156,6 +162,7 @@ def check(browser, screenshots):
         page.emulate_media(forced_colors="active")
         assert page.locator(".vaw-graph").first.evaluate("element => getComputedStyle(element).backgroundImage") == "none"
         assert chrome.evaluate("element=>getComputedStyle(element).backgroundImage") == "none"
+        assert node_surface.evaluate("element=>getComputedStyle(element).boxShadow") == "none"
         page.emulate_media(forced_colors="none", reduced_motion="no-preference")
 
         # Exercise a real control inside a consuming application's form.
