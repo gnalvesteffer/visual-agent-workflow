@@ -22,3 +22,7 @@
 
 .vaw-provider-option { display: flex; align-items: center; gap: .75rem; }
 .vaw-provider-option input { width: auto; min-height: auto; margin: 0; }
+
+.vaw-provider-presets { display: flex; flex-wrap: wrap; gap: .75rem; margin-block: 1rem; }
+.vaw-provider-settings label small { display: block; margin-block-start: .25rem; color: #b5bdce; font-size: .8125rem; }
+.vaw-provider-tip { margin-block: 1rem; padding: .85rem 1rem; border-inline-start: 3px solid #c4b5fd; background: #2b303b; }

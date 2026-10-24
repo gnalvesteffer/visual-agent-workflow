@@ -21,17 +21,25 @@
     </section>
     <section class="vaw-designer" aria-label="Add model provider">
         <h2>Add a provider</h2>
-        <p>Use an OpenAI Chat Completions endpoint. OpenAI compatible services may work when they implement this API.</p>
-        <form @onsubmit="Save" @onsubmit:preventDefault>
-            <label>Provider ID <input @bind="form.ProviderId" autocomplete="off" /></label>
-            <label>Version <input @bind="form.Version" autocomplete="off" /></label>
-            <label>Display name <input @bind="form.DisplayName" /></label>
-            <label>Model <input @bind="form.Model" /></label>
-            <label>Endpoint <input @bind="form.Endpoint" /></label>
-            <label class="vaw-provider-option"><input type="checkbox" @bind="form.AllowInsecureLoopback" />Allow plain HTTP for a loopback endpoint</label>
-            <label>Timeout in seconds <input type="number" min="1" max="120" @bind="form.TimeoutSeconds" /></label>
+        <p>Choose a connection type to fill in its common settings. You can adjust them before saving.</p>
+        <div class="vaw-provider-presets" role="group" aria-label="Provider connection type">
+            <button type="button" @onclick="UseOpenAI">OpenAI</button>
+            <button type="button" @onclick="UseLmStudio">LM Studio on this computer</button>
+        </div>
+        @if (form.AllowInsecureLoopback)
+        {
+            <aside class="vaw-provider-tip"><strong>Before you save:</strong> Start LM Studio, load your model, and turn on its local server. Use the model identifier shown in LM Studio.</aside>
+        }
+        <form @onsubmit @onsubmit="Save" @onsubmit:preventDefault>
+            <label>Provider ID <input required @bind="form.ProviderId" autocomplete="off" /><small>Used to identify this provider in workflow files.</small></label>
+            <label>Version <input required @bind="form.Version" autocomplete="off" /><small>Use a new version when changing the model or endpoint.</small></label>
+            <label>Display name <input required @bind="form.DisplayName" /></label>
+            <label>Model identifier <input required @bind="form.Model" placeholder="The served model name" /><small>For LM Studio, copy the identifier shown beside the loaded model.</small></label>
+            <label>Server endpoint <input required type="url" @bind="form.Endpoint" /><small>Base URL for the OpenAI compatible API.</small></label>
+            <label class="vaw-provider-option"><input type="checkbox" @bind="form.AllowInsecureLoopback" />Allow local HTTP (loopback only)</label>
+            <label>Request timeout (seconds) <input required type="number" min="1" max="120" @bind="form.TimeoutSeconds" /></label>
             <label>API key (optional for local LM Studio) <input type="password" autocomplete="new-password" @bind="form.ApiKey" /></label>
-            <p class="vaw-help">HTTPS is required except when you explicitly allow HTTP for a loopback address such as localhost or 127.0.0.1. LM Studio can run without an API key. Other credentials are encrypted in Studio storage and never shown again.</p>
+            <p class="vaw-help">HTTPS is required except when you explicitly allow HTTP for a loopback address such as localhost or 127.0.0.1. LM Studio can run without an API key. Any entered key is encrypted in Studio storage and never shown again.</p>
             <button type="submit" class="vaw-primary" disabled="@saving">@(saving ? "Saving…" : "Save provider")</button>
         </form>
         @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
@@ -57,6 +65,8 @@
     private string? error;
     private string? message;
     protected override void OnInitialized() => providers = Providers.List();
+    private void UseOpenAI() => form = new() { ProviderId = "openai.primary", Version = "1.0.0", DisplayName = "OpenAI", Model = "gpt-4.1", Endpoint = "https://api.openai.com/v1/", TimeoutSeconds = 30 };
+    private void UseLmStudio() => form = new() { ProviderId = "lm-studio", Version = "1.0.0", DisplayName = "LM Studio", Model = "", Endpoint = "http://localhost:1234/v1", TimeoutSeconds = 120, AllowInsecureLoopback = true };
     private void Save()
     {
         saving = true; error = null; message = null;
@@ -65,7 +75,7 @@
             Providers.Add(form.ProviderId, form.Version, form.DisplayName, form.Model, form.Endpoint, form.TimeoutSeconds, form.ApiKey, form.AllowInsecureLoopback);
             providers = Providers.List();
             form.ApiKey = "";
-            form = new() { ProviderId = "", Version = "1.0.0", DisplayName = "", Model = "", Endpoint = "https://api.openai.com/v1/", AllowInsecureLoopback = false };
+            UseOpenAI();
             message = "Provider saved. It is now available in the workflow node library.";
         }
         catch (ArgumentException exception) { error = exception.Message; }
