@@ -59,3 +59,5 @@ Consumers can opt into an authorized read-only observation endpoint. Studio can 
 Schema-1.4 [conditional graphs](docs/conditional-graphs.md) add approved ordinal predicates, true/false string outputs and exclusive merges. The designer and recorded viewer preserve actual chosen-path evidence.
 
 Schema-1.5 [approval steps](docs/approvals.md) hold an exact explicit MCP action for review, preserve request/decision evidence and remain independent of browser lifetime. Remote observation stays read-only.
+
+CI restores, builds and runs the .NET tests on Windows and Linux. Service, provider-protocol, observation, browser and documentation integration checks run in a separate Linux job.

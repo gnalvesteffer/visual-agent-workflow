@@ -3,8 +3,13 @@ on: [push, pull_request]
 permissions:
   contents: read
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  build-and-test:
+    name: .NET (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -13,6 +18,17 @@ jobs:
       - run: dotnet restore --locked-mode
       - run: dotnet build --no-restore --configuration Release
       - run: dotnet test --no-build --configuration Release
+  integration:
+    name: Linux integration and browser checks
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet restore --locked-mode
+      - run: dotnet build --no-restore --configuration Release
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
