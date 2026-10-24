@@ -337,3 +337,7 @@ Primary references reviewed during design:
 - [Langflow](https://github.com/langflow-ai/langflow), [AutoGen Studio](https://github.com/microsoft/autogen/tree/main/python/packages/autogen-studio), and [Flowise](https://github.com/FlowiseAI/Flowise): visual-authoring references, not selected dependencies. Maintenance status must be rechecked before adoption.
 
 Open implementation decisions include the supported .NET/framework versions, precise Agent Framework mappings and durability integration, storage and event transport, canvas/render hosting, schema/type system, tool-contract compatibility policy, extension SDK/isolation technology, and collaboration protocol. Resolve these with small proofs and documented decisions rather than treating illustrative names here as settled APIs.
+
+## Consumer-owned observation boundary
+
+A consumer explicitly opts into a read-only observation endpoint and supplies its authentication, visibility and storage policies. Studio can attach to approved consumer endpoints; the live/historical graph view is independently embeddable in consumer applications. Observation credentials grant no authoring or execution-control authority, and disconnecting an observer never changes execution lifetime. The [initial implementation](observation.md) provides named server-side Studio sources and a shared observer component; production identity/delegation, centralized access auditing and scalable stores remain separate work.

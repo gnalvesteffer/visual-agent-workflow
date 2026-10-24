@@ -3,3 +3,6 @@
     margin: 0;
     background-color: var(--vaw-color-canvas, #17191f);
 }
+
+.vaw-studio-navigation { max-inline-size: 110rem; margin-inline: auto; padding: 1rem 1.5rem; }
+.vaw-studio-navigation a { color: var(--vaw-color-accent, #c4b5fd); }

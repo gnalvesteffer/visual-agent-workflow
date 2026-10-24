@@ -1,0 +1,28 @@
+@implements IAsyncDisposable
+
+<section class="vaw-studio" aria-label="Workflow observation">
+    <header class="vaw-studio-header">
+        <div><h2>Workflow observation</h2><p class="vaw-help">@SourceLabel · Read-only connection</p></div>
+        <button type="button" @onclick="RefreshAsync" disabled="@(!interactive)">Refresh observed runs</button>
+    </header>
+    @if (error is not null)
+    { <p role="alert" class="vaw-error">@error</p> }
+    <div class="vaw-workspace">
+        <aside class="vaw-sidebar">
+            <h3>Recent runs</h3>
+            @if (runs.Count == 0 && error is null) { <p class="vaw-help">No visible runs.</p> }
+            <ul class="vaw-history">
+                @foreach (var run in runs)
+                {
+                    <li @key="run.RunId"><button type="button" @onclick="() => SelectAsync(run.RunId)" disabled="@(!interactive)" aria-pressed="@(selectedId == run.RunId)">
+                        <span>@run.WorkflowId</span><span class="vaw-history-status">@run.Status</span><small>@run.RunId.ToString()[..8]</small>
+                    </button></li>
+                }
+            </ul>
+            <p class="vaw-help">Observation and playback do not execute nodes or change the consumer's runs.</p>
+        </aside>
+        <section class="vaw-main" aria-label="Observed workflow">
+            <WorkflowRunViewer Snapshot="snapshot" />
+        </section>
+    </div>
+</section>

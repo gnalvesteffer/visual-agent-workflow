@@ -1,6 +1,6 @@
 # Standalone workflow service sample
 
-This .NET console/Generic Host consumer uses `AddLocalWorkflowRuntime` to register its backend worker and client/control interfaces. It has no Studio or Blazor dependency, opens no HTTP listener, and does not instantiate an authoring catalog. It demonstrates service-owned invocation with real Agent Framework execution and a trusted local MCP fixture. It is not a production worker SDK or durable scheduler.
+This .NET console/Generic Host consumer uses `AddLocalWorkflowRuntime` to register its backend worker and client/control interfaces. It has no Studio or Blazor dependency, opens no HTTP listener in its direct/queued/paused modes, and does not instantiate an authoring catalog. It demonstrates service-owned invocation with real Agent Framework execution and a trusted local MCP fixture. It is not a production worker SDK or durable scheduler.
 
 From the repository root after the normal Release build:
 
@@ -21,3 +21,7 @@ The sample registers only the known read-only `demo.reverse` MCP fixture and no 
 To integrate your own reviewed artifact, export its package from Studio, create an operator-owned deployment manifest with its definition hash, and wire host-owned providers/bindings and policy in `DeploymentDependencies`. Do not let workflow content choose executable paths, supply secrets or grant capabilities. No live LLM provider is configured here.
 
 Run `python3 scripts/service_smoke.py` after building. It starts child consumers directly, checks persisted events and negative dependency cases, and sends SIGTERM to its own parked child to verify host lifetime. Studio and a browser are unnecessary. See [local hosting registration](../../docs/hosting-sdk.md), [service integration](../../docs/service-integration.md) and [run control](../../docs/run-control.md).
+
+## Opt-in observation host
+
+The additional `serve` mode runs the consumer on loopback port 5100. Observation is disabled by default. Set `WorkflowObservation__Enabled=true` and supply a strong random `WorkflowObservation__Token` via environment/secret configuration to expose the authenticated read-only API. Studio can attach to it without hosting execution. See [consumer observation](../../docs/observation.md) for commands, named Studio sources, embedding and policy limits. `WorkflowService__Port` selects a separate loopback port for isolated samples.

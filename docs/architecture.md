@@ -16,6 +16,8 @@ flowchart TB
     Studio --> Hosting["Hosting: catalog and background runtime"]
     Studio --> Agents["Agent Framework adapter"]
     Studio --> Mcp["MCP adapter"]
+    Studio --> Http["Observation HTTP client"]
+    Http --> Core
     Hosting --> Agents
     Blazor --> Core["Core: definitions, layouts, revisions and interfaces"]
     Hosting --> Core
@@ -87,4 +89,8 @@ The standalone consumer proof uses these public APIs without a Studio process, b
 
 ## Standalone consumer
 
-`samples/WorkflowService` references Hosting/MCP and their inward dependencies, with no Blazor/Studio reference. It loads a reviewed package and reconstructs the operator-configured exact revision, resolves only host-registered dependencies, and executes directly or through the local queue. It creates no catalog/database or HTTP listener. Its journal directory has one process owner; stopped/unfinished work is cancelled or interrupted, not crash-resumed. See [service integration](service-integration.md).
+`samples/WorkflowService` references Hosting/MCP and their inward dependencies, with no Blazor/Studio reference. It loads a reviewed package and reconstructs the operator-configured exact revision, resolves only host-registered dependencies, and executes directly or through the local queue. Its direct/queued modes create no catalog/database or HTTP listener; optional `serve` mode explicitly enables the separate observation endpoint. Its journal directory has one process owner; stopped/unfinished work is cancelled or interrupted, not crash-resumed. See [service integration](service-integration.md).
+
+## Consumer observation
+
+Core owns the read-only `IWorkflowRunObserver` contract, summaries and cursor pages. Hosting can explicitly map a policy-protected GET-only API over a host-supplied observer; registering a runtime does not enable it. Observation.Http depends only on Core and implements bounded HTTP reads. Studio server configuration supplies named remote sources and credentials, while `WorkflowObservationPanel` in Blazor consumes only the observer contract. A consumer can embed that same panel directly over its journal or an HTTP observer. Read requests never enter execution or control services. The development example provides single-operator bearer authentication; production identity, per-run visibility and access audit remain host concerns. See [consumer observation](observation.md) for limits and data flow.

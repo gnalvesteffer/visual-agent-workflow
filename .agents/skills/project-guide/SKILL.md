@@ -36,3 +36,5 @@ Maintain docs with [documentation-maintenance](../documentation-maintenance/SKIL
 For verification planning and regression work, use [quality assurance](../quality-assurance/SKILL.md). For browser automation use [webapp testing](../webapp-testing/SKILL.md) with its [local guidance](../webapp-testing/SOURCE.md), reusing the existing Playwright suite.
 
 For local runtime DI use `AddLocalWorkflowRuntime`; Studio and the standalone service sample share that registration. It creates no catalog or grants and preserves existing services. Verify hosted-worker/client identity and shutdown behavior. This helper is not a production durability or published NuGet contract; see [local hosting API](../../../docs/hosting-sdk.md).
+
+Consumer observation uses Core's read-only `IWorkflowRunObserver`, a host-policy-protected opt-in route group, a separate Core-only HTTP client, and the reusable `WorkflowObservationPanel`. Studio connects only to operator-configured sources; browser users cannot supply server-side URLs or credentials. Preserve this separation from authoring and execution control. See [consumer observation](../../../docs/observation.md).

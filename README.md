@@ -53,3 +53,5 @@ For reusable pipelines and sharing, `python3 scripts/pipeline_reuse_smoke.py` ex
 ## Run in your own service
 
 The [standalone service sample](samples/WorkflowService/README.md) loads a pinned package and demonstrates direct/queued execution without Studio, Blazor or an authoring catalog. Run `python3 scripts/service_smoke.py` after the Release build to verify it with deterministic fixtures and real local MCP.
+
+Consumers can opt into an authorized read-only observation endpoint. Studio can attach to a named consumer source, and Blazor apps can embed the same observation panel. See [consumer observation](docs/observation.md) for setup and current limits.

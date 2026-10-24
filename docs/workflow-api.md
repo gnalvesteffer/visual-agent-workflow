@@ -39,3 +39,7 @@ The development HTTP host limits the entire design request (definition plus layo
 ## Optional pause/resume capability
 
 The development host supports cooperative node-boundary control through `IWorkflowRunControl` / `IPublishedWorkflowRunControl`, paused starts, and HTTP pause/resume routes. Existing client interfaces remain supported. Controls preserve the same live run and pinned revision; browser disposal does not resume or cancel it. Host restart interrupts unfinished continuations. See [run-control semantics and requests](run-control.md).
+
+## Consumer-owned observation API
+
+The opt-in policy-protected observation API is a separate reusable GET-only route group, not an extension of the Studio development execution API. It exposes summary/snapshot/cursor reads and no mutation routes. See [consumer observation](observation.md).

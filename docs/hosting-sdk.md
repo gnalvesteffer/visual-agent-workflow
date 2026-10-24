@@ -36,6 +36,7 @@ Today, consume reviewed source using project references at a pinned repository c
 | Core | Portable definitions, revisions, package/layout contracts and client interfaces; no infrastructure dependencies |
 | AgentFramework | Real framework execution adapter; depends inward on Core |
 | Mcp | Host-registered MCP broker and development fixtures; depends inward on Core |
+| Observation.Http | Optional bounded read-only HTTP observer; depends only on Core |
 | Hosting | Optional local runtime/journal and separate SQLite catalog; currently carries ASP.NET Core and SQLite transitively |
 | Blazor | Optional reusable editor/viewer components; depends only on Core |
 | Studio | Development composition app; unnecessary for service execution |
@@ -45,3 +46,7 @@ The hosting helper is additive: existing constructors and direct execution signa
 ## Verified scope
 
 Registration tests cover lazy creation, client/worker identity, duplicate registration, conflicting/empty paths, host overrides and Generic Host shutdown of a paused continuation. The standalone smoke check runs direct/queued pure and MCP artifacts without Studio; Studio's API/browser/control checks verify the same registration path in the IDE. These tests do not establish distributed coordination, crash recovery, request authentication, live-provider reliability or multi-tenant isolation.
+
+## Optional observation endpoint
+
+Runtime registration alone still maps no endpoints. Hosts can explicitly register an `IWorkflowRunObserver` and call `MapWorkflowObservation` with a named authorization policy. The API is read-only and separate from workflow control. See [consumer observation](observation.md).

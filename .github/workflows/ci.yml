@@ -20,6 +20,8 @@ jobs:
         run: python3 scripts/service_smoke.py
       - run: python3 -m pip install -r scripts/requirements-browser.txt
       - run: python3 -m playwright install --with-deps chromium
+      - name: Exercise opt-in consumer observation and Studio attachment
+        run: python3 scripts/observation_smoke.py
       - uses: actions/setup-node@v4
         with:
           node-version: "24"

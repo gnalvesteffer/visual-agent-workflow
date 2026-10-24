@@ -67,7 +67,7 @@ sequenceDiagram
     Host->>Journal: Observe result
 ```
 
-The example is a console/Generic Host, not a hosted HTTP endpoint. The admission result is where a user-owned API or message handler can return. `python3 scripts/service_smoke.py` proves direct/queued output, identities, event sequences, tool evidence, denied/unavailable/drifted dependencies, and stopping a paused host, with no Studio running. Current Hosting transitively includes ASP.NET Core support and SQLite, although no catalog/database is created. Minimal dependency packaging remains future work.
+The direct/queued example is a console/Generic Host. Its optional `serve` mode now adds a read-only observation endpoint; execution triggers remain host-owned. The admission result is where a user-owned API or message handler can return. `python3 scripts/service_smoke.py` proves direct/queued output, identities, event sequences, tool evidence, denied/unavailable/drifted dependencies, and stopping a paused host, with no Studio running. Current Hosting transitively includes ASP.NET Core support and SQLite, although no catalog/database is created. Minimal dependency packaging remains future work.
 
 ## Hosting registration and future distribution
 
@@ -78,3 +78,7 @@ The subsequent SDK work should make DI/lifecycle configuration, package distribu
 ## Optional pause/resume capability
 
 The development host supports cooperative node-boundary control through `IWorkflowRunControl` / `IPublishedWorkflowRunControl`, paused starts, and HTTP pause/resume routes. Existing client interfaces remain supported. Controls preserve the same live run and pinned revision; browser disposal does not resume or cancel it. Host restart interrupts unfinished continuations. See [run-control semantics and requests](run-control.md).
+
+## Optional remote observation
+
+A consumer can explicitly enable a named-policy-protected read-only observation API and supply its own evidence reader. Studio connects through server-configured sources; consuming Blazor apps can embed the same observation panel. The sample's `serve` mode leaves endpoints disabled unless opted in. See [consumer observation](observation.md) for API, authentication, Studio attachment and limitations.

@@ -35,7 +35,7 @@ For the initial template runner and history sidebar, supply a host implementatio
 <WorkflowStudio Client="Client" />
 ```
 
-The host must configure an interactive render mode for event handlers, serve Razor static assets, and register its client implementation. Client methods start a backend-owned run, fetch snapshots/history, or explicitly cancel; a component's disposal stops observation only. A remote implementation can call a separate backend, but no packaged HTTP client is implemented yet.
+The host must configure an interactive render mode for event handlers, serve Razor static assets, and register its client implementation. Client methods start a backend-owned run, fetch snapshots/history, or explicitly cancel; a component's disposal stops observation only. A remote execution/control implementation remains host-owned. For read-only remote observation, `HttpWorkflowRunObserver` and `WorkflowObservationPanel` are implemented; see [consumer observation](observation.md).
 
 To include the saved-workflow designer, register an `IWorkflowCatalog` and an `IPublishedWorkflowClient`, then pass the catalog to the studio:
 
@@ -77,3 +77,7 @@ The default [editor theme](design-system.md) uses graphite surfaces, violet auth
 ## Optional pause/resume capability
 
 The development host supports cooperative node-boundary control through `IWorkflowRunControl` / `IPublishedWorkflowRunControl`, paused starts, and HTTP pause/resume routes. Existing client interfaces remain supported. Controls preserve the same live run and pinned revision; browser disposal does not resume or cancel it. Host restart interrupts unfinished continuations. See [run-control semantics and requests](run-control.md).
+
+## Read-only consumer observation
+
+Embed `<WorkflowObservationPanel Observer="Observer" SourceLabel="Service workflows" />` with a host-supplied `IWorkflowRunObserver`. Use the local journal reader or the separate HTTP observer client; no Studio or mutation-capable workflow client is needed. The panel provides recent runs, polling, graph inspection and recorded playback. Parent hosts own authentication, visible runs and payload access. Dispose/rebind cancels observation waits only. See [consumer observation setup](observation.md).

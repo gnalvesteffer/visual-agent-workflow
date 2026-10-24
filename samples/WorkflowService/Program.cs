@@ -13,10 +13,10 @@ if (args is ["--mcp-demo-server"])
     await DemoMcpServer.RunAsync();
     return 0;
 }
-if (args.Length is < 4 or > 5 || args[0] is not ("direct" or "queued" or "paused") ||
+if (args.Length is < 4 or > 5 || args[0] is not ("direct" or "queued" or "paused" or "serve") ||
     args.Length == 5 && args[4] != "--grant-demo-tool")
 {
-    Console.Error.WriteLine("Usage: WorkflowService direct|queued|paused DEPLOYMENT.json JOURNAL_DIRECTORY INPUT [--grant-demo-tool]");
+    Console.Error.WriteLine("Usage: WorkflowService direct|queued|paused|serve DEPLOYMENT.json JOURNAL_DIRECTORY INPUT [--grant-demo-tool]");
     return 1;
 }
 
@@ -26,6 +26,11 @@ try
     using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
     var broker = await DeploymentDependencies.ResolveAsync(revision, args.Length == 5, deadline.Token);
     if (args[3].Length > 16_384) throw new ArgumentException("Input exceeds the pipeline limit.");
+    if (args[0] == "serve")
+    {
+        await ObservableService.RunAsync(revision, broker, args[2], args[3]);
+        return 0;
+    }
     var journal = new FileRunJournal(args[2]);
     var builder = Host.CreateApplicationBuilder();
     builder.Logging.ClearProviders();

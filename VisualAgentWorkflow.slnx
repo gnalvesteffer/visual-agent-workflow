@@ -3,6 +3,7 @@
     <Project Path="samples/WorkflowService/WorkflowService.csproj" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/VisualAgentWorkflow.Observation.Http/VisualAgentWorkflow.Observation.Http.csproj" />
     <Project Path="src/VisualAgentWorkflow.AgentFramework/VisualAgentWorkflow.AgentFramework.csproj" />
     <Project Path="src/VisualAgentWorkflow.Blazor/VisualAgentWorkflow.Blazor.csproj" />
     <Project Path="src/VisualAgentWorkflow.Core/VisualAgentWorkflow.Core.csproj" />

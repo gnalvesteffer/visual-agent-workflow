@@ -243,3 +243,5 @@
 .vaw-run-option { display: flex; align-items: center; gap: var(--vaw-space-2); min-block-size: 2.75rem; }
 .vaw-run-option input { inline-size: 1.25rem; block-size: 1.25rem; flex: 0 0 auto; }
 .vaw-paused-boundary { border-color: var(--vaw-warning); }
+
+:where(.vaw-studio, .vaw-designer) a { color: var(--vaw-accent); }

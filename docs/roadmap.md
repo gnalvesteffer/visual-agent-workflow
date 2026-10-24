@@ -8,9 +8,13 @@ Statuses mean **Complete** (implemented and verified), **Active** (currently bei
 
 The development Studio edits and runs validated linear string pipelines through Microsoft Agent Framework. It has free node placement, edge sockets, reroutes/pinned angles, labels/comments, named sections, immutable publications, restore/activation, persisted local audit/run evidence, and recorded playback, plus reusable published pipelines and portable packages. MCP tools are node-scoped. The only agent provider is a deterministic fixture, not a live LLM.
 
-The backend owns execution, but active runs do not resume after host failure. The host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Free placement does not imply branching, arbitrary socket rewiring, or parallel execution.
+The backend owns execution, but active runs do not resume after host failure. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Free placement does not imply branching, arbitrary socket rewiring, or parallel execution.
 
-## Latest completed milestone: standalone service integration and local hosting API
+## Latest completed milestone: opt-in consumer observation
+
+Consumers can explicitly map policy-protected read-only summary/snapshot/cursor endpoints. Studio attaches to operator-configured remote sources through a separate HTTP observer; the same `WorkflowObservationPanel` embeds in consumer Blazor apps without execution services. API, lifecycle and two-process browser checks cover read-only access, playback, source replacement and reconnect. The endpoint is disabled by default in the sample. See [consumer observation](observation.md) for authentication, current default-layout/polling limits and host-owned audit requirements.
+
+## Previous completed milestone: standalone service integration and local hosting API
 
 The [standalone consumer](../samples/WorkflowService/README.md) runs reviewed pinned packages directly or through a backend-owned queue without Studio/Blazor or an authoring catalog. It verifies real MCP, independent node grants, missing/drifted dependency rejection and host-stop cancellation. The sample and Studio share the additive [local hosting DI helper](hosting-sdk.md). Project-reference consumption is documented; stable NuGet distribution and minimal worker dependency packaging remain planned. Next is semantic graph authoring and conditional execution.
 
@@ -38,7 +42,8 @@ This increment uses copy-on-insert template expansion, not recursive runtime pre
 ```mermaid
 flowchart TD
     Reuse["Complete: reusable pipelines and packages"] --> Hosting["Complete: service consumer and local hosting API"]
-    Hosting --> Graph["Next: semantic graph authoring and conditional paths"]
+    Hosting --> Observe["Complete: opt-in consumer observation"]
+    Observe --> Graph["Next: semantic graph authoring and conditional paths"]
     Graph --> Vertical["Complete the agent, branch, approval and MCP vertical slice"]
     Vertical --> Durable["Durable runtime and workspace security foundations"]
     Durable --> Assets["Versioned skills and nested prefab instances"]
@@ -94,6 +99,7 @@ Publish support boundaries only after repeatable recovery/security exercises, lo
 | MCP and agents | Node-scoped broker, pinned contracts/providers, actual framework agent/tool loop with deterministic fixtures |
 | Graph canvas | Free placement, edge sockets, SVG routing, angle pins, comments/sections, versioned layouts and read-only playback |
 | Quality and documentation | C#/Blazor/CSS/design skills, dependency boundaries, browser regression checks, architecture/user guides and locally validated Mermaid |
+| Consumer observation | Opt-in protected read API, HTTP observer, remote Studio attachment and reusable read-only panel with cursor/lifecycle/reconnect checks |
 | Service integration | Standalone pinned-artifact execution, direct/queued MCP proof, host-stop verification, shared optional local-runtime DI registration and consumption contract |
 | Reuse and sharing | Schema-1.3 origins, version-pinned expansion, section extraction, exact-version insertion and full design package controls with browser/capability tests |
 

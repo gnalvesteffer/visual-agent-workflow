@@ -1,0 +1,49 @@
+@page "/observe"
+@rendermode InteractiveServer
+@inject VisualAgentWorkflow.Studio.ObservationSources Sources
+
+<PageTitle>Observe consumer workflows</PageTitle>
+<main>
+    <section class="vaw-designer" aria-label="Consumer observation connection">
+        <h1>Observe consumer workflows</h1>
+        <p><a href="/">Return to workflow designer</a></p>
+        @if (Sources.Names.Count == 0)
+        {
+            <p>No consumer sources are configured. Add a named source in the Studio server configuration.</p>
+        }
+        else
+        {
+            <label>Consumer source
+                <select aria-label="Consumer source" @bind="sourceName">
+                    @foreach (var name in Sources.Names) { <option value="@name" @key="name">@name</option> }
+                </select>
+            </label>
+            <button type="button" @onclick="Connect" disabled="@(!interactive)">Connect to consumer</button>
+            <button type="button" @onclick="Disconnect" disabled="@(!interactive || observer is null)">Disconnect observation</button>
+        }
+        <p class="vaw-help">Consumer access is read-only. Closing or disconnecting this view does not change execution.</p>
+    </section>
+    @if (observer is not null)
+    { <WorkflowObservationPanel @key="observer" Observer="observer" SourceLabel="@connectedName" /> }
+</main>
+
+@code {
+    private string sourceName = "";
+    private string connectedName = "";
+    private IWorkflowRunObserver? observer;
+    private bool interactive;
+    protected override void OnInitialized() => sourceName = Sources.Names.FirstOrDefault() ?? "";
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender) return;
+        interactive = true;
+        StateHasChanged();
+    }
+    private void Connect()
+    {
+        if (!Sources.Names.Contains(sourceName)) return;
+        connectedName = sourceName;
+        observer = Sources.Get(sourceName);
+    }
+    private void Disconnect() => observer = null;
+}

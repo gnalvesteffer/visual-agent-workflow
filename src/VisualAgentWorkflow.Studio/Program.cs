@@ -17,7 +17,9 @@ if (args.Contains("--mcp-demo-server", StringComparer.Ordinal))
 var builder = WebApplication.CreateBuilder(args);
 if (!builder.Environment.IsDevelopment())
     throw new InvalidOperationException("This unauthenticated prototype may run only in Development. Production hosting is not implemented.");
-builder.WebHost.UseUrls("http://127.0.0.1:5099");
+var studioPort = builder.Configuration.GetValue<int?>("WorkflowStudio:Port") ?? 5099;
+if (studioPort is < 1 or > 65535) throw new InvalidOperationException("Invalid Studio port.");
+builder.WebHost.UseUrls($"http://127.0.0.1:{studioPort}");
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 1_048_576);
 builder.Services.AddRazorComponents().AddInteractiveServerComponents()
     // Bound JSON editing can duplicate field text in a Blazor event. Keep transport bounded
@@ -28,13 +30,15 @@ builder.Services.AddSingleton<IToolBindingCatalog>(services => services.GetRequi
 builder.Services.AddSingleton<IAgentNodeExecutor>(services => new AgentNodeExecutor(
     [DeterministicDemoChatClient.Registration()], services.GetRequiredService<INodeToolBroker>()));
 builder.Services.AddSingleton<IAgentProviderCatalog>(services => services.GetRequiredService<IAgentNodeExecutor>());
-builder.Services.AddLocalWorkflowRuntime(Path.Combine(builder.Environment.ContentRootPath, ".local", "runs"));
-builder.Services.AddSingleton<IWorkflowCatalog>(new SqliteWorkflowCatalog(Path.Combine(builder.Environment.ContentRootPath, ".local", "workflows.db")));
+var studioDataDirectory = Path.GetFullPath(builder.Configuration["WorkflowStudio:DataDirectory"] ?? Path.Combine(builder.Environment.ContentRootPath, ".local"));
+builder.Services.AddLocalWorkflowRuntime(Path.Combine(studioDataDirectory, "runs"));
+builder.Services.AddSingleton<IWorkflowCatalog>(new SqliteWorkflowCatalog(Path.Combine(studioDataDirectory, "workflows.db")));
 builder.Services.AddSingleton<PublishedWorkflowClient>();
 builder.Services.AddSingleton<IPublishedWorkflowClient>(services => services.GetRequiredService<PublishedWorkflowClient>());
 builder.Services.AddSingleton<IWorkflowClient>(services => services.GetRequiredService<PublishedWorkflowClient>());
 builder.Services.AddSingleton<IWorkflowRunControl>(services => services.GetRequiredService<PublishedWorkflowClient>());
 builder.Services.AddSingleton<IPublishedWorkflowRunControl>(services => services.GetRequiredService<PublishedWorkflowClient>());
+builder.Services.AddSingleton<ObservationSources>();
 var app = builder.Build();
 
 // Development containment, not a production authentication boundary. Do not put behind a public proxy.
