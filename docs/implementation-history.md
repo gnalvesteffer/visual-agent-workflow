@@ -2,6 +2,10 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Cross-platform definition hashes and file-journal replacement
+
+Windows CI exposed two portability defects: indented JSON used CRLF when hashing workflow definitions, and a transient Windows file-access denial could fail atomic snapshot replacement during concurrent observation. Serialization now normalizes line endings to LF, preserving the existing canonical hash. File snapshot replacement retries transient I/O/access denials for a short bounded period before surfacing persistent failures. The affected hash and concurrent-observer tests pass locally on Linux; a rerun on Windows CI remains the platform verification.
+
 ## schema-1.6 workflow parameters
 
 Workflow definitions can carry up to 64 non-secret string parameters with stable IDs, display names and defaults. The Studio can manage them, add explicit workflow-value getter nodes, and supply per-run overrides for a published revision. Existing run client/store contracts remain supported through optional parameter capabilities; built-in file/SQLite headers capture the fully resolved map for playback. Reusable pipeline expansion copies used parameter definitions and remaps conflicts. Core, Agent Framework and Hosting tests cover validation, legacy JSON omission, defaults, overrides, execution, persistence and replay; a headless browser smoke test covered author, save, publish, run and playback. Types, required parameters, exposed agent configuration pins and mutable variables remain future work. Current controls and boundaries are in [workflow parameters](workflow-parameters.md).

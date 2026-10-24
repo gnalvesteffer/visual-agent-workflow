@@ -24,7 +24,9 @@ public static class WorkflowJson
             Nodes = definition.Nodes.ToImmutableSortedDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
             Connections = definition.Connections.ToImmutableSortedDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal)
         };
-        return JsonSerializer.Serialize(normalized, Options);
+        // System.Text.Json writes environment-native indented line endings. Definitions and their hashes
+        // must be byte-stable across Windows and Unix, so the portable form always uses LF.
+        return JsonSerializer.Serialize(normalized, Options).Replace("\r\n", "\n", StringComparison.Ordinal);
     }
 
     public static WorkflowDefinition Deserialize(string json)

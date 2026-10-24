@@ -106,8 +106,25 @@ public sealed class FileRunJournal : IParameterizedWorkflowRunStore, ILocalRunti
                 file.Flush(flushToDisk: true);
             }
             // Same-directory rename is the publication point. Readers ignore incomplete temporary files.
-            File.Move(temporary, SnapshotPath(snapshot.Header.RunId), overwrite);
+            // On Windows, transient scanners or readers can briefly deny replacement despite delete sharing.
+            MoveSnapshotIntoPlace(temporary, SnapshotPath(snapshot.Header.RunId), overwrite);
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+
+    private static void MoveSnapshotIntoPlace(string temporary, string destination, bool overwrite)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                File.Move(temporary, destination, overwrite);
+                return;
+            }
+            catch (Exception error) when (overwrite && attempt < 5 && error is IOException or UnauthorizedAccessException)
+            {
+                Thread.Sleep(TimeSpan.FromMilliseconds(10 << attempt));
+            }
+        }
     }
 }

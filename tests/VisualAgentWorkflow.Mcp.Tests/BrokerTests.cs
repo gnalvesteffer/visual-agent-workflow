@@ -149,8 +149,11 @@ public class BrokerTests
     [Fact]
     public void ExistingPureWorkflowHashesRemainCompatible()
     {
+        var definition = PipelineTemplates.Create("uppercase-reverse");
+        var serialized = WorkflowJson.Serialize(definition);
+        Assert.DoesNotContain("\r", serialized);
         Assert.Equal("24a0d04c870b902c333b83ef8f1eb2806115e550418a9e631edcb1b7bd842cec",
-            WorkflowJson.ComputeHash(PipelineTemplates.Create("uppercase-reverse")));
+            WorkflowJson.ComputeHash(definition));
         Assert.DoesNotContain("\"tool\"", WorkflowJson.Serialize(PipelineTemplates.Create("uppercase")));
     }
 
