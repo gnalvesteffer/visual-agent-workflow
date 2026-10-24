@@ -18,6 +18,45 @@ jobs:
       - run: dotnet restore --locked-mode
       - run: dotnet build --no-restore --configuration Release
       - run: dotnet test --no-build --configuration Release
+  local-model-inference:
+    name: Local model inference (Linux)
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet restore --locked-mode
+      - run: dotnet build --no-restore --configuration Release
+      - name: Prepare local model cache
+        run: mkdir -p "${{ runner.temp }}/ollama"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ollama
+          key: ollama-qwen3-0.6b-v1
+      - name: Start Ollama with the small Qwen3 model
+        shell: bash
+        run: |
+          docker run --detach --name vaw-local-model \
+            --publish 127.0.0.1:11434:11434 \
+            --volume "${{ runner.temp }}/ollama:/root/.ollama" \
+            ollama/ollama:0.9.0
+          for attempt in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null
+          docker exec vaw-local-model ollama pull qwen3:0.6b
+      - name: Exercise actual model inference through Agent Framework
+        env:
+          VAW_RUN_REAL_MODEL_TESTS: "1"
+          VAW_REAL_MODEL_ENDPOINT: http://127.0.0.1:11434/v1/
+          VAW_REAL_MODEL_NAME: qwen3:0.6b
+        run: dotnet test tests/VisualAgentWorkflow.Mcp.Tests --no-build --no-restore --configuration Release --filter "Category=RealModel" --logger "console;verbosity=normal"
   integration:
     name: Linux integration and browser checks
     needs: build-and-test
