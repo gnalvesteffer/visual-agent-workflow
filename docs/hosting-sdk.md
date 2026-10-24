@@ -25,6 +25,8 @@ For a complete executable invocation and stop sequence, use the [service sample]
 
 Existing journal/runtime/client/control registrations are preserved. If the host supplies a journal, that instance determines storage; the helper's path is only the fallback. A host that supplies alternate clients must ensure their controls and ownership match. Register host-owned `INodeToolBroker` / `IAgentNodeExecutor` services to enable those node types; there is no permissive default provider or tool grant. DI registration alone is not dependency preflight or authorization.
 
+The optional [OpenAI provider library](model-providers.md) can supply host-owned factories; it depends on Core/AgentFramework, not Blazor/Studio, and is not automatically registered by this helper.
+
 There is no automatic authoring catalog, SQLite database, published client, UI component, endpoint, credential lookup or live model registration. Studio explicitly adds its catalog and replaces client aliases with its publication-aware client; the service sample uses the runtime directly. Hosts must await start before accepting work, explicitly stop on shutdown, and give each process exclusive ownership of its journal directory. Pause/cancel semantics and admission bounds remain those in [run control](run-control.md).
 
 ## Consumption and distribution contract
@@ -35,6 +37,7 @@ Today, consume reviewed source using project references at a pinned repository c
 | --- | --- |
 | Core | Portable definitions, revisions, package/layout contracts and client interfaces; no infrastructure dependencies |
 | AgentFramework | Real framework execution adapter; depends inward on Core |
+| Providers.OpenAI | Optional host-configured Chat Completions factories; depends inward on Core and AgentFramework |
 | Mcp | Host-registered MCP broker and development fixtures; depends inward on Core |
 | Observation.Http | Optional bounded read-only HTTP observer; depends only on Core |
 | Hosting | Optional local runtime/journal and separate SQLite catalog; currently carries ASP.NET Core and SQLite transitively |

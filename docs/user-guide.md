@@ -1,6 +1,6 @@
 # Studio user guide
 
-The Studio creates and runs linear and conditional string-processing workflows. It supports deterministic transforms, host-approved MCP text tools, and a deterministic demonstration agent. Free placement and wire routing organize the graph; they do not change execution semantics. Branches are authored through explicit conditional nodes.
+The Studio creates and runs linear and conditional string-processing workflows. It supports deterministic transforms, host-approved MCP text tools, a deterministic demonstration agent, and opt-in host-configured external model providers. Free placement and wire routing organize the graph; they do not change execution semantics. Branches are authored through explicit conditional nodes.
 
 Use disposable text in the local development app. It records inputs, outputs, and comments in local storage without workspace authentication or payload encryption.
 
@@ -27,7 +27,7 @@ Open the loopback address printed by the host, normally port 5099. Keep the back
 1. Select **New workflow**. The draft begins with input, one transformation, and output.
 2. Choose **New node operation**, then use **Add node after** on an existing non-output node. Transformations, available MCP tools, and available agent providers appear here.
 3. Change a processing node's operation using its dropdown. Use **Move up**, **Move down**, or **Remove** to change the connected execution sequence. Use **Undo edit** and **Redo edit** to recover local edits.
-4. For an agent, configure its instructions and requested tools. The demonstration provider explicitly does not interpret instructions. Selecting a tool does not grant access; the backend checks policy when it runs.
+4. For an agent, configure its instructions and requested tools. The demonstration provider explicitly does not interpret instructions. External providers appear only when enabled by the host. Their instructions, input and assigned tool results are sent to the configured model endpoint; credentials are never entered in the designer. See [model provider configuration](model-providers.md). Selecting a tool does not grant access; the backend checks policy when it runs.
 5. Select **Save draft** to persist definition and layout. Unsaved changes block switching workflows and publication until saved or discarded.
 
 The following diagram shows supported execution, not the spatial arrangement of cards. Uppercase and reverse are example deterministic steps.
@@ -94,7 +94,7 @@ Package import keeps the current workflow ID, stages one undoable local edit, an
 
 The catalog and run history survive normal host restarts. Unsaved browser edits do not. Interrupted runs are recorded as interrupted rather than automatically retried. A stale tool contract, unavailable provider, denied grant, or oversized input can fail a run; inspect its evidence and correct the draft/configuration rather than assuming it was rolled back or retried.
 
-Branches, arbitrary socket rewiring, nested sections/prefab instances, collaborative editing, live model configuration, durable approvals/recovery, and production authentication remain future work. Follow the [roadmap](roadmap.md) for current scope and [graph controls](graph-editor.md) for detailed limits.
+Arbitrary socket rewiring, nested prefab instances, collaborative editing, credentialed live-provider qualification, durable approvals/recovery, and production authentication remain future work. Follow the [roadmap](roadmap.md) for current scope and [graph controls](graph-editor.md) for detailed limits.
 
 ## Execute from your own service
 

@@ -6,7 +6,10 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.AgentFramework;
 
 /// <summary>Host-registered provider factory; workflow documents cannot construct clients or supply endpoints/secrets.</summary>
-public sealed record AgentProviderRegistration(AgentProviderDescriptor Descriptor, Func<IChatClient> Create);
+public sealed record AgentProviderRegistration(AgentProviderDescriptor Descriptor, Func<IChatClient> Create)
+{
+    public TimeSpan InvocationTimeout { get; init; } = TimeSpan.FromSeconds(30);
+}
 
 public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> providers, INodeToolBroker tools) : IAgentNodeExecutor
 {
@@ -23,10 +26,13 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         if (!registrations.TryGetValue(configuration.ProviderId, out var provider) || provider.Descriptor.Version != configuration.ProviderVersion)
             throw new InvalidOperationException("The pinned agent provider is unavailable.");
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(TimeSpan.FromSeconds(30));
+        if (provider.InvocationTimeout <= TimeSpan.Zero || provider.InvocationTimeout > TimeSpan.FromMinutes(2))
+            throw new InvalidOperationException("The registered agent timeout is invalid.");
+        deadline.CancelAfter(provider.InvocationTimeout);
         await Record(ExecutionEventKinds.AgentStarted, new
         {
             provider = provider.Descriptor,
+            timeoutSeconds = provider.InvocationTimeout.TotalSeconds,
             requestedTools = configuration.Tools.Select((binding, index) => new { functionName = $"tool_{index}", binding.BindingId, binding.ContractHash })
         });
         try
@@ -72,6 +78,12 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             if (cancellationToken.IsCancellationRequested) throw;
             throw new InvalidOperationException("The agent operation timed out.");
         }
+        catch (AgentProviderRequestException failure)
+        {
+            await Record(ExecutionEventKinds.AgentFailed, new { reason = "Configured provider request failed; no automatic retry.",
+                failureKind = failure.FailureKind.ToString(), statusCode = failure.StatusCode });
+            throw;
+        }
         catch
         {
             await Record(ExecutionEventKinds.AgentFailed, new { reason = "Agent execution failed." });
@@ -96,7 +108,9 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             await Record(ExecutionEventKinds.ModelResponded, new
             {
                 response.ModelId,
+                response.ResponseId,
                 finishReason = response.FinishReason?.ToString(),
+                usage = response.Usage is { } usage ? new { usage.InputTokenCount, usage.OutputTokenCount, usage.TotalTokenCount } : null,
                 messages = Project(response.Messages)
             });
             return response;

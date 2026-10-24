@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using VisualAgentWorkflow.Blazor;
 using VisualAgentWorkflow.Core;
+using VisualAgentWorkflow.Providers.OpenAI;
 using VisualAgentWorkflow.Hosting;
 using VisualAgentWorkflow.Studio.Components;
 using VisualAgentWorkflow.Studio;
@@ -27,8 +28,10 @@ builder.Services.AddRazorComponents().AddInteractiveServerComponents()
     .AddHubOptions(options => options.MaximumReceiveMessageSize = 8 * 1024 * 1024);
 builder.Services.AddSingleton<INodeToolBroker>(new McpToolBroker(DemoMcpServer.ForCurrentExecutable(), new DemoToolPolicy()));
 builder.Services.AddSingleton<IToolBindingCatalog>(services => services.GetRequiredService<INodeToolBroker>());
+var agentProviders = new[] { DeterministicDemoChatClient.Registration() }
+    .Concat(OpenAIProviders.FromConfiguration(builder.Configuration.GetSection("WorkflowAgents:OpenAI"))).ToArray();
 builder.Services.AddSingleton<IAgentNodeExecutor>(services => new AgentNodeExecutor(
-    [DeterministicDemoChatClient.Registration()], services.GetRequiredService<INodeToolBroker>()));
+    agentProviders, services.GetRequiredService<INodeToolBroker>()));
 builder.Services.AddSingleton<IAgentProviderCatalog>(services => services.GetRequiredService<IAgentNodeExecutor>());
 var studioDataDirectory = Path.GetFullPath(builder.Configuration["WorkflowStudio:DataDirectory"] ?? Path.Combine(builder.Environment.ContentRootPath, ".local"));
 builder.Services.AddLocalWorkflowRuntime(Path.Combine(studioDataDirectory, "runs"));

@@ -36,7 +36,7 @@ The table below describes implemented public APIs. These are lower-level integra
 
 Core and the Agent Framework adapter do not reference Blazor or Studio. Direct execution does not require a catalog, layout, renderer, or Studio's local database. A package's layout can be used for optional observation; its definition drives execution. The current Hosting project does reference ASP.NET Core support and SQLite, so it should not be confused with a finished minimal worker-hosting SDK.
 
-MCP connections, model client factories, logical binding resolution, credentials, authorization, storage, and application-specific entry points remain host-owned. A matching dependency registration is not a grant. Never load an unavailable provider's substitute silently or execute an imported assembly merely because a package references a type. The current built-in agent is deterministic; there is no shipped live model configuration flow.
+MCP connections, model client factories, logical binding resolution, credentials, authorization, storage, and application-specific entry points remain host-owned. A matching dependency registration is not a grant. Never load an unavailable provider's substitute silently or execute an imported assembly merely because a package references a type. The default built-in agent is deterministic. The optional [OpenAI provider adapter](model-providers.md) supplies host-configured SDK factories in Studio and the standalone service; it is protocol-verified, with credentialed live qualification still outstanding.
 
 ## Invocation and lifetime
 

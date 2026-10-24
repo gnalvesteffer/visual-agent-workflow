@@ -6,11 +6,15 @@ Statuses mean **Complete** (implemented and verified), **Active** (currently bei
 
 ## Current product boundary
 
-The development Studio edits and runs validated linear and conditional string graphs through Microsoft Agent Framework. It has free node placement, edge sockets, reroutes/pinned angles, labels/comments, named sections, immutable publications, restore/activation, persisted local audit/run evidence, and recorded playback, plus reusable published pipelines and portable packages. MCP tools are node-scoped. The only agent provider is a deterministic fixture, not a live LLM.
+The development Studio edits and runs validated linear and conditional string graphs through Microsoft Agent Framework. It has free node placement, edge sockets, reroutes/pinned angles, labels/comments, named sections, immutable publications, restore/activation, persisted local audit/run evidence, and recorded playback, plus reusable published pipelines and portable packages. MCP tools are node-scoped. The default agent provider is a deterministic fixture. An opt-in host-configured OpenAI SDK adapter is protocol-verified; credentialed live-service qualification remains outstanding.
 
 The backend owns execution, but active runs do not resume after host failure. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Free placement does not imply arbitrary socket rewiring or parallel execution. Conditional routing is an explicit validated operation.
 
-## Latest completed milestone: exact-action approvals and deterministic vertical slice
+## Latest completed milestone: opt-in host-configured model adapter
+
+Studio and the standalone service can explicitly enable version-pinned OpenAI Chat Completions factories. The optional library owns fresh bounded SDK clients, server-side secrets, cancellation/deadlines, safe categorized failures and no automatic retries. Agent evidence adds response IDs and token usage. Unit and local protocol/browser/service fixtures verify the SDK path without live model calls. Credentialed deployment qualification remains planned; see [model providers](model-providers.md).
+
+## Previous completed milestone: exact-action approvals and deterministic vertical slice
 
 Schema 1.5 adds a backend-owned approval immediately before an explicit MCP tool. Requests bind the pinned revision, exact input/binding/contract and reserved invocation identity; decisions are sequenced and host-attributed. Waiting releases execution ownership, while pause and approval remain independent. Designer/review/playback controls and the scripted Agent → Condition → Approval → MCP → Output browser proof are implemented. Remote observation remains read-only. Restart interrupts unfinished waits; durable approval recovery and live-model validation remain planned. See [approvals](approvals.md).
 
@@ -24,7 +28,7 @@ Consumers can explicitly map policy-protected read-only summary/snapshot/cursor 
 
 ## Previous completed milestone: standalone service integration and local hosting API
 
-The [standalone consumer](../samples/WorkflowService/README.md) runs reviewed pinned packages directly or through a backend-owned queue without Studio/Blazor or an authoring catalog. It verifies real MCP, independent node grants, missing/drifted dependency rejection and host-stop cancellation. The sample and Studio share the additive [local hosting DI helper](hosting-sdk.md). Project-reference consumption is documented; stable NuGet distribution and minimal worker dependency packaging remain planned. Conditional string graph authoring is now implemented; the deterministic approval/MCP slice is implemented; host-owned live-provider integration is next.
+The [standalone consumer](../samples/WorkflowService/README.md) runs reviewed pinned packages directly or through a backend-owned queue without Studio/Blazor or an authoring catalog. It verifies real MCP, independent node grants, missing/drifted dependency rejection and host-stop cancellation. The sample and Studio share the additive [local hosting DI helper](hosting-sdk.md). Project-reference consumption is documented; stable NuGet distribution and minimal worker dependency packaging remain planned. Conditional string graph authoring is now implemented; the deterministic approval/MCP slice is implemented; the opt-in host-owned SDK adapter is protocol-verified; credentialed live qualification remains planned.
 
 ## Previous completed milestone: cooperative pause/resume
 
@@ -32,7 +36,7 @@ Process-owned runs can start paused, pause between nodes, resume without reexecu
 
 ## Previous completed milestone: reusable pipelines and sharing
 
-Core contracts, Studio controls, and end-to-end validation are complete. The headless service-integration proof and local registration API are complete. Conditional string graph authoring is now implemented; host-owned live-provider integration is next.
+Core contracts, Studio controls, and end-to-end validation are complete. The headless service-integration proof and local registration API are complete. Conditional string graph authoring is now implemented; the opt-in host-owned SDK adapter is protocol-verified; credentialed live qualification remains planned.
 
 | Deliverable | Status | Completion evidence |
 | --- | --- | --- |
@@ -53,7 +57,8 @@ flowchart TD
     Hosting --> Observe["Complete: opt-in consumer observation"]
     Observe --> Graph["Complete: conditional string graph authoring"]
     Graph --> Vertical["Complete: deterministic agent, branch, approval and MCP slice"]
-    Vertical --> Durable["Durable runtime and workspace security foundations"]
+    Vertical --> Models["Complete: opt-in model adapter with protocol verification"]
+    Models --> Durable["Next: durable execution storage boundary"]
     Durable --> Assets["Versioned skills and nested prefab instances"]
     Assets --> Extensions["Approved extensions in isolated workers"]
     Durable --> Collaboration["Workspace sharing and collaboration"]
@@ -67,9 +72,13 @@ The standalone proof loads pinned artifacts, rejects invalid/missing dependencie
 
 Supported NuGet distribution remains planned: decide package metadata/licensing, public compatibility baselines, minimal dependency separation and independently restored package-consumer tests before release. Current consumers use project references at a pinned source commit. This packaging work does not change runtime guarantees or provide production durability.
 
-### Next: host-owned live-provider integration
+### Complete: opt-in host-configured provider adapter
 
-The deterministic Agent → Condition → Approval → MCP → Output slice is complete for explicit read-only MCP fixtures. Next add opt-in live model-provider factories configured by hosts, retaining deterministic fixtures for CI. Verify pinned provider identity, credentials staying outside artifacts/browser data, timeouts/cancellation, structured recording, unavailable-provider errors and policy enforcement. Do not claim a live provider supported until its behavior and failure cases are exercised with authorized credentials. Approval of model-selected tool calls inside agent loops is a distinct capability from the current explicit-MCP approval node.
+The SDK adapter and configuration flow are implemented with deterministic protocol fixtures retained for CI. See [model providers](model-providers.md). Credentialed live-service qualification is **Planned**, not complete: no authorized credentials were configured. Approval of model-selected tool calls inside agent loops remains a distinct future capability.
+
+### Next: durable execution storage boundary
+
+Define and implement a host-facing run-store boundary with atomic state/event transitions and concurrency semantics before attempting crash recovery. Preserve existing local journal behavior and recorded playback while establishing persistence conformance tests. Recovery, leases and external effect reconciliation need separate proofs; adding a store interface alone does not make executions durable.
 
 ### Planned: durable execution and security foundations
 

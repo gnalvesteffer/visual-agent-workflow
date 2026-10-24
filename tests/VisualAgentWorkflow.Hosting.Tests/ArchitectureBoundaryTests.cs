@@ -18,10 +18,11 @@ public sealed class ArchitectureBoundaryTests
             ["Core"] = [],
             ["Blazor"] = ["Core"],
             ["AgentFramework"] = ["Core"],
+            ["Providers.OpenAI"] = ["Core", "AgentFramework"],
             ["Observation.Http"] = ["Core"],
             ["Mcp"] = ["Core"],
             ["Hosting"] = ["Core", "AgentFramework"],
-            ["Studio"] = ["Core", "Blazor", "Hosting", "AgentFramework", "Mcp", "Observation.Http"]
+            ["Studio"] = ["Core", "Blazor", "Hosting", "AgentFramework", "Mcp", "Observation.Http", "Providers.OpenAI"]
         };
         foreach (var (layer, dependencies) in allowed)
         {

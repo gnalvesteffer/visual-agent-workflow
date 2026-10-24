@@ -92,6 +92,8 @@
                         <p>Agent provider: @agent.ProviderId · @agent.ProviderVersion</p>
                         @if (Providers.Any(p => p.ProviderId == agent.ProviderId && p.IsDeterministic))
                         { <p>Scripted fixture: calls the first assigned tool or echoes input. It does not interpret instructions.</p> }
+                        @if (Providers.FirstOrDefault(p => p.ProviderId == agent.ProviderId && p.Version == agent.ProviderVersion) is { IsDeterministic: false } liveProvider)
+                        { <p class="vaw-help">External model: @liveProvider.ModelId. Running this node sends its instructions, input and assigned tool results to the host-configured provider.</p> }
                         @if (ReadOnly)
                         { <pre>@agent.Instructions</pre> }
                         else

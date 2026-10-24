@@ -19,6 +19,7 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Workflow API](workflow-api.md) | Local development API and concurrency contracts |
 | [Reusable pipelines](reusable-pipelines.md) | Version-pinned expansion, provenance, package validation, and limitations |
 | [Graph editor](graph-editor.md) | Canvas controls, layout schema, versioning, and research references |
+| [Model providers](model-providers.md) | Opt-in host configuration, official SDK adapter, bounded evidence and live qualification limits |
 | [Runtime configuration](runtime-configuration.md) | Providers, node-scoped MCP bindings, and development fixtures |
 | [Editor design system](design-system.md) | Theme tokens, typography, visual states, and component boundaries |
 | [Agent skills](agent-skills.md) | Contributor skills and their task triggers |

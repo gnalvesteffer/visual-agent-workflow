@@ -36,3 +36,5 @@ After the Release build, `python3 scripts/service_smoke.py` launches the standal
 `python3 scripts/conditional_graph_smoke.py --browser-executable /usr/bin/chromium` checks conditional insertion/undo/redo, predicate controls, distinct edge sockets, both chosen paths and merge evidence, immutable publication/package/reload and playback against Studio. Uses only deterministic disposable local workflows.
 
 `python3 scripts/approval_smoke.py --browser-executable /usr/bin/chromium` checks the scripted Agent → Condition → Approval → read-only MCP path, exact request binding, reload, independent work, approve/reject/cancel/retry, actor/origin rejection and non-executing playback. Demo agents without tools prefix input with `Demo agent: `; approval must capture the actual value at the gate, not assume the original run input.
+
+Run `python3 scripts/provider_smoke.py --dotnet /path/to/dotnet --browser-executable /path/to/chromium` for host-configured SDK provider changes. It owns isolated Studio/service processes and a loopback protocol fixture, tests browser and direct/queued paths, and makes no live model calls. Report credentialed deployment qualification separately.

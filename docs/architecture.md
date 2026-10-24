@@ -1,6 +1,6 @@
 # Implemented architecture
 
-The engine and designer are independently consumable libraries; Studio is their optional IDE and development composition. User-owned service hosting is a first-class product goal, with existing lower-level execution APIs and a supported hosting SDK still to be delivered. See [service integration](service-integration.md).
+The engine and designer are independently consumable libraries; Studio is their optional IDE and development composition. User-owned service hosting is a first-class product goal, with direct execution APIs and a local hosting helper already available; a production SDK and stable package distribution remain planned. See [service integration](service-integration.md).
 
 The Studio is a .NET 10 Interactive Server development host that composes embeddable Blazor components, a SQLite workflow catalog, a background run queue, Microsoft Agent Framework adapters, and a node-scoped MCP broker. Execution belongs to the backend. A browser edits definitions and observes recorded evidence; closing it does not cancel a run.
 
@@ -15,6 +15,9 @@ flowchart TB
     Studio["Studio: application composition"] --> Blazor["Blazor: editor and playback components"]
     Studio --> Hosting["Hosting: catalog and background runtime"]
     Studio --> Agents["Agent Framework adapter"]
+    Studio --> Providers["Optional OpenAI provider adapter"]
+    Providers --> Agents
+    Providers --> Core
     Studio --> Mcp["MCP adapter"]
     Studio --> Http["Observation HTTP client"]
     Http --> Core
@@ -69,7 +72,7 @@ flowchart LR
     Journal -->|"Recorded snapshots and events"| Viewer["Live observation and playback"]
 ```
 
-Linear pipelines and schema-1.4 acyclic conditional string graphs are executable today. Conditions select one string output and exclusive merges pass through the selected value; they are not parallel join barriers. See [conditional graph semantics](conditional-graphs.md). Uppercase/reverse are deterministic operations. The host's `demo.scripted` agent exercises the framework tool loop but does not interpret instructions or contact an LLM. MCP bindings are pinned requirements that must also pass host policy on every invocation. Tool/provider catalogs are authoring choices, not permissions.
+Linear pipelines and schema-1.4 acyclic conditional string graphs are executable today. Conditions select one string output and exclusive merges pass through the selected value; they are not parallel join barriers. See [conditional graph semantics](conditional-graphs.md). Uppercase/reverse are deterministic operations. The host's `demo.scripted` agent exercises the framework tool loop but does not interpret instructions or contact an LLM. The optional OpenAI provider adapter supplies host-configured, versioned factories through the official SDK and AI bridge; protocol tests cover its path, while credentialed live-service qualification remains outstanding. Core and Blazor have no provider SDK dependency. See [model providers](model-providers.md). MCP bindings are pinned requirements that must also pass host policy on every invocation. Tool/provider catalogs are authoring choices, not permissions.
 
 ## Persistence and failure boundaries
 

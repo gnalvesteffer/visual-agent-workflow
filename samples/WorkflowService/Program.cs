@@ -6,6 +6,7 @@ using VisualAgentWorkflow.AgentFramework;
 using VisualAgentWorkflow.Core;
 using VisualAgentWorkflow.Hosting;
 using VisualAgentWorkflow.Mcp;
+using VisualAgentWorkflow.Providers.OpenAI;
 using WorkflowService;
 
 if (args is ["--mcp-demo-server"])
@@ -22,20 +23,23 @@ if (args.Length is < 4 or > 5 || args[0] is not ("direct" or "queued" or "paused
 
 try
 {
+    var builder = Host.CreateApplicationBuilder();
+    builder.Logging.ClearProviders();
+    var providers = OpenAIProviders.FromConfiguration(builder.Configuration.GetSection("WorkflowAgents:OpenAI"));
     var revision = await Deployment.LoadAsync(args[1], CancellationToken.None);
     using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-    var broker = await DeploymentDependencies.ResolveAsync(revision, args.Length == 5, deadline.Token);
+    var broker = await DeploymentDependencies.ResolveAsync(revision, args.Length == 5, providers, deadline.Token);
+    var agents = new AgentNodeExecutor(providers, broker);
     if (args[3].Length > 16_384) throw new ArgumentException("Input exceeds the pipeline limit.");
     if (args[0] == "serve")
     {
-        await ObservableService.RunAsync(revision, broker, args[2], args[3]);
+        await ObservableService.RunAsync(revision, broker, agents, args[2], args[3]);
         return 0;
     }
     var journal = new FileRunJournal(args[2]);
-    var builder = Host.CreateApplicationBuilder();
-    builder.Logging.ClearProviders();
     builder.Services.AddSingleton(journal);
     builder.Services.AddSingleton<INodeToolBroker>(broker);
+    builder.Services.AddSingleton<IAgentNodeExecutor>(agents);
     builder.Services.AddLocalWorkflowRuntime(args[2]);
     using var host = builder.Build();
     await host.StartAsync();
@@ -48,7 +52,7 @@ try
         {
             var initial = journal.Create(revision, args[3]);
             runId = initial.Header.RunId;
-            await new PipelineRunner(broker).ExecuteAsync(runId.Value, revision, args[3], evt =>
+            await new PipelineRunner(broker, agents).ExecuteAsync(runId.Value, revision, args[3], evt =>
             {
                 journal.Append(evt);
                 return ValueTask.CompletedTask;

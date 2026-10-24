@@ -14,7 +14,7 @@ namespace WorkflowService;
 
 internal static class ObservableService
 {
-    public static async Task RunAsync(WorkflowRevision revision, McpToolBroker broker, string directory, string input)
+    public static async Task RunAsync(WorkflowRevision revision, McpToolBroker broker, IAgentNodeExecutor agents, string directory, string input)
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -22,6 +22,7 @@ internal static class ObservableService
         if (port is < 1 or > 65535) throw new InvalidOperationException("Invalid consumer port.");
         builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
         builder.Services.AddSingleton<INodeToolBroker>(broker);
+        builder.Services.AddSingleton(agents);
         builder.Services.AddLocalWorkflowRuntime(directory);
         var enabled = builder.Configuration.GetValue<bool>("WorkflowObservation:Enabled");
         if (enabled)
