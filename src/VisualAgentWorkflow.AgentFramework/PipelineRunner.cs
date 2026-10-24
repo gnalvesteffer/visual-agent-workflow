@@ -5,7 +5,7 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.AgentFramework;
 
 /// <summary>Translates the supported string pipeline into actual Agent Framework executors and edges.</summary>
-public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null)
+public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null)
 {
     public Task<string> ExecuteAsync(Guid runId, WorkflowRevision revision, string input,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default) =>
@@ -32,16 +32,7 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExec
             record(new(runId, revision.RevisionId, Interlocked.Increment(ref sequence), DateTimeOffset.UtcNow,
                 kind, node, invocation, connection, data));
 
-        var definition = revision.Definition;
-        var executors = definition.Nodes.ToDictionary(
-            n => n.Key,
-            n => new StringExecutor(n.Key, n.Value, runId, revision, tools, agents, Emit, gate));
-        var builder = new WorkflowBuilder(executors[definition.EntryNodeId]);
-        foreach (var edge in definition.Connections.Values)
-            builder.AddEdge<GraphMessage>(executors[edge.Source.NodeId], executors[edge.Target.NodeId], message => message?.SourcePort == edge.Source.PortId);
-        var outputId = definition.Nodes.Single(n => n.Value.Type == NodeTypes.Output).Key;
-        builder.WithOutputFrom(executors[outputId]);
-        var workflow = builder.Build();
+        var workflow = BuildWorkflow(runId, revision, Emit, gate);
 
         await Emit(ExecutionEventKinds.Started);
         try
@@ -78,6 +69,21 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExec
             await Emit(ExecutionEventKinds.Failed, data: "Pipeline execution failed.");
             throw;
         }
+    }
+
+    private Workflow BuildWorkflow(Guid runId, WorkflowRevision revision,
+        Func<string, string?, Guid?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate)
+    {
+        var definition = revision.Definition;
+        var executors = definition.Nodes.ToDictionary(
+            n => n.Key,
+            n => new StringExecutor(n.Key, n.Value, runId, revision, tools, agents, emit, gate));
+        var builder = new WorkflowBuilder(executors[definition.EntryNodeId]);
+        foreach (var edge in definition.Connections.Values)
+            builder.AddEdge<GraphMessage>(executors[edge.Source.NodeId], executors[edge.Target.NodeId], message => message?.SourcePort == edge.Source.PortId);
+        var outputId = definition.Nodes.Single(n => n.Value.Type == NodeTypes.Output).Key;
+        builder.WithOutputFrom(executors[outputId]);
+        return builder.Build();
     }
 
     private sealed record GraphMessage(string Text, string? SourceNode, string? SourcePort, WorkflowApprovalPermit? Approval = null);

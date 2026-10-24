@@ -14,6 +14,9 @@ if (args is ["--mcp-demo-server"])
     await DemoMcpServer.RunAsync();
     return 0;
 }
+if (args.Length > 0 && args[0] is "checkpoint" or "recover")
+    return await CheckpointCommands.RunAsync(args);
+
 if (args.Length is < 4 or > 5 || args[0] is not ("direct" or "queued" or "paused" or "serve") ||
     args.Length == 5 && args[4] != "--grant-demo-tool")
 {

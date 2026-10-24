@@ -22,12 +22,28 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
     private readonly SemaphoreSlim executionSlot = new(1, 1);
     private readonly object admission = new();
     private bool accepting;
+    private IDisposable? ownership;
+    private bool cleanupRequired;
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
-        lock (admission) journal.MarkUnfinishedAsInterrupted();
-        await base.StartAsync(cancellationToken);
-        lock (admission) accepting = true;
+        lock (admission)
+        {
+            if (ownership is not null || accepting) throw new InvalidOperationException("The runtime already owns this store.");
+            ownership = (journal as ILocalRuntimeOwnershipStore)?.AcquireRuntimeOwnership();
+            cleanupRequired = true;
+        }
+        try
+        {
+            lock (admission) journal.MarkUnfinishedAsInterrupted();
+            await base.StartAsync(cancellationToken);
+            lock (admission) accepting = true;
+        }
+        catch
+        {
+            lock (admission) { cleanupRequired = false; ownership?.Dispose(); ownership = null; }
+            throw;
+        }
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
@@ -157,6 +173,8 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
     {
         lock (admission)
         {
+            if (!cleanupRequired) return;
+            cleanupRequired = false;
             accepting = false;
             queue.Writer.TryComplete();
             while (queue.Reader.TryRead(out var pending))
@@ -164,8 +182,15 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
                 ownedRuns.TryRemove(pending.RunId, out _);
                 pending.Control.Dispose();
             }
-            journal.MarkUnfinishedAsInterrupted();
+            try { journal.MarkUnfinishedAsInterrupted(); }
+            finally { ownership?.Dispose(); ownership = null; }
         }
+    }
+
+    public override void Dispose()
+    {
+        base.Dispose();
+        if (ExecuteTask is null || ExecuteTask.IsCompleted) FinishStoppedRuns();
     }
 
     private async Task ExecuteRequest(Request request, CancellationToken stoppingToken)

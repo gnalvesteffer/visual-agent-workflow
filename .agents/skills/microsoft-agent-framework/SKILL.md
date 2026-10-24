@@ -5,7 +5,7 @@ description: Use when selecting or upgrading Microsoft Agent Framework .NET pack
 
 # Microsoft Agent Framework integration
 
-Read [project-guide](../project-guide/SKILL.md). The adapter targets Agent Framework 1.26.0 on .NET 10. Tests cover linear/conditional string workflows, real stdio MCP tools, and `ChatClientAgent` function loops with a deterministic `IChatClient`. See [roadmap and current scope](../../../docs/roadmap.md) for supported scope. These checks do not validate live LLM providers, parallel joins, loops or durability.
+Read [project-guide](../project-guide/SKILL.md). The adapter targets Agent Framework 1.26.0 on .NET 10. Tests cover linear/conditional string workflows, real stdio MCP tools, and `ChatClientAgent` function loops with a deterministic `IChatClient`. See [roadmap and current scope](../../../docs/roadmap.md) for supported scope. These checks do not validate live LLM providers, parallel joins, loops or general production crash recovery.
 
 ## Establish version-specific evidence
 
@@ -46,3 +46,5 @@ Agent Framework 1.26.0 conditional edges were checked against the peeled `dotnet
 Explicit-MCP approval uses the existing awaited executor plus the optional platform approval gate; it does not claim native durable request/checkpoint restoration. A reserved target invocation ID passes through the trusted private message envelope so tool evidence matches the exact reviewed action. Preserve the fail-closed direct-runner test and real scripted-agent/approval/MCP proof; provider-selected tool calls inside agent loops remain outside this approval feature.
 
 The optional OpenAI adapter is pinned to OpenAI 2.14.0 and Microsoft.Extensions.AI.OpenAI 10.10.1, matching the checked Agent Framework tag. Its complete-response SDK path is protocol-verified, not credentialed live-service qualified. The bridge JSON-encodes string function results; protocol fixtures must decode that representation rather than changing production MCP results. Preserve host-owned fresh clients, bounded bodies and disabled SDK retries. See [provider contracts](../../../docs/model-providers.md).
+
+The native JSON checkpoint path was compiled/executed against 1.26.0 using `CheckpointManager.CreateJson` and `ResumeStreamingAsync`. Rebuild stable executor IDs/topology and preserve `GraphMessage` wire shape. Native state is version-specific; review/bump `PipelineRunner.CheckpointRuntimeVersion` when packages or adapter serialization change. The tested callback runs before the next superstep; suspension is acknowledged only after atomic checkpoint/evidence publication. Public `CheckpointInfo` construction uses explicit session and checkpoint IDs. See [recovery contract](../../../docs/checkpoint-recovery.md).

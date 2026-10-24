@@ -8,9 +8,13 @@ Statuses mean **Complete** (implemented and verified), **Active** (currently bei
 
 The development Studio edits and runs validated linear and conditional string graphs through Microsoft Agent Framework. It has free node placement, edge sockets, reroutes/pinned angles, labels/comments, named sections, immutable publications, restore/activation, persisted local audit/run evidence, and recorded playback, plus reusable published pipelines and portable packages. MCP tools are node-scoped. The default agent provider is a deterministic fixture. An opt-in host-configured OpenAI SDK adapter is protocol-verified; credentialed live-service qualification remains outstanding.
 
-The backend owns execution, but active runs do not resume after host failure. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Free placement does not imply arbitrary socket rewiring or parallel execution. Conditional routing is an explicit validated operation.
+The backend owns execution. Studio/ordinary queued runs still interrupt after host failure; a separate opt-in host explicitly resumes deterministic saved checkpoints. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Free placement does not imply arbitrary socket rewiring or parallel execution. Conditional routing is an explicit validated operation.
 
-## Latest completed milestone: run storage boundary
+## Latest completed milestone: deterministic saved-suspension recovery
+
+An opt-in consumer host saves native Agent Framework JSON checkpoints atomically with audit/state and resumes an exact deterministic suspension after host replacement. Tests and a forced-process-loss proof cover stable revision/identity, both branch paths, no duplicate nodes, ownership exclusion, stale evidence and rollback. Built-in ordinary runtime hosts also enforce exclusive local ownership. SQLite run schema 2 migrates existing evidence. Studio's queue retains interruption semantics; external-node/approval and arbitrary-crash recovery remain excluded. See [checkpoint recovery](checkpoint-recovery.md).
+
+## Previous completed milestone: run storage boundary
 
 The local runtime/controller now consume a host-selected `IWorkflowRunStore`. Atomic bounded batches and expected-sequence checks keep evidence and derived status consistent. File snapshots preserve legacy reads; an optional dedicated SQLite store supplies transactions and independent-connection concurrency checks. Studio/service configuration, observer consistency and rollback/conformance checks are implemented. Runtime ownership remains exclusive; restart still interrupts unfinished work. See [run storage](run-storage.md).
 
@@ -36,7 +40,7 @@ The [standalone consumer](../samples/WorkflowService/README.md) runs reviewed pi
 
 ## Previous completed milestone: cooperative pause/resume
 
-Process-owned runs can start paused, pause between nodes, resume without reexecuting completed nodes, and cancel while paused. API and optional embedded controls share sequenced audit events; recorded playback includes pause state. Paused contexts release the execution permit so other admitted work can run. The 32-context budget includes paused runs. Restart interrupts unfinished continuations; durable checkpoint recovery remains planned. See [run control](run-control.md).
+Process-owned runs can start paused, pause between nodes, resume without reexecuting completed nodes, and cancel while paused. API and optional embedded controls share sequenced audit events; recorded playback includes pause state. Paused contexts release the execution permit so other admitted work can run. The 32-context budget includes paused runs. The ordinary queue interrupts unfinished continuations; the separate deterministic checkpoint host now supports saved-suspension recovery. See [run control](run-control.md).
 
 ## Previous completed milestone: reusable pipelines and sharing
 
@@ -63,7 +67,8 @@ flowchart TD
     Graph --> Vertical["Complete: deterministic agent, branch, approval and MCP slice"]
     Vertical --> Models["Complete: opt-in model adapter with protocol verification"]
     Models --> Store["Complete: atomic run storage boundary"]
-    Store --> Durable["Next: checkpoint and recovery contract"]
+    Store --> Recovery["Complete: explicit deterministic checkpoint recovery"]
+    Recovery --> Durable["Next: interrupted-run reconciliation contract"]
     Durable --> Assets["Versioned skills and nested prefab instances"]
     Assets --> Extensions["Approved extensions in isolated workers"]
     Durable --> Collaboration["Workspace sharing and collaboration"]
@@ -85,9 +90,13 @@ The SDK adapter and configuration flow are implemented with deterministic protoc
 
 Host-selected storage, atomic event/state batches, concurrency checks, file compatibility and a transactional SQLite implementation are complete. They establish committed evidence, not recoverable execution. See [run storage](run-storage.md).
 
-### Next: checkpoint and recovery contract
+### Complete: deterministic checkpoint and recovery contract
 
-Define a versioned checkpoint at a validated execution boundary, tying the pinned revision, completed/next work, data and pending holds to an atomic store commit. Establish exclusive worker ownership and a safe recovery policy before enabling automatic continuation. Test deterministic boundaries and interruption first; external tool/model outcomes need explicit reconciliation rather than replay. Native framework checkpoint support must be verified against pinned packages before choosing its representation.
+Native superstep state, a versioned/bounded recovery envelope, atomic checkpoint/audit commits, exact-cursor admission and local owner exclusion are implemented for explicit deterministic saved suspensions. Ordinary queued runs, arbitrary active-process loss and external effects retain their previous limits. See [checkpoint recovery](checkpoint-recovery.md).
+
+### Next: interrupted-run reconciliation contract
+
+Represent the recovery disposition of unfinished runs: distinguish a known saved suspension, evidence advanced after a checkpoint, and unresolved node/model/tool work. Expose a read-only explanation to hosts/operators before introducing any automatic continuation. Define authenticated operator decisions and explicit effect reconciliation without rerunning uncertain external calls. Pending approvals, model-selected tools, distributed leases/fencing and worker failover require their own proofs.
 
 ### Planned: durable execution and security foundations
 

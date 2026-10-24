@@ -6,10 +6,11 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>Transactional local run evidence. Concurrent appends use expected sequences; runtime ownership is still exclusive.</summary>
-public sealed class SqliteWorkflowRunStore : IWorkflowRunStore
+public sealed partial class SqliteWorkflowRunStore : IWorkflowCheckpointStore, ILocalRuntimeOwnershipStore
 {
     private const int ApplicationId = 0x56415752;
     private readonly string connectionString;
+    private readonly string ownershipPath;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     public SqliteWorkflowRunStore(string databasePath)
@@ -17,6 +18,7 @@ public sealed class SqliteWorkflowRunStore : IWorkflowRunStore
         ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
         var path = Path.GetFullPath(databasePath);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        ownershipPath = path + ".owner";
         connectionString = new SqliteConnectionStringBuilder { DataSource = path, Pooling = false, DefaultTimeout = 10 }.ToString();
         using var connection = Open();
         using var transaction = connection.BeginTransaction(deferred: false);
@@ -24,7 +26,7 @@ public sealed class SqliteWorkflowRunStore : IWorkflowRunStore
         var version = Scalar(connection, transaction, "PRAGMA user_version;");
         var tableCount = Scalar(connection, transaction, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';");
         if (applicationId != ApplicationId && (applicationId != 0 || version != 0 || tableCount != 0) ||
-            applicationId == ApplicationId && version != 1)
+            applicationId == ApplicationId && version is not (1 or 2))
             throw new InvalidDataException("Unsupported run-store database identity or schema version.");
         Execute(connection, transaction, $"""
             CREATE TABLE IF NOT EXISTS runs (
@@ -37,8 +39,11 @@ public sealed class SqliteWorkflowRunStore : IWorkflowRunStore
                 sequence INTEGER NOT NULL CHECK(sequence > 0),
                 event_json TEXT NOT NULL,
                 PRIMARY KEY(run_id, sequence));
+            CREATE TABLE IF NOT EXISTS run_checkpoints (
+                run_id TEXT PRIMARY KEY REFERENCES runs(run_id),
+                checkpoint_json TEXT NOT NULL);
             PRAGMA application_id={ApplicationId};
-            PRAGMA user_version=1;
+            PRAGMA user_version=2;
             """);
         transaction.Commit();
     }
@@ -60,14 +65,23 @@ public sealed class SqliteWorkflowRunStore : IWorkflowRunStore
         using var transaction = connection.BeginTransaction(deferred: false);
         var snapshot = Read(connection, transaction, runId) ?? throw new KeyNotFoundException("Unknown run.");
         var next = RunStoreRecords.Apply(snapshot, expectedSequence, events);
+        WriteTransition(connection, transaction, snapshot, next);
+        transaction.Commit();
+        return next;
+    }
+
+    public IDisposable AcquireRuntimeOwnership() => LocalRuntimeOwnership.Acquire(ownershipPath);
+
+    private static void WriteTransition(SqliteConnection connection, SqliteTransaction transaction, RunSnapshot snapshot, RunSnapshot next)
+    {
+        var runId = snapshot.Header.RunId;
+        var expectedSequence = snapshot.Events.Length;
         foreach (var evt in next.Events.Skip(snapshot.Events.Length))
             Execute(connection, transaction, "INSERT INTO run_events(run_id,sequence,event_json) VALUES($id,$sequence,$event);",
                 ("$id", runId.ToString()), ("$sequence", evt.Sequence), ("$event", JsonSerializer.Serialize(evt, Json)));
         var changed = Execute(connection, transaction, "UPDATE runs SET sequence=$next,status=$status WHERE run_id=$id AND sequence=$expected;",
             ("$next", next.Events.Length), ("$status", next.Status), ("$id", runId.ToString()), ("$expected", expectedSequence));
         if (changed != 1) throw new WorkflowRunStoreConflictException();
-        transaction.Commit();
-        return next;
     }
 
     public RunSnapshot? Get(Guid runId)

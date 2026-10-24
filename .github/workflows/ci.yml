@@ -34,6 +34,8 @@ jobs:
           python-version: "3.12"
       - name: Exercise standalone service without Studio
         run: python3 scripts/service_smoke.py
+      - name: Exercise deterministic checkpoint recovery across processes
+        run: python3 scripts/checkpoint_smoke.py
       - run: python3 -m pip install -r scripts/requirements-browser.txt
       - run: python3 -m playwright install --with-deps chromium
       - name: Exercise configured provider with a local protocol fixture

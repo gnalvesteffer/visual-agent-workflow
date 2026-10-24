@@ -14,6 +14,9 @@ public sealed record ExecutionEvent(
 
 public static class ExecutionEventKinds
 {
+    public const string CheckpointCaptured = "checkpoint.captured";
+    public const string Suspended = "run.suspended";
+    public const string Recovered = "run.recovered";
     public const string Started = "run.started";
     public const string NodeStarted = "node.started";
     public const string NodeCompleted = "node.completed";

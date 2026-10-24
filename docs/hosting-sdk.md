@@ -50,6 +50,10 @@ The hosting helper is additive: existing constructors and direct execution signa
 
 Registration tests cover lazy creation, client/worker identity, duplicate registration, conflicting/empty paths, host overrides and Generic Host shutdown of a paused continuation. The standalone smoke check runs direct/queued pure and MCP artifacts without Studio; Studio's API/browser/control checks verify the same registration path in the IDE. These tests do not establish distributed coordination, crash recovery, request authentication, live-provider reliability or multi-tenant isolation.
 
+## Explicit deterministic checkpoint host
+
+`CheckpointWorkflowHost` is independent of this DI helper and queue. It requires SQLite and admits deterministic graphs only, saving native framework state and explicitly resuming an exact saved suspension in a new host. Built-in ordinary/checkpoint hosts honor the same local exclusive owner handle. See [checkpoint recovery](checkpoint-recovery.md); the helper does not enable it automatically.
+
 ## Optional observation endpoint
 
 Runtime registration alone still maps no endpoints. Hosts can explicitly register an `IWorkflowRunObserver` and call `MapWorkflowObservation` with a named authorization policy. The API is read-only and separate from workflow control. See [consumer observation](observation.md).

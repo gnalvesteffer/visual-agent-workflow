@@ -20,6 +20,8 @@ public sealed record RunSnapshot(RunHeader Header, ImmutableArray<ExecutionEvent
                 ExecutionEventKinds.Cancelled => "cancelled",
                 _ => "interrupted"
             };
+            if (Events.LastOrDefault(e => e.Kind is ExecutionEventKinds.Suspended or ExecutionEventKinds.Recovered)?.Kind == ExecutionEventKinds.Suspended)
+                return "suspended";
             // Pause and approval are independent holds. Resume cannot approve, and approval cannot resume.
             var pause = Events.LastOrDefault(e => e.Kind is ExecutionEventKinds.PauseRequested or ExecutionEventKinds.Paused or ExecutionEventKinds.Resumed);
             if (pause?.Kind == ExecutionEventKinds.Paused) return "paused";
