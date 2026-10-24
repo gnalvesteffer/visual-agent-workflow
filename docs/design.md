@@ -6,6 +6,8 @@ This document captures the product direction and architectural decisions discuss
 
 Build a C#/.NET platform that lets people design agentic workflows visually, execute them independently of the editor, and inspect live or historical execution in the same graph. Provide a standalone Blazor application and reusable Razor components that integrating applications can embed.
 
+Users must also be able to build and host their own services around these workflows. Treat Visual Agent Workflow as an optional IDE and an independently consumable execution platform: author in Studio or an embedded designer, publish a portable artifact, and invoke the engine from a user-owned .NET service, worker, job, or application. The production service must not require Studio, a Blazor circuit, or a running designer. See [service integration](service-integration.md) for current APIs and the hosting SDK delivery goal.
+
 Aim for broad extensibility, with explicit, validated execution semantics. Supporting arbitrary future patterns is an extension goal; production support must be defined and tested for each supported operation.
 
 ## Product principles
@@ -18,6 +20,8 @@ Aim for broad extensibility, with explicit, validated execution semantics. Suppo
 - Published definitions and dependencies are immutable and identifiable.
 - Execution evidence drives live visualization and recorded playback.
 - The standalone studio consumes the same public component APIs offered to integrating applications.
+- The workflow engine is a first-class library for user-owned services. Studio is an optional IDE, and editor embedding and engine embedding are independent choices.
+- Hosts own inbound triggers, public service contracts, identity, configuration, capability grants, storage, and execution lifetime. A workflow artifact declares behavior and requirements; it does not provision an endpoint, transfer credentials, or grant tools.
 
 ## Architecture
 
@@ -45,6 +49,14 @@ flowchart TB
     Broker --> History
     History --> API
 ```
+
+### User-owned service deployment goal
+
+Support three independently usable surfaces: the engine/runtime SDK, reusable designer/observability components, and the standalone Studio IDE. An application can use the engine without either UI, embed the designer and use its own backend, or run a separate workflow execution service with optional remote observation.
+
+A host can invoke workflows from its own controller, message consumer, webhook handler, scheduler, background job, CLI, or application method. The initial service-integration proof should use supported string inputs/outputs; richer typed service contracts follow explicit schema support. Public endpoint and trigger configuration belong to the host rather than becoming arbitrary network capabilities inside an imported graph.
+
+Deployment uses reviewed, version-pinned definitions/packages and host-side dependency resolution. Each run captures its resolved revision and dependency identities. Replacing a deployment changes future runs, not in-flight or historical runs. Authoring catalogs and SQLite are optional deployment choices; a service should also be able to load its approved artifact from its own release/configuration mechanism. Environment credentials, MCP connection factories, and policy remain with the service host.
 
 ### Proposed packages
 
@@ -295,7 +307,7 @@ JSON Schema validates structure. Semantic validation additionally checks IDs/ref
 
 Implement Input → Agent → Conditional Branch → Approval → MCP Tool → Output, alongside a deterministic mock provider. Include save/load, typed connection validation, immutable revision selection, cancellation, live invocation states, actual route evidence, payload inspection, and recorded playback.
 
-Demonstrate both the standalone studio and a separate consuming Blazor app embedding the public components. Confirm runs continue after UI disconnection and reconnect without missing events.
+Demonstrate the standalone Studio, a separate consuming Blazor app embedding the public components, and a separate headless .NET service/worker invoking an artifact through the engine without any UI dependencies. Confirm runs continue after UI disconnection and reconnect without missing events.
 
 ### Architecture proof before broad expansion
 

@@ -1,5 +1,7 @@
 # Embedding the initial components
 
+Designer embedding and engine embedding are independent. This page covers reusable UI; a user-owned service can consume execution libraries without any designer or Studio process. See [service integration](service-integration.md) for existing lower-level APIs and the planned hosting SDK.
+
 Reference `src/VisualAgentWorkflow.Blazor/VisualAgentWorkflow.Blazor.csproj` from a Blazor application. The Razor library depends on Core and ASP.NET Core rendering support, not on the framework adapter or local runtime.
 
 Include its optional stylesheet in the host document:

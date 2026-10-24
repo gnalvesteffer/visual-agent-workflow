@@ -1,5 +1,7 @@
 # Implemented architecture
 
+The engine and designer are independently consumable libraries; Studio is their optional IDE and development composition. User-owned service hosting is a first-class product goal, with existing lower-level execution APIs and a supported hosting SDK still to be delivered. See [service integration](service-integration.md).
+
 The Studio is a .NET 10 Interactive Server development host that composes embeddable Blazor components, a SQLite workflow catalog, a background run queue, Microsoft Agent Framework adapters, and a node-scoped MCP broker. Execution belongs to the backend. A browser edits definitions and observes recorded evidence; closing it does not cancel a run.
 
 This page describes shipped code. The broader [product design](design.md) includes planned distributed recovery, authorization, branching, collaboration, extensions, and reusable assets. Those are not implied by these diagrams.
@@ -76,3 +78,9 @@ The development host permits only loopback/same-origin access and refuses non-De
 ## Reuse and sharing contracts
 
 Core supports [version-pinned pipeline expansion and portable packages](reusable-pipelines.md). Expansion creates ordinary processing nodes with fresh identities and optional schema-1.3 origin metadata. It adds no runtime source loader or new project dependency. Source updates do not mutate a consumer, and imported provenance does not authenticate an author. Exact MCP/provider requirements travel with copied nodes; host grants do not. Studio uses the same workflow catalog for reusable drafts and publications. Extraction creates a separate draft; insertion is a single local immutable composition edit, followed by normal save/publication. No additional database schema or runtime service is introduced. Package exports read a consistent saved design or an immutable publication, and import only stages local definition/layout edits. Requirement listings report registration availability rather than authorization.
+
+## Headless service integration boundary
+
+`VisualAgentWorkflow.Core` and `VisualAgentWorkflow.AgentFramework` do not reference the Blazor library or Studio. `WorkflowJson`/`WorkflowPackageJson`, `WorkflowRevision`, and `PipelineRunner.ExecuteAsync` already provide lower-level artifact loading and execution. The caller supplies tool/agent adapters, an event sink, run identity, and cancellation. The current `LocalWorkflowRuntime`, file journal, and SQLite catalog are optional development-host building blocks rather than a production service SDK.
+
+The next integration proof must be a separate service or worker consuming these public APIs without a Studio process, browser connection, or renderer. A stable hosting/DI facade, packaged distribution, trigger integration, richer typed contracts, production persistence, and durable recovery are planned, not implied by the current adapter API. Adding a service sample should preserve the existing dependency-boundary tests and must not make the engine depend on designer assets or a mandatory authoring database.

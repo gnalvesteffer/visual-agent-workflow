@@ -1,6 +1,6 @@
 # Roadmap
 
-The goal is a dependable, extensible C# platform for visually designing agent workflows, running them independently of the browser, and inspecting exact historical execution. This document tracks delivery priorities and status. [Architecture](architecture.md) describes what exists, [the user guide](user-guide.md) explains how to use it, and [implementation history](implementation-history.md) retains detailed milestone evidence. [Product design](design.md) records the broader direction.
+The goal is a dependable, extensible C# platform for visually designing agent workflows, hosting them as logic inside user-owned services, running them independently of the browser, and inspecting exact historical execution. Studio is an optional IDE; the execution engine must be independently consumable. This document tracks delivery priorities and status. [Architecture](architecture.md) describes what exists, [the user guide](user-guide.md) explains how to use it, and [implementation history](implementation-history.md) retains detailed milestone evidence. [Product design](design.md) records the broader direction.
 
 Statuses mean **Complete** (implemented and verified), **Active** (currently being built), **Next** (next planned increment), or **Planned** (direction with unresolved details). Planned work is not a supported capability. Sequence expresses dependencies rather than dates.
 
@@ -12,7 +12,7 @@ The backend owns execution, but active runs do not resume after host failure. Th
 
 ## Latest completed milestone: reusable pipelines and sharing
 
-Core contracts, Studio controls, and end-to-end validation are complete. The next planned increment is semantic graph authoring and conditional paths.
+Core contracts, Studio controls, and end-to-end validation are complete. The next planned increment is a headless service-integration proof, followed by semantic graph authoring and conditional paths.
 
 | Deliverable | Status | Completion evidence |
 | --- | --- | --- |
@@ -29,7 +29,8 @@ This increment uses copy-on-insert template expansion, not recursive runtime pre
 
 ```mermaid
 flowchart TD
-    Reuse["Complete: reusable pipelines and packages"] --> Graph["Next: semantic graph authoring and conditional paths"]
+    Reuse["Complete: reusable pipelines and packages"] --> Hosting["Next: headless service integration proof"]
+    Hosting --> Graph["Semantic graph authoring and conditional paths"]
     Graph --> Vertical["Complete the agent, branch, approval and MCP vertical slice"]
     Vertical --> Durable["Durable runtime and workspace security foundations"]
     Durable --> Assets["Versioned skills and nested prefab instances"]
@@ -39,7 +40,15 @@ flowchart TD
     Collaboration --> Production
 ```
 
-### Next: semantic graph authoring and the first full vertical slice
+### Next: user-owned service integration
+
+Deliver a separate .NET service/worker sample that consumes a reviewed workflow artifact and calls the engine through public library APIs, with no Blazor, Studio, browser, or mandatory authoring catalog. Show both direct invocation and a backend-owned queued invocation with run/event observation. Use the currently supported string contract before expanding typed inputs/outputs.
+
+Acceptance evidence includes starting the consumer without Studio, loading a pinned artifact, rejecting invalid or unavailable dependencies without silent substitutions, checking node-scoped host grants, executing deterministic fixtures, recording output/events, and proving cancellation/host lifetime is independent from the designer. Document how hosts wire their own API/message/job triggers and keep credentials/configuration outside workflow artifacts. The sample's persistence and shutdown guarantees must be stated rather than presented as production durability.
+
+Follow that proof with the hosting SDK/DI facade and package-distribution contract. A service may load its own deployment artifacts without carrying Studio's SQLite catalog or UI components. Keep engine embedding and designer embedding independent, and preserve source/binary/wire compatibility. See [service integration](service-integration.md).
+
+### Following: semantic graph authoring and the first full vertical slice
 
 Define and test supported typed ports and execution semantics before allowing general wiring. Add explicit conditional routing and merge behavior, inline diagnostics, and graph editing that preserves valid stable identities. Use approved deterministic operations, not arbitrary scripting. Verify the pinned Agent Framework APIs and demonstrate actual selected-path evidence, cancellation, and recorded playback.
 

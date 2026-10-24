@@ -9,6 +9,7 @@ Read [the design baseline](../../../docs/design.md), [roadmap and current scope]
 
 ## Preserve the architecture
 
+- Treat the engine as a first-class library for user-owned services; Studio is an optional IDE. Engine embedding and designer embedding are independent. Do not introduce a mandatory Studio process, Blazor dependency, or authoring catalog into service execution. See [service integration](../../../docs/service-integration.md).
 - Keep runtime execution independent of browser connections and Blazor circuits. The UI edits definitions and observes or controls backend-owned runs.
 - Build embeddable Razor components first; the standalone studio must consume the same public APIs. Keep authorization, persistence, and backend access host-configurable.
 - Isolate Microsoft Agent Framework APIs behind an adapter. Use [microsoft-agent-framework](../microsoft-agent-framework/SKILL.md) for version-specific API research, package selection, integration, and upgrades; distinguish confirmed API support from proposed mappings.

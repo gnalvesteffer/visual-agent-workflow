@@ -4,6 +4,12 @@ The Studio creates and runs linear string-processing workflows. It supports dete
 
 Use disposable text in the local development app. It records inputs, outputs, and comments in local storage without workspace authentication or payload encryption.
 
+## Build workflows for your own service
+
+Studio can act as an IDE for workflows that your own application will run. You can also embed the designer in your application or use the engine without a designer. These are independent integration choices.
+
+Today, you can export reviewed workflow definitions/packages and use the lower-level .NET execution libraries from host code. A stable service-hosting SDK and a separate headless service/worker sample are the next planned milestone; Studio is not required by the engine's existing adapter API. See [service integration](service-integration.md) for available entry points and host responsibilities. The controls below describe authoring and testing in the development Studio, not deploying an authenticated production service.
+
 ## Start the app
 
 From the repository root, with the SDK pinned by `global.json` installed:

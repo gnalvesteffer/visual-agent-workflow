@@ -2,7 +2,7 @@
 
 A proposed C#/.NET platform for visually designing, executing, and observing agentic workflows built on Microsoft Agent Framework.
 
-The product combines a standalone Blazor studio, embeddable Razor components, and an independent workflow runtime. Workflow authoring uses Blueprint-style visual scripting, with MCP tools for external operations and approved .NET extensions for specialized behavior.
+The product combines an independently consumable workflow engine for user-owned services, embeddable Razor components, and a standalone Blazor Studio that acts as an optional IDE. Services should be able to load approved workflow artifacts and invoke them from their own APIs, workers, jobs, or application code without the designer running. See [service integration](docs/service-integration.md) for the goal and current library APIs. Workflow authoring uses Blueprint-style visual scripting, with MCP tools for external operations and approved .NET extensions for specialized behavior.
 
 See the [user guide](docs/user-guide.md), [current architecture](docs/architecture.md), and [documentation map](docs/README.md).
 
