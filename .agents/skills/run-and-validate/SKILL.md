@@ -17,6 +17,8 @@ Read [project-guide](../project-guide/SKILL.md). Discover actual solution/projec
 
 ## Runtime evidence
 
+The local studio starts with `dotnet run --project src/VisualAgentWorkflow.Studio --configuration Release --no-build --environment Development`. With it running, `python3 scripts/studio_smoke.py` exercises actual API execution and access/validation checks. Add `--browser` for Playwright controls; use `--browser-executable` for an existing Chromium. The smoke check writes test runs into the ignored local journal; use non-sensitive disposable data. Development-only local hosting is not production authentication.
+
 Use deterministic test providers and local controlled MCP fixtures for repeatable checks. Real-provider checks require available authorized credentials and should be separately labeled. Use disposable data and avoid live side effects unless authorized.
 
 For runtime changes, verify UI disconnection does not end a run and reconnect recovers missed events. Apply [workflow-runtime-review](../workflow-runtime-review/SKILL.md) for recovery changes. Stop only processes started for the task when cleanup is needed.

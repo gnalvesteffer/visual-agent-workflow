@@ -21,4 +21,5 @@ public static class ExecutionEventKinds
     public const string Completed = "run.completed";
     public const string Failed = "run.failed";
     public const string Cancelled = "run.cancelled";
+    public const string Interrupted = "run.interrupted";
 }

@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="../VisualAgentWorkflow.Blazor/VisualAgentWorkflow.Blazor.csproj" />
+    <ProjectReference Include="../VisualAgentWorkflow.Hosting/VisualAgentWorkflow.Hosting.csproj" />
+  </ItemGroup>
+</Project>

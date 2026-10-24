@@ -19,4 +19,6 @@ Show the selected revision/run, live versus recorded mode, distinct invocations,
 
 Check accessible names, focus visibility/order, keyboard alternatives to dragging, non-color status cues, zoom/reflow, contrast, and readable payload inspectors. Include an accessible structured alternative for graph execution details.
 
-Use matched screenshots for visual comparisons plus real interaction checks for behavior. Test representative graph sizes and event volume; report observed responsiveness and environment. Screenshots alone do not prove execution, accessibility, or embedding. In this design-only repository, report UI checks as unrun rather than constructing a fake passing demo.
+Use matched screenshots for visual comparisons plus real interaction checks for behavior. Test representative graph sizes and event volume; report observed responsiveness and environment. Screenshots alone do not prove execution, accessibility, or embedding. The current local studio supports pipeline templates and recorded viewing, not full graph authoring. Use the browser option in `scripts/studio_smoke.py` for implemented controls and report unsupported graph-editor checks as unrun.
+
+Prerendered Blazor markup can appear before event handlers attach. Keep execution controls disabled until interactive rendering is ready, and wait for that state before filling inputs in browser tests. Verify actual recorded output; text presence alone can reflect prerendered or stale state.

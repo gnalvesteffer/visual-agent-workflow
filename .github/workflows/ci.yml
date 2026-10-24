@@ -13,3 +13,10 @@ jobs:
       - run: dotnet restore --locked-mode
       - run: dotnet build --no-restore --configuration Release
       - run: dotnet test --no-build --configuration Release
+      - name: Exercise the local studio API
+        shell: bash
+        run: |
+          ASPNETCORE_ENVIRONMENT=Development dotnet run --project src/VisualAgentWorkflow.Studio --configuration Release --no-build > /tmp/studio-smoke.log 2>&1 &
+          studio_pid=$!
+          trap 'kill "$studio_pid" 2>/dev/null || true' EXIT
+          python3 scripts/studio_smoke.py
