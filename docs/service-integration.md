@@ -2,7 +2,7 @@
 
 Visual Agent Workflow is intended to provide an execution library for user-owned .NET services and applications, with Studio as an optional IDE. Users can author visually, deploy reviewed workflow artifacts, and invoke those workflows from service code. Embedding the designer is an independent option; it must not be necessary to execute a workflow.
 
-The product goal is agreed. Lower-level headless execution APIs exist today; a separate [service sample](../samples/WorkflowService/README.md) now demonstrates direct and queued execution. A stable hosting SDK and supported NuGet distribution remain planned. Do not assume package names in this document are already published NuGet packages. The repository currently uses project references and targets .NET 10.
+The product goal is agreed. Lower-level headless execution APIs exist today; a separate [service sample](../samples/WorkflowService/README.md) now demonstrates direct and queued execution. The [local runtime DI helper](hosting-sdk.md) is available; a stable production hosting SDK and supported NuGet distribution remain planned. Do not assume package names in this document are already published NuGet packages. The repository currently uses project references and targets .NET 10.
 
 ## Author, deploy, invoke
 
@@ -69,9 +69,9 @@ sequenceDiagram
 
 The example is a console/Generic Host, not a hosted HTTP endpoint. The admission result is where a user-owned API or message handler can return. `python3 scripts/service_smoke.py` proves direct/queued output, identities, event sequences, tool evidence, denied/unavailable/drifted dependencies, and stopping a paused host, with no Studio running. Current Hosting transitively includes ASP.NET Core support and SQLite, although no catalog/database is created. Minimal dependency packaging remains future work.
 
-## Following integration milestone
+## Hosting registration and future distribution
 
-The standalone consumer proof is implemented. The [roadmap](roadmap.md) next calls for simplifying hosting registration and documenting a deliberate package-consumption contract before graph expansion. A consuming app should also be able to add the designer or observer independently through the [existing component interfaces](embedding.md).
+The standalone consumer proof and additive `AddLocalWorkflowRuntime` registration helper are implemented. See [registration and current consumption contract](hosting-sdk.md). The sample and Studio use the same helper; neither registration nor project-reference consumption implies a supported NuGet release. A consuming app should also be able to add the designer or observer independently through the [existing component interfaces](embedding.md).
 
 The subsequent SDK work should make DI/lifecycle configuration, package distribution, stable public execution contracts, error/cancellation behavior, storage adapters, and embedding documentation deliberate and reviewable. It must preserve the architectural separation rather than coupling service execution to the IDE. Production durability/security and richer typed contracts remain distinct milestones with their own acceptance tests.
 

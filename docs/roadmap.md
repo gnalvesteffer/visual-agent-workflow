@@ -10,13 +10,17 @@ The development Studio edits and runs validated linear string pipelines through 
 
 The backend owns execution, but active runs do not resume after host failure. The host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Free placement does not imply branching, arbitrary socket rewiring, or parallel execution.
 
-## Latest completed milestone: cooperative pause/resume
+## Latest completed milestone: standalone service integration and local hosting API
+
+The [standalone consumer](../samples/WorkflowService/README.md) runs reviewed pinned packages directly or through a backend-owned queue without Studio/Blazor or an authoring catalog. It verifies real MCP, independent node grants, missing/drifted dependency rejection and host-stop cancellation. The sample and Studio share the additive [local hosting DI helper](hosting-sdk.md). Project-reference consumption is documented; stable NuGet distribution and minimal worker dependency packaging remain planned. Next is semantic graph authoring and conditional execution.
+
+## Previous completed milestone: cooperative pause/resume
 
 Process-owned runs can start paused, pause between nodes, resume without reexecuting completed nodes, and cancel while paused. API and optional embedded controls share sequenced audit events; recorded playback includes pause state. Paused contexts release the execution permit so other admitted work can run. The 32-context budget includes paused runs. Restart interrupts unfinished continuations; durable checkpoint recovery remains planned. See [run control](run-control.md).
 
 ## Previous completed milestone: reusable pipelines and sharing
 
-Core contracts, Studio controls, and end-to-end validation are complete. The headless service-integration proof is complete; hosting registration is the active increment, followed by semantic graph authoring and conditional paths.
+Core contracts, Studio controls, and end-to-end validation are complete. The headless service-integration proof and local registration API are complete. Semantic graph authoring and conditional paths are next.
 
 | Deliverable | Status | Completion evidence |
 | --- | --- | --- |
@@ -33,8 +37,8 @@ This increment uses copy-on-insert template expansion, not recursive runtime pre
 
 ```mermaid
 flowchart TD
-    Reuse["Complete: reusable pipelines and packages"] --> Hosting["Active: service hosting integration"]
-    Hosting --> Graph["Semantic graph authoring and conditional paths"]
+    Reuse["Complete: reusable pipelines and packages"] --> Hosting["Complete: service consumer and local hosting API"]
+    Hosting --> Graph["Next: semantic graph authoring and conditional paths"]
     Graph --> Vertical["Complete the agent, branch, approval and MCP vertical slice"]
     Vertical --> Durable["Durable runtime and workspace security foundations"]
     Durable --> Assets["Versioned skills and nested prefab instances"]
@@ -44,17 +48,13 @@ flowchart TD
     Collaboration --> Production
 ```
 
-### Active: user-owned service integration
+### Complete: service consumer and local hosting registration
 
-The standalone [service consumer proof](../samples/WorkflowService/README.md) is complete: direct/queued execution, reviewed pins, real MCP, dependency rejection and host-stop checks work without Studio. Next, simplify hosting registration and document the package-consumption contract.
+The standalone proof loads pinned artifacts, rejects invalid/missing dependencies, enforces node-scoped host grants, records deterministic and real MCP evidence, and demonstrates cancellation/host lifetime without Studio. The shared DI helper preserves custom registrations and adds no mandatory catalog. See [service integration](service-integration.md) and [local hosting API](hosting-sdk.md).
 
-The completed proof delivers a separate .NET service/worker sample that consumes a reviewed workflow artifact and calls the engine through public library APIs, with no Blazor, Studio, browser, or mandatory authoring catalog. Show both direct invocation and a backend-owned queued invocation with run/event observation. Use the currently supported string contract before expanding typed inputs/outputs.
+Supported NuGet distribution remains planned: decide package metadata/licensing, public compatibility baselines, minimal dependency separation and independently restored package-consumer tests before release. Current consumers use project references at a pinned source commit. This packaging work does not change runtime guarantees or provide production durability.
 
-Acceptance evidence includes starting the consumer without Studio, loading a pinned artifact, rejecting invalid or unavailable dependencies without silent substitutions, checking node-scoped host grants, executing deterministic fixtures, recording output/events, and proving cancellation/host lifetime is independent from the designer. Document how hosts wire their own API/message/job triggers and keep credentials/configuration outside workflow artifacts. The sample's persistence and shutdown guarantees must be stated rather than presented as production durability.
-
-Follow that proof with the hosting SDK/DI facade and package-distribution contract. A service may load its own deployment artifacts without carrying Studio's SQLite catalog or UI components. Keep engine embedding and designer embedding independent, and preserve source/binary/wire compatibility. See [service integration](service-integration.md).
-
-### Following: semantic graph authoring and the first full vertical slice
+### Next: semantic graph authoring and the first full vertical slice
 
 Define and test supported typed ports and execution semantics before allowing general wiring. Add explicit conditional routing and merge behavior, inline diagnostics, and graph editing that preserves valid stable identities. Use approved deterministic operations, not arbitrary scripting. Verify the pinned Agent Framework APIs and demonstrate actual selected-path evidence, cancellation, and recorded playback.
 
@@ -94,6 +94,7 @@ Publish support boundaries only after repeatable recovery/security exercises, lo
 | MCP and agents | Node-scoped broker, pinned contracts/providers, actual framework agent/tool loop with deterministic fixtures |
 | Graph canvas | Free placement, edge sockets, SVG routing, angle pins, comments/sections, versioned layouts and read-only playback |
 | Quality and documentation | C#/Blazor/CSS/design skills, dependency boundaries, browser regression checks, architecture/user guides and locally validated Mermaid |
+| Service integration | Standalone pinned-artifact execution, direct/queued MCP proof, host-stop verification, shared optional local-runtime DI registration and consumption contract |
 | Reuse and sharing | Schema-1.3 origins, version-pinned expansion, section extraction, exact-version insertion and full design package controls with browser/capability tests |
 
 Detailed tests, limitations, and historical rollout notes are in [implementation history](implementation-history.md).

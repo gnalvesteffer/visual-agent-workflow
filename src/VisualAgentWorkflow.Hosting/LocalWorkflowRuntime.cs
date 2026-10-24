@@ -26,10 +26,17 @@ public sealed class LocalWorkflowRuntime(FileRunJournal journal, ILogger<LocalWo
         lock (admission) accepting = true;
     }
 
-    public override Task StopAsync(CancellationToken cancellationToken)
+    public override async Task StopAsync(CancellationToken cancellationToken)
     {
         lock (admission) accepting = false;
-        return base.StopAsync(cancellationToken);
+        try { await base.StopAsync(cancellationToken); }
+        finally
+        {
+            // .NET 10 may cancel BackgroundService before ExecuteAsync ever starts.
+            // Its finally then cannot drain admitted runs. Never finalize while a timed-out
+            // worker is still active: its event writer still owns those continuations.
+            if (ExecuteTask is null || ExecuteTask.IsCompleted) FinishStoppedRuns();
+        }
     }
 
     public Task<RunSnapshot> StartRunAsync(WorkflowDefinition definition, string input) =>
@@ -101,14 +108,23 @@ public sealed class LocalWorkflowRuntime(FileRunJournal journal, ILogger<LocalWo
         finally
         {
             lock (admission) accepting = false;
-            queue.Writer.TryComplete();
             await Task.WhenAll(continuations);
+            FinishStoppedRuns();
+        }
+    }
+
+    private void FinishStoppedRuns()
+    {
+        lock (admission)
+        {
+            accepting = false;
+            queue.Writer.TryComplete();
             while (queue.Reader.TryRead(out var pending))
             {
                 ownedRuns.TryRemove(pending.RunId, out _);
                 pending.Control.Dispose();
             }
-            lock (admission) journal.MarkUnfinishedAsInterrupted();
+            journal.MarkUnfinishedAsInterrupted();
         }
     }
 

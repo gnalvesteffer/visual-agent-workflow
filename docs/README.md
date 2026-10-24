@@ -9,6 +9,7 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Roadmap](roadmap.md) | Completed, active, next, and planned milestones with explicit scope |
 | [Implementation history](implementation-history.md) | Detailed historical delivery notes, validation, and limitations |
 | [Product design](design.md) | Agreed direction and proposed future capabilities; not a deployment description |
+| [Local hosting API](hosting-sdk.md) | DI registration, host ownership, current project-reference consumption and future package-release boundaries |
 | [Service integration](service-integration.md) | User-owned service hosting, current headless APIs, and planned SDK acceptance criteria |
 | [Embedding](embedding.md) | Public Razor components, host services, lifecycle, and theming |
 | [Pause and resume](run-control.md) | Cooperative boundaries, controls, audit, process ownership and restart limitations |

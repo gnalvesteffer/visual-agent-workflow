@@ -29,3 +29,5 @@ Do not promise universal exactly-once external effects. Separate browser indepen
 ## Verified local pause boundary
 
 The current runtime parks the same in-process Agent Framework continuation at awaited node boundaries and before completion. Paused contexts release the shared execution permit but still count against the 32-context admission budget. Test current-node completion, no next-node admission, cancellation while parked, and other work progressing; do not describe this as durable checkpoint recovery. Restart interrupts unfinished owners. See [run control](../../../docs/run-control.md).
+
+On .NET 10, a Generic Host can stop immediately after admission before `BackgroundService.ExecuteAsync` starts. Its loop `finally` may never run. Preserve the immediate-stop regression and finalize pending ownership after the background task completes (or never existed), including when the loop did not start. A stop deadline expiring while a worker remains active does not authorize marking its journal terminal underneath its event writer.

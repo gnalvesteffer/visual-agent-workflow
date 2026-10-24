@@ -31,8 +31,7 @@ try
     builder.Logging.ClearProviders();
     builder.Services.AddSingleton(journal);
     builder.Services.AddSingleton<INodeToolBroker>(broker);
-    builder.Services.AddSingleton<LocalWorkflowRuntime>();
-    builder.Services.AddHostedService(services => services.GetRequiredService<LocalWorkflowRuntime>());
+    builder.Services.AddLocalWorkflowRuntime(args[2]);
     using var host = builder.Build();
     await host.StartAsync();
     var lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();

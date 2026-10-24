@@ -28,15 +28,13 @@ builder.Services.AddSingleton<IToolBindingCatalog>(services => services.GetRequi
 builder.Services.AddSingleton<IAgentNodeExecutor>(services => new AgentNodeExecutor(
     [DeterministicDemoChatClient.Registration()], services.GetRequiredService<INodeToolBroker>()));
 builder.Services.AddSingleton<IAgentProviderCatalog>(services => services.GetRequiredService<IAgentNodeExecutor>());
-builder.Services.AddSingleton(new FileRunJournal(Path.Combine(builder.Environment.ContentRootPath, ".local", "runs")));
-builder.Services.AddSingleton<LocalWorkflowRuntime>();
+builder.Services.AddLocalWorkflowRuntime(Path.Combine(builder.Environment.ContentRootPath, ".local", "runs"));
 builder.Services.AddSingleton<IWorkflowCatalog>(new SqliteWorkflowCatalog(Path.Combine(builder.Environment.ContentRootPath, ".local", "workflows.db")));
 builder.Services.AddSingleton<PublishedWorkflowClient>();
 builder.Services.AddSingleton<IPublishedWorkflowClient>(services => services.GetRequiredService<PublishedWorkflowClient>());
 builder.Services.AddSingleton<IWorkflowClient>(services => services.GetRequiredService<PublishedWorkflowClient>());
 builder.Services.AddSingleton<IWorkflowRunControl>(services => services.GetRequiredService<PublishedWorkflowClient>());
 builder.Services.AddSingleton<IPublishedWorkflowRunControl>(services => services.GetRequiredService<PublishedWorkflowClient>());
-builder.Services.AddHostedService(services => services.GetRequiredService<LocalWorkflowRuntime>());
 var app = builder.Build();
 
 // Development containment, not a production authentication boundary. Do not put behind a public proxy.

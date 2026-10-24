@@ -83,7 +83,7 @@ Core supports [version-pinned pipeline expansion and portable packages](reusable
 
 `VisualAgentWorkflow.Core` and `VisualAgentWorkflow.AgentFramework` do not reference the Blazor library or Studio. `WorkflowJson`/`WorkflowPackageJson`, `WorkflowRevision`, and `PipelineRunner.ExecuteAsync` already provide lower-level artifact loading and execution. The caller supplies tool/agent adapters, an event sink, run identity, and cancellation. The current `LocalWorkflowRuntime`, file journal, and SQLite catalog are optional development-host building blocks rather than a production service SDK.
 
-The next integration proof must be a separate service or worker consuming these public APIs without a Studio process, browser connection, or renderer. A stable hosting/DI facade, packaged distribution, trigger integration, richer typed contracts, production persistence, and durable recovery are planned, not implied by the current adapter API. Adding a service sample should preserve the existing dependency-boundary tests and must not make the engine depend on designer assets or a mandatory authoring database.
+The standalone consumer proof uses these public APIs without a Studio process, browser connection, or renderer. `AddLocalWorkflowRuntime` now provides shared lazy DI registration for that sample and Studio, without creating a catalog or UI dependency. Studio explicitly adds publication-aware clients and its catalog. A stable production SDK, packaged distribution, richer typed contracts, production persistence and durable recovery remain planned. See [local hosting API](hosting-sdk.md).
 
 ## Standalone consumer
 
