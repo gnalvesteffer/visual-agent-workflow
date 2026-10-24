@@ -6,4 +6,6 @@ The product combines a standalone Blazor studio, embeddable Razor components, an
 
 See [the design document](docs/design.md) for the agreed direction, architecture, constraints, and proposed delivery milestones.
 
+Contributors and coding assistants should read [AGENTS.md](AGENTS.md) and the [agent skill catalog](docs/agent-skills.md) before working on the project.
+
 **Status:** design stage. This repository does not yet contain an implementation. Package names, APIs, document examples, and milestones are proposals rather than implemented contracts.
