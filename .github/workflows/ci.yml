@@ -30,32 +30,44 @@ jobs:
           global-json-file: global.json
       - run: dotnet restore --locked-mode
       - run: dotnet build --no-restore --configuration Release
-      - name: Prepare local model cache
-        run: mkdir -p "${{ runner.temp }}/ollama"
+      - name: Prepare local GGUF cache
+        run: mkdir -p "${{ runner.temp }}/qwen3-gguf"
       - uses: actions/cache@v4
         with:
-          path: ${{ runner.temp }}/ollama
-          key: ollama-qwen3-0.6b-v1
-      - name: Start Ollama with the small Qwen3 model
+          path: ${{ runner.temp }}/qwen3-gguf
+          key: qwen3-0.6b-q4_0-13ac06624948e4d8
+      - name: Download the pinned small Qwen3 GGUF
         shell: bash
         run: |
-          docker run --detach --name vaw-local-model \
-            --publish 127.0.0.1:11434:11434 \
-            --volume "${{ runner.temp }}/ollama:/root/.ollama" \
-            ollama/ollama:0.9.0
+          model="${{ runner.temp }}/qwen3-gguf/Qwen3-0.6B-Q4_0.gguf"
+          if [[ ! -s "$model" ]]; then
+            curl --fail --location --retry 3 --retry-all-errors \
+              --output "$model" \
+              'https://huggingface.co/ggml-org/Qwen3-0.6B-GGUF/resolve/13ac06624948e4d8589cb4b6f90100837342fcb8/Qwen3-0.6B-Q4_0.gguf'
+          fi
+          test "$(stat --format=%s "$model")" = 428970080
+          echo "da2572f16c06133561ce56accaa822216f2391ef4d37fba427801cd6736417d4  $model" | sha256sum --check --status
+      - name: Start the prebuilt llama.cpp server
+        shell: bash
+        run: |
+          docker run --detach --name vaw-llama-server \
+            --publish 127.0.0.1:11434:8080 \
+            --volume "${{ runner.temp }}/qwen3-gguf:/models:ro" \
+            ghcr.io/ggml-org/llama.cpp@sha256:20c4196fc08b459a34ef78aaa05b101333b2fac687e30ec99f37b3c9dc071b44 \
+            -m /models/Qwen3-0.6B-Q4_0.gguf --host 0.0.0.0 --port 8080 \
+            --alias qwen3-0.6b --ctx-size 2048 --threads 4 --threads-batch 4 --parallel 1 --n-predict 64
           for attempt in {1..60}; do
-            if curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null; then
+            if curl --fail --silent http://127.0.0.1:11434/health >/dev/null; then
               break
             fi
             sleep 2
           done
-          curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null
-          docker exec vaw-local-model ollama pull qwen3:0.6b
+          curl --fail --silent http://127.0.0.1:11434/health >/dev/null
       - name: Exercise actual model inference through Agent Framework
         env:
           VAW_RUN_REAL_MODEL_TESTS: "1"
           VAW_REAL_MODEL_ENDPOINT: http://127.0.0.1:11434/v1/
-          VAW_REAL_MODEL_NAME: qwen3:0.6b
+          VAW_REAL_MODEL_NAME: qwen3-0.6b
         run: dotnet test tests/VisualAgentWorkflow.Mcp.Tests --no-build --no-restore --configuration Release --filter "Category=RealModel" --logger "console;verbosity=normal"
   integration:
     name: Linux integration and browser checks

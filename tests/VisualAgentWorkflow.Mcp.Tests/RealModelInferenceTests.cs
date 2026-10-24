@@ -9,7 +9,7 @@ namespace VisualAgentWorkflow.Mcp.Tests;
 
 public sealed class RealModelInferenceTests
 {
-    private const string ExpectedResponse = "REAL_LLM_INFERENCE_OK";
+    private const string ExpectedResponse = "ORANGE";
 
     [RealModelFact]
     [Trait("Category", "RealModel")]
@@ -38,11 +38,11 @@ public sealed class RealModelInferenceTests
         var agents = new AgentNodeExecutor([provider], broker);
         var definition = PipelineEditing.ReplaceNode(PipelineTemplates.Create("uppercase"), "step-1",
             new(NodeTypes.Agent, "1.0.0", Agent: new(provider.Descriptor.ProviderId, provider.Descriptor.Version,
-                $"Respond with exactly {ExpectedResponse} and nothing else. Do not explain. /no_think", [])));
+                $"Output exactly the word {ExpectedResponse}, with no punctuation.", [])));
         var events = new List<ExecutionEvent>();
 
         var output = await new PipelineRunner(broker, agents).ExecuteAsync(Guid.NewGuid(),
-            WorkflowRevision.Create(definition, "local-model-ci"), "Follow your instruction exactly.",
+            WorkflowRevision.Create(definition, "local-model-ci"), "What word should you output? /no_think",
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
         Assert.Equal(ExpectedResponse, output.Trim());
