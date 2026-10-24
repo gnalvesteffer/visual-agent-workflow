@@ -7,6 +7,7 @@ The structure follows `gnalvesteffer/ai-newspaper`: a project guide plus focused
 | Skill | Use when |
 | --- | --- |
 | [Project guide](../.agents/skills/project-guide/SKILL.md) | Changing architecture, planning implementation, or orienting in the repository |
+| [Microsoft Agent Framework](../.agents/skills/microsoft-agent-framework/SKILL.md) | Selecting/upgrading .NET framework packages, implementing the adapter, or verifying agent/workflow/tool APIs |
 | [Run and validate](../.agents/skills/run-and-validate/SKILL.md) | Adding executable projects, starting services, testing, or diagnosing failures |
 | [Capability security review](../.agents/skills/capability-security-review/SKILL.md) | Changing MCP grants, credentials, authorization, extension workers, or imports |
 | [Workflow runtime review](../.agents/skills/workflow-runtime-review/SKILL.md) | Changing Agent Framework integration, scheduling, recovery, approvals, or external effects |

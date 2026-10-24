@@ -5,7 +5,7 @@ description: Use when changing Agent Framework translation, execution semantics,
 
 # Workflow runtime review
 
-Read [project-guide](../project-guide/SKILL.md). Inspect the pinned Agent Framework version and relevant official source/samples before relying on runtime behavior.
+Read [project-guide](../project-guide/SKILL.md). Use [microsoft-agent-framework](../microsoft-agent-framework/SKILL.md) to verify version-specific framework behavior before reviewing execution semantics and recovery here.
 
 ## Define semantics before implementing
 
