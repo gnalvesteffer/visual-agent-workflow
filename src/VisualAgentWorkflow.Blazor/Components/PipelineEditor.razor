@@ -5,8 +5,8 @@
             <select aria-label="New node operation" @bind="newType" disabled="@Disabled">
                 <option value="@NodeTypes.Uppercase">Uppercase</option>
                 <option value="@NodeTypes.Reverse">Reverse</option>
-                @foreach (var binding in Bindings) { <option value="@ToolKey(binding)">@binding.DisplayName</option> }
-                @foreach (var provider in Providers) { <option value="@ProviderKey(provider)">@provider.DisplayName</option> }
+                @foreach (var binding in Bindings) { <option @key="ToolKey(binding)" value="@ToolKey(binding)">@binding.DisplayName</option> }
+                @foreach (var provider in Providers) { <option @key="ProviderKey(provider)" value="@ProviderKey(provider)">@provider.DisplayName</option> }
             </select>
         </label>
     }
@@ -34,21 +34,21 @@
                                 <option value="@NodeTypes.Reverse">Reverse</option>
                                 @if (node.Tool is { } pinned && !Bindings.Any(b => b.BindingId == pinned.BindingId && b.ContractHash == pinned.ContractHash))
                                 { <option value="@NodeKey(node)">Pinned MCP binding unavailable: @pinned.BindingId</option> }
-                                @foreach (var binding in Bindings) { <option value="@ToolKey(binding)">@binding.DisplayName</option> }
+                                @foreach (var binding in Bindings) { <option @key="ToolKey(binding)" value="@ToolKey(binding)">@binding.DisplayName</option> }
                                 @if (node.Agent is { } pinnedAgent && !Providers.Any(p => p.ProviderId == pinnedAgent.ProviderId && p.Version == pinnedAgent.ProviderVersion))
                                 { <option value="@NodeKey(node)">Pinned agent provider unavailable: @pinnedAgent.ProviderId</option> }
-                                @foreach (var provider in Providers) { <option value="@ProviderKey(provider)">@provider.DisplayName</option> }
+                                @foreach (var provider in Providers) { <option @key="ProviderKey(provider)" value="@ProviderKey(provider)">@provider.DisplayName</option> }
                             </select>
                         </label>
                         <div class="vaw-controls">
-                            <button @onclick="() => Edit(() => PipelineEditing.Move(Definition, id, -1))" disabled="@(Disabled || index == 1)" aria-label="Move @id up">Move up</button>
-                            <button @onclick="() => Edit(() => PipelineEditing.Move(Definition, id, 1))" disabled="@(Disabled || index == Order.Length - 2)" aria-label="Move @id down">Move down</button>
-                            <button @onclick="() => Edit(() => PipelineEditing.Remove(Definition, id))" disabled="@Disabled" aria-label="Remove @id">Remove</button>
+                            <button type="button" @onclick="() => Edit(() => PipelineEditing.Move(Definition, id, -1))" disabled="@(Disabled || index == 1)" aria-label="Move @id up">Move up</button>
+                            <button type="button" @onclick="() => Edit(() => PipelineEditing.Move(Definition, id, 1))" disabled="@(Disabled || index == Order.Length - 2)" aria-label="Move @id down">Move down</button>
+                            <button type="button" @onclick="() => Edit(() => PipelineEditing.Remove(Definition, id))" disabled="@Disabled" aria-label="Remove @id">Remove</button>
                         </div>
                     }
                     @if (!ReadOnly && node.Type != NodeTypes.Output)
                     {
-                        <button @onclick="() => Edit(() => PipelineEditing.InsertNodeAfter(Definition, id, FromSelection(newType)))" disabled="@(Disabled || Definition.Nodes.Count >= 256)" aria-label="Add node after @id">+ Add node after</button>
+                        <button type="button" @onclick="() => Edit(() => PipelineEditing.InsertNodeAfter(Definition, id, FromSelection(newType)))" disabled="@(Disabled || Definition.Nodes.Count >= 256)" aria-label="Add node after @id">+ Add node after</button>
                     }
                     @if (node.Tool is { } tool)
                     { <p>MCP binding: @tool.BindingId · pinned contract @tool.ContractHash[..8]</p> }
@@ -67,16 +67,16 @@
                             @foreach (var binding in Bindings)
                             {
                                 var assigned = agent.Tools.Any(t => t.BindingId == binding.BindingId && t.ContractHash == binding.ContractHash);
-                                <label><input type="checkbox" aria-label="Assign @binding.BindingId to @id" checked="@assigned"
+                                <label @key="ToolKey(binding)"><input type="checkbox" aria-label="Assign @binding.BindingId to @id" checked="@assigned"
                                     @onchange="args => AssignTool(id, binding, args)" disabled="@(Disabled || !assigned && agent.Tools.Length >= 8)" /> @binding.DisplayName</label>
                             }
                         }
                         <ul>
                             @foreach (var request in agent.Tools)
                             {
-                                <li>Requested: @request.BindingId · @request.ContractHash[..8]
+                                <li @key="(request.BindingId, request.ContractHash)">Requested: @request.BindingId · @request.ContractHash[..8]
                                     @if (!ReadOnly && !Bindings.Any(b => b.BindingId == request.BindingId && b.ContractHash == request.ContractHash))
-                                    { <button @onclick="() => RemoveTool(id, request.BindingId)" disabled="@Disabled">Remove unavailable request @request.BindingId</button> }
+                                    { <button type="button" @onclick="() => RemoveTool(id, request.BindingId)" disabled="@Disabled">Remove unavailable request @request.BindingId</button> }
                                 </li>
                             }
                         </ul>
@@ -97,7 +97,16 @@
     [Parameter] public IReadOnlyList<AgentProviderDescriptor> Providers { get; set; } = [];
     private string newType = NodeTypes.Uppercase;
     private string? error;
-    private System.Collections.Immutable.ImmutableArray<string> Order => PipelineEditing.OrderedNodes(Definition);
+    private System.Collections.Immutable.ImmutableArray<string> Order = [];
+    private WorkflowDefinition? orderedDefinition;
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(orderedDefinition, Definition)) return;
+        Order = PipelineEditing.OrderedNodes(Definition);
+        orderedDefinition = Definition;
+        error = null;
+    }
 
     private Task ChangeType(string id, ChangeEventArgs args) =>
         Edit(() => PipelineEditing.ReplaceNode(Definition, id, FromSelection(args.Value?.ToString() ?? "", Definition.Nodes[id])));

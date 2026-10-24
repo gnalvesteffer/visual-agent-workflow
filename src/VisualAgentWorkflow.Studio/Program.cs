@@ -19,7 +19,10 @@ if (!builder.Environment.IsDevelopment())
     throw new InvalidOperationException("This unauthenticated prototype may run only in Development. Production hosting is not implemented.");
 builder.WebHost.UseUrls("http://127.0.0.1:5099");
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 1_048_576);
-builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+builder.Services.AddRazorComponents().AddInteractiveServerComponents()
+    // Bound JSON editing can duplicate field text in a Blazor event. Keep transport bounded
+    // while permitting the 1 MiB definition import limit; domain validation remains stricter.
+    .AddHubOptions(options => options.MaximumReceiveMessageSize = 8 * 1024 * 1024);
 builder.Services.AddSingleton<INodeToolBroker>(new McpToolBroker(DemoMcpServer.ForCurrentExecutable(), new DemoToolPolicy()));
 builder.Services.AddSingleton<IToolBindingCatalog>(services => services.GetRequiredService<INodeToolBroker>());
 builder.Services.AddSingleton<IAgentNodeExecutor>(services => new AgentNodeExecutor(

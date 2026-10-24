@@ -1,0 +1,5 @@
+/* Application shell only; the Razor library never changes a consumer's body. */
+.vaw-app {
+    margin: 0;
+    background-color: var(--vaw-color-canvas, #10151e);
+}

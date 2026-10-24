@@ -53,3 +53,13 @@ Supply an optional `IToolBindingCatalog` through `WorkflowStudio.ToolCatalog` or
 Supply `IAgentProviderCatalog` through `WorkflowStudio.AgentCatalog` or `WorkflowDesigner.AgentCatalog` for agent node choices; `PipelineEditor.Providers` accepts descriptors directly. Agent nodes expose instructions and checkboxes for their tool requirements. The backend resolves only the pinned host provider version and intersects those requirements with host policy. The built-in provider is explicitly deterministic, not a live LLM. See [runtime configuration](runtime-configuration.md) before integrating provider factories.
 
 The standalone Studio demonstrates Interactive Server hosting and a singleton local background runtime. It is a development host, not a production integration template. Hosts own authentication, payload access, storage, transport, and lifecycle. The component polls history every 500 ms and displays at most 50 run-history entries. It has no free-form canvas, arbitrary wiring, or branches yet. Playback supports stepping and scrubbing; timed playback and speed controls remain planned.
+
+## Component lifecycle and theming
+
+Changing `Client` or `Catalog` reloads the corresponding component context and ignores late results from the previous context. Changing only tool/provider catalogs refreshes choices without discarding draft edits. Disposal stops observation and pending UI waits; it does not cancel backend runs. History polling starts after interactive rendering and retains action errors independently of polling success.
+
+Library CSS is scoped to component roots. Set inherited public properties on a wrapping element to theme nested components: `--vaw-font-family`, `--vaw-color-scheme`, and `--vaw-color-{canvas,surface,control,text,muted,border,control-border,focus,accent,primary,success,error,warning}`. Use accessible color combinations. The Studio's page background and body reset live in its separate `studio.css`; consumers retain their own page styles. Layout responds to the component container, including narrow embeds on wide screens.
+
+Hosts may wrap the components in `WorkflowErrorBoundary` with their own `ErrorContent` and recovery action. It logs exception types without raw exception messages; the Studio demonstrates a generic fallback and full-page reload.
+
+Interactive Server hosts must align bounded editor inputs with SignalR transport limits. Field events can contain the text more than once. The development Studio allows messages up to 8 MiB so its JSON editor can carry a bounded 1 MiB definition; HTTP body and domain limits remain independent. Production hosts must choose transport budgets alongside their concurrency and payload policies.

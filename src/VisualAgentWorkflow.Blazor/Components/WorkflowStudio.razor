@@ -18,105 +18,32 @@
                 </select>
             </label>
             <label>Input <textarea @bind="input" maxlength="16384" rows="4"></textarea></label>
-            <button class="vaw-primary" @onclick="StartRun" disabled="@(!interactive || starting)">@(starting ? "Starting…" : "Start independent run")</button>
+            <button type="button" class="vaw-primary" @onclick="StartRun" disabled="@(!interactive || starting)">@(starting ? "Starting…" : "Start independent run")</button>
             @if (snapshot is { IsTerminal: false })
             {
-                <button @onclick="Cancel">Cancel selected run</button>
+                <button type="button" @onclick="Cancel" disabled="@(!interactive)">Cancel selected run</button>
             }
             <p>The backend owns execution. Closing this page does not cancel a run.</p>
             <h2>Recorded runs</h2>
-            <button @onclick="Refresh">Refresh history</button>
+            <button type="button" @onclick="Refresh" disabled="@(!interactive)">Refresh history</button>
             <ul class="vaw-history">
                 @foreach (var run in runs.Take(50))
                 {
-                    <li><button @onclick="() => SelectRun(run.Header.RunId)" aria-pressed="@(snapshot?.Header.RunId == run.Header.RunId)">
+                    <li @key="run.Header.RunId"><button type="button" @onclick="() => SelectRun(run.Header.RunId)" aria-pressed="@(snapshot?.Header.RunId == run.Header.RunId)">
                         @run.Header.CreatedAt.ToString("u") · @run.Status
                         <small>@run.Header.RunId.ToString()[..8]</small>
                     </button></li>
                 }
             </ul>
         </aside>
-        <main>
-            @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
+        <section class="vaw-main" aria-label="Workflow workspace">
+            @if (historyError is not null) { <p role="alert" class="vaw-error">@historyError</p> }
+            @if (actionError is not null) { <p role="alert" class="vaw-error">@actionError</p> }
             @if (Catalog is not null && Client is IPublishedWorkflowClient publishedClient)
             {
-                <WorkflowDesigner Catalog="Catalog" Client="publishedClient" OnRunStarted="PublishedRunStarted" ToolCatalog="ToolCatalog" AgentCatalog="AgentCatalog" />
+                <WorkflowDesigner @key="(Catalog, publishedClient)" Catalog="Catalog" Client="publishedClient" OnRunStarted="PublishedCallback(publishedClient)" ToolCatalog="ToolCatalog" AgentCatalog="AgentCatalog" />
             }
             <WorkflowRunViewer Snapshot="snapshot" />
-        </main>
+        </section>
     </div>
 </section>
-
-@code {
-    [Parameter, EditorRequired] public IWorkflowClient Client { get; set; } = default!;
-    [Parameter] public IWorkflowCatalog? Catalog { get; set; }
-    [Parameter] public IToolBindingCatalog? ToolCatalog { get; set; }
-    [Parameter] public IAgentProviderCatalog? AgentCatalog { get; set; }
-    private string operation = "uppercase-reverse";
-    private string input = "Hello, workflows!";
-    private IReadOnlyList<RunSnapshot> runs = [];
-    private RunSnapshot? snapshot;
-    private bool starting;
-    private bool interactive;
-    private string? error;
-    private readonly CancellationTokenSource lifetime = new();
-    private Task? polling;
-
-    protected override async Task OnInitializedAsync()
-    {
-        await Refresh();
-        polling = PollAsync();
-    }
-
-    protected override void OnAfterRender(bool firstRender)
-    {
-        if (!firstRender) return;
-        interactive = true;
-        StateHasChanged();
-    }
-
-    private async Task PollAsync()
-    {
-        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
-        try
-        {
-            while (await timer.WaitForNextTickAsync(lifetime.Token))
-                await InvokeAsync(async () => { await Refresh(); StateHasChanged(); });
-        }
-        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
-    }
-
-    private async Task Refresh()
-    {
-        try
-        {
-            runs = await Client.ListRunsAsync();
-            if (snapshot is not null) snapshot = await Client.GetRunAsync(snapshot.Header.RunId);
-            error = null;
-        }
-        catch { error = "Could not load run history. Check the backend diagnostics."; }
-    }
-
-    private async Task StartRun()
-    {
-        starting = true;
-        try
-        {
-            snapshot = await Client.StartRunAsync(PipelineTemplates.Create(operation), input);
-            await Refresh();
-        }
-        catch { error = "The run could not be started. Check the definition, input limit, and backend diagnostics."; }
-        finally { starting = false; }
-    }
-
-    private async Task SelectRun(Guid id) { snapshot = await Client.GetRunAsync(id); }
-    private async Task PublishedRunStarted(RunSnapshot run) { snapshot = run; await Refresh(); }
-    private async Task Cancel() { if (snapshot is not null) await Client.CancelRunAsync(snapshot.Header.RunId); await Refresh(); }
-
-    public async ValueTask DisposeAsync()
-    {
-        await lifetime.CancelAsync();
-        if (polling is not null) await polling;
-        lifetime.Dispose();
-    }
-}

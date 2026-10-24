@@ -4,6 +4,24 @@
 @inject IWorkflowCatalog Catalog
 @inject IToolBindingCatalog Tools
 @inject IAgentProviderCatalog Agents
+@inject NavigationManager Navigation
 
 <PageTitle>Visual Agent Workflow</PageTitle>
-<WorkflowStudio Client="Client" Catalog="Catalog" ToolCatalog="Tools" AgentCatalog="Agents" />
+<main>
+    <WorkflowErrorBoundary>
+        <ChildContent>
+            <WorkflowStudio Client="Client" Catalog="Catalog" ToolCatalog="Tools" AgentCatalog="Agents" />
+        </ChildContent>
+        <ErrorContent>
+            <section class="vaw-viewer" role="alert">
+                <h1>The workflow interface could not be displayed</h1>
+                <p>Backend runs continue independently. Reload the interface to reconnect.</p>
+                <button type="button" @onclick="Reload">Reload interface</button>
+            </section>
+        </ErrorContent>
+    </WorkflowErrorBoundary>
+</main>
+
+@code {
+    private void Reload() => Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+}

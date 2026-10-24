@@ -10,9 +10,9 @@
             <small>Run @Snapshot.Header.RunId · revision @Snapshot.Header.RevisionId</small>
         </header>
         <div class="vaw-controls" aria-label="Playback controls">
-            <button @onclick="Previous" disabled="@(Position == 0)">Previous event</button>
-            <button @onclick="Next" disabled="@(Position >= Snapshot.Events.Length)">Next event</button>
-            <button @onclick="() => follow = true">Follow latest</button>
+            <button type="button" @onclick="Previous" disabled="@(Position == 0)">Previous event</button>
+            <button type="button" @onclick="Next" disabled="@(Position >= Snapshot.Events.Length)">Next event</button>
+            <button type="button" @onclick="() => follow = true">Follow latest</button>
             <label>Recorded position
                 <input type="range" min="0" max="@Snapshot.Events.Length" value="@Position" @oninput="Scrub" />
             </label>
@@ -24,14 +24,14 @@
                 var node = Snapshot.Header.Definition.Nodes[nodeId];
                 var state = VisibleEvents.LastOrDefault(e => e.NodeId == nodeId && e.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
                 var received = VisibleEvents.LastOrDefault(e => e.NodeId == nodeId && e.Kind == ExecutionEventKinds.Transfer);
-                <li class="vaw-node @(state?.Kind == ExecutionEventKinds.NodeCompleted ? "vaw-complete" : state?.Kind is ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled ? "vaw-failed" : "")">
+                <li @key="nodeId" class="vaw-node @(state?.Kind == ExecutionEventKinds.NodeCompleted ? "vaw-complete" : state?.Kind is ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled ? "vaw-failed" : "")">
                     @if (nodeId != Snapshot.Header.Definition.EntryNodeId)
                     {
                         <div class="vaw-connection @(received is null ? "" : "vaw-delivered")">
                             ↓ @(received is null ? "Awaiting message" : $"Message received · {received.ConnectionId}")
                         </div>
                     }
-                    <button class="vaw-node-button" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId)">
+                    <button type="button" class="vaw-node-button" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId)">
                         <strong>@nodeId</strong><span>@node.Type</span>
                         <span>@StateLabel(state)</span>
                     </button>
@@ -59,7 +59,7 @@
                     <tbody>
                         @foreach (var evt in VisibleEvents)
                         {
-                            <tr><td>@evt.Sequence</td><td>@evt.Kind</td><td>@evt.NodeId</td><td><pre>@evt.Data</pre></td></tr>
+                            <tr @key="evt.Sequence"><td>@evt.Sequence</td><td>@evt.Kind</td><td>@evt.NodeId</td><td><pre>@evt.Data</pre></td></tr>
                         }
                     </tbody>
                 </table>
