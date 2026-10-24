@@ -10,6 +10,7 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Product design](design.md) | Agreed direction and proposed future capabilities; not a deployment description |
 | [Embedding](embedding.md) | Public Razor components, host services, lifecycle, and theming |
 | [Workflow API](workflow-api.md) | Local development API and concurrency contracts |
+| [Reusable pipelines](reusable-pipelines.md) | Version-pinned expansion, provenance, package validation, and limitations |
 | [Graph editor](graph-editor.md) | Canvas controls, layout schema, versioning, and research references |
 | [Runtime configuration](runtime-configuration.md) | Providers, node-scoped MCP bindings, and development fixtures |
 | [Editor design system](design-system.md) | Theme tokens, typography, visual states, and component boundaries |

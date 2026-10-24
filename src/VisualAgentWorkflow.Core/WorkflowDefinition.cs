@@ -13,7 +13,14 @@ public sealed record WorkflowDefinition(
 
 public sealed record NodeDefinition(string Type, string TypeVersion,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ToolBindingRequest? Tool = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AgentConfiguration? Agent = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AgentConfiguration? Agent = null)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public NodeOrigin? Origin { get; init; }
+}
+
+/// <summary>Copy-on-insert source identity; informational provenance, never a grant or runtime resolver.</summary>
+public sealed record NodeOrigin(string WorkflowId, Guid RevisionId, int Version, string ContentHash, string NodeId);
 public sealed record PortReference(string NodeId, string PortId);
 public sealed record ConnectionDefinition(PortReference Source, PortReference Target, string Kind);
 

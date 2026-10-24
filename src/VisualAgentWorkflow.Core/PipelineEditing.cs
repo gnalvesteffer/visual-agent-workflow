@@ -84,7 +84,7 @@ public static class PipelineEditing
         return result;
     }
 
-    private static WorkflowDefinition Reconnect(WorkflowDefinition definition, IReadOnlyList<string> order)
+    internal static WorkflowDefinition Reconnect(WorkflowDefinition definition, IReadOnlyList<string> order)
     {
         var existing = definition.Connections.ToDictionary(e => (e.Value.Source.NodeId, e.Value.Target.NodeId), e => e.Key);
         var connections = ImmutableSortedDictionary.CreateBuilder<string, ConnectionDefinition>(StringComparer.Ordinal);
@@ -110,8 +110,9 @@ public static class PipelineEditing
             throw new ArgumentException("Only registered processing nodes can be edited.", nameof(type));
     }
 
-    private static string SchemaFor(WorkflowDefinition definition, NodeDefinition node) => node.Type == NodeTypes.Agent
-        ? "1.2" : node.Type == NodeTypes.McpTool && definition.SchemaVersion == "1.0" ? "1.1" : definition.SchemaVersion;
+    private static string SchemaFor(WorkflowDefinition definition, NodeDefinition node) =>
+        definition.SchemaVersion == "1.3" || node.Origin is not null ? "1.3" : node.Type == NodeTypes.Agent
+            ? "1.2" : node.Type == NodeTypes.McpTool && definition.SchemaVersion == "1.0" ? "1.1" : definition.SchemaVersion;
 
     private static void RequireTransform(string type)
     {

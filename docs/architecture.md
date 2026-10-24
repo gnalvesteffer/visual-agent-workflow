@@ -72,3 +72,7 @@ Only linear string pipelines are executable today. Uppercase/reverse are determi
 SQLite stores drafts, immutable revisions, layouts, and catalog audit. The file journal separately stores each run's pinned definition and append-only execution evidence. These stores do not share a transaction. The journal is single-process; after a host restart, unfinished runs are marked interrupted instead of being silently resumed or replayed. Historical payload viewing makes no live calls.
 
 The development host permits only loopback/same-origin access and refuses non-Development startup. These checks are containment, not authentication. Audit actors are development placeholders; captured text is plaintext. There is no workspace authorization, distributed ownership, transactional crash repair, encryption/redaction, approval durability, extension sandbox, or production readiness claim. See [runtime configuration](runtime-configuration.md) and [implementation status](implementation.md) before integrating a host.
+
+## Reuse and sharing contracts
+
+Core supports [version-pinned pipeline expansion and portable packages](reusable-pipelines.md). Expansion creates ordinary processing nodes with fresh identities and optional schema-1.3 origin metadata. It adds no runtime source loader or new project dependency. Source updates do not mutate a consumer, and imported provenance does not authenticate an author. Exact MCP/provider requirements travel with copied nodes; host grants do not. Studio controls for these contracts follow in the next UI milestone.

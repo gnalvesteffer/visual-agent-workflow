@@ -12,8 +12,8 @@ public static class WorkflowValidator
         var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
 
-        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2"))
-            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0, 1.1 and 1.2.");
+        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3"))
+            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0, 1.1, 1.2 and 1.3.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.Nodes is null || definition.Connections is null)
@@ -32,6 +32,11 @@ public static class WorkflowValidator
             if (node is null || !NodeTypes.IsSupported(node.Type) || node.TypeVersion != "1.0.0")
                 Error("node.unsupported", $"nodes.{id}", "Unknown node type or implementation version.");
             if (node is null) continue;
+            if (node.Origin is { } origin && (definition.SchemaVersion != "1.3" ||
+                string.IsNullOrWhiteSpace(origin.WorkflowId) || origin.WorkflowId.Length > 256 ||
+                string.IsNullOrWhiteSpace(origin.NodeId) || origin.NodeId.Length > 256 || origin.RevisionId == Guid.Empty ||
+                origin.Version < 1 || !ValidHash(origin.ContentHash)))
+                Error("node.origin", $"nodes.{id}.origin", "Reusable steps require schema 1.3 and a bounded published source identity.");
             if (node.Type == NodeTypes.McpTool)
             {
                 if (definition.SchemaVersion == "1.0")
@@ -43,7 +48,7 @@ public static class WorkflowValidator
                 Error("tool.unexpected", $"nodes.{id}.tool", "This node type cannot declare an MCP tool.");
             if (node.Type == NodeTypes.Agent)
             {
-                if (definition.SchemaVersion != "1.2") Error("node.schema", $"nodes.{id}", "Agent nodes require schema 1.2.");
+                if (definition.SchemaVersion is not ("1.2" or "1.3")) Error("node.schema", $"nodes.{id}", "Agent nodes require schema 1.2 or later.");
                 if (node.Agent is not { } agent || string.IsNullOrWhiteSpace(agent.ProviderId) || agent.ProviderId.Length > 128 ||
                     string.IsNullOrWhiteSpace(agent.ProviderVersion) || agent.ProviderVersion.Length > 64 ||
                     agent.Instructions is null || agent.Instructions.Length > 8192 || agent.Tools.IsDefault || agent.Tools.Length > 8 ||
@@ -114,5 +119,7 @@ public static class WorkflowValidator
 
     private static bool ValidBinding(ToolBindingRequest tool) =>
         !string.IsNullOrWhiteSpace(tool.BindingId) && tool.BindingId.Length <= 128 &&
-        tool.ContractHash is { Length: 64 } && tool.ContractHash.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
+        ValidHash(tool.ContractHash);
+
+    private static bool ValidHash(string? hash) => hash is { Length: 64 } && hash.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
 }

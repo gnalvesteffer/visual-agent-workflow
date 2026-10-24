@@ -93,3 +93,7 @@ Added a shared Razor canvas with edge-mounted string sockets, freely positioned 
 Presentation is a separate, bounded `WorkflowLayout` artifact. SQLite schema 2 migrates existing catalog data and atomically saves layout plus definition under one workflow generation. Published revisions capture immutable layouts; preview, restore, reload, and recorded playback retain them. Layout-only edits leave execution definitions and hashes unchanged. Separate JSON sidecar import/export preserves existing definition contracts. Legacy host catalogs remain compatible with presentation edits disabled.
 
 The runtime still supports only validated linear string pipelines. Freely positioning cards does not add branching, arbitrary rewiring, collaborative editing, or durable scheduling. See [graph editor research, controls, contracts, and verification](graph-editor.md).
+
+## Core reuse and portable package contracts
+
+Added extraction of consecutive processing steps into a workflow, copy-on-insert expansion of exact published versions with fresh identities, preserved layout/annotations/routes, and schema-1.3 origin metadata. Existing 1.0–1.2 serialization remains compatible. Portable package format 1.0 includes definition/layout hashes and exact derived requirements, with duplicate/unknown property and size validation. Expanded nodes use the existing runtime and per-node capability checks; no dynamic source execution or grant inheritance is added. Core and real framework execution tests cover the contracts. Studio authoring controls follow in the next milestone.

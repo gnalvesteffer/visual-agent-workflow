@@ -41,6 +41,21 @@ public class PipelineRunnerTests
     }
 
     [Fact]
+    public async Task ExpandedPublishedPipelineExecutesWithoutSourceCatalogOrRuntimePrefabLookup()
+    {
+        var source = Revision();
+        var composition = PipelineReuse.Insert(source.Definition, WorkflowLayout.Create(source.Definition), "input",
+            new(1, source), WorkflowLayout.Create(source.Definition));
+        var revision = WorkflowRevision.Create(composition.Definition, "consumer");
+        var events = new List<ExecutionEvent>();
+        var output = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), revision, "abc", e => { events.Add(e); return ValueTask.CompletedTask; });
+        Assert.Equal("ABC", output); // uppercase/reverse from the copy, followed by uppercase/reverse from the target.
+        Assert.Equal(6, events.Count(e => e.Kind == ExecutionEventKinds.NodeStarted));
+        Assert.Equal(5, events.Count(e => e.Kind == ExecutionEventKinds.Transfer));
+        Assert.Equal(ExecutionEventKinds.Completed, events[^1].Kind);
+    }
+
+    [Fact]
     public async Task CancellationRecordsTerminalOutcomeWithoutNodeExecution()
     {
         using var cancellation = new CancellationTokenSource();

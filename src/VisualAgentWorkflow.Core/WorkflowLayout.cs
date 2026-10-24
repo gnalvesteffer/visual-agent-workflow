@@ -129,7 +129,7 @@ public static class WorkflowLayoutJson
     {
         if (Encoding.UTF8.GetByteCount(json) > 1_048_576) throw new ArgumentException("Layout exceeds 1 MiB.");
         using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 16 });
-        RejectDuplicates(document.RootElement);
+        JsonDocumentSafety.RejectDuplicateProperties(document.RootElement);
         var layout = JsonSerializer.Deserialize<WorkflowLayout>(json, Options) ?? throw new JsonException("Layout required.");
         Validate(layout, definition);
         return layout;
@@ -138,18 +138,4 @@ public static class WorkflowLayoutJson
     public static string ComputeHash(WorkflowLayout layout, WorkflowDefinition definition) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(Serialize(layout, definition))));
 
-    private static void RejectDuplicates(JsonElement element)
-    {
-        if (element.ValueKind == JsonValueKind.Object)
-        {
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var property in element.EnumerateObject())
-            {
-                if (!seen.Add(property.Name)) throw new JsonException("Duplicate layout property.");
-                RejectDuplicates(property.Value);
-            }
-        }
-        else if (element.ValueKind == JsonValueKind.Array)
-            foreach (var item in element.EnumerateArray()) RejectDuplicates(item);
-    }
 }

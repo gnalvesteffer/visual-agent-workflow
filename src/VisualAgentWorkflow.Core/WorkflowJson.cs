@@ -33,7 +33,7 @@ public static class WorkflowJson
         if (Encoding.UTF8.GetByteCount(json) > 1_048_576)
             throw new ArgumentException("Definition exceeds the 1 MiB import limit.", nameof(json));
         using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 32 });
-        RejectDuplicateProperties(document.RootElement);
+        JsonDocumentSafety.RejectDuplicateProperties(document.RootElement);
         var definition = JsonSerializer.Deserialize<WorkflowDefinition>(json, Options)
             ?? throw new JsonException("A definition is required.");
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -44,18 +44,4 @@ public static class WorkflowJson
     public static string ComputeHash(WorkflowDefinition definition) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(Serialize(definition))));
 
-    private static void RejectDuplicateProperties(JsonElement element)
-    {
-        if (element.ValueKind == JsonValueKind.Object)
-        {
-            var names = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var property in element.EnumerateObject())
-            {
-                if (!names.Add(property.Name)) throw new JsonException($"Duplicate property: {property.Name}");
-                RejectDuplicateProperties(property.Value);
-            }
-        }
-        else if (element.ValueKind == JsonValueKind.Array)
-            foreach (var item in element.EnumerateArray()) RejectDuplicateProperties(item);
-    }
 }

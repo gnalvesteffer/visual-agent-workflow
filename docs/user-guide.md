@@ -69,3 +69,5 @@ Select a run under **Recorded runs**. Click a node's execution card to inspect i
 The catalog and run history survive normal host restarts. Unsaved browser edits do not. Interrupted runs are recorded as interrupted rather than automatically retried. A stale tool contract, unavailable provider, denied grant, or oversized input can fail a run; inspect its evidence and correct the draft/configuration rather than assuming it was rolled back or retried.
 
 Branches, arbitrary socket rewiring, nested sections, full reusable prefab assets, collaborative editing, live model configuration, durable approvals/recovery, and production authentication remain future work. Follow [implementation status](implementation.md) for current scope and [graph controls](graph-editor.md) for detailed limits.
+
+The Core library now provides version-pinned reuse and package contracts; their Studio controls are the next UI milestone. See [reusable pipelines](reusable-pipelines.md) for current contract scope.
