@@ -74,7 +74,7 @@ The adapter isolates framework-specific APIs from stored definitions and UI cont
 
 ## Visual authoring
 
-Borrow Unreal Blueprints interactions: typed pins, searchable node creation, drag-to-connect, zoom/pan, comments, grouping, undo/redo, and reusable subgraphs. Use agent/workflow semantics rather than assuming Unreal execution semantics apply directly.
+Borrow Unreal Blueprints interactions: typed pins, searchable node creation, drag-to-connect, zoom/pan, comments, grouping, undo/redo, and reusable subgraphs. Use agent/workflow semantics rather than assuming Unreal execution semantics apply directly. Apply the ongoing project rules in [Blueprint-inspired workflow authoring guidance](blueprint-authoring-guidance.md).
 
 Initial node categories:
 
@@ -92,6 +92,30 @@ Initial node categories:
 Define data flow, execution dependencies, and configuration references explicitly. A connection must have one documented meaning; visual proximity must never imply execution behavior. Specify join policy, loop bounds, error propagation, ordering, cancellation, and retry behavior before implementing each control node.
 
 Agent-node settings are per node and versioned with the workflow. Optional controls such as reasoning effort are capability-aware: adapters expose which values a provider/model supports, map them to that provider's semantics, and surface unsupported choices instead of silently ignoring them. Do not assume similarly named controls have identical behavior across providers. Record the requested and effective setting with the model/provider identity in bounded run evidence, without recording credentials.
+
+### Workflow parameters and variables
+
+Give each workflow a user-defined parameter schema that can travel with its shareable definition. A parameter has a stable ID, display name, data type, description, validation/choices, and an optional safe default. Authors can mark values as workflow defaults or values that a host/run caller must supply. A published workflow pins this schema; run-time values override defaults for that run without modifying the published definition.
+
+Expose parameters in a dedicated **Parameters** library, with visible getter nodes that output their declared type and connect to compatible graph data inputs or explicitly exposed configuration pins. Expose workflow invocation inputs as named typed pins on the entry node, analogous to Blueprint function inputs. Agent nodes can expose typed configuration pins such as instruction text and an authorized model profile; ordinary inputs continue to carry the agent's task data. A dedicated explicit template/composition node can interpolate text into prompts or messages; do not hide string replacement inside arbitrary agent fields. Start with immutable parameter reads. Define run-scoped mutable Set/Get variable nodes only after graph execution order, loops, and parallel-write behavior are specified.
+
+Model configuration is a special, host-resolved parameter: workflows may select a logical model profile from the host-provided, authorized catalog, but cannot provide an endpoint URL, credential, or unrestricted provider ID. Workflow packages can carry parameter schemas and non-secret defaults; consuming services or each run supply deployment-specific values. Secret values stay in host secret storage and are neither serialized into a package nor copied into ordinary run evidence. Classify parameter sensitivity so audit/playback can distinguish displayable inputs from redacted or reference-only values.
+
+This borrows Unreal Blueprint's typed variables/defaults, instance-exposed configuration, getter/setter nodes, and typed function/event pins. It adopts explicit connected dataflow and immutable workflow releases, not Blueprint's object-instance memory or implicit execution semantics. See Epic's [Blueprint variables](https://dev.epicgames.com/documentation/en-us/unreal-engine/blueprint-variables-in-unreal-engine) and [Blueprint visual scripting](https://dev.epicgames.com/documentation/en-us/unreal-engine/blueprints-visual-scripting-in-unreal-engine) references. These pages could not be retrieved from the current environment, so the URLs are supplied for review; confirm exact engine terminology before implementing a matching UI.
+
+```mermaid
+flowchart LR
+    Schema["Workflow parameter schema and safe defaults"] --> Resolve["Resolve defaults with host/run overrides"]
+    Caller["Service invocation values"] --> Resolve
+    Resolve --> Getter["Typed parameter getter"]
+    Getter --> Input["Agent data input or exposed configuration pin"]
+    Host["Host-approved model catalog and secrets"] --> Model["Resolve authorized model profile"]
+    Getter --> Model
+    Model --> Agent["Agent execution"]
+    Input --> Agent
+```
+
+The host supplies only values and model profiles it authorizes. Package contents declare safe defaults and required parameter shapes; they do not bring privileged endpoints or secrets with them.
 
 Provide configuration editors, input/output inspectors, semantic diagnostics, and compatibility errors. Keep layout-library models out of persisted execution contracts. Evaluate Blazor.Diagrams as a canvas foundation, including realistic graph sizes and streamed updates. Decide interaction hosting based on measured responsiveness rather than assuming every pointer movement can tolerate server round trips.
 

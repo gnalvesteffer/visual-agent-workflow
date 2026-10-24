@@ -14,6 +14,7 @@ Read [the design baseline](../../../docs/design.md), [roadmap and current scope]
 - Build embeddable Razor components first; the standalone studio must consume the same public APIs. Keep authorization, persistence, and backend access host-configurable.
 - Isolate Microsoft Agent Framework APIs behind an adapter. Use [microsoft-agent-framework](../microsoft-agent-framework/SKILL.md) for version-specific API research, package selection, integration, and upgrades; distinguish confirmed API support from proposed mappings.
 - User authoring is no-code visual composition. MCP supplies external operations; approved .NET extensions supply specialized behavior. Do not add general C# scripting or arbitrary URL tools by default.
+- Apply [Blueprint-inspired workflow design](../blueprint-workflow-design/SKILL.md) when shaping graph interactions, variables/parameters, agent settings, and reusable workflows. Borrow typed, exposed variables and readable graphs without importing Unreal's execution semantics.
 - Keep published workflows and dependencies immutable. A run references its exact revision. Playback reconstructs recorded evidence without execution.
 - Definitions use platform-owned JSON contracts, not CLR type names, framework instances, or canvas-library models.
 

@@ -9,6 +9,7 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Roadmap](roadmap.md) | Completed, active, next, and planned milestones with explicit scope |
 | [Implementation history](implementation-history.md) | Detailed historical delivery notes, validation, and limitations |
 | [Product design](design.md) | Agreed direction and proposed future capabilities; not a deployment description |
+| [Blueprint authoring guidance](blueprint-authoring-guidance.md) | Project-specific principles for adapting Unreal Blueprint authoring concepts |
 | [Exact-action approvals](approvals.md) | Schema 1.5 human review before explicit MCP calls, attribution, controls and process ownership |
 | [Conditional graphs](conditional-graphs.md) | Schema 1.4 predicates, typed string ports, exclusive merges, authoring and actual-path evidence |
 | [Consumer observation](observation.md) | Opt-in authorized consumer endpoint, remote Studio attachment and reusable read-only graph |
