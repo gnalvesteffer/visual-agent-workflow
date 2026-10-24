@@ -93,15 +93,16 @@ public sealed class McpToolBroker : INodeToolBroker
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
             ArgumentNullException.ThrowIfNull(input);
-            await Record(ExecutionEventKinds.ToolRequested, new { bindingId });
+            var toolCallId = Guid.NewGuid();
+            await Record(ExecutionEventKinds.ToolRequested, new { toolCallId, bindingId });
             if (!Allowed(bindingId))
             {
-                await Record(ExecutionEventKinds.ToolDenied, new { bindingId, reason = "No effective node grant." });
+                await Record(ExecutionEventKinds.ToolDenied, new { toolCallId, bindingId, reason = "No effective node grant." });
                 throw new ToolAccessDeniedException();
             }
             if (Interlocked.Increment(ref calls) > 8 || input.Length > 16_384)
             {
-                await Record(ExecutionEventKinds.ToolDenied, new { bindingId, reason = "Invocation budget exceeded." });
+                await Record(ExecutionEventKinds.ToolDenied, new { toolCallId, bindingId, reason = "Invocation budget exceeded." });
                 throw new ToolInvocationException("Tool invocation budget exceeded.");
             }
             var registration = owner.registrations[bindingId];
@@ -116,7 +117,7 @@ public sealed class McpToolBroker : INodeToolBroker
                 if (ToolContractHash.Compute(tool) != requirement.ContractHash) throw new ToolContractMismatchException();
                 if (!Allowed(bindingId)) throw new ToolAccessDeniedException();
                 await Record(ExecutionEventKinds.ToolAuthorized, new
-                { bindingId, registration.ServerId, registration.ToolName, requirement.ContractHash, input });
+                { toolCallId, bindingId, registration.ServerId, registration.ToolName, requirement.ContractHash, input });
                 dispatched = true;
                 var result = await client.CallToolAsync(registration.ToolName,
                     new Dictionary<string, object?> { ["text"] = input }, cancellationToken: deadline.Token);
@@ -124,13 +125,13 @@ public sealed class McpToolBroker : INodeToolBroker
                 if (result.Content.Any(c => c is not TextContentBlock)) throw new ToolInvocationException("The tool returned unsupported non-text content.");
                 var output = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(c => c.Text));
                 if (output.Length > 16_384) throw new ToolInvocationException("Tool output exceeds the pipeline limit.");
-                await Record(ExecutionEventKinds.ToolCompleted, new { bindingId, output });
+                await Record(ExecutionEventKinds.ToolCompleted, new { toolCallId, bindingId, output });
                 return output;
             }
             catch (OperationCanceledException)
             {
                 await Record(dispatched ? ExecutionEventKinds.ToolUncertain : ExecutionEventKinds.ToolFailed,
-                    new { bindingId, reason = "Tool call cancelled or timed out; no automatic retry." });
+                    new { toolCallId, bindingId, reason = "Tool call cancelled or timed out; no automatic retry." });
                 if (cancellationToken.IsCancellationRequested) throw;
                 throw new ToolInvocationException("The tool operation timed out.");
             }
@@ -138,7 +139,7 @@ public sealed class McpToolBroker : INodeToolBroker
             {
                 await Record(error is ToolAccessDeniedException ? ExecutionEventKinds.ToolDenied :
                     dispatched && error is not ToolInvocationException ? ExecutionEventKinds.ToolUncertain : ExecutionEventKinds.ToolFailed,
-                    new { bindingId, reason = error is ToolContractMismatchException ? "Contract mismatch." : "Tool operation failed." });
+                    new { toolCallId, bindingId, reason = error is ToolContractMismatchException ? "Contract mismatch." : "Tool operation failed." });
                 throw;
             }
         }

@@ -28,6 +28,8 @@ def check(dotnet):
                 selector.register(child.stdout, selectors.EVENT_READ)
                 assert selector.select(timeout=25), "Checkpoint host did not acknowledge a saved boundary"
                 saved = json.loads(child.stdout.readline())
+            assert saved["reconciliation"]["canResume"] is True
+            assert saved["reconciliation"]["lastSequence"] == saved["sequence"]
             assert saved["status"] == "suspended" and saved["nodes"] == ["input", "step-1"], saved
             recover = command + ["recover", str(database), saved["runId"], saved["checkpointId"]]
             denied = subprocess.run(recover, capture_output=True, text=True, timeout=20)
@@ -42,6 +44,7 @@ def check(dotnet):
             result = json.loads(completed.stdout)
             assert result["runId"] == saved["runId"] and result["revisionId"] == saved["revisionId"]
             assert result["contentHash"] == saved["contentHash"] and result["status"] == "completed"
+            assert result["reconciliation"]["canResume"] is False
             assert result["output"] == "CBA" and result["nodes"] == ["input", "step-1", "step-2", "output"], result
             with sqlite3.connect(database) as connection:
                 events = [json.loads(row[0]) for row in connection.execute("SELECT event_json FROM run_events ORDER BY sequence")]

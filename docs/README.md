@@ -12,6 +12,7 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Exact-action approvals](approvals.md) | Schema 1.5 human review before explicit MCP calls, attribution, controls and process ownership |
 | [Conditional graphs](conditional-graphs.md) | Schema 1.4 predicates, typed string ports, exclusive merges, authoring and actual-path evidence |
 | [Consumer observation](observation.md) | Opt-in authorized consumer endpoint, remote Studio attachment and reusable read-only graph |
+| [Run reconciliation](run-reconciliation.md) | Read-only recovery dispositions, unsettled work, call correlation and observation UI |
 | [Checkpoint recovery](checkpoint-recovery.md) | Opt-in deterministic native checkpoints, saved-suspension recovery and exclusive local ownership |
 | [Run storage](run-storage.md) | Atomic batches, expected-sequence conflicts, file compatibility and SQLite persistence |
 | [Local hosting API](hosting-sdk.md) | DI registration, host ownership, current project-reference consumption and future package-release boundaries |

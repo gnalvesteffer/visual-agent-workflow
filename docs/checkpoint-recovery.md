@@ -92,3 +92,8 @@ Use the actual IDs printed by the first command. The optional `--hold` suffix ke
 Native and hosting tests additionally cover both conditional paths, repeated suspensions, payload/runtime/schema/identity mismatch, advanced evidence, observer visibility, checkpoint/event rollback, schema-1 migration and old-owner cleanup after ownership transfer. These tests establish the bounded explicit saved-suspension path, **not arbitrary-crash recovery, automatic takeover, external effects, durable approvals or production readiness**.
 
 The implementation was checked against the official [`dotnet-1.26.0` source](https://github.com/microsoft/agent-framework/tree/9c8a3514a15a702f81bfda456d80c7ccaa4d2712/dotnet), particularly `CheckpointAndRehydrate`, `CheckpointManager.CreateJson`, `ICheckpointStore<JsonElement>` and the runner's superstep callback, and compiled/executed against the pinned packages. Public checkpoint keys require explicit session/checkpoint IDs; sample/internal constructors are not assumed callable. No live credentials or external service calls were used.
+
+
+## Inspect before recovery
+
+The optional [read-only reconciliation assessment](run-reconciliation.md) explains saved, advanced, invalid and unsettled evidence without invoking recovery. Checkpoint admission now also rejects ambiguous or unsettled work correlation. A returned `CanResume` value is not an ownership grant; `ResumeAsync` still validates the exact current frame under the exclusive host. The sample's checkpoint/recover JSON includes the assessment without native state.

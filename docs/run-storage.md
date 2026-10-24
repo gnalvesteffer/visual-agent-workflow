@@ -74,3 +74,8 @@ Graceful stop cancels process-owned continuations. Restart appends interruption 
 `RunStoreTests` runs shared file/SQLite checks for immutable evidence after reopen, complete batches, invalid-batch rollback, terminal protection, stale-writer conflicts, competing writers, concurrent read-only prefixes, host-selected runtime/observer consistency and restart interruption. SQLite fault injection aborts the state update **after event insertion** and verifies both records/state roll back. Tests reject corrupt state, future schema versions and unrelated databases. Legacy fixture checks cover copy-on-write migration and ignored temporary files.
 
 `python3 scripts/service_smoke.py --dotnet /path/to/dotnet` exercises direct/queued pure and real MCP workflows against both stores. Studio browser suites can run with `WorkflowStudio__RunStore=sqlite`; consumer-observation smoke can run with `WorkflowService__RunStore=sqlite`. These checks exercise local persistence and read-only playback, not recovery of unfinished workflow execution. CI runs .NET tests on Windows/Linux and browser/Python integration checks on Linux. The integration job uses SQLite for the Studio suites and consumer observation; the provider protocol fixture retains the default file-backed path.
+
+
+## Optional reconciliation reads
+
+SQLite's `IWorkflowRunReconciliationStore` reads snapshot and checkpoint metadata under one read transaction. `JournalRunObserver` exposes the optional Core observer capability and falls back to snapshot-only work assessment for file/custom stores without it. These reads append no audit/execution events and grant no recovery capability. See [run reconciliation](run-reconciliation.md).

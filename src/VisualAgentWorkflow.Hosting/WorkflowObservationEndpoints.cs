@@ -24,6 +24,11 @@ public static class WorkflowObservationEndpoints
         group.MapGet("/runs", (IWorkflowRunObserver observer, CancellationToken ct) => observer.ListRunsAsync(ct));
         group.MapGet("/runs/{id:guid}", async (Guid id, IWorkflowRunObserver observer, CancellationToken ct) =>
             await observer.GetRunAsync(id, ct) is { } run ? Results.Ok(run) : Results.NotFound());
+        group.MapGet("/runs/{id:guid}/reconciliation", async (Guid id, IWorkflowRunObserver observer, CancellationToken ct) =>
+        {
+            if (observer is not IWorkflowRunReconciliationObserver assessments) return Results.StatusCode(StatusCodes.Status501NotImplemented);
+            return await assessments.GetReconciliationAsync(id, ct) is { } report ? Results.Ok(report) : Results.NotFound();
+        });
         group.MapGet("/runs/{id:guid}/events", async (Guid id, long? after, int? limit, IWorkflowRunObserver observer, CancellationToken ct) =>
         {
             if (after is < 0 || limit is < 1 or > 256) return Results.BadRequest();

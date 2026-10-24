@@ -10,7 +10,11 @@ The development Studio edits and runs validated linear and conditional string gr
 
 The backend owns execution. Studio/ordinary queued runs still interrupt after host failure; a separate opt-in host explicitly resumes deterministic saved checkpoints. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Free placement does not imply arbitrary socket rewiring or parallel execution. Conditional routing is an explicit validated operation.
 
-## Latest completed milestone: deterministic saved-suspension recovery
+## Latest completed milestone: read-only interrupted-run reconciliation
+
+Cursor-bound assessments explain unsettled node/model/tool/approval facts, terminal status and saved/missing/invalid/advanced checkpoint state. New per-call model/tool IDs distinguish repeated calls, with conservative legacy matching. Built-in observers, the protected GET API, bounded HTTP client and embeddable observation panel expose metadata without native state, payloads or mutation controls. Eligibility is suppressed on cursor races and source failures and does not grant ownership. See [run reconciliation](run-reconciliation.md).
+
+## Previous completed milestone: deterministic saved-suspension recovery
 
 An opt-in consumer host saves native Agent Framework JSON checkpoints atomically with audit/state and resumes an exact deterministic suspension after host replacement. Tests and a forced-process-loss proof cover stable revision/identity, both branch paths, no duplicate nodes, ownership exclusion, stale evidence and rollback. Built-in ordinary runtime hosts also enforce exclusive local ownership. SQLite run schema 2 migrates existing evidence. Studio's queue retains interruption semantics; external-node/approval and arbitrary-crash recovery remain excluded. See [checkpoint recovery](checkpoint-recovery.md).
 
@@ -68,7 +72,8 @@ flowchart TD
     Vertical --> Models["Complete: opt-in model adapter with protocol verification"]
     Models --> Store["Complete: atomic run storage boundary"]
     Store --> Recovery["Complete: explicit deterministic checkpoint recovery"]
-    Recovery --> Durable["Next: interrupted-run reconciliation contract"]
+    Recovery --> Assess["Complete: read-only run reconciliation"]
+    Assess --> Durable["Next: host-attributed reconciliation decisions"]
     Durable --> Assets["Versioned skills and nested prefab instances"]
     Assets --> Extensions["Approved extensions in isolated workers"]
     Durable --> Collaboration["Workspace sharing and collaboration"]
@@ -94,9 +99,13 @@ Host-selected storage, atomic event/state batches, concurrency checks, file comp
 
 Native superstep state, a versioned/bounded recovery envelope, atomic checkpoint/audit commits, exact-cursor admission and local owner exclusion are implemented for explicit deterministic saved suspensions. Ordinary queued runs, arbitrary active-process loss and external effects retain their previous limits. See [checkpoint recovery](checkpoint-recovery.md).
 
-### Next: interrupted-run reconciliation contract
+### Complete: read-only interrupted-run reconciliation contract
 
-Represent the recovery disposition of unfinished runs: distinguish a known saved suspension, evidence advanced after a checkpoint, and unresolved node/model/tool work. Expose a read-only explanation to hosts/operators before introducing any automatic continuation. Define authenticated operator decisions and explicit effect reconciliation without rerunning uncertain external calls. Pending approvals, model-selected tools, distributed leases/fencing and worker failover require their own proofs.
+The assessment distinguishes a saved suspension, advanced checkpoint evidence, unresolved work, invalid/missing frames and terminal status. Consumer and embedded observation paths expose the explanation without making live calls or decisions. See [run reconciliation](run-reconciliation.md).
+
+### Next: host-attributed reconciliation decision records
+
+Define explicit operator decisions for recorded uncertain outcomes, bound to the exact run/cursor/call identity with authenticated host-derived actors and append-only evidence. Distinguish a human assertion from a provider's actual response and preserve prior uncertainty. A decision must not silently retry external calls, rewrite history, grant tools, auto-approve or enable recovery of unsupported graphs. Observation stays read-only; production identity and authorization remain prerequisites for public controls.
 
 ### Planned: durable execution and security foundations
 

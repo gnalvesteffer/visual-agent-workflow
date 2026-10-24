@@ -9,6 +9,9 @@ public partial class WorkflowObservationPanel
     [Parameter] public string SourceLabel { get; set; } = "Workflow runs";
     private IReadOnlyList<RunSummary> runs = [];
     private RunSnapshot? snapshot;
+    private RunReconciliation? reconciliation;
+    private string? reconciliationError;
+    private bool reconciliationUnsupported;
     private Guid? selectedId;
     private string? error;
     private bool interactive;
@@ -30,6 +33,7 @@ public partial class WorkflowObservationPanel
         sourceVersion++;
         selectionVersion++;
         runs = []; snapshot = null; selectedId = null; error = null;
+        reconciliation = null; reconciliationError = null; reconciliationUnsupported = false;
         await RefreshAsync();
     }
 
@@ -61,7 +65,8 @@ public partial class WorkflowObservationPanel
                 selectedId = first.RunId;
                 selection = ++selectionVersion;
             }
-            if (selectedId is { } id && (snapshot is null || runs.FirstOrDefault(r => r.RunId == id)?.LastSequence != snapshot.Events.Length))
+            if (selectedId is { } id && (snapshot is null || runs.FirstOrDefault(r => r.RunId == id)?.LastSequence != snapshot.Events.Length ||
+                observer is IWorkflowRunReconciliationObserver && reconciliation is null && !reconciliationUnsupported))
                 await LoadSelectedAsync(observer, version, selection, id, token);
             if (Current(observer, version) && selection == selectionVersion) error = null;
         }
@@ -75,7 +80,7 @@ public partial class WorkflowObservationPanel
     private async Task SelectAsync(Guid id)
     {
         selectedId = id;
-        snapshot = null;
+        snapshot = null; reconciliation = null; reconciliationError = null;
         var observer = Observer;
         var version = sourceVersion;
         var selection = ++selectionVersion;
@@ -106,6 +111,31 @@ public partial class WorkflowObservationPanel
                 throw new InvalidDataException("Recorded evidence changed.");
         }
         snapshot = received;
+        reconciliation = null;
+        reconciliationError = null;
+        if (received is null || reconciliationUnsupported || observer is not IWorkflowRunReconciliationObserver assessments) return;
+        try
+        {
+            var report = await assessments.GetReconciliationAsync(id, token).WaitAsync(token);
+            if (!Current(observer, version) || selection != selectionVersion || selectedId != id) return;
+            if (report is null) { reconciliationError = "No recovery assessment is supplied for this run."; return; }
+            if (report.RunId != received.Header.RunId || report.RevisionId != received.Header.RevisionId || report.ContentHash != received.Header.ContentHash)
+                throw new InvalidDataException("Reconciliation changed run identity.");
+            if (report.LastSequence != received.Events.Length)
+                reconciliationError = "Assessment awaiting a matching evidence cursor; no recovery eligibility is asserted.";
+            else if (report.Status != received.Status) throw new InvalidDataException("Reconciliation changed recorded status.");
+            else reconciliation = report;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (NotSupportedException)
+        {
+            if (Current(observer, version) && selection == selectionVersion) reconciliationUnsupported = true;
+        }
+        catch
+        {
+            if (Current(observer, version) && selection == selectionVersion)
+                reconciliationError = "Recovery assessment unavailable; no recovery eligibility is asserted.";
+        }
     }
 
     private async Task PollAsync()

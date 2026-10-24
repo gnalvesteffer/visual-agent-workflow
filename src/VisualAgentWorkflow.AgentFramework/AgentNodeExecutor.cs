@@ -98,8 +98,10 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         public override async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
         {
             var snapshot = messages.ToArray();
+            var modelCallId = Guid.NewGuid();
             await Record(ExecutionEventKinds.ModelRequested, new
             {
+                modelCallId,
                 instructions = options?.Instructions,
                 messages = Project(snapshot),
                 tools = options?.Tools?.Select(t => t.Name).ToArray()
@@ -107,6 +109,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             var response = await InnerClient.GetResponseAsync(snapshot, options, cancellationToken).WaitAsync(cancellationToken);
             await Record(ExecutionEventKinds.ModelResponded, new
             {
+                modelCallId,
                 response.ModelId,
                 response.ResponseId,
                 finishReason = response.FinishReason?.ToString(),

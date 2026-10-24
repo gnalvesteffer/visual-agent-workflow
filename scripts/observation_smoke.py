@@ -125,12 +125,21 @@ def check(dotnet, browser_executable, screenshots):
                     assert panel.get_by_role("button", name="Cancel selected run").count() == 0
                     assert panel.get_by_role("button", name="Start independent run").count() == 0
                     assert panel.get_by_role("button", name="Save draft").count() == 0
+                    assessment = panel.get_by_role("region", name="Run recovery assessment", exact=True)
+                    expect(assessment).to_contain_text("The run is terminal")
+                    assert assessment.get_by_role("button").count() == 0
                     assert token not in page.content()
                     summaries = request(consumer_base + "/workflow-observation/runs", token)
                     run_id = summaries[0]["runId"]
                     before = request(consumer_base + f"/workflow-observation/runs/{run_id}", token)
+                    report_path = consumer_base + f"/workflow-observation/runs/{run_id}/reconciliation"
+                    request(report_path, expected=401)
+                    report = request(report_path, token)
+                    assert report["lastSequence"] == len(before["events"]) and report["canResume"] is False
+                    assert "consumer visibility" not in json.dumps(report) and "native" not in json.dumps(report).lower()
                     viewer.get_by_role("button", name="Previous event", exact=True).click()
                     expect(viewer.get_by_text("Recorded playback", exact=True)).to_be_visible()
+                    expect(assessment).to_contain_text("independent of the playback position")
                     assert request(consumer_base + f"/workflow-observation/runs/{run_id}", token) == before
                     if screenshots:
                         screenshots.mkdir(parents=True, exist_ok=True)
@@ -145,6 +154,7 @@ def check(dotnet, browser_executable, screenshots):
                     expect(viewer.get_by_role("button", name="output core.output Completed", exact=True)).to_be_visible()
                     stop(consumer)
                     expect(panel.get_by_role("alert")).to_contain_text("last received evidence", timeout=15000)
+                    expect(assessment).to_contain_text("Assessment unavailable while the connection is stale")
                     expect(viewer.get_by_role("button", name="output core.output Completed", exact=True)).to_be_visible()
                     consumer = launch(consumer_command, env, ROOT)
                     wait_ready(consumer_base + "/health", consumer)

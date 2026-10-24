@@ -6,7 +6,7 @@ namespace VisualAgentWorkflow.Observation.Http;
 
 /// <summary>Read-only HTTP evidence client. The host owns HttpClient lifetime, credentials and TLS policy.
 /// Configure its handler to reject redirects so credentials never follow an endpoint redirect.</summary>
-public sealed class HttpWorkflowRunObserver : IWorkflowRunObserver
+public sealed class HttpWorkflowRunObserver : IWorkflowRunObserver, IWorkflowRunReconciliationObserver
 {
     public const int MaximumResponseBytes = 8 * 1024 * 1024;
     private readonly HttpClient client;
@@ -58,11 +58,34 @@ public sealed class HttpWorkflowRunObserver : IWorkflowRunObserver
         return page;
     }
 
-    private async Task<T?> ReadAsync<T>(string relativePath, CancellationToken cancellationToken) where T : class
+    public async Task<RunReconciliation?> GetReconciliationAsync(Guid runId, CancellationToken cancellationToken = default)
+    {
+        var report = await ReadAsync<RunReconciliation>($"runs/{runId:D}/reconciliation", cancellationToken, optional: true);
+        if (report is null) return null;
+        var validHash = report.ContentHash is { Length: 64 } && report.ContentHash.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
+        if (report.RunId != runId || report.RevisionId == Guid.Empty || report.LastSequence < 0 || !validHash ||
+            !Enum.IsDefined(report.Disposition) || string.IsNullOrWhiteSpace(report.Status) || report.Status.Length > 64 ||
+            string.IsNullOrWhiteSpace(report.Reason) || report.Reason.Length > 1024 || report.UnresolvedWork.IsDefault ||
+            report.UnresolvedWork.Length > WorkflowWorkEvidence.MaximumReturnedWork || report.TotalUnresolvedWork < report.UnresolvedWork.Length ||
+            report.UnresolvedWork.Length != Math.Min(report.TotalUnresolvedWork, WorkflowWorkEvidence.MaximumReturnedWork) ||
+            report.UnresolvedWork.Any(w => w is null || !Enum.IsDefined(w.Kind) || !Enum.IsDefined(w.State) ||
+                w.RequestedSequence < 1 || w.LastObservedSequence < w.RequestedSequence || w.LastObservedSequence > report.LastSequence ||
+                w.InvocationId == Guid.Empty || w.CallId == Guid.Empty) ||
+            report.Checkpoint is { } frame && (string.IsNullOrWhiteSpace(frame.CheckpointId) || frame.CheckpointId.Length > 128 ||
+                string.IsNullOrWhiteSpace(frame.RuntimeVersion) || frame.RuntimeVersion.Length > 128 || frame.Sequence < 1 || frame.Sequence > report.LastSequence) ||
+            report.CanResume != (report.Disposition == RunRecoveryDisposition.SavedSuspension) ||
+            report.CanResume && (report.Status != "suspended" || report.Checkpoint is null || report.Checkpoint.Sequence != report.LastSequence ||
+                report.TotalUnresolvedWork != 0 || report.HasIncompleteCorrelation))
+            throw new InvalidDataException("Invalid reconciliation identity, cursor or recovery claim.");
+        return report;
+    }
+
+    private async Task<T?> ReadAsync<T>(string relativePath, CancellationToken cancellationToken, bool optional = false) where T : class
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(endpoint, relativePath));
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
+        if (optional && response.StatusCode == HttpStatusCode.NotImplemented) throw new NotSupportedException("The consumer does not provide reconciliation assessments.");
         response.EnsureSuccessStatusCode();
         if (response.Content.Headers.ContentLength > MaximumResponseBytes) throw new InvalidDataException("Observation response exceeds 8 MiB.");
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);

@@ -1,0 +1,40 @@
+<section class="vaw-viewer" aria-label="Run recovery assessment">
+    <h3>Recovery assessment</h3>
+    @if (Assessment is { } report)
+    {
+        <p>@report.Reason</p>
+        <p class="vaw-help">Latest recorded state: @report.Status · evidence sequence @report.LastSequence. This assessment is independent of the playback position.</p>
+        @if (report.Checkpoint is { } checkpoint)
+        { <p class="vaw-help">Checkpoint @checkpoint.CheckpointId · saved sequence @checkpoint.Sequence · @checkpoint.RuntimeVersion</p> }
+        @if (report.HasIncompleteCorrelation)
+        { <p class="vaw-error">Some evidence cannot be correlated unambiguously. No recovery eligibility is asserted.</p> }
+        @if (report.TotalUnresolvedWork > 0)
+        {
+            <p>Unsettled recorded work: @report.TotalUnresolvedWork</p>
+            <ul>
+                @foreach (var work in report.UnresolvedWork)
+                {
+                    <li>
+                        @work.Kind · @StateLabel(work.State) · node @(work.NodeId ?? "unknown") · requested sequence @work.RequestedSequence · last evidence @work.LastObservedSequence
+                        @if (work.CallId is { } callId) { <span class="vaw-help"> · call @callId</span> }
+                    </li>
+                }
+            </ul>
+            @if (report.TotalUnresolvedWork > report.UnresolvedWork.Length)
+            { <p class="vaw-help">Showing @report.UnresolvedWork.Length of @report.TotalUnresolvedWork items.</p> }
+        }
+        <p class="vaw-help">Read-only evidence, not authorization or a worker-liveness check. Recovery requires fresh validation by an exclusive host. Uncertain external calls must not be retried automatically.</p>
+    }
+    else { <p class="vaw-help">@UnavailableMessage</p> }
+</section>
+
+@code {
+    private static string StateLabel(UnresolvedWorkState state) => state switch
+    {
+        UnresolvedWorkState.AwaitingOutcome => "Awaiting outcome",
+        UnresolvedWorkState.OutcomeUnknown => "Outcome unknown",
+        _ => "Awaiting decision"
+    };
+    [Parameter] public RunReconciliation? Assessment { get; set; }
+    [Parameter] public string UnavailableMessage { get; set; } = "No recovery assessment is available.";
+}

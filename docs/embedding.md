@@ -85,3 +85,8 @@ Embed `<WorkflowObservationPanel Observer="Observer" SourceLabel="Service workfl
 ## Optional approval controls
 
 `WorkflowRunViewer` accepts optional `ApprovalClient` (`IWorkflowApprovalClient`) and `ApprovalChanged` callback parameters. Without that client it renders approval evidence read-only, as the remote observation panel does. Controls require the latest live position; recorded playback cannot decide an old request. `WorkflowApprovalPanel` can also be embedded directly with a snapshot, host-authorized client and explicit `CanDecide`. Hosts must supply authentication/authorization and server-derived attribution. See [approvals](approvals.md).
+
+
+## Recovery assessment display
+
+`WorkflowObservationPanel` automatically uses the optional `IWorkflowRunReconciliationObserver` capability and displays latest evidence through `WorkflowReconciliationPanel`, with no recovery/retry controls. A consumer can embed that component directly with its `Assessment` parameter. It needs no concrete runtime and HTML-encodes explanations. Cursor/source failures suppress eligibility while leaving recorded graph evidence available. See [read-only reconciliation](run-reconciliation.md).

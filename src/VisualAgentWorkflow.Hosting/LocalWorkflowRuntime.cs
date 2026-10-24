@@ -126,7 +126,8 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
         catch (Exception error) when (error is WorkflowApprovalConflictException or WorkflowRunControlException)
         {
             // Another caller may have decided and completed the run after our first snapshot.
-            if (!AcknowledgesRecordedDecision(journal.Get(runId)!, requestId, actionHash, approve)) throw;
+            if (!AcknowledgesRecordedDecision(journal.Get(runId)!, requestId, actionHash, approve))
+                throw new WorkflowApprovalConflictException();
         }
         return Task.CompletedTask;
     }

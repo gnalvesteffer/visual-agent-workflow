@@ -23,6 +23,11 @@
         </aside>
         <section class="vaw-main" aria-label="Observed workflow">
             <WorkflowRunViewer Snapshot="snapshot" />
+            @if (snapshot is not null && Observer is IWorkflowRunReconciliationObserver)
+            {
+                <WorkflowReconciliationPanel Assessment="@(error is null ? reconciliation : null)"
+                    UnavailableMessage="@(error is not null ? "Assessment unavailable while the connection is stale." : reconciliationError ?? (reconciliationUnsupported ? "This source does not supply a recovery assessment." : "Awaiting recovery assessment."))" />
+            }
         </section>
     </div>
 </section>

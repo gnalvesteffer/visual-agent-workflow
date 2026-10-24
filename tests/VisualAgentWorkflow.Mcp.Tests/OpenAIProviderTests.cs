@@ -184,6 +184,16 @@ public sealed class OpenAIProviderTests
         Assert.Equal(2, calls);
         Assert.Single(events, e => e.Kind == ExecutionEventKinds.ToolCompleted);
         Assert.Equal(2, events.Count(e => e.Kind == ExecutionEventKinds.ModelResponded));
+        Guid Correlation((string Kind, string? Data) evt, string property)
+        {
+            using var json = JsonDocument.Parse(evt.Data!);
+            return json.RootElement.GetProperty(property).GetGuid();
+        }
+        var requested = events.Where(e => e.Kind == ExecutionEventKinds.ModelRequested).Select(e => Correlation(e, "modelCallId")).ToArray();
+        Assert.Equal(2, requested.Distinct().Count());
+        Assert.Equal(requested, events.Where(e => e.Kind == ExecutionEventKinds.ModelResponded).Select(e => Correlation(e, "modelCallId")));
+        Assert.Single(events.Where(e => e.Kind is ExecutionEventKinds.ToolRequested or ExecutionEventKinds.ToolAuthorized or ExecutionEventKinds.ToolCompleted)
+            .Select(e => Correlation(e, "toolCallId")).Distinct());
         Assert.All(events, e => Assert.DoesNotContain(Key, e.Data ?? ""));
     }
 

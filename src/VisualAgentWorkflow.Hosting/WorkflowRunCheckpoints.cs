@@ -49,6 +49,9 @@ public static class WorkflowCheckpointRecovery
             return new(false, "Evidence advanced after the checkpoint; automatic replay is unsafe.");
         if (snapshot.Status != "suspended" || snapshot.Events[^1].Kind != ExecutionEventKinds.Suspended)
             return new(false, "Recovery requires an explicitly saved suspension.");
+        var unsettled = WorkflowWorkEvidence.Read(snapshot);
+        if (unsettled.TotalUnresolvedWork > 0 || unsettled.HasIncompleteCorrelation)
+            return new(false, "Recorded work is unsettled or ambiguously correlated.");
         var started = snapshot.Events.Where(e => e.Kind == ExecutionEventKinds.NodeStarted).Select(e => e.InvocationId).ToHashSet();
         var completed = snapshot.Events.Where(e => e.Kind == ExecutionEventKinds.NodeCompleted).Select(e => e.InvocationId).ToHashSet();
         if (!started.SetEquals(completed)) return new(false, "An invocation has no recorded completed boundary.");

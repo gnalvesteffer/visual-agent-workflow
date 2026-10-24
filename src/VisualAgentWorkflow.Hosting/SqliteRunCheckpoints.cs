@@ -30,15 +30,34 @@ public sealed partial class SqliteWorkflowRunStore
         using var transaction = connection.BeginTransaction(deferred: true);
         var snapshot = Read(connection, transaction, runId);
         if (snapshot is null) return null;
+        var checkpoint = ReadCheckpoint(connection, transaction, runId);
+        checkpoint?.Validate(snapshot);
+        transaction.Commit();
+        return checkpoint;
+    }
+
+    public RunReconciliation? GetReconciliation(Guid runId)
+    {
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction(deferred: true);
+        var snapshot = Read(connection, transaction, runId);
+        if (snapshot is null) return null;
+        RunReconciliation report;
+        try { report = WorkflowRunReconciliation.Assess(snapshot, ReadCheckpoint(connection, transaction, runId)); }
+        catch (Exception error) when (error is System.Text.Json.JsonException or InvalidDataException or ArgumentException)
+        { report = WorkflowRunReconciliation.Assess(snapshot, null, checkpointInvalid: true); }
+        transaction.Commit();
+        return report;
+    }
+
+    private static WorkflowRunCheckpoint? ReadCheckpoint(SqliteConnection connection, SqliteTransaction transaction, Guid runId)
+    {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "SELECT checkpoint_json FROM run_checkpoints WHERE run_id=$id;";
         command.Parameters.AddWithValue("$id", runId.ToString());
         var json = command.ExecuteScalar() as string;
-        var checkpoint = json is null ? null : JsonSerializer.Deserialize<WorkflowRunCheckpoint>(json, Json)
+        return json is null ? null : System.Text.Json.JsonSerializer.Deserialize<WorkflowRunCheckpoint>(json, Json)
             ?? throw new InvalidDataException("Invalid checkpoint envelope.");
-        checkpoint?.Validate(snapshot);
-        transaction.Commit();
-        return checkpoint;
     }
 }

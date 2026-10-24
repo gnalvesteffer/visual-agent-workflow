@@ -37,7 +37,7 @@ internal static class CheckpointCommands
                 result.Status, checkpointId = checkpoint?.Native.CheckpointId,
                 output = result.Events.LastOrDefault(e => e.Kind == ExecutionEventKinds.Completed)?.Data,
                 nodes = result.Events.Where(e => e.Kind == ExecutionEventKinds.NodeStarted).Select(e => e.NodeId),
-                sequence = result.Events.Length }, JsonSerializerOptions.Web));
+                sequence = result.Events.Length, reconciliation = store.GetReconciliation(result.Header.RunId) }, JsonSerializerOptions.Web));
             if (starting && args.Length == 6)
             {
                 var builder = Host.CreateApplicationBuilder();

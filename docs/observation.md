@@ -95,3 +95,8 @@ The local journal reader currently scans stored run snapshots to build summaries
 ## Approval evidence
 
 Schema-1.5 requests and decisions are visible through the same snapshots/cursors. The read-only graph panel displays a pending exact-action review without decision controls. Studio attachment to a consumer does not grant approval rights; approvals need a separate host-authorized control client. See [approval boundaries](approvals.md).
+
+
+## Optional recovery assessment
+
+`IWorkflowRunReconciliationObserver` adds metadata-only `GET /runs/{id}/reconciliation` under the existing policy. Built-in journal observers provide it; missing/unsupported sources yield no eligibility claim. The response explains unsettled work and saved checkpoint disposition without native state or user payloads. The HTTP client and observation panel require matching identities/cursors/status and suppress stale claims on outages or source changes. The embeddable `WorkflowReconciliationPanel` shows latest evidence independently of playback and has no mutation controls. See [run reconciliation](run-reconciliation.md) for correlation, limits and host visibility requirements.

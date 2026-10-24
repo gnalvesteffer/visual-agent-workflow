@@ -30,3 +30,6 @@ The additional `serve` mode runs the consumer on loopback port 5100. Observation
 ## Deterministic checkpoint commands
 
 `checkpoint DEPLOYMENT.json DATABASE_PATH INPUT COMPLETED_NODE_COUNT [--hold]` saves a deterministic native framework boundary. `recover DATABASE_PATH RUN_ID CHECKPOINT_ID` explicitly resumes that exact saved suspension in the same run/history, including from another process after owner loss. Both modes use the dedicated SQLite checkpoint host, not the normal local queue or provider configuration. Agent/MCP/approval nodes are rejected before admission. See [commands, ownership, migration and recovery limits](../../docs/checkpoint-recovery.md). The existing direct/queued/paused/serve modes retain restart interruption semantics.
+
+
+Checkpoint/recover output includes a metadata-only reconciliation assessment. Optional observation mode also exposes the protected read-only assessment endpoint through the same store/observer. The assessment does not acquire ownership or execute recovery; it can report unresolved external work even for a terminal run. See [run reconciliation](../../docs/run-reconciliation.md).
