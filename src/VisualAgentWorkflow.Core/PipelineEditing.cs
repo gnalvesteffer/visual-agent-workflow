@@ -36,7 +36,7 @@ public static class PipelineEditing
         order.Insert(position + 1, id);
         return Reconnect(definition with
         {
-            SchemaVersion = node.Type == NodeTypes.McpTool ? "1.1" : definition.SchemaVersion,
+            SchemaVersion = SchemaFor(definition, node),
             Nodes = definition.Nodes.Add(id, node)
         }, order);
     }
@@ -77,7 +77,7 @@ public static class PipelineEditing
         RequireEditable(node.Type);
         var result = definition with
         {
-            SchemaVersion = node.Type == NodeTypes.McpTool ? "1.1" : definition.SchemaVersion,
+            SchemaVersion = SchemaFor(definition, node),
             Nodes = definition.Nodes.SetItem(nodeId, node)
         };
         WorkflowValidator.ThrowIfInvalid(result);
@@ -106,9 +106,12 @@ public static class PipelineEditing
 
     private static void RequireEditable(string type)
     {
-        if (type is not (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.McpTool))
+        if (type is not (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent))
             throw new ArgumentException("Only registered processing nodes can be edited.", nameof(type));
     }
+
+    private static string SchemaFor(WorkflowDefinition definition, NodeDefinition node) => node.Type == NodeTypes.Agent
+        ? "1.2" : node.Type == NodeTypes.McpTool && definition.SchemaVersion == "1.0" ? "1.1" : definition.SchemaVersion;
 
     private static void RequireTransform(string type)
     {

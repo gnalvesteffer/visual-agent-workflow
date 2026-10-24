@@ -23,6 +23,7 @@
 .vaw-node-button { display: grid; gap: .5rem; width: 100%; text-align: left; }
 .vaw-node-button span { font-size: .85rem; }
 .vaw-complete .vaw-node-button { border-left: 4px solid #7ce1b2; }
+.vaw-failed .vaw-node-button { border-left: 4px solid #ffb7b7; }
 .vaw-node-button[aria-pressed=true] { outline: 2px solid #9ec5ff; }
 .vaw-connection { padding: .7rem; color: #bac9dd; font-size: .8rem; }
 .vaw-delivered { color: #7ce1b2; }
@@ -38,6 +39,7 @@
 .vaw-designer-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
 .vaw-designer .vaw-controls label { flex: 1 1 180px; min-width: 0; max-width: 100%; }
 .vaw-designer a { color: #9ec5ff; }
+.vaw-designer pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .vaw-designer details { margin-top: 1rem; }
 .vaw-edit-node article { background: #233249; border: 1px solid #63748c; border-radius: 6px; padding: 1rem; }
 .vaw-edit-node small { display: block; margin-top: .5rem; color: #bac9dd; }

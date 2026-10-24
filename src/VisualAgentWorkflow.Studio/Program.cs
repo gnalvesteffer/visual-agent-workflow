@@ -6,6 +6,7 @@ using VisualAgentWorkflow.Hosting;
 using VisualAgentWorkflow.Studio.Components;
 using VisualAgentWorkflow.Studio;
 using VisualAgentWorkflow.Mcp;
+using VisualAgentWorkflow.AgentFramework;
 
 if (args.Contains("--mcp-demo-server", StringComparer.Ordinal))
 {
@@ -21,6 +22,9 @@ builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddSingleton<INodeToolBroker>(new McpToolBroker(DemoMcpServer.ForCurrentExecutable(), new DemoToolPolicy()));
 builder.Services.AddSingleton<IToolBindingCatalog>(services => services.GetRequiredService<INodeToolBroker>());
+builder.Services.AddSingleton<IAgentNodeExecutor>(services => new AgentNodeExecutor(
+    [DeterministicDemoChatClient.Registration()], services.GetRequiredService<INodeToolBroker>()));
+builder.Services.AddSingleton<IAgentProviderCatalog>(services => services.GetRequiredService<IAgentNodeExecutor>());
 builder.Services.AddSingleton(new FileRunJournal(Path.Combine(builder.Environment.ContentRootPath, ".local", "runs")));
 builder.Services.AddSingleton<LocalWorkflowRuntime>();
 builder.Services.AddSingleton<IWorkflowCatalog>(new SqliteWorkflowCatalog(Path.Combine(builder.Environment.ContentRootPath, ".local", "workflows.db")));
@@ -58,6 +62,7 @@ app.UseAntiforgery();
 app.MapWorkflowEndpoints();
 app.MapGet("/api/tool-bindings", async (IToolBindingCatalog catalog, CancellationToken cancellationToken) =>
     Results.Ok(await catalog.ListBindingsAsync(cancellationToken)));
+app.MapGet("/api/agent-providers", async (IAgentProviderCatalog catalog) => Results.Ok(await catalog.ListProvidersAsync()));
 app.MapGet("/api/templates/default", () => Results.Text(WorkflowJson.Serialize(PipelineTemplates.Create("uppercase-reverse")), "application/json"));
 app.MapPost("/api/runs", async (StartRunRequest request, IWorkflowClient client) =>
 {

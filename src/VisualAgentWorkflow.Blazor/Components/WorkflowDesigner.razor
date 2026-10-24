@@ -44,7 +44,7 @@
             <button @onclick="RefreshTools" disabled="@busy">Refresh MCP tools</button>
             <p>Tool bindings request access. Host policy checks each call; selecting a tool does not grant permission.</p>
         }
-        <PipelineEditor Definition="@(preview?.Revision.Definition ?? definition)" DefinitionChanged="Changed" ReadOnly="@(preview is not null)" Disabled="@busy" Bindings="bindings" />
+        <PipelineEditor Definition="@(preview?.Revision.Definition ?? definition)" DefinitionChanged="Changed" ReadOnly="@(preview is not null)" Disabled="@busy" Bindings="bindings" Providers="providers" />
         <section aria-label="Published workflow versions">
             <h3>Published versions</h3>
             <p>Active version: @(versions.FirstOrDefault(v => v.Revision.RevisionId == activeRevisionId)?.Version.ToString() ?? "None")</p>
@@ -88,7 +88,9 @@
     [Parameter, EditorRequired] public IPublishedWorkflowClient Client { get; set; } = default!;
     [Parameter] public EventCallback<RunSnapshot> OnRunStarted { get; set; }
     [Parameter] public IToolBindingCatalog? ToolCatalog { get; set; }
+    [Parameter] public IAgentProviderCatalog? AgentCatalog { get; set; }
     private IReadOnlyList<ToolBindingDescriptor> bindings = [];
+    private IReadOnlyList<AgentProviderDescriptor> providers = [];
     private WorkflowDefinition? definition;
     private long generation;
     private Guid? activeRevisionId;
@@ -114,6 +116,7 @@
         workflows = await Catalog.ListDraftsAsync();
         if (workflows.Count > 0) await Load(workflows[0]); else NewWorkflow();
         if (ToolCatalog is not null) bindings = await ToolCatalog.ListBindingsAsync();
+        if (AgentCatalog is not null) providers = await AgentCatalog.ListProvidersAsync();
     });
 
     protected override void OnAfterRender(bool firstRender)

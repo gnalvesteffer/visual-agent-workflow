@@ -1,0 +1,124 @@
+using System.Text.Json;
+using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
+using VisualAgentWorkflow.Core;
+
+namespace VisualAgentWorkflow.AgentFramework;
+
+/// <summary>Host-registered provider factory; workflow documents cannot construct clients or supply endpoints/secrets.</summary>
+public sealed record AgentProviderRegistration(AgentProviderDescriptor Descriptor, Func<IChatClient> Create);
+
+public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> providers, INodeToolBroker tools) : IAgentNodeExecutor
+{
+    private readonly IReadOnlyDictionary<string, AgentProviderRegistration> registrations = providers.ToDictionary(p => p.Descriptor.ProviderId, StringComparer.Ordinal);
+
+    public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+        Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(registrations.Values.Select(r => r.Descriptor).ToArray());
+
+    public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input, CancellationToken cancellationToken = default)
+    {
+        WorkflowValidator.ThrowIfInvalid(invocation.Revision.Definition);
+        var configuration = invocation.Revision.Definition.Nodes[invocation.NodeId].Agent
+            ?? throw new ArgumentException("The invocation is not an agent node.");
+        if (!registrations.TryGetValue(configuration.ProviderId, out var provider) || provider.Descriptor.Version != configuration.ProviderVersion)
+            throw new InvalidOperationException("The pinned agent provider is unavailable.");
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(30));
+        await Record(ExecutionEventKinds.AgentStarted, new
+        {
+            provider = provider.Descriptor,
+            requestedTools = configuration.Tools.Select((binding, index) => new { functionName = $"tool_{index}", binding.BindingId, binding.ContractHash })
+        });
+        try
+        {
+            await using var scope = tools.OpenScope(invocation);
+            var allowed = await scope.ListToolsAsync(deadline.Token);
+            foreach (var requirement in configuration.Tools)
+            {
+                if (allowed.Any(t => t.BindingId == requirement.BindingId)) continue;
+                await Record(ExecutionEventKinds.ToolDenied, new { requirement.BindingId, reason = "Agent tool requirement has no effective host grant." });
+                throw new ToolAccessDeniedException();
+            }
+            var functions = new List<AITool>();
+            foreach (var binding in allowed)
+            {
+                var name = $"tool_{functions.Count}";
+                functions.Add(AIFunctionFactory.Create(async (string text, CancellationToken token) =>
+                    await scope.InvokeAsync(binding.BindingId, text, token), name,
+                    description: $"Approved text operation: {binding.DisplayName}. Binding: {binding.BindingId}."));
+            }
+            using var client = new FunctionInvokingChatClient(new RecordingClient(provider.Create(), invocation))
+            {
+                MaximumIterationsPerRequest = 8,
+                MaximumConsecutiveErrorsPerRequest = 1,
+                AllowConcurrentInvocation = false,
+                IncludeDetailedErrors = false
+            };
+            var agent = new ChatClientAgent(client, new ChatClientAgentOptions
+            {
+                Name = invocation.NodeId,
+                UseProvidedChatClientAsIs = true,
+                ChatOptions = new ChatOptions { Instructions = configuration.Instructions, Tools = functions, MaxOutputTokens = 1024 }
+            });
+            var response = await agent.RunAsync(input, cancellationToken: deadline.Token);
+            if (string.IsNullOrWhiteSpace(response.Text) || response.Text.Length > 16_384)
+                throw new InvalidOperationException("The agent did not produce bounded final text.");
+            await Record(ExecutionEventKinds.AgentCompleted, new { output = response.Text });
+            return response.Text;
+        }
+        catch (OperationCanceledException)
+        {
+            await Record(ExecutionEventKinds.AgentFailed, new { reason = "Agent cancelled or timed out. Provider outcome may be unknown; no automatic retry." });
+            if (cancellationToken.IsCancellationRequested) throw;
+            throw new InvalidOperationException("The agent operation timed out.");
+        }
+        catch
+        {
+            await Record(ExecutionEventKinds.AgentFailed, new { reason = "Agent execution failed." });
+            throw;
+        }
+
+        ValueTask Record(string kind, object payload) => invocation.Record(kind, JsonSerializer.Serialize(payload));
+    }
+
+    private sealed class RecordingClient(IChatClient inner, NodeInvocationContext invocation) : DelegatingChatClient(inner)
+    {
+        public override async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+        {
+            var snapshot = messages.ToArray();
+            await Record(ExecutionEventKinds.ModelRequested, new
+            {
+                instructions = options?.Instructions,
+                messages = Project(snapshot),
+                tools = options?.Tools?.Select(t => t.Name).ToArray()
+            });
+            var response = await InnerClient.GetResponseAsync(snapshot, options, cancellationToken).WaitAsync(cancellationToken);
+            await Record(ExecutionEventKinds.ModelResponded, new
+            {
+                response.ModelId,
+                finishReason = response.FinishReason?.ToString(),
+                messages = Project(response.Messages)
+            });
+            return response;
+        }
+
+        private ValueTask Record(string kind, object payload)
+        {
+            var json = JsonSerializer.Serialize(payload);
+            if (json.Length > 262_144) throw new InvalidOperationException("Model trace exceeds the local capture budget.");
+            return invocation.Record(kind, json);
+        }
+
+        private static object[] Project(IEnumerable<ChatMessage> messages) => messages.Select(message => (object)new
+        {
+            role = message.Role.ToString(),
+            content = message.Contents.Select(content => content switch
+            {
+                TextContent text => (object)new { kind = "text", text = text.Text },
+                FunctionCallContent call => new { kind = "function-call", call.CallId, call.Name, call.Arguments },
+                FunctionResultContent result => new { kind = "function-result", result.CallId, result = result.Result?.ToString() },
+                _ => new { kind = "unsupported-content" }
+            }).ToArray()
+        }).ToArray();
+    }
+}

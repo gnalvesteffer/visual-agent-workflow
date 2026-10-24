@@ -6,6 +6,7 @@
                 <option value="@NodeTypes.Uppercase">Uppercase</option>
                 <option value="@NodeTypes.Reverse">Reverse</option>
                 @foreach (var binding in Bindings) { <option value="@ToolKey(binding)">@binding.DisplayName</option> }
+                @foreach (var provider in Providers) { <option value="@ProviderKey(provider)">@provider.DisplayName</option> }
             </select>
         </label>
     }
@@ -34,6 +35,9 @@
                                 @if (node.Tool is { } pinned && !Bindings.Any(b => b.BindingId == pinned.BindingId && b.ContractHash == pinned.ContractHash))
                                 { <option value="@NodeKey(node)">Pinned MCP binding unavailable: @pinned.BindingId</option> }
                                 @foreach (var binding in Bindings) { <option value="@ToolKey(binding)">@binding.DisplayName</option> }
+                                @if (node.Agent is { } pinnedAgent && !Providers.Any(p => p.ProviderId == pinnedAgent.ProviderId && p.Version == pinnedAgent.ProviderVersion))
+                                { <option value="@NodeKey(node)">Pinned agent provider unavailable: @pinnedAgent.ProviderId</option> }
+                                @foreach (var provider in Providers) { <option value="@ProviderKey(provider)">@provider.DisplayName</option> }
                             </select>
                         </label>
                         <div class="vaw-controls">
@@ -48,6 +52,35 @@
                     }
                     @if (node.Tool is { } tool)
                     { <p>MCP binding: @tool.BindingId · pinned contract @tool.ContractHash[..8]</p> }
+                    @if (node.Agent is { } agent)
+                    {
+                        <p>Agent provider: @agent.ProviderId · @agent.ProviderVersion</p>
+                        @if (Providers.Any(p => p.ProviderId == agent.ProviderId && p.IsDeterministic))
+                        { <p>Scripted fixture: calls the first assigned tool or echoes input. It does not interpret instructions.</p> }
+                        @if (ReadOnly)
+                        { <pre>@agent.Instructions</pre> }
+                        else
+                        {
+                            <label>Agent instructions for @id
+                                <textarea aria-label="Agent instructions for @id" value="@agent.Instructions" @onchange="args => Instructions(id, args)" maxlength="8192" rows="3" disabled="@Disabled"></textarea>
+                            </label>
+                            @foreach (var binding in Bindings)
+                            {
+                                var assigned = agent.Tools.Any(t => t.BindingId == binding.BindingId && t.ContractHash == binding.ContractHash);
+                                <label><input type="checkbox" aria-label="Assign @binding.BindingId to @id" checked="@assigned"
+                                    @onchange="args => AssignTool(id, binding, args)" disabled="@(Disabled || !assigned && agent.Tools.Length >= 8)" /> @binding.DisplayName</label>
+                            }
+                        }
+                        <ul>
+                            @foreach (var request in agent.Tools)
+                            {
+                                <li>Requested: @request.BindingId · @request.ContractHash[..8]
+                                    @if (!ReadOnly && !Bindings.Any(b => b.BindingId == request.BindingId && b.ContractHash == request.ContractHash))
+                                    { <button @onclick="() => RemoveTool(id, request.BindingId)" disabled="@Disabled">Remove unavailable request @request.BindingId</button> }
+                                </li>
+                            }
+                        </ul>
+                    }
                 </article>
             </li>
         }
@@ -61,20 +94,43 @@
     [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public bool Disabled { get; set; }
     [Parameter] public IReadOnlyList<ToolBindingDescriptor> Bindings { get; set; } = [];
+    [Parameter] public IReadOnlyList<AgentProviderDescriptor> Providers { get; set; } = [];
     private string newType = NodeTypes.Uppercase;
     private string? error;
     private System.Collections.Immutable.ImmutableArray<string> Order => PipelineEditing.OrderedNodes(Definition);
 
     private Task ChangeType(string id, ChangeEventArgs args) =>
-        Edit(() => PipelineEditing.ReplaceNode(Definition, id, FromSelection(args.Value?.ToString() ?? "")));
+        Edit(() => PipelineEditing.ReplaceNode(Definition, id, FromSelection(args.Value?.ToString() ?? "", Definition.Nodes[id])));
 
     private static string ToolKey(ToolBindingDescriptor binding) => $"mcp:{binding.BindingId}:{binding.ContractHash}";
-    private static string NodeKey(NodeDefinition node) => node.Tool is { } tool ? $"mcp:{tool.BindingId}:{tool.ContractHash}" : node.Type;
-    private NodeDefinition FromSelection(string value)
+    private static string ProviderKey(AgentProviderDescriptor provider) => $"agent:{provider.ProviderId}:{provider.Version}";
+    private static string NodeKey(NodeDefinition node) => node.Agent is { } agent ? $"agent:{agent.ProviderId}:{agent.ProviderVersion}" :
+        node.Tool is { } tool ? $"mcp:{tool.BindingId}:{tool.ContractHash}" : node.Type;
+    private NodeDefinition FromSelection(string value, NodeDefinition? existing = null)
     {
+        var provider = Providers.SingleOrDefault(p => ProviderKey(p) == value);
+        if (provider is not null) return new(NodeTypes.Agent, "1.0.0", Agent: new(provider.ProviderId, provider.Version,
+            existing?.Agent?.Instructions ?? "Use assigned tools when available and return the result.", existing?.Agent?.Tools ?? []));
         var binding = Bindings.SingleOrDefault(b => ToolKey(b) == value);
         return binding is null ? new(value, "1.0.0") : new(NodeTypes.McpTool, "1.0.0", new(binding.BindingId, binding.ContractHash));
     }
+
+    private Task Instructions(string id, ChangeEventArgs args) => Edit(() => PipelineEditing.ReplaceNode(Definition, id,
+        Definition.Nodes[id] with { Agent = Definition.Nodes[id].Agent! with { Instructions = args.Value?.ToString() ?? "" } }));
+
+    private Task AssignTool(string id, ToolBindingDescriptor binding, ChangeEventArgs args) => Edit(() =>
+    {
+        var node = Definition.Nodes[id];
+        var tools = node.Agent!.Tools.RemoveAll(t => t.BindingId == binding.BindingId);
+        if (args.Value is true) tools = tools.Add(new(binding.BindingId, binding.ContractHash));
+        return PipelineEditing.ReplaceNode(Definition, id, node with { Agent = node.Agent with { Tools = tools } });
+    });
+
+    private Task RemoveTool(string id, string bindingId) => Edit(() =>
+    {
+        var node = Definition.Nodes[id];
+        return PipelineEditing.ReplaceNode(Definition, id, node with { Agent = node.Agent! with { Tools = node.Agent!.Tools.RemoveAll(t => t.BindingId == bindingId) } });
+    });
 
     private async Task Edit(Func<WorkflowDefinition> edit)
     {

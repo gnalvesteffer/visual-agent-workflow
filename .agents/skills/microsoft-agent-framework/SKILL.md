@@ -5,7 +5,7 @@ description: Use when selecting or upgrading Microsoft Agent Framework .NET pack
 
 # Microsoft Agent Framework integration
 
-Read [project-guide](../project-guide/SKILL.md). The adapter targets `Microsoft.Agents.AI.Workflows` 1.26.0 on .NET 10 and has deterministic integration tests for linear string pipelines. See [implementation status](../../../docs/implementation.md) for supported scope. Do not infer agent, MCP, branch, or durability support from those tests.
+Read [project-guide](../project-guide/SKILL.md). The adapter targets Agent Framework 1.26.0 on .NET 10. Tests cover linear workflows, real stdio MCP tools, and `ChatClientAgent` function loops with a deterministic `IChatClient`. See [implementation status](../../../docs/implementation.md) for supported scope. These checks do not validate live LLM providers, branches, or durability.
 
 ## Establish version-specific evidence
 
@@ -38,3 +38,5 @@ Use [workflow-runtime-review](../workflow-runtime-review/SKILL.md) for failure/r
 Review release notes and affected source before upgrading. Compile and exercise representative mappings, streaming instrumentation, tool approvals, and recovery paths affected by the change. Inspect public API and persisted-checkpoint compatibility; do not assume checkpoints can resume across runtime versions. Apply [version-compatibility-review](../version-compatibility-review/SKILL.md) and document any required migration or continued support for older runtime artifacts.
 
 Historical playback must remain independent of framework execution and available provider packages. Report builds, deterministic integration checks, real-provider checks, and unrun cases separately.
+
+In the tested version, a workflow stream can finish normally when its execution token is cancelled. Check the token inside/after enumeration before interpreting no output as a failure. Preserve the active-provider cancellation regression in `VisualAgentWorkflow.Mcp.Tests`. Agent functions must delegate to the scoped platform broker rather than exposing raw SDK MCP tools. The deterministic fixture deliberately ignores instructions; never describe it as live model behavior.

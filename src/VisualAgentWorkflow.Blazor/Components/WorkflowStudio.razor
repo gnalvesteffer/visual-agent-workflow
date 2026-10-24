@@ -5,7 +5,7 @@
         <p class="vaw-eyebrow">VISUAL AGENT WORKFLOW</p>
         <h1>Pipeline studio</h1>
         <p>Run an Agent Framework pipeline. Inspect the recorded inputs, outputs, and messages.</p>
-        <p class="vaw-notice">Local development prototype · linear pipelines and approved local MCP text tools; agents are not yet implemented.</p>
+        <p class="vaw-notice">Local development prototype · linear pipelines, approved MCP text tools, and deterministic demo agents.</p>
     </header>
     <div class="vaw-workspace">
         <aside class="vaw-sidebar">
@@ -40,7 +40,7 @@
             @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
             @if (Catalog is not null && Client is IPublishedWorkflowClient publishedClient)
             {
-                <WorkflowDesigner Catalog="Catalog" Client="publishedClient" OnRunStarted="PublishedRunStarted" ToolCatalog="ToolCatalog" />
+                <WorkflowDesigner Catalog="Catalog" Client="publishedClient" OnRunStarted="PublishedRunStarted" ToolCatalog="ToolCatalog" AgentCatalog="AgentCatalog" />
             }
             <WorkflowRunViewer Snapshot="snapshot" />
         </main>
@@ -51,6 +51,7 @@
     [Parameter, EditorRequired] public IWorkflowClient Client { get; set; } = default!;
     [Parameter] public IWorkflowCatalog? Catalog { get; set; }
     [Parameter] public IToolBindingCatalog? ToolCatalog { get; set; }
+    [Parameter] public IAgentProviderCatalog? AgentCatalog { get; set; }
     private string operation = "uppercase-reverse";
     private string input = "Hello, workflows!";
     private IReadOnlyList<RunSnapshot> runs = [];

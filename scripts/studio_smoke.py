@@ -153,6 +153,46 @@ def mcp_check():
     print("Actual MCP pipeline execution, correlated recording, denied binding, and contract-drift checks passed.")
 
 
+def agent_check():
+    provider = next(p for p in get("/api/agent-providers") if p["providerId"] == "demo.scripted")
+    assert provider["isDeterministic"] is True
+    reverse = next(b for b in get("/api/tool-bindings") if b["bindingId"] == "demo.reverse")
+    definition = get("/api/templates/default")
+    definition["schemaVersion"] = "1.2"
+    definition["nodes"]["step-1"] = {"type": "core.agent", "typeVersion": "1.0.0", "agent": {
+        "providerId": provider["providerId"], "providerVersion": provider["version"],
+        "instructions": "Use only the assigned tool.",
+        "tools": [{"bindingId": reverse["bindingId"], "contractHash": reverse["contractHash"]}]}}
+    definition["nodes"]["step-2"]["type"] = "core.text.uppercase"
+
+    def execute():
+        with request("/api/runs", {"definition": definition, "input": "abc"}) as response:
+            started = json.load(response)
+        deadline = time.monotonic() + 15
+        while True:
+            snapshot = get("/api/runs/" + started["header"]["runId"])
+            if snapshot["isTerminal"]:
+                return snapshot
+            assert time.monotonic() < deadline
+            time.sleep(0.05)
+
+    result = execute()
+    assert result["status"] == "completed" and result["events"][-1]["data"] == "CBA"
+    assert sum(e["kind"] == "model.requested" for e in result["events"]) == 2
+    assert sum(e["kind"] == "model.responded" for e in result["events"]) == 2
+    assert any(e["kind"] == "agent.completed" for e in result["events"])
+    definition["nodes"]["step-1"]["agent"]["tools"][0]["bindingId"] = "not-granted"
+    denied = execute()
+    assert denied["status"] == "failed" and any(e["kind"] == "tool.denied" for e in denied["events"])
+    assert any(e["kind"] == "node.failed" for e in denied["events"])
+    assert not any(e["kind"] == "model.requested" for e in denied["events"])
+    definition["nodes"]["step-1"]["agent"]["tools"] = []
+    plain = execute()
+    assert plain["status"] == "completed" and plain["events"][-1]["data"] == "DEMO AGENT: ABC"
+    assert not any(e["kind"] == "tool.requested" for e in plain["events"])
+    print("Framework agent/tool loop, recorded model rounds, denied tool preflight, and no-tool isolation passed (deterministic fixture).")
+
+
 def browser_check(executable):
     from playwright.sync_api import expect, sync_playwright
 
@@ -183,6 +223,7 @@ def browser_check(executable):
             print("Browser run controls, output inspector, playback, reload, and mobile overflow checks passed.")
             designer_check(browser)
             mcp_designer_check(browser)
+            agent_designer_check(browser)
         finally:
             browser.close()
 
@@ -311,6 +352,41 @@ def mcp_designer_check(browser):
     print("Browser MCP binding selection, published execution, recorded tool result, and reload passed.")
 
 
+def agent_designer_check(browser):
+    from playwright.sync_api import expect
+
+    page = browser.new_page(viewport={"width": 1280, "height": 1000})
+    page.goto(BASE)
+    designer = page.get_by_role("region", name="Workflow designer", exact=True)
+    expect(designer.get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
+    designer.get_by_role("button", name="New workflow", exact=True).click()
+    designer.get_by_text("New workflow created locally. Save its draft before publishing.", exact=True).wait_for()
+    workflow_id = designer.get_by_label("Saved workflow", exact=True).input_value()
+    designer.get_by_label("Operation for step-1", exact=True).select_option(label="Deterministic demo agent")
+    designer.get_by_label("Agent instructions for step-1", exact=True).fill("Use only assigned tools; return their output.")
+    designer.get_by_role("checkbox", name="Assign demo.reverse to step-1", exact=True).check()
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    designer.get_by_role("button", name="Publish & activate", exact=True).click()
+    designer.get_by_text("Published and activated version 1.", exact=True).wait_for()
+    designer.get_by_label("Published run input", exact=True).fill("abc")
+    designer.get_by_role("button", name="Run selected version", exact=True).click()
+    page.get_by_role("button", name="output core.output Completed", exact=True).click()
+    expect(page.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("cba")
+    viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
+    viewer.get_by_text("Recorded events at this position", exact=False).click()
+    expect(viewer.get_by_role("cell", name="model.responded", exact=True)).to_have_count(2)
+    page.reload()
+    expect(designer.get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
+    designer.get_by_label("Saved workflow", exact=True).select_option(workflow_id)
+    expect(designer.get_by_role("checkbox", name="Assign demo.reverse to step-1", exact=True)).to_be_checked()
+    expect(designer.get_by_label("Agent instructions for step-1", exact=True)).to_have_value("Use only assigned tools; return their output.")
+    assert get("/api/workflows/" + workflow_id)["definition"]["schemaVersion"] == "1.2"
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), "Agent editor mobile overflow"
+    page.close()
+    print("Browser agent instructions, node tool assignment, published execution, model evidence, and reload passed.")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--browser", action="store_true", help="Also exercise real browser controls; requires Playwright and Chromium")
@@ -319,5 +395,6 @@ if __name__ == "__main__":
     api_check()
     catalog_check()
     mcp_check()
+    agent_check()
     if arguments.browser:
         browser_check(arguments.browser_executable)

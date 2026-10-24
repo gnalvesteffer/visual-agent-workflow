@@ -43,7 +43,7 @@ public sealed class McpToolBroker : INodeToolBroker
         if (invocation.RunId == Guid.Empty || invocation.InvocationId == Guid.Empty ||
             !invocation.Revision.Definition.Nodes.TryGetValue(invocation.NodeId, out var node))
             throw new ArgumentException("Invalid runtime invocation context.", nameof(invocation));
-        return new Scope(this, invocation, node.Tool is null ? [] : [node.Tool]);
+        return new Scope(this, invocation, NodeToolRequirements.For(node));
     }
 
     private static async Task<McpClientTool> FindTool(McpClient client, McpToolRegistration registration, CancellationToken cancellationToken)

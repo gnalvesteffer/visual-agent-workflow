@@ -7,7 +7,7 @@ namespace VisualAgentWorkflow.Mcp.Tests;
 
 public class BrokerTests
 {
-    private static IReadOnlyList<McpToolRegistration> Registrations()
+    internal static IReadOnlyList<McpToolRegistration> Registrations()
     {
         var root = new DirectoryInfo(AppContext.BaseDirectory);
         while (root is not null && !File.Exists(Path.Combine(root.FullName, "VisualAgentWorkflow.slnx"))) root = root.Parent;

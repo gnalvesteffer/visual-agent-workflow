@@ -12,8 +12,8 @@ public static class WorkflowValidator
         var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
 
-        if (definition.SchemaVersion is not ("1.0" or "1.1"))
-            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 and 1.1.");
+        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2"))
+            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0, 1.1 and 1.2.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.Nodes is null || definition.Connections is null)
@@ -41,6 +41,17 @@ public static class WorkflowValidator
             }
             else if (node.Tool is not null)
                 Error("tool.unexpected", $"nodes.{id}.tool", "This node type cannot declare an MCP tool.");
+            if (node.Type == NodeTypes.Agent)
+            {
+                if (definition.SchemaVersion != "1.2") Error("node.schema", $"nodes.{id}", "Agent nodes require schema 1.2.");
+                if (node.Agent is not { } agent || string.IsNullOrWhiteSpace(agent.ProviderId) || agent.ProviderId.Length > 128 ||
+                    string.IsNullOrWhiteSpace(agent.ProviderVersion) || agent.ProviderVersion.Length > 64 ||
+                    agent.Instructions is null || agent.Instructions.Length > 8192 || agent.Tools.IsDefault || agent.Tools.Length > 8 ||
+                    agent.Tools.Any(t => t is null || !ValidBinding(t)) || agent.Tools.Select(t => t.BindingId).Distinct(StringComparer.Ordinal).Count() != agent.Tools.Length)
+                    Error("agent.configuration", $"nodes.{id}.agent", "An agent requires a provider/version, bounded instructions, and up to eight unique tool requirements.");
+            }
+            else if (node.Agent is not null)
+                Error("agent.unexpected", $"nodes.{id}.agent", "Only agent nodes may declare agent configuration.");
         }
 
         if (string.IsNullOrWhiteSpace(definition.EntryNodeId) ||

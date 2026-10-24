@@ -3,6 +3,7 @@
 @inject IWorkflowClient Client
 @inject IWorkflowCatalog Catalog
 @inject IToolBindingCatalog Tools
+@inject IAgentProviderCatalog Agents
 
 <PageTitle>Visual Agent Workflow</PageTitle>
-<WorkflowStudio Client="Client" Catalog="Catalog" ToolCatalog="Tools" />
+<WorkflowStudio Client="Client" Catalog="Catalog" ToolCatalog="Tools" AgentCatalog="Agents" />

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 
 namespace VisualAgentWorkflow.Core;
 
@@ -16,7 +17,7 @@ public static class WorkflowDifference
         {
             before.Nodes.TryGetValue(id, out var oldNode);
             after.Nodes.TryGetValue(id, out var newNode);
-            if (oldNode != newNode) changes.Add(new("node", id, DescribeNode(oldNode), DescribeNode(newNode)));
+            if (DescribeNode(oldNode) != DescribeNode(newNode)) changes.Add(new("node", id, DescribeNode(oldNode), DescribeNode(newNode)));
         }
         foreach (var id in before.Connections.Keys.Union(after.Connections.Keys).Order(StringComparer.Ordinal))
         {
@@ -34,5 +35,5 @@ public static class WorkflowDifference
         $"{edge.Source.NodeId}.{edge.Source.PortId} → {edge.Target.NodeId}.{edge.Target.PortId} ({edge.Kind})";
 
     private static string? DescribeNode(NodeDefinition? node) => node is null ? null :
-        $"{node.Type}@{node.TypeVersion}" + (node.Tool is null ? "" : $" [{node.Tool.BindingId}@{node.Tool.ContractHash}]");
+        JsonSerializer.Serialize(node, JsonSerializerOptions.Web);
 }

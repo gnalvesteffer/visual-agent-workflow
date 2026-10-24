@@ -22,9 +22,9 @@
             @foreach (var nodeId in OrderedNodes())
             {
                 var node = Snapshot.Header.Definition.Nodes[nodeId];
-                var state = VisibleEvents.LastOrDefault(e => e.NodeId == nodeId && e.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted);
+                var state = VisibleEvents.LastOrDefault(e => e.NodeId == nodeId && e.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
                 var received = VisibleEvents.LastOrDefault(e => e.NodeId == nodeId && e.Kind == ExecutionEventKinds.Transfer);
-                <li class="vaw-node @(state?.Kind == ExecutionEventKinds.NodeCompleted ? "vaw-complete" : "")">
+                <li class="vaw-node @(state?.Kind == ExecutionEventKinds.NodeCompleted ? "vaw-complete" : state?.Kind is ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled ? "vaw-failed" : "")">
                     @if (nodeId != Snapshot.Header.Definition.EntryNodeId)
                     {
                         <div class="vaw-connection @(received is null ? "" : "vaw-delivered")">
@@ -33,7 +33,7 @@
                     }
                     <button class="vaw-node-button" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId)">
                         <strong>@nodeId</strong><span>@node.Type</span>
-                        <span>@(state is null ? "Not executed at this position" : state.Kind == ExecutionEventKinds.NodeCompleted ? "Completed" : "Running")</span>
+                        <span>@StateLabel(state)</span>
                     </button>
                 </li>
             }
@@ -42,11 +42,13 @@
         {
             var started = VisibleEvents.LastOrDefault(e => e.NodeId == selectedNode && e.Kind == ExecutionEventKinds.NodeStarted);
             var completed = VisibleEvents.LastOrDefault(e => e.NodeId == selectedNode && e.Kind == ExecutionEventKinds.NodeCompleted);
+            var failure = VisibleEvents.LastOrDefault(e => e.NodeId == selectedNode && e.Kind is ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
             <section class="vaw-inspector" aria-label="Selected node payloads">
                 <h3>@selectedNode</h3>
                 <p>Invocation: @(started?.InvocationId?.ToString() ?? "Not recorded at this position")</p>
                 <h4>Input</h4><pre>@(started?.Data ?? "Not recorded at this position")</pre>
                 <h4>Output</h4><pre>@(completed?.Data ?? "Not recorded at this position")</pre>
+                @if (failure is not null) { <h4>@StateLabel(failure)</h4><pre>@failure.Data</pre> }
             </section>
         }
         <details>
@@ -85,6 +87,14 @@
     }
 
     private void Previous() { cursor = Math.Max(0, Position - 1); follow = false; }
+    private static string StateLabel(ExecutionEvent? state) => state?.Kind switch
+    {
+        null => "Not executed at this position",
+        ExecutionEventKinds.NodeCompleted => "Completed",
+        ExecutionEventKinds.NodeFailed => "Failed",
+        ExecutionEventKinds.NodeCancelled => "Cancelled",
+        _ => "Running"
+    };
     private void Next() { cursor = Math.Min(Snapshot!.Events.Length, Position + 1); follow = false; }
     private void Scrub(ChangeEventArgs args)
     {

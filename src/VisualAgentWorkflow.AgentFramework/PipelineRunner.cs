@@ -4,7 +4,7 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.AgentFramework;
 
 /// <summary>Translates the supported string pipeline into actual Agent Framework executors and edges.</summary>
-public sealed class PipelineRunner(INodeToolBroker? tools = null)
+public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null)
 {
     public async Task<string> ExecuteAsync(
         Guid runId,
@@ -28,7 +28,7 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null)
         var incoming = definition.Connections.ToDictionary(e => e.Value.Target.NodeId, e => e.Key);
         var executors = definition.Nodes.ToDictionary(
             n => n.Key,
-            n => new StringExecutor(n.Key, n.Value, runId, revision, tools, incoming.GetValueOrDefault(n.Key), Emit));
+            n => new StringExecutor(n.Key, n.Value, runId, revision, tools, agents, incoming.GetValueOrDefault(n.Key), Emit));
         var builder = new WorkflowBuilder(executors[definition.EntryNodeId]);
         foreach (var edge in definition.Connections.Values)
             builder.AddEdge(executors[edge.Source.NodeId], executors[edge.Target.NodeId]);
@@ -44,6 +44,7 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null)
             string? output = null;
             await foreach (var evt in run.WatchStreamAsync(cancellationToken))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (evt is WorkflowErrorEvent error)
                     throw new InvalidOperationException("Agent Framework execution failed.", error.Exception);
                 if (evt is ExecutorFailedEvent failed)
@@ -51,6 +52,8 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null)
                 if (evt is WorkflowOutputEvent result && result.Data is string text)
                     output = text;
             }
+            // The framework may finish its event stream normally when the execution token is cancelled.
+            cancellationToken.ThrowIfCancellationRequested();
             if (output is null) throw new InvalidOperationException("The workflow produced no output.");
             await Emit(ExecutionEventKinds.Completed, data: output);
             return output;
@@ -74,6 +77,7 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null)
         Guid runId,
         WorkflowRevision revision,
         INodeToolBroker? tools,
+        IAgentNodeExecutor? agents,
         string? incomingConnection,
         Func<string, string?, Guid?, string?, string?, ValueTask> emit) : Executor<string, string>(id)
     {
@@ -85,16 +89,32 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null)
             if (incomingConnection is not null)
                 await emit(ExecutionEventKinds.Transfer, Id, invocation, incomingConnection, message);
             await emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, message);
-            var result = node.Type switch
+            try
             {
-                NodeTypes.Input or NodeTypes.Output => message,
-                NodeTypes.Uppercase => message.ToUpperInvariant(),
-                NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
-                NodeTypes.McpTool => await InvokeTool(message, invocation, cancellationToken),
-                _ => throw new InvalidOperationException("Unsupported executor type.")
-            };
-            await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, result);
-            return result;
+                var result = node.Type switch
+                {
+                    NodeTypes.Input or NodeTypes.Output => message,
+                    NodeTypes.Uppercase => message.ToUpperInvariant(),
+                    NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
+                    NodeTypes.McpTool => await InvokeTool(message, invocation, cancellationToken),
+                    NodeTypes.Agent => agents is null ? throw new InvalidOperationException("No agent executor is configured.") :
+                        await agents.ExecuteAsync(new(runId, revision, Id, invocation,
+                            (kind, data) => emit(kind, Id, invocation, null, data)), message, cancellationToken),
+                    _ => throw new InvalidOperationException("Unsupported executor type.")
+                };
+                await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, result);
+                return result;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                await emit(ExecutionEventKinds.NodeCancelled, Id, invocation, null, "Node execution cancelled.");
+                throw;
+            }
+            catch
+            {
+                await emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, "Node execution failed.");
+                throw;
+            }
         }
 
         private async Task<string> InvokeTool(string input, Guid invocation, CancellationToken cancellationToken)

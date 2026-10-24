@@ -12,7 +12,8 @@ public sealed record WorkflowDefinition(
     ImmutableSortedDictionary<string, ConnectionDefinition> Connections);
 
 public sealed record NodeDefinition(string Type, string TypeVersion,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ToolBindingRequest? Tool = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ToolBindingRequest? Tool = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AgentConfiguration? Agent = null);
 public sealed record PortReference(string NodeId, string PortId);
 public sealed record ConnectionDefinition(PortReference Source, PortReference Target, string Kind);
 
@@ -24,7 +25,8 @@ public static class NodeTypes
     public const string Reverse = "core.text.reverse";
     public const string Output = "core.output";
     public const string McpTool = "core.mcp-tool";
+    public const string Agent = "core.agent";
 
     public static bool IsSupported(string? type) =>
-        type is Input or Uppercase or Reverse or Output or McpTool;
+        type is Input or Uppercase or Reverse or Output or McpTool or Agent;
 }

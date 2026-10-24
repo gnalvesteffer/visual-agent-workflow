@@ -89,7 +89,7 @@ public class WorkflowTests
 
     [Theory]
     [InlineData("custom.assembly")]
-    [InlineData("core.agent")]
+    [InlineData("core.future-agent")]
     public void UnknownOrUnimplementedNodesAreRejected(string type) =>
         Assert.Contains(WorkflowValidator.Validate(Pipeline(type)), i => i.Code == "node.unsupported");
 

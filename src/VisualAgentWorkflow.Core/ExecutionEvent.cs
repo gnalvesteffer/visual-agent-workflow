@@ -17,6 +17,8 @@ public static class ExecutionEventKinds
     public const string Started = "run.started";
     public const string NodeStarted = "node.started";
     public const string NodeCompleted = "node.completed";
+    public const string NodeFailed = "node.failed";
+    public const string NodeCancelled = "node.cancelled";
     public const string Transfer = "connection.received";
     public const string Completed = "run.completed";
     public const string Failed = "run.failed";
@@ -28,4 +30,9 @@ public static class ExecutionEventKinds
     public const string ToolCompleted = "tool.completed";
     public const string ToolFailed = "tool.failed";
     public const string ToolUncertain = "tool.outcome-unknown";
+    public const string AgentStarted = "agent.started";
+    public const string AgentCompleted = "agent.completed";
+    public const string AgentFailed = "agent.failed";
+    public const string ModelRequested = "model.requested";
+    public const string ModelResponded = "model.responded";
 }
