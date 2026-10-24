@@ -23,3 +23,5 @@ Before selecting dependencies or implementing a public contract, identify the sm
 Use the [catalog](../../../docs/agent-skills.md) to select the relevant review. Update README and design documentation when behavior or architectural decisions change. Keep proposed work distinct from implemented and tested behavior.
 
 For stylesheet work, read the vendored [CSS skill](../css/SKILL.md) and its [local integration guidance](../css/SOURCE.md), then use [graph-experience-review](../graph-experience-review/SKILL.md) for actual UI validation. Keep library styles and tokens scoped so embedding does not alter the host application's global styles.
+
+For Razor/component work, read the vendored [Blazor skill](../blazor/SKILL.md) and its [.NET 10 project compatibility notes](../blazor/SOURCE.md). Preserve host-independent embedding and backend-owned execution; use verified framework APIs rather than assuming generic upstream examples match this repository's SDK.
