@@ -43,3 +43,7 @@ The development host supports cooperative node-boundary control through `IWorkfl
 ## Consumer-owned observation API
 
 The opt-in policy-protected observation API is a separate reusable GET-only route group, not an extension of the Studio development execution API. It exposes summary/snapshot/cursor reads and no mutation routes. See [consumer observation](observation.md).
+
+## Conditional definitions
+
+Schema 1.4 adds `core.condition` and `core.merge` version 1.0.0, true/false string output ports and a bounded condition configuration. Existing save/publish/run/package routes accept validated conditional graphs. Invalid wiring/predicates fail before execution. No new mutation route or catalog migration is needed. See [conditional contracts and compatibility](conditional-graphs.md).

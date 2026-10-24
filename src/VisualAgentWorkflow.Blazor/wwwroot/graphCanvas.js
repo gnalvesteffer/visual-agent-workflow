@@ -85,8 +85,8 @@ function draw(state) {
             width: rect.width / zoom, height: rect.height / zoom, sockets });
     }
     for (const path of state.paths) {
-        const from = rects.get(path.dataset.source)?.sockets.out;
-        const to = rects.get(path.dataset.target)?.sockets.in;
+        const from = rects.get(path.dataset.source)?.sockets[path.dataset.sourcePort ?? "out"];
+        const to = rects.get(path.dataset.target)?.sockets[path.dataset.targetPort ?? "in"];
         if (!from || !to) { path.setAttribute('d', ''); continue; }
         const points = JSON.parse(path.dataset.points);
         if (state.drag?.kind === 'wire' && state.drag.id === path.dataset.wire)

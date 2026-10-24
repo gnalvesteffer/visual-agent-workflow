@@ -41,7 +41,7 @@
             <ul class="vaw-history">
                 @foreach (var run in runs.Take(50))
                 {
-                    <li @key="run.Header.RunId"><button type="button" @onclick="() => SelectRun(run.Header.RunId)" aria-pressed="@(snapshot?.Header.RunId == run.Header.RunId)">
+                    <li @key="run.Header.RunId"><button type="button" @onclick="() => SelectRun(run.Header.RunId)" aria-pressed="@(snapshot?.Header.RunId == run.Header.RunId ? "true" : "false")">
                         <span class="vaw-history-status">@run.Status</span>
                         <time datetime="@run.Header.CreatedAt.ToString("O")">@run.Header.CreatedAt.ToString("MMM d, HH:mm:ss")</time>
                         <small>@run.Header.RunId.ToString()[..8]</small>

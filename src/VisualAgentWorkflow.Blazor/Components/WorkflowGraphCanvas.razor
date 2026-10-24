@@ -24,7 +24,7 @@
                         var route = Route(id);
                         @for (var segment = 0; segment <= route.Points.Length; segment++)
                         {
-                            <path @key="(id, segment)" class="vaw-wire @(selectedWire == id ? "vaw-wire-selected" : "") @(DeliveredConnections?.Contains(id) == true ? "vaw-wire-delivered" : "")" data-wire="@id" data-segment="@segment" data-source="@connection.Source.NodeId" data-target="@connection.Target.NodeId" data-style="@route.Style" data-points="@PointsJson(route)" />
+                            <path @key="(id, segment)" class="vaw-wire @(selectedWire == id ? "vaw-wire-selected" : "") @(DeliveredConnections?.Contains(id) == true ? "vaw-wire-delivered" : "")" data-wire="@id" data-segment="@segment" data-source="@connection.Source.NodeId" data-target="@connection.Target.NodeId" data-source-port="@connection.Source.PortId" data-target-port="@connection.Target.PortId" data-style="@route.Style" data-points="@PointsJson(route)" />
                         }
                     }
                 </svg>
@@ -39,10 +39,14 @@
                                     <strong>@Title(id)</strong><span class="vaw-node-kind">@Kind(node)</span>
                                 </button>
                                 <div class="vaw-socket-row">
-                                    @if (node.Type != NodeTypes.Input)
-                                    { <span class="vaw-socket-label vaw-socket-input"><span class="vaw-socket" data-socket="in" title="String input" aria-hidden="true"></span>in · string</span> }
-                                    @if (node.Type != NodeTypes.Output)
-                                    { <span class="vaw-socket-label vaw-socket-output">out · string<span class="vaw-socket" data-socket="out" title="String output" aria-hidden="true"></span></span> }
+                                    <div class="vaw-input-ports">
+                                        @foreach (var port in WorkflowPorts.Inputs(node))
+                                        { <span class="vaw-socket-label vaw-socket-input"><span class="vaw-socket" data-socket="@port.Id" title="@($"{port.Id} · {port.DataType} input")" aria-hidden="true"></span>@port.Id · @port.DataType</span> }
+                                    </div>
+                                    <div class="vaw-output-ports">
+                                        @foreach (var port in WorkflowPorts.Outputs(node))
+                                        { <span class="vaw-socket-label vaw-socket-output">@port.Id · @port.DataType<span class="vaw-socket" data-socket="@port.Id" title="@($"{port.Id} · {port.DataType} output")" aria-hidden="true"></span></span> }
+                                    </div>
                                 </div>
                                 @if (!string.IsNullOrWhiteSpace(presentation.Comment))
                                 { <p class="vaw-node-comment">@presentation.Comment</p> }

@@ -12,8 +12,20 @@
     }
     <WorkflowGraphCanvas @key="Definition.WorkflowId" Definition="Definition" Layout="EffectiveLayout" LayoutChanged="LayoutEdited" ReadOnly="@(ReadOnly || LayoutReadOnly)" Disabled="Disabled">
         <NodeContent Context="id">
-            @{ var node = Definition.Nodes[id]; var index = Order.IndexOf(id); var terminal = node.Type is NodeTypes.Input or NodeTypes.Output; }
-                    @if (terminal || ReadOnly)
+            @{ var node = Definition.Nodes[id]; var index = Order.IndexOf(id); var terminal = node.Type is NodeTypes.Input or NodeTypes.Output or NodeTypes.Merge; }
+                    @if (node.Type == NodeTypes.Condition && !ReadOnly)
+                    {
+                        <label>Condition operator for @id
+                            <select aria-label="Condition operator for @id" value="@node.Condition!.Operator" @onchange="args => ConditionOperator(id, args)" disabled="@Disabled">
+                                <option value="equals">Equals</option><option value="contains">Contains</option><option value="starts-with">Starts with</option><option value="is-empty">Is empty</option>
+                            </select>
+                        </label>
+                        <label>Condition operand for @id
+                            <input aria-label="Condition operand for @id" value="@node.Condition!.Operand" @onchange="args => ConditionOperand(id, args)" maxlength="1024" disabled="@(Disabled || node.Condition.Operator == "is-empty")" />
+                        </label>
+                        <p class="vaw-help">Ordinal, case-sensitive text comparison. Exactly one output passes the unchanged text.</p>
+                    }
+                    else if (terminal || ReadOnly)
                     {
                         <p>@node.Type</p>
                     }
@@ -32,15 +44,24 @@
                             </select>
                         </label>
                         <div class="vaw-controls">
+                            @if (!HasRouting)
+                            {
                             <button type="button" @onclick="() => Edit(() => PipelineEditing.Move(Definition, id, -1))" disabled="@(Disabled || index == 1)" aria-label="Move @id up">Move up</button>
                             <button type="button" @onclick="() => Edit(() => PipelineEditing.Move(Definition, id, 1))" disabled="@(Disabled || index == Order.Length - 2)" aria-label="Move @id down">Move down</button>
-                            <button type="button" @onclick="() => Edit(() => PipelineEditing.Remove(Definition, id))" disabled="@Disabled" aria-label="Remove @id">Remove</button>
+                            }
+                            <button type="button" @onclick="() => Edit(() => HasRouting ? GraphEditing.RemoveNode(Definition, id) : PipelineEditing.Remove(Definition, id))" disabled="@Disabled" aria-label="Remove @id">Remove</button>
                         </div>
                     }
-                    @if (!ReadOnly && node.Type != NodeTypes.Output)
+                    @if (!ReadOnly)
                     {
-                        <button type="button" @onclick="() => Edit(() => PipelineEditing.InsertNodeAfter(Definition, id, FromSelection(newType)))" disabled="@(Disabled || Definition.Nodes.Count >= 256)" aria-label="Add node after @id">+ Add node after</button>
+                        @foreach (var port in WorkflowPorts.Outputs(node))
+                        {
+                            <button type="button" @onclick="() => InsertAfter(id, port.Id)" disabled="@(Disabled || Definition.Nodes.Count >= 256)" aria-label="Add node after @PortLabel(id, port.Id)">+ Add node after @port.Id</button>
+                            <button type="button" @onclick="() => Edit(() => GraphEditing.InsertConditionalAfter(Definition, id, port.Id))" disabled="@(Disabled || Definition.Nodes.Count > 252)" aria-label="Add conditional after @PortLabel(id, port.Id)">+ Conditional after @port.Id</button>
+                        }
                     }
+                    @if (node.Type == NodeTypes.Merge) { <p class="vaw-help">Passes the selected incoming value. This is not a parallel join.</p> }
+                    @if (node.Condition is { } recordedCondition && ReadOnly) { <p>@recordedCondition.Operator · @recordedCondition.Operand</p> }
                     @if (node.Origin is { } origin)
                     { <p class="vaw-node-origin">Copied from @origin.WorkflowId · version @origin.Version. Local edits are independent.</p> }
                     @if (node.Tool is { } tool)
@@ -104,7 +125,7 @@
     protected override void OnParametersSet()
     {
         if (ReferenceEquals(orderedDefinition, Definition)) return;
-        Order = PipelineEditing.OrderedNodes(Definition);
+        Order = WorkflowGraph.OrderedNodes(Definition);
         localLayout = orderedDefinition?.WorkflowId != Definition.WorkflowId
             ? WorkflowLayout.Create(Definition)
             : (localLayout ?? WorkflowLayout.Create(Definition)).Reconcile(Definition);
@@ -112,8 +133,23 @@
         error = null;
     }
 
+    private bool HasRouting => WorkflowGraph.HasRouting(Definition);
+    private static string PortLabel(string id, string port) => port == "out" ? id : id + "." + port;
+    private WorkflowDefinition ReplaceProcessing(string id, NodeDefinition node) => HasRouting
+        ? GraphEditing.ReplaceNode(Definition, id, node) : PipelineEditing.ReplaceNode(Definition, id, node);
+    private Task InsertAfter(string id, string port) => Edit(() => HasRouting
+        ? GraphEditing.InsertNodeAfter(Definition, id, port, FromSelection(newType)) : PipelineEditing.InsertNodeAfter(Definition, id, FromSelection(newType)));
+    private Task ConditionOperator(string id, ChangeEventArgs args) => Edit(() =>
+    {
+        var operation = args.Value?.ToString() ?? "";
+        return GraphEditing.ReplaceNode(Definition, id, Definition.Nodes[id] with
+            { Condition = new(operation, operation == "is-empty" ? "" : Definition.Nodes[id].Condition!.Operand) });
+    });
+    private Task ConditionOperand(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
+        Definition.Nodes[id] with { Condition = Definition.Nodes[id].Condition! with { Operand = args.Value?.ToString() ?? "" } }));
+
     private Task ChangeType(string id, ChangeEventArgs args) =>
-        Edit(() => PipelineEditing.ReplaceNode(Definition, id, FromSelection(args.Value?.ToString() ?? "", Definition.Nodes[id])));
+        Edit(() => ReplaceProcessing(id, FromSelection(args.Value?.ToString() ?? "", Definition.Nodes[id])));
 
     private static string ToolKey(ToolBindingDescriptor binding) => $"mcp:{binding.BindingId}:{binding.ContractHash}";
     private static string ProviderKey(AgentProviderDescriptor provider) => $"agent:{provider.ProviderId}:{provider.Version}";
@@ -128,7 +164,7 @@
         return binding is null ? new(value, "1.0.0") : new(NodeTypes.McpTool, "1.0.0", new(binding.BindingId, binding.ContractHash));
     }
 
-    private Task Instructions(string id, ChangeEventArgs args) => Edit(() => PipelineEditing.ReplaceNode(Definition, id,
+    private Task Instructions(string id, ChangeEventArgs args) => Edit(() => ReplaceProcessing(id,
         Definition.Nodes[id] with { Agent = Definition.Nodes[id].Agent! with { Instructions = args.Value?.ToString() ?? "" } }));
 
     private Task AssignTool(string id, ToolBindingDescriptor binding, ChangeEventArgs args) => Edit(() =>
@@ -136,19 +172,19 @@
         var node = Definition.Nodes[id];
         var tools = node.Agent!.Tools.RemoveAll(t => t.BindingId == binding.BindingId);
         if (args.Value is true) tools = tools.Add(new(binding.BindingId, binding.ContractHash));
-        return PipelineEditing.ReplaceNode(Definition, id, node with { Agent = node.Agent with { Tools = tools } });
+        return ReplaceProcessing(id, node with { Agent = node.Agent with { Tools = tools } });
     });
 
     private Task RemoveTool(string id, string bindingId) => Edit(() =>
     {
         var node = Definition.Nodes[id];
-        return PipelineEditing.ReplaceNode(Definition, id, node with { Agent = node.Agent! with { Tools = node.Agent!.Tools.RemoveAll(t => t.BindingId == bindingId) } });
+        return ReplaceProcessing(id, node with { Agent = node.Agent! with { Tools = node.Agent!.Tools.RemoveAll(t => t.BindingId == bindingId) } });
     });
 
     private async Task Edit(Func<WorkflowDefinition> edit)
     {
         if (ReadOnly || Disabled) return;
         try { error = null; await DefinitionChanged.InvokeAsync(edit()); }
-        catch (ArgumentException) { error = "This edit is not supported by the validated string-pipeline model."; }
+        catch (ArgumentException) { error = "The graph edit is invalid. Check port connections, condition configuration and graph limits."; }
     }
 }

@@ -1,4 +1,5 @@
 using Microsoft.Agents.AI.Workflows;
+using System.Text.Json;
 using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.AgentFramework;
@@ -32,13 +33,12 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExec
                 kind, node, invocation, connection, data));
 
         var definition = revision.Definition;
-        var incoming = definition.Connections.ToDictionary(e => e.Value.Target.NodeId, e => e.Key);
         var executors = definition.Nodes.ToDictionary(
             n => n.Key,
-            n => new StringExecutor(n.Key, n.Value, runId, revision, tools, agents, incoming.GetValueOrDefault(n.Key), Emit, gate));
+            n => new StringExecutor(n.Key, n.Value, runId, revision, tools, agents, Emit, gate));
         var builder = new WorkflowBuilder(executors[definition.EntryNodeId]);
         foreach (var edge in definition.Connections.Values)
-            builder.AddEdge(executors[edge.Source.NodeId], executors[edge.Target.NodeId]);
+            builder.AddEdge<GraphMessage>(executors[edge.Source.NodeId], executors[edge.Target.NodeId], message => message?.SourcePort == edge.Source.PortId);
         var outputId = definition.Nodes.Single(n => n.Value.Type == NodeTypes.Output).Key;
         builder.WithOutputFrom(executors[outputId]);
         var workflow = builder.Build();
@@ -47,7 +47,7 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExec
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await using var run = await InProcessExecution.RunStreamingAsync(workflow, input, cancellationToken: cancellationToken);
+            await using var run = await InProcessExecution.RunStreamingAsync(workflow, new GraphMessage(input, null, null), cancellationToken: cancellationToken);
             string? output = null;
             await foreach (var evt in run.WatchStreamAsync(cancellationToken))
             {
@@ -56,8 +56,8 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExec
                     throw new InvalidOperationException("Agent Framework execution failed.", error.Exception);
                 if (evt is ExecutorFailedEvent failed)
                     throw new InvalidOperationException($"Executor {failed.ExecutorId} failed.", failed.Data);
-                if (evt is WorkflowOutputEvent result && result.Data is string text)
-                    output = text;
+                if (evt is WorkflowOutputEvent result && result.Data is GraphMessage message)
+                    output = message.Text;
             }
             // The framework may finish its event stream normally when the execution token is cancelled.
             cancellationToken.ThrowIfCancellationRequested();
@@ -80,6 +80,8 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExec
         }
     }
 
+    private sealed record GraphMessage(string Text, string? SourceNode, string? SourcePort);
+
     private sealed class StringExecutor(
         string id,
         NodeDefinition node,
@@ -87,23 +89,27 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExec
         WorkflowRevision revision,
         INodeToolBroker? tools,
         IAgentNodeExecutor? agents,
-        string? incomingConnection,
-        Func<string, string?, Guid?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate) : Executor<string, string>(id)
+        Func<string, string?, Guid?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate) : Executor<GraphMessage, GraphMessage>(id)
     {
-        public override async ValueTask<string> HandleAsync(string message, IWorkflowContext context, CancellationToken cancellationToken = default)
+        public override async ValueTask<GraphMessage> HandleAsync(GraphMessage received, IWorkflowContext context, CancellationToken cancellationToken = default)
         {
             if (gate is not null) await gate.WaitForBoundaryAsync(Id, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
+            var message = received.Text;
             var invocation = Guid.NewGuid();
             // Receiving the downstream message is direct evidence of delivery, not inferred completion.
-            if (incomingConnection is not null)
-                await emit(ExecutionEventKinds.Transfer, Id, invocation, incomingConnection, message);
+            if (received.SourceNode is not null)
+            {
+                var incoming = revision.Definition.Connections.Single(e => e.Value.Source.NodeId == received.SourceNode &&
+                    e.Value.Source.PortId == received.SourcePort && e.Value.Target.NodeId == Id);
+                await emit(ExecutionEventKinds.Transfer, Id, invocation, incoming.Key, message);
+            }
             await emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, message);
             try
             {
                 var result = node.Type switch
                 {
-                    NodeTypes.Input or NodeTypes.Output => message,
+                    NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge => message,
                     NodeTypes.Uppercase => message.ToUpperInvariant(),
                     NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
                     NodeTypes.McpTool => await InvokeTool(message, invocation, cancellationToken),
@@ -112,8 +118,14 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExec
                             (kind, data) => emit(kind, Id, invocation, null, data)), message, cancellationToken),
                     _ => throw new InvalidOperationException("Unsupported executor type.")
                 };
+                var port = "out";
+                if (node.Type == NodeTypes.Condition)
+                {
+                    port = node.Condition!.Evaluate(message) ? "true" : "false";
+                    await emit(ExecutionEventKinds.BranchSelected, Id, invocation, null, JsonSerializer.Serialize(new { port }));
+                }
                 await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, result);
-                return result;
+                return new(result, Id, port);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

@@ -245,3 +245,11 @@
 .vaw-paused-boundary { border-color: var(--vaw-warning); }
 
 :where(.vaw-studio, .vaw-designer) a { color: var(--vaw-accent); }
+
+.vaw-input-ports, .vaw-output-ports { display: flex; flex-direction: column; gap: var(--vaw-space-3); }
+.vaw-output-ports { margin-inline-start: auto; align-items: end; }
+.vaw-socket-label { position: relative; }
+.vaw-edit-node[data-node-type="core.condition"] .vaw-node-kind { color: var(--vaw-warning); }
+.vaw-input-ports .vaw-socket { left: calc(-9px - var(--vaw-space-3)); }
+.vaw-output-ports .vaw-socket { right: calc(-9px - var(--vaw-space-3)); }
+:where(.vaw-pipeline-editor) input:not([type="checkbox"]) { inline-size: 100%; min-inline-size: 0; min-block-size: 2.75rem; margin-block-start: var(--vaw-space-2); background-color: var(--vaw-canvas); border: 1px solid var(--vaw-control-border); border-radius: var(--vaw-control-radius); padding: var(--vaw-space-2); }

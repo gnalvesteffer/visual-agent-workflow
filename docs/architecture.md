@@ -4,7 +4,7 @@ The engine and designer are independently consumable libraries; Studio is their 
 
 The Studio is a .NET 10 Interactive Server development host that composes embeddable Blazor components, a SQLite workflow catalog, a background run queue, Microsoft Agent Framework adapters, and a node-scoped MCP broker. Execution belongs to the backend. A browser edits definitions and observes recorded evidence; closing it does not cancel a run.
 
-This page describes shipped code. The broader [product design](design.md) includes planned distributed recovery, authorization, branching, collaboration, extensions, and reusable assets. Those are not implied by these diagrams.
+This page describes shipped code. The broader [product design](design.md) includes planned distributed recovery, workspace authorization, parallelism, collaboration, extensions, and reusable assets. Those are not implied by these diagrams.
 
 ## Package boundaries
 
@@ -55,7 +55,7 @@ The database schema is version 2. Schema 1 databases migrate by adding layout ta
 
 ## Execution and observation
 
-A published run resolves the exact stored revision before enqueueing. The local background worker translates the validated linear graph to real Agent Framework executors and edges. A maximum of 32 process-owned contexts share one active execution permit. Paused continuations release the permit while retaining their live framework state and admission slot. A per-run writer sequences control and executor events together; pause is acknowledged between nodes, not inside an admitted agent/tool operation. See [pause and resume](run-control.md). Actual receiver-side transfers, node invocations, model rounds, tool calls, and terminal outcomes become recorded events. The viewer reconstructs those events without calling executors, models, or tools.
+A published run resolves the exact stored revision before enqueueing. The local background worker translates validated linear/conditional string graphs to real Agent Framework executors and edges. A maximum of 32 process-owned contexts share one active execution permit. Paused continuations release the permit while retaining their live framework state and admission slot. A per-run writer sequences control and executor events together; pause is acknowledged between nodes, not inside an admitted agent/tool operation. See [pause and resume](run-control.md). Actual receiver-side transfers, node invocations, model rounds, tool calls, and terminal outcomes become recorded events. The viewer reconstructs those events without calling executors, models, or tools.
 
 ```mermaid
 flowchart LR
@@ -69,7 +69,7 @@ flowchart LR
     Journal -->|"Recorded snapshots and events"| Viewer["Live observation and playback"]
 ```
 
-Only linear string pipelines are executable today. Uppercase/reverse are deterministic operations. The host's `demo.scripted` agent exercises the framework tool loop but does not interpret instructions or contact an LLM. MCP bindings are pinned requirements that must also pass host policy on every invocation. Tool/provider catalogs are authoring choices, not permissions.
+Linear pipelines and schema-1.4 acyclic conditional string graphs are executable today. Conditions select one string output and exclusive merges pass through the selected value; they are not parallel join barriers. See [conditional graph semantics](conditional-graphs.md). Uppercase/reverse are deterministic operations. The host's `demo.scripted` agent exercises the framework tool loop but does not interpret instructions or contact an LLM. MCP bindings are pinned requirements that must also pass host policy on every invocation. Tool/provider catalogs are authoring choices, not permissions.
 
 ## Persistence and failure boundaries
 

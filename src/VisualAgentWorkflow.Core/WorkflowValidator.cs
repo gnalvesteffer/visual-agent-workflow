@@ -12,8 +12,8 @@ public static class WorkflowValidator
         var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
 
-        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3"))
-            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0, 1.1, 1.2 and 1.3.");
+        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4"))
+            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0, 1.1, 1.2, 1.3 and 1.4.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.Nodes is null || definition.Connections is null)
@@ -21,8 +21,8 @@ public static class WorkflowValidator
             Error("graph.missing", "nodes", "Nodes and connections must be present.");
             return issues.ToImmutable();
         }
-        if (definition.Nodes.Count is < 2 or > 256 || definition.Connections.Count > 255)
-            Error("graph.limit", "nodes", "A pipeline requires 2–256 nodes and at most 255 connections.");
+        if (definition.Nodes.Count is < 2 or > 256 || definition.Connections.Count > (definition.SchemaVersion == "1.4" ? 510 : 255))
+            Error("graph.limit", "nodes", "A graph requires 2–256 nodes and at most 255 connections (510 for schema 1.4).");
 
         var incoming = definition.Nodes.Keys.ToDictionary(id => id, _ => 0);
         var outgoing = definition.Nodes.Keys.ToDictionary(id => id, _ => new List<string>());
@@ -32,7 +32,17 @@ public static class WorkflowValidator
             if (node is null || !NodeTypes.IsSupported(node.Type) || node.TypeVersion != "1.0.0")
                 Error("node.unsupported", $"nodes.{id}", "Unknown node type or implementation version.");
             if (node is null) continue;
-            if (node.Origin is { } origin && (definition.SchemaVersion != "1.3" ||
+            if (node.Type is NodeTypes.Condition or NodeTypes.Merge && definition.SchemaVersion != "1.4")
+                Error("node.schema", $"nodes.{id}", "Conditional and merge nodes require schema 1.4.");
+            if (node.Type == NodeTypes.Condition)
+            {
+                if (node.Condition is not { } condition || condition.Operator is not ("equals" or "contains" or "starts-with" or "is-empty") ||
+                    condition.Operand is null || condition.Operand.Length > 1024 || condition.Operator == "is-empty" && condition.Operand.Length != 0)
+                    Error("condition.configuration", $"nodes.{id}.condition", "Use an approved ordinal string predicate and an operand up to 1024 characters; is-empty requires an empty operand.");
+            }
+            else if (node.Condition is not null)
+                Error("condition.unexpected", $"nodes.{id}.condition", "Only conditional nodes may declare a predicate.");
+            if (node.Origin is { } origin && (definition.SchemaVersion is not ("1.3" or "1.4") ||
                 string.IsNullOrWhiteSpace(origin.WorkflowId) || origin.WorkflowId.Length > 256 ||
                 string.IsNullOrWhiteSpace(origin.NodeId) || origin.NodeId.Length > 256 || origin.RevisionId == Guid.Empty ||
                 origin.Version < 1 || !ValidHash(origin.ContentHash)))
@@ -48,7 +58,7 @@ public static class WorkflowValidator
                 Error("tool.unexpected", $"nodes.{id}.tool", "This node type cannot declare an MCP tool.");
             if (node.Type == NodeTypes.Agent)
             {
-                if (definition.SchemaVersion is not ("1.2" or "1.3")) Error("node.schema", $"nodes.{id}", "Agent nodes require schema 1.2 or later.");
+                if (definition.SchemaVersion is not ("1.2" or "1.3" or "1.4")) Error("node.schema", $"nodes.{id}", "Agent nodes require schema 1.2 or later.");
                 if (node.Agent is not { } agent || string.IsNullOrWhiteSpace(agent.ProviderId) || agent.ProviderId.Length > 128 ||
                     string.IsNullOrWhiteSpace(agent.ProviderVersion) || agent.ProviderVersion.Length > 64 ||
                     agent.Instructions is null || agent.Instructions.Length > 8192 || agent.Tools.IsDefault || agent.Tools.Length > 8 ||
@@ -63,7 +73,7 @@ public static class WorkflowValidator
             !definition.Nodes.TryGetValue(definition.EntryNodeId, out var entry) || entry?.Type != NodeTypes.Input)
             Error("entry.invalid", "entryNodeId", "The entry must reference an input node.");
 
-        var pairs = new HashSet<(string, string)>();
+        var pairs = new HashSet<(string, string, string, string)>();
         foreach (var (id, edge) in definition.Connections)
         {
             var path = $"connections.{id}";
@@ -74,9 +84,10 @@ public static class WorkflowValidator
                 Error("connection.reference", path, "Both endpoints must reference existing nodes.");
                 continue;
             }
-            if (edge.Kind != "data" || edge.Source.PortId != "out" || edge.Target.PortId != "in")
-                Error("connection.port", path, "String pipelines connect an out port to an in port using a data link.");
-            if (!pairs.Add((source, target))) Error("connection.duplicate", path, "Duplicate connection.");
+            if (edge.Kind != "data" || definition.Nodes[source] is not { } sourceNode || definition.Nodes[target] is not { } targetNode ||
+                !WorkflowPorts.Outputs(sourceNode).Any(p => p.Id == edge.Source.PortId) || !WorkflowPorts.Inputs(targetNode).Any(p => p.Id == edge.Target.PortId))
+                Error("connection.port", path, "Connect an available string output to a string input using a data link.");
+            if (!pairs.Add((source, edge.Source.PortId, target, edge.Target.PortId))) Error("connection.duplicate", path, "Duplicate connection.");
             incoming[target]++;
             outgoing[source].Add(target);
         }
@@ -84,6 +95,16 @@ public static class WorkflowValidator
         foreach (var (id, node) in definition.Nodes)
         {
             if (node is null) continue;
+            if (definition.SchemaVersion == "1.4")
+            {
+                var validIncoming = node.Type == NodeTypes.Input ? incoming[id] == 0 : node.Type == NodeTypes.Merge
+                    ? incoming[id] is >= 2 and <= 16 : incoming[id] == 1;
+                var expected = WorkflowPorts.Outputs(node);
+                var edges = definition.Connections.Values.Where(e => e?.Source?.NodeId == id).ToArray();
+                if (!validIncoming || edges.Length != expected.Length || expected.Any(p => edges.Count(e => e.Source.PortId == p.Id) != 1))
+                    Error("graph.degree", $"nodes.{id}", "Each output must connect once; normal nodes have one input, exclusive merges have 2–16, and input has none.");
+                continue;
+            }
             var expectedIncoming = node.Type == NodeTypes.Input ? 0 : 1;
             var expectedOutgoing = node.Type == NodeTypes.Output ? 0 : 1;
             if (incoming[id] != expectedIncoming || outgoing[id].Count != expectedOutgoing)
@@ -93,17 +114,15 @@ public static class WorkflowValidator
             definition.Nodes.Values.Count(n => n?.Type == NodeTypes.Output) != 1)
             Error("pipeline.terminals", "nodes", "Exactly one input and one output node are required.");
 
-        // Walk from the entry without recursive traversal; detect cycles and disconnected components.
-        var visited = new HashSet<string>();
-        var current = definition.EntryNodeId;
-        while (current is not null && outgoing.TryGetValue(current, out var next))
+        if (WorkflowGraph.TopologicalOrder(definition).Length != definition.Nodes.Count)
+            Error("graph.cycle", "connections", "Cycles are not supported.");
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Stack<string>();
+        if (definition.EntryNodeId is { } entryId && outgoing.ContainsKey(entryId)) pending.Push(entryId);
+        while (pending.TryPop(out var id))
         {
-            if (!visited.Add(current))
-            {
-                Error("graph.cycle", "connections", "Cycles are not supported in a string pipeline.");
-                break;
-            }
-            current = next.Count == 1 ? next[0] : null;
+            if (!visited.Add(id)) continue;
+            foreach (var next in outgoing[id]) pending.Push(next);
         }
         if (visited.Count != definition.Nodes.Count)
             Error("graph.unreachable", "nodes", "Every node must be reachable from the entry.");

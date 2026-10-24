@@ -5,7 +5,7 @@ description: Use when selecting or upgrading Microsoft Agent Framework .NET pack
 
 # Microsoft Agent Framework integration
 
-Read [project-guide](../project-guide/SKILL.md). The adapter targets Agent Framework 1.26.0 on .NET 10. Tests cover linear workflows, real stdio MCP tools, and `ChatClientAgent` function loops with a deterministic `IChatClient`. See [roadmap and current scope](../../../docs/roadmap.md) for supported scope. These checks do not validate live LLM providers, branches, or durability.
+Read [project-guide](../project-guide/SKILL.md). The adapter targets Agent Framework 1.26.0 on .NET 10. Tests cover linear/conditional string workflows, real stdio MCP tools, and `ChatClientAgent` function loops with a deterministic `IChatClient`. See [roadmap and current scope](../../../docs/roadmap.md) for supported scope. These checks do not validate live LLM providers, parallel joins, loops or durability.
 
 ## Establish version-specific evidence
 
@@ -40,3 +40,5 @@ Review release notes and affected source before upgrading. Compile and exercise 
 Historical playback must remain independent of framework execution and available provider packages. Report builds, deterministic integration checks, real-provider checks, and unrun cases separately.
 
 In the tested version, a workflow stream can finish normally when its execution token is cancelled. Check the token inside/after enumeration before interpreting no output as a failure. Preserve the active-provider cancellation regression in `VisualAgentWorkflow.Mcp.Tests`. Agent functions must delegate to the scoped platform broker rather than exposing raw SDK MCP tools. The deterministic fixture deliberately ignores instructions; never describe it as live model behavior.
+
+Agent Framework 1.26.0 conditional edges were checked against the peeled `dotnet-1.26.0` tag `9c8a3514a15a702f81bfda456d80c7ccaa4d2712` and installed XML, then executed in adapter tests. Use a private source-node/port envelope to identify actual received merge connections; never infer delivery from predicate/branch completion. No extra scheduler or barrier is needed for the single-path exclusive-merge model. See [mapping and evidence](../../../docs/conditional-graphs.md).

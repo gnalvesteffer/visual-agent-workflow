@@ -15,9 +15,30 @@ public sealed record WorkflowLayout(string SchemaVersion,
     public static WorkflowLayout Create(WorkflowDefinition definition)
     {
         var nodes = ImmutableSortedDictionary.CreateBuilder<string, NodePresentation>(StringComparer.Ordinal);
-        var order = PipelineEditing.OrderedNodes(definition);
-        for (var index = 0; index < order.Length; index++)
-            nodes[order[index]] = new(new(80 + index % 4 * 360, 100 + index / 4 * 700));
+        var order = WorkflowGraph.OrderedNodes(definition);
+        if (WorkflowGraph.HasRouting(definition))
+        {
+            var columns = new Dictionary<string, int>(StringComparer.Ordinal);
+            var rows = new Dictionary<int, int>();
+            foreach (var id in order)
+            {
+                var parents = definition.Connections.Values.Where(e => e.Target.NodeId == id).Select(e => columns[e.Source.NodeId]);
+                var column = parents.DefaultIfEmpty(-1).Max() + 1;
+                columns[id] = column;
+                var row = rows.GetValueOrDefault(column);
+                rows[column] = row + 1;
+                // Fold very deep graphs within the same coordinate bound as linear layouts.
+                nodes[id] = new(new(80 + column % 40 * 360, 100 + (column / 40 * 16 + row) * 700));
+            }
+        }
+        else
+        {
+            for (var index = 0; index < order.Length; index++)
+                nodes[order[index]] = new(new(80 + index % 4 * 360, 100 + index / 4 * 700));
+        }
+        if (nodes.Values.Any(n => n.Position.X > WorkflowLayoutJson.MaximumCoordinate || n.Position.Y > WorkflowLayoutJson.MaximumCoordinate))
+            for (var index = 0; index < order.Length; index++)
+                nodes[order[index]] = new(new(80 + index % 16 * 360, 100 + index / 16 * 700));
         return new("1.0", nodes.ToImmutable(),
             ImmutableSortedDictionary<string, WirePresentation>.Empty.WithComparers(StringComparer.Ordinal),
             ImmutableSortedDictionary<string, GraphSection>.Empty.WithComparers(StringComparer.Ordinal));
@@ -27,9 +48,26 @@ public sealed record WorkflowLayout(string SchemaVersion,
     public WorkflowLayout Reconcile(WorkflowDefinition definition)
     {
         var defaults = Create(definition);
+        var reconciled = defaults.Nodes.ToImmutableSortedDictionary(p => p.Key, p => Nodes.GetValueOrDefault(p.Key) ?? p.Value, StringComparer.Ordinal);
+        if (WorkflowGraph.HasRouting(definition))
+        {
+            var occupied = Nodes.Where(p => definition.Nodes.ContainsKey(p.Key)).Select(p => p.Value.Position).ToList();
+            foreach (var id in WorkflowGraph.OrderedNodes(definition).Where(id => !Nodes.ContainsKey(id)))
+            {
+                var point = defaults.Nodes[id].Position;
+                while (occupied.Any(p => Math.Abs(p.X - point.X) < 300 && Math.Abs(p.Y - point.Y) < 650))
+                {
+                    point = point.Y + 700 <= WorkflowLayoutJson.MaximumCoordinate
+                        ? point with { Y = point.Y + 700 } : new(point.X + 360, 100);
+                    if (point.X > WorkflowLayoutJson.MaximumCoordinate) throw new ArgumentException("No bounded default position is available for the new node.");
+                }
+                occupied.Add(point);
+                reconciled = reconciled.SetItem(id, reconciled[id] with { Position = point });
+            }
+        }
         return this with
         {
-            Nodes = defaults.Nodes.ToImmutableSortedDictionary(p => p.Key, p => Nodes.GetValueOrDefault(p.Key) ?? p.Value, StringComparer.Ordinal),
+            Nodes = reconciled,
             Wires = Wires.Where(p => definition.Connections.ContainsKey(p.Key)).ToImmutableSortedDictionary(StringComparer.Ordinal),
             Sections = Sections.Select(p => KeyValuePair.Create(p.Key, p.Value with
                 { NodeIds = p.Value.NodeIds.Where(definition.Nodes.ContainsKey).ToImmutableArray() }))

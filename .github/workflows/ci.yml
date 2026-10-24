@@ -38,3 +38,4 @@ jobs:
           python3 scripts/graph_canvas_smoke.py
           python3 scripts/pipeline_reuse_smoke.py
           python3 scripts/pause_resume_smoke.py
+          python3 scripts/conditional_graph_smoke.py

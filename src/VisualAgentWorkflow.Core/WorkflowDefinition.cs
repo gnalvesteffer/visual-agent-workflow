@@ -17,6 +17,8 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public NodeOrigin? Origin { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public StringCondition? Condition { get; init; }
 }
 
 /// <summary>Copy-on-insert source identity; informational provenance, never a grant or runtime resolver.</summary>
@@ -24,7 +26,7 @@ public sealed record NodeOrigin(string WorkflowId, Guid RevisionId, int Version,
 public sealed record PortReference(string NodeId, string PortId);
 public sealed record ConnectionDefinition(PortReference Source, PortReference Target, string Kind);
 
-/// <summary>The initial execution subset is a linear string pipeline, not a general graph engine.</summary>
+/// <summary>The execution subset is an acyclic single-path string graph; parallelism and loops are unsupported.</summary>
 public static class NodeTypes
 {
     public const string Input = "core.input";
@@ -33,7 +35,9 @@ public static class NodeTypes
     public const string Output = "core.output";
     public const string McpTool = "core.mcp-tool";
     public const string Agent = "core.agent";
+    public const string Condition = "core.condition";
+    public const string Merge = "core.merge";
 
     public static bool IsSupported(string? type) =>
-        type is Input or Uppercase or Reverse or Output or McpTool or Agent;
+        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge;
 }

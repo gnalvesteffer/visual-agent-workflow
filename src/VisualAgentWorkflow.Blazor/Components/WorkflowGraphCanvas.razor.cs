@@ -53,14 +53,14 @@ public partial class WorkflowGraphCanvas
     private WirePresentation Route(string id) => Layout.Wires.GetValueOrDefault(id) ?? new("curve", []);
     private string Title(string id) => string.IsNullOrWhiteSpace(Layout.Nodes[id].Label) ? id : Layout.Nodes[id].Label;
     private static string Kind(NodeDefinition node) => node.Type == NodeTypes.Input ? "Input" : node.Type == NodeTypes.Output ? "Output" :
-        node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform";
+        node.Type == NodeTypes.Condition ? "Condition" : node.Type == NodeTypes.Merge ? "Exclusive merge" : node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform";
 
     protected override void OnParametersSet()
     {
         WorkflowLayoutJson.Validate(Layout, Definition);
         if (!ReferenceEquals(orderedDefinition, Definition))
         {
-            Order = PipelineEditing.OrderedNodes(Definition);
+            Order = WorkflowGraph.OrderedNodes(Definition);
             orderedDefinition = Definition;
         }
         if (selectedNode is null || !Definition.Nodes.ContainsKey(selectedNode)) selectedNode = Order[0];

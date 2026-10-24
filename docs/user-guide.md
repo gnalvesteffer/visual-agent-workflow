@@ -1,6 +1,6 @@
 # Studio user guide
 
-The Studio creates and runs linear string-processing workflows. It supports deterministic transforms, host-approved MCP text tools, and a deterministic demonstration agent. Free placement and wire routing organize the graph; they do not add branching or change execution order.
+The Studio creates and runs linear and conditional string-processing workflows. It supports deterministic transforms, host-approved MCP text tools, and a deterministic demonstration agent. Free placement and wire routing organize the graph; they do not change execution semantics. Branches are authored through explicit conditional nodes.
 
 Use disposable text in the local development app. It records inputs, outputs, and comments in local storage without workspace authentication or payload encryption.
 
@@ -105,3 +105,7 @@ Service developers can use `AddLocalWorkflowRuntime` to register the same backen
 ## Observe a consumer service
 
 When a consumer has enabled its authorized observation endpoint and a Studio operator has configured a named source, choose **Observe a consumer service**, select **Consumer source**, then **Connect to consumer**. Choose a run to inspect live state, node payloads and recorded playback. The connection is read-only; **Disconnect observation** and closing the browser do not change consumer execution. A connection failure explicitly marks the retained last received evidence. See [configuration, embedding and limits](observation.md).
+
+## Add a conditional path
+
+On a node's connected output, choose **+ Conditional after out** (or true/false). Set the inserted condition's operator and operand, then configure the two processing arms. Only one arm runs; the exclusive merge passes its value forward. **Arrange nodes** provides a starting layout, and **Undo edit** reverses the insertion as one edit. Save and publish before running both matching and nonmatching inputs. The viewer records **Selected output: true/false** and highlights actual transfers; playback makes no calls. See [conditions, bounds and current editing limits](conditional-graphs.md).

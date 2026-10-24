@@ -5,7 +5,7 @@ description: Use when changing, reviewing, or explaining this project, its archi
 
 # Project guide
 
-Read [the design baseline](../../../docs/design.md), [roadmap and current scope](../../../docs/roadmap.md), and [README](../../../README.md). Inspect the actual tree before naming projects, commands, or APIs. The initial core library supports linear string pipelines; broader graph capabilities remain planned.
+Read [the design baseline](../../../docs/design.md), [roadmap and current scope](../../../docs/roadmap.md), and [README](../../../README.md). Inspect the actual tree before naming projects, commands, or APIs. Core supports linear pipelines and schema-1.4 acyclic conditional string graphs. Parallelism, loops and richer data types remain planned.
 
 ## Preserve the architecture
 
@@ -38,3 +38,5 @@ For verification planning and regression work, use [quality assurance](../qualit
 For local runtime DI use `AddLocalWorkflowRuntime`; Studio and the standalone service sample share that registration. It creates no catalog or grants and preserves existing services. Verify hosted-worker/client identity and shutdown behavior. This helper is not a production durability or published NuGet contract; see [local hosting API](../../../docs/hosting-sdk.md).
 
 Consumer observation uses Core's read-only `IWorkflowRunObserver`, a host-policy-protected opt-in route group, a separate Core-only HTTP client, and the reusable `WorkflowObservationPanel`. Studio connects only to operator-configured sources; browser users cannot supply server-side URLs or credentials. Preserve this separation from authoring and execution control. See [consumer observation](../../../docs/observation.md).
+
+For routing use explicit port IDs and validated `GraphEditing` operations. `WorkflowGraph.OrderedNodes` is topological display/analysis order, never a runtime schedule. Keep linear-only editing/reuse guarded so conditional graphs cannot be flattened. Read [conditional graph semantics](../../../docs/conditional-graphs.md).

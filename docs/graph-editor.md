@@ -8,7 +8,7 @@ Epic's current documentation pages (Connecting Nodes, Nodes, and the Blueprint E
 - [Unreal SGraphPin reference](https://github.com/folgerwang/UnrealEngine/blob/release/Engine/Source/Editor/GraphEditor/Private/SGraphPin.cpp): input pin before its label on the left; output pin after its label on the right; connected/unconnected and type-specific pin styling.
 - [Unreal reroute-knot contract](https://github.com/folgerwang/UnrealEngine/blob/release/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_Knot.h): pass-through control points used to organize wires, not compiler-relevant executable work.
 
-These inform interaction conventions. No Unreal source code or artwork is incorporated into this project. Our current string pipeline has data links only; the UI must not invent separate execution pins or imply support for arbitrary branching.
+These inform interaction conventions. No Unreal source code or artwork is incorporated into this project. Our string graphs have data links only. Schema 1.4 conditions expose explicit true/false string outputs; the UI must not invent separate execution pulses or imply support for arbitrary fan-out.
 
 ## Portable presentation model
 
@@ -22,7 +22,7 @@ SQLite schema 2 adds presentation tables to schema 1 without changing existing d
 
 ## Canvas controls
 
-The reusable `WorkflowGraphCanvas` renders left-edge input sockets and right-edge output sockets, measured from the actual rendered nodes. Wires use SVG geometry and keep following the pins when cards change size. The supported string links are data pins; there are no decorative execution pins or unimplemented branching semantics.
+The reusable `WorkflowGraphCanvas` renders left-edge input sockets and right-edge output sockets, measured from the actual rendered nodes. Wires use SVG geometry and keep following the pins when cards change size. The supported string links are data pins; conditions expose distinct true/false sockets backed by real exclusive routing. There are no decorative execution pins.
 
 - Drag a node header to place it freely. Arrow keys move by 8 units; Shift moves by 40. Numeric X/Y fields provide an alternative. Placing nodes does not change the connected execution order; the existing move-up/down operations still reorder execution.
 - Scroll or drag empty graph background to pan. Zoom controls change the view, not stored coordinates. Coordinate conversion accounts for zoom and scroll. Pointer cancellation restores the preview rather than saving an accidental move.
@@ -38,4 +38,6 @@ JSON definition export remains compatible. Separate layout export/import control
 
 `python3 scripts/graph_canvas_smoke.py --browser-executable /path/to/chromium` exercises real mouse/keyboard moves, socket alignment, shared undo/redo, labels/comments, grouped movement, reroute creation/dragging, pinned/right-angle geometry, zoom conversion, save/reload, stale-write denial, publication, immutable version preview/restore, and recorded-layout playback. `--screenshots DIRECTORY` captures the tested UI. CI runs it alongside the existing authoring and UI-skill checks.
 
-Core/storage tests cover bounded imports, canonical layout round trips, immutable definition hashes, stale writes and rollback, schema-1 migration, revision capture, restore, and safe annotation rendering with no execution services. These do not establish complete accessibility or production readiness. The canvas can freely position the supported nodes, but arbitrary drag-to-connect rewiring, branches, nested sections, collaborative live dragging, and graph virtualization remain future work.
+Core/storage tests cover bounded imports, canonical layout round trips, immutable definition hashes, stale writes and rollback, schema-1 migration, revision capture, restore, and safe annotation rendering with no execution services. These do not establish complete accessibility or production readiness. The canvas can freely position the supported nodes, but arbitrary drag-to-connect rewiring, parallel branches, nested sections, collaborative live dragging, and graph virtualization remain future work.
+
+Conditional insertion and predicate/arm editing use validated semantic operations. Port identities drive wire geometry, and topological display order is distinct from execution. See [conditional graphs](conditional-graphs.md).

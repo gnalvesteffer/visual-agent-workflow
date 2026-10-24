@@ -6,17 +6,21 @@ Statuses mean **Complete** (implemented and verified), **Active** (currently bei
 
 ## Current product boundary
 
-The development Studio edits and runs validated linear string pipelines through Microsoft Agent Framework. It has free node placement, edge sockets, reroutes/pinned angles, labels/comments, named sections, immutable publications, restore/activation, persisted local audit/run evidence, and recorded playback, plus reusable published pipelines and portable packages. MCP tools are node-scoped. The only agent provider is a deterministic fixture, not a live LLM.
+The development Studio edits and runs validated linear and conditional string graphs through Microsoft Agent Framework. It has free node placement, edge sockets, reroutes/pinned angles, labels/comments, named sections, immutable publications, restore/activation, persisted local audit/run evidence, and recorded playback, plus reusable published pipelines and portable packages. MCP tools are node-scoped. The only agent provider is a deterministic fixture, not a live LLM.
 
-The backend owns execution, but active runs do not resume after host failure. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Free placement does not imply branching, arbitrary socket rewiring, or parallel execution.
+The backend owns execution, but active runs do not resume after host failure. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Free placement does not imply arbitrary socket rewiring or parallel execution. Conditional routing is an explicit validated operation.
 
-## Latest completed milestone: opt-in consumer observation
+## Latest completed milestone: conditional string graphs
+
+Schema 1.4 adds approved ordinal predicates, true/false string ports, exclusive merges and bounded acyclic validation. The adapter uses real Agent Framework conditional edges and records decisions separately from actual deliveries. Designer controls insert conditional blocks, edit predicates/arms and preserve undo/version/package/playback behavior. Existing linear schemas/hashes remain supported; linear-only reuse rejects routing graphs. See [conditional graphs](conditional-graphs.md). Richer port types, arbitrary socket rewiring, loops and parallel joins remain planned.
+
+## Previous completed milestone: opt-in consumer observation
 
 Consumers can explicitly map policy-protected read-only summary/snapshot/cursor endpoints. Studio attaches to operator-configured remote sources through a separate HTTP observer; the same `WorkflowObservationPanel` embeds in consumer Blazor apps without execution services. API, lifecycle and two-process browser checks cover read-only access, playback, source replacement and reconnect. The endpoint is disabled by default in the sample. See [consumer observation](observation.md) for authentication, current default-layout/polling limits and host-owned audit requirements.
 
 ## Previous completed milestone: standalone service integration and local hosting API
 
-The [standalone consumer](../samples/WorkflowService/README.md) runs reviewed pinned packages directly or through a backend-owned queue without Studio/Blazor or an authoring catalog. It verifies real MCP, independent node grants, missing/drifted dependency rejection and host-stop cancellation. The sample and Studio share the additive [local hosting DI helper](hosting-sdk.md). Project-reference consumption is documented; stable NuGet distribution and minimal worker dependency packaging remain planned. Next is semantic graph authoring and conditional execution.
+The [standalone consumer](../samples/WorkflowService/README.md) runs reviewed pinned packages directly or through a backend-owned queue without Studio/Blazor or an authoring catalog. It verifies real MCP, independent node grants, missing/drifted dependency rejection and host-stop cancellation. The sample and Studio share the additive [local hosting DI helper](hosting-sdk.md). Project-reference consumption is documented; stable NuGet distribution and minimal worker dependency packaging remain planned. Conditional string graph authoring is now implemented; the approval/MCP vertical slice is next.
 
 ## Previous completed milestone: cooperative pause/resume
 
@@ -24,7 +28,7 @@ Process-owned runs can start paused, pause between nodes, resume without reexecu
 
 ## Previous completed milestone: reusable pipelines and sharing
 
-Core contracts, Studio controls, and end-to-end validation are complete. The headless service-integration proof and local registration API are complete. Semantic graph authoring and conditional paths are next.
+Core contracts, Studio controls, and end-to-end validation are complete. The headless service-integration proof and local registration API are complete. Conditional string graph authoring is now implemented; approval integration is next.
 
 | Deliverable | Status | Completion evidence |
 | --- | --- | --- |
@@ -43,7 +47,7 @@ This increment uses copy-on-insert template expansion, not recursive runtime pre
 flowchart TD
     Reuse["Complete: reusable pipelines and packages"] --> Hosting["Complete: service consumer and local hosting API"]
     Hosting --> Observe["Complete: opt-in consumer observation"]
-    Observe --> Graph["Next: semantic graph authoring and conditional paths"]
+    Observe --> Graph["Complete: conditional string graph authoring"]
     Graph --> Vertical["Complete the agent, branch, approval and MCP vertical slice"]
     Vertical --> Durable["Durable runtime and workspace security foundations"]
     Durable --> Assets["Versioned skills and nested prefab instances"]
@@ -59,11 +63,9 @@ The standalone proof loads pinned artifacts, rejects invalid/missing dependencie
 
 Supported NuGet distribution remains planned: decide package metadata/licensing, public compatibility baselines, minimal dependency separation and independently restored package-consumer tests before release. Current consumers use project references at a pinned source commit. This packaging work does not change runtime guarantees or provide production durability.
 
-### Next: semantic graph authoring and the first full vertical slice
+### Next: approvals and the first full vertical slice
 
-Define and test supported typed ports and execution semantics before allowing general wiring. Add explicit conditional routing and merge behavior, inline diagnostics, and graph editing that preserves valid stable identities. Use approved deterministic operations, not arbitrary scripting. Verify the pinned Agent Framework APIs and demonstrate actual selected-path evidence, cancellation, and recorded playback.
-
-Then complete the representative Input → Agent → Conditional Branch → Approval → MCP Tool → Output workflow. Add opt-in live provider integration through host-owned factories, with deterministic fixtures for CI. Approval must bind to an exact recorded action; browser lifetime cannot own it. A live provider or graph pattern is supported only after its failure cases are tested.
+Conditional string routing and explicit ports are implemented. Complete the representative Input → Agent → Conditional Branch → Approval → MCP Tool → Output workflow. Add opt-in live provider integration through host-owned factories, with deterministic fixtures for CI. Approval must bind to an exact recorded action; browser lifetime cannot own it. A live provider or graph pattern is supported only after its failure cases are tested.
 
 ### Planned: durable execution and security foundations
 
@@ -73,7 +75,7 @@ Add workspace identity, backend authorization, authenticated audit actors, paylo
 
 ### Planned: richer no-code workflows and reusable assets
 
-Extend the supported graph patterns with deliberate parallel joins, bounded loops, richer typed data transformations, and versioned skills assigned through the designer. Evolve template copies into nested prefab instances with pinned dependencies, explicit upgrades/overrides, cycle detection, and readable invocation scopes. Preserve historical playback when sources/providers are absent.
+Expand beyond string ports with reviewed typed schemas and authoring diagnostics. Add validated arbitrary socket rewiring and explicit conditional-block removal rather than treating canvas movement or topological order as execution edits. Extend the supported graph patterns with deliberate parallel joins, bounded loops, richer typed data transformations, and versioned skills assigned through the designer. Evolve template copies into nested prefab instances with pinned dependencies, explicit upgrades/overrides, cycle detection, and readable invocation scopes. Preserve historical playback when sources/providers are absent.
 
 ### Planned: approved extension workers
 
@@ -99,6 +101,7 @@ Publish support boundaries only after repeatable recovery/security exercises, lo
 | MCP and agents | Node-scoped broker, pinned contracts/providers, actual framework agent/tool loop with deterministic fixtures |
 | Graph canvas | Free placement, edge sockets, SVG routing, angle pins, comments/sections, versioned layouts and read-only playback |
 | Quality and documentation | C#/Blazor/CSS/design skills, dependency boundaries, browser regression checks, architecture/user guides and locally validated Mermaid |
+| Conditional graphs | Schema-1.4 predicates and ports, exclusive merges, real conditional framework edges, immutable local graph edits and chosen-path playback |
 | Consumer observation | Opt-in protected read API, HTTP observer, remote Studio attachment and reusable read-only panel with cursor/lifecycle/reconnect checks |
 | Service integration | Standalone pinned-artifact execution, direct/queued MCP proof, host-stop verification, shared optional local-runtime DI registration and consumption contract |
 | Reuse and sharing | Schema-1.3 origins, version-pinned expansion, section extraction, exact-version insertion and full design package controls with browser/capability tests |

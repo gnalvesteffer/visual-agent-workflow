@@ -14,7 +14,7 @@
             <ul class="vaw-history">
                 @foreach (var run in runs)
                 {
-                    <li @key="run.RunId"><button type="button" @onclick="() => SelectAsync(run.RunId)" disabled="@(!interactive)" aria-pressed="@(selectedId == run.RunId)">
+                    <li @key="run.RunId"><button type="button" @onclick="() => SelectAsync(run.RunId)" disabled="@(!interactive)" aria-pressed="@(selectedId == run.RunId ? "true" : "false")">
                         <span>@run.WorkflowId</span><span class="vaw-history-status">@run.Status</span><small>@run.RunId.ToString()[..8]</small>
                     </button></li>
                 }

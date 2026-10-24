@@ -2,7 +2,7 @@
 
 <section class="vaw-designer" aria-label="Workflow designer">
     <header class="vaw-section-header"><div><h2>Workflow designer</h2>
-    <p>Compose a linear pipeline with tools and agents.</p></div><span class="vaw-badge">Draft workspace</span></header>
+    <p>Compose a string workflow with tools, agents and conditional paths.</p></div><span class="vaw-badge">Draft workspace</span></header>
     <fieldset class="vaw-designer-fields" disabled="@(!interactive || busy)">
     @if (definition is not null)
     {
@@ -48,6 +48,7 @@
         <PipelineEditor Layout="@(preview is not null ? previewLayout ?? WorkflowLayout.Create(preview.Revision.Definition) : layout)" LayoutChanged="ChangedLayout" LayoutReadOnly="@(Catalog is not IWorkflowDesignCatalog)" Definition="@(preview?.Revision.Definition ?? definition)" DefinitionChanged="Changed" ReadOnly="@(preview is not null)" Disabled="@busy" Bindings="bindings" Providers="providers" />
         <details class="vaw-reuse-panel">
             <summary>Reusable pipelines</summary>
+            @if (WorkflowGraph.HasRouting(definition)) { <p class="vaw-help">Reusable pipeline extraction and insertion currently require a linear workflow. Conditional graphs can still be shared as complete packages.</p> }
             <p class="vaw-help">Save consecutive processing steps as a separate workflow. Published versions are copied with fresh identities; source updates do not change existing copies.</p>
             <div class="vaw-layout-columns">
                 <section aria-label="Save reusable section">
@@ -60,7 +61,7 @@
                         </select>
                     </label>
                     <label>Reusable pipeline ID <input aria-label="Reusable pipeline ID" @bind="reusablePipelineId" maxlength="128" /></label>
-                    <button type="button" @onclick="SaveReusableSection" disabled="@(preview is not null || reusableSectionId.Length == 0 || Catalog is not IWorkflowDesignCatalog)">Save section as reusable draft</button>
+                    <button type="button" @onclick="SaveReusableSection" disabled="@(preview is not null || WorkflowGraph.HasRouting(definition) || reusableSectionId.Length == 0 || Catalog is not IWorkflowDesignCatalog)">Save section as reusable draft</button>
                     <p class="vaw-help">Creates a separate draft. Open, review, and publish it before reuse. Input/output nodes cannot be section members.</p>
                 </section>
                 <section aria-label="Insert reusable pipeline">
@@ -80,11 +81,11 @@
                     </label>
                     <label>Insert pipeline after
                         <select aria-label="Insert pipeline after" value="@(insertAfterNode.Length == 0 || !definition.Nodes.ContainsKey(insertAfterNode) ? definition.EntryNodeId : insertAfterNode)" @onchange="args => insertAfterNode = args.Value?.ToString() ?? definition.EntryNodeId">
-                            @foreach (var id in PipelineEditing.OrderedNodes(definition).Where(id => definition.Nodes[id].Type != NodeTypes.Output))
+                            @foreach (var id in WorkflowGraph.OrderedNodes(definition).Where(id => definition.Nodes[id].Type != NodeTypes.Output))
                             { <option @key="id" value="@id">@(layout?.Nodes[id].Label is { Length: > 0 } label ? label : id)</option> }
                         </select>
                     </label>
-                    <button type="button" @onclick="InsertReusablePipeline" disabled="@(preview is not null || reusableRevisionId is null)">Insert published pipeline</button>
+                    <button type="button" @onclick="InsertReusablePipeline" disabled="@(preview is not null || WorkflowGraph.HasRouting(definition) || ReusableHasRouting || reusableRevisionId is null)">Insert published pipeline</button>
                     <ul class="vaw-requirements">
                         @foreach (var requirement in reusableRequirements)
                         { <li @key="requirement">@requirement.Kind · @requirement.Id @requirement.Version: @RequirementAvailability(requirement)</li> }

@@ -49,3 +49,7 @@ Under **Import / export definition**, **Copy workflow package into JSON editor**
 Read-only API exports are `GET /api/workflows/{workflowId}/package` for a saved design and `GET /api/revisions/{revisionId}/package` for an immutable publication. There is no package-install endpoint or implicit permission transfer. Consuming applications can use the Core serializer and composition helpers with their host catalog.
 
 `python3 scripts/pipeline_reuse_smoke.py` tests the actual controls, exact historical version selection, source identity/fresh IDs, undo/redo, real output, package round trips and tamper rejection, extraction without publication/consumer overwrite, selected-workflow identity, and backend denial of an imported unavailable tool. Use `--browser-executable` for an installed Chromium and `--screenshots DIRECTORY` for review images. This supplements existing adapter, catalog, capability, and canvas tests.
+
+## Conditional graph boundary
+
+Schema-1.4 conditional workflows can be shared as complete packages and retain their immutable revision semantics. Pipeline extraction/insertion still requires linear source and consumer graphs; these APIs reject routing graphs instead of flattening topological display order. The designer disables reuse in routing consumers or for a routing source publication. See [conditional graphs](conditional-graphs.md).

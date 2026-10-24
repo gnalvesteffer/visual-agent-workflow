@@ -8,6 +8,8 @@ public partial class WorkflowDesigner
 {
     private string reusableWorkflowId = "";
     private Guid? reusableRevisionId;
+    private bool ReusableHasRouting => reusableVersions.FirstOrDefault(v => v.Revision.RevisionId == reusableRevisionId) is { } selected &&
+        WorkflowGraph.HasRouting(selected.Revision.Definition);
     private string insertAfterNode = "";
     private string reusableSectionId = "";
     private string reusablePipelineId = "pipeline-" + Guid.NewGuid().ToString("N")[..8];
