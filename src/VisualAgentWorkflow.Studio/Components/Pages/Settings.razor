@@ -1,0 +1,73 @@
+@page "/settings"
+@rendermode InteractiveServer
+@inject StudioModelProviderStore Providers
+
+<PageTitle>Studio settings · Model providers</PageTitle>
+<main class="vaw-provider-settings">
+    <nav class="vaw-studio-navigation" aria-label="Studio settings navigation"><a href="/">Return to workflow designer</a></nav>
+    <section class="vaw-designer" aria-label="Model provider settings">
+        <h1>Model providers</h1>
+        <p>Connect a model endpoint for agents in your workflows. Credentials are stored by this local Studio and never included in workflow files.</p>
+        <h2>Configured providers</h2>
+        @if (providers.Count == 0) { <p>No model providers configured yet.</p> }
+        @foreach (var provider in providers)
+        {
+            <article class="vaw-provider-card">
+                <h3>@provider.DisplayName</h3>
+                <p>@provider.ProviderId · version @provider.Version</p>
+                <dl><dt>Model</dt><dd>@provider.Model</dd><dt>Endpoint</dt><dd>@provider.Endpoint</dd><dt>Credential</dt><dd>Stored securely</dd></dl>
+            </article>
+        }
+    </section>
+    <section class="vaw-designer" aria-label="Add model provider">
+        <h2>Add a provider</h2>
+        <p>Use an OpenAI Chat Completions endpoint. OpenAI compatible services may work when they implement this API.</p>
+        <form @onsubmit="Save" @onsubmit:preventDefault>
+            <label>Provider ID <input @bind="form.ProviderId" autocomplete="off" /></label>
+            <label>Version <input @bind="form.Version" autocomplete="off" /></label>
+            <label>Display name <input @bind="form.DisplayName" /></label>
+            <label>Model <input @bind="form.Model" /></label>
+            <label>Endpoint <input @bind="form.Endpoint" /></label>
+            <label>Timeout in seconds <input type="number" min="1" max="120" @bind="form.TimeoutSeconds" /></label>
+            <label>API key <input type="password" autocomplete="new-password" @bind="form.ApiKey" /></label>
+            <p class="vaw-help">Use HTTPS. The API key is encrypted in Studio storage and is never shown again.</p>
+            <button type="submit" class="vaw-primary" disabled="@saving">@(saving ? "Saving…" : "Save provider")</button>
+        </form>
+        @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
+        @if (message is not null) { <p role="status">@message</p> }
+    </section>
+</main>
+
+@code {
+    private sealed class ProviderForm
+    {
+        [System.ComponentModel.DataAnnotations.Required] public string ProviderId { get; set; } = "openai.primary";
+        [System.ComponentModel.DataAnnotations.Required] public string Version { get; set; } = "1.0.0";
+        [System.ComponentModel.DataAnnotations.Required] public string DisplayName { get; set; } = "OpenAI";
+        [System.ComponentModel.DataAnnotations.Required] public string Model { get; set; } = "gpt-4.1";
+        [System.ComponentModel.DataAnnotations.Required] public string Endpoint { get; set; } = "https://api.openai.com/v1/";
+        [System.ComponentModel.DataAnnotations.Range(1, 120)] public int TimeoutSeconds { get; set; } = 30;
+        [System.ComponentModel.DataAnnotations.Required] public string ApiKey { get; set; } = "";
+    }
+    private ProviderForm form = new();
+    private IReadOnlyList<StudioModelProviderView> providers = [];
+    private bool saving;
+    private string? error;
+    private string? message;
+    protected override void OnInitialized() => providers = Providers.List();
+    private void Save()
+    {
+        saving = true; error = null; message = null;
+        try
+        {
+            Providers.Add(form.ProviderId, form.Version, form.DisplayName, form.Model, form.Endpoint, form.TimeoutSeconds, form.ApiKey);
+            providers = Providers.List();
+            form.ApiKey = "";
+            form = new() { ProviderId = "", Version = "1.0.0", DisplayName = "", Model = "", Endpoint = "https://api.openai.com/v1/" };
+            message = "Provider saved. It is now available in the workflow node library.";
+        }
+        catch (ArgumentException exception) { error = exception.Message; }
+        catch (InvalidOperationException exception) { error = exception.Message; }
+        finally { saving = false; }
+    }
+}

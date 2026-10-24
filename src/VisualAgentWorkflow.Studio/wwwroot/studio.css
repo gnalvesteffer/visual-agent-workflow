@@ -12,3 +12,10 @@
 .vaw-studio-navigation a { text-decoration: none; }
 .vaw-studio-navigation a:hover { text-decoration: underline; }
 .vaw-studio-navigation a:focus-visible { outline: 2px solid var(--vaw-color-focus, #d3c5ff); outline-offset: 3px; }
+
+.vaw-provider-settings { max-width: 56rem; margin-inline: auto; padding: 1.5rem; }
+.vaw-provider-card { border-block-start: 1px solid var(--vaw-color-border, #3b414f); padding: 1rem 0; }
+.vaw-provider-card dl { display: grid; grid-template-columns: minmax(6rem,auto) minmax(0,1fr); gap: .35rem 1rem; }
+.vaw-provider-card dt { color: #b5bdce; }
+.vaw-provider-card dd { margin: 0; overflow-wrap: anywhere; }
+.vaw-provider-settings input { width: 100%; min-height: 2.75rem; margin-top: .5rem; padding: .5rem .75rem; border: 1px solid #737e93; border-radius: .375rem; background: #17191f; color: #eef0f6; font: inherit; }

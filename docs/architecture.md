@@ -8,7 +8,7 @@ This page describes shipped code. The broader [product design](design.md) includ
 
 ## Package boundaries
 
-The arrows below mean project dependencies, not network requests. Core has no external package dependencies. The Razor library depends on Core and rendering support, not the concrete runtime, SQLite, or MCP transport. Its optional generated material textures are self-hosted static assets with plain-color fallbacks and host overrides; they require no remote asset service or runtime image processing. Studio chooses concrete services at the composition root. Architecture tests enforce these inward boundaries.
+The arrows below mean project dependencies, not network requests. Core has no external package dependencies. The Razor library depends on Core and rendering support, not the concrete runtime, SQLite, or MCP transport. Its optional generated material textures are self-hosted static assets with plain-color fallbacks and host overrides; they require no remote asset service or runtime image processing. Studio chooses concrete services at the composition root. Its local Settings page can register OpenAI-compatible Chat Completions providers in a version-aware executor; API keys are protected in the Studio data directory and omitted from descriptors. This local management surface inherits the development host’s loopback-only, unauthenticated boundary. Architecture tests enforce these inward boundaries.
 
 ```mermaid
 flowchart TB

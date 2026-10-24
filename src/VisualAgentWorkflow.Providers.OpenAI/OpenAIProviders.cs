@@ -78,6 +78,12 @@ public static class OpenAIProviders
         return registrations;
     }
 
+    public static void ValidateOptions(OpenAIProviderOptions options, string apiKey)
+    {
+        Validate(options);
+        ValidateKey(apiKey);
+    }
+
     private static void Validate(OpenAIProviderOptions options)
     {
         if (string.IsNullOrWhiteSpace(options.ProviderId) || options.ProviderId.Length > 128 || options.ProviderId.StartsWith("demo.", StringComparison.Ordinal) ||

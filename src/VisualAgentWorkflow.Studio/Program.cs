@@ -22,6 +22,8 @@ var studioPort = builder.Configuration.GetValue<int?>("WorkflowStudio:Port") ?? 
 if (studioPort is < 1 or > 65535) throw new InvalidOperationException("Invalid Studio port.");
 builder.WebHost.UseUrls($"http://127.0.0.1:{studioPort}");
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 1_048_576);
+var studioDataDirectory = Path.GetFullPath(builder.Configuration["WorkflowStudio:DataDirectory"] ?? Path.Combine(builder.Environment.ContentRootPath, ".local"));
+builder.Services.AddDataProtection();
 builder.Services.AddRazorComponents().AddInteractiveServerComponents()
     // Bound JSON editing can duplicate field text in a Blazor event. Keep transport bounded
     // while permitting the 1 MiB definition import limit; domain validation remains stricter.
@@ -30,10 +32,12 @@ builder.Services.AddSingleton<INodeToolBroker>(new McpToolBroker(DemoMcpServer.F
 builder.Services.AddSingleton<IToolBindingCatalog>(services => services.GetRequiredService<INodeToolBroker>());
 var agentProviders = new[] { DeterministicDemoChatClient.Registration() }
     .Concat(OpenAIProviders.FromConfiguration(builder.Configuration.GetSection("WorkflowAgents:OpenAI"))).ToArray();
-builder.Services.AddSingleton<IAgentNodeExecutor>(services => new AgentNodeExecutor(
-    agentProviders, services.GetRequiredService<INodeToolBroker>()));
-builder.Services.AddSingleton<IAgentProviderCatalog>(services => services.GetRequiredService<IAgentNodeExecutor>());
-var studioDataDirectory = Path.GetFullPath(builder.Configuration["WorkflowStudio:DataDirectory"] ?? Path.Combine(builder.Environment.ContentRootPath, ".local"));
+builder.Services.AddSingleton(services => new AgentNodeExecutor(agentProviders, services.GetRequiredService<INodeToolBroker>()));
+builder.Services.AddSingleton<IAgentNodeExecutor>(services => services.GetRequiredService<AgentNodeExecutor>());
+builder.Services.AddSingleton<StudioModelProviderStore>(services => new StudioModelProviderStore(studioDataDirectory,
+    services.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>(), services.GetRequiredService<AgentNodeExecutor>(),
+    services.GetRequiredService<INodeToolBroker>(), agentProviders));
+builder.Services.AddSingleton<IAgentProviderCatalog>(services => { _ = services.GetRequiredService<StudioModelProviderStore>(); return services.GetRequiredService<IAgentNodeExecutor>(); });
 var runStoreKind = builder.Configuration["WorkflowStudio:RunStore"] ?? "file";
 if (runStoreKind == "sqlite")
     builder.Services.AddSingleton<IWorkflowRunStore>(_ => new SqliteWorkflowRunStore(Path.Combine(studioDataDirectory, "runs.sqlite3")));
@@ -78,6 +82,18 @@ app.MapWorkflowEndpoints();
 app.MapGet("/api/tool-bindings", async (IToolBindingCatalog catalog, CancellationToken cancellationToken) =>
     Results.Ok(await catalog.ListBindingsAsync(cancellationToken)));
 app.MapGet("/api/agent-providers", async (IAgentProviderCatalog catalog) => Results.Ok(await catalog.ListProvidersAsync()));
+app.MapGet("/api/settings/model-providers", (StudioModelProviderStore store) => Results.Ok(store.List()));
+app.MapPost("/api/settings/model-providers", (AddModelProviderRequest request, StudioModelProviderStore store) =>
+{
+    try
+    {
+        store.Add(request.ProviderId, request.Version, request.DisplayName, request.Model, request.Endpoint,
+            request.TimeoutSeconds, request.ApiKey);
+        return Results.Ok(store.List());
+    }
+    catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
+    catch (InvalidOperationException error) { return Results.BadRequest(new { error = error.Message }); }
+});
 app.MapGet("/api/templates/default", () => Results.Text(WorkflowJson.Serialize(PipelineTemplates.Create("uppercase-reverse")), "application/json"));
 app.MapPost("/api/runs", async (StartRunRequest request, IWorkflowClient client) =>
 {
@@ -156,3 +172,5 @@ public sealed record StartRunRequest(JsonElement Definition, string? Input)
 
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record ApprovalDecisionRequest(string? ActionHash, bool? Approve);
+
+public sealed record AddModelProviderRequest(string ProviderId, string Version, string DisplayName, string Model, string Endpoint, int TimeoutSeconds, string ApiKey);

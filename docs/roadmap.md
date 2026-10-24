@@ -10,7 +10,11 @@ The development Studio edits and runs validated linear and conditional string gr
 
 The backend owns execution. Studio/ordinary queued runs still interrupt after host failure; a separate opt-in host explicitly resumes deterministic saved checkpoints. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Free placement does not imply arbitrary socket rewiring or parallel execution. Conditional routing is an explicit validated operation.
 
-## Latest completed milestone: canvas-first creation workbench
+## Latest completed milestone: Studio model provider settings
+
+A dedicated Settings page adds version-pinned OpenAI Chat Completions providers at runtime. API credentials are protected in local Studio storage, descriptors remain secret-free, and new providers appear immediately in the agent library. Host configuration remains available for consumer services. The Studio remains a loopback-only unauthenticated prototype; multi-user credential management is not implemented. See [provider configuration](model-providers.md).
+
+## Previous completed milestone: canvas-first creation workbench
 
 Blank connected drafts, searchable node library, contextual search/actions, drag placement and output-pin creation use validated insertion paths. Compact cards and a selected properties panel prioritize the canvas. Designer/run views preserve state; native fullscreen includes editing/playback controls, with fit, keyboard shortcuts, filtering and clearer recorded paths. Browser validation covers these gestures and existing authoring/version/run flows. Arbitrary existing-node rewiring, explicit branch-block removal and broader graph semantics remain planned. See [graph editor](graph-editor.md) and [user guide](user-guide.md).
 

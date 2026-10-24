@@ -13,17 +13,25 @@ public sealed record AgentProviderRegistration(AgentProviderDescriptor Descripto
 
 public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> providers, INodeToolBroker tools) : IAgentNodeExecutor
 {
-    private readonly IReadOnlyDictionary<string, AgentProviderRegistration> registrations = providers.ToDictionary(p => p.Descriptor.ProviderId, StringComparer.Ordinal);
+    private IReadOnlyDictionary<string, AgentProviderRegistration> registrations = Index(providers);
+
+    public void ReplaceProviders(IEnumerable<AgentProviderRegistration> providers) =>
+        Volatile.Write(ref registrations, Index(providers));
+
+    private static IReadOnlyDictionary<string, AgentProviderRegistration> Index(IEnumerable<AgentProviderRegistration> providers) =>
+        providers.ToDictionary(provider => Key(provider.Descriptor.ProviderId, provider.Descriptor.Version), StringComparer.Ordinal);
+
+    private static string Key(string providerId, string version) => $"{providerId}\0{version}";
 
     public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
-        Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(registrations.Values.Select(r => r.Descriptor).ToArray());
+        Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(Volatile.Read(ref registrations).Values.Select(r => r.Descriptor).ToArray());
 
     public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input, CancellationToken cancellationToken = default)
     {
         WorkflowValidator.ThrowIfInvalid(invocation.Revision.Definition);
         var configuration = invocation.Revision.Definition.Nodes[invocation.NodeId].Agent
             ?? throw new ArgumentException("The invocation is not an agent node.");
-        if (!registrations.TryGetValue(configuration.ProviderId, out var provider) || provider.Descriptor.Version != configuration.ProviderVersion)
+        if (!Volatile.Read(ref registrations).TryGetValue(Key(configuration.ProviderId, configuration.ProviderVersion), out var provider))
             throw new InvalidOperationException("The pinned agent provider is unavailable.");
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         if (provider.InvocationTimeout <= TimeSpan.Zero || provider.InvocationTimeout > TimeSpan.FromMinutes(2))
