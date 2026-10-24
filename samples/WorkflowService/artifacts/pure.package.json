@@ -1,0 +1,124 @@
+{
+  "formatVersion": "1.0",
+  "definition": {
+    "schemaVersion": "1.0",
+    "workflowId": "service-pure",
+    "entryNodeId": "input",
+    "nodes": {
+      "input": {
+        "type": "core.input",
+        "typeVersion": "1.0.0"
+      },
+      "output": {
+        "type": "core.output",
+        "typeVersion": "1.0.0"
+      },
+      "step-1": {
+        "type": "core.text.uppercase",
+        "typeVersion": "1.0.0"
+      },
+      "step-2": {
+        "type": "core.text.reverse",
+        "typeVersion": "1.0.0"
+      }
+    },
+    "connections": {
+      "link-1": {
+        "source": {
+          "nodeId": "input",
+          "portId": "out"
+        },
+        "target": {
+          "nodeId": "step-1",
+          "portId": "in"
+        },
+        "kind": "data"
+      },
+      "link-2": {
+        "source": {
+          "nodeId": "step-1",
+          "portId": "out"
+        },
+        "target": {
+          "nodeId": "step-2",
+          "portId": "in"
+        },
+        "kind": "data"
+      },
+      "link-output": {
+        "source": {
+          "nodeId": "step-2",
+          "portId": "out"
+        },
+        "target": {
+          "nodeId": "output",
+          "portId": "in"
+        },
+        "kind": "data"
+      }
+    }
+  },
+  "layout": {
+    "schemaVersion": "1.0",
+    "nodes": {
+      "input": {
+        "position": {
+          "x": 80,
+          "y": 100
+        },
+        "label": "",
+        "comment": ""
+      },
+      "output": {
+        "position": {
+          "x": 1160,
+          "y": 100
+        },
+        "label": "",
+        "comment": ""
+      },
+      "step-1": {
+        "position": {
+          "x": 440,
+          "y": 100
+        },
+        "label": "",
+        "comment": ""
+      },
+      "step-2": {
+        "position": {
+          "x": 800,
+          "y": 100
+        },
+        "label": "",
+        "comment": ""
+      }
+    },
+    "wires": {},
+    "sections": {}
+  },
+  "requirements": [
+    {
+      "kind": "node",
+      "id": "core.input",
+      "version": "1.0.0"
+    },
+    {
+      "kind": "node",
+      "id": "core.output",
+      "version": "1.0.0"
+    },
+    {
+      "kind": "node",
+      "id": "core.text.reverse",
+      "version": "1.0.0"
+    },
+    {
+      "kind": "node",
+      "id": "core.text.uppercase",
+      "version": "1.0.0"
+    }
+  ],
+  "definitionHash": "115a0a873071f20e8808544f97f37d805c122d8eb8ec7a7d7fc2de124f78bcce",
+  "layoutHash": "0527917517214a48bb8e71512c8fec8dd83cc89f77fb71346b1572ab0c2060be"
+}

@@ -28,3 +28,5 @@ Diagnose the failing prerequisite before retrying. Distinguish environment probl
 Select meaningful regression checks with [quality assurance](../quality-assurance/SKILL.md); use [webapp testing](../webapp-testing/SKILL.md) and [local notes](../webapp-testing/SOURCE.md) for Playwright checks.
 
 `python3 scripts/pause_resume_smoke.py --browser-executable /usr/bin/chromium` exercises paused starts, API/UI resume/cancel, browser reload, independent work while paused, version pinning and recorded pause playback against a running development Studio. It uses disposable deterministic workflows; it does not validate crash-resumable checkpoints.
+
+After the Release build, `python3 scripts/service_smoke.py` launches the standalone consumer directly, without Studio/HTTP/browser. It checks pure and real MCP direct/queued runs, exact deployment identities, rejection before admission, event ordering and SIGTERM cancellation of its own paused child. Use `--dotnet /path/to/dotnet` for a non-PATH SDK. Each invocation uses an exclusive temporary journal directory.

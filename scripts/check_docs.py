@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def check_links():
     files = [ROOT / "README.md", ROOT / "AGENTS.md", *sorted((ROOT / "docs").rglob("*.md"))]
+    files += sorted((ROOT / "samples").rglob("README.md"))
     files += sorted((ROOT / ".agents/skills").glob("*/SOURCE.md"))
     files += [ROOT / ".agents/skills/documentation-maintenance/SKILL.md"]
     diagrams = []

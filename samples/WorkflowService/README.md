@@ -1,0 +1,23 @@
+# Standalone workflow service sample
+
+This .NET console/Generic Host consumer has no Studio or Blazor dependency, opens no HTTP listener, and does not instantiate an authoring catalog. It demonstrates service-owned invocation with real Agent Framework execution and a trusted local MCP fixture. It is not a production worker SDK or durable scheduler.
+
+From the repository root after the normal Release build:
+
+```sh
+dotnet run --project samples/WorkflowService --configuration Release --no-build -- direct samples/WorkflowService/artifacts/pure.deployment.json .local/service-direct "abc"
+dotnet run --project samples/WorkflowService --configuration Release --no-build -- queued samples/WorkflowService/artifacts/pure.deployment.json .local/service-queued "abc"
+dotnet run --project samples/WorkflowService --configuration Release --no-build -- queued samples/WorkflowService/artifacts/mcp.deployment.json .local/service-mcp "abc" --grant-demo-tool
+```
+
+The pure pipeline returns `CBA`; the MCP pipeline returns `cba`. Output is JSON lines: queued mode first reports an accepted, paused run identity, then resumes and reports the result. Its initial admission method returns before any node executes, where an integrating API/message handler could return control. Subsequent execution and observation belong to the host. There is no network API in this sample.
+
+Use `paused` instead of `queued` to leave execution parked; Ctrl+C or SIGTERM stops the host and cancels the continuation. Exit codes: 0 completed, 1 configuration/dependency/execution error, 2 non-completed recorded outcome. Direct provider errors may return 1 after recording failure. Input and recorded payloads are plaintext; use disposable text. Give each host process exclusive ownership of its journal directory. Restart interrupts unfinished work rather than restoring it. The journal/Hosting dependency still brings ASP.NET Core support and SQLite transitively; the sample creates no database and requires no catalog.
+
+`artifacts/*.deployment.json` is operator-owned configuration mapping an exported package to a reviewed definition hash and stable deployment revision ID. The sample reconstructs that exact identity with `WorkflowRevision.Rehydrate`; package hashes are not signatures or authenticated publication lineage. Deploy the manifest through your own trusted release process. Package paths resolve relative to the manifest, not the current directory. Replacing content requires a new reviewed hash and revision identity. Layout is validated by the package loader but does not drive execution.
+
+The sample registers only the known read-only `demo.reverse` MCP fixture and no agent providers. `--grant-demo-tool` is host configuration and grants only workflow `service-mcp`, node `transform`, binding `demo.reverse`. A requirement alone grants nothing. Provider absence, missing bindings, denied node grants, contract drift, invalid artifacts and incorrect content pins are rejected before a run is created. Runtime MCP calls independently recheck policy/contracts. Pure workflows do not connect to or discover MCP servers.
+
+To integrate your own reviewed artifact, export its package from Studio, create an operator-owned deployment manifest with its definition hash, and wire host-owned providers/bindings and policy in `DeploymentDependencies`. Do not let workflow content choose executable paths, supply secrets or grant capabilities. No live LLM provider is configured here.
+
+Run `python3 scripts/service_smoke.py` after building. It starts child consumers directly, checks persisted events and negative dependency cases, and sends SIGTERM to its own parked child to verify host lifetime. Studio and a browser are unnecessary. See [service integration](../../docs/service-integration.md) and [run control](../../docs/run-control.md).

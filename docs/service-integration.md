@@ -2,7 +2,7 @@
 
 Visual Agent Workflow is intended to provide an execution library for user-owned .NET services and applications, with Studio as an optional IDE. Users can author visually, deploy reviewed workflow artifacts, and invoke those workflows from service code. Embedding the designer is an independent option; it must not be necessary to execute a workflow.
 
-The product goal is agreed. Lower-level headless execution APIs exist today; a stable hosting SDK, supported NuGet distribution, and a separate service/worker sample are planned. Do not assume package names in this document are already published NuGet packages. The repository currently uses project references and targets .NET 10.
+The product goal is agreed. Lower-level headless execution APIs exist today; a separate [service sample](../samples/WorkflowService/README.md) now demonstrates direct and queued execution. A stable hosting SDK and supported NuGet distribution remain planned. Do not assume package names in this document are already published NuGet packages. The repository currently uses project references and targets .NET 10.
 
 ## Author, deploy, invoke
 
@@ -46,9 +46,32 @@ The existing local queue demonstrates that separation but is not durable schedul
 
 A deployment update selects approved content for future runs. Already-started runs retain their resolved revision and dependencies; historical viewing uses captured evidence without live calls. A portable package carries content hashes and requirements, not an authenticated publication lineage or host credentials. The host must record its own deployment identity and maintain the desired revision mapping.
 
-## Next integration milestone
+## Standalone consumer proof
 
-The [roadmap](roadmap.md) calls for a separate, runnable service/worker consumer before broadening the hosting SDK. It should load its own approved artifact, run without Studio or a browser, demonstrate direct and queued execution with deterministic fixtures, record events, reject invalid/missing dependencies and unauthorized tools, and make lifetime/shutdown limitations explicit. A consuming app should also be able to add the designer or observer independently through the [existing component interfaces](embedding.md).
+The [WorkflowService sample](../samples/WorkflowService/README.md) consumes a package plus operator-owned revision/content pin, with no Studio/Blazor reference, HTTP connection or authoring catalog. Direct mode awaits `PipelineRunner`; queued mode returns a paused run identity before resuming the same backend continuation. A parked mode demonstrates host-stop cancellation. Pure fixtures and the real local MCP reverse tool run without model credentials. Dependency and node-grant checks fail before admission; the broker repeats enforcement during calls.
+
+```mermaid
+sequenceDiagram
+    participant Trigger as Host trigger
+    participant Host as Standalone consumer
+    participant Runtime as Local runtime
+    participant Journal as File journal
+    Trigger->>Host: Reviewed deployment and input
+    Host->>Host: Validate package, pin and dependencies
+    Host->>Runtime: Start exact revision paused
+    Runtime->>Journal: Create run and pause evidence
+    Runtime-->>Host: Accepted run ID
+    Host-->>Trigger: Admission result available
+    Host->>Runtime: Resume independently
+    Runtime->>Journal: Node, transfer and terminal evidence
+    Host->>Journal: Observe result
+```
+
+The example is a console/Generic Host, not a hosted HTTP endpoint. The admission result is where a user-owned API or message handler can return. `python3 scripts/service_smoke.py` proves direct/queued output, identities, event sequences, tool evidence, denied/unavailable/drifted dependencies, and stopping a paused host, with no Studio running. Current Hosting transitively includes ASP.NET Core support and SQLite, although no catalog/database is created. Minimal dependency packaging remains future work.
+
+## Following integration milestone
+
+The standalone consumer proof is implemented. The [roadmap](roadmap.md) next calls for simplifying hosting registration and documenting a deliberate package-consumption contract before graph expansion. A consuming app should also be able to add the designer or observer independently through the [existing component interfaces](embedding.md).
 
 The subsequent SDK work should make DI/lifecycle configuration, package distribution, stable public execution contracts, error/cancellation behavior, storage adapters, and embedding documentation deliberate and reviewable. It must preserve the architectural separation rather than coupling service execution to the IDE. Production durability/security and richer typed contracts remain distinct milestones with their own acceptance tests.
 

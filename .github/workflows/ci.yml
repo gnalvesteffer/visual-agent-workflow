@@ -16,6 +16,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Exercise standalone service without Studio
+        run: python3 scripts/service_smoke.py
       - run: python3 -m pip install -r scripts/requirements-browser.txt
       - run: python3 -m playwright install --with-deps chromium
       - uses: actions/setup-node@v4

@@ -49,3 +49,7 @@ The built-in MCP tools run in a trusted local stdio fixture with no external I/O
 For the [graph canvas](docs/graph-editor.md), run `python3 scripts/graph_canvas_smoke.py` against the development Studio with Playwright/Chromium installed. Pass `--browser-executable` for an existing Chromium or `--screenshots DIRECTORY` for review images.
 
 For reusable pipelines and sharing, `python3 scripts/pipeline_reuse_smoke.py` exercises exact-version insertion, section extraction, full-package import/export, and missing-tool denial in the browser.
+
+## Run in your own service
+
+The [standalone service sample](samples/WorkflowService/README.md) loads a pinned package and demonstrates direct/queued execution without Studio, Blazor or an authoring catalog. Run `python3 scripts/service_smoke.py` after the Release build to verify it with deterministic fixtures and real local MCP.

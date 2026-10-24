@@ -16,7 +16,7 @@ Process-owned runs can start paused, pause between nodes, resume without reexecu
 
 ## Previous completed milestone: reusable pipelines and sharing
 
-Core contracts, Studio controls, and end-to-end validation are complete. The next planned increment is a headless service-integration proof, followed by semantic graph authoring and conditional paths.
+Core contracts, Studio controls, and end-to-end validation are complete. The headless service-integration proof is complete; hosting registration is the active increment, followed by semantic graph authoring and conditional paths.
 
 | Deliverable | Status | Completion evidence |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ This increment uses copy-on-insert template expansion, not recursive runtime pre
 
 ```mermaid
 flowchart TD
-    Reuse["Complete: reusable pipelines and packages"] --> Hosting["Next: headless service integration proof"]
+    Reuse["Complete: reusable pipelines and packages"] --> Hosting["Active: service hosting integration"]
     Hosting --> Graph["Semantic graph authoring and conditional paths"]
     Graph --> Vertical["Complete the agent, branch, approval and MCP vertical slice"]
     Vertical --> Durable["Durable runtime and workspace security foundations"]
@@ -44,9 +44,11 @@ flowchart TD
     Collaboration --> Production
 ```
 
-### Next: user-owned service integration
+### Active: user-owned service integration
 
-Deliver a separate .NET service/worker sample that consumes a reviewed workflow artifact and calls the engine through public library APIs, with no Blazor, Studio, browser, or mandatory authoring catalog. Show both direct invocation and a backend-owned queued invocation with run/event observation. Use the currently supported string contract before expanding typed inputs/outputs.
+The standalone [service consumer proof](../samples/WorkflowService/README.md) is complete: direct/queued execution, reviewed pins, real MCP, dependency rejection and host-stop checks work without Studio. Next, simplify hosting registration and document the package-consumption contract.
+
+The completed proof delivers a separate .NET service/worker sample that consumes a reviewed workflow artifact and calls the engine through public library APIs, with no Blazor, Studio, browser, or mandatory authoring catalog. Show both direct invocation and a backend-owned queued invocation with run/event observation. Use the currently supported string contract before expanding typed inputs/outputs.
 
 Acceptance evidence includes starting the consumer without Studio, loading a pinned artifact, rejecting invalid or unavailable dependencies without silent substitutions, checking node-scoped host grants, executing deterministic fixtures, recording output/events, and proving cancellation/host lifetime is independent from the designer. Document how hosts wire their own API/message/job triggers and keep credentials/configuration outside workflow artifacts. The sample's persistence and shutdown guarantees must be stated rather than presented as production durability.
 

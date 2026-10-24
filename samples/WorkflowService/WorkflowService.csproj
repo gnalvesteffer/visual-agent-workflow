@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/VisualAgentWorkflow.Hosting/VisualAgentWorkflow.Hosting.csproj" />
+    <ProjectReference Include="../../src/VisualAgentWorkflow.Mcp/VisualAgentWorkflow.Mcp.csproj" />
+  </ItemGroup>
+</Project>

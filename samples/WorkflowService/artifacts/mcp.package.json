@@ -1,0 +1,106 @@
+{
+  "formatVersion": "1.0",
+  "definition": {
+    "schemaVersion": "1.1",
+    "workflowId": "service-mcp",
+    "entryNodeId": "input",
+    "nodes": {
+      "input": {
+        "type": "core.input",
+        "typeVersion": "1.0.0"
+      },
+      "output": {
+        "type": "core.output",
+        "typeVersion": "1.0.0"
+      },
+      "transform": {
+        "type": "core.mcp-tool",
+        "typeVersion": "1.0.0",
+        "tool": {
+          "bindingId": "demo.reverse",
+          "contractHash": "9f2e0a889cf7810d9a2e4c3a3464219bfcea30cb67d0c711579c6c1399808264"
+        }
+      }
+    },
+    "connections": {
+      "link-1": {
+        "source": {
+          "nodeId": "input",
+          "portId": "out"
+        },
+        "target": {
+          "nodeId": "transform",
+          "portId": "in"
+        },
+        "kind": "data"
+      },
+      "link-output": {
+        "source": {
+          "nodeId": "transform",
+          "portId": "out"
+        },
+        "target": {
+          "nodeId": "output",
+          "portId": "in"
+        },
+        "kind": "data"
+      }
+    }
+  },
+  "layout": {
+    "schemaVersion": "1.0",
+    "nodes": {
+      "input": {
+        "position": {
+          "x": 80,
+          "y": 100
+        },
+        "label": "",
+        "comment": ""
+      },
+      "output": {
+        "position": {
+          "x": 800,
+          "y": 100
+        },
+        "label": "",
+        "comment": ""
+      },
+      "transform": {
+        "position": {
+          "x": 440,
+          "y": 100
+        },
+        "label": "",
+        "comment": ""
+      }
+    },
+    "wires": {},
+    "sections": {}
+  },
+  "requirements": [
+    {
+      "kind": "mcp-tool",
+      "id": "demo.reverse",
+      "version": "",
+      "contractHash": "9f2e0a889cf7810d9a2e4c3a3464219bfcea30cb67d0c711579c6c1399808264"
+    },
+    {
+      "kind": "node",
+      "id": "core.input",
+      "version": "1.0.0"
+    },
+    {
+      "kind": "node",
+      "id": "core.mcp-tool",
+      "version": "1.0.0"
+    },
+    {
+      "kind": "node",
+      "id": "core.output",
+      "version": "1.0.0"
+    }
+  ],
+  "definitionHash": "154238a5e0894f0d877330c413d43c56e2e535a73fc9c6ece479b07656f0f535",
+  "layoutHash": "8f56001bc3f4c441e314db7aec72e5629877702298b8c591f3b6f0ebcd972e01"
+}
