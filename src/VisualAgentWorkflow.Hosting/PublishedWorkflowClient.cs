@@ -2,7 +2,7 @@ using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Hosting;
 
-public sealed class PublishedWorkflowClient(IWorkflowCatalog catalog, LocalWorkflowRuntime runtime) : IPublishedWorkflowClient, IPublishedWorkflowRunControl
+public sealed class PublishedWorkflowClient(IWorkflowCatalog catalog, LocalWorkflowRuntime runtime) : IPublishedWorkflowClient, IPublishedWorkflowRunControl, IWorkflowApprovalClient
 {
     public async Task<RunSnapshot> StartPublishedRunAsync(Guid revisionId, string input)
     {
@@ -23,5 +23,6 @@ public sealed class PublishedWorkflowClient(IWorkflowCatalog catalog, LocalWorkf
     public Task<RunSnapshot> StartRunAsync(WorkflowDefinition definition, string input) => runtime.StartRunAsync(definition, input);
     public Task<RunSnapshot?> GetRunAsync(Guid runId) => runtime.GetRunAsync(runId);
     public Task<IReadOnlyList<RunSnapshot>> ListRunsAsync() => runtime.ListRunsAsync();
+    public Task DecideApprovalAsync(Guid runId, Guid requestId, string actionHash, bool approve) => runtime.DecideApprovalAsync(runId, requestId, actionHash, approve);
     public Task CancelRunAsync(Guid runId) => runtime.CancelRunAsync(runId);
 }

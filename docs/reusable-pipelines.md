@@ -53,3 +53,5 @@ Read-only API exports are `GET /api/workflows/{workflowId}/package` for a saved 
 ## Conditional graph boundary
 
 Schema-1.4 conditional workflows can be shared as complete packages and retain their immutable revision semantics. Pipeline extraction/insertion still requires linear source and consumer graphs; these APIs reject routing graphs instead of flattening topological display order. The designer disables reuse in routing consumers or for a routing source publication. See [conditional graphs](conditional-graphs.md).
+
+Approval nodes in schema 1.5 are also control nodes: whole-workflow packages preserve them, but linear pipeline extraction/insertion rejects them rather than copying an incomplete approval/target binding.

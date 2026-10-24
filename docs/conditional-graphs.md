@@ -70,3 +70,7 @@ The adapter uses a private message envelope containing text and trusted source n
 Version-matched evidence: [official conditional-edge sample](https://github.com/microsoft/agent-framework/blob/9c8a3514a15a702f81bfda456d80c7ccaa4d2712/dotnet/samples/03-workflows/ConditionalEdges/01_EdgeCondition/Program.cs) at the peeled `dotnet-1.26.0` tag, commit `9c8a3514a15a702f81bfda456d80c7ccaa4d2712`, plus the installed package XML API documentation. The official sample's live Azure/model calls were not run. Local tests exercise the released .NET package with deterministic operations and fixtures.
 
 `ConditionalGraphTests` covers validation, ordinal predicates, immutable edits and package/compatibility behavior. `ConditionalExecutionTests` proves both paths, actual merge transfers, unchosen-tool isolation, nested decisions and cancellation before the selected arm. `python3 scripts/conditional_graph_smoke.py` exercises the real designer, sockets, undo/redo, publication, both outcomes, package export/reload, pinned versions and recorded playback. These checks do not establish parallel joins, approvals, live-model reliability or production recovery.
+
+## Approval nodes in schema 1.5
+
+Schema 1.5 retains these routing semantics and permits an exact-action approval immediately before an explicit MCP node, including on a selected arm. An unchosen arm requests no approval. Approval nodes do not introduce true/false decision outputs; rejection stops the run. See [approvals](approvals.md).

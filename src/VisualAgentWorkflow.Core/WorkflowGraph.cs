@@ -31,6 +31,8 @@ public static class WorkflowGraph
 {
     public static bool HasRouting(WorkflowDefinition definition) => definition.Nodes.Values.Any(n => n?.Type is NodeTypes.Condition or NodeTypes.Merge);
 
+    public static bool HasControlNodes(WorkflowDefinition definition) => HasRouting(definition) || definition.Nodes.Values.Any(n => n?.Type == NodeTypes.Approval);
+
     /// <summary>Deterministic presentation/analysis order, never a runtime scheduler.</summary>
     public static ImmutableArray<string> OrderedNodes(WorkflowDefinition definition)
     {

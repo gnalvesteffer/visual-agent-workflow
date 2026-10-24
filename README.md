@@ -57,3 +57,5 @@ The [standalone service sample](samples/WorkflowService/README.md) loads a pinne
 Consumers can opt into an authorized read-only observation endpoint. Studio can attach to a named consumer source, and Blazor apps can embed the same observation panel. See [consumer observation](docs/observation.md) for setup and current limits.
 
 Schema-1.4 [conditional graphs](docs/conditional-graphs.md) add approved ordinal predicates, true/false string outputs and exclusive merges. The designer and recorded viewer preserve actual chosen-path evidence.
+
+Schema-1.5 [approval steps](docs/approvals.md) hold an exact explicit MCP action for review, preserve request/decision evidence and remain independent of browser lifetime. Remote observation stays read-only.

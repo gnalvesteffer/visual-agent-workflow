@@ -91,3 +91,7 @@ This implementation exposes recorded execution history, not a production central
 The local journal reader currently scans stored run snapshots to build summaries. Polling/full snapshots and the 8 MiB HTTP-client limit are appropriate to the prototype, not a claim of large-history scalability. The remote panel currently renders deterministic default positions from the captured definition; saved layout sidecars/annotations are not transported. Exact semantic nodes, paths, payloads and revision/hash identity are preserved. No workflow/layout/package/database schema migration is introduced.
 
 `python3 scripts/observation_smoke.py` starts its own isolated consumer and Studio processes with ephemeral credentials. It verifies disabled-by-default mapping, credential rejection, server-side attachment, graph/payload playback, source replacement, disconnect and restart/reconnect. HTTP integration tests also verify policy denial, cursor ordering, live status changes and absence of mutation endpoints. Component tests prove embedding without execution services and safe disposal/source replacement.
+
+## Approval evidence
+
+Schema-1.5 requests and decisions are visible through the same snapshots/cursors. The read-only graph panel displays a pending exact-action review without decision controls. Studio attachment to a consumer does not grant approval rights; approvals need a separate host-authorized control client. See [approval boundaries](approvals.md).

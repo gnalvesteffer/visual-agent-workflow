@@ -5,7 +5,7 @@ namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>One process-owned continuation and sequenced journal writer. The framework still executes the graph.</summary>
 internal sealed class ControlledRun(FileRunJournal journal, RunHeader header, SemaphoreSlim executionSlot)
-    : IWorkflowExecutionGate, IDisposable
+    : IWorkflowExecutionGate, IWorkflowApprovalGate, IDisposable
 {
     private readonly object gate = new();
     private TaskCompletionSource resumed = NewSignal();
@@ -15,7 +15,11 @@ internal sealed class ControlledRun(FileRunJournal journal, RunHeader header, Se
     private bool holdsExecutionSlot;
     private bool terminal;
     private bool disposed;
+    private bool cancellationRequested;
     private long sequence;
+    private WorkflowApprovalRequest? pendingApproval;
+    private TaskCompletionSource<bool>? approvalSignal;
+    private WorkflowApprovalDecision? approvalDecision;
     private string? waitingForNode = header.Definition.EntryNodeId;
     public CancellationTokenSource Cancellation { get; } = new();
 
@@ -68,6 +72,11 @@ internal sealed class ControlledRun(FileRunJournal journal, RunHeader header, Se
 
     public void Cancel()
     {
+        lock (gate)
+        {
+            if (disposed) return;
+            cancellationRequested = true;
+        }
         try { Cancellation.Cancel(); }
         catch (ObjectDisposedException) { /* Terminal cleanup won the race. */ }
     }
@@ -105,6 +114,92 @@ internal sealed class ControlledRun(FileRunJournal journal, RunHeader header, Se
             lock (gate) holdsExecutionSlot = true;
         }
     }
+
+    public async ValueTask<WorkflowApprovalPermit> WaitForApprovalAsync(WorkflowApprovalAction action, string prompt, CancellationToken cancellationToken)
+    {
+        WorkflowApprovalRequest request;
+        Task<bool> decision;
+        lock (gate)
+        {
+            RequireOwnedExecution();
+            cancellationToken.ThrowIfCancellationRequested();
+            ValidateAction(action, prompt);
+            if (pendingApproval is not null) throw new InvalidOperationException("An approval is already pending.");
+            request = new(Guid.NewGuid(), action, action.ComputeHash(), prompt, DateTimeOffset.UtcNow);
+            RecordApproval(ExecutionEventKinds.ApprovalRequested, request, action.ApprovalNodeId, action.ApprovalInvocationId);
+            pendingApproval = request;
+            approvalSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            approvalDecision = null;
+            decision = approvalSignal.Task;
+            inFlight = false;
+            waitingForNode = action.ApprovalNodeId;
+            ReleaseExecutionSlot();
+            if (pauseRequested) AcknowledgePause(action.ApprovalNodeId);
+        }
+        bool approved;
+        try { approved = await decision.WaitAsync(cancellationToken); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            lock (gate)
+            {
+                if (approvalDecision is null)
+                    RecordApproval(ExecutionEventKinds.ApprovalCancelled, new { request.RequestId, request.ActionHash, reason = "Run cancelled or owner stopped." },
+                        action.ApprovalNodeId, action.ApprovalInvocationId);
+            }
+            throw;
+        }
+        finally
+        {
+            lock (gate)
+            {
+                pendingApproval = null;
+                approvalSignal = null;
+            }
+        }
+        if (!approved) throw new WorkflowApprovalRejectedException();
+        // Approval and pause are independent. Reacquire execution ownership before completing the node.
+        await WaitForBoundaryAsync(action.TargetNodeId, cancellationToken);
+        return new(request.RequestId, request.ActionHash, action.TargetInvocationId);
+    }
+
+    public void DecideApproval(Guid requestId, string actionHash, bool approve, string actor)
+    {
+        TaskCompletionSource<bool> signal;
+        lock (gate)
+        {
+            RequireOwnedExecution();
+            if (cancellationRequested || Cancellation.IsCancellationRequested) throw new WorkflowApprovalConflictException();
+            var request = pendingApproval;
+            if (request is null || request.RequestId != requestId || request.ActionHash != actionHash)
+                throw new WorkflowApprovalConflictException();
+            if (approvalDecision is not null)
+            {
+                if (approvalDecision.Approved != approve) throw new WorkflowApprovalConflictException();
+                return;
+            }
+            var decision = new WorkflowApprovalDecision(requestId, actionHash, approve, actor);
+            RecordApproval(approve ? ExecutionEventKinds.ApprovalApproved : ExecutionEventKinds.ApprovalRejected, decision,
+                request.Action.ApprovalNodeId, request.Action.ApprovalInvocationId);
+            approvalDecision = decision;
+            signal = approvalSignal!;
+        }
+        signal.TrySetResult(approve);
+    }
+
+    private void ValidateAction(WorkflowApprovalAction action, string prompt)
+    {
+        var definition = header.Definition;
+        if (action.RunId != header.RunId || action.RevisionId != header.RevisionId || action.WorkflowHash != header.ContentHash ||
+            action.ApprovalInvocationId == Guid.Empty || action.TargetInvocationId == Guid.Empty || action.Input.Length > 16_384 ||
+            action.InputHash != WorkflowApprovalAction.HashInput(action.Input) ||
+            !definition.Nodes.TryGetValue(action.ApprovalNodeId, out var node) || node.Type != NodeTypes.Approval || node.Approval?.Prompt != prompt ||
+            !definition.Nodes.TryGetValue(action.TargetNodeId, out var target) || target.Type != NodeTypes.McpTool || target.Tool != action.Tool ||
+            !definition.Connections.Values.Any(e => e.Source.NodeId == action.ApprovalNodeId && e.Target.NodeId == action.TargetNodeId))
+            throw new InvalidOperationException("Approval action does not match the captured workflow.");
+    }
+
+    private void RecordApproval<T>(string kind, T data, string nodeId, Guid invocationId) => Append(new(header.RunId, header.RevisionId, 0,
+        DateTimeOffset.UtcNow, kind, nodeId, invocationId, Data: JsonSerializer.Serialize(data, JsonSerializerOptions.Web)));
 
     private void AcknowledgePause(string? nextNodeId)
     {

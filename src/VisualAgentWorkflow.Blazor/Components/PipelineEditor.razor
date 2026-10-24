@@ -13,7 +13,17 @@
     <WorkflowGraphCanvas @key="Definition.WorkflowId" Definition="Definition" Layout="EffectiveLayout" LayoutChanged="LayoutEdited" ReadOnly="@(ReadOnly || LayoutReadOnly)" Disabled="Disabled">
         <NodeContent Context="id">
             @{ var node = Definition.Nodes[id]; var index = Order.IndexOf(id); var terminal = node.Type is NodeTypes.Input or NodeTypes.Output or NodeTypes.Merge; }
-                    @if (node.Type == NodeTypes.Condition && !ReadOnly)
+                    @if (node.Type == NodeTypes.Approval)
+                    {
+                        <p>Review the exact next MCP call. Approval does not grant tool access.</p>
+                        @if (ReadOnly) { <pre>@node.Approval!.Prompt</pre> }
+                        else
+                        {
+                            <label>Approval prompt for @id<textarea aria-label="Approval prompt for @id" value="@node.Approval!.Prompt" @onchange="args => ApprovalPrompt(id, args)" maxlength="2000" rows="3" disabled="@Disabled"></textarea></label>
+                            <button type="button" @onclick="() => Edit(() => GraphEditing.RemoveApproval(Definition, id))" disabled="@Disabled" aria-label="Remove approval @id">Remove approval step</button>
+                        }
+                    }
+                    else if (node.Type == NodeTypes.Condition && !ReadOnly)
                     {
                         <label>Condition operator for @id
                             <select aria-label="Condition operator for @id" value="@node.Condition!.Operator" @onchange="args => ConditionOperator(id, args)" disabled="@Disabled">
@@ -33,14 +43,18 @@
                     {
                         <label>Operation for @id
                             <select aria-label="Operation for @id" value="@NodeKey(node)" @onchange="args => ChangeType(id, args)" disabled="@Disabled">
-                                <option value="@NodeTypes.Uppercase">Uppercase</option>
-                                <option value="@NodeTypes.Reverse">Reverse</option>
+                                @if (!GuardedTool(id))
+                                {
+                                    <option value="@NodeTypes.Uppercase">Uppercase</option>
+                                    <option value="@NodeTypes.Reverse">Reverse</option>
+                                }
                                 @if (node.Tool is { } pinned && !Bindings.Any(b => b.BindingId == pinned.BindingId && b.ContractHash == pinned.ContractHash))
                                 { <option value="@NodeKey(node)">Pinned MCP binding unavailable: @pinned.BindingId</option> }
                                 @foreach (var binding in Bindings) { <option @key="ToolKey(binding)" value="@ToolKey(binding)">@binding.DisplayName</option> }
                                 @if (node.Agent is { } pinnedAgent && !Providers.Any(p => p.ProviderId == pinnedAgent.ProviderId && p.Version == pinnedAgent.ProviderVersion))
                                 { <option value="@NodeKey(node)">Pinned agent provider unavailable: @pinnedAgent.ProviderId</option> }
-                                @foreach (var provider in Providers) { <option @key="ProviderKey(provider)" value="@ProviderKey(provider)">@provider.DisplayName</option> }
+                                @if (!GuardedTool(id))
+                                { @foreach (var provider in Providers) { <option @key="ProviderKey(provider)" value="@ProviderKey(provider)">@provider.DisplayName</option> } }
                             </select>
                         </label>
                         <div class="vaw-controls">
@@ -49,16 +63,23 @@
                             <button type="button" @onclick="() => Edit(() => PipelineEditing.Move(Definition, id, -1))" disabled="@(Disabled || index == 1)" aria-label="Move @id up">Move up</button>
                             <button type="button" @onclick="() => Edit(() => PipelineEditing.Move(Definition, id, 1))" disabled="@(Disabled || index == Order.Length - 2)" aria-label="Move @id down">Move down</button>
                             }
-                            <button type="button" @onclick="() => Edit(() => HasRouting ? GraphEditing.RemoveNode(Definition, id) : PipelineEditing.Remove(Definition, id))" disabled="@Disabled" aria-label="Remove @id">Remove</button>
+                            <button type="button" @onclick="() => Edit(() => HasRouting ? GraphEditing.RemoveNode(Definition, id) : PipelineEditing.Remove(Definition, id))" disabled="@(Disabled || GuardedTool(id))" aria-label="Remove @id">Remove</button>
                         </div>
                     }
-                    @if (!ReadOnly)
+                    @if (!ReadOnly && node.Type != NodeTypes.Approval)
                     {
                         @foreach (var port in WorkflowPorts.Outputs(node))
                         {
                             <button type="button" @onclick="() => InsertAfter(id, port.Id)" disabled="@(Disabled || Definition.Nodes.Count >= 256)" aria-label="Add node after @PortLabel(id, port.Id)">+ Add node after @port.Id</button>
                             <button type="button" @onclick="() => Edit(() => GraphEditing.InsertConditionalAfter(Definition, id, port.Id))" disabled="@(Disabled || Definition.Nodes.Count > 252)" aria-label="Add conditional after @PortLabel(id, port.Id)">+ Conditional after @port.Id</button>
                         }
+                    }
+                    @if (!ReadOnly && node.Type == NodeTypes.McpTool)
+                    {
+                        @if (!GuardedTool(id))
+                        { <button type="button" @onclick="() => Edit(() => GraphEditing.InsertApprovalBefore(Definition, id))" disabled="@(Disabled || Definition.Nodes.Count >= 256)" aria-label="Require approval before @id">Require approval before tool</button> }
+                        else
+                        { <p class="vaw-help">Remove the approval step before deleting this tool or changing it to a non-tool operation.</p> }
                     }
                     @if (node.Type == NodeTypes.Merge) { <p class="vaw-help">Passes the selected incoming value. This is not a parallel join.</p> }
                     @if (node.Condition is { } recordedCondition && ReadOnly) { <p>@recordedCondition.Operator · @recordedCondition.Operand</p> }
@@ -133,7 +154,10 @@
         error = null;
     }
 
-    private bool HasRouting => WorkflowGraph.HasRouting(Definition);
+    private bool GuardedTool(string id) => Definition.Connections.Values.Any(e => e.Target.NodeId == id && Definition.Nodes[e.Source.NodeId].Type == NodeTypes.Approval);
+    private Task ApprovalPrompt(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
+        Definition.Nodes[id] with { Approval = new(args.Value?.ToString() ?? "") }));
+    private bool HasRouting => WorkflowGraph.HasControlNodes(Definition);
     private static string PortLabel(string id, string port) => port == "out" ? id : id + "." + port;
     private WorkflowDefinition ReplaceProcessing(string id, NodeDefinition node) => HasRouting
         ? GraphEditing.ReplaceNode(Definition, id, node) : PipelineEditing.ReplaceNode(Definition, id, node);
@@ -185,6 +209,6 @@
     {
         if (ReadOnly || Disabled) return;
         try { error = null; await DefinitionChanged.InvokeAsync(edit()); }
-        catch (ArgumentException) { error = "The graph edit is invalid. Check port connections, condition configuration and graph limits."; }
+        catch (ArgumentException) { error = "The graph edit is invalid. Check port connections, node configuration and graph limits."; }
     }
 }

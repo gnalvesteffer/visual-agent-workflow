@@ -50,3 +50,7 @@ Registration tests cover lazy creation, client/worker identity, duplicate regist
 ## Optional observation endpoint
 
 Runtime registration alone still maps no endpoints. Hosts can explicitly register an `IWorkflowRunObserver` and call `MapWorkflowObservation` with a named authorization policy. The API is read-only and separate from workflow control. See [consumer observation](observation.md).
+
+## Optional approval capability
+
+Local-runtime registration now also supplies `IWorkflowApprovalClient` as an alias of the same worker, preserving existing host registrations. `LocalWorkflowRuntime` has a trusted decision overload accepting a server-derived actor. Direct adapter execution without a coordinator cannot auto-approve a workflow. The existing sample direct mode has no approval coordinator; approval-enabled consumers must use the controlled runtime or implement the trusted gate. See [approvals](approvals.md).

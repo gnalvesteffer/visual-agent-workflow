@@ -1,0 +1,80 @@
+@implements IAsyncDisposable
+
+@if (request is { } pending)
+{
+    <section class="vaw-viewer vaw-approval" aria-label="Recorded action approval">
+        <h3>Approval required</h3>
+        <p>@pending.Prompt</p>
+        <p>Tool: @pending.Action.Tool.BindingId · target node @pending.Action.TargetNodeId</p>
+        <p>Contract: @pending.Action.Tool.ContractHash</p>
+        <p>Action fingerprint: @pending.ActionHash</p>
+        <p>Input fingerprint: @pending.Action.InputHash</p>
+        <details><summary>Exact tool input</summary><pre>@pending.Action.Input</pre></details>
+        @if (Client is not null && CanDecide)
+        {
+            @if (Snapshot?.Status == "paused") { <p class="vaw-help">This run is paused. Approving does not resume it.</p> }
+            <div class="vaw-controls">
+                <button type="button" @onclick="() => Decide(true)" disabled="@(!interactive || busy)">Approve recorded action</button>
+                <button type="button" @onclick="() => Decide(false)" disabled="@(!interactive || busy)">Reject recorded action</button>
+            </div>
+        }
+        else { <p class="vaw-help">Read-only approval evidence. Decisions require an authorized control connection and the latest live position.</p> }
+        @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
+    </section>
+}
+
+@code {
+    [Parameter] public RunSnapshot? Snapshot { get; set; }
+    [Parameter] public IWorkflowApprovalClient? Client { get; set; }
+    [Parameter] public bool CanDecide { get; set; }
+    [Parameter] public EventCallback OnDecision { get; set; }
+    private WorkflowApprovalRequest? request;
+    private IWorkflowApprovalClient? boundClient;
+    private Guid? boundRequest;
+    private long version;
+    private bool interactive;
+    private bool busy;
+    private bool disposed;
+    private string? error;
+    private CancellationTokenSource context = new();
+
+    protected override void OnParametersSet()
+    {
+        if (disposed) return;
+        request = Snapshot is null ? null : WorkflowApprovalEvidence.Pending(Snapshot);
+        if (ReferenceEquals(boundClient, Client) && boundRequest == request?.RequestId) return;
+        context.Cancel(); context.Dispose(); context = new();
+        boundClient = Client; boundRequest = request?.RequestId; version++;
+        busy = false; error = null;
+    }
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender || disposed) return;
+        interactive = true;
+        StateHasChanged();
+    }
+    private async Task Decide(bool approve)
+    {
+        if (!CanDecide || busy || Client is not { } client || request is not { } pending || Snapshot is null) return;
+        var currentVersion = version;
+        var token = context.Token;
+        busy = true; error = null;
+        try
+        {
+            await client.DecideApprovalAsync(pending.Action.RunId, pending.RequestId, pending.ActionHash, approve).WaitAsync(token);
+            if (!disposed && version == currentVersion) await OnDecision.InvokeAsync();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch
+        {
+            if (!disposed && version == currentVersion) error = "The decision could not be applied. Refresh the run and review its current recorded action.";
+        }
+        finally { if (!disposed && version == currentVersion) busy = false; }
+    }
+    public ValueTask DisposeAsync()
+    {
+        if (disposed) return ValueTask.CompletedTask;
+        disposed = true; context.Cancel(); context.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

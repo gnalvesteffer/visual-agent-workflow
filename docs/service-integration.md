@@ -82,3 +82,7 @@ The development host supports cooperative node-boundary control through `IWorkfl
 ## Optional remote observation
 
 A consumer can explicitly enable a named-policy-protected read-only observation API and supply its own evidence reader. Studio connects through server-configured sources; consuming Blazor apps can embed the same observation panel. The sample's `serve` mode leaves endpoints disabled unless opted in. See [consumer observation](observation.md) for API, authentication, Studio attachment and limitations.
+
+## Explicit MCP approvals
+
+The controlled local runtime supports schema-1.5 approval waits and exact recorded decisions independent from the browser. Consumer hosts own authenticated control endpoints and actor derivation; opt-in observation alone remains read-only. Direct runner calls without an approval gate fail closed. No process-restart continuation or automatic external-effect retry is added. See [approvals](approvals.md).

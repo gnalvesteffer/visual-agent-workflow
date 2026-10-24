@@ -38,6 +38,7 @@ builder.Services.AddSingleton<IPublishedWorkflowClient>(services => services.Get
 builder.Services.AddSingleton<IWorkflowClient>(services => services.GetRequiredService<PublishedWorkflowClient>());
 builder.Services.AddSingleton<IWorkflowRunControl>(services => services.GetRequiredService<PublishedWorkflowClient>());
 builder.Services.AddSingleton<IPublishedWorkflowRunControl>(services => services.GetRequiredService<PublishedWorkflowClient>());
+builder.Services.AddSingleton<IWorkflowApprovalClient>(services => services.GetRequiredService<PublishedWorkflowClient>());
 builder.Services.AddSingleton<ObservationSources>();
 var app = builder.Build();
 
@@ -124,6 +125,20 @@ app.MapPost("/api/runs/{id:guid}/resume", async (Guid id, IWorkflowRunControl co
     catch (KeyNotFoundException) { return Results.NotFound(); }
     catch (WorkflowRunControlException) { return Results.Conflict(new { error = "This runtime no longer owns an active continuation for that run." }); }
 });
+app.MapPost("/api/runs/{id:guid}/approvals/{requestId:guid}/decision", async (Guid id, Guid requestId, ApprovalDecisionRequest request,
+    IWorkflowApprovalClient approvals, IWorkflowClient client) =>
+{
+    if (request.Approve is not { } approve || request.ActionHash is null) return Results.BadRequest();
+    try
+    {
+        await approvals.DecideApprovalAsync(id, requestId, request.ActionHash, approve);
+        return Results.Accepted($"/api/runs/{id}", await client.GetRunAsync(id));
+    }
+    catch (ArgumentException) { return Results.BadRequest(); }
+    catch (KeyNotFoundException) { return Results.NotFound(); }
+    catch (WorkflowApprovalConflictException) { return Results.Conflict(new { error = "The recorded action is no longer awaiting this decision." }); }
+    catch (WorkflowRunControlException) { return Results.Conflict(new { error = "This runtime no longer owns that continuation." }); }
+});
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.Run();
 
@@ -131,3 +146,6 @@ public sealed record StartRunRequest(JsonElement Definition, string? Input)
 {
     public bool StartPaused { get; init; }
 }
+
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record ApprovalDecisionRequest(string? ActionHash, bool? Approve);

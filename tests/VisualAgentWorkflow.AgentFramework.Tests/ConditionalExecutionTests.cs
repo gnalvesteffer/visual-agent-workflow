@@ -104,6 +104,21 @@ public sealed class ConditionalExecutionTests
         Assert.Single(events, e => e.NodeId == merge && e.Kind == ExecutionEventKinds.NodeStarted);
     }
 
+    [Fact]
+    public async Task ApprovalFailsClosedWhenDirectCallerSuppliesNoCoordinator()
+    {
+        var graph = Graph();
+        var target = graph.Nodes.Single(n => n.Value.Type == NodeTypes.Reverse).Key;
+        graph = GraphEditing.ReplaceNode(graph, target, new(NodeTypes.McpTool, "1.0.0", new("fixture.tool", new string('0', 64))));
+        graph = GraphEditing.InsertApprovalBefore(graph, target);
+        var events = new List<ExecutionEvent>();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "abc",
+            e => { events.Add(e); return ValueTask.CompletedTask; }));
+        Assert.DoesNotContain(events, e => e.NodeId == target);
+        Assert.DoesNotContain(events, e => e.Kind.StartsWith("tool.", StringComparison.Ordinal));
+        Assert.Equal(ExecutionEventKinds.Failed, events[^1].Kind);
+    }
+
     private sealed class BoundaryGate(string node) : IWorkflowExecutionGate
     {
         public TaskCompletionSource Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

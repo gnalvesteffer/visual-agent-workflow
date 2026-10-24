@@ -56,7 +56,7 @@
             {
                 <WorkflowDesigner @key="(Catalog, publishedClient)" Catalog="Catalog" Client="publishedClient" OnRunStarted="PublishedCallback(publishedClient)" ToolCatalog="ToolCatalog" AgentCatalog="AgentCatalog" />
             }
-            <WorkflowRunViewer Snapshot="snapshot" Layout="runLayout" />
+            <WorkflowRunViewer Snapshot="snapshot" Layout="runLayout" ApprovalClient="@(Client as IWorkflowApprovalClient)" ApprovalChanged="Refresh" />
         </section>
     </div>
 </section>

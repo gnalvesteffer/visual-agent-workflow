@@ -53,7 +53,7 @@ public partial class WorkflowGraphCanvas
     private WirePresentation Route(string id) => Layout.Wires.GetValueOrDefault(id) ?? new("curve", []);
     private string Title(string id) => string.IsNullOrWhiteSpace(Layout.Nodes[id].Label) ? id : Layout.Nodes[id].Label;
     private static string Kind(NodeDefinition node) => node.Type == NodeTypes.Input ? "Input" : node.Type == NodeTypes.Output ? "Output" :
-        node.Type == NodeTypes.Condition ? "Condition" : node.Type == NodeTypes.Merge ? "Exclusive merge" : node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform";
+        node.Type == NodeTypes.Approval ? "Approval" : node.Type == NodeTypes.Condition ? "Condition" : node.Type == NodeTypes.Merge ? "Exclusive merge" : node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform";
 
     protected override void OnParametersSet()
     {

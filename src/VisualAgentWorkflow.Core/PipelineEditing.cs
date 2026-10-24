@@ -8,7 +8,7 @@ public static class PipelineEditing
     public static ImmutableArray<string> OrderedNodes(WorkflowDefinition definition)
     {
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (WorkflowGraph.HasRouting(definition)) throw new ArgumentException("Linear edits cannot flatten conditional graphs.", nameof(definition));
+        if (WorkflowGraph.HasControlNodes(definition)) throw new ArgumentException("Linear edits cannot flatten graphs with control nodes.", nameof(definition));
         var successors = definition.Connections.Values.ToDictionary(e => e.Source.NodeId, e => e.Target.NodeId);
         var result = ImmutableArray.CreateBuilder<string>();
         var current = definition.EntryNodeId;
@@ -112,7 +112,7 @@ public static class PipelineEditing
     }
 
     internal static string SchemaFor(WorkflowDefinition definition, NodeDefinition node) =>
-        definition.SchemaVersion == "1.4" ? "1.4" : definition.SchemaVersion == "1.3" || node.Origin is not null ? "1.3" : node.Type == NodeTypes.Agent
+        definition.SchemaVersion == "1.5" ? "1.5" : definition.SchemaVersion == "1.4" ? "1.4" : definition.SchemaVersion == "1.3" || node.Origin is not null ? "1.3" : node.Type == NodeTypes.Agent
             ? "1.2" : node.Type == NodeTypes.McpTool && definition.SchemaVersion == "1.0" ? "1.1" : definition.SchemaVersion;
 
     private static void RequireTransform(string type)

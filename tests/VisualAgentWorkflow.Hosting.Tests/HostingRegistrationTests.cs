@@ -21,6 +21,7 @@ public sealed class HostingRegistrationTests : IDisposable
         var runtime = provider.GetRequiredService<LocalWorkflowRuntime>();
         Assert.Same(runtime, provider.GetRequiredService<IWorkflowClient>());
         Assert.Same(runtime, provider.GetRequiredService<IWorkflowRunControl>());
+        Assert.Same(runtime, provider.GetRequiredService<IWorkflowApprovalClient>());
         Assert.Same(runtime, Assert.Single(provider.GetServices<IHostedService>()));
         Assert.Null(provider.GetService<IWorkflowCatalog>());
         Assert.Null(provider.GetService<INodeToolBroker>());

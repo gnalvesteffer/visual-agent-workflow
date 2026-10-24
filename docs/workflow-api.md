@@ -47,3 +47,7 @@ The opt-in policy-protected observation API is a separate reusable GET-only rout
 ## Conditional definitions
 
 Schema 1.4 adds `core.condition` and `core.merge` version 1.0.0, true/false string output ports and a bounded condition configuration. Existing save/publish/run/package routes accept validated conditional graphs. Invalid wiring/predicates fail before execution. No new mutation route or catalog migration is needed. See [conditional contracts and compatibility](conditional-graphs.md).
+
+## Approval controls
+
+Schema 1.5 adds `core.approval` before an explicit MCP tool. `POST /api/runs/{id}/approvals/{requestId}/decision` accepts only `{ "actionHash": "…", "approve": true|false }`. The decision binds to recorded server-side action metadata; no actor can be supplied in JSON. See [approval routes, responses and development attribution](approvals.md). The consumer observation route group remains GET-only.

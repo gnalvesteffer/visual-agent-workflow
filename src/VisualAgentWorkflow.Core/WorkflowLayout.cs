@@ -49,7 +49,7 @@ public sealed record WorkflowLayout(string SchemaVersion,
     {
         var defaults = Create(definition);
         var reconciled = defaults.Nodes.ToImmutableSortedDictionary(p => p.Key, p => Nodes.GetValueOrDefault(p.Key) ?? p.Value, StringComparer.Ordinal);
-        if (WorkflowGraph.HasRouting(definition))
+        if (WorkflowGraph.HasControlNodes(definition))
         {
             var occupied = Nodes.Where(p => definition.Nodes.ContainsKey(p.Key)).Select(p => p.Value.Position).ToList();
             foreach (var id in WorkflowGraph.OrderedNodes(definition).Where(id => !Nodes.ContainsKey(id)))

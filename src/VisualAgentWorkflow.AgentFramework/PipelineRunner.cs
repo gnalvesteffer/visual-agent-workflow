@@ -80,7 +80,7 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExec
         }
     }
 
-    private sealed record GraphMessage(string Text, string? SourceNode, string? SourcePort);
+    private sealed record GraphMessage(string Text, string? SourceNode, string? SourcePort, WorkflowApprovalPermit? Approval = null);
 
     private sealed class StringExecutor(
         string id,
@@ -96,7 +96,7 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExec
             if (gate is not null) await gate.WaitForBoundaryAsync(Id, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             var message = received.Text;
-            var invocation = Guid.NewGuid();
+            var invocation = received.Approval?.TargetInvocationId ?? Guid.NewGuid();
             // Receiving the downstream message is direct evidence of delivery, not inferred completion.
             if (received.SourceNode is not null)
             {
@@ -109,7 +109,7 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExec
             {
                 var result = node.Type switch
                 {
-                    NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge => message,
+                    NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval => message,
                     NodeTypes.Uppercase => message.ToUpperInvariant(),
                     NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
                     NodeTypes.McpTool => await InvokeTool(message, invocation, cancellationToken),
@@ -118,6 +118,18 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExec
                             (kind, data) => emit(kind, Id, invocation, null, data)), message, cancellationToken),
                     _ => throw new InvalidOperationException("Unsupported executor type.")
                 };
+                WorkflowApprovalPermit? permit = null;
+                if (node.Type == NodeTypes.Approval)
+                {
+                    if (gate is not IWorkflowApprovalGate approvals) throw new InvalidOperationException("No approval coordinator is configured.");
+                    var targetId = revision.Definition.Connections.Values.Single(e => e.Source.NodeId == Id).Target.NodeId;
+                    var target = revision.Definition.Nodes[targetId];
+                    var action = new WorkflowApprovalAction(runId, revision.RevisionId, revision.ContentHash, Id, invocation,
+                        targetId, Guid.NewGuid(), target.Tool!, message, WorkflowApprovalAction.HashInput(message));
+                    permit = await approvals.WaitForApprovalAsync(action, node.Approval!.Prompt, cancellationToken);
+                    if (permit.TargetInvocationId != action.TargetInvocationId || permit.ActionHash != action.ComputeHash() || permit.RequestId == Guid.Empty)
+                        throw new InvalidOperationException("The approval permit does not match the recorded action.");
+                }
                 var port = "out";
                 if (node.Type == NodeTypes.Condition)
                 {
@@ -125,7 +137,7 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExec
                     await emit(ExecutionEventKinds.BranchSelected, Id, invocation, null, JsonSerializer.Serialize(new { port }));
                 }
                 await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, result);
-                return new(result, Id, port);
+                return new(result, Id, port, permit);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

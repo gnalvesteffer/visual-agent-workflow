@@ -253,3 +253,8 @@
 .vaw-input-ports .vaw-socket { left: calc(-9px - var(--vaw-space-3)); }
 .vaw-output-ports .vaw-socket { right: calc(-9px - var(--vaw-space-3)); }
 :where(.vaw-pipeline-editor) input:not([type="checkbox"]) { inline-size: 100%; min-inline-size: 0; min-block-size: 2.75rem; margin-block-start: var(--vaw-space-2); background-color: var(--vaw-canvas); border: 1px solid var(--vaw-control-border); border-radius: var(--vaw-control-radius); padding: var(--vaw-space-2); }
+
+.vaw-approval { border: 1px solid var(--vaw-warning); border-radius: var(--vaw-panel-radius); padding: var(--vaw-space-4); margin-block: var(--vaw-space-4); }
+.vaw-approval p { overflow-wrap: anywhere; }
+.vaw-waiting-approval { border-color: var(--vaw-warning); }
+.vaw-edit-node[data-node-type="core.approval"] .vaw-node-kind { color: var(--vaw-warning); }

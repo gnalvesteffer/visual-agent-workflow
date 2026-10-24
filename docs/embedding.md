@@ -81,3 +81,7 @@ The development host supports cooperative node-boundary control through `IWorkfl
 ## Read-only consumer observation
 
 Embed `<WorkflowObservationPanel Observer="Observer" SourceLabel="Service workflows" />` with a host-supplied `IWorkflowRunObserver`. Use the local journal reader or the separate HTTP observer client; no Studio or mutation-capable workflow client is needed. The panel provides recent runs, polling, graph inspection and recorded playback. Parent hosts own authentication, visible runs and payload access. Dispose/rebind cancels observation waits only. See [consumer observation setup](observation.md).
+
+## Optional approval controls
+
+`WorkflowRunViewer` accepts optional `ApprovalClient` (`IWorkflowApprovalClient`) and `ApprovalChanged` callback parameters. Without that client it renders approval evidence read-only, as the remote observation panel does. Controls require the latest live position; recorded playback cannot decide an old request. `WorkflowApprovalPanel` can also be embedded directly with a snapshot, host-authorized client and explicit `CanDecide`. Hosts must supply authentication/authorization and server-derived attribution. See [approvals](approvals.md).

@@ -50,3 +50,7 @@ Graceful shutdown cancels live waits. Restart marks remaining unfinished journal
 ## Verification
 
 `PauseResumeTests` exercises in-flight pause acknowledgement, withdrawal, repeated commands, node boundaries, cancellation, admission limits, independent work while paused, pinned identity and owner loss. Adapter tests cover the final completion boundary. `python3 scripts/pause_resume_smoke.py --browser-executable /usr/bin/chromium` exercises API and Studio controls, browser reload, exact published versions and recorded pause playback using deterministic local data.
+
+## Waiting for approval
+
+`waiting-approval` is a nonterminal status. Resume does not approve, and approval does not clear a manual pause. Approval waits release execution ownership while still consuming an admission context. Cancellation/shutdown unblocks them; restart interrupts unfinished runs rather than reviving unresolved decisions. See [exact-action approvals](approvals.md).

@@ -89,7 +89,7 @@ public sealed class ObservationApiTests
             using var response = await fixture.Http.GetAsync($"runs/{summary.RunId}/{suffix}");
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         }
-        foreach (var suffix in new[] { "", "/pause", "/resume", "/cancel" })
+        foreach (var suffix in new[] { "", "/pause", "/resume", "/cancel", $"/approvals/{Guid.NewGuid()}/decision" })
         {
             using var response = await fixture.Http.PostAsync($"runs/{summary.RunId}{suffix}", null);
             Assert.True(response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed);

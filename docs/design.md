@@ -341,3 +341,7 @@ Open implementation decisions include the supported .NET/framework versions, pre
 ## Consumer-owned observation boundary
 
 A consumer explicitly opts into a read-only observation endpoint and supplies its authentication, visibility and storage policies. Studio can attach to approved consumer endpoints; the live/historical graph view is independently embeddable in consumer applications. Observation credentials grant no authoring or execution-control authority, and disconnecting an observer never changes execution lifetime. The [initial implementation](observation.md) provides named server-side Studio sources and a shared observer component; production identity/delegation, centralized access auditing and scalable stores remain separate work.
+
+## Initial exact-action approval semantics
+
+The [schema-1.5 implementation](approvals.md) guards one explicit MCP node by capturing its exact revision/input/binding/contract and reserved invocation ID. The consumer owns authorization/attribution and execution lifetime. Read-only observation cannot decide actions; approval cannot grant tool access or clear a pause. Requests persist as evidence while continuations remain process-owned. Durable checkpoint recovery, required host-policy approvals for all sensitive tools, model-selected tool-call approval and production identity remain separate future work.

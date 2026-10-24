@@ -9,7 +9,7 @@ namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>Bounded, process-owned execution. Paused continuations release the shared execution slot.</summary>
 public sealed class LocalWorkflowRuntime(FileRunJournal journal, ILogger<LocalWorkflowRuntime> logger, INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null)
-    : BackgroundService, IWorkflowClient, IWorkflowRunControl
+    : BackgroundService, IWorkflowClient, IWorkflowRunControl, IWorkflowApprovalClient
 {
     private const int MaximumOwnedRuns = 32;
     private sealed record Request(Guid RunId, WorkflowRevision Revision, string Input, ControlledRun Control);
@@ -82,6 +82,42 @@ public sealed class LocalWorkflowRuntime(FileRunJournal journal, ILogger<LocalWo
     {
         if (ownedRuns.TryGetValue(runId, out var run)) run.Cancel();
         return Task.CompletedTask;
+    }
+
+    public Task DecideApprovalAsync(Guid runId, Guid requestId, string actionHash, bool approve) =>
+        DecideApprovalAsync(runId, requestId, actionHash, approve, "local-developer");
+
+    /// <summary>Trusted host entry point. Derive actor from authenticated server context, never request JSON.</summary>
+    public Task DecideApprovalAsync(Guid runId, Guid requestId, string actionHash, bool approve, string actor)
+    {
+        if (string.IsNullOrWhiteSpace(actor) || actor.Length > 256 || actor.Any(char.IsControl)) throw new ArgumentException("A bounded host actor is required.", nameof(actor));
+        if (actionHash is not { Length: 64 } || !actionHash.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f'))
+            throw new ArgumentException("An action SHA-256 fingerprint is required.", nameof(actionHash));
+        var snapshot = journal.Get(runId) ?? throw new KeyNotFoundException("Unknown run.");
+        if (AcknowledgesRecordedDecision(snapshot, requestId, actionHash, approve)) return Task.CompletedTask;
+        try
+        {
+            lock (admission)
+            {
+                if (!accepting || !ownedRuns.TryGetValue(runId, out var control)) throw new WorkflowApprovalConflictException();
+                control.DecideApproval(requestId, actionHash, approve, actor);
+            }
+        }
+        catch (Exception error) when (error is WorkflowApprovalConflictException or WorkflowRunControlException)
+        {
+            // Another caller may have decided and completed the run after our first snapshot.
+            if (!AcknowledgesRecordedDecision(journal.Get(runId)!, requestId, actionHash, approve)) throw;
+        }
+        return Task.CompletedTask;
+    }
+
+    private static bool AcknowledgesRecordedDecision(RunSnapshot snapshot, Guid requestId, string actionHash, bool approve)
+    {
+        var previous = snapshot.Events.Where(e => e.Kind is ExecutionEventKinds.ApprovalApproved or ExecutionEventKinds.ApprovalRejected)
+            .Select(WorkflowApprovalEvidence.ReadDecision).FirstOrDefault(d => d?.RequestId == requestId);
+        if (previous is null) return false;
+        if (previous.ActionHash != actionHash || previous.Approved != approve) throw new WorkflowApprovalConflictException();
+        return true; // A retry acknowledges the original record and actor, including after terminal cleanup.
     }
 
     private ControlledRun RequireOwnedRun(Guid id)

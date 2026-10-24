@@ -19,6 +19,10 @@ public static class ExecutionEventKinds
     public const string NodeCompleted = "node.completed";
     public const string NodeFailed = "node.failed";
     public const string NodeCancelled = "node.cancelled";
+    public const string ApprovalRequested = "approval.requested";
+    public const string ApprovalApproved = "approval.approved";
+    public const string ApprovalRejected = "approval.rejected";
+    public const string ApprovalCancelled = "approval.cancelled";
     public const string BranchSelected = "branch.selected";
     public const string Transfer = "connection.received";
     public const string Completed = "run.completed";

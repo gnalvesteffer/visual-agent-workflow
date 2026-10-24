@@ -18,7 +18,7 @@ public static class GraphEditing
             .Add(NewId("link"), Link(branch, "true", whenTrue)).Add(NewId("link"), Link(branch, "false", whenFalse))
             .Add(NewId("link"), Link(whenTrue, "out", merge)).Add(NewId("link"), Link(whenFalse, "out", merge))
             .Add(NewId("link"), new(new(merge, "out"), edge.Value.Target, "data"));
-        return Checked(definition with { SchemaVersion = "1.4", Nodes = nodes, Connections = connections });
+        return Checked(definition with { SchemaVersion = definition.SchemaVersion == "1.5" ? "1.5" : "1.4", Nodes = nodes, Connections = connections });
     }
 
     public static WorkflowDefinition InsertNodeAfter(WorkflowDefinition definition, string sourceId, string portId, NodeDefinition node)
@@ -40,7 +40,7 @@ public static class GraphEditing
     {
         WorkflowValidator.ThrowIfInvalid(definition);
         if (!definition.Nodes.TryGetValue(id, out var existing)) throw new ArgumentException("Unknown node.");
-        if (existing.Type == NodeTypes.Condition && node.Type == NodeTypes.Condition)
+        if (existing.Type == node.Type && existing.Type is NodeTypes.Condition or NodeTypes.Approval)
             return Checked(definition with { Nodes = definition.Nodes.SetItem(id, node) });
         RequireProcessing(existing.Type);
         RequireProcessing(node.Type);
@@ -52,6 +52,36 @@ public static class GraphEditing
         WorkflowValidator.ThrowIfInvalid(definition);
         if (!definition.Nodes.TryGetValue(id, out var node)) throw new ArgumentException("Unknown node.");
         RequireProcessing(node.Type);
+        var incoming = definition.Connections.Single(e => e.Value.Target.NodeId == id);
+        var outgoing = definition.Connections.Single(e => e.Value.Source.NodeId == id);
+        return Checked(definition with
+        {
+            Nodes = definition.Nodes.Remove(id),
+            Connections = definition.Connections.Remove(outgoing.Key).SetItem(incoming.Key, new(incoming.Value.Source, outgoing.Value.Target, "data"))
+        });
+    }
+
+    public static WorkflowDefinition InsertApprovalBefore(WorkflowDefinition definition, string targetId)
+    {
+        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!definition.Nodes.TryGetValue(targetId, out var target) || target.Type != NodeTypes.McpTool)
+            throw new ArgumentException("Choose an MCP tool node to guard.");
+        var edge = definition.Connections.Single(e => e.Value.Target.NodeId == targetId);
+        if (definition.Nodes[edge.Value.Source.NodeId].Type == NodeTypes.Approval) throw new ArgumentException("This tool already has an approval step.");
+        var id = NewId("approval");
+        return Checked(definition with
+        {
+            SchemaVersion = "1.5",
+            Nodes = definition.Nodes.Add(id, new(NodeTypes.Approval, "1.0.0") { Approval = new("Review the exact MCP call before allowing it.") }),
+            Connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(id, "in"), "data"))
+                .Add(NewId("link"), Link(id, "out", targetId))
+        });
+    }
+
+    public static WorkflowDefinition RemoveApproval(WorkflowDefinition definition, string id)
+    {
+        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!definition.Nodes.TryGetValue(id, out var node) || node.Type != NodeTypes.Approval) throw new ArgumentException("Choose an approval step.");
         var incoming = definition.Connections.Single(e => e.Value.Target.NodeId == id);
         var outgoing = definition.Connections.Single(e => e.Value.Source.NodeId == id);
         return Checked(definition with
