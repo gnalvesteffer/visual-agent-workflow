@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="../VisualAgentWorkflow.AgentFramework/VisualAgentWorkflow.AgentFramework.csproj" />
-    <ProjectReference Include="../VisualAgentWorkflow.Mcp/VisualAgentWorkflow.Mcp.csproj" />
+    <ProjectReference Include="../VisualAgentWorkflow.Core/VisualAgentWorkflow.Core.csproj" />
   </ItemGroup>
 </Project>

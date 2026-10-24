@@ -2,5 +2,8 @@
   <ItemGroup>
     <ProjectReference Include="../VisualAgentWorkflow.Blazor/VisualAgentWorkflow.Blazor.csproj" />
     <ProjectReference Include="../VisualAgentWorkflow.Hosting/VisualAgentWorkflow.Hosting.csproj" />
+    <ProjectReference Include="../VisualAgentWorkflow.Core/VisualAgentWorkflow.Core.csproj" />
+    <ProjectReference Include="../VisualAgentWorkflow.AgentFramework/VisualAgentWorkflow.AgentFramework.csproj" />
+    <ProjectReference Include="../VisualAgentWorkflow.Mcp/VisualAgentWorkflow.Mcp.csproj" />
   </ItemGroup>
 </Project>

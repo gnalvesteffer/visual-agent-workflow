@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="ModelContextProtocol" Version="2.3.0" />
+    <PackageReference Include="ModelContextProtocol" />
     <ProjectReference Include="../VisualAgentWorkflow.Core/VisualAgentWorkflow.Core.csproj" />
   </ItemGroup>
 </Project>
