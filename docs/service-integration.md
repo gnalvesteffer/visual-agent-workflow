@@ -51,3 +51,7 @@ A deployment update selects approved content for future runs. Already-started ru
 The [roadmap](roadmap.md) calls for a separate, runnable service/worker consumer before broadening the hosting SDK. It should load its own approved artifact, run without Studio or a browser, demonstrate direct and queued execution with deterministic fixtures, record events, reject invalid/missing dependencies and unauthorized tools, and make lifetime/shutdown limitations explicit. A consuming app should also be able to add the designer or observer independently through the [existing component interfaces](embedding.md).
 
 The subsequent SDK work should make DI/lifecycle configuration, package distribution, stable public execution contracts, error/cancellation behavior, storage adapters, and embedding documentation deliberate and reviewable. It must preserve the architectural separation rather than coupling service execution to the IDE. Production durability/security and richer typed contracts remain distinct milestones with their own acceptance tests.
+
+## Optional pause/resume capability
+
+The development host supports cooperative node-boundary control through `IWorkflowRunControl` / `IPublishedWorkflowRunControl`, paused starts, and HTTP pause/resume routes. Existing client interfaces remain supported. Controls preserve the same live run and pinned revision; browser disposal does not resume or cancel it. Host restart interrupts unfinished continuations. See [run-control semantics and requests](run-control.md).

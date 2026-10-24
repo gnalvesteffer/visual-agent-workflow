@@ -112,6 +112,8 @@
             <div class="vaw-version-run">
             <h3>Run a published version</h3>
             <label>Published run input <textarea @bind="runInput" maxlength="16384" rows="2"></textarea></label>
+            @if (Client is IPublishedWorkflowRunControl)
+            { <label class="vaw-run-option"><input type="checkbox" @bind="startPublishedPaused" />Start published run paused</label> }
             <button type="button" class="vaw-primary" @onclick="RunPublished" disabled="@(busy || selectedRevisionId is null)">Run selected version</button>
             <p class="vaw-help">Uses the selected published version, including when the draft has unsaved edits.</p>
             </div>

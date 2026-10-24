@@ -238,3 +238,8 @@
 .vaw-reuse-panel input { display: block; inline-size: 100%; min-inline-size: 0; min-block-size: 2.75rem; border: 1px solid var(--vaw-control-border); border-radius: var(--vaw-control-radius); background-color: var(--vaw-canvas); padding: var(--vaw-space-2); margin-block-start: var(--vaw-space-2); }
 .vaw-requirements { color: var(--vaw-muted); font-size: 0.8125rem; padding-inline-start: var(--vaw-space-6); }
 .vaw-node-origin { color: var(--vaw-muted); font-size: 0.8125rem; border-block-start: 1px solid var(--vaw-border); padding-block-start: var(--vaw-space-2); }
+
+/* Run-control options stay usable in narrow embedded hosts. */
+.vaw-run-option { display: flex; align-items: center; gap: var(--vaw-space-2); min-block-size: 2.75rem; }
+.vaw-run-option input { inline-size: 1.25rem; block-size: 1.25rem; flex: 0 0 auto; }
+.vaw-paused-boundary { border-color: var(--vaw-warning); }

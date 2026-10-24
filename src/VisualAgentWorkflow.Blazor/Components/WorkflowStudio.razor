@@ -20,12 +20,22 @@
                 </select>
             </label>
             <label>Input <textarea @bind="input" maxlength="16384" rows="4"></textarea></label>
+            @if (Client is IWorkflowRunControl)
+            { <label class="vaw-run-option"><input type="checkbox" @bind="startPaused" disabled="@(!interactive || starting)" />Start paused</label> }
             <button type="button" class="vaw-primary" @onclick="StartRun" disabled="@(!interactive || starting)">@(starting ? "Starting…" : "Start independent run")</button>
             @if (snapshot is { IsTerminal: false })
             {
+                @if (Client is IWorkflowRunControl)
+                {
+                    @if (snapshot.Status is "paused" or "pausing")
+                    { <button type="button" @onclick="() => SetPause(false)" disabled="@(!interactive || controllingRun)">Resume selected run</button> }
+                    else
+                    { <button type="button" @onclick="() => SetPause(true)" disabled="@(!interactive || controllingRun)">Pause selected run</button> }
+                    <p class="vaw-help" role="status">Run state: @snapshot.Status. Pause takes effect between nodes; current work is allowed to finish.</p>
+                }
                 <button type="button" @onclick="Cancel" disabled="@(!interactive)">Cancel selected run</button>
             }
-            <p class="vaw-help">Runs continue when you close the editor.</p>
+            <p class="vaw-help">Runs keep their state when you close the editor.</p>
             <h2>Recorded runs</h2>
             <button type="button" @onclick="Refresh" disabled="@(!interactive)">Refresh history</button>
             <ul class="vaw-history">

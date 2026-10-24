@@ -6,12 +6,19 @@ namespace VisualAgentWorkflow.AgentFramework;
 /// <summary>Translates the supported string pipeline into actual Agent Framework executors and edges.</summary>
 public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null)
 {
-    public async Task<string> ExecuteAsync(
-        Guid runId,
-        WorkflowRevision revision,
-        string input,
-        Func<ExecutionEvent, ValueTask> record,
-        CancellationToken cancellationToken = default)
+    public Task<string> ExecuteAsync(Guid runId, WorkflowRevision revision, string input,
+        Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default) =>
+        ExecuteCoreAsync(runId, revision, input, record, null, cancellationToken);
+
+    public Task<string> ExecuteControlledAsync(Guid runId, WorkflowRevision revision, string input,
+        Func<ExecutionEvent, ValueTask> record, IWorkflowExecutionGate gate, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(gate);
+        return ExecuteCoreAsync(runId, revision, input, record, gate, cancellationToken);
+    }
+
+    private async Task<string> ExecuteCoreAsync(Guid runId, WorkflowRevision revision, string input,
+        Func<ExecutionEvent, ValueTask> record, IWorkflowExecutionGate? gate, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(input);
@@ -28,7 +35,7 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExec
         var incoming = definition.Connections.ToDictionary(e => e.Value.Target.NodeId, e => e.Key);
         var executors = definition.Nodes.ToDictionary(
             n => n.Key,
-            n => new StringExecutor(n.Key, n.Value, runId, revision, tools, agents, incoming.GetValueOrDefault(n.Key), Emit));
+            n => new StringExecutor(n.Key, n.Value, runId, revision, tools, agents, incoming.GetValueOrDefault(n.Key), Emit, gate));
         var builder = new WorkflowBuilder(executors[definition.EntryNodeId]);
         foreach (var edge in definition.Connections.Values)
             builder.AddEdge(executors[edge.Source.NodeId], executors[edge.Target.NodeId]);
@@ -55,6 +62,8 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExec
             // The framework may finish its event stream normally when the execution token is cancelled.
             cancellationToken.ThrowIfCancellationRequested();
             if (output is null) throw new InvalidOperationException("The workflow produced no output.");
+            if (gate is not null) await gate.WaitForBoundaryAsync(null, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             await Emit(ExecutionEventKinds.Completed, data: output);
             return output;
         }
@@ -79,10 +88,11 @@ public sealed class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExec
         INodeToolBroker? tools,
         IAgentNodeExecutor? agents,
         string? incomingConnection,
-        Func<string, string?, Guid?, string?, string?, ValueTask> emit) : Executor<string, string>(id)
+        Func<string, string?, Guid?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate) : Executor<string, string>(id)
     {
         public override async ValueTask<string> HandleAsync(string message, IWorkflowContext context, CancellationToken cancellationToken = default)
         {
+            if (gate is not null) await gate.WaitForBoundaryAsync(Id, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             var invocation = Guid.NewGuid();
             // Receiving the downstream message is direct evidence of delivery, not inferred completion.

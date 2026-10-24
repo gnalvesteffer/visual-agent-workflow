@@ -47,6 +47,7 @@ public partial class WorkflowDesigner
     private string? message;
     private string jsonText = "";
     private string runInput = "Hello, workflows!";
+    private bool startPublishedPaused;
     private WorkflowDefinition? downloadedDefinition;
     private string downloadHref = "";
 
@@ -101,7 +102,7 @@ public partial class WorkflowDesigner
         definition = null; layout = null; previewLayout = null; layoutHash = null; definitionHash = null; savedHash = null;
         workflows = []; versions = []; audit = []; bindings = []; providers = [];
         preview = null; selectedRevisionId = null; activeRevisionId = null;
-        undo.Clear(); redo.Clear(); jsonText = ""; runInput = "Hello, workflows!"; busy = false;
+        undo.Clear(); redo.Clear(); jsonText = ""; runInput = "Hello, workflows!"; startPublishedPaused = false; busy = false;
         loadedTools = null; loadedAgents = null; ResetReuse();
         await Perform(async current =>
         {
@@ -276,10 +277,15 @@ public partial class WorkflowDesigner
 
     private Task RunPublished() => Perform(async current =>
     {
-        var run = await current.Client.StartPublishedRunAsync(selectedRevisionId!.Value, runInput).WaitAsync(current.Token);
+        var request = startPublishedPaused && current.Client is IPublishedWorkflowRunControl controls
+            ? controls.StartPublishedPausedRunAsync(selectedRevisionId!.Value, runInput)
+            : current.Client.StartPublishedRunAsync(selectedRevisionId!.Value, runInput);
+        var run = await request.WaitAsync(current.Token);
         if (!Current(current)) return;
         await OnRunStarted.InvokeAsync(run);
-        if (Current(current)) message = "Published run started independently of the editor.";
+        if (Current(current)) message = startPublishedPaused
+            ? "Published run created paused. Resume it from the run controls."
+            : "Published run started independently of the editor.";
     });
 
     private void Export() { jsonText = WorkflowJson.Serialize(preview?.Revision.Definition ?? definition!); }

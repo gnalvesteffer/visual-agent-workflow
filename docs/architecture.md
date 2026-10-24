@@ -53,7 +53,7 @@ The database schema is version 2. Schema 1 databases migrate by adding layout ta
 
 ## Execution and observation
 
-A published run resolves the exact stored revision before enqueueing. The local background worker translates the validated linear graph to real Agent Framework executors and edges. Actual receiver-side transfers, node invocations, model rounds, tool calls, and terminal outcomes become recorded events. The viewer reconstructs those events without calling executors, models, or tools.
+A published run resolves the exact stored revision before enqueueing. The local background worker translates the validated linear graph to real Agent Framework executors and edges. A maximum of 32 process-owned contexts share one active execution permit. Paused continuations release the permit while retaining their live framework state and admission slot. A per-run writer sequences control and executor events together; pause is acknowledged between nodes, not inside an admitted agent/tool operation. See [pause and resume](run-control.md). Actual receiver-side transfers, node invocations, model rounds, tool calls, and terminal outcomes become recorded events. The viewer reconstructs those events without calling executors, models, or tools.
 
 ```mermaid
 flowchart LR

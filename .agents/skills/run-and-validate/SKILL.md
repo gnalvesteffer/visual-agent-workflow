@@ -26,3 +26,5 @@ For runtime changes, verify UI disconnection does not end a run and reconnect re
 Diagnose the failing prerequisite before retrying. Distinguish environment problems from application defects. Report exact commands, results, and untested prerequisites. Add real startup/build/test commands here once implemented and verified; do not invent placeholder commands that appear executable.
 
 Select meaningful regression checks with [quality assurance](../quality-assurance/SKILL.md); use [webapp testing](../webapp-testing/SKILL.md) and [local notes](../webapp-testing/SOURCE.md) for Playwright checks.
+
+`python3 scripts/pause_resume_smoke.py --browser-executable /usr/bin/chromium` exercises paused starts, API/UI resume/cancel, browser reload, independent work while paused, version pinning and recorded pause playback against a running development Studio. It uses disposable deterministic workflows; it does not validate crash-resumable checkpoints.

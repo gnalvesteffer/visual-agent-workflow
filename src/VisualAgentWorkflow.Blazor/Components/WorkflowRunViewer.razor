@@ -1,3 +1,4 @@
+@using System.Collections.Immutable
 <section class="vaw-viewer" aria-label="Workflow run viewer">
     @if (Snapshot is null)
     {
@@ -7,6 +8,7 @@
     {
         <header class="vaw-run-header">
             <div><strong>@(follow ? "Live / latest" : "Recorded playback")</strong> · Latest run status: @Snapshot.Status</div>
+            <p class="vaw-help">State at recorded position: @VisibleStatus</p>
             <small>Run @Snapshot.Header.RunId · revision @Snapshot.Header.RevisionId</small>
         </header>
         <div class="vaw-controls" aria-label="Playback controls">
@@ -20,9 +22,9 @@
         </div>
         <WorkflowGraphCanvas @key="Snapshot.Header.RunId" Definition="Snapshot.Header.Definition" Layout="Presentation" ReadOnly="true" NodesLabel="Pipeline nodes in execution order" NodeClass="NodeStateClass" DeliveredConnections="Delivered">
             <NodeContent Context="nodeId">
-                @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); }
-                <button type="button" class="vaw-node-button" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId)">
-                    <strong>@nodeId</strong><span>@node.Type</span><span>@StateLabel(state)</span>
+                @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); var label = PausedBefore(nodeId) && state is null ? "Paused before execution" : StateLabel(state); }
+                <button type="button" class="vaw-node-button" aria-label="@($"{nodeId} {node.Type} {label}")" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId)">
+                    <strong>@nodeId</strong><span>@node.Type</span><span>@label</span>
                 </button>
             </NodeContent>
         </WorkflowGraphCanvas>
@@ -61,17 +63,21 @@
     [Parameter] public WorkflowLayout? Layout { get; set; }
     private WorkflowLayout Presentation = default!;
     private ExecutionEvent? State(string id) => VisibleEvents.LastOrDefault(e => e.NodeId == id && e.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
+    private bool PausedBefore(string id) => VisibleStatus == "paused" &&
+        VisibleEvents.LastOrDefault(e => e.Kind == ExecutionEventKinds.Paused)?.NodeId == id;
     private string NodeStateClass(string id) => State(id)?.Kind switch
     {
         ExecutionEventKinds.NodeCompleted => "vaw-complete",
         ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled => "vaw-failed",
-        _ => ""
+        _ => PausedBefore(id) ? "vaw-paused-boundary" : ""
     };
     private IReadOnlySet<string> Delivered => VisibleEvents.Where(e => e.Kind == ExecutionEventKinds.Transfer && e.ConnectionId is not null).Select(e => e.ConnectionId!).ToHashSet(StringComparer.Ordinal);
     private Guid? currentRun;
     private bool follow = true;
     private int cursor;
     private string? selectedNode;
+    private string VisibleStatus => Snapshot is null ? "queued" : follow ? Snapshot.Status :
+        (Snapshot with { Events = Snapshot.Events.Take(Position).ToImmutableArray() }).Status;
     private int Position => Snapshot is null ? 0 : follow ? Snapshot.Events.Length : Math.Clamp(cursor, 0, Snapshot.Events.Length);
     private IEnumerable<ExecutionEvent> VisibleEvents => Snapshot?.Events.Take(Position) ?? [];
 

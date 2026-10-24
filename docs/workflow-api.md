@@ -35,3 +35,7 @@ The development HTTP host limits the entire design request (definition plus layo
 ## Portable package exports
 
 `GET /api/workflows/{workflowId}/package` exports the saved executable definition, layout, derived requirements, and content checksums as package format 1.0. The design-capable catalog reads definition/layout consistently. `GET /api/revisions/{revisionId}/package` exports an exact immutable publication and its captured layout. Missing items return 404. These read-only routes do not execute anything or expose host credentials/policy grants. Package import in Studio is a local edit followed by normal explicit design save/publication; there is no HTTP package-install endpoint. See [reuse and sharing](reusable-pipelines.md).
+
+## Optional pause/resume capability
+
+The development host supports cooperative node-boundary control through `IWorkflowRunControl` / `IPublishedWorkflowRunControl`, paused starts, and HTTP pause/resume routes. Existing client interfaces remain supported. Controls preserve the same live run and pinned revision; browser disposal does not resume or cancel it. Host restart interrupts unfinished continuations. See [run-control semantics and requests](run-control.md).

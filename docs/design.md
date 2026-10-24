@@ -97,6 +97,8 @@ Provide configuration editors, input/output inspectors, semantic diagnostics, an
 
 Each run binds to an immutable published workflow revision and resolved dependency set. Editing or activating another revision affects subsequent runs only. Active-run modification is not an implicit editor feature; any future intervention mechanism needs a separate contract and audit trail.
 
+Pause/resume is cooperative at explicit safe boundaries. An admitted operation finishes before pause acknowledgement; resuming preserves the same run and pinned definition without replaying completed work. Pause must not be interpreted as rollback of external effects. Durable pause across worker restart requires persisted continuation state, ownership and recovery policy. The current development implementation supports process-owned node boundaries only; see [implemented run control](run-control.md).
+
 Start, cancel, approve, and supported pause/resume actions are authenticated backend commands. UI disconnection does not cancel execution. Persist run state and events so observers can reconnect, retrieve a consistent snapshot, and receive events after their last cursor without gaps. Define snapshot/stream ordering and deduplication explicitly.
 
 Browser independence and worker crash recovery are separate requirements. Use supported Agent Framework checkpointing or durable execution integrations where appropriate, with persisted waits and approvals. Verify recovery behavior rather than assuming every executor or external call is resumable.

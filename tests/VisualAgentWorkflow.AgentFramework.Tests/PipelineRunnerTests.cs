@@ -74,4 +74,32 @@ public class PipelineRunnerTests
             Guid.NewGuid(), Revision(), new string('x', 16_385), e => { events.Add(e); return ValueTask.CompletedTask; }));
         Assert.Empty(events);
     }
+    [Fact]
+    public async Task CompletionBoundaryWaitsWithoutRepeatingFinalNode()
+    {
+        var gate = new CompletionGate();
+        var events = new List<ExecutionEvent>();
+        var execution = new PipelineRunner().ExecuteControlledAsync(Guid.NewGuid(), Revision(), "abc",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }, gate);
+        await gate.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(4, events.Count(e => e.Kind == ExecutionEventKinds.NodeCompleted));
+        Assert.DoesNotContain(events, e => e.Kind == ExecutionEventKinds.Completed);
+        gate.Release.TrySetResult();
+        Assert.Equal("CBA", await execution.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(4, events.Count(e => e.Kind == ExecutionEventKinds.NodeStarted));
+        Assert.Equal(ExecutionEventKinds.Completed, events[^1].Kind);
+    }
+
+    private sealed class CompletionGate : IWorkflowExecutionGate
+    {
+        public TaskCompletionSource Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public async ValueTask WaitForBoundaryAsync(string? nextNodeId, CancellationToken cancellationToken)
+        {
+            if (nextNodeId is not null) return;
+            Reached.TrySetResult();
+            await Release.Task.WaitAsync(cancellationToken);
+        }
+    }
+
 }

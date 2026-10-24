@@ -7,15 +7,28 @@ public sealed record RunHeader(Guid RunId, Guid RevisionId, Guid? ParentRevision
 
 public sealed record RunSnapshot(RunHeader Header, ImmutableArray<ExecutionEvent> Events)
 {
-    public string Status => Events.LastOrDefault()?.Kind switch
+    public string Status
     {
-        ExecutionEventKinds.Completed => "completed",
-        ExecutionEventKinds.Failed => "failed",
-        ExecutionEventKinds.Cancelled => "cancelled",
-        ExecutionEventKinds.Interrupted => "interrupted",
-        null => "queued",
-        _ => "running"
-    };
+        get
+        {
+            // Model/tool/node evidence can arrive after a pause request. Only an acknowledged
+            // pause or later control/terminal transition changes that control state.
+            var transition = Events.LastOrDefault(e => e.Kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or
+                ExecutionEventKinds.Cancelled or ExecutionEventKinds.Interrupted or ExecutionEventKinds.PauseRequested or
+                ExecutionEventKinds.Paused or ExecutionEventKinds.Resumed);
+            return transition?.Kind switch
+            {
+                ExecutionEventKinds.Completed => "completed",
+                ExecutionEventKinds.Failed => "failed",
+                ExecutionEventKinds.Cancelled => "cancelled",
+                ExecutionEventKinds.Interrupted => "interrupted",
+                ExecutionEventKinds.PauseRequested => "pausing",
+                ExecutionEventKinds.Paused => "paused",
+                _ => Events.Any(e => e.Kind is not (ExecutionEventKinds.PauseRequested or ExecutionEventKinds.Paused or ExecutionEventKinds.Resumed))
+                    ? "running" : "queued"
+            };
+        }
+    }
 
     public bool IsTerminal => Status is "completed" or "failed" or "cancelled" or "interrupted";
 }

@@ -25,3 +25,7 @@ Runs bind to immutable revisions and dependency identities. Definition edits and
 Use deterministic executors, a controlled MCP fixture, and explicit synchronization/fault injection instead of timing-dependent sleeps. Select cases relevant to the change. Verify durable storage and restart behavior with integration tests; in-memory mocks alone cannot establish recovery.
 
 Do not promise universal exactly-once external effects. Separate browser independence from crash recovery and checkpoint recovery from historical playback. Apply [audit-playback-review](../audit-playback-review/SKILL.md) when changing event instrumentation.
+
+## Verified local pause boundary
+
+The current runtime parks the same in-process Agent Framework continuation at awaited node boundaries and before completion. Paused contexts release the shared execution permit but still count against the 32-context admission budget. Test current-node completion, no next-node admission, cancellation while parked, and other work progressing; do not describe this as durable checkpoint recovery. Restart interrupts unfinished owners. See [run control](../../../docs/run-control.md).

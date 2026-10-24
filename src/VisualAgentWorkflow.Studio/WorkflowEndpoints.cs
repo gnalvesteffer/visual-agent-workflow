@@ -65,13 +65,19 @@ internal static class WorkflowEndpoints
             if (request.Input is null) return Results.BadRequest();
             var draft = await catalog.GetDraftAsync(workflowId) ?? throw new KeyNotFoundException("Workflow not found.");
             if (draft.ActiveRevisionId is not { } revisionId) return Results.Conflict(new { error = "No published revision is active." });
-            var run = await client.StartPublishedRunAsync(revisionId, request.Input);
+            if (request.StartPaused && client is not IPublishedWorkflowRunControl) return Results.BadRequest();
+            var run = request.StartPaused
+                ? await ((IPublishedWorkflowRunControl)client).StartPublishedPausedRunAsync(revisionId, request.Input)
+                : await client.StartPublishedRunAsync(revisionId, request.Input);
             return Results.Accepted($"/api/runs/{run.Header.RunId}", run);
         });
         group.MapPost("/revisions/{revisionId:guid}/runs", async (Guid revisionId, PublishedRunRequest request, IPublishedWorkflowClient client) =>
         {
             if (request.Input is null) return Results.BadRequest();
-            var run = await client.StartPublishedRunAsync(revisionId, request.Input);
+            if (request.StartPaused && client is not IPublishedWorkflowRunControl) return Results.BadRequest();
+            var run = request.StartPaused
+                ? await ((IPublishedWorkflowRunControl)client).StartPublishedPausedRunAsync(revisionId, request.Input)
+                : await client.StartPublishedRunAsync(revisionId, request.Input);
             return Results.Accepted($"/api/runs/{run.Header.RunId}", run);
         });
     }
@@ -95,5 +101,5 @@ internal static class WorkflowEndpoints
     private sealed record SaveDraftRequest(JsonElement Definition, long ExpectedGeneration);
     private sealed record GenerationRequest(long ExpectedGeneration);
     private sealed record RevisionChangeRequest(Guid RevisionId, long ExpectedGeneration);
-    private sealed record PublishedRunRequest(string? Input);
+    private sealed record PublishedRunRequest(string? Input, bool StartPaused = false);
 }

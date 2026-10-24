@@ -23,3 +23,5 @@ Attribute definition changes, publication, permissions, controls, approvals, and
 - Show redacted, truncated, expired, missing, and uncertain content explicitly. Do not infer successful external completion from a request record.
 
 Review payload authorization, redaction before persistence, encryption, size bounds, artifact references, and retention. Test separate actors/workspaces for sensitive run data. Report precisely which behavior was exercised; static event examples alone do not validate the live recording path.
+
+For run control, sequence pause/resume records and executor evidence through one writer. A model/node event arriving after a pause request must not reset `pausing`; only later control or terminal transitions do. Derive playback status from the recorded prefix, display latest status separately, and verify scrubbing leaves stored evidence unchanged. Development actors are placeholders, not authenticated attribution.

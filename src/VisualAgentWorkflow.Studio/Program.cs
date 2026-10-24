@@ -34,6 +34,8 @@ builder.Services.AddSingleton<IWorkflowCatalog>(new SqliteWorkflowCatalog(Path.C
 builder.Services.AddSingleton<PublishedWorkflowClient>();
 builder.Services.AddSingleton<IPublishedWorkflowClient>(services => services.GetRequiredService<PublishedWorkflowClient>());
 builder.Services.AddSingleton<IWorkflowClient>(services => services.GetRequiredService<PublishedWorkflowClient>());
+builder.Services.AddSingleton<IWorkflowRunControl>(services => services.GetRequiredService<PublishedWorkflowClient>());
+builder.Services.AddSingleton<IPublishedWorkflowRunControl>(services => services.GetRequiredService<PublishedWorkflowClient>());
 builder.Services.AddHostedService(services => services.GetRequiredService<LocalWorkflowRuntime>());
 var app = builder.Build();
 
@@ -74,7 +76,10 @@ app.MapPost("/api/runs", async (StartRunRequest request, IWorkflowClient client)
         if (request.Input is null || request.Definition.ValueKind != JsonValueKind.Object)
             return Results.BadRequest(new { error = "An input string and definition object are required." });
         var definition = WorkflowJson.Deserialize(request.Definition.GetRawText());
-        var snapshot = await client.StartRunAsync(definition, request.Input);
+        if (request.StartPaused && client is not IWorkflowRunControl) return Results.BadRequest();
+        var snapshot = request.StartPaused
+            ? await ((IWorkflowRunControl)client).StartPausedRunAsync(definition, request.Input)
+            : await client.StartRunAsync(definition, request.Input);
         return Results.Accepted($"/api/runs/{snapshot.Header.RunId}", snapshot);
     }
     catch (Exception error) when (error is ArgumentException or JsonException)
@@ -97,7 +102,30 @@ app.MapPost("/api/runs/{id:guid}/cancel", async (Guid id, IWorkflowClient client
     await client.CancelRunAsync(id);
     return Results.NoContent();
 });
+app.MapPost("/api/runs/{id:guid}/pause", async (Guid id, IWorkflowRunControl controls, IWorkflowClient client) =>
+{
+    try
+    {
+        await controls.PauseRunAsync(id);
+        return Results.Accepted($"/api/runs/{id}", await client.GetRunAsync(id));
+    }
+    catch (KeyNotFoundException) { return Results.NotFound(); }
+    catch (WorkflowRunControlException) { return Results.Conflict(new { error = "This runtime no longer owns an active continuation for that run." }); }
+});
+app.MapPost("/api/runs/{id:guid}/resume", async (Guid id, IWorkflowRunControl controls, IWorkflowClient client) =>
+{
+    try
+    {
+        await controls.ResumeRunAsync(id);
+        return Results.Accepted($"/api/runs/{id}", await client.GetRunAsync(id));
+    }
+    catch (KeyNotFoundException) { return Results.NotFound(); }
+    catch (WorkflowRunControlException) { return Results.Conflict(new { error = "This runtime no longer owns an active continuation for that run." }); }
+});
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.Run();
 
-public sealed record StartRunRequest(JsonElement Definition, string? Input);
+public sealed record StartRunRequest(JsonElement Definition, string? Input)
+{
+    public bool StartPaused { get; init; }
+}

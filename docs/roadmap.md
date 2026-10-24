@@ -10,7 +10,11 @@ The development Studio edits and runs validated linear string pipelines through 
 
 The backend owns execution, but active runs do not resume after host failure. The host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Free placement does not imply branching, arbitrary socket rewiring, or parallel execution.
 
-## Latest completed milestone: reusable pipelines and sharing
+## Latest completed milestone: cooperative pause/resume
+
+Process-owned runs can start paused, pause between nodes, resume without reexecuting completed nodes, and cancel while paused. API and optional embedded controls share sequenced audit events; recorded playback includes pause state. Paused contexts release the execution permit so other admitted work can run. The 32-context budget includes paused runs. Restart interrupts unfinished continuations; durable checkpoint recovery remains planned. See [run control](run-control.md).
+
+## Previous completed milestone: reusable pipelines and sharing
 
 Core contracts, Studio controls, and end-to-end validation are complete. The next planned increment is a headless service-integration proof, followed by semantic graph authoring and conditional paths.
 

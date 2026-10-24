@@ -16,6 +16,8 @@ public partial class WorkflowStudio
     private WorkflowLayout? runLayout;
     private IWorkflowCatalog? boundCatalog;
     private bool starting;
+    private bool startPaused;
+    private bool controllingRun;
     private bool interactive;
     private bool disposed;
     private string? historyError;
@@ -43,7 +45,7 @@ public partial class WorkflowStudio
         snapshot = null; runLayout = null;
         historyError = null;
         actionError = null;
-        starting = false;
+        starting = false; startPaused = false; controllingRun = false;
         operation = "uppercase-reverse";
         input = "Hello, workflows!";
         await RefreshHistory();
@@ -122,7 +124,10 @@ public partial class WorkflowStudio
         actionError = null;
         try
         {
-            var run = await client.StartRunAsync(PipelineTemplates.Create(operation), input).WaitAsync(contextToken);
+            var definition = PipelineTemplates.Create(operation);
+            var request = startPaused && client is IWorkflowRunControl controls
+                ? controls.StartPausedRunAsync(definition, input) : client.StartRunAsync(definition, input);
+            var run = await request.WaitAsync(contextToken);
             if (!Current(client, version)) return;
             selectionVersion++;
             snapshot = run; runLayout = null;
@@ -184,6 +189,26 @@ public partial class WorkflowStudio
             if (Current(client, version) && selection == selectionVersion)
                 actionError = "The recorded layout could not be loaded. Execution evidence is shown with default positions.";
         }
+    }
+
+    private async Task SetPause(bool pause)
+    {
+        if (snapshot is null || controllingRun || Client is not IWorkflowRunControl controls) return;
+        var client = Client; var version = clientVersion; var id = snapshot.Header.RunId;
+        controllingRun = true; actionError = null;
+        try
+        {
+            var command = pause ? controls.PauseRunAsync(id) : controls.ResumeRunAsync(id);
+            await command.WaitAsync(contextToken);
+            if (Current(client, version)) await RefreshHistory();
+        }
+        catch (OperationCanceledException) when (disposed || contextToken.IsCancellationRequested) { }
+        catch
+        {
+            if (Current(client, version) && snapshot?.Header.RunId == id)
+                actionError = "The pause/resume request could not be applied. Refresh the run's recorded state before retrying.";
+        }
+        finally { if (Current(client, version)) controllingRun = false; }
     }
 
     private async Task Cancel()

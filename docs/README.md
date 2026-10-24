@@ -11,6 +11,7 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Product design](design.md) | Agreed direction and proposed future capabilities; not a deployment description |
 | [Service integration](service-integration.md) | User-owned service hosting, current headless APIs, and planned SDK acceptance criteria |
 | [Embedding](embedding.md) | Public Razor components, host services, lifecycle, and theming |
+| [Pause and resume](run-control.md) | Cooperative boundaries, controls, audit, process ownership and restart limitations |
 | [Workflow API](workflow-api.md) | Local development API and concurrency contracts |
 | [Reusable pipelines](reusable-pipelines.md) | Version-pinned expansion, provenance, package validation, and limitations |
 | [Graph editor](graph-editor.md) | Canvas controls, layout schema, versioning, and research references |

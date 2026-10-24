@@ -24,6 +24,9 @@ public static class ExecutionEventKinds
     public const string Failed = "run.failed";
     public const string Cancelled = "run.cancelled";
     public const string Interrupted = "run.interrupted";
+    public const string PauseRequested = "run.pause-requested";
+    public const string Paused = "run.paused";
+    public const string Resumed = "run.resumed";
     public const string ToolRequested = "tool.requested";
     public const string ToolDenied = "tool.denied";
     public const string ToolAuthorized = "tool.authorized";
