@@ -26,8 +26,8 @@
     display: flex;
     align-items: center;
     gap: 1rem;
-    max-inline-size: 110rem;
-    margin-inline: auto;
+    max-inline-size: none;
+    margin-inline: 0;
     padding: .9rem 1.5rem;
     border-block-end: 1px solid var(--vaw-color-border);
     background: linear-gradient(180deg, #202a34f2, #1b242ef2);
