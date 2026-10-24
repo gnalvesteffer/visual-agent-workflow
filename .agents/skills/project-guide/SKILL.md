@@ -5,7 +5,7 @@ description: Use when changing, reviewing, or explaining this project, its archi
 
 # Project guide
 
-Read [the design baseline](../../../docs/design.md) and [README](../../../README.md). Inspect the actual tree before naming projects, commands, or APIs. This repository currently contains design documentation, not a runnable application.
+Read [the design baseline](../../../docs/design.md), [implementation status](../../../docs/implementation.md), and [README](../../../README.md). Inspect the actual tree before naming projects, commands, or APIs. The initial core library supports linear string pipelines; broader graph capabilities remain planned.
 
 ## Preserve the architecture
 

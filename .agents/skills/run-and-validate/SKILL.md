@@ -5,7 +5,7 @@ description: Use when adding executable projects, installing dependencies, start
 
 # Run and validate
 
-Read [project-guide](../project-guide/SKILL.md). Discover actual solution/project files, SDK pins, lockfiles, scripts, and CI before choosing commands. No executable project or verified startup command exists at the time this guidance was created.
+Read [project-guide](../project-guide/SKILL.md). Discover actual solution/project files, SDK pins, lockfiles, scripts, and CI before choosing commands. From the root, use `dotnet restore --locked-mode`, `dotnet build --no-restore --configuration Release`, and `dotnet test --no-build --configuration Release`. Core tests require no external services. See [implementation status](../../../docs/implementation.md) for the current executable scope.
 
 ## Establish the workflow
 
