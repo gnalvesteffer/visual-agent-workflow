@@ -32,3 +32,5 @@ For C# changes, read [modern C# coding standards](../modern-csharp-coding-standa
 For visual design or theme work, read [frontend-design](../frontend-design/SKILL.md) and [design-systems](../design-systems/SKILL.md) with their local SOURCE.md notes. Follow the [editor design system](../../../docs/design-system.md), preserve host overrides, and review real screenshots plus functional controls.
 
 Maintain docs with [documentation-maintenance](../documentation-maintenance/SKILL.md). Use the [documentation map](../../../docs/README.md), [current architecture](../../../docs/architecture.md), and [user guide](../../../docs/user-guide.md), with [technical-writing](../technical-writing/SKILL.md) and [mermaid-diagrams](../mermaid-diagrams/SKILL.md) plus their SOURCE.md notes when relevant.
+
+For verification planning and regression work, use [quality assurance](../quality-assurance/SKILL.md). For browser automation use [webapp testing](../webapp-testing/SKILL.md) with its [local guidance](../webapp-testing/SOURCE.md), reusing the existing Playwright suite.

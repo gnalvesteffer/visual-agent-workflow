@@ -16,6 +16,8 @@ The structure follows `gnalvesteffer/ai-newspaper`: a project guide plus focused
 | [API design](../.agents/skills/api-design/SKILL.md) | Public APIs and source/binary/wire compatibility; read [local notes](../.agents/skills/api-design/SOURCE.md) |
 | [.NET project structure](../.agents/skills/dotnet-project-structure/SKILL.md) | Solution layering, SDK/package pins, central build configuration; read [local notes](../.agents/skills/dotnet-project-structure/SOURCE.md) |
 | [Clean code](../.agents/skills/clean-code/SKILL.md) | Declarative intent, naming, responsibilities, duplication, and avoiding unnecessary abstraction; read [local guidance and provenance](../.agents/skills/clean-code/SOURCE.md) |
+| [Quality assurance](../.agents/skills/quality-assurance/SKILL.md) | Risk-based test selection, deterministic concurrency checks, integration boundaries, and honest verification evidence |
+| [Webapp testing](../.agents/skills/webapp-testing/SKILL.md) | Playwright browser testing, rendered controls, screenshots and browser logs; read [local guidance and pinned source](../.agents/skills/webapp-testing/SOURCE.md) |
 | [Run and validate](../.agents/skills/run-and-validate/SKILL.md) | Adding executable projects, starting services, testing, or diagnosing failures |
 | [Capability security review](../.agents/skills/capability-security-review/SKILL.md) | Changing MCP grants, credentials, authorization, extension workers, or imports |
 | [Workflow runtime review](../.agents/skills/workflow-runtime-review/SKILL.md) | Changing Agent Framework integration, scheduling, recovery, approvals, or external effects |

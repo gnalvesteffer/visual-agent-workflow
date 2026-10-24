@@ -24,3 +24,5 @@ Use deterministic test providers and local controlled MCP fixtures for repeatabl
 For runtime changes, verify UI disconnection does not end a run and reconnect recovers missed events. Apply [workflow-runtime-review](../workflow-runtime-review/SKILL.md) for recovery changes. Stop only processes started for the task when cleanup is needed.
 
 Diagnose the failing prerequisite before retrying. Distinguish environment problems from application defects. Report exact commands, results, and untested prerequisites. Add real startup/build/test commands here once implemented and verified; do not invent placeholder commands that appear executable.
+
+Select meaningful regression checks with [quality assurance](../quality-assurance/SKILL.md); use [webapp testing](../webapp-testing/SKILL.md) and [local notes](../webapp-testing/SOURCE.md) for Playwright checks.
