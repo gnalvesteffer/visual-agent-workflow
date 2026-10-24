@@ -1,28 +1,150 @@
-/* Application shell only; the Razor library never changes a consumer's body. */
+/* Standalone shell and settings page. Embeddable library styles remain in workflow.css. */
 .vaw-app {
+    --vaw-color-canvas: #121820;
+    --vaw-color-surface: #1b242e;
+    --vaw-color-control: #25313d;
+    --vaw-color-text: #e9eff4;
+    --vaw-color-muted: #a9b8c5;
+    --vaw-color-border: #354554;
+    --vaw-color-control-border: #526678;
+    --vaw-color-focus: #9bd3f0;
+    --vaw-color-accent: #92bdd5;
+    --vaw-color-primary: #315a70;
+    --vaw-color-success: #8bd5c2;
+    --vaw-color-error: #ffb8b8;
+    --vaw-color-warning: #efc984;
+    --vaw-font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
     margin: 0;
-    background-color: var(--vaw-color-canvas, #17191f);
+    min-block-size: 100vh;
+    background-color: var(--vaw-color-canvas);
+    background-image: radial-gradient(ellipse at 50% -28rem, #41647b30, transparent 70%);
+    color: var(--vaw-color-text);
+    font-family: var(--vaw-font-family);
 }
 
-.vaw-studio-navigation { max-inline-size: 110rem; margin-inline: auto; padding: 1rem 1.5rem; }
-.vaw-studio-navigation a { color: var(--vaw-color-accent, #c4b5fd); }
+.vaw-studio-navigation {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    max-inline-size: 110rem;
+    margin-inline: auto;
+    padding: .9rem 1.5rem;
+    border-block-end: 1px solid var(--vaw-color-border);
+    background: linear-gradient(180deg, #202a34f2, #1b242ef2);
+    font-size: .875rem;
+}
+.vaw-studio-navigation a { color: var(--vaw-color-text); text-decoration: none; }
+.vaw-studio-navigation a:hover { color: var(--vaw-color-focus); }
+.vaw-back-link { display: inline-flex; align-items: center; gap: .55rem; }
+.vaw-back-link span { color: var(--vaw-color-accent); font-size: 1.125rem; }
+.vaw-settings-location { border-inline-start: 1px solid var(--vaw-color-border); padding-inline-start: 1rem; color: var(--vaw-color-muted); }
 
-.vaw-app { font-family: var(--vaw-font-family, "Segoe UI", "Helvetica Neue", Arial, sans-serif); }
-.vaw-studio-navigation { max-inline-size: none; padding: .5rem 1rem; border-block-end: 1px solid var(--vaw-color-border, #3b414f); background: var(--vaw-color-surface, #20232b); font-size: .8125rem; }
-.vaw-studio-navigation a { text-decoration: none; }
-.vaw-studio-navigation a:hover { text-decoration: underline; }
-.vaw-studio-navigation a:focus-visible { outline: 2px solid var(--vaw-color-focus, #d3c5ff); outline-offset: 3px; }
+.vaw-provider-settings { max-inline-size: 76rem; margin-inline: auto; padding: clamp(1.25rem, 3vw, 2.5rem); }
+.vaw-settings-heading { display: flex; align-items: end; justify-content: space-between; gap: 2rem; margin-block: 1.25rem 2.25rem; }
+.vaw-settings-kicker { margin: 0 0 .6rem; color: var(--vaw-color-accent); font-size: .75rem; font-weight: 650; letter-spacing: .09em; }
+.vaw-settings-heading h1 { margin: 0; color: var(--vaw-color-text); font-size: clamp(1.8rem, 4vw, 2.45rem); font-weight: 620; letter-spacing: -.035em; line-height: 1.15; }
+.vaw-settings-intro { max-inline-size: 42rem; margin: .75rem 0 0; color: var(--vaw-color-muted); line-height: 1.65; }
+.vaw-primary, .vaw-secondary, .vaw-danger, .vaw-danger-quiet {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-block-size: 2.65rem;
+    border: 1px solid var(--vaw-color-control-border);
+    border-radius: .4rem;
+    padding: .55rem .9rem;
+    color: var(--vaw-color-text);
+    font: inherit;
+    font-size: .875rem;
+    font-weight: 560;
+    text-decoration: none;
+    cursor: pointer;
+    transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+.vaw-primary { border-color: #5d8298; background: linear-gradient(180deg, #3b687f, #2e5368); box-shadow: inset 0 1px #ffffff14, 0 2px 5px #0003; }
+.vaw-primary:hover { border-color: var(--vaw-color-focus); background: linear-gradient(180deg, #467790, #365f75); }
+.vaw-secondary { background: #28343f; }
+.vaw-secondary:hover { border-color: #7899ad; background: #303e4a; }
+.vaw-secondary.vaw-selected { border-color: #7094aa; background: #314856; color: #e7f4fa; }
+.vaw-danger { border-color: #9b5f62; background: #63363a; }
+.vaw-danger-quiet { border-color: transparent; background: transparent; color: #e7a4a5; }
+.vaw-danger-quiet:hover { border-color: #805054; background: #42292d; }
+.vaw-primary:focus-visible, .vaw-secondary:focus-visible, .vaw-danger:focus-visible, .vaw-danger-quiet:focus-visible, .vaw-studio-navigation a:focus-visible, .vaw-provider-empty a:focus-visible {
+    outline: 3px solid var(--vaw-color-focus);
+    outline-offset: 3px;
+}
+.vaw-primary:disabled, .vaw-danger:disabled { opacity: .6; cursor: progress; }
 
-.vaw-provider-settings { max-width: 56rem; margin-inline: auto; padding: 1.5rem; }
-.vaw-provider-card { border-block-start: 1px solid var(--vaw-color-border, #3b414f); padding: 1rem 0; }
-.vaw-provider-card dl { display: grid; grid-template-columns: minmax(6rem,auto) minmax(0,1fr); gap: .35rem 1rem; }
-.vaw-provider-card dt { color: #b5bdce; }
-.vaw-provider-card dd { margin: 0; overflow-wrap: anywhere; }
-.vaw-provider-settings input { width: 100%; min-height: 2.75rem; margin-top: .5rem; padding: .5rem .75rem; border: 1px solid #737e93; border-radius: .375rem; background: #17191f; color: #eef0f6; font: inherit; }
+.vaw-settings-section { margin-block: 1.5rem; border: 1px solid var(--vaw-color-border); border-radius: .65rem; background: linear-gradient(180deg, #202b35, #1a232c); box-shadow: inset 0 1px #ffffff08, 0 10px 24px #0002; }
+.vaw-settings-section-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; padding: 1.35rem 1.5rem; border-block-end: 1px solid var(--vaw-color-border); }
+.vaw-settings-section-heading h2 { margin: 0; font-size: 1.08rem; font-weight: 620; }
+.vaw-settings-section-heading p { margin: .4rem 0 0; color: var(--vaw-color-muted); font-size: .875rem; line-height: 1.5; }
+.vaw-provider-count { flex: none; border: 1px solid var(--vaw-color-border); border-radius: 2rem; padding: .28rem .65rem; color: var(--vaw-color-muted); font-size: .75rem; }
+.vaw-provider-list { padding-inline: 1.5rem; }
+.vaw-provider-card { padding-block: 1.35rem; }
+.vaw-provider-card + .vaw-provider-card { border-block-start: 1px solid var(--vaw-color-border); }
+.vaw-provider-card-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.vaw-provider-card h3 { margin: 0; font-size: 1rem; font-weight: 620; }
+.vaw-provider-identity { display: flex; flex-wrap: wrap; gap: .45rem .85rem; align-items: center; margin: .35rem 0 0; color: var(--vaw-color-muted); font-size: .8125rem; }
+.vaw-provider-identity code { color: #c2d1dc; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: .8rem; }
+.vaw-provider-state { display: inline-flex; align-items: center; gap: .45rem; color: var(--vaw-color-success); font-size: .8rem; white-space: nowrap; }
+.vaw-provider-state span { inline-size: .45rem; block-size: .45rem; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px #8bd5c21a; }
+.vaw-provider-card dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem 1.5rem; margin: 1.15rem 0; }
+.vaw-provider-card dl > div { min-inline-size: 0; }
+.vaw-provider-card dt { margin-block-end: .3rem; color: var(--vaw-color-muted); font-size: .75rem; }
+.vaw-provider-card dd { margin: 0; color: var(--vaw-color-text); font-size: .875rem; overflow-wrap: anywhere; }
+.vaw-provider-actions, .vaw-provider-form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+.vaw-provider-actions button { min-block-size: 2.35rem; font-size: .8125rem; }
+.vaw-provider-delete-confirmation { margin-block-start: 1rem; border: 1px solid #86565a; border-radius: .45rem; padding: 1rem; background: #302428; }
+.vaw-provider-delete-confirmation p { margin: 0 0 .8rem; color: #e7cfd0; font-size: .875rem; line-height: 1.5; }
+.vaw-provider-empty { padding: 2rem 1.5rem; }
+.vaw-provider-empty h3 { margin: 0; font-size: 1rem; }
+.vaw-provider-empty p { max-inline-size: 40rem; color: var(--vaw-color-muted); font-size: .9rem; line-height: 1.55; }
+.vaw-provider-empty a { color: var(--vaw-color-focus); }
+.vaw-settings-status, .vaw-error { margin: .75rem 1.5rem 1.25rem; border-inline-start: 3px solid var(--vaw-color-success); padding: .25rem .75rem; color: var(--vaw-color-text); font-size: .875rem; }
+.vaw-error { border-color: var(--vaw-color-error); color: var(--vaw-color-error); }
 
-.vaw-provider-option { display: flex; align-items: center; gap: .75rem; }
-.vaw-provider-option input { width: auto; min-height: auto; margin: 0; }
+.vaw-provider-form-section { margin-block-start: 2rem; }
+.vaw-provider-presets { display: flex; flex-wrap: wrap; gap: .65rem; padding: 1.25rem 1.5rem 0; }
+.vaw-provider-tip { display: grid; gap: .25rem; margin: 1rem 1.5rem 0; border-inline-start: 3px solid var(--vaw-color-accent); padding: .75rem 1rem; background: #263641; }
+.vaw-provider-tip strong { font-size: .875rem; font-weight: 620; }
+.vaw-provider-tip span { color: #c4d1da; font-size: .8125rem; line-height: 1.5; }
+.vaw-provider-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.15rem 1.25rem; padding: 1.35rem 1.5rem 1.5rem; }
+.vaw-provider-form label { display: block; min-inline-size: 0; color: var(--vaw-color-text); font-size: .875rem; font-weight: 550; }
+.vaw-provider-form input:not([type="checkbox"]) { display: block; inline-size: 100%; min-block-size: 2.8rem; margin-block-start: .4rem; border: 1px solid #526678; border-radius: .38rem; padding: .55rem .75rem; background: #151d25; color: var(--vaw-color-text); font: inherit; font-weight: 400; }
+.vaw-provider-form input::placeholder { color: #8595a2; }
+.vaw-provider-form input:focus-visible { border-color: var(--vaw-color-focus); outline: 2px solid var(--vaw-color-focus); outline-offset: 1px; }
+.vaw-provider-form label small { display: block; margin-block-start: .35rem; color: var(--vaw-color-muted); font-size: .77rem; font-weight: 400; line-height: 1.45; }
+.vaw-provider-form-wide { grid-column: 1 / -1; }
+.vaw-input-suffix { display: flex; align-items: center; gap: .6rem; }
+.vaw-input-suffix input { max-inline-size: 10rem; }
+.vaw-input-suffix span { color: var(--vaw-color-muted); font-size: .8125rem; font-weight: 400; }
+.vaw-provider-form .vaw-provider-option { display: flex; align-items: center; gap: .65rem; align-self: center; }
+.vaw-provider-option input { inline-size: 1rem; block-size: 1rem; margin: 0; accent-color: #79aeca; }
+.vaw-provider-form-note { margin: 0; color: var(--vaw-color-muted); font-size: .8125rem; line-height: 1.55; }
+.vaw-provider-form-actions { padding-block-start: .15rem; }
+.vaw-provider-form-section > .vaw-error { margin-block: 0 1.25rem; }
 
-.vaw-provider-presets { display: flex; flex-wrap: wrap; gap: .75rem; margin-block: 1rem; }
-.vaw-provider-settings label small { display: block; margin-block-start: .25rem; color: #b5bdce; font-size: .8125rem; }
-.vaw-provider-tip { margin-block: 1rem; padding: .85rem 1rem; border-inline-start: 3px solid #c4b5fd; background: #2b303b; }
+@media (max-width: 44rem) {
+    .vaw-settings-heading { align-items: start; flex-direction: column; gap: 1rem; }
+    .vaw-settings-section-heading { padding: 1.1rem; }
+    .vaw-provider-list { padding-inline: 1.1rem; }
+    .vaw-provider-card dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .vaw-provider-form { grid-template-columns: minmax(0, 1fr); padding-inline: 1.1rem; }
+    .vaw-provider-form-wide { grid-column: auto; }
+    .vaw-provider-presets, .vaw-provider-tip { margin-inline: 1.1rem; }
+    .vaw-provider-presets { padding-inline: 0; }
+}
+@media (max-width: 28rem) {
+    .vaw-provider-settings { padding-inline: 1rem; }
+    .vaw-studio-navigation { padding-inline: 1rem; }
+    .vaw-settings-section-heading { flex-direction: column; }
+    .vaw-provider-card dl { grid-template-columns: minmax(0, 1fr); gap: .7rem; }
+    .vaw-provider-state { font-size: .75rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .vaw-app *, .vaw-app *::before, .vaw-app *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+}
+@media (forced-colors: active) {
+    .vaw-app { background-image: none; }
+    .vaw-settings-section, .vaw-primary, .vaw-provider-card, .vaw-provider-delete-confirmation { box-shadow: none; }
+}

@@ -83,6 +83,8 @@ app.MapGet("/api/tool-bindings", async (IToolBindingCatalog catalog, Cancellatio
     Results.Ok(await catalog.ListBindingsAsync(cancellationToken)));
 app.MapGet("/api/agent-providers", async (IAgentProviderCatalog catalog) => Results.Ok(await catalog.ListProvidersAsync()));
 app.MapGet("/api/settings/model-providers", (StudioModelProviderStore store) => Results.Ok(store.List()));
+app.MapDelete("/api/settings/model-providers/{providerId}/{version}", (string providerId, string version, StudioModelProviderStore store) =>
+    store.Delete(providerId, version) ? Results.NoContent() : Results.NotFound());
 app.MapPost("/api/settings/model-providers", (AddModelProviderRequest request, StudioModelProviderStore store) =>
 {
     try

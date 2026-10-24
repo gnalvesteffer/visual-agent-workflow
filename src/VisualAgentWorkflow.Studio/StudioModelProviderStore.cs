@@ -41,27 +41,49 @@ public sealed class StudioModelProviderStore
             provider.DisplayName, provider.Model, provider.Endpoint, provider.TimeoutSeconds, true, provider.AllowInsecureLoopback)).ToArray();
     }
 
-    public void Add(string id, string version, string name, string model, string endpoint, int timeoutSeconds, string apiKey, bool allowInsecureLoopback)
+    public void Add(string id, string version, string name, string model, string endpoint, int timeoutSeconds, string apiKey,
+        bool allowInsecureLoopback, string? credentialSourceVersion = null)
     {
         var uri = Uri.TryCreate(endpoint, UriKind.Absolute, out var parsed) ? parsed : null;
         var options = new OpenAIProviderOptions { ProviderId = id, Version = version, DisplayName = name, Model = model,
             Endpoint = uri!, InvocationTimeout = TimeSpan.FromSeconds(timeoutSeconds), AllowInsecureLoopback = allowInsecureLoopback };
-        var credential = string.IsNullOrWhiteSpace(apiKey) && allowInsecureLoopback && uri?.IsLoopback == true ? "lm-studio" : apiKey;
-        OpenAIProviders.ValidateOptions(options, credential);
         lock (gate)
         {
             if (saved.Any(provider => provider.ProviderId == id && provider.Version == version) || configured.Any(provider => provider.Descriptor.ProviderId == id && provider.Descriptor.Version == version))
-                throw new ArgumentException("That provider ID and version already exist. Add a new version to preserve published workflows.");
-            saved.Add(new(id, version, name, model, uri!.AbsoluteUri, timeoutSeconds, protector.Protect(credential), allowInsecureLoopback));
-            Persist();
+                throw new ArgumentException("That provider ID and version already exist. Use a new version to preserve published workflows.");
+            var previous = credentialSourceVersion is null
+                ? saved.LastOrDefault(provider => provider.ProviderId == id)
+                : saved.SingleOrDefault(provider => provider.ProviderId == id && provider.Version == credentialSourceVersion)
+                    ?? throw new InvalidOperationException("The provider version being edited was removed. Refresh the page and try again.");
+            var credential = !string.IsNullOrWhiteSpace(apiKey) ? apiKey :
+                allowInsecureLoopback && uri?.IsLoopback == true ? "lm-studio" :
+                previous is not null ? protector.Unprotect(previous.ProtectedApiKey) : "";
+            OpenAIProviders.ValidateOptions(options, credential);
+            var updated = saved.Append(new StudioModelProvider(id, version, name, model, uri!.AbsoluteUri,
+                timeoutSeconds, protector.Protect(credential), allowInsecureLoopback)).ToList();
+            Persist(updated);
+            saved = updated;
             Refresh();
         }
     }
 
-    private void Persist()
+    public bool Delete(string id, string version)
+    {
+        lock (gate)
+        {
+            var updated = saved.Where(provider => provider.ProviderId != id || provider.Version != version).ToList();
+            if (updated.Count == saved.Count) return false;
+            Persist(updated);
+            saved = updated;
+            Refresh();
+            return true;
+        }
+    }
+
+    private void Persist(IReadOnlyList<StudioModelProvider> providers)
     {
         var temporary = path + ".tmp";
-        File.WriteAllText(temporary, JsonSerializer.Serialize(saved));
+        File.WriteAllText(temporary, JsonSerializer.Serialize(providers));
         File.Move(temporary, path, true);
     }
 
