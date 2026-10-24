@@ -4,7 +4,7 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>One process-owned continuation and sequenced journal writer. The framework still executes the graph.</summary>
-internal sealed class ControlledRun(FileRunJournal journal, RunHeader header, SemaphoreSlim executionSlot)
+internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header, SemaphoreSlim executionSlot)
     : IWorkflowExecutionGate, IWorkflowApprovalGate, IDisposable
 {
     private readonly object gate = new();

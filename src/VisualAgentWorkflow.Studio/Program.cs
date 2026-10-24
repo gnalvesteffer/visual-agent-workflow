@@ -34,6 +34,10 @@ builder.Services.AddSingleton<IAgentNodeExecutor>(services => new AgentNodeExecu
     agentProviders, services.GetRequiredService<INodeToolBroker>()));
 builder.Services.AddSingleton<IAgentProviderCatalog>(services => services.GetRequiredService<IAgentNodeExecutor>());
 var studioDataDirectory = Path.GetFullPath(builder.Configuration["WorkflowStudio:DataDirectory"] ?? Path.Combine(builder.Environment.ContentRootPath, ".local"));
+var runStoreKind = builder.Configuration["WorkflowStudio:RunStore"] ?? "file";
+if (runStoreKind == "sqlite")
+    builder.Services.AddSingleton<IWorkflowRunStore>(_ => new SqliteWorkflowRunStore(Path.Combine(studioDataDirectory, "runs.sqlite3")));
+else if (runStoreKind != "file") throw new InvalidOperationException("RunStore must be file or sqlite.");
 builder.Services.AddLocalWorkflowRuntime(Path.Combine(studioDataDirectory, "runs"));
 builder.Services.AddSingleton<IWorkflowCatalog>(new SqliteWorkflowCatalog(Path.Combine(studioDataDirectory, "workflows.db")));
 builder.Services.AddSingleton<PublishedWorkflowClient>();

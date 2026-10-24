@@ -1,12 +1,11 @@
 using System.Collections.Immutable;
-using System.Text;
 using System.Text.Json;
 using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Hosting;
 
-/// <summary>Single-process local development journal. Not a multi-worker production store.</summary>
-public sealed class FileRunJournal
+/// <summary>Single-owner local development store. Atomic snapshot replacement, not a multi-worker production store.</summary>
+public sealed class FileRunJournal : IWorkflowRunStore
 {
     private readonly string directory;
     private readonly object gate = new();
@@ -20,30 +19,25 @@ public sealed class FileRunJournal
 
     public RunSnapshot Create(WorkflowRevision revision, string input)
     {
-        ArgumentNullException.ThrowIfNull(input);
-        var header = new RunHeader(Guid.NewGuid(), revision.RevisionId, revision.ParentRevisionId, revision.Author,
-            revision.CreatedAt, revision.ContentHash, revision.Definition, input);
-        lock (gate)
-        {
-            // Publish the header only after its initially empty journal is present.
-            WriteNew(EventsPath(header.RunId), []);
-            WriteNew(HeaderPath(header.RunId), JsonSerializer.SerializeToUtf8Bytes(header, Json));
-        }
-        return new(header, []);
+        var snapshot = RunStoreRecords.Create(revision, input);
+        lock (gate) Publish(snapshot, overwrite: false);
+        return snapshot;
     }
 
     public void Append(ExecutionEvent evt)
     {
+        try { Append(evt.RunId, evt.Sequence - 1, [evt]); }
+        catch (WorkflowRunStoreConflictException) { throw new InvalidOperationException("Event sequence does not match the run."); }
+    }
+
+    public RunSnapshot Append(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events)
+    {
         lock (gate)
         {
-            var snapshot = Get(evt.RunId) ?? throw new KeyNotFoundException("Unknown run.");
-            if (snapshot.IsTerminal) throw new InvalidOperationException("Run history is terminal.");
-            if (evt.RevisionId != snapshot.Header.RevisionId || evt.Sequence != snapshot.Events.Length + 1)
-                throw new InvalidOperationException("Event revision or sequence does not match the run.");
-            var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(evt, Json) + "\n");
-            using var file = new FileStream(EventsPath(evt.RunId), FileMode.Append, FileAccess.Write, FileShare.Read);
-            file.Write(bytes);
-            file.Flush(flushToDisk: true);
+            var snapshot = Get(runId) ?? throw new KeyNotFoundException("Unknown run.");
+            var next = RunStoreRecords.Apply(snapshot, expectedSequence, events);
+            Publish(next, overwrite: true);
+            return next;
         }
     }
 
@@ -51,21 +45,29 @@ public sealed class FileRunJournal
     {
         lock (gate)
         {
-            if (!File.Exists(HeaderPath(runId))) return null;
-            var header = JsonSerializer.Deserialize<RunHeader>(File.ReadAllText(HeaderPath(runId)), Json)
-                ?? throw new InvalidDataException("Invalid run header.");
-            if (header.RunId != runId || WorkflowJson.ComputeHash(header.Definition) != header.ContentHash)
-                throw new InvalidDataException("Run header identity/content mismatch.");
-            var events = ImmutableArray.CreateBuilder<ExecutionEvent>();
-            foreach (var line in File.ReadLines(EventsPath(runId)))
+            RunSnapshot snapshot;
+            if (File.Exists(SnapshotPath(runId)))
             {
-                var evt = JsonSerializer.Deserialize<ExecutionEvent>(line, Json)
-                    ?? throw new InvalidDataException("Invalid event record.");
-                if (evt.RunId != runId || evt.RevisionId != header.RevisionId || evt.Sequence != events.Count + 1)
-                    throw new InvalidDataException("Invalid event identity/sequence.");
-                events.Add(evt);
+                // A concurrent read-only observer may retain the previous complete snapshot during replacement,
+                // including on Windows where readers must explicitly allow rename/delete sharing.
+                using var file = new FileStream(SnapshotPath(runId), FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+                snapshot = JsonSerializer.Deserialize<RunSnapshot>(file, Json)
+                    ?? throw new InvalidDataException("Invalid run snapshot.");
             }
-            return new(header, events.ToImmutable());
+            else
+            {
+                if (!File.Exists(HeaderPath(runId))) return null;
+                // Legacy headers and JSONL evidence remain readable. First successful append publishes
+                // one complete snapshot; the old files stay untouched and no longer take precedence.
+                var header = JsonSerializer.Deserialize<RunHeader>(File.ReadAllText(HeaderPath(runId)), Json)
+                    ?? throw new InvalidDataException("Invalid run header.");
+                var events = File.ReadLines(EventsPath(runId)).Select(line =>
+                    JsonSerializer.Deserialize<ExecutionEvent>(line, Json) ?? throw new InvalidDataException("Invalid event record."))
+                    .ToImmutableArray();
+                snapshot = new(header, events);
+            }
+            RunStoreRecords.Validate(snapshot, runId);
+            return snapshot;
         }
     }
 
@@ -73,31 +75,34 @@ public sealed class FileRunJournal
     {
         lock (gate)
         {
-            return Directory.EnumerateFiles(directory, "*.run.json")
-                .Select(p => Guid.Parse(Path.GetFileName(p)[..^9]))
-                .Select(id => Get(id)!)
-                .OrderByDescending(r => r.Header.CreatedAt).ToArray();
+            return Directory.EnumerateFiles(directory, "*.snapshot.json").Select(p => Guid.Parse(Path.GetFileName(p)[..^14]))
+                .Concat(Directory.EnumerateFiles(directory, "*.run.json").Select(p => Guid.Parse(Path.GetFileName(p)[..^9])))
+                .Distinct().Select(id => Get(id)!).OrderByDescending(r => r.Header.CreatedAt).ToArray();
         }
     }
 
     public void MarkUnfinishedAsInterrupted()
     {
-        lock (gate)
-        {
-            foreach (var snapshot in List().Where(r => !r.IsTerminal))
-                Append(new(snapshot.Header.RunId, snapshot.Header.RevisionId, snapshot.Events.Length + 1,
-                    DateTimeOffset.UtcNow, ExecutionEventKinds.Interrupted,
-                    Data: "The runtime stopped before recording a terminal outcome. This run was not resumed."));
-        }
+        lock (gate) WorkflowRunStoreExtensions.MarkUnfinishedAsInterrupted(this);
     }
 
+    private string SnapshotPath(Guid runId) => Path.Combine(directory, $"{runId:D}.snapshot.json");
     private string HeaderPath(Guid runId) => Path.Combine(directory, $"{runId:D}.run.json");
     private string EventsPath(Guid runId) => Path.Combine(directory, $"{runId:D}.events.jsonl");
 
-    private static void WriteNew(string path, byte[] bytes)
+    private void Publish(RunSnapshot snapshot, bool overwrite)
     {
-        using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-        file.Write(bytes);
-        file.Flush(flushToDisk: true);
+        var temporary = Path.Combine(directory, $"{snapshot.Header.RunId:D}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                JsonSerializer.Serialize(file, snapshot, Json);
+                file.Flush(flushToDisk: true);
+            }
+            // Same-directory rename is the publication point. Readers ignore incomplete temporary files.
+            File.Move(temporary, SnapshotPath(snapshot.Header.RunId), overwrite);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 }

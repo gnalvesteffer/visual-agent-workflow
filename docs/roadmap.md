@@ -10,7 +10,11 @@ The development Studio edits and runs validated linear and conditional string gr
 
 The backend owns execution, but active runs do not resume after host failure. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Free placement does not imply arbitrary socket rewiring or parallel execution. Conditional routing is an explicit validated operation.
 
-## Latest completed milestone: opt-in host-configured model adapter
+## Latest completed milestone: run storage boundary
+
+The local runtime/controller now consume a host-selected `IWorkflowRunStore`. Atomic bounded batches and expected-sequence checks keep evidence and derived status consistent. File snapshots preserve legacy reads; an optional dedicated SQLite store supplies transactions and independent-connection concurrency checks. Studio/service configuration, observer consistency and rollback/conformance checks are implemented. Runtime ownership remains exclusive; restart still interrupts unfinished work. See [run storage](run-storage.md).
+
+## Previous completed milestone: opt-in host-configured model adapter
 
 Studio and the standalone service can explicitly enable version-pinned OpenAI Chat Completions factories. The optional library owns fresh bounded SDK clients, server-side secrets, cancellation/deadlines, safe categorized failures and no automatic retries. Agent evidence adds response IDs and token usage. Unit and local protocol/browser/service fixtures verify the SDK path without live model calls. Credentialed deployment qualification remains planned; see [model providers](model-providers.md).
 
@@ -58,7 +62,8 @@ flowchart TD
     Observe --> Graph["Complete: conditional string graph authoring"]
     Graph --> Vertical["Complete: deterministic agent, branch, approval and MCP slice"]
     Vertical --> Models["Complete: opt-in model adapter with protocol verification"]
-    Models --> Durable["Next: durable execution storage boundary"]
+    Models --> Store["Complete: atomic run storage boundary"]
+    Store --> Durable["Next: checkpoint and recovery contract"]
     Durable --> Assets["Versioned skills and nested prefab instances"]
     Assets --> Extensions["Approved extensions in isolated workers"]
     Durable --> Collaboration["Workspace sharing and collaboration"]
@@ -76,9 +81,13 @@ Supported NuGet distribution remains planned: decide package metadata/licensing,
 
 The SDK adapter and configuration flow are implemented with deterministic protocol fixtures retained for CI. See [model providers](model-providers.md). Credentialed live-service qualification is **Planned**, not complete: no authorized credentials were configured. Approval of model-selected tool calls inside agent loops remains a distinct future capability.
 
-### Next: durable execution storage boundary
+### Complete: local run storage boundary
 
-Define and implement a host-facing run-store boundary with atomic state/event transitions and concurrency semantics before attempting crash recovery. Preserve existing local journal behavior and recorded playback while establishing persistence conformance tests. Recovery, leases and external effect reconciliation need separate proofs; adding a store interface alone does not make executions durable.
+Host-selected storage, atomic event/state batches, concurrency checks, file compatibility and a transactional SQLite implementation are complete. They establish committed evidence, not recoverable execution. See [run storage](run-storage.md).
+
+### Next: checkpoint and recovery contract
+
+Define a versioned checkpoint at a validated execution boundary, tying the pinned revision, completed/next work, data and pending holds to an atomic store commit. Establish exclusive worker ownership and a safe recovery policy before enabling automatic continuation. Test deterministic boundaries and interruption first; external tool/model outcomes need explicit reconciliation rather than replay. Native framework checkpoint support must be verified against pinned packages before choosing its representation.
 
 ### Planned: durable execution and security foundations
 

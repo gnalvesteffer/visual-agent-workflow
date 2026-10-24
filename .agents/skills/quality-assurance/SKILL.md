@@ -22,3 +22,5 @@ Reuse the repository's existing test projects and scripts. Do not add frameworks
 ## Report evidence precisely
 
 Record commands, actual results, and material untested behavior in the owning milestone documentation. Distinguish failed, blocked, skipped and unrun checks. Reproduce failures, fix the cause, rerun the affected checks, and broaden regression only where change impact warrants it. Never call a flaky test passed by retrying without investigation. Update [run and validate](../run-and-validate/SKILL.md) when a new procedure is exercised successfully.
+
+When starting a new run while an old completed graph remains visible, browser checks must wait for the selected run identity to change before clicking its output. A completed node from the previous run is not proof the new run has been admitted; slower storage exposed this race in the maximum-input UI check.

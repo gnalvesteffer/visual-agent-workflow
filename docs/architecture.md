@@ -23,6 +23,7 @@ flowchart TB
     Http --> Core
     Hosting --> Agents
     Blazor --> Core["Core: definitions, layouts, revisions and interfaces"]
+    Hosting --> Store["Host-selected run store: file or SQLite"]
     Hosting --> Core
     Agents --> Core
     Mcp --> Core
@@ -67,7 +68,7 @@ flowchart LR
     Worker --> Framework["Agent Framework executors"]
     Framework --> Broker["Node-scoped MCP broker"]
     Broker --> Tools["Host-registered MCP servers"]
-    Framework --> Journal["File run journal"]
+    Framework --> Journal["Host-selected run store"]
     Broker --> Journal
     Journal -->|"Recorded snapshots and events"| Viewer["Live observation and playback"]
 ```
@@ -76,7 +77,7 @@ Linear pipelines and schema-1.4 acyclic conditional string graphs are executable
 
 ## Persistence and failure boundaries
 
-SQLite stores drafts, immutable revisions, layouts, and catalog audit. The file journal separately stores each run's pinned definition and append-only execution evidence. These stores do not share a transaction. The journal is single-process; after a host restart, unfinished runs are marked interrupted instead of being silently resumed or replayed. Historical payload viewing makes no live calls.
+SQLite stores drafts, immutable revisions, layouts, and catalog audit. The separate `IWorkflowRunStore` persists each run's pinned definition and execution evidence. The default file implementation publishes complete snapshots atomically; the optional SQLite implementation commits event batches with sequence/status in one transaction. Runtime/controller and read-only observers can share a host-selected store. Catalog and run stores do not share a transaction. Runtime ownership is exclusive even with SQLite concurrency checks; after restart, unfinished runs are interrupted rather than resumed/replayed. Historical payload viewing makes no live calls. See [run storage](run-storage.md) for legacy journal compatibility, store selection and failure boundaries.
 
 The development host permits only loopback/same-origin access and refuses non-Development startup. These checks are containment, not authentication. Audit actors are development placeholders; captured text is plaintext. There is no workspace authorization, distributed ownership, transactional crash repair, encryption/redaction, approval durability, extension sandbox, or production readiness claim. See [runtime configuration](runtime-configuration.md) and [roadmap and current scope](roadmap.md) before integrating a host.
 
@@ -92,7 +93,7 @@ The standalone consumer proof uses these public APIs without a Studio process, b
 
 ## Standalone consumer
 
-`samples/WorkflowService` references Hosting/MCP and their inward dependencies, with no Blazor/Studio reference. It loads a reviewed package and reconstructs the operator-configured exact revision, resolves only host-registered dependencies, and executes directly or through the local queue. Its direct/queued modes create no catalog/database or HTTP listener; optional `serve` mode explicitly enables the separate observation endpoint. Its journal directory has one process owner; stopped/unfinished work is cancelled or interrupted, not crash-resumed. See [service integration](service-integration.md).
+`samples/WorkflowService` references Hosting/MCP and their inward dependencies, with no Blazor/Studio reference. It loads a reviewed package and reconstructs the operator-configured exact revision, resolves only host-registered dependencies, and executes directly or through the local queue. Its direct/queued modes create no authoring catalog or HTTP listener; SQLite run persistence is optional; optional `serve` mode explicitly enables the separate observation endpoint. Its journal directory has one process owner; stopped/unfinished work is cancelled or interrupted, not crash-resumed. See [service integration](service-integration.md).
 
 ## Consumer observation
 

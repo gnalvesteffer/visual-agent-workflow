@@ -4,8 +4,13 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>Single-process local evidence reader; never invokes a workflow or loads providers.</summary>
-public sealed class JournalRunObserver(FileRunJournal journal) : IWorkflowRunObserver
+public sealed class JournalRunObserver : IWorkflowRunObserver
 {
+    private readonly IWorkflowRunStore journal;
+    public JournalRunObserver(FileRunJournal journal) : this((IWorkflowRunStore)journal) { }
+    private JournalRunObserver(IWorkflowRunStore store) => journal = store;
+    public static JournalRunObserver FromStore(IWorkflowRunStore store) => new(store);
+
     public Task<IReadOnlyList<RunSummary>> ListRunsAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

@@ -6,6 +6,8 @@ Release build of samples/WorkflowService. No live provider credentials are used.
 import argparse
 import hashlib
 import json
+import os
+import sqlite3
 from pathlib import Path
 import signal
 import subprocess
@@ -22,23 +24,23 @@ def check(dotnet):
         work = Path(temporary)
         counter = 0
 
-        def execute(mode, deployment, grant=False, expected=0, error_type=None):
+        def execute(mode, deployment, grant=False, expected=0, error_type=None, store="file"):
             nonlocal counter
             counter += 1
             journal = work / str(counter)
             args = command + [mode, str(deployment), str(journal), "abc"]
             if grant:
                 args.append("--grant-demo-tool")
-            result = subprocess.run(args, capture_output=True, text=True, timeout=40)
+            result = subprocess.run(args, capture_output=True, text=True, timeout=40, env={**os.environ, "WorkflowService__RunStore":store})
             assert result.returncode == expected, (args, result.returncode, result.stdout, result.stderr)
             if error_type:
                 assert f"{error_type}." in result.stderr, result.stderr
             records = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
             return records, journal
 
-        def verify(mode, kind, grant=False):
+        def verify(mode, kind, grant=False, store="file"):
             manifest = json.loads((artifacts / f"{kind}.deployment.json").read_text())
-            records, journal = execute(mode, artifacts / f"{kind}.deployment.json", grant)
+            records, journal = execute(mode, artifacts / f"{kind}.deployment.json", grant, store=store)
             result = records[-1]
             assert result["status"] == "completed"
             assert result["output"] == ("CBA" if kind == "pure" else "cba")
@@ -50,14 +52,21 @@ def check(dotnet):
                 assert result["events"].count("run.resumed") == 1
             assert result["events"].count("node.started") == (4 if kind == "pure" else 3)
             assert result["events"].count("tool.completed") == (1 if kind == "mcp" else 0)
-            events = [json.loads(line) for line in next(journal.glob("*.events.jsonl")).read_text().splitlines()]
+            if store == "sqlite":
+                with sqlite3.connect(journal / "runs.sqlite3") as connection:
+                    events = [json.loads(row[0]) for row in connection.execute("SELECT event_json FROM run_events ORDER BY sequence")]
+                    sequence, status = connection.execute("SELECT sequence,status FROM runs").fetchone()
+                    assert sequence == len(events) and status == "completed"
+            else:
+                events = json.loads(next(journal.glob("*.snapshot.json")).read_text())["events"]
             assert [event["sequence"] for event in events] == list(range(1, len(events) + 1))
             assert all(event["revisionId"] == manifest["revisionId"] for event in events)
             assert not list(journal.rglob("*.db")), "Execution should not create a catalog"
 
-        for kind in ("pure", "mcp"):
-            for mode in ("direct", "queued"):
-                verify(mode, kind, grant=kind == "mcp")
+        for store in ("file", "sqlite"):
+            for kind in ("pure", "mcp"):
+                for mode in ("direct", "queued"):
+                    verify(mode, kind, grant=kind == "mcp", store=store)
         records, journal = execute("direct", artifacts / "mcp.deployment.json", expected=1, error_type="ToolAccessDeniedException")
         assert not records and not journal.exists(), "Denied deployment admitted execution"
 
@@ -134,7 +143,7 @@ def check(dotnet):
                 process.communicate()
         dependencies = json.loads((SAMPLE / "bin/Release/net10.0/WorkflowService.deps.json").read_text())["libraries"]
         assert not any("Blazor" in name or "Studio" in name for name in dependencies)
-    print("Headless direct/queued execution, pinned artifacts, real MCP, denied/missing/drifted dependencies, no catalog/UI dependency, event sequences and host-stop cancellation passed.")
+    print("File/SQLite headless direct/queued execution, pinned artifacts, real MCP, denied/missing/drifted dependencies, no catalog/UI dependency, event sequences and host-stop cancellation passed.")
 
 
 if __name__ == "__main__":

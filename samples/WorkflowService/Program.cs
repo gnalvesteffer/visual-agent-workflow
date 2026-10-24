@@ -31,13 +31,18 @@ try
     var broker = await DeploymentDependencies.ResolveAsync(revision, args.Length == 5, providers, deadline.Token);
     var agents = new AgentNodeExecutor(providers, broker);
     if (args[3].Length > 16_384) throw new ArgumentException("Input exceeds the pipeline limit.");
+    IWorkflowRunStore journal = (builder.Configuration["WorkflowService:RunStore"] ?? "file") switch
+    {
+        "file" => new FileRunJournal(args[2]),
+        "sqlite" => new SqliteWorkflowRunStore(Path.Combine(args[2], "runs.sqlite3")),
+        _ => throw new InvalidOperationException("RunStore must be file or sqlite.")
+    };
     if (args[0] == "serve")
     {
-        await ObservableService.RunAsync(revision, broker, agents, args[2], args[3]);
+        await ObservableService.RunAsync(revision, broker, agents, journal, args[2], args[3]);
         return 0;
     }
-    var journal = new FileRunJournal(args[2]);
-    builder.Services.AddSingleton(journal);
+    builder.Services.AddSingleton<IWorkflowRunStore>(journal);
     builder.Services.AddSingleton<INodeToolBroker>(broker);
     builder.Services.AddSingleton<IAgentNodeExecutor>(agents);
     builder.Services.AddLocalWorkflowRuntime(args[2]);

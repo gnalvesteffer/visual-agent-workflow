@@ -5,6 +5,7 @@ recorded development runs. Run studio_smoke.py separately for the full editor fl
 """
 
 import argparse
+import re
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -154,7 +155,12 @@ def check(browser, screenshots):
         field = page.get_by_role("textbox", name="Input", exact=True)
         field.fill("x" * 16384)
         field.press("Tab")
+        viewer = page.get_by_role("region", name="Workflow run viewer")
+        previous_run = re.search(r"Run ([0-9a-f-]{36})", viewer.inner_text()).group(1)
         start.click()
+        # The old completed output remains clickable until admission selects the new run.
+        # Wait for that identity change before inspecting, including with slower storage.
+        expect(viewer).not_to_contain_text(previous_run)
         page.get_by_role("button", name="output core.output Completed", exact=True).click()
         expect(page.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("X" * 16384)
 

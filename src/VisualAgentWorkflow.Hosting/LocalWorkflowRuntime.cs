@@ -8,9 +8,13 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>Bounded, process-owned execution. Paused continuations release the shared execution slot.</summary>
-public sealed class LocalWorkflowRuntime(FileRunJournal journal, ILogger<LocalWorkflowRuntime> logger, INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null)
+public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<LocalWorkflowRuntime> logger, INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null)
     : BackgroundService, IWorkflowClient, IWorkflowRunControl, IWorkflowApprovalClient
 {
+    // Preserve the original constructor for existing source and binary consumers.
+    public LocalWorkflowRuntime(FileRunJournal journal, ILogger<LocalWorkflowRuntime> logger, INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null)
+        : this((IWorkflowRunStore)journal, logger, tools, agents) { }
+
     private const int MaximumOwnedRuns = 32;
     private sealed record Request(Guid RunId, WorkflowRevision Revision, string Input, ControlledRun Control);
     private readonly Channel<Request> queue = Channel.CreateBounded<Request>(MaximumOwnedRuns);

@@ -14,7 +14,7 @@ namespace WorkflowService;
 
 internal static class ObservableService
 {
-    public static async Task RunAsync(WorkflowRevision revision, McpToolBroker broker, IAgentNodeExecutor agents, string directory, string input)
+    public static async Task RunAsync(WorkflowRevision revision, McpToolBroker broker, IAgentNodeExecutor agents, IWorkflowRunStore store, string directory, string input)
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -23,6 +23,7 @@ internal static class ObservableService
         builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
         builder.Services.AddSingleton<INodeToolBroker>(broker);
         builder.Services.AddSingleton(agents);
+        builder.Services.AddSingleton(store);
         builder.Services.AddLocalWorkflowRuntime(directory);
         var enabled = builder.Configuration.GetValue<bool>("WorkflowObservation:Enabled");
         if (enabled)
@@ -33,7 +34,7 @@ internal static class ObservableService
             builder.Services.AddAuthentication().AddScheme<AuthenticationSchemeOptions, ObservationAuthentication>(ObservationAuthentication.SchemeName, _ => { });
             builder.Services.AddAuthorization(options => options.AddPolicy("observe", policy =>
                 policy.AddAuthenticationSchemes(ObservationAuthentication.SchemeName).RequireAuthenticatedUser()));
-            builder.Services.AddSingleton<IWorkflowRunObserver, JournalRunObserver>();
+            builder.Services.AddSingleton<IWorkflowRunObserver>(services => JournalRunObserver.FromStore(services.GetRequiredService<IWorkflowRunStore>()));
         }
         await using var app = builder.Build();
         app.MapGet("/health", () => Results.Ok(new { status = "ready" }));

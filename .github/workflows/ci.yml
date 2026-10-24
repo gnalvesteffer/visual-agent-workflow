@@ -38,17 +38,19 @@ jobs:
       - run: python3 -m playwright install --with-deps chromium
       - name: Exercise configured provider with a local protocol fixture
         run: python3 scripts/provider_smoke.py
-      - name: Exercise opt-in consumer observation and Studio attachment
+      - name: Exercise SQLite consumer observation and Studio attachment
+        env:
+          WorkflowService__RunStore: sqlite
         run: python3 scripts/observation_smoke.py
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
       - run: npm ci --prefix tools/documentation --ignore-scripts --no-audit --no-fund
       - run: python3 scripts/check_docs.py --mermaid
-      - name: Exercise the local studio API and browser
+      - name: Exercise the SQLite-backed studio API and browser
         shell: bash
         run: |
-          ASPNETCORE_ENVIRONMENT=Development dotnet run --project src/VisualAgentWorkflow.Studio --configuration Release --no-build > /tmp/studio-smoke.log 2>&1 &
+          ASPNETCORE_ENVIRONMENT=Development WorkflowStudio__RunStore=sqlite dotnet run --project src/VisualAgentWorkflow.Studio --configuration Release --no-build > /tmp/studio-smoke.log 2>&1 &
           studio_pid=$!
           trap 'kill "$studio_pid" 2>/dev/null || true' EXIT
           python3 scripts/studio_smoke.py --browser
