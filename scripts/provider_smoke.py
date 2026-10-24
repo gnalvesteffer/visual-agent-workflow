@@ -3,6 +3,8 @@
 This is NOT live OpenAI validation. Starts only owned loopback fixture/Studio
 processes, uses ephemeral credentials, and executes deterministic local responses.
 """
+
+from workbench_browser import workbench, inspect_control, new_workflow_fixture, show_runs
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -126,22 +128,22 @@ def check(dotnet, browser_executable):
                     page.on("request", lambda request: destinations.append(request.url))
                     page.goto(base)
                     designer = page.get_by_role("region",name="Workflow designer",exact=True)
-                    expect(designer.get_by_role("button",name="New workflow",exact=True)).to_be_enabled()
-                    designer.get_by_role("button",name="New workflow",exact=True).click()
-                    expect(designer.locator(".vaw-definition-status")).to_contain_text("Not saved")
-                    workflow_id = designer.locator(".vaw-definition-status strong").inner_text()
-                    designer.get_by_label("Operation for step-1",exact=True).select_option("agent:openai.fixture:1.0.0")
-                    expect(designer.get_by_text("External model: fixture-model.",exact=False)).to_be_visible()
-                    instructions = designer.get_by_label("Agent instructions for step-1",exact=True)
+                    expect(workbench(designer).get_by_role("button",name="New workflow",exact=True)).to_be_enabled()
+                    new_workflow_fixture(designer)
+                    expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Unsaved changes")
+                    workflow_id = workbench(designer).locator(".vaw-definition-status strong").inner_text()
+                    inspect_control(designer, "Operation for step-1").get_by_label("Operation for step-1",exact=True).select_option("agent:openai.fixture:1.0.0")
+                    expect(workbench(designer).get_by_text("External model: fixture-model.",exact=False)).to_be_visible()
+                    instructions = inspect_control(designer, "Agent instructions for step-1").get_by_label("Agent instructions for step-1",exact=True)
                     instructions.fill("Local protocol test instructions"); instructions.press("Tab")
-                    designer.get_by_label("Assign demo.reverse to step-1",exact=True).check()
-                    designer.get_by_role("button",name="Save draft",exact=True).click()
-                    designer.get_by_text("Draft saved.",exact=True).wait_for()
-                    designer.get_by_role("button",name="Publish & activate",exact=True).click()
-                    designer.get_by_text("Published and activated version 1.",exact=True).wait_for()
+                    inspect_control(designer, "Assign demo.reverse to step-1").get_by_label("Assign demo.reverse to step-1",exact=True).check()
+                    workbench(designer).get_by_role("button",name="Save draft",exact=True).click()
+                    workbench(designer).get_by_text("Draft saved.",exact=True).wait_for()
+                    workbench(designer).get_by_role("button",name="Publish & activate",exact=True).click()
+                    workbench(designer).get_by_text("Published and activated version 1.",exact=True).wait_for()
                     revision = get(f"/api/workflows/{workflow_id}/revisions")[0]["revision"]
-                    designer.get_by_label("Published run input",exact=True).fill("abc")
-                    designer.get_by_role("button",name="Run selected version",exact=True).click()
+                    workbench(designer).get_by_label("Published run input",exact=True).fill("abc")
+                    workbench(designer).get_by_role("button",name="Run selected version",exact=True).click()
                     viewer = page.get_by_role("region",name="Workflow run viewer",exact=True)
                     viewer.get_by_role("button",name="output core.output Completed",exact=True).click()
                     expect(viewer.get_by_role("region",name="Selected node payloads").locator("pre").last).to_have_text("Protocol fixture: cba")

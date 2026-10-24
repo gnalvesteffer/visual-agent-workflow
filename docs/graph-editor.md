@@ -20,6 +20,23 @@ Positions are finite and bounded to 0–32768 logical canvas units. Limits are 1
 
 SQLite schema 2 adds presentation tables to schema 1 without changing existing definitions, generations, revisions, or hashes. The development database remains single-host and unauthenticated, as documented in [roadmap and current scope](roadmap.md).
 
+## Creation workbench
+
+Studio opens the **Designer** workspace with a full-width authoring area. **Run inspector** holds quick-run controls, history and recorded playback. Components remain mounted across view changes; selection and local edits persist. The searchable **Node library** contains deterministic transformations, complete conditional blocks, eligible approval steps, and host-registered MCP tools/agent providers. Registration is an authoring choice, never an execution grant. New drafts begin with connected Input and Output.
+
+Click an action to insert on the selected path and open downstream space. Drag a library entry to choose its position; dropping onto a wire selects that exact insertion path. Right-click opens a searchable contextual palette, with duplicate/delete actions on eligible processing nodes and reroute actions on wires. Space or Shift+F10 provides a keyboard alternative. Drag an output pin to empty canvas to open creation for its existing edge, including distinct true/false paths. Canceling the preview/menu saves nothing. Dropping a pin onto an existing node explains that arbitrary rewiring is not yet available. Modern browsers with the Popover API support contextual menus; the persistent node library provides the primary creation controls.
+
+Graph additions produce a UI-only `WorkflowGraphEdit` containing definition and layout, allowing one undo operation to restore both. This is not a runtime command or new serialization schema. Compact cards hold readable summaries; the selected-node inspector holds configuration and complete comments. Duplicate copies executable configuration with a fresh identity; it does not copy host grants.
+
+```mermaid
+flowchart LR
+    Action["Library, context menu or output pin"] --> Path["Selected source and output port"]
+    Path --> Validate["Validated graph insertion"]
+    Validate --> Edit["One definition and layout edit"]
+    Edit --> Undo["Undo or continue editing"]
+    Edit --> Save["Explicit draft save"]
+```
+
 ## Canvas controls
 
 The reusable `WorkflowGraphCanvas` renders left-edge input sockets and right-edge output sockets, measured from the actual rendered nodes. Wires use SVG geometry and keep following the pins when cards change size. The supported string links are data pins; conditions expose distinct true/false sockets backed by real exclusive routing. There are no decorative execution pins.
@@ -28,13 +45,17 @@ The reusable `WorkflowGraphCanvas` renders left-edge input sockets and right-edg
 - Scroll or drag empty graph background to pan. Zoom controls change the view, not stored coordinates. Coordinate conversion accounts for zoom and scroll. Pointer cancellation restores the preview rather than saving an accidental move.
 - Double-click a wire to add a reroute waypoint, or use **Add reroute point** in the inspector. Drag or keyboard-nudge the point. Curved routes support automatic or pinned tangent angles (presets and custom degrees); right-angle routes constrain tangents to multiples of 90. Resetting a route removes its presentation waypoints, not the connection.
 - Open **Labels, comments, sections, and wire routing** to set a node label/comment. Identity and executable type remain stable. Text is rendered as text, not HTML, Markdown, or instructions to an agent.
-- Select section members using the inspector checkboxes, enter a label, and group them. Frames fit their explicit members automatically. Drag the section header to move its nodes together in one undoable edit. Rename or ungroup from the inspector. Sections do not nest, execute, or infer membership merely because a node happens to overlap them. Pinned wire points remain in graph coordinates when a section moves or nodes are automatically arranged.
+- Select section members using the inspector checkboxes, enter a label, and group them. Frames fit their explicit members automatically. Drag the section header to move its nodes together in one undoable edit. Rename or ungroup from the inspector. Sections do not nest, execute, or infer membership merely because a node happens to overlap them. Pinned wire points remain in graph coordinates when a section moves. **Arrange nodes** retains annotations/sections and wire styles but clears reroute points; the whole operation is undoable.
+
+**Fit graph** changes only zoom/scroll. **Fullscreen graph** uses native browser fullscreen and includes the library, selected properties and toolbar (save/publish/undo or playback). Escape exits and restores focus; denied requests show an inline explanation. An embedding iframe must permit fullscreen. Fullscreen Tab navigation stays inside the expanded graph. Disposal removes browser listeners without canceling backend execution.
 
 Node positions, annotations, groups, and routes share the designer’s undo/redo history with semantic edits. Saves are explicit. A completed drag creates one edit; transient browser pointer previews do not stream commands to the backend. Publish and restore preserve layout with its revision. Preview and run playback are read-only. The Studio fetches the recorded revision's layout for playback; template/ad-hoc runs and pre-layout revisions use default positions. Wire completion color still comes only from recorded transfer events, not geometry.
 
 JSON definition export remains compatible. Separate layout export/import controls share the JSON editor and provide `workflow.layout.json`; importing validates IDs against the current definition and does not publish or execute anything. Consuming hosts implement `IWorkflowDesignCatalog` for persistence; hosts implementing only the older catalog retain semantic editing with presentation editing disabled.
 
 ## Verification and scope
+
+`python3 scripts/workbench_smoke.py --browser-executable /path/to/chromium --screenshots /tmp/workbench` covers blank creation, library and contextual actions, drag placement, pin creation, undo/deletion, compact properties, fit, native fullscreen/focus/rejection, view switching, filtering and recorded playback.
 
 `python3 scripts/graph_canvas_smoke.py --browser-executable /path/to/chromium` exercises real mouse/keyboard moves, socket alignment, shared undo/redo, labels/comments, grouped movement, reroute creation/dragging, pinned/right-angle geometry, zoom conversion, save/reload, stale-write denial, publication, immutable version preview/restore, and recorded-layout playback. `--screenshots DIRECTORY` captures the tested UI. CI runs it alongside the existing authoring and UI-skill checks.
 

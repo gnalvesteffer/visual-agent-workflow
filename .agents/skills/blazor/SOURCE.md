@@ -26,3 +26,5 @@ Use this guidance with [project-guide](../project-guide/SKILL.md), [graph-experi
 ## Updating
 
 Review the skill, license, and referenced resources at an explicit new upstream commit. Copy required files together, update the commit/digest here, recheck the local compatibility notes, and validate YAML frontmatter and links. Do not import unrelated upstream skills or execute sample code automatically.
+
+Dynamic string component parameters require an explicit Razor expression, for example `SelectedNodeId="@selectedNode"`. A bare quoted name is a string literal and can compile while leaving controlled selection stale. The workbench browser check verifies graph selection and the payload/property inspector agree after edits, run selection and view changes.

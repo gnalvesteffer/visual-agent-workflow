@@ -2,6 +2,8 @@
 
 Creates disposable local definitions/runs against the development Studio.
 """
+
+from workbench_browser import workbench, inspect_control, new_workflow_fixture, show_runs
 import argparse
 import copy
 import json
@@ -22,29 +24,29 @@ def check(browser, screenshots):
         return response.json()
     page.goto(BASE)
     designer = page.get_by_role("region", name="Workflow designer", exact=True)
-    expect(designer.get_by_role("button", name="New workflow", exact=True)).to_be_enabled()
-    designer.get_by_role("button", name="New workflow", exact=True).click()
-    expect(designer.locator(".vaw-definition-status")).to_contain_text("Not saved")
-    workflow_id = designer.locator(".vaw-definition-status strong").inner_text()
-    nodes = designer.locator(".vaw-node[data-node-id]")
+    expect(workbench(designer).get_by_role("button", name="New workflow", exact=True)).to_be_enabled()
+    new_workflow_fixture(designer)
+    expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Unsaved changes")
+    workflow_id = workbench(designer).locator(".vaw-definition-status strong").inner_text()
+    nodes = workbench(designer).locator(".vaw-node[data-node-id]")
     expect(nodes).to_have_count(3)
-    designer.get_by_role("button", name="Add conditional after input", exact=True).click()
+    inspect_control(designer, "Add conditional after input").get_by_role("button", name="Add conditional after input", exact=True).click()
     expect(nodes).to_have_count(7)
-    branch = designer.locator(".vaw-node[data-node-type='core.condition']").get_attribute("data-node-id")
-    designer.get_by_role("button", name="Undo edit", exact=True).click()
+    branch = workbench(designer).locator(".vaw-node[data-node-type='core.condition']").get_attribute("data-node-id")
+    workbench(designer).get_by_role("button", name="Undo edit", exact=True).click()
     expect(nodes).to_have_count(3)
-    designer.get_by_role("button", name="Redo edit", exact=True).click()
+    workbench(designer).get_by_role("button", name="Redo edit", exact=True).click()
     expect(nodes).to_have_count(7)
-    branch_card = designer.locator(f".vaw-node[data-node-id='{branch}']")
+    branch_card = workbench(designer).locator(f".vaw-node[data-node-id='{branch}']")
     expect(branch_card.locator('[data-socket="true"]')).to_have_count(1)
     expect(branch_card.locator('[data-socket="false"]')).to_have_count(1)
-    designer.get_by_label("Condition operator for " + branch, exact=True).select_option("contains")
-    operand = designer.get_by_label("Condition operand for " + branch, exact=True)
+    inspect_control(designer, "Condition operator for " + branch).get_by_label("Condition operator for " + branch, exact=True).select_option("contains")
+    operand = inspect_control(designer, "Condition operand for " + branch).get_by_label("Condition operand for " + branch, exact=True)
     operand.fill("allow"); operand.press("Tab")
     expect(operand).to_have_value("allow")
-    designer.get_by_role("button", name="Arrange nodes", exact=True).click()
-    designer.get_by_role("button", name="Save draft", exact=True).click()
-    designer.get_by_text("Draft saved.", exact=True).wait_for()
+    workbench(designer).get_by_role("button", name="Arrange nodes", exact=True).click()
+    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
+    workbench(designer).get_by_text("Draft saved.", exact=True).wait_for()
     design = get(f"/api/workflows/{workflow_id}/design")
     definition = design["draft"]["definition"]
     assert definition["schemaVersion"] == "1.4"
@@ -64,14 +66,14 @@ def check(browser, screenshots):
     assert abs(sockets["true"]["x"]-sockets["true"]["width"]) < 6
     assert abs(sockets["false"]["x"]-sockets["false"]["width"]) < 6
     assert sockets["true"]["y"] != sockets["false"]["y"]
-    designer.get_by_role("button", name="Publish & activate", exact=True).click()
-    designer.get_by_text("Published and activated version 1.", exact=True).wait_for()
+    workbench(designer).get_by_role("button", name="Publish & activate", exact=True).click()
+    workbench(designer).get_by_text("Published and activated version 1.", exact=True).wait_for()
     revision = get(f"/api/workflows/{workflow_id}/revisions")[0]["revision"]
     viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
     for text, port, output in (("allow abc", "true", "ALLOW ABC"), ("abc", "false", "CBA")):
-        designer.get_by_label("Published run input", exact=True).fill(text)
+        workbench(designer).get_by_label("Published run input", exact=True).fill(text)
         previous_header = viewer.locator(".vaw-run-header small").inner_text() if viewer.locator(".vaw-run-header small").count() else None
-        designer.get_by_role("button", name="Run selected version", exact=True).click()
+        workbench(designer).get_by_role("button", name="Run selected version", exact=True).click()
         if previous_header:
             expect(viewer.locator(".vaw-run-header small")).not_to_have_text(previous_header)
         viewer.get_by_role("button", name="output core.output Completed", exact=True).click()
@@ -101,9 +103,10 @@ def check(browser, screenshots):
     assert package["definition"] == definition
     assert any(r["id"] == "core.condition" for r in package["requirements"])
     # A changed draft must not alter execution of v1.
+    inspect_control(designer, "Condition operand for " + branch)
     operand.fill("never-match"); operand.press("Tab")
-    designer.get_by_role("button", name="Save draft", exact=True).click()
-    designer.get_by_text("Draft saved.", exact=True).wait_for()
+    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
+    workbench(designer).get_by_text("Draft saved.", exact=True).wait_for()
     response = page.request.post(BASE + f"/api/revisions/{revision['revisionId']}/runs", data={"input":"allow abc"})
     assert response.ok, response.text()
     pinned_id = response.json()["header"]["runId"]
@@ -118,9 +121,9 @@ def check(browser, screenshots):
     assert rejected.status == 400
     page.reload()
     designer = page.get_by_role("region", name="Workflow designer", exact=True)
-    expect(designer.get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
-    designer.get_by_label("Saved workflow", exact=True).select_option(workflow_id)
-    expect(designer.get_by_label("Condition operand for " + branch, exact=True)).to_have_value("never-match")
+    expect(workbench(designer).get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
+    workbench(designer).get_by_label("Saved workflow", exact=True).select_option(workflow_id)
+    expect(inspect_control(designer, "Condition operand for " + branch).get_by_label("Condition operand for " + branch, exact=True)).to_have_value("never-match")
     assert not errors, errors
     page.close()
     print("Conditional insertion/undo/redo, predicate editing, edge sockets, true/false framework paths, merge, recorded playback, package/reload, revision pinning and invalid wiring rejection passed.")

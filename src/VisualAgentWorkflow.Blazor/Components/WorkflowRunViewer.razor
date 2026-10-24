@@ -12,6 +12,8 @@
             <p class="vaw-help">State at recorded position: @VisibleStatus</p>
             <small>Run @Snapshot.Header.RunId · revision @Snapshot.Header.RevisionId</small>
         </header>
+        <WorkflowGraphCanvas @key="Snapshot.Header.RunId" Definition="Snapshot.Header.Definition" Layout="Presentation" ReadOnly="true" NodesLabel="@(WorkflowGraph.HasRouting(Snapshot.Header.Definition) ? "Workflow nodes in topological display order" : "Pipeline nodes in execution order")" NodeClass="NodeStateClass" DeliveredConnections="Delivered" SelectedNodeId="@selectedNode" SelectedNodeIdChanged="SelectNode" InspectorTitle="Execution details">
+            <ToolbarContent>
         <div class="vaw-controls" aria-label="Playback controls">
             <button type="button" @onclick="Previous" disabled="@(Position == 0)">Previous event</button>
             <button type="button" @onclick="Next" disabled="@(Position >= Snapshot.Events.Length)">Next event</button>
@@ -21,29 +23,29 @@
             </label>
             <span>@Position / @Snapshot.Events.Length events</span>
         </div>
-        <WorkflowApprovalPanel Snapshot="VisibleSnapshot" Client="ApprovalClient" CanDecide="@(follow && !Snapshot.IsTerminal)" OnDecision="ApprovalChanged" />
-        <WorkflowGraphCanvas @key="Snapshot.Header.RunId" Definition="Snapshot.Header.Definition" Layout="Presentation" ReadOnly="true" NodesLabel="@(WorkflowGraph.HasRouting(Snapshot.Header.Definition) ? "Workflow nodes in topological display order" : "Pipeline nodes in execution order")" NodeClass="NodeStateClass" DeliveredConnections="Delivered">
+            </ToolbarContent>
             <NodeContent Context="nodeId">
                 @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); var label = PendingApproval?.Action.ApprovalNodeId == nodeId ? "Awaiting approval" : PausedBefore(nodeId) && state is null ? "Paused before execution" : StateLabel(state); }
                 <button type="button" class="vaw-node-button" aria-label="@($"{nodeId} {node.Type} {label}")" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId ? "true" : "false")">
-                    <strong>@nodeId</strong><span>@node.Type</span><span>@label</span>
+                    <span>@label</span>
                 </button>
                 @if (BranchPort(nodeId) is { } chosenPort) { <p class="vaw-help">Selected output: @chosenPort</p> }
             </NodeContent>
-        </WorkflowGraphCanvas>
-        @if (selectedNode is not null)
-        {
+            <NodeInspector Context="inspected">
+            @{ var selectedNode = inspected;
             var started = VisibleEvents.LastOrDefault(e => e.NodeId == selectedNode && e.Kind == ExecutionEventKinds.NodeStarted);
             var completed = VisibleEvents.LastOrDefault(e => e.NodeId == selectedNode && e.Kind == ExecutionEventKinds.NodeCompleted);
-            var failure = VisibleEvents.LastOrDefault(e => e.NodeId == selectedNode && e.Kind is ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
+            var failure = VisibleEvents.LastOrDefault(e => e.NodeId == selectedNode && e.Kind is ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled); }
             <section class="vaw-inspector" aria-label="Selected node payloads">
-                <h3>@selectedNode</h3>
+                <h3>@(string.IsNullOrWhiteSpace(Presentation.Nodes[inspected].Label) ? WorkflowGraphCanvas.FriendlyName(Snapshot.Header.Definition.Nodes[inspected]) : Presentation.Nodes[inspected].Label)</h3>
                 <p>Invocation: @(started?.InvocationId?.ToString() ?? "Not recorded at this position")</p>
                 <h4>Input</h4><pre>@(started?.Data ?? "Not recorded at this position")</pre>
                 <h4>Output</h4><pre>@(completed?.Data ?? "Not recorded at this position")</pre>
                 @if (failure is not null) { <h4>@StateLabel(failure)</h4><pre>@failure.Data</pre> }
             </section>
-        }
+        <WorkflowApprovalPanel Snapshot="VisibleSnapshot" Client="ApprovalClient" CanDecide="@(follow && !Snapshot.IsTerminal)" OnDecision="ApprovalChanged" />
+            </NodeInspector>
+        </WorkflowGraphCanvas>
         <details>
             <summary>Recorded events at this position (@Position)</summary>
             <div class="vaw-table-scroll">
@@ -105,11 +107,12 @@
         if (Snapshot is not null) Presentation = Layout ?? (currentRun == Snapshot.Header.RunId && Presentation is not null ? Presentation : WorkflowLayout.Create(Snapshot.Header.Definition));
         if (currentRun == Snapshot?.Header.RunId) return;
         currentRun = Snapshot?.Header.RunId;
-        selectedNode = null;
+        selectedNode = Snapshot?.Header.Definition.EntryNodeId;
         cursor = 0;
         follow = true;
     }
 
+    private Task SelectNode(string id) { selectedNode = id; return Task.CompletedTask; }
     private void Previous() { cursor = Math.Max(0, Position - 1); follow = false; }
     private static string StateLabel(ExecutionEvent? state) => state?.Kind switch
     {

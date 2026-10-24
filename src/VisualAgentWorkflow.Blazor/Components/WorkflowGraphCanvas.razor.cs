@@ -13,6 +13,20 @@ public partial class WorkflowGraphCanvas
     [Parameter, EditorRequired] public WorkflowDefinition Definition { get; set; } = default!;
     [Parameter, EditorRequired] public WorkflowLayout Layout { get; set; } = default!;
     [Parameter, EditorRequired] public RenderFragment<string> NodeContent { get; set; } = default!;
+    [Parameter] public RenderFragment? NodeLibrary { get; set; }
+    [Parameter] public bool ShowNodeLibrary { get; set; } = true;
+    [Parameter] public RenderFragment<GraphContextRequest>? ContextMenu { get; set; }
+    [Parameter] public bool EnableContextMenu { get; set; } = true;
+    [Parameter] public EventCallback<GraphNodeCreateRequest> NodeCreateRequested { get; set; }
+    [Parameter] public EventCallback<string> DeleteNodeRequested { get; set; }
+    [Parameter] public EventCallback<string> ConnectionSelected { get; set; }
+    private GraphContextRequest? contextMenu;
+    private string? activeConnection;
+    [Parameter] public string InspectorTitle { get; set; } = "Node properties";
+    [Parameter] public RenderFragment<string>? NodeInspector { get; set; }
+    [Parameter] public RenderFragment? ToolbarContent { get; set; }
+    [Parameter] public string? SelectedNodeId { get; set; }
+    [Parameter] public EventCallback<string> SelectedNodeIdChanged { get; set; }
     [Parameter] public EventCallback<WorkflowLayout> LayoutChanged { get; set; }
     [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public bool Disabled { get; set; }
@@ -51,7 +65,19 @@ public partial class WorkflowGraphCanvas
     }
     private static string PointsJson(WirePresentation route) => JsonSerializer.Serialize(route.Points, JsonOptions);
     private WirePresentation Route(string id) => Layout.Wires.GetValueOrDefault(id) ?? new("curve", []);
-    private string Title(string id) => string.IsNullOrWhiteSpace(Layout.Nodes[id].Label) ? id : Layout.Nodes[id].Label;
+    private string Title(string id) => string.IsNullOrWhiteSpace(Layout.Nodes[id].Label) ? FriendlyName(Definition.Nodes[id]) : Layout.Nodes[id].Label;
+    internal static string FriendlyName(NodeDefinition node) => node.Type switch
+    {
+        NodeTypes.Input => "Input", NodeTypes.Output => "Output", NodeTypes.Uppercase => "Uppercase", NodeTypes.Reverse => "Reverse",
+        NodeTypes.Condition => "Condition", NodeTypes.Merge => "Merge", NodeTypes.Approval => "Approval", NodeTypes.Agent => "Agent", _ => "MCP tool"
+    };
+    private async Task SelectNode(string id)
+    {
+        if (!Definition.Nodes.ContainsKey(id)) return;
+        selectedNode = id;
+        activeConnection = null;
+        await SelectedNodeIdChanged.InvokeAsync(id);
+    }
     private static string Kind(NodeDefinition node) => node.Type == NodeTypes.Input ? "Input" : node.Type == NodeTypes.Output ? "Output" :
         node.Type == NodeTypes.Approval ? "Approval" : node.Type == NodeTypes.Condition ? "Condition" : node.Type == NodeTypes.Merge ? "Exclusive merge" : node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform";
 
@@ -63,8 +89,11 @@ public partial class WorkflowGraphCanvas
             Order = WorkflowGraph.OrderedNodes(Definition);
             orderedDefinition = Definition;
         }
+        if (SelectedNodeId is not null && Definition.Nodes.ContainsKey(SelectedNodeId)) selectedNode = SelectedNodeId;
         if (selectedNode is null || !Definition.Nodes.ContainsKey(selectedNode)) selectedNode = Order[0];
         if (selectedWire is null || !Definition.Connections.ContainsKey(selectedWire)) selectedWire = Definition.Connections.Keys.FirstOrDefault();
+        if (contextMenu is { } context && (context.NodeId is not null && !Definition.Nodes.ContainsKey(context.NodeId) ||
+            context.ConnectionId is not null && !Definition.Connections.ContainsKey(context.ConnectionId))) contextMenu = null;
         members.RemoveWhere(id => !Definition.Nodes.ContainsKey(id));
     }
 
@@ -109,7 +138,11 @@ public partial class WorkflowGraphCanvas
         catch (ArgumentException) { error = "Invalid layout. Check coordinate bounds, labels, and section membership."; }
     }
 
-    private void Zoom(double delta) => zoom = Math.Clamp(Math.Round(zoom + delta, 2), 0.5, 1.5);
+    private void Zoom(double delta) => zoom = Math.Clamp(Math.Round(zoom + delta, 2), 0.25, 1.5);
+    private async Task FitView()
+    {
+        if (browserSession is not null) zoom = Math.Clamp(await browserSession.InvokeAsync<double>("fit"), 0.25, 1.5);
+    }
     private Task AutoLayout()
     {
         var arranged = WorkflowLayout.Create(Definition);
@@ -118,7 +151,7 @@ public partial class WorkflowGraphCanvas
             Nodes = arranged.Nodes.ToImmutableSortedDictionary(p => p.Key,
                 p => Layout.Nodes[p.Key] with { Position = p.Value.Position }, StringComparer.Ordinal),
             Sections = Layout.Sections,
-            Wires = Layout.Wires
+            Wires = Layout.Wires.ToImmutableSortedDictionary(p => p.Key, p => p.Value with { Points = [] }, StringComparer.Ordinal)
         });
     }
 
@@ -162,12 +195,44 @@ public partial class WorkflowGraphCanvas
     }
 
     [JSInvokable]
-    public Task SelectWire(string? id)
+    public async Task SelectWire(string? id)
     {
-        if (disposed) return Task.CompletedTask;
-        if (id is not null && Definition.Connections.ContainsKey(id)) selectedWire = id;
-        return InvokeAsync(StateHasChanged);
+        if (disposed) return;
+        if (id is not null && Definition.Connections.TryGetValue(id, out var edge))
+        {
+            selectedWire = id; activeConnection = id; selectedNode = edge.Source.NodeId;
+            await ConnectionSelected.InvokeAsync(id);
+        }
+        await InvokeAsync(StateHasChanged);
     }
+
+    [JSInvokable]
+    public async Task OpenContextMenu(string? nodeId, string? connectionId, int segment, double x, double y, double clientX, double clientY)
+    {
+        if (disposed || Disabled || !EnableContextMenu || ContextMenu is null || !double.IsFinite(x) || !double.IsFinite(y)) return;
+        nodeId = nodeId is not null && Definition.Nodes.ContainsKey(nodeId) ? nodeId : null;
+        connectionId = connectionId is not null && Definition.Connections.ContainsKey(connectionId) ? connectionId : null;
+        if (connectionId is not null) await SelectWire(connectionId);
+        else if (nodeId is not null) await SelectNode(nodeId);
+        contextMenu = new(Guid.NewGuid().ToString("N"), nodeId, connectionId, segment, Snap(x, y), clientX, clientY);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task CloseContextMenu(string id)
+    {
+        if (contextMenu?.Id == id) contextMenu = null;
+        return disposed ? Task.CompletedTask : InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task CreateDroppedNode(string key, string? nodeId, string? connectionId, double x, double y) =>
+        disposed || Disabled || !EnableContextMenu || !double.IsFinite(x) || !double.IsFinite(y) ? Task.CompletedTask :
+        NodeCreateRequested.InvokeAsync(new(key, new(Guid.NewGuid().ToString("N"), nodeId is not null && Definition.Nodes.ContainsKey(nodeId) ? nodeId : null,
+            connectionId is not null && Definition.Connections.ContainsKey(connectionId) ? connectionId : null, 0, Snap(x, y), 0, 0)));
+
+    [JSInvokable]
+    public Task DeleteSelection() => !disposed && !Disabled && EnableContextMenu && selectedNode is not null ? DeleteNodeRequested.InvokeAsync(selectedNode) : Task.CompletedTask;
 
     private static GraphPoint RelativeSnap(GraphPoint origin, double x, double y) => new(
         Math.Clamp(origin.X + Math.Round((x - origin.X) / 8) * 8, 0, WorkflowLayoutJson.MaximumCoordinate),
@@ -226,13 +291,21 @@ public partial class WorkflowGraphCanvas
     };
     private Task NodeKey(string id, KeyboardEventArgs args)
     {
-        var (x, y) = Delta(args); var step = args.ShiftKey ? 40 : 8; var p = Layout.Nodes[id].Position;
-        return x == 0 && y == 0 ? Task.CompletedTask : MoveNode(id, p.X + x * step, p.Y + y * step);
+        var (x, y) = Delta(args);
+        if (x == 0 && y == 0 || !Layout.Nodes.TryGetValue(id, out var node)) return Task.CompletedTask;
+        var step = args.ShiftKey ? 40 : 8;
+        return MoveNode(id, node.Position.X + x * step, node.Position.Y + y * step);
     }
     private Task SectionKey(string id, KeyboardEventArgs args)
     { var (x, y) = Delta(args); return x == 0 && y == 0 ? Task.CompletedTask : MoveSection(id, x * (args.ShiftKey ? 40 : 8), y * (args.ShiftKey ? 40 : 8)); }
     private Task WaypointKey(string id, int index, KeyboardEventArgs args)
-    { var (x, y) = Delta(args); var p = Route(id).Points[index].Position; return x == 0 && y == 0 ? Task.CompletedTask : MoveWaypoint(id, index, p.X + x * 8, p.Y + y * 8); }
+    {
+        var (x, y) = Delta(args);
+        var points = Route(id).Points;
+        if (x == 0 && y == 0 || index < 0 || index >= points.Length) return Task.CompletedTask;
+        var point = points[index].Position;
+        return MoveWaypoint(id, index, point.X + x * 8, point.Y + y * 8);
+    }
 
     public async ValueTask DisposeAsync()
     {

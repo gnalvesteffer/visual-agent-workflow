@@ -46,6 +46,8 @@ python3 scripts/studio_smoke.py --browser
 
 The built-in MCP tools run in a trusted local stdio fixture with no external I/O or model credentials. The demo agent uses the real Agent Framework function loop with scripted responses; it does not interpret instructions or call an LLM. Workflows cannot supply executable paths or grant themselves capabilities. See [component embedding](docs/embedding.md), [runtime provider configuration](docs/runtime-configuration.md), [run storage](docs/run-storage.md), [deterministic checkpoint recovery](docs/checkpoint-recovery.md), [read-only reconciliation](docs/run-reconciliation.md), [opt-in model providers](docs/model-providers.md), and the [saved workflow API](docs/workflow-api.md). Arbitrary socket rewiring, parallel execution, live-provider validation, remote MCP provisioning, and production durability remain ahead.
 
+The [graph workbench](docs/graph-editor.md) provides a searchable node library, contextual creation, compact nodes with a property inspector, and fullscreen editing/playback. New workflows start with connected Input/Output nodes. Run `python3 scripts/workbench_smoke.py` for creation and fullscreen checks.
+
 For the [graph canvas](docs/graph-editor.md), run `python3 scripts/graph_canvas_smoke.py` against the development Studio with Playwright/Chromium installed. Pass `--browser-executable` for an existing Chromium or `--screenshots DIRECTORY` for review images.
 
 For reusable pipelines and sharing, `python3 scripts/pipeline_reuse_smoke.py` exercises exact-version insertion, section extraction, full-package import/export, and missing-tool denial in the browser.

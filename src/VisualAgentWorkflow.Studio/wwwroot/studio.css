@@ -6,3 +6,9 @@
 
 .vaw-studio-navigation { max-inline-size: 110rem; margin-inline: auto; padding: 1rem 1.5rem; }
 .vaw-studio-navigation a { color: var(--vaw-color-accent, #c4b5fd); }
+
+.vaw-app { font-family: var(--vaw-font-family, "Segoe UI", "Helvetica Neue", Arial, sans-serif); }
+.vaw-studio-navigation { max-inline-size: none; padding: .5rem 1rem; border-block-end: 1px solid var(--vaw-color-border, #3b414f); background: var(--vaw-color-surface, #20232b); font-size: .8125rem; }
+.vaw-studio-navigation a { text-decoration: none; }
+.vaw-studio-navigation a:hover { text-decoration: underline; }
+.vaw-studio-navigation a:focus-visible { outline: 2px solid var(--vaw-color-focus, #d3c5ff); outline-offset: 3px; }

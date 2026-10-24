@@ -6,6 +6,7 @@ namespace VisualAgentWorkflow.Blazor.Components;
 
 public partial class WorkflowDesigner
 {
+    private string workflowFilter = "";
     [Parameter, EditorRequired] public IWorkflowCatalog Catalog { get; set; } = default!;
     [Parameter, EditorRequired] public IPublishedWorkflowClient Client { get; set; } = default!;
     [Parameter] public EventCallback<RunSnapshot> OnRunStarted { get; set; }
@@ -123,7 +124,7 @@ public partial class WorkflowDesigner
     private void NewWorkflow()
     {
         ResetReuse();
-        var next = PipelineTemplates.Create("uppercase") with { WorkflowId = "workflow-" + Guid.NewGuid().ToString("N") };
+        var next = PipelineEditing.Remove(PipelineTemplates.Create("uppercase"), "step-1") with { WorkflowId = "workflow-" + Guid.NewGuid().ToString("N") };
         SetDesign(next, WorkflowLayout.Create(next));
         generation = 0; activeRevisionId = null; selectedRevisionId = null; preview = null;
         versions = []; audit = []; undo.Clear(); redo.Clear(); jsonText = "";
@@ -199,6 +200,16 @@ public partial class WorkflowDesigner
         if (definition is null || layout is null || WorkflowJson.ComputeHash(next) == definitionHash) return;
         undo.Push(new(definition, layout)); redo.Clear();
         SetDesign(next, layout.Reconcile(next)); error = null; message = null;
+    }
+
+    private void ChangedGraph(WorkflowGraphEdit next)
+    {
+        if (definition is null || layout is null) return;
+        if (WorkflowJson.ComputeHash(next.Definition) == definitionHash && WorkflowLayoutJson.ComputeHash(next.Layout, next.Definition) == layoutHash) return;
+        WorkflowValidator.ThrowIfInvalid(next.Definition);
+        WorkflowLayoutJson.Validate(next.Layout, next.Definition);
+        undo.Push(new(definition, layout)); redo.Clear();
+        SetDesign(next.Definition, next.Layout); error = null; message = null;
     }
 
     private void ChangedLayout(WorkflowLayout next)

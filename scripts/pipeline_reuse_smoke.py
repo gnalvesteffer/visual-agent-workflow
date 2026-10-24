@@ -3,6 +3,8 @@
 Uses only disposable local fixtures. Imports/copies do not invoke providers/tools;
 only explicit run controls execute the deterministic local workflow.
 """
+
+from workbench_browser import workbench, inspect_control, new_workflow_fixture, show_runs
 import argparse
 import copy
 import json
@@ -50,35 +52,35 @@ def check(browser, screenshots):
 
     page.goto(BASE)
     designer = page.get_by_role("region",name="Workflow designer",exact=True)
-    expect(designer.get_by_role("button",name="Save draft",exact=True)).to_be_enabled()
-    designer.get_by_label("Saved workflow",exact=True).select_option(target_id)
-    expect(designer.locator(".vaw-definition-status")).to_contain_text(target_id)
+    expect(workbench(designer).get_by_role("button",name="Save draft",exact=True)).to_be_enabled()
+    workbench(designer).get_by_label("Saved workflow",exact=True).select_option(target_id)
+    expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text(target_id)
 
     def open_details(label):
-        summary = designer.get_by_text(label,exact=True)
+        summary = workbench(designer).get_by_text(label,exact=True)
         if not summary.evaluate("element=>element.closest('details').open"):
             summary.click()
 
     def save():
-        designer.get_by_role("button",name="Save draft",exact=True).click()
-        designer.get_by_text("Draft saved.",exact=True).wait_for()
+        workbench(designer).get_by_role("button",name="Save draft",exact=True).click()
+        workbench(designer).get_by_text("Draft saved.",exact=True).wait_for()
 
     def publish(version):
-        designer.get_by_role("button",name="Publish & activate",exact=True).click()
-        designer.get_by_text(f"Published and activated version {version}.",exact=True).wait_for()
+        workbench(designer).get_by_role("button",name="Publish & activate",exact=True).click()
+        workbench(designer).get_by_text(f"Published and activated version {version}.",exact=True).wait_for()
 
     open_details("Reusable pipelines")
-    designer.get_by_label("Reusable workflow",exact=True).select_option(source_id)
-    expect(designer.get_by_label("Reusable version",exact=True).locator("option")).to_have_count(2)
-    designer.get_by_label("Reusable version",exact=True).select_option(v1["revision"]["revisionId"])
-    designer.get_by_label("Insert pipeline after",exact=True).select_option("input")
-    designer.get_by_role("button",name="Insert published pipeline",exact=True).click()
-    designer.get_by_role("status").filter(has_text="Inserted version 1").wait_for()
-    nodes = designer.locator("ol[aria-label='Editable pipeline nodes'] > li")
+    workbench(designer).get_by_label("Reusable workflow",exact=True).select_option(source_id)
+    expect(workbench(designer).get_by_label("Reusable version",exact=True).locator("option")).to_have_count(2)
+    workbench(designer).get_by_label("Reusable version",exact=True).select_option(v1["revision"]["revisionId"])
+    workbench(designer).get_by_label("Insert pipeline after",exact=True).select_option("input")
+    workbench(designer).get_by_role("button",name="Insert published pipeline",exact=True).click()
+    workbench(designer).get_by_role("status").filter(has_text="Inserted version 1").wait_for()
+    nodes = workbench(designer).locator("ol[aria-label='Editable pipeline nodes'] > li")
     expect(nodes).to_have_count(6)
-    designer.get_by_role("button",name="Undo edit",exact=True).click()
+    workbench(designer).get_by_role("button",name="Undo edit",exact=True).click()
     expect(nodes).to_have_count(4)
-    designer.get_by_role("button",name="Redo edit",exact=True).click()
+    workbench(designer).get_by_role("button",name="Redo edit",exact=True).click()
     expect(nodes).to_have_count(6)
     save()
     consumer = get("/api/workflows/"+target_id+"/design")
@@ -88,8 +90,8 @@ def check(browser, screenshots):
     assert all(node["origin"]["revisionId"]==v1["revision"]["revisionId"] and node["origin"]["version"]==1 for node in copies.values())
     assert any(node["comment"].startswith("Keep this annotation") for node in consumer["layout"]["nodes"].values())
     publish(1)
-    designer.get_by_label("Published run input",exact=True).fill("abc")
-    designer.get_by_role("button",name="Run selected version",exact=True).click()
+    workbench(designer).get_by_label("Published run input",exact=True).fill("abc")
+    workbench(designer).get_by_role("button",name="Run selected version",exact=True).click()
     viewer = page.get_by_role("region",name="Workflow run viewer",exact=True)
     viewer.get_by_role("button",name="output core.output Completed",exact=True).click()
     expect(viewer.get_by_role("region",name="Selected node payloads").locator("pre").last).to_have_text("ABC")
@@ -99,19 +101,19 @@ def check(browser, screenshots):
     assert package_api["layout"]==consumer["layout"]
 
     open_details("Import / export definition")
-    designer.get_by_role("button",name="Copy workflow package into JSON editor",exact=True).click()
-    editor = designer.get_by_label("Workflow JSON",exact=True)
+    workbench(designer).get_by_role("button",name="Copy workflow package into JSON editor",exact=True).click()
+    editor = workbench(designer).get_by_label("Workflow JSON",exact=True)
     expect(editor).not_to_have_value("")
     package = json.loads(editor.input_value())
     assert package == package_api
     assert any(r["id"]=="core.text.reverse" for r in package["requirements"])
-    designer.get_by_role("button",name="New workflow",exact=True).click()
-    designer.get_by_text("New workflow created locally. Save its draft before publishing.",exact=True).wait_for()
-    imported_id = designer.get_by_label("Saved workflow",exact=True).input_value()
+    new_workflow_fixture(designer)
+    workbench(designer).get_by_text("Definition imported locally. Save and publish explicitly.",exact=True).wait_for()
+    imported_id = workbench(designer).get_by_label("Saved workflow",exact=True).input_value()
     open_details("Import / export definition")
     editor.fill(json.dumps(package) + "\n" + " " * (1024 * 1024 + 40000))
-    designer.get_by_role("button",name="Import package into draft",exact=True).click()
-    designer.get_by_role("status").filter(has_text="Package imported locally").wait_for()
+    workbench(designer).get_by_role("button",name="Import package into draft",exact=True).click()
+    workbench(designer).get_by_role("status").filter(has_text="Package imported locally").wait_for()
     expect(nodes).to_have_count(6)
     assert not any(run["header"]["definition"]["workflowId"]==imported_id for run in get("/api/runs")), "Import executed the graph"
     save()
@@ -122,25 +124,25 @@ def check(browser, screenshots):
     tampered = copy.deepcopy(package)
     tampered["layout"]["nodes"]["input"]["comment"]="Mismatched checksum"
     editor.fill(json.dumps(tampered))
-    designer.get_by_role("button",name="Import package into draft",exact=True).click()
-    expect(designer.get_by_role("alert")).to_contain_text("Invalid workflow, layout, or JSON")
+    workbench(designer).get_by_role("button",name="Import package into draft",exact=True).click()
+    expect(workbench(designer).get_by_role("alert")).to_contain_text("Invalid workflow, layout, or JSON")
     assert get("/api/workflows/"+imported_id+"/design")==imported
 
     # Extract the copied labeled section without replacing or publishing the current draft.
     open_details("Reusable pipelines")
     section_id = next(iter(imported["layout"]["sections"]))
     reusable_id = "extracted-"+suffix
-    designer.get_by_label("Section to save",exact=True).select_option(section_id)
-    designer.get_by_label("Reusable pipeline ID",exact=True).fill(reusable_id)
-    designer.get_by_role("button",name="Save section as reusable draft",exact=True).click()
-    designer.get_by_role("status").filter(has_text=f"Reusable draft '{reusable_id}' created").wait_for()
-    expect(designer.get_by_label("Saved workflow",exact=True)).to_have_value(imported_id)
+    workbench(designer).get_by_label("Section to save",exact=True).select_option(section_id)
+    workbench(designer).get_by_label("Reusable pipeline ID",exact=True).fill(reusable_id)
+    workbench(designer).get_by_role("button",name="Save section as reusable draft",exact=True).click()
+    workbench(designer).get_by_role("status").filter(has_text=f"Reusable draft '{reusable_id}' created").wait_for()
+    expect(workbench(designer).get_by_label("Saved workflow",exact=True)).to_have_value(imported_id)
     extracted = get("/api/workflows/"+reusable_id+"/design")
     assert len(extracted["draft"]["definition"]["nodes"])==4
     assert extracted["draft"]["activeRevisionId"] is None
     assert get("/api/workflows/"+imported_id+"/design")==imported
     if screenshots:
-        designer.locator(".vaw-reuse-panel").screenshot(path=str(screenshots/"reusable-pipelines.png"))
+        workbench(designer).locator(".vaw-reuse-panel").screenshot(path=str(screenshots/"reusable-pipelines.png"))
 
     # A correctly checksummed package can declare unavailable tools, but cannot grant them.
     missing = copy.deepcopy(template); missing["workflowId"]="missing-tool-"+suffix; missing["schemaVersion"]="1.1"
@@ -148,16 +150,16 @@ def check(browser, screenshots):
     missing_path="/api/workflows/"+missing["workflowId"]
     mutate(missing_path+"/draft",{"definition":missing,"expectedGeneration":0},"put")
     missing_package=get(missing_path+"/package")
-    designer.get_by_role("button",name="New workflow",exact=True).click()
-    designer.get_by_text("New workflow created locally. Save its draft before publishing.",exact=True).wait_for()
-    denied_id=designer.get_by_label("Saved workflow",exact=True).input_value()
+    new_workflow_fixture(designer)
+    workbench(designer).get_by_text("Definition imported locally. Save and publish explicitly.",exact=True).wait_for()
+    denied_id=workbench(designer).get_by_label("Saved workflow",exact=True).input_value()
     open_details("Import / export definition")
     editor.fill(json.dumps(missing_package))
-    designer.get_by_role("button",name="Import package into draft",exact=True).click()
-    designer.get_by_role("status").filter(has_text="Package imported locally").wait_for()
-    expect(designer.locator(".vaw-requirements").filter(has_text="unregistered.tool")).to_contain_text("Matching host binding not listed")
+    workbench(designer).get_by_role("button",name="Import package into draft",exact=True).click()
+    workbench(designer).get_by_role("status").filter(has_text="Package imported locally").wait_for()
+    expect(workbench(designer).locator(".vaw-requirements").filter(has_text="unregistered.tool")).to_contain_text("Matching host binding not listed")
     save(); publish(1)
-    designer.get_by_role("button",name="Run selected version",exact=True).click()
+    workbench(designer).get_by_role("button",name="Run selected version",exact=True).click()
     expect(viewer.locator(".vaw-run-header")).to_contain_text("Latest run status: failed")
     denied_run=next(run for run in get("/api/runs") if run["header"]["definition"]["workflowId"]==denied_id)
     evidence=get("/api/runs/"+denied_run["header"]["runId"])

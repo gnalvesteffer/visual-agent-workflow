@@ -3,6 +3,8 @@
 Creates only disposable deterministic local workflows/runs. Pause is cooperative
 between nodes; this does not test or claim crash-resumable checkpoints.
 """
+
+from workbench_browser import workbench, inspect_control, show_runs
 import argparse
 import copy
 from pathlib import Path
@@ -39,6 +41,7 @@ def check(browser, screenshots):
 
     def ready():
         page.goto(BASE)
+        show_runs(page)
         expect(page.get_by_role("button",name="Start independent run",exact=True)).to_be_enabled()
 
     def select(run_id):
@@ -121,12 +124,12 @@ def check(browser, screenshots):
 
     ready()
     designer=page.get_by_role("region",name="Workflow designer",exact=True)
-    expect(designer.get_by_role("button",name="Save draft",exact=True)).to_be_enabled()
-    designer.get_by_label("Saved workflow",exact=True).select_option(workflow_id)
-    designer.get_by_label("Published version",exact=True).select_option(revision_id)
-    designer.get_by_label("Start published run paused",exact=True).check()
-    designer.get_by_label("Published run input",exact=True).fill("published pause")
-    designer.get_by_role("button",name="Run selected version",exact=True).click()
+    expect(workbench(designer).get_by_role("button",name="Save draft",exact=True)).to_be_enabled()
+    workbench(designer).get_by_label("Saved workflow",exact=True).select_option(workflow_id)
+    workbench(designer).get_by_label("Published version",exact=True).select_option(revision_id)
+    workbench(designer).get_by_label("Start published run paused",exact=True).check()
+    workbench(designer).get_by_label("Published run input",exact=True).fill("published pause")
+    workbench(designer).get_by_role("button",name="Run selected version",exact=True).click()
     expect(page.get_by_role("button",name="Resume selected run",exact=True)).to_be_enabled()
     expect(viewer.locator(".vaw-run-header")).to_contain_text("Latest run status: paused")
     published_ui_id=re.search(r"Run ([0-9a-f-]{36})",viewer.locator(".vaw-run-header").inner_text())[1]

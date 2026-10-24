@@ -9,6 +9,13 @@ public partial class WorkflowStudio
     [Parameter] public IWorkflowCatalog? Catalog { get; set; }
     [Parameter] public IToolBindingCatalog? ToolCatalog { get; set; }
     [Parameter] public IAgentProviderCatalog? AgentCatalog { get; set; }
+    private string workspaceView = "designer";
+    private string runFilter = "";
+    private void ShowDesigner() => workspaceView = "designer";
+    private void ShowRun() => workspaceView = "run";
+    private bool MatchesRunFilter(RunSnapshot run) => string.IsNullOrWhiteSpace(runFilter) ||
+        run.Header.Definition.WorkflowId.Contains(runFilter, StringComparison.OrdinalIgnoreCase) ||
+        run.Status.Contains(runFilter, StringComparison.OrdinalIgnoreCase) || run.Header.RunId.ToString().Contains(runFilter, StringComparison.OrdinalIgnoreCase);
     private string operation = "uppercase-reverse";
     private string input = "Hello, workflows!";
     private IReadOnlyList<RunSnapshot> runs = [];
@@ -42,6 +49,8 @@ public partial class WorkflowStudio
         contextToken = contextLifetime.Token;
         selectionVersion++;
         runs = [];
+        workspaceView = Catalog is not null && Client is IPublishedWorkflowClient ? "designer" : "run";
+        runFilter = "";
         snapshot = null; runLayout = null;
         historyError = null;
         actionError = null;
@@ -131,6 +140,7 @@ public partial class WorkflowStudio
             if (!Current(client, version)) return;
             selectionVersion++;
             snapshot = run; runLayout = null;
+            workspaceView = "run";
             await LoadRunLayout(run, selectionVersion, client, version);
             await RefreshHistory();
         }
@@ -154,6 +164,7 @@ public partial class WorkflowStudio
             if (Current(client, version) && selection == selectionVersion)
             {
                 snapshot = run; runLayout = null;
+                workspaceView = "run";
                 await LoadRunLayout(run, selection, client, version);
             }
         }
@@ -169,6 +180,7 @@ public partial class WorkflowStudio
             if (!Current(client, version)) return;
             selectionVersion++;
             snapshot = run; runLayout = null;
+            workspaceView = "run";
             await LoadRunLayout(run, selectionVersion, client, version);
             await RefreshHistory();
         });

@@ -4,6 +4,8 @@ Requires Playwright and Chromium. Uses only non-sensitive fixture text; creates
 recorded development runs. Run studio_smoke.py separately for the full editor flow.
 """
 
+from workbench_browser import workbench, inspect_control, show_runs
+
 import argparse
 import re
 from pathlib import Path
@@ -30,13 +32,25 @@ def check(browser, screenshots):
     page.on("pageerror", lambda error: errors.append(str(error)))
     try:
         page.goto(BASE)
+        show_runs(page)
         start = page.get_by_role("button", name="Start independent run", exact=True)
         expect(start).to_be_enabled()
         designer = page.get_by_role("region", name="Workflow designer", exact=True)
-        expect(designer.get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
+        expect(workbench(designer).get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
         assert page.locator("main main").count() == 0, "Reusable UI must not add nested main landmarks"
         assert page.locator(".vaw-studio button:not([type='button'])").count() == 0, "Embedded controls must not submit host forms"
         assert page.locator("head style").count() == 0, "Host styles belong in an external stylesheet"
+
+        # Decorative generated assets are local, optional, and never required to use the editor.
+        for name in ("graphite-brushed.webp", "graphite-matte.webp"):
+            response=page.request.get(BASE + "/_content/VisualAgentWorkflow.Blazor/textures/" + name)
+            assert response.ok, response.status
+            assert response.headers["content-type"].startswith("image/webp")
+        chrome=designer.locator(".vaw-canvas-toolbar")
+        assert "graphite-matte.webp" in chrome.evaluate("element=>getComputedStyle(element).backgroundImage")
+        page.locator(".vaw-studio").evaluate("element=>element.style.setProperty('--vaw-panel-texture','none')")
+        assert "url(" not in chrome.evaluate("element=>getComputedStyle(element).backgroundImage")
+        page.locator(".vaw-studio").evaluate("element=>element.style.removeProperty('--vaw-panel-texture')")
 
         # Compare an unrelated host control with/without the library stylesheet.
         untouched = page.evaluate("""() => {
@@ -85,14 +99,15 @@ def check(browser, screenshots):
         }""")
         ratios = {name: contrast(*colors) for name, colors in samples.items()}
         assert all(ratio >= 4.5 for ratio in ratios.values()), ratios
+        show_runs(page)
         assert start.bounding_box()["height"] >= 44
         start.focus()
         page.keyboard.press("Tab")
         assert page.evaluate("document.activeElement.matches(':focus-visible') && getComputedStyle(document.activeElement).outlineStyle !== 'none'"), "Keyboard focus must remain visible"
 
-        graph = designer.get_by_role("list", name="Editable pipeline nodes", exact=True)
-        canvas = designer.get_by_label("Workflow graph canvas. Scroll or drag the background to pan.", exact=True)
-        expect(designer.locator('.vaw-graph-editor')).to_have_attribute("data-ready", "true")
+        graph = workbench(designer).get_by_role("list", name="Editable pipeline nodes", exact=True)
+        canvas = workbench(designer).get_by_label("Workflow graph canvas. Scroll or drag the background to pan.", exact=True)
+        expect(workbench(designer).locator('.vaw-graph-editor')).to_have_attribute("data-ready", "true")
         assert graph.locator('li').first.evaluate("element => getComputedStyle(element).position") == "absolute", "Canvas nodes must be freely positioned"
         canvas.focus()
         assert canvas.evaluate("element => element === document.activeElement"), "Scrollable graph must be keyboard focusable"
@@ -135,6 +150,7 @@ def check(browser, screenshots):
         assert page.locator(".vaw-node").first.evaluate("element => getComputedStyle(element).animationName") == "none"
         page.emulate_media(forced_colors="active")
         assert page.locator(".vaw-graph").first.evaluate("element => getComputedStyle(element).backgroundImage") == "none"
+        assert chrome.evaluate("element=>getComputedStyle(element).backgroundImage") == "none"
         page.emulate_media(forced_colors="none", reduced_motion="no-preference")
 
         # Exercise a real control inside a consuming application's form.
@@ -145,6 +161,7 @@ def check(browser, screenshots):
             form.addEventListener('submit', event => {event.preventDefault(); window.hostSubmissions++;});
             studio.replaceWith(form); form.append(studio);
         }""")
+        show_runs(page)
         page.get_by_role("textbox", name="Input", exact=True).fill("form safety")
         start.click()
         page.get_by_role("button", name="output core.output Completed", exact=True).click()
@@ -178,13 +195,13 @@ def check(browser, screenshots):
         page.locator(".vaw-history button").filter(has_text=run_id[:8]).wait_for()
         expect(alert).to_be_visible()
 
-        designer.get_by_text("Import / export definition", exact=True).click()
-        designer.get_by_role("button", name="Copy definition into JSON editor", exact=True).click()
-        exported = designer.get_by_label("Workflow JSON", exact=True)
+        workbench(designer).get_by_text("Import / export definition", exact=True).click()
+        workbench(designer).get_by_role("button", name="Copy definition into JSON editor", exact=True).click()
+        exported = workbench(designer).get_by_label("Workflow JSON", exact=True)
         expect(exported).not_to_have_value("")
         exported.fill(exported.input_value() + "\n" + " " * 40000)
-        designer.get_by_role("button", name="Import JSON into draft", exact=True).click()
-        designer.get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for()
+        workbench(designer).get_by_role("button", name="Import JSON into draft", exact=True).click()
+        workbench(designer).get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for()
         assert not errors, errors
         print("Host style isolation, theme tokens, contrast, keyboard focus, narrow embed, 200% text, motion/forced colors, form safety, field transport limits, and persistent errors passed.")
         print("Sampled text contrast ratios:", {name: round(ratio, 2) for name, ratio in ratios.items()})

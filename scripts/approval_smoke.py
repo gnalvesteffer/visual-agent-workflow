@@ -3,6 +3,8 @@
 Uses only scripted agents and the local read-only MCP fixture. No live model or
 external side effect is performed. Creates disposable local workflows/runs.
 """
+
+from workbench_browser import workbench, inspect_control, new_workflow_fixture, show_runs
 import argparse
 import json
 from pathlib import Path
@@ -40,42 +42,42 @@ def check(browser, screenshots):
 
     page.goto(BASE)
     designer = page.get_by_role("region", name="Workflow designer", exact=True)
-    expect(designer.get_by_role("button", name="New workflow", exact=True)).to_be_enabled()
-    designer.get_by_role("button", name="New workflow", exact=True).click()
-    expect(designer.locator(".vaw-definition-status")).to_contain_text("Not saved")
-    workflow_id = designer.locator(".vaw-definition-status strong").inner_text()
-    designer.get_by_label("Operation for step-1", exact=True).select_option("agent:demo.scripted:1.0.0")
-    designer.get_by_role("button", name="Add conditional after step-1", exact=True).click()
-    branch = designer.locator(".vaw-node[data-node-type='core.condition']").get_attribute("data-node-id")
-    operand = designer.get_by_label("Condition operand for " + branch, exact=True)
+    expect(workbench(designer).get_by_role("button", name="New workflow", exact=True)).to_be_enabled()
+    new_workflow_fixture(designer)
+    expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Unsaved changes")
+    workflow_id = workbench(designer).locator(".vaw-definition-status strong").inner_text()
+    inspect_control(designer, "Operation for step-1").get_by_label("Operation for step-1", exact=True).select_option("agent:demo.scripted:1.0.0")
+    inspect_control(designer, "Add conditional after step-1").get_by_role("button", name="Add conditional after step-1", exact=True).click()
+    branch = workbench(designer).locator(".vaw-node[data-node-type='core.condition']").get_attribute("data-node-id")
+    operand = inspect_control(designer, "Condition operand for " + branch).get_by_label("Condition operand for " + branch, exact=True)
     operand.fill("allow"); operand.press("Tab")
     # Resolve the true arm from the actual source-port connection in the staged definition export.
-    details = designer.get_by_text("Import / export definition", exact=True)
+    details = workbench(designer).get_by_text("Import / export definition", exact=True)
     details.click()
-    designer.get_by_role("button", name="Copy definition into JSON editor", exact=True).click()
-    expect(designer.get_by_role("textbox", name="Workflow JSON", exact=True)).not_to_have_value("")
-    definition = json.loads(designer.get_by_role("textbox", name="Workflow JSON", exact=True).input_value())
+    workbench(designer).get_by_role("button", name="Copy definition into JSON editor", exact=True).click()
+    expect(workbench(designer).get_by_role("textbox", name="Workflow JSON", exact=True)).not_to_have_value("")
+    definition = json.loads(workbench(designer).get_by_role("textbox", name="Workflow JSON", exact=True).input_value())
     true_id = next(e["target"]["nodeId"] for e in definition["connections"].values() if e["source"] == {"nodeId":branch,"portId":"true"})
     descriptor = next(b for b in get("/api/tool-bindings") if b["bindingId"] == "demo.reverse")
-    designer.get_by_label("Operation for " + true_id, exact=True).select_option("mcp:demo.reverse:" + descriptor["contractHash"])
-    designer.get_by_role("button", name="Require approval before " + true_id, exact=True).click()
-    approval_node = designer.locator(".vaw-node[data-node-type='core.approval']").get_attribute("data-node-id")
-    prompt = designer.get_by_label("Approval prompt for " + approval_node, exact=True)
+    inspect_control(designer, "Operation for " + true_id).get_by_label("Operation for " + true_id, exact=True).select_option("mcp:demo.reverse:" + descriptor["contractHash"])
+    inspect_control(designer, "Require approval before " + true_id).get_by_role("button", name="Require approval before " + true_id, exact=True).click()
+    approval_node = workbench(designer).locator(".vaw-node[data-node-type='core.approval']").get_attribute("data-node-id")
+    prompt = inspect_control(designer, "Approval prompt for " + approval_node).get_by_label("Approval prompt for " + approval_node, exact=True)
     prompt.fill("Review this exact reverse call <script>review</script>"); prompt.press("Tab")
-    designer.get_by_role("button", name="Undo edit", exact=True).click()
+    workbench(designer).get_by_role("button", name="Undo edit", exact=True).click()
     expect(prompt).to_have_value("Review the exact MCP call before allowing it.")
-    designer.get_by_role("button", name="Redo edit", exact=True).click()
+    workbench(designer).get_by_role("button", name="Redo edit", exact=True).click()
     expect(prompt).to_have_value("Review this exact reverse call <script>review</script>")
-    designer.get_by_role("button", name="Arrange nodes", exact=True).click()
-    designer.get_by_role("button", name="Save draft", exact=True).click()
-    designer.get_by_text("Draft saved.", exact=True).wait_for()
+    workbench(designer).get_by_role("button", name="Arrange nodes", exact=True).click()
+    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
+    workbench(designer).get_by_text("Draft saved.", exact=True).wait_for()
     saved = get(f"/api/workflows/{workflow_id}/design")
     assert saved["draft"]["definition"]["schemaVersion"] == "1.5"
-    designer.get_by_role("button", name="Publish & activate", exact=True).click()
-    designer.get_by_text("Published and activated version 1.", exact=True).wait_for()
+    workbench(designer).get_by_role("button", name="Publish & activate", exact=True).click()
+    workbench(designer).get_by_text("Published and activated version 1.", exact=True).wait_for()
     revision = get(f"/api/workflows/{workflow_id}/revisions")[0]["revision"]
-    designer.get_by_label("Published run input", exact=True).fill("allow abc")
-    designer.get_by_role("button", name="Run selected version", exact=True).click()
+    workbench(designer).get_by_label("Published run input", exact=True).fill("allow abc")
+    workbench(designer).get_by_role("button", name="Run selected version", exact=True).click()
     viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
     review = viewer.get_by_role("region", name="Recorded action approval", exact=True)
     expect(review.get_by_role("button", name="Approve recorded action", exact=True)).to_be_enabled()
@@ -99,6 +101,7 @@ def check(browser, screenshots):
     assert get("/api/runs/" + first_id)["status"] == "waiting-approval"
     # Reload is observation lifetime only. The same pending identity remains available.
     page.reload()
+    show_runs(page)
     expect(page.get_by_role("button", name="Start independent run", exact=True)).to_be_enabled()
     page.locator(".vaw-history button").filter(has_text=first_id[:8]).click()
     expect(review.get_by_role("button", name="Approve recorded action", exact=True)).to_be_enabled()

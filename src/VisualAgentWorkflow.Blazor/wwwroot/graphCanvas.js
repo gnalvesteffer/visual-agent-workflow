@@ -23,13 +23,95 @@ export function attach(root, callback) {
         invoke(state, 'AddWaypoint', path.dataset.wire, Number(path.dataset.segment), clamp(point.x), clamp(point.y));
     };
     state.click = event => {
+        if (event.target.closest('[data-fullscreen-toggle]')) { toggleFullscreen(state); return; }
         const path = event.target.closest('[data-wire]');
         if (path) invoke(state, 'SelectWire', path.dataset.wire);
     };
     state.key = event => {
+        const menu = root.querySelector('.vaw-context-menu:popover-open');
+        if (menu?.contains(event.target) && ['ArrowDown','ArrowUp'].includes(event.key)) {
+            const options = [...menu.querySelectorAll('button:not(:disabled)')];
+            if (options.length) {
+                const current = options.indexOf(document.activeElement);
+                options[(current + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length].focus();
+                event.preventDefault();
+            }
+            return;
+        }
+        if (menu && event.key === 'Escape') { event.preventDefault(); menu.hidePopover(); return; }
+        const typing = event.target.closest('input,textarea,select,[contenteditable="true"]');
+        if (!typing && root.dataset.contextMenu === 'true' && (event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey || event.code === 'Space' && event.target === state.viewport)) {
+            event.preventDefault();
+            const rect=state.viewport.getBoundingClientRect();
+            const x=rect.left+rect.width/2,y=rect.top+rect.height/2,point=local(state,{clientX:x,clientY:y});
+            state.contextTrigger=event.target;
+            invoke(state,'OpenContextMenu',null,null,0,clamp(point.x),clamp(point.y),Math.max(8,Math.min(x,innerWidth-320)),Math.max(8,Math.min(y,innerHeight-440)));
+            return;
+        }
+        if (!typing && event.key === 'Home' && event.target === state.viewport) { event.preventDefault(); root.querySelector('[data-graph-fit]')?.click(); return; }
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase()==='s') {
+            const save=root.querySelector('[data-graph-save]:not(:disabled)');
+            if (save) { event.preventDefault(); if (typing) event.target.blur(); save.click(); }
+            return;
+        }
+        if (!typing && (event.ctrlKey || event.metaKey) && ['z','y'].includes(event.key.toLowerCase())) {
+            const redo = event.key.toLowerCase() === 'y' || event.shiftKey;
+            const action = root.querySelector(redo ? '[data-graph-redo]:not(:disabled)' : '[data-graph-undo]:not(:disabled)');
+            if (action) { event.preventDefault(); menu?.hidePopover(); action.click(); }
+            return;
+        }
+        if (!typing && event.key === 'Delete' && root.dataset.contextMenu === 'true') {
+            event.preventDefault(); invoke(state,'DeleteSelection'); return;
+        }
+        if (document.fullscreenElement === root && event.key === 'Escape') {
+            event.preventDefault();
+            document.exitFullscreen().catch(() => {});
+            return;
+        }
+        if (document.fullscreenElement === root && event.key === 'Tab') {
+            const controls = [...root.querySelectorAll('button, input, select, textarea, summary, a[href], [tabindex]')]
+                .filter(element => element.tabIndex >= 0 && !element.matches(':disabled') && element.getClientRects().length);
+            const first = controls[0], last = controls.at(-1);
+            if (event.shiftKey && (document.activeElement === first || document.activeElement === root)) { event.preventDefault(); last?.focus(); }
+            if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+        }
         if (event.target.closest('[data-drag-node], [data-drag-section], [data-drag-wire]') && event.key.startsWith('Arrow'))
             event.preventDefault();
     };
+    state.context = event => {
+        if (root.dataset.contextMenu !== 'true' || !state.viewport.contains(event.target)) return;
+        event.preventDefault();
+        const node = event.target.closest('li[data-node-id]'), wire = event.target.closest('path[data-wire]');
+        const point = local(state,event);
+        state.contextTrigger = node?.querySelector('[data-drag-node]') || state.viewport;
+        invoke(state,'OpenContextMenu',node?.dataset.nodeId || null,wire?.dataset.wire || null,Number(wire?.dataset.segment || 0),
+            clamp(point.x),clamp(point.y),Math.max(8,Math.min(event.clientX,innerWidth-320)),Math.max(8,Math.min(event.clientY,innerHeight-440)));
+    };
+    state.dragStart = event => {
+        const entry = event.target.closest('[data-node-key]');
+        if (!entry || entry.disabled || root.dataset.contextMenu !== 'true') return;
+        event.dataTransfer.setData('application/x-vaw-node',entry.dataset.nodeKey);
+        event.dataTransfer.effectAllowed = 'copy';
+    };
+    state.dragOver = event => {
+        if (root.dataset.contextMenu !== 'true' || !state.viewport.contains(event.target) || ![...event.dataTransfer.types].includes('application/x-vaw-node')) return;
+        event.preventDefault(); event.dataTransfer.dropEffect='copy';
+        state.viewport.dataset.nodeDrop='true';
+    };
+    state.dragLeave = event => { if (!state.viewport.contains(event.relatedTarget)) delete state.viewport.dataset.nodeDrop; };
+    state.drop = event => {
+        delete state.viewport.dataset.nodeDrop;
+        const key=event.dataTransfer.getData('application/x-vaw-node');
+        if (!key || root.dataset.contextMenu !== 'true' || !state.viewport.contains(event.target)) return;
+        event.preventDefault();
+        const point=local(state,event), node=event.target.closest('li[data-node-id]'), wire=event.target.closest('path[data-wire]');
+        invoke(state,'CreateDroppedNode',key,node?.dataset.nodeId || null,wire?.dataset.wire || null,clamp(point.x),clamp(point.y));
+    };
+    root.addEventListener('contextmenu',state.context);
+    root.addEventListener('dragstart',state.dragStart);
+    root.addEventListener('dragover',state.dragOver);
+    root.addEventListener('dragleave',state.dragLeave);
+    root.addEventListener('drop',state.drop);
     root.addEventListener('pointerdown', state.down);
     root.addEventListener('pointermove', state.move);
     root.addEventListener('pointerup', state.up);
@@ -38,7 +120,17 @@ export function attach(root, callback) {
     root.addEventListener('dblclick', state.double);
     root.addEventListener('click', state.click);
     root.addEventListener('keydown', state.key);
-    state.handle = { refresh: () => sync(root), dispose: () => detach(root) };
+    state.fullscreenChanged = () => {
+        const active = document.fullscreenElement === root;
+        root.dataset.fullscreen = String(active);
+        const button = root.querySelector('[data-fullscreen-toggle]');
+        if (button) { button.textContent = active ? 'Exit fullscreen graph' : 'Fullscreen graph'; button.setAttribute('aria-pressed', String(active)); }
+        if (!active && state.wasFullscreen && button?.isConnected) button.focus({ preventScroll: true });
+        state.wasFullscreen = active;
+        schedule(state);
+    };
+    document.addEventListener('fullscreenchange', state.fullscreenChanged);
+    state.handle = { refresh: () => sync(root), fit: () => fit(state), dispose: () => detach(root) };
     canvases.set(root, state);
     sync(root);
     return state.handle;
@@ -55,7 +147,50 @@ export function sync(root) {
     root.querySelector('[data-canvas-error]').hidden = true;
     state.observer.disconnect();
     for (const node of state.nodes.values()) state.observer.observe(node);
+    state.observer.observe(state.viewport);
+    state.fullscreenChanged();
+    const menu = root.querySelector('.vaw-context-menu');
+    if (menu !== state.menu) {
+        if (state.menu && state.menuToggle) state.menu.removeEventListener('toggle',state.menuToggle);
+        state.menu = menu;
+        if (menu) {
+            const id=menu.dataset.contextId;
+            state.menuToggle = event => {
+                if (event.newState==='closed') {
+                    invoke(state,'CloseContextMenu',id);
+                    if (state.contextTrigger?.isConnected) state.contextTrigger.focus({preventScroll:true});
+                }
+            };
+            menu.addEventListener('toggle',state.menuToggle);
+            menu.showPopover();
+            menu.querySelector('input')?.focus({preventScroll:true});
+        }
+    }
     draw(state);
+    if (state.pendingFit) {
+        state.viewport.scrollTo(state.pendingFit.x * scale(state) - 32, state.pendingFit.y * scale(state) - 48);
+        state.pendingFit = null;
+    }
+}
+
+async function toggleFullscreen(state) {
+    const error = state.root.querySelector('[data-fullscreen-error]');
+    try {
+        if (document.fullscreenElement === state.root) await document.exitFullscreen();
+        else await state.root.requestFullscreen();
+        error.hidden = true;
+    } catch { error.hidden = false; }
+}
+
+function fit(state) {
+    const nodes = [...state.nodes.values()];
+    if (!nodes.length) return scale(state);
+    const left = Math.max(0, Math.min(...nodes.map(node => position(node).x)) - 24);
+    const top = Math.max(0, Math.min(...nodes.map(node => position(node).y)) - 64);
+    const right = Math.max(...nodes.map(node => position(node).x + node.offsetWidth)) + 24;
+    const bottom = Math.max(...nodes.map(node => position(node).y + node.offsetHeight)) + 24;
+    state.pendingFit = { x: left, y: top };
+    return Math.max(.25, Math.min(1.5, (state.viewport.clientWidth - 64) / (right - left), (state.viewport.clientHeight - 96) / (bottom - top)));
 }
 
 function schedule(state) {
@@ -70,7 +205,7 @@ function local(state, event) {
 }
 
 function draw(state) {
-    if (!state.active || !state.world.isConnected) return;
+    if (!state.active || !state.world.isConnected || state.viewport.clientWidth === 0) return;
     const zoom = scale(state), world = state.world.getBoundingClientRect();
     const rects = new Map();
     for (const [id, node] of state.nodes) {
@@ -151,6 +286,14 @@ function orthogonal(a, b) {
 
 function pointerDown(state, event) {
     if (state.drag || state.faulted || (event.button !== 0 && event.button !== 1)) return;
+    const pin = event.target.closest('.vaw-output-ports [data-socket]');
+    if (pin && state.root.dataset.contextMenu === 'true' && event.button === 0) {
+        const box=pin.getBoundingClientRect(),start=local(state,{clientX:box.left+box.width/2,clientY:box.top+box.height/2});
+        state.drag={kind:'pin',pointer:event.pointerId,screenX:event.clientX,screenY:event.clientY,target:state.viewport,
+            id:pin.closest('[data-node-id]').dataset.nodeId,port:pin.dataset.socket,start,moved:false,items:[]};
+        state.root.querySelector('[data-pin-hint]').hidden=true;
+        state.viewport.setPointerCapture(event.pointerId); event.preventDefault(); return;
+    }
     const handle = event.target.closest('[data-drag-node], [data-drag-section], [data-drag-wire]');
     if (handle && state.root.dataset.disabled === 'true') return;
     const background = !event.target.closest('li[data-node-id], button, input, select, textarea, summary, path');
@@ -181,7 +324,11 @@ function pointerMove(state, event) {
     const dx = (event.clientX - drag.screenX) / scale(state), dy = (event.clientY - drag.screenY) / scale(state);
     if (Math.hypot(dx, dy) < 2 && !drag.moved) return;
     drag.moved = true;
-    if (drag.kind === 'pan') {
+    if (drag.kind === 'pin') {
+        const preview=state.root.querySelector('[data-pin-preview]');
+        preview.removeAttribute('hidden');
+        preview.setAttribute('d',curve({position:drag.start,angle:0},{position:local(state,event),angle:0}));
+    } else if (drag.kind === 'pan') {
         state.viewport.scrollLeft = drag.scrollX - (event.clientX - drag.screenX);
         state.viewport.scrollTop = drag.scrollY - (event.clientY - drag.screenY);
     } else if (drag.kind === 'wire') {
@@ -203,6 +350,20 @@ function pointerEnd(state, event, cancelled) {
     if (!drag || event.pointerId !== drag.pointer) return;
     state.drag = null;
     if (drag.target.hasPointerCapture(event.pointerId)) drag.target.releasePointerCapture(event.pointerId);
+    if (drag.kind === 'pin') {
+        state.root.querySelector('[data-pin-preview]').setAttribute('hidden','');
+        if (!cancelled && drag.moved) {
+            const target=document.elementFromPoint(event.clientX,event.clientY);
+            if (target?.closest('li[data-node-id]')) state.root.querySelector('[data-pin-hint]').hidden=false;
+            else {
+                const edge=state.paths.find(path=>path.dataset.source===drag.id&&path.dataset.sourcePort===drag.port);
+                const point=local(state,event);
+                invoke(state,'OpenContextMenu',null,edge?.dataset.wire || null,0,clamp(point.x),clamp(point.y),
+                    Math.max(8,Math.min(event.clientX,innerWidth-320)),Math.max(8,Math.min(event.clientY,innerHeight-440)));
+            }
+        }
+        schedule(state); return;
+    }
     if (cancelled) {
         for (const item of drag.items) Object.assign(item.node.style, { left: `${item.start.x}px`, top: `${item.start.y}px` });
         if (drag.kind === 'wire') Object.assign(drag.target.style, { left: `${drag.original.x}px`, top: `${drag.original.y}px` });
@@ -236,6 +397,11 @@ export function detach(root) {
     const state = canvases.get(root);
     if (!state) return;
     state.active = false;
+    if (state.menu && state.menuToggle) state.menu.removeEventListener('toggle',state.menuToggle);
+    for (const [name,handler] of [['contextmenu',state.context],['dragstart',state.dragStart],['dragover',state.dragOver],['dragleave',state.dragLeave],['drop',state.drop]])
+        root.removeEventListener(name,handler);
+    document.removeEventListener('fullscreenchange', state.fullscreenChanged);
+    if (document.fullscreenElement === root) document.exitFullscreen().catch(() => {});
     state.observer.disconnect(); cancelAnimationFrame(state.frame);
     for (const [name, handler] of [['pointerdown', state.down], ['pointermove', state.move], ['pointerup', state.up],
         ['pointercancel', state.cancel], ['lostpointercapture', state.cancel], ['dblclick', state.double], ['click', state.click], ['keydown', state.key]])

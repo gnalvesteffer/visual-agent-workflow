@@ -1,0 +1,28 @@
+<section class="vaw-node-library" aria-label="@Title">
+    <h3>@Title</h3>
+    <label>@SearchLabel<input aria-label="@SearchLabel" @bind="filter" @bind:event="oninput" placeholder="Search actions…" /></label>
+    @foreach (var category in Entries.Where(Matches).GroupBy(entry => entry.Category))
+    {
+        <h4>@category.Key</h4>
+        @foreach (var entry in category)
+        {
+            <button @key="entry.Key" type="button" class="vaw-library-entry" data-node-key="@entry.Key" draggable="@(entry.Enabled && !Disabled ? "true" : "false")"
+                    disabled="@(Disabled || !entry.Enabled)" title="@entry.Description" aria-label="Add @entry.Label" @onclick="() => OnSelected.InvokeAsync(entry.Key)">
+                <strong>@entry.Label</strong><small>@entry.Description</small>
+            </button>
+        }
+    }
+    @if (!Entries.Any(Matches)) { <p class="vaw-help">No matching actions. Try another name.</p> }
+</section>
+
+@code {
+    [Parameter] public IReadOnlyList<WorkflowNodeLibraryEntry> Entries { get; set; } = [];
+    [Parameter] public EventCallback<string> OnSelected { get; set; }
+    [Parameter] public string Title { get; set; } = "Node library";
+    [Parameter] public string SearchLabel { get; set; } = "Search nodes";
+    [Parameter] public bool Disabled { get; set; }
+    private string filter = "";
+    private bool Matches(WorkflowNodeLibraryEntry entry) => string.IsNullOrWhiteSpace(filter) ||
+        entry.Key.Contains(filter, StringComparison.OrdinalIgnoreCase) || entry.Label.Contains(filter, StringComparison.OrdinalIgnoreCase) || entry.Category.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+        entry.Description.Contains(filter, StringComparison.OrdinalIgnoreCase);
+}

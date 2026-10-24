@@ -1,14 +1,22 @@
 @implements IAsyncDisposable
 
-<section class="vaw-graph-editor" @ref="root" data-disabled="@(!CanEdit ? "true" : "false")" data-ready="@(ready ? "true" : "false")">
+<section class="vaw-graph-editor" tabindex="-1" @ref="root" data-context-menu="@(ContextMenu is not null && EnableContextMenu && !Disabled ? "true" : "false")" data-disabled="@(!CanEdit ? "true" : "false")" data-ready="@(ready ? "true" : "false")">
     <div class="vaw-controls vaw-canvas-toolbar">
         <strong>Graph canvas</strong>
-        <button type="button" @onclick="() => Zoom(-0.1)" disabled="@(zoom <= 0.5)" aria-label="Zoom out graph">−</button>
+        @ToolbarContent
+        <button type="button" @onclick="() => Zoom(-0.1)" disabled="@(zoom <= 0.25)" aria-label="Zoom out graph">−</button>
         <span>@Math.Round(zoom * 100)%</span>
         <button type="button" @onclick="() => Zoom(0.1)" disabled="@(zoom >= 1.5)" aria-label="Zoom in graph">+</button>
+        <button type="button" data-graph-fit @onclick="FitView" disabled="@(!ready)">Fit graph</button>
+        <button type="button" data-fullscreen-toggle disabled="@(!ready)" aria-pressed="false">Fullscreen graph</button>
         <button type="button" @onclick="AutoLayout" disabled="@(!CanEdit)">Arrange nodes</button>
-        <span class="vaw-help">@(ReadOnly ? "Recorded layout. Drag the background to pan; use the playback controls to inspect evidence." : "Drag headers to move. Drag the background to pan. Double-click a wire to add a reroute.")</span>
+        <span class="vaw-help">@(ReadOnly ? "Recorded layout. Drag the background to pan; use the playback controls to inspect evidence." : "Right-click or press Space for actions. Drag nodes to move; double-click a wire for a reroute.")</span>
     </div>
+    <p class="vaw-help" role="status" data-pin-hint hidden>Release on empty canvas to create a step on this output. Existing-node rewiring is not available yet.</p>
+    <p class="vaw-error" role="status" data-fullscreen-error hidden>Fullscreen is unavailable in this host. Embedded apps must allow fullscreen for this frame.</p>
+    <div class="vaw-canvas-workspace @(NodeInspector is not null ? "vaw-with-properties" : "") @(NodeLibrary is not null && ShowNodeLibrary ? "vaw-with-library" : "")">
+    @if (NodeLibrary is not null && ShowNodeLibrary)
+    { <aside class="vaw-library-panel" aria-label="Workflow node library">@NodeLibrary</aside> }
     <div class="vaw-canvas-viewport" tabindex="0" aria-label="Workflow graph canvas. Scroll or drag the background to pan.">
         <div class="vaw-canvas-extent" style="@ExtentStyle">
             <div class="vaw-canvas-world" style="@WorldStyle">
@@ -24,10 +32,11 @@
                         var route = Route(id);
                         @for (var segment = 0; segment <= route.Points.Length; segment++)
                         {
-                            <path @key="(id, segment)" class="vaw-wire @(selectedWire == id ? "vaw-wire-selected" : "") @(DeliveredConnections?.Contains(id) == true ? "vaw-wire-delivered" : "")" data-wire="@id" data-segment="@segment" data-source="@connection.Source.NodeId" data-target="@connection.Target.NodeId" data-source-port="@connection.Source.PortId" data-target-port="@connection.Target.PortId" data-style="@route.Style" data-points="@PointsJson(route)" />
+                            <path @key="(id, segment)" class="vaw-wire @(activeConnection == id ? "vaw-wire-selected" : "") @(DeliveredConnections?.Contains(id) == true ? "vaw-wire-delivered" : "")" data-wire="@id" data-segment="@segment" data-source="@connection.Source.NodeId" data-target="@connection.Target.NodeId" data-source-port="@connection.Source.PortId" data-target-port="@connection.Target.PortId" data-style="@route.Style" data-points="@PointsJson(route)" />
                         }
                     }
                 </svg>
+                <svg class="vaw-wires-preview" aria-hidden="true"><path data-pin-preview hidden /></svg>
                 <ol class="vaw-graph vaw-free-graph" aria-label="@NodesLabel">
                     @foreach (var id in Order)
                     {
@@ -35,8 +44,8 @@
                         var presentation = Layout.Nodes[id];
                         <li @key="id" class="vaw-node vaw-edit-node @(NodeClass?.Invoke(id))" data-node-id="@id" data-node-type="@node.Type" data-x="@Number(presentation.Position.X)" data-y="@Number(presentation.Position.Y)" style="@PositionStyle(presentation.Position)">
                             <article>
-                                <button type="button" class="vaw-node-drag" data-drag-node="@id" title="Drag to move, or use arrow keys. Hold Shift for larger steps." aria-label="@(ReadOnly ? $"Inspect node {id}" : $"Move node {id}")" @onclick="() => selectedNode = id" @onkeydown="args => NodeKey(id, args)">
-                                    <strong>@Title(id)</strong><span class="vaw-node-kind">@Kind(node)</span>
+                                <button type="button" class="vaw-node-drag" data-drag-node="@id" title="Drag to move, or use arrow keys. Hold Shift for larger steps." aria-label="@(ReadOnly ? $"Inspect node {id}" : $"Move node {id}")" @onclick="() => SelectNode(id)" aria-pressed="@(selectedNode == id ? "true" : "false")" @onkeydown="args => NodeKey(id, args)">
+                                    <strong>@Title(id)</strong>@if (Title(id) != Kind(node)) { <span class="vaw-node-kind">@Kind(node)</span> }
                                 </button>
                                 <div class="vaw-socket-row">
                                     <div class="vaw-input-ports">
@@ -49,7 +58,7 @@
                                     </div>
                                 </div>
                                 @if (!string.IsNullOrWhiteSpace(presentation.Comment))
-                                { <p class="vaw-node-comment">@presentation.Comment</p> }
+                                { <p class="vaw-node-comment" title="@presentation.Comment"><span>@presentation.Comment</span></p> }
                                 <div class="vaw-node-body">@NodeContent(id)</div>
                             </article>
                         </li>
@@ -70,14 +79,49 @@
             </div>
         </div>
     </div>
+    @if (NodeInspector is not null && selectedNode is { } selection)
+    {
+        <aside class="vaw-properties" aria-label="Selected node properties">
+            <h3>@InspectorTitle</h3>
+            <label>Node to organize
+                <select aria-label="Node to organize" value="@selectedNode" @onchange="args => SelectNode(args.Value?.ToString() ?? Definition.EntryNodeId)">
+                    @foreach (var id in Order) { <option @key="id" value="@id">@Title(id) (@id)</option> }
+                </select>
+            </label>
+            <p class="vaw-help">Node ID: @selection</p>
+            @NodeInspector(selection)
+            @if (!ReadOnly)
+            {
+            <details open><summary>Label, comment and position</summary>
+                <fieldset disabled="@(!CanEdit)">
+                    @if (selectedNode is { } nodeId && Layout.Nodes.TryGetValue(nodeId, out var detail))
+                    {
+                        <label>Node label <input aria-label="Node label" value="@detail.Label" maxlength="160" @onchange="args => Label(nodeId, args)" /></label>
+                        <label>Node comment <textarea aria-label="Node comment" rows="3" maxlength="4000" value="@detail.Comment" @onchange="args => Comment(nodeId, args)"></textarea></label>
+                        <div class="vaw-coordinate-fields">
+                            <label>Node X <input type="number" min="0" max="32768" step="8" value="@Number(detail.Position.X)" @onchange="args => Coordinate(nodeId, args, true)" /></label>
+                            <label>Node Y <input type="number" min="0" max="32768" step="8" value="@Number(detail.Position.Y)" @onchange="args => Coordinate(nodeId, args, false)" /></label>
+                        </div>
+                    }
+
+                </fieldset>
+            </details>
+            }
+            else if (!string.IsNullOrWhiteSpace(Layout.Nodes[selection].Comment))
+            { <p>@Layout.Nodes[selection].Comment</p> }
+        </aside>
+    }
+    </div>
     <details class="vaw-layout-inspector">
         <summary>Labels, comments, sections, and wire routing</summary>
         <fieldset disabled="@(!CanEdit)">
             <div class="vaw-layout-columns">
+                @if (NodeInspector is null)
+                {
                 <section aria-label="Node presentation">
                     <h3>Node details</h3>
                     <label>Node to organize
-                        <select aria-label="Node to organize" @bind="selectedNode">
+                        <select aria-label="Node to organize" value="@selectedNode" @onchange="args => SelectNode(args.Value?.ToString() ?? Definition.EntryNodeId)">
                             @foreach (var id in Order) { <option @key="id" value="@id">@Title(id) (@id)</option> }
                         </select>
                     </label>
@@ -91,6 +135,7 @@
                         </div>
                     }
                 </section>
+                }
                 <section aria-label="Graph sections">
                     <h3>Named sections</h3>
                     <label>New section label <input @bind="sectionLabel" maxlength="160" /></label>
@@ -152,6 +197,13 @@
             </div>
         </fieldset>
     </details>
+    @if (contextMenu is { } menu && ContextMenu is not null)
+    {
+        <div @key="menu.Id" class="vaw-context-menu" role="dialog" aria-label="Graph actions" popover="auto" data-context-id="@menu.Id"
+            style="@($"left:{Number(menu.ClientX)}px;top:{Number(menu.ClientY)}px")">
+            @ContextMenu(menu)
+        </div>
+    }
     <p class="vaw-error" role="alert" data-canvas-error hidden>The layout edit could not reach the editor. Reconnect and refresh before retrying.</p>
     @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
 </section>

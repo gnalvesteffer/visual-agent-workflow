@@ -9,8 +9,8 @@
         <p class="vaw-notice">Local development prototype</p>
     </header>
     <p class="vaw-studio-description">Design a pipeline. Run it independently. Inspect every recorded step.</p>
-    <div class="vaw-workspace">
-        <aside class="vaw-sidebar">
+    <div class="vaw-workspace @(workspaceView == "designer" ? "vaw-authoring-workspace" : "")">
+        <aside class="vaw-sidebar" hidden="@(workspaceView == "designer")">
             <h2>Quick template run</h2>
             <label>Pipeline
                 <select @bind="operation">
@@ -38,10 +38,12 @@
             <p class="vaw-help">Runs keep their state when you close the editor.</p>
             <h2>Recorded runs</h2>
             <button type="button" @onclick="Refresh" disabled="@(!interactive)">Refresh history</button>
+            <label>Filter recorded runs <input aria-label="Filter recorded runs" @bind="runFilter" @bind:event="oninput" placeholder="Workflow, status or run ID" /></label>
             <ul class="vaw-history">
-                @foreach (var run in runs.Take(50))
+                @foreach (var run in runs.Where(MatchesRunFilter).Take(50))
                 {
                     <li @key="run.Header.RunId"><button type="button" @onclick="() => SelectRun(run.Header.RunId)" aria-pressed="@(snapshot?.Header.RunId == run.Header.RunId ? "true" : "false")">
+                        <strong>@run.Header.Definition.WorkflowId</strong>
                         <span class="vaw-history-status">@run.Status</span>
                         <time datetime="@run.Header.CreatedAt.ToString("O")">@run.Header.CreatedAt.ToString("MMM d, HH:mm:ss")</time>
                         <small>@run.Header.RunId.ToString()[..8]</small>
@@ -52,11 +54,20 @@
         <section class="vaw-main" aria-label="Workflow workspace">
             @if (historyError is not null) { <p role="alert" class="vaw-error">@historyError</p> }
             @if (actionError is not null) { <p role="alert" class="vaw-error">@actionError</p> }
+            <nav class="vaw-workspace-views" aria-label="Workspace views">
+                @if (Catalog is not null && Client is IPublishedWorkflowClient)
+                { <button type="button" aria-pressed="@(workspaceView == "designer" ? "true" : "false")" @onclick="ShowDesigner" disabled="@(!interactive)">Designer</button> }
+                <button type="button" aria-pressed="@(workspaceView == "run" ? "true" : "false")" @onclick="ShowRun" disabled="@(!interactive)">Run inspector</button>
+            </nav>
+            <div hidden="@(workspaceView != "designer")">
             @if (Catalog is not null && Client is IPublishedWorkflowClient publishedClient)
             {
                 <WorkflowDesigner @key="(Catalog, publishedClient)" Catalog="Catalog" Client="publishedClient" OnRunStarted="PublishedCallback(publishedClient)" ToolCatalog="ToolCatalog" AgentCatalog="AgentCatalog" />
             }
+            </div>
+            <div hidden="@(workspaceView != "run")">
             <WorkflowRunViewer Snapshot="snapshot" Layout="runLayout" ApprovalClient="@(Client as IWorkflowApprovalClient)" ApprovalChanged="Refresh" />
+            </div>
         </section>
     </div>
 </section>

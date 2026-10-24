@@ -258,3 +258,145 @@
 .vaw-approval p { overflow-wrap: anywhere; }
 .vaw-waiting-approval { border-color: var(--vaw-warning); }
 .vaw-edit-node[data-node-type="core.approval"] .vaw-node-kind { color: var(--vaw-warning); }
+
+/* Compact graph workbench; form controls belong to the selected-node inspector. */
+.vaw-graph-editor { min-inline-size: 0; }
+.vaw-canvas-workspace { display: grid; grid-template-columns: minmax(0, 1fr); min-inline-size: 0; }
+.vaw-with-properties { grid-template-columns: minmax(0, 1fr) var(--vaw-inspector-width, 19rem); }
+.vaw-properties { padding: var(--vaw-space-4); border: 1px solid var(--vaw-border); border-inline-start: 0; background: var(--vaw-surface); max-block-size: 40rem; overflow: auto; min-inline-size: 0; }
+.vaw-properties h3 { margin-block-start: 0; }
+.vaw-properties :where(input:not([type="checkbox"]), textarea, select) { inline-size: 100%; min-inline-size: 0; }
+.vaw-properties fieldset { border: 0; padding: 0; margin: 0; min-inline-size: 0; }
+.vaw-properties .vaw-controls { display: flex; flex-wrap: wrap; }
+.vaw-properties :where(p, pre) { overflow-wrap: anywhere; }
+.vaw-canvas-toolbar label { margin: 0; }
+.vaw-canvas-toolbar label > select { margin-block-start: 0; }
+.vaw-canvas-toolbar > .vaw-help { flex-basis: 100%; margin: 0; }
+.vaw-free-graph .vaw-node { inline-size: 224px; }
+.vaw-free-graph .vaw-node-body { padding: var(--vaw-space-2) var(--vaw-space-3); }
+.vaw-node-summary { margin: 0; }
+.vaw-node-drag[aria-pressed="true"] { outline: 2px solid var(--vaw-focus); outline-offset: 2px; }
+.vaw-node-comment { max-block-size: 3.5rem; overflow: hidden; }
+.vaw-graph-editor .vaw-wire-delivered { stroke: var(--vaw-success); stroke-width: 6; stroke-dasharray: 12 4; }
+.vaw-node-button { min-block-size: 2.75rem; }
+.vaw-node-button > span { display: block; }
+.vaw-graph-editor:fullscreen { display: flex; flex-direction: column; inline-size: 100%; block-size: 100dvh; padding: var(--vaw-space-4); background: var(--vaw-canvas); overflow: auto; }
+.vaw-graph-editor:fullscreen::backdrop { background: var(--vaw-canvas); }
+.vaw-graph-editor:fullscreen .vaw-canvas-workspace { flex: 1; min-block-size: 0; }
+.vaw-graph-editor:fullscreen .vaw-canvas-viewport { block-size: 100%; max-block-size: none; min-block-size: 0; }
+.vaw-graph-editor:fullscreen .vaw-properties { max-block-size: none; min-block-size: 0; }
+.vaw-graph-editor :where([hidden]) { display: none !important; }
+@container vaw-designer (max-width: 54rem) {
+    .vaw-with-properties { grid-template-columns: minmax(0, 1fr); }
+    .vaw-properties { border-inline-start: 1px solid var(--vaw-border); max-block-size: 24rem; }
+}
+@media (max-width: 700px) {
+    .vaw-with-properties { grid-template-columns: minmax(0, 1fr); }
+    .vaw-properties { border-inline-start: 1px solid var(--vaw-border); max-block-size: 24rem; }
+    .vaw-graph-editor:fullscreen .vaw-canvas-workspace { grid-template-rows: minmax(15rem, 1fr) minmax(0, 16rem); }
+}
+@media (forced-colors: active) {
+    .vaw-graph-editor .vaw-wire-delivered { stroke: Highlight; stroke-dasharray: 12 4; }
+}
+
+.vaw-studio [hidden] { display: none !important; }
+.vaw-workspace-views { display: flex; gap: var(--vaw-space-2); border-block-end: 1px solid var(--vaw-border); padding-block-end: var(--vaw-space-3); margin-block-end: var(--vaw-space-3); }
+.vaw-workspace-views button[aria-pressed="true"] { color: var(--vaw-text); background: var(--vaw-primary); border-color: var(--vaw-accent); }
+.vaw-sidebar input:not([type="checkbox"]) { inline-size: 100%; min-inline-size: 0; min-block-size: 2.75rem; border: 1px solid var(--vaw-control-border); border-radius: var(--vaw-control-radius); padding: var(--vaw-space-2); background: var(--vaw-canvas); }
+.vaw-history strong { font-size: .8125rem; overflow-wrap: anywhere; }
+.vaw-properties .vaw-inspector pre { max-block-size: 15rem; overflow: auto; }
+.vaw-properties .vaw-approval { padding: var(--vaw-space-3); }
+.vaw-properties :where(.vaw-inspector h3) { font-size: 1rem; }
+.vaw-canvas-toolbar [aria-label="Playback controls"] { flex: 1 1 100%; margin: 0; }
+.vaw-canvas-toolbar .vaw-controls label { flex: 1; }
+.vaw-workflow-search { flex: 0 1 12rem; }
+.vaw-workflow-search input { inline-size: 100%; min-inline-size: 0; min-block-size: 2.75rem; border: 1px solid var(--vaw-control-border); border-radius: var(--vaw-control-radius); padding: var(--vaw-space-2); background: var(--vaw-canvas); color: inherit; }
+.vaw-graph-editor:fullscreen .vaw-with-properties { grid-template-columns: minmax(0, 1fr) var(--vaw-inspector-width, 19rem); }
+@media (max-width: 700px) { .vaw-graph-editor:fullscreen .vaw-with-properties { grid-template-columns: minmax(0, 1fr); } }
+
+.vaw-node-summary, .vaw-node-comment > span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.vaw-node-comment { display: block; max-block-size: none; }
+.vaw-graph-editor .vaw-node-drag { flex-wrap: nowrap; }
+.vaw-node-drag strong { min-inline-size: 0; }
+.vaw-node-kind { flex: 0 0 auto; font-size: .6875rem; }
+.vaw-free-graph .vaw-node { inline-size: var(--vaw-node-width, 224px); }
+
+/* The authoring surface is the primary workspace; execution has its own shelf. */
+.vaw-workspace.vaw-authoring-workspace { grid-template-columns: minmax(0, 1fr); }
+.vaw-library-panel { border: 1px solid var(--vaw-border); border-inline-end: 0; background: var(--vaw-surface); padding: var(--vaw-space-3); max-block-size: 40rem; overflow: auto; min-inline-size: 0; }
+.vaw-node-library h3 { margin-block: 0 var(--vaw-space-3); font-size: 1rem; }
+.vaw-node-library h4 { color: var(--vaw-muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .07em; margin-block: var(--vaw-space-4) var(--vaw-space-2); }
+.vaw-node-library input { inline-size: 100%; min-inline-size: 0; min-block-size: 2.75rem; color: inherit; background: var(--vaw-canvas); border: 1px solid var(--vaw-control-border); border-radius: var(--vaw-control-radius); padding: var(--vaw-space-2); }
+.vaw-node-library .vaw-library-entry { display: block; inline-size: 100%; text-align: start; margin-block: var(--vaw-space-2); padding: var(--vaw-space-3); min-block-size: 2.75rem; cursor: grab; }
+.vaw-library-entry :where(strong,small) { display: block; overflow-wrap: anywhere; }
+.vaw-library-entry strong { font-size: .875rem; }
+.vaw-library-entry small { color: var(--vaw-muted); margin-block-start: var(--vaw-space-1); font-size: .75rem; }
+.vaw-insertion-hint { color: var(--vaw-accent); font-size: .8125rem; overflow-wrap: anywhere; }
+.vaw-context-menu { position: fixed; inset: auto; margin: 0; inline-size: 19rem; max-inline-size: calc(100vw - 16px); max-block-size: min(30rem,calc(100dvh - 16px)); overflow: auto; padding: var(--vaw-space-3); color: var(--vaw-text); background: var(--vaw-surface); border: 1px solid var(--vaw-control-border); border-radius: var(--vaw-panel-radius); box-shadow: 0 12px 48px #0008; }
+.vaw-context-actions { display: grid; gap: var(--vaw-space-2); border-block-start: 1px solid var(--vaw-border); padding-block-start: var(--vaw-space-3); }
+.vaw-canvas-viewport[data-node-drop="true"] { outline: 2px solid var(--vaw-accent); outline-offset: -3px; }
+.vaw-with-library.vaw-with-properties { grid-template-columns: 14rem minmax(0, 1fr) var(--vaw-inspector-width, 19rem); }
+.vaw-graph-editor:fullscreen .vaw-with-library.vaw-with-properties { grid-template-columns: 14rem minmax(0, 1fr) var(--vaw-inspector-width, 19rem); }
+.vaw-graph-editor:fullscreen .vaw-library-panel { max-block-size: none; min-block-size: 0; }
+@container vaw-designer (max-width: 70rem) {
+    .vaw-with-library.vaw-with-properties { grid-template-columns: 12rem minmax(0, 1fr); }
+    .vaw-with-library > .vaw-properties { grid-column: 1 / -1; }
+}
+@container vaw-designer (max-width: 40rem) {
+    .vaw-with-library.vaw-with-properties { grid-template-columns: minmax(0, 1fr); }
+    .vaw-library-panel { max-block-size: 16rem; border-inline-end: 1px solid var(--vaw-border); }
+}
+@media (max-width: 700px) {
+    .vaw-graph-editor:fullscreen .vaw-with-library.vaw-with-properties { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 10rem) minmax(15rem,1fr) minmax(0,16rem); }
+    .vaw-graph-editor:fullscreen .vaw-with-library > .vaw-properties { grid-column: auto; }
+}
+.vaw-graph-editor:fullscreen .vaw-with-library > .vaw-properties { grid-column: auto; }
+.vaw-designer-toolbar { display: grid; grid-template-columns: minmax(10rem,.4fr) minmax(14rem,1fr) auto auto; align-items: end; }
+.vaw-designer-toolbar > label { margin: 0; }
+.vaw-workflow-search input { margin-block-start: var(--vaw-space-2); }
+.vaw-designer > .vaw-section-header { padding-block-end: var(--vaw-space-2); margin-block-end: var(--vaw-space-3); }
+.vaw-context-menu label { margin-block: var(--vaw-space-2); }
+.vaw-context-menu select { inline-size: 100%; }
+@container vaw-designer (max-width: 55rem) { .vaw-designer-toolbar { grid-template-columns: minmax(0,1fr) minmax(0,1fr); } }
+.vaw-wires-preview { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; overflow: visible; pointer-events: none; z-index: 3; }
+.vaw-wires-preview path { fill: none; stroke: var(--vaw-focus); stroke-width: 3; stroke-dasharray: 6 6; }
+.vaw-graph-editor[data-context-menu="true"] .vaw-output-ports .vaw-socket { cursor: crosshair; }
+
+/* Quiet tactile chrome; executable content stays on untextured surfaces. */
+.vaw-studio {
+    max-inline-size: none;
+    padding: var(--vaw-space-4);
+    background-image: linear-gradient(color-mix(in srgb, var(--vaw-canvas) 92%, transparent), color-mix(in srgb, var(--vaw-canvas) 92%, transparent)), var(--vaw-workspace-texture, url("textures/graphite-brushed.webp"));
+    background-size: auto, 40rem;
+}
+.vaw-studio-header { padding-block-end: var(--vaw-space-3); }
+.vaw-studio-description { margin-block: var(--vaw-space-2) var(--vaw-space-3); }
+.vaw-workspace-views { padding-block-end: var(--vaw-space-2); margin-block-end: var(--vaw-space-2); }
+.vaw-designer, .vaw-viewer, .vaw-sidebar { border-radius: var(--vaw-panel-radius); box-shadow: 0 1px 0 #ffffff05, 0 12px 32px #00000012; }
+.vaw-designer { padding: var(--vaw-space-3); }
+.vaw-library-panel, .vaw-properties, .vaw-canvas-toolbar {
+    background-color: var(--vaw-surface);
+    background-image: linear-gradient(color-mix(in srgb, var(--vaw-surface) 94%, transparent), color-mix(in srgb, var(--vaw-surface) 94%, transparent)), var(--vaw-panel-texture, url("textures/graphite-matte.webp"));
+    background-size: auto, 32rem;
+}
+.vaw-canvas-toolbar { padding: var(--vaw-space-3); gap: var(--vaw-space-2); }
+.vaw-library-panel { padding: var(--vaw-space-3); }
+.vaw-node-library h4 { text-transform: none; letter-spacing: normal; font-weight: 600; font-size: .8125rem; }
+.vaw-node-library .vaw-library-entry { border-color: var(--vaw-border); border-inline-start: 2px solid var(--vaw-control-border); padding: var(--vaw-space-2) var(--vaw-space-3); border-radius: .25rem; }
+.vaw-library-entry:not(:disabled):hover { border-inline-start-color: var(--vaw-accent); }
+.vaw-graph-editor .vaw-node-drag {
+    background-image: linear-gradient(color-mix(in srgb, var(--vaw-control) 94%, transparent), color-mix(in srgb, var(--vaw-control) 94%, transparent)), var(--vaw-workspace-texture, url("textures/graphite-brushed.webp"));
+    background-size: auto, 40rem;
+}
+.vaw-free-graph .vaw-edit-node article { box-shadow: 0 2px 3px #0005, 0 8px 24px #0003; }
+.vaw-node-drag[aria-pressed="true"] { outline-width: 1px; outline-offset: 1px; box-shadow: inset 0 0 0 1px var(--vaw-accent); }
+.vaw-properties > h3 { padding-block-end: var(--vaw-space-2); border-block-end: 1px solid var(--vaw-border); }
+.vaw-properties > .vaw-help { font-family: var(--vaw-mono); font-size: .75rem; }
+.vaw-insertion-options { border-block-start: 1px solid var(--vaw-border); padding-block-start: var(--vaw-space-3); }
+.vaw-insertion-options button { margin-block-start: var(--vaw-space-2); }
+.vaw-canvas-viewport { border-radius: 0; box-shadow: inset 0 1px 12px #0002; }
+.vaw-workspace-views button { background: transparent; border-color: transparent; border-radius: .25rem; }
+.vaw-workspace-views button[aria-pressed="true"] { background: var(--vaw-control); border-color: var(--vaw-border); border-block-end: 2px solid var(--vaw-accent); }
+@media (forced-colors: active) {
+    .vaw-studio, .vaw-library-panel, .vaw-properties, .vaw-canvas-toolbar, .vaw-graph-editor .vaw-node-drag { background-image: none; box-shadow: none; }
+}

@@ -3,6 +3,8 @@
 Requires a running development Studio and Playwright/Chromium. Creates disposable
 local workflows and runs; never uses external model providers or side effects.
 """
+
+from workbench_browser import workbench, inspect_control
 import argparse
 import uuid
 import re
@@ -41,57 +43,57 @@ def check(browser, screenshots):
     def open_editor():
         page.goto(BASE)
         designer = page.get_by_role("region", name="Workflow designer", exact=True)
-        expect(designer.get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
-        designer.get_by_label("Saved workflow", exact=True).select_option(workflow_id)
-        expect(designer.locator(".vaw-definition-status")).to_contain_text(workflow_id)
-        expect(designer.locator(".vaw-graph-editor")).to_have_attribute("data-ready", "true")
+        expect(workbench(designer).get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
+        workbench(designer).get_by_label("Saved workflow", exact=True).select_option(workflow_id)
+        expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text(workflow_id)
+        expect(workbench(designer).locator(".vaw-graph-editor")).to_have_attribute("data-ready", "true")
         return designer
 
     designer = open_editor()
-    canvas = designer.locator(".vaw-graph-editor")
-    nodes = designer.locator("ol[aria-label='Editable pipeline nodes'] > li")
+    canvas = workbench(designer).locator(".vaw-graph-editor")
+    nodes = workbench(designer).locator("ol[aria-label='Editable pipeline nodes'] > li")
     step = nodes.filter(has=page.get_by_role("button", name="Move node step-1", exact=True))
     original = design()
     before_x = original["layout"]["nodes"]["step-1"]["position"]["x"]
     before_y = original["layout"]["nodes"]["step-1"]["position"]["y"]
-    handle = designer.get_by_role("button", name="Move node step-1", exact=True)
+    handle = inspect_control(designer, "Move node step-1").get_by_role("button", name="Move node step-1", exact=True)
     drag(page, handle, 64, 96)
-    expect(designer.locator(".vaw-definition-status")).to_contain_text("Unsaved changes")
+    expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Unsaved changes")
     expect(step).to_have_css("left", f"{before_x + 64}px")
     expect(step).to_have_css("top", f"{before_y + 96}px")
-    designer.get_by_role("button", name="Undo edit", exact=True).click()
+    workbench(designer).get_by_role("button", name="Undo edit", exact=True).click()
     expect(step).to_have_css("left", f"{before_x}px")
-    designer.get_by_role("button", name="Redo edit", exact=True).click()
+    workbench(designer).get_by_role("button", name="Redo edit", exact=True).click()
     expect(step).to_have_css("left", f"{before_x + 64}px")
 
     # Arrow keys provide an alternative to dragging and produce the same undoable edit.
     handle.focus()
     handle.press("ArrowRight")
     expect(step).to_have_css("left", f"{before_x + 72}px")
-    designer.get_by_text("Labels, comments, sections, and wire routing", exact=True).click()
-    designer.get_by_label("Node to organize", exact=True).select_option("step-1")
-    expect(designer.get_by_role("spinbutton", name="Node X", exact=True)).to_have_value(str(before_x + 72))
-    designer.get_by_label("Node label", exact=True).fill("Normalize input")
-    designer.get_by_label("Node comment", exact=True).fill("Convert the incoming text before forwarding it.")
-    designer.get_by_label("Node comment", exact=True).press("Tab")
+    workbench(designer).get_by_text("Labels, comments, sections, and wire routing", exact=True).click()
+    workbench(designer).get_by_label("Node to organize", exact=True).select_option("step-1")
+    expect(workbench(designer).get_by_role("spinbutton", name="Node X", exact=True)).to_have_value(str(before_x + 72))
+    workbench(designer).get_by_label("Node label", exact=True).fill("Normalize input")
+    workbench(designer).get_by_label("Node comment", exact=True).fill("Convert the incoming text before forwarding it.")
+    workbench(designer).get_by_label("Node comment", exact=True).press("Tab")
     expect(handle).to_contain_text("Normalize input")
     expect(step.locator(".vaw-node-comment")).to_have_text("Convert the incoming text before forwarding it.")
 
     # Membership is explicit; moving the section moves only its nodes in one edit.
-    designer.get_by_label("New section label", exact=True).fill("Text preparation")
-    designer.get_by_label("Include input in section", exact=True).check()
-    designer.get_by_label("Include step-1 in section", exact=True).check()
-    designer.get_by_role("button", name="Group selected nodes", exact=True).click()
-    section_handle = designer.get_by_role("button", name="Move section Text preparation", exact=True)
+    workbench(designer).get_by_label("New section label", exact=True).fill("Text preparation")
+    workbench(designer).get_by_label("Include input in section", exact=True).check()
+    workbench(designer).get_by_label("Include step-1 in section", exact=True).check()
+    workbench(designer).get_by_role("button", name="Group selected nodes", exact=True).click()
+    section_handle = inspect_control(designer, "Move section Text preparation").get_by_role("button", name="Move section Text preparation", exact=True)
     expect(section_handle).to_be_visible()
     output = nodes.filter(has=page.get_by_role("button", name="Move node output", exact=True))
     output_position = output.evaluate("e => [e.style.left,e.style.top]")
     drag(page, section_handle, 40, 32)
     expect(step).to_have_css("left", f"{before_x + 112}px")
     assert output.evaluate("e => [e.style.left,e.style.top]") == output_position
-    designer.get_by_role("button", name="Undo edit", exact=True).click()
+    workbench(designer).get_by_role("button", name="Undo edit", exact=True).click()
     expect(step).to_have_css("left", f"{before_x + 72}px")
-    designer.get_by_role("button", name="Redo edit", exact=True).click()
+    workbench(designer).get_by_role("button", name="Redo edit", exact=True).click()
     expect(step).to_have_css("left", f"{before_x + 112}px")
 
     # Socket centers sit on node edges, and the wire endpoints match those actual centers.
@@ -109,17 +111,17 @@ def check(browser, screenshots):
     page.mouse.dblclick(location["x"], location["y"])
     reroute = canvas.get_by_role("button", name="Reroute 1 on link-1", exact=True)
     expect(reroute).to_be_visible()
-    designer.get_by_label("Wire to organize", exact=True).select_option("link-1")
-    designer.get_by_label("Custom angle for waypoint 1", exact=True).fill("30")
-    designer.get_by_label("Custom angle for waypoint 1", exact=True).press("Tab")
-    expect(designer.get_by_label("Pinned angle for waypoint 1", exact=True)).to_have_value("30")
-    designer.get_by_label("Pinned angle for waypoint 1", exact=True).select_option("90")
+    workbench(designer).get_by_label("Wire to organize", exact=True).select_option("link-1")
+    workbench(designer).get_by_label("Custom angle for waypoint 1", exact=True).fill("30")
+    workbench(designer).get_by_label("Custom angle for waypoint 1", exact=True).press("Tab")
+    expect(workbench(designer).get_by_label("Pinned angle for waypoint 1", exact=True)).to_have_value("30")
+    workbench(designer).get_by_label("Pinned angle for waypoint 1", exact=True).select_option("90")
     expect(wire).to_have_attribute("data-points", re.compile('"angle":90'))
     initial_reroute = reroute.evaluate("e=>({x:parseFloat(e.style.left),y:parseFloat(e.style.top)})")
     drag(page, reroute, 32, 48)
     expect(reroute).to_have_css("left", str(initial_reroute["x"] + 32) + "px")
-    designer.get_by_label("Wire style", exact=True).select_option("orthogonal")
-    designer.get_by_label("Pinned angle for waypoint 1", exact=True).select_option("90")
+    workbench(designer).get_by_label("Wire style", exact=True).select_option("orthogonal")
+    workbench(designer).get_by_label("Pinned angle for waypoint 1", exact=True).select_option("90")
     expect(wire).to_have_attribute("d", re.compile(" L "))
     page.wait_for_function("""() => {
         const paths=[...document.querySelectorAll('.vaw-designer path[data-wire="link-1"]')];
@@ -131,12 +133,12 @@ def check(browser, screenshots):
     }""")
 
     # A zoomed drag must convert screen motion back into graph coordinates.
-    designer.get_by_role("button", name="Zoom out graph", exact=True).click()
+    workbench(designer).get_by_role("button", name="Zoom out graph", exact=True).click()
     old = step.evaluate("e=>parseFloat(e.style.left)")
     drag(page, handle, 72, 0)  # 72 screen pixels at 90% = 80 logical units.
     expect(step).to_have_css("left", f"{old + 80}px")
-    designer.get_by_role("button", name="Save draft", exact=True).click()
-    designer.get_by_text("Draft saved.", exact=True).wait_for()
+    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
+    workbench(designer).get_by_text("Draft saved.", exact=True).wait_for()
     saved = design()
     assert saved["draft"]["definition"] == definition, "Presentation editing changed executable JSON"
     assert saved["layout"]["nodes"]["step-1"]["label"] == "Normalize input"
@@ -147,13 +149,13 @@ def check(browser, screenshots):
     assert stale.status == 409
     assert design() == saved
     designer = open_editor()
-    canvas = designer.locator(".vaw-graph-editor")
-    expect(designer.get_by_role("button", name="Move node step-1", exact=True)).to_contain_text("Normalize input")
+    canvas = workbench(designer).locator(".vaw-graph-editor")
+    expect(inspect_control(designer, "Move node step-1").get_by_role("button", name="Move node step-1", exact=True)).to_contain_text("Normalize input")
     expect(canvas.get_by_role("button", name="Reroute 1 on link-1", exact=True)).to_be_attached()
-    expect(designer.get_by_role("button", name="Move section Text preparation", exact=True)).to_be_attached()
-    header = designer.get_by_role("button", name="Move node step-1", exact=True)
+    expect(inspect_control(designer, "Move section Text preparation").get_by_role("button", name="Move section Text preparation", exact=True)).to_be_attached()
+    header = inspect_control(designer, "Move node step-1").get_by_role("button", name="Move node step-1", exact=True)
     header.scroll_into_view_if_needed()
-    current_node = designer.locator("li[data-node-id='step-1']")
+    current_node = workbench(designer).locator("li[data-node-id='step-1']")
     canonical_position = current_node.evaluate("e=>[e.style.left,e.style.top]")
     box = header.bounding_box()
     page.mouse.move(box["x"] + 40, box["y"] + 20)
@@ -162,14 +164,14 @@ def check(browser, screenshots):
     header.dispatch_event("pointercancel", {"pointerId":1})
     page.mouse.up()
     assert current_node.evaluate("e=>[e.style.left,e.style.top]") == canonical_position
-    expect(designer.locator(".vaw-definition-status")).to_contain_text("Draft saved")
-    designer.get_by_role("button", name="Publish & activate", exact=True).click()
-    designer.get_by_text("Published and activated version 1.", exact=True).wait_for()
+    expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Draft saved")
+    workbench(designer).get_by_role("button", name="Publish & activate", exact=True).click()
+    workbench(designer).get_by_text("Published and activated version 1.", exact=True).wait_for()
     revision = page.request.get(path + "/revisions").json()[0]["revision"]
     pinned = page.request.get(BASE + "/api/revisions/" + revision["revisionId"] + "/layout").json()
     assert pinned == saved["layout"]
-    designer.get_by_label("Published run input", exact=True).fill("canvas proof")
-    designer.get_by_role("button", name="Run selected version", exact=True).click()
+    workbench(designer).get_by_label("Published run input", exact=True).fill("canvas proof")
+    workbench(designer).get_by_role("button", name="Run selected version", exact=True).click()
     viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
     viewer.get_by_role("button", name="output core.output Completed", exact=True).click()
     expect(viewer.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("FOORP SAVNAC")
@@ -179,24 +181,24 @@ def check(browser, screenshots):
     drag(page, viewer.get_by_role("button", name="Inspect node step-1", exact=True), 48, 0)
     assert design()["layout"] == old_layout, "Playback changed the saved layout"
     # Published previews and restores must carry the original presentation, not today's draft.
-    designer.get_by_text("Labels, comments, sections, and wire routing", exact=True).click()
-    designer.get_by_label("Node to organize", exact=True).select_option("step-1")
-    designer.get_by_label("Node label", exact=True).fill("Changed draft label")
-    designer.get_by_label("Node label", exact=True).press("Tab")
-    designer.get_by_role("button", name="Save draft", exact=True).click()
-    designer.get_by_text("Draft saved.", exact=True).wait_for()
-    designer.get_by_role("button", name="Publish & activate", exact=True).click()
-    designer.get_by_text("Published and activated version 2.", exact=True).wait_for()
-    designer.get_by_label("Published version", exact=True).select_option(revision["revisionId"])
-    designer.get_by_role("button", name="View selected version", exact=True).click()
-    designer.get_by_text("Viewing published version 1 (read-only).", exact=True).wait_for()
-    expect(designer.get_by_role("button", name="Inspect node step-1", exact=True)).to_contain_text("Normalize input")
-    designer.get_by_role("button", name="Return to draft", exact=True).click()
-    designer.get_by_role("button", name="Restore selected to draft", exact=True).click()
-    designer.get_by_text("Version restored to draft. Publish to create a new version; active runs are unchanged.", exact=True).wait_for()
+    workbench(designer).get_by_text("Labels, comments, sections, and wire routing", exact=True).click()
+    workbench(designer).get_by_label("Node to organize", exact=True).select_option("step-1")
+    workbench(designer).get_by_label("Node label", exact=True).fill("Changed draft label")
+    workbench(designer).get_by_label("Node label", exact=True).press("Tab")
+    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
+    workbench(designer).get_by_text("Draft saved.", exact=True).wait_for()
+    workbench(designer).get_by_role("button", name="Publish & activate", exact=True).click()
+    workbench(designer).get_by_text("Published and activated version 2.", exact=True).wait_for()
+    workbench(designer).get_by_label("Published version", exact=True).select_option(revision["revisionId"])
+    workbench(designer).get_by_role("button", name="View selected version", exact=True).click()
+    workbench(designer).get_by_text("Viewing published version 1 (read-only).", exact=True).wait_for()
+    expect(workbench(designer).get_by_role("button", name="Inspect node step-1", exact=True)).to_contain_text("Normalize input")
+    workbench(designer).get_by_role("button", name="Return to draft", exact=True).click()
+    workbench(designer).get_by_role("button", name="Restore selected to draft", exact=True).click()
+    workbench(designer).get_by_text("Version restored to draft. Publish to create a new version; active runs are unchanged.", exact=True).wait_for()
     assert design()["layout"] == pinned
     if screenshots:
-        designer.scroll_into_view_if_needed()
+        workbench(designer).scroll_into_view_if_needed()
         page.screenshot(path=str(screenshots / "canvas-app.png"), full_page=True)
         viewer.screenshot(path=str(screenshots / "canvas-playback.png"))
     assert not errors, errors

@@ -8,7 +8,7 @@ This page describes shipped code. The broader [product design](design.md) includ
 
 ## Package boundaries
 
-The arrows below mean project dependencies, not network requests. Core has no external package dependencies. The Razor library depends on Core and rendering support, not the concrete runtime, SQLite, or MCP transport. Studio chooses concrete services at the composition root. Architecture tests enforce these inward boundaries.
+The arrows below mean project dependencies, not network requests. Core has no external package dependencies. The Razor library depends on Core and rendering support, not the concrete runtime, SQLite, or MCP transport. Its optional generated material textures are self-hosted static assets with plain-color fallbacks and host overrides; they require no remote asset service or runtime image processing. Studio chooses concrete services at the composition root. Architecture tests enforce these inward boundaries.
 
 ```mermaid
 flowchart TB
@@ -31,7 +31,7 @@ flowchart TB
 
 ## Editing and versioning
 
-`WorkflowDefinition` is executable JSON. `WorkflowLayout` is separate presentation metadata for positions, labels, comments, sections, and reroutes. Layout-only edits do not change the executable content hash. The designer keeps local immutable edits and a shared undo/redo history until the user explicitly saves.
+`WorkflowDefinition` is executable JSON. `WorkflowLayout` is separate presentation metadata for positions, labels, comments, sections, and reroutes. Layout-only edits do not change the executable content hash. The designer keeps local immutable edits and a shared undo/redo history until the user explicitly saves. The searchable library, contextual palette and output-pin creation all call validated Core graph operations. An additive UI-only `WorkflowGraphEdit` combines semantic and placement changes into one history entry; it changes no execution or artifact contract. Selected properties, zoom, workspace mode and native fullscreen are view state. Designer and run-inspector views share the same embeddable components and remain independent of backend run ownership.
 
 `IWorkflowDesignCatalog` extends the original catalog without breaking its methods. A design save writes definition, layout, generation, and audit entries in one SQLite transaction. A stale generation returns a conflict without overwriting either document. Publication captures an immutable definition/revision and layout; restoring copies a historical version into the draft. Activation selects which revision new runs use.
 

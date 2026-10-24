@@ -7,33 +7,21 @@
     @if (definition is not null)
     {
         <div class="vaw-controls vaw-designer-toolbar">
+            <label class="vaw-workflow-search">Find workflow <input aria-label="Find workflow" @bind="workflowFilter" @bind:event="oninput" placeholder="Filter by workflow ID" /></label>
             <label>Saved workflow
                 <select @key="(definition.WorkflowId, generation, workflows)" aria-label="Saved workflow" value="@definition.WorkflowId" @onchange="SelectWorkflow" disabled="@(busy || dirty)">
                     @if (generation == 0) { <option value="@definition.WorkflowId">New workflow</option> }
-                    @foreach (var item in workflows) { <option @key="item.Definition.WorkflowId" value="@item.Definition.WorkflowId">@item.Definition.WorkflowId</option> }
+                    @foreach (var item in workflows.Where(w => w.Definition.WorkflowId == definition.WorkflowId || w.Definition.WorkflowId.Contains(workflowFilter, StringComparison.OrdinalIgnoreCase))) { <option @key="item.Definition.WorkflowId" value="@item.Definition.WorkflowId">@item.Definition.WorkflowId</option> }
                 </select>
             </label>
             <button type="button" @onclick="NewWorkflow" disabled="@(busy || dirty)">New workflow</button>
-            <button type="button" @onclick="Save" disabled="@(busy || !interactive || preview is not null)">Save draft</button>
-            <button type="button" class="vaw-primary" @onclick="Publish" disabled="@(busy || dirty || generation == 0 || preview is not null)">Publish &amp; activate</button>
             <button type="button" @onclick="Discard" disabled="@busy">Discard local changes and reload</button>
         </div>
         <p class="vaw-definition-status"><strong>@definition.WorkflowId</strong> · generation @generation · @(dirty ? "Unsaved changes" : generation == 0 ? "Not saved" : "Draft saved")</p>
         @if (dirty) { <p class="vaw-help">Save or discard edits before switching workflows.</p> }
-        @if (preview is null)
+        @if (preview is not null)
         {
-            <div class="vaw-controls">
-                <button type="button" @onclick="Undo" disabled="@(busy || undo.Count == 0)">Undo edit</button>
-                <button type="button" @onclick="Redo" disabled="@(busy || redo.Count == 0)">Redo edit</button>
-                @if (ToolCatalog is not null)
-                {
-                    <button type="button" @onclick="RefreshTools" disabled="@busy">Refresh MCP tools</button>
-                    <span class="vaw-help">Tool access is checked by the host on each call.</span>
-                }
-            </div>
-        }
-        else
-        {
+
             <p role="status">Viewing published version @preview.Version (read-only).</p>
             <button type="button" @onclick="() => preview = null">Return to draft</button>
             <details>
@@ -45,7 +33,19 @@
             </details>
         }
         @if (Catalog is not IWorkflowDesignCatalog) { <p class="vaw-help">This host does not save graph layout. Position and annotation editing are disabled.</p> }
-        <PipelineEditor Layout="@(preview is not null ? previewLayout ?? WorkflowLayout.Create(preview.Revision.Definition) : layout)" LayoutChanged="ChangedLayout" LayoutReadOnly="@(Catalog is not IWorkflowDesignCatalog)" Definition="@(preview?.Revision.Definition ?? definition)" DefinitionChanged="Changed" ReadOnly="@(preview is not null)" Disabled="@busy" Bindings="bindings" Providers="providers" />
+        <PipelineEditor Layout="@(preview is not null ? previewLayout ?? WorkflowLayout.Create(preview.Revision.Definition) : layout)" LayoutChanged="ChangedLayout" LayoutReadOnly="@(Catalog is not IWorkflowDesignCatalog)" Definition="@(preview?.Revision.Definition ?? definition)" DefinitionChanged="Changed" ReadOnly="@(preview is not null)" Disabled="@busy" Bindings="bindings" Providers="providers" GraphEdited="ChangedGraph">
+            <EditorActions>
+                @if (preview is null)
+                {
+                    <button type="button" data-graph-save @onclick="Save" disabled="@(busy || !interactive)">Save draft</button>
+                    <button type="button" class="vaw-primary" @onclick="Publish" disabled="@(busy || dirty || generation == 0)">Publish &amp; activate</button>
+                    <button type="button" data-graph-undo @onclick="Undo" disabled="@(busy || undo.Count == 0)">Undo edit</button>
+                    <button type="button" data-graph-redo @onclick="Redo" disabled="@(busy || redo.Count == 0)">Redo edit</button>
+                    @if (ToolCatalog is not null) { <button type="button" @onclick="RefreshTools" disabled="@busy">Refresh MCP tools</button> }
+                }
+                else { <button type="button" disabled>Save draft</button> }
+            </EditorActions>
+        </PipelineEditor>
         <details class="vaw-reuse-panel">
             <summary>Reusable pipelines</summary>
             @if (WorkflowGraph.HasControlNodes(definition)) { <p class="vaw-help">Reusable pipeline extraction and insertion currently require a linear workflow. Control-flow graphs can still be shared as complete packages.</p> }
