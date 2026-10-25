@@ -143,6 +143,41 @@ def check(browser, screenshots):
     zoom = canvas.locator(".vaw-canvas-world").evaluate("e=>new DOMMatrixReadOnly(getComputedStyle(e).transform).a")
     drag(page, handle, 72, 0)
     expect(step).to_have_css("left", f"{old + round((72 / zoom) / 8) * 8}px")
+
+    # Drag-select a group, move it in one layout update, pan into the surrounding canvas, and reset.
+    viewport = canvas.locator(".vaw-canvas-viewport")
+    input_node = canvas.locator("li[data-node-id='input']")
+    input_node.scroll_into_view_if_needed()
+    step.scroll_into_view_if_needed()
+    input_rect, step_rect = input_node.bounding_box(), step.bounding_box()
+    left = min(input_rect["x"], step_rect["x"]) - 24
+    top = min(input_rect["y"], step_rect["y"]) - 24
+    right = max(input_rect["x"] + input_rect["width"], step_rect["x"] + step_rect["width"]) + 24
+    bottom = max(input_rect["y"] + input_rect["height"], step_rect["y"] + step_rect["height"]) + 24
+    page.mouse.move(left, top)
+    page.mouse.down()
+    page.mouse.move(right, bottom, steps=8)
+    page.mouse.up()
+    expect(input_node).to_have_class(re.compile("vaw-node-multi-selected"))
+    expect(step).to_have_class(re.compile("vaw-node-multi-selected"))
+    position = lambda node: node.evaluate("e=>({x:parseFloat(e.style.left),y:parseFloat(e.style.top)})")
+    before_input, before_step = position(input_node), position(step)
+    drag(page, handle, 32, 24)
+    after_input, after_step = position(input_node), position(step)
+    group_dx, group_dy = after_step["x"] - before_step["x"], after_step["y"] - before_step["y"]
+    assert group_dx > 0 and group_dy > 0, (group_dx, group_dy)
+    assert after_input["x"] - before_input["x"] == group_dx
+    assert after_input["y"] - before_input["y"] == group_dy
+    viewport_box = viewport.bounding_box()
+    scroll_before = viewport.evaluate("e=>[e.scrollLeft,e.scrollTop]")
+    page.mouse.move(viewport_box["x"] + 20, viewport_box["y"] + 20)
+    page.mouse.down(button="middle")
+    page.mouse.move(viewport_box["x"] + 80, viewport_box["y"] + 60, steps=4)
+    page.mouse.up(button="middle")
+    assert viewport.evaluate("e=>[e.scrollLeft,e.scrollTop]") != scroll_before
+    workbench(designer).get_by_role("button", name="Reset view", exact=True).click()
+    expect(canvas.locator(".vaw-canvas-toolbar > span").filter(has_text="100%")).to_have_text("100%")
+    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
     workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
     workbench(designer).get_by_text("Draft saved.", exact=True).wait_for()
     saved = design()
@@ -210,7 +245,7 @@ def check(browser, screenshots):
         expect(viewer).to_be_visible()
         viewer.screenshot(path=str(screenshots / "canvas-playback.png"))
     assert not errors, errors
-    print("Edge sockets, cancellation, pointer/keyboard moves, undo/redo, comments, section moves, wire reroutes/angles, zoom, reload, CAS conflicts, publication, version preview/restore, and recorded layout playback passed.")
+    print("Edge sockets, cancellation, pointer/keyboard moves, undo/redo, comments, box selection/group moves, free pan/reset, section moves, wire reroutes/angles, zoom, reload, CAS conflicts, publication, version preview/restore, and recorded layout playback passed.")
     page.close()
 
 

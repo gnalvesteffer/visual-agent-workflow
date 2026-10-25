@@ -8,18 +8,20 @@
         <span>@Math.Round(zoom * 100)%</span>
         <button type="button" @onclick="() => Zoom(0.1)" disabled="@(zoom >= 1.5)" aria-label="Zoom in graph">+</button>
         <button type="button" data-graph-fit @onclick="FitView" disabled="@(!ready)">Fit graph</button>
+        <button type="button" data-graph-reset @onclick="ResetView" disabled="@(!ready)">Reset view</button>
         <button type="button" data-fullscreen-toggle disabled="@(!ready)" aria-pressed="false">Fullscreen graph</button>
         <button type="button" @onclick="AutoLayout" disabled="@(!CanEdit)">Arrange nodes</button>
-        <span class="vaw-help">@(ReadOnly ? "Recorded layout. Drag the background to pan; use the playback controls to inspect evidence." : "Right-click or press Space for actions. Drag nodes to move; double-click a wire for a reroute.")</span>
+        <span class="vaw-help">@(ReadOnly ? "Recorded layout. Drag the background to pan; use the playback controls to inspect evidence." : "Drag empty space to select nodes; hold Ctrl or Shift to add or remove nodes. Middle-drag to pan. Drag a selected node to move the group.")</span>
     </div>
     <p class="vaw-help" role="status" data-pin-hint hidden>Release on empty canvas to create a step on this output. Existing-node rewiring is not available yet.</p>
     <p class="vaw-error" role="status" data-fullscreen-error hidden>Fullscreen is unavailable in this host. Embedded apps must allow fullscreen for this frame.</p>
     <div class="vaw-canvas-workspace @(NodeInspector is not null ? "vaw-with-properties" : "") @(NodeLibrary is not null && ShowNodeLibrary ? "vaw-with-library" : "")">
     @if (NodeLibrary is not null && ShowNodeLibrary)
     { <aside class="vaw-library-panel" aria-label="Workflow node library">@NodeLibrary</aside> }
-    <div class="vaw-canvas-viewport" tabindex="0" aria-label="Workflow graph canvas. Scroll or drag the background to pan.">
+    <div class="vaw-canvas-viewport" tabindex="0" aria-label="Workflow graph canvas. Drag empty space to select nodes; middle-drag to pan.">
         <div class="vaw-canvas-extent" style="@ExtentStyle">
             <div class="vaw-canvas-world" style="@WorldStyle">
+                <div class="vaw-selection-box" data-selection-box hidden aria-hidden="true"></div>
                 @foreach (var (id, section) in Layout.Sections)
                 {
                     <div @key="id" class="vaw-section-box" style="@SectionStyle(section)" data-section="@id" data-members="@System.Text.Json.JsonSerializer.Serialize(section.NodeIds)">

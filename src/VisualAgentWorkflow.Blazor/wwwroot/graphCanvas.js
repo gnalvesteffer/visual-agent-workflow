@@ -1,13 +1,14 @@
 // Browser-local gesture previews. Only completed edits cross the Blazor boundary.
 const canvases = new WeakMap();
 const limit = 32768;
+const margin = 1600;
 const clamp = value => Math.max(0, Math.min(limit, Math.round(value / 8) * 8));
 const number = value => Number.parseFloat(value) || 0;
 const position = node => ({ x: number(node.style.left), y: number(node.style.top) });
 
 export function attach(root, callback) {
     if (canvases.has(root)) return canvases.get(root).handle;
-    const state = { root, callback, frame: 0, drag: null, nodes: new Map(), paths: [], sections: [], camera: { x: 0, y: 0 }, active: true };
+    const state = { root, callback, frame: 0, drag: null, nodes: new Map(), paths: [], sections: [], selection: new Set(), camera: { x: 0, y: 0 }, active: true };
     state.viewport = root.querySelector('.vaw-canvas-viewport');
     state.world = root.querySelector('.vaw-canvas-world');
     state.observer = new ResizeObserver(() => schedule(state));
@@ -132,7 +133,7 @@ export function attach(root, callback) {
         schedule(state);
     };
     document.addEventListener('fullscreenchange', state.fullscreenChanged);
-    state.handle = { refresh: () => sync(root), fit: () => fit(state), dispose: () => detach(root) };
+    state.handle = { refresh: () => sync(root), fit: () => fit(state), reset: () => reset(state), dispose: () => detach(root) };
     canvases.set(root, state);
     sync(root);
     return state.handle;
@@ -142,6 +143,8 @@ export function sync(root) {
     const state = canvases.get(root);
     if (!state) return;
     state.nodes = new Map([...root.querySelectorAll('li[data-node-id]')].map(node => [node.dataset.nodeId, node]));
+    state.selection = new Set([...state.selection].filter(id => state.nodes.has(id)));
+    applySelection(state);
     state.paths = [...root.querySelectorAll('path[data-wire]')];
     state.sections = [...root.querySelectorAll('[data-section]')];
     if (!state.drag) restoreCanonical(state);
@@ -171,8 +174,8 @@ export function sync(root) {
     draw(state);
     if (state.pendingFit) {
         state.viewport.scrollTo(
-            state.pendingFit.x * scale(state) - state.viewport.clientWidth / 2,
-            state.pendingFit.y * scale(state) - state.viewport.clientHeight / 2);
+            margin + (state.pendingFit.x + state.camera.x) * scale(state) - state.viewport.clientWidth / 2,
+            margin + (state.pendingFit.y + state.camera.y) * scale(state) - state.viewport.clientHeight / 2);
         state.pendingFit = null;
     }
 }
@@ -189,20 +192,26 @@ async function toggleFullscreen(state) {
 function fit(state) {
     const nodes = [...state.nodes.values()];
     if (!nodes.length) return scale(state);
-    const left = Math.max(0, Math.min(...nodes.map(node => position(node).x)) - 24);
-    const top = Math.max(0, Math.min(...nodes.map(node => position(node).y)) - 24);
+    const left = Math.min(...nodes.map(node => position(node).x)) - 24;
+    const top = Math.min(...nodes.map(node => position(node).y)) - 24;
     const right = Math.max(...nodes.map(node => position(node).x + node.offsetWidth)) + 24;
     const bottom = Math.max(...nodes.map(node => position(node).y + node.offsetHeight)) + 24;
     const zoom = Math.max(.25, Math.min(1.5,
         (state.viewport.clientWidth - 64) / (right - left),
         (state.viewport.clientHeight - 96) / (bottom - top)));
     const centerX = (left + right) / 2, centerY = (top + bottom) / 2;
-    state.camera = {
-        x: Math.max(0, state.viewport.clientWidth / zoom / 2 - centerX),
-        y: Math.max(0, state.viewport.clientHeight / zoom / 2 - centerY)
-    };
-    state.pendingFit = { x: state.camera.x + centerX, y: state.camera.y + centerY };
+    state.camera = { x: 0, y: 0 };
+    state.pendingFit = { x: centerX, y: centerY };
     return zoom;
+}
+
+function reset(state) {
+    state.camera = { x: 0, y: 0 };
+    state.pendingFit = { x: 0, y: 0 };
+    state.world.style.transform = 'scale(1) translate(0px, 0px)';
+    state.viewport.scrollTo(margin - state.viewport.clientWidth / 2, margin - state.viewport.clientHeight / 2);
+    schedule(state);
+    return 1;
 }
 
 function schedule(state) {
@@ -215,7 +224,7 @@ function updateGrid(state) {
     const zoom = scale(state), spacing = 16 * zoom;
     const modulo = value => ((value % spacing) + spacing) % spacing;
     state.viewport.style.backgroundSize = `${spacing}px ${spacing}px`;
-    state.viewport.style.backgroundPosition = `${modulo(state.camera.x * zoom - state.viewport.scrollLeft)}px ${modulo(state.camera.y * zoom - state.viewport.scrollTop)}px`;
+    state.viewport.style.backgroundPosition = `${modulo(margin + state.camera.x * zoom - state.viewport.scrollLeft)}px ${modulo(margin + state.camera.y * zoom - state.viewport.scrollTop)}px`;
 }
 function local(state, event) {
     const rect = state.world.getBoundingClientRect(), zoom = scale(state);
@@ -274,8 +283,8 @@ function draw(state) {
     const width = Math.max(right, maxPointX), height = Math.max(bottom, maxPointY);
     state.world.style.width = `${width}px`; state.world.style.height = `${height}px`;
     const extent = state.world.parentElement;
-    extent.style.width = `${(width + state.camera.x) * zoom}px`;
-    extent.style.height = `${(height + state.camera.y) * zoom}px`;
+    extent.style.width = `${margin * 2 + (width + state.camera.x) * zoom}px`;
+    extent.style.height = `${margin * 2 + (height + state.camera.y) * zoom}px`;
 }
 
 function tangent(anchor, previous, next) {
@@ -316,6 +325,12 @@ function pointerDown(state, event) {
         state.root.querySelector('[data-pin-hint]').hidden=true;
         state.viewport.setPointerCapture(event.pointerId); event.preventDefault(); return;
     }
+    if (event.button === 1) {
+        const point = local(state, event);
+        state.drag = { kind: 'pan', pointer: event.pointerId, start: point, screenX: event.clientX, screenY: event.clientY,
+            target: state.viewport, scrollX: state.viewport.scrollLeft, scrollY: state.viewport.scrollTop, moved: false, items: [] };
+        state.viewport.setPointerCapture(event.pointerId); event.preventDefault(); return;
+    }
     const handle = event.target.closest('[data-drag-node], [data-drag-section], [data-drag-wire]');
     if (handle && state.root.dataset.disabled === 'true') return;
     const background = !event.target.closest('li[data-node-id], button, input, select, textarea, summary, path');
@@ -324,7 +339,10 @@ function pointerDown(state, event) {
         target: handle || state.viewport, moved: false, items: [] };
     if (handle?.dataset.dragNode) {
         drag.kind = 'node'; drag.id = handle.dataset.dragNode;
-        const node = state.nodes.get(drag.id); drag.items = [{ node, start: position(node) }];
+        if (event.shiftKey || event.ctrlKey || event.metaKey) toggleNodeSelection(state, drag.id);
+        else if (!state.selection.has(drag.id)) { state.selection = new Set([drag.id]); applySelection(state); }
+        drag.ids = [...state.selection];
+        drag.items = drag.ids.map(id => state.nodes.get(id)).filter(Boolean).map(node => ({ node, start: position(node) }));
     } else if (handle?.dataset.dragSection) {
         drag.kind = 'section'; drag.id = handle.dataset.dragSection;
         const box = state.sections.find(section => section.dataset.section === drag.id);
@@ -332,12 +350,19 @@ function pointerDown(state, event) {
     } else if (handle?.dataset.dragWire) {
         drag.kind = 'wire'; drag.id = handle.dataset.dragWire; drag.index = Number(handle.dataset.point);
         drag.original = position(handle); drag.point = drag.original;
-    } else {
+    } else if (event.button === 1) {
         drag.kind = 'pan'; drag.scrollX = state.viewport.scrollLeft; drag.scrollY = state.viewport.scrollTop;
-    }
+    } else if (event.button === 0) {
+        drag.kind = 'select'; drag.additive = event.shiftKey || event.ctrlKey || event.metaKey;
+        if (!drag.additive) state.selection.clear();
+        state.box = state.root.querySelector('[data-selection-box]');
+        state.box.hidden = false;
+        updateSelectionBox(state, drag.start, drag.start);
+        applySelection(state);
+    } else return;
     state.drag = drag;
     drag.target.setPointerCapture(event.pointerId);
-    if (drag.kind === 'pan') event.preventDefault();
+    if (drag.kind === 'pan' || drag.kind === 'select') event.preventDefault();
 }
 
 function pointerMove(state, event) {
@@ -353,6 +378,16 @@ function pointerMove(state, event) {
     } else if (drag.kind === 'pan') {
         state.viewport.scrollLeft = drag.scrollX - (event.clientX - drag.screenX);
         state.viewport.scrollTop = drag.scrollY - (event.clientY - drag.screenY);
+    } else if (drag.kind === 'select') {
+        updateSelectionBox(state, drag.start, local(state, event));
+        const box = state.boxRect;
+        for (const [id, node] of state.nodes) {
+            const x = number(node.style.left), y = number(node.style.top);
+            if (x + node.offsetWidth >= box.left && x <= box.right && y + node.offsetHeight >= box.top && y <= box.bottom)
+                state.selection.add(id);
+            else if (!drag.additive) state.selection.delete(id);
+        }
+        applySelection(state);
     } else if (drag.kind === 'wire') {
         drag.point = { x: Math.max(0, Math.min(limit, drag.original.x + Math.round(dx / 8) * 8)),
             y: Math.max(0, Math.min(limit, drag.original.y + Math.round(dy / 8) * 8)) };
@@ -386,14 +421,20 @@ function pointerEnd(state, event, cancelled) {
         }
         schedule(state); return;
     }
+    if (drag.kind === 'select' && state.box) { state.box.hidden = true; state.box = null; }
+    if (drag.kind === 'select') {
+        if (!cancelled) invoke(state, 'SelectNodes', [...state.selection]);
+        schedule(state); return;
+    }
     if (cancelled) {
         for (const item of drag.items) Object.assign(item.node.style, { left: `${item.start.x}px`, top: `${item.start.y}px` });
         if (drag.kind === 'wire') Object.assign(drag.target.style, { left: `${drag.original.x}px`, top: `${drag.original.y}px` });
     } else if (drag.moved) {
-        if (drag.kind === 'node') { const p = position(drag.items[0].node); invoke(state, 'MoveNode', drag.id, p.x, p.y); }
+        if (drag.kind === 'node') { invoke(state, 'MoveNodes', drag.ids, drag.dx, drag.dy); invoke(state, 'SelectNodes', drag.ids); }
         if (drag.kind === 'section') invoke(state, 'MoveSection', drag.id, drag.dx, drag.dy);
         if (drag.kind === 'wire') invoke(state, 'MoveWaypoint', drag.id, drag.index, drag.point.x, drag.point.y);
     }
+    if (!cancelled && drag.kind === 'node' && !drag.moved) invoke(state, 'SelectNodes', [...state.selection]);
     schedule(state);
 }
 
@@ -408,6 +449,27 @@ function invoke(state, method, ...args) {
             schedule(state);
         }
     });
+}
+
+function toggleNodeSelection(state, id) {
+    if (state.selection.has(id)) state.selection.delete(id);
+    else state.selection.add(id);
+    applySelection(state);
+}
+
+function applySelection(state) {
+    for (const [id, node] of state.nodes) {
+        const selected = state.selection.has(id);
+        node.classList.toggle('vaw-node-multi-selected', selected);
+        node.querySelector('[data-drag-node]')?.setAttribute('aria-pressed', String(selected));
+    }
+}
+
+function updateSelectionBox(state, first, last) {
+    const left = Math.min(first.x, last.x), top = Math.min(first.y, last.y);
+    const right = Math.max(first.x, last.x), bottom = Math.max(first.y, last.y);
+    state.boxRect = { left, top, right, bottom };
+    Object.assign(state.box.style, { left: `${left}px`, top: `${top}px`, width: `${right - left}px`, height: `${bottom - top}px` });
 }
 
 function restoreCanonical(state) {

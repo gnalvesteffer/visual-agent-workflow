@@ -52,8 +52,9 @@ public partial class WorkflowGraphCanvas
     private bool CanEdit => !ReadOnly && !Disabled && LayoutChanged.HasDelegate && !disposed;
     private double Width => Math.Max(1200, Layout.Nodes.Values.Max(p => p.Position.X) + 480);
     private double Height => Math.Max(800, Layout.Nodes.Values.Max(p => p.Position.Y) + 900);
-    private string WorldStyle => $"width:{Number(Width)}px;height:{Number(Height)}px;transform:scale({Number(zoom)})";
-    private string ExtentStyle => $"width:{Number(Width * zoom)}px;height:{Number(Height * zoom)}px";
+    private const double CanvasMargin = 1600;
+    private string WorldStyle => $"left:{Number(CanvasMargin)}px;top:{Number(CanvasMargin)}px;width:{Number(Width)}px;height:{Number(Height)}px;transform:scale({Number(zoom)})";
+    private string ExtentStyle => $"width:{Number(CanvasMargin * 2 + Width * zoom)}px;height:{Number(CanvasMargin * 2 + Height * zoom)}px";
     private static string Number(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
     private static string PositionStyle(GraphPoint point) => $"left:{Number(point.X)}px;top:{Number(point.Y)}px";
     private string SectionStyle(GraphSection section)
@@ -144,6 +145,10 @@ public partial class WorkflowGraphCanvas
     {
         if (browserSession is not null) zoom = Math.Clamp(await browserSession.InvokeAsync<double>("fit"), 0.25, 1.5);
     }
+    private async Task ResetView()
+    {
+        if (browserSession is not null) zoom = Math.Clamp(await browserSession.InvokeAsync<double>("reset"), 0.25, 1.5);
+    }
     private Task AutoLayout()
     {
         var arranged = WorkflowLayout.Create(Definition);
@@ -159,6 +164,37 @@ public partial class WorkflowGraphCanvas
     [JSInvokable]
     public Task MoveNode(string id, double x, double y) => CanEdit && Layout.Nodes.TryGetValue(id, out var node)
         ? Emit(Layout with { Nodes = Layout.Nodes.SetItem(id, node with { Position = RelativeSnap(node.Position, x, y) }) }) : Task.CompletedTask;
+
+    [JSInvokable]
+    public async Task SelectNodes(string[] ids)
+    {
+        if (disposed) return;
+        var first = ids.FirstOrDefault(id => Definition.Nodes.ContainsKey(id));
+        if (first is not null)
+        {
+            selectedNode = first;
+            activeConnection = null;
+            await SelectedNodeIdChanged.InvokeAsync(first);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task MoveNodes(string[] ids, double dx, double dy)
+    {
+        if (!CanEdit || ids.Length == 0 || ids.Any(id => !Layout.Nodes.ContainsKey(id)) || !double.IsFinite(dx) || !double.IsFinite(dy)) return Task.CompletedTask;
+        var selected = ids.Distinct(StringComparer.Ordinal).ToArray();
+        var points = selected.Select(id => Layout.Nodes[id].Position).ToArray();
+        dx = Math.Clamp(Math.Round(dx / 8) * 8, -points.Min(point => point.X), WorkflowLayoutJson.MaximumCoordinate - points.Max(point => point.X));
+        dy = Math.Clamp(Math.Round(dy / 8) * 8, -points.Min(point => point.Y), WorkflowLayoutJson.MaximumCoordinate - points.Max(point => point.Y));
+        var nodes = Layout.Nodes;
+        foreach (var id in selected)
+        {
+            var node = nodes[id];
+            nodes = nodes.SetItem(id, node with { Position = new(node.Position.X + dx, node.Position.Y + dy) });
+        }
+        return Emit(Layout with { Nodes = nodes });
+    }
 
     [JSInvokable]
     public Task MoveSection(string id, double dx, double dy)
