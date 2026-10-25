@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using VisualAgentWorkflow.AgentFramework;
 using VisualAgentWorkflow.Blazor;
 using VisualAgentWorkflow.Core;
@@ -39,11 +38,20 @@ public sealed class RealModelInferenceTests
         var broker = new McpToolBroker(BrokerTests.Registrations(), new DemoToolPolicy());
         var submitAnswer = (await broker.ListBindingsAsync()).Single(binding => binding.BindingId == "demo.submit-answer");
         var agents = new AgentNodeExecutor([provider], broker);
-        var definition = PipelineEditing.ReplaceNode(PipelineTemplates.Create("uppercase"), "step-1",
-            new(NodeTypes.Agent, "1.0.0", Agent: new(provider.Descriptor.ProviderId, provider.Descriptor.Version,
-                "Solve the arithmetic question. You must submit the final numeric answer by calling " +
-                "the submit_answer tool with only a base-10 integer. After the tool accepts it, answer " +
-                "with only that number.", [new ToolBindingRequest(submitAnswer.BindingId, submitAnswer.ContractHash)])));
+        var baseline = PipelineTemplates.Create("uppercase") with { SchemaVersion = "1.22" };
+        var definition = baseline with
+        {
+            Nodes = baseline.Nodes
+                .SetItem("step-1", new(NodeTypes.Agent, "1.0.0", Agent: new(provider.Descriptor.ProviderId, provider.Descriptor.Version,
+                    "Solve the arithmetic question. You must call the tool named tool_0 exactly once, " +
+                    "with text set to only the final base-10 integer. Do not answer in prose.",
+                    [new ToolBindingRequest(submitAnswer.BindingId, submitAnswer.ContractHash)])
+                {
+                    MaxOutputTokens = 64,
+                    MaxTurns = 4,
+                    MaxTotalTokens = 4096
+                }))
+        };
         var events = new List<ExecutionEvent>();
 
         var output = await new PipelineRunner(broker, agents).ExecuteAsync(Guid.NewGuid(),
@@ -51,25 +59,42 @@ public sealed class RealModelInferenceTests
             "What is 1+1? /no_think",
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
-        var answers = Regex.Matches(output, @"(?<!\d)-?\d+(?!\d)");
-        Assert.NotEmpty(answers);
-        Assert.Equal(ExpectedResponse, answers[answers.Count - 1].Value);
-        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested));
-        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ModelResponded));
+        Assert.Equal(ExpectedResponse, output);
+        Assert.InRange(events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested), 2, 4);
+        Assert.InRange(events.Count(evt => evt.Kind == ExecutionEventKinds.ModelResponded), 2, 4);
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
             HasStringProperty(evt.Data, "bindingId", submitAnswer.BindingId) &&
             HasStringProperty(evt.Data, "input", ExpectedResponse));
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted &&
             HasStringProperty(evt.Data, "output", ExpectedResponse));
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentCompleted);
+        using var completed = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentCompleted).Data!);
+        Assert.Equal(ExpectedResponse, completed.RootElement.GetProperty("output").GetString());
+        using var started = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentStarted).Data!);
+        Assert.Equal(4096, started.RootElement.GetProperty("maxTotalTokens").GetInt32());
+        var observedTokenCount = events.Where(evt => evt.Kind == ExecutionEventKinds.ModelResponded).Sum(evt =>
+        {
+            using var response = JsonDocument.Parse(evt.Data!);
+            var count = response.RootElement.GetProperty("usage").GetProperty("TotalTokenCount").GetInt32();
+            Assert.True(count > 0);
+            return count;
+        });
+        Assert.InRange(observedTokenCount, 1, 4096);
     }
 
     private static bool HasStringProperty(string? data, string property, string expected)
     {
         if (data is null) return false;
         using var json = JsonDocument.Parse(data);
-        return json.RootElement.TryGetProperty(property, out var value) && value.GetString() == expected;
+        return json.RootElement.TryGetProperty(property, out var value) && ContainsString(value, expected);
     }
+
+    private static bool ContainsString(JsonElement value, string expected) => value.ValueKind switch
+    {
+        JsonValueKind.String => value.GetString() == expected,
+        JsonValueKind.Object => value.EnumerateObject().Any(property => ContainsString(property.Value, expected)),
+        JsonValueKind.Array => value.EnumerateArray().Any(item => ContainsString(item, expected)),
+        _ => false
+    };
 }
 
 public sealed class RealModelFactAttribute : FactAttribute

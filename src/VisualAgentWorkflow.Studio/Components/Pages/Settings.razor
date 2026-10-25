@@ -13,27 +13,27 @@
     <header class="vaw-settings-heading">
         <div>
             <p class="vaw-settings-kicker">WORKFLOW STUDIO</p>
-            <h1>Model providers</h1>
-            <p class="vaw-settings-intro">Manage the model endpoints your agent nodes can use. Credentials stay in this Studio and are never added to workflow files.</p>
+            <h1>Model connections</h1>
+            <p class="vaw-settings-intro">Connect any OpenAI-compatible chat API to your agent nodes. Each connection pins one endpoint, model, and optional API key. Credentials stay in this Studio and are never added to workflow files.</p>
         </div>
-        <a class="vaw-primary vaw-add-provider-link" href="#add-provider">Add provider</a>
+        <a class="vaw-primary vaw-add-provider-link" href="#add-provider">Add connection</a>
     </header>
 
     <section class="vaw-settings-section" aria-labelledby="configured-providers-title">
         <div class="vaw-settings-section-heading">
             <div>
-                <h2 id="configured-providers-title">Configured providers</h2>
-                <p>Each version is kept separate so published workflows can stay pinned to the provider they were built with.</p>
+                <h2 id="configured-providers-title">Configured connections</h2>
+                <p>Each version is kept separate so published workflows stay pinned to the exact endpoint and model they were built with.</p>
             </div>
-            <span class="vaw-provider-count">@providers.Count @(providers.Count == 1 ? "provider" : "providers")</span>
+            <span class="vaw-provider-count">@providers.Count @(providers.Count == 1 ? "connection" : "connections")</span>
         </div>
 
         @if (providers.Count == 0)
         {
             <div class="vaw-provider-empty">
-                <h3>No providers yet</h3>
-                <p>Add OpenAI, LM Studio, or another OpenAI-compatible endpoint to make it available to agent nodes.</p>
-                <a href="#add-provider">Set up a provider</a>
+                <h3>No model connections yet</h3>
+                <p>Add OpenAI, Unsloth, LM Studio, or another OpenAI-compatible endpoint to make its model available to agent nodes.</p>
+                <a href="#add-provider">Set up a connection</a>
             </div>
         }
         else
@@ -52,12 +52,13 @@
                         <dl>
                             <div><dt>Model</dt><dd>@provider.Model</dd></div>
                             <div><dt>Endpoint</dt><dd>@provider.Endpoint</dd></div>
-                            <div><dt>Credentials</dt><dd>@(provider.AllowInsecureLoopback ? "Local endpoint · key optional" : "Encrypted in Studio")</dd></div>
+                            <div><dt>Transport</dt><dd>@(provider.AllowInsecureHttp ? "HTTP · unencrypted" : "HTTPS · encrypted")</dd></div>
+                            <div><dt>API key</dt><dd>@(provider.HasCredential ? "Stored securely" : "Not configured · endpoint must not require a key")</dd></div>
                         </dl>
                         @if (pendingDelete == provider)
                         {
                             <div class="vaw-provider-delete-confirmation" role="alert">
-                                <p><strong>Delete @provider.DisplayName version @provider.Version?</strong> Workflows pinned to this version will no longer be able to start runs.</p>
+                                <p><strong>Delete @provider.DisplayName version @provider.Version?</strong> Workflows pinned to this connection will no longer be able to start runs.</p>
                                 <div class="vaw-provider-actions">
                                     <button type="button" class="vaw-danger" disabled="@deleting" @onclick="() => Delete(provider)">@(deleting ? "Deleting…" : "Confirm delete")</button>
                                     <button type="button" @onclick="CancelDelete">Keep provider</button>
@@ -82,30 +83,25 @@
     <section id="add-provider" class="vaw-settings-section vaw-provider-form-section" aria-labelledby="provider-form-title">
         <div class="vaw-settings-section-heading">
             <div>
-                <h2 id="provider-form-title">@(editing ? "Create a new provider version" : "Add a provider")</h2>
-                <p>@(editing ? "Save changes as a new version. Existing workflow versions keep using their current provider." : "Choose a connection type, then confirm the endpoint and model details.")</p>
+                <h2 id="provider-form-title">@(editing ? "Create a new connection version" : "Add a model connection")</h2>
+                <p>@(editing ? "Save changes as a new version. Existing workflow versions keep using their current connection." : "Connect an OpenAI-compatible chat completions endpoint and the model it serves.")</p>
             </div>
         </div>
-        <div class="vaw-provider-presets" role="group" aria-label="Provider connection type">
-            <button type="button" aria-pressed="@(form.AllowInsecureLoopback ? "false" : "true")" class="@(form.AllowInsecureLoopback ? "vaw-secondary" : "vaw-secondary vaw-selected")" @onclick="UseOpenAI">OpenAI compatible</button>
-            <button type="button" aria-pressed="@(form.AllowInsecureLoopback ? "true" : "false")" class="@(form.AllowInsecureLoopback ? "vaw-secondary vaw-selected" : "vaw-secondary")" @onclick="UseLmStudio">LM Studio on this computer</button>
-        </div>
-        @if (form.AllowInsecureLoopback)
-        {
-            <aside class="vaw-provider-tip"><strong>LM Studio setup</strong><span>Start the local server with a model loaded, then copy its served model identifier here.</span></aside>
-        }
+        <aside class="vaw-provider-tip"><strong>Works with compatible APIs</strong><span>Use OpenAI, Unsloth, LM Studio, llama.cpp, vLLM, or another server that implements OpenAI-compatible chat completions. Enter its base URL, served model ID, and API key if required.</span></aside>
         <form class="vaw-provider-form" @onsubmit="Save" @onsubmit:preventDefault>
-            <label>Provider ID <input required @bind="form.ProviderId" autocomplete="off" /><small>Stable ID used by agent nodes. Keep it unchanged when creating a new version.</small></label>
+            <label>Connection ID <input required @bind="form.ProviderId" autocomplete="off" /><small>Stable ID used by agent nodes. Keep it unchanged when creating a new version.</small></label>
             <label>Version <input required @bind="form.Version" autocomplete="off" /><small>Every saved configuration needs a unique version.</small></label>
-            <label>Display name <input required @bind="form.DisplayName" /></label>
-            <label>Model identifier <input required @bind="form.Model" placeholder="For example, the model name shown by your server" /></label>
-            <label class="vaw-provider-form-wide">Server endpoint <input required type="url" @bind="form.Endpoint" /><small>Base URL for an OpenAI-compatible API.</small></label>
+            <label>Connection name <input required @bind="form.DisplayName" /></label>
+            <label>Model ID <input required @bind="form.Model" placeholder="For example, the model name shown by your server" /><small>Copy the exact served model identifier.</small></label>
+            <label class="vaw-provider-form-wide">API base URL <input required type="url" @bind="form.Endpoint" placeholder="https://api.example.com/v1" /><small>Use the server's OpenAI-compatible API base URL, usually ending in <code>/v1</code>.</small></label>
             <label>Request timeout <span class="vaw-input-suffix"><input required type="number" min="1" max="120" @bind="form.TimeoutSeconds" /><span>seconds</span></span></label>
-            <label class="vaw-provider-option"><input type="checkbox" @bind="form.AllowInsecureLoopback" />Allow plain HTTP for this local endpoint</label>
-            <label class="vaw-provider-form-wide">API key <input type="password" autocomplete="new-password" @bind="form.ApiKey" placeholder="@(editing ? "Leave blank to keep the current key" : "Enter API key, if required")" /><small>Encrypted when saved. LM Studio on this computer can run without a key.</small></label>
-            <p class="vaw-provider-form-note vaw-provider-form-wide">HTTPS is required for remote endpoints. Plain HTTP is accepted only for a loopback address such as localhost or 127.0.0.1 when enabled above.</p>
+            <label class="vaw-provider-option"><input type="checkbox" @bind="form.AllowInsecureHttp" />Allow unencrypted HTTP for this endpoint</label>
+            <label class="vaw-provider-form-wide">API key (optional) <input type="password" autocomplete="new-password" @bind="form.ApiKey" placeholder="@(editing ? "Leave blank to keep the current key" : "Enter API key if required")" /><small>Encrypted when saved. If left blank on a new connection, no Authorization header is sent.</small></label>
+            @if (editing && providerHasCredential)
+            { <label class="vaw-provider-option"><input type="checkbox" @bind="form.RemoveApiKey" />Remove the saved API key in this version</label> }
+            <p class="vaw-provider-form-note vaw-provider-form-wide">HTTPS protects prompts, responses, and API keys in transit. If you enable HTTP, traffic is unencrypted and anyone able to observe the network path could read it. Use HTTP only on a trusted network.</p>
             <div class="vaw-provider-form-actions vaw-provider-form-wide">
-                <button type="submit" class="vaw-primary" disabled="@saving">@(saving ? "Saving…" : editing ? "Save new version" : "Add provider")</button>
+                <button type="submit" class="vaw-primary" disabled="@saving">@(saving ? "Saving…" : editing ? "Save new version" : "Add connection")</button>
                 @if (editing) { <button type="button" class="vaw-secondary" @onclick="ResetForm">Cancel edit</button> }
             </div>
         </form>
@@ -123,13 +119,15 @@
         [System.ComponentModel.DataAnnotations.Required] public string Endpoint { get; set; } = "https://api.openai.com/v1/";
         [System.ComponentModel.DataAnnotations.Range(1, 120)] public int TimeoutSeconds { get; set; } = 30;
         public string ApiKey { get; set; } = "";
-        public bool AllowInsecureLoopback { get; set; }
+        public bool RemoveApiKey { get; set; }
+        public bool AllowInsecureHttp { get; set; }
     }
 
     private ProviderForm form = new();
     private IReadOnlyList<StudioModelProviderView> providers = [];
     private StudioModelProviderView? pendingDelete;
     private string? credentialSourceVersion;
+    private bool providerHasCredential;
     private bool editing;
     private bool saving;
     private bool deleting;
@@ -143,9 +141,10 @@
     {
         var nextVersion = NextVersion(provider);
         credentialSourceVersion = provider.Version;
+        providerHasCredential = provider.HasCredential;
         form = new() { ProviderId = provider.ProviderId, Version = nextVersion, DisplayName = provider.DisplayName,
             Model = provider.Model, Endpoint = provider.Endpoint, TimeoutSeconds = provider.TimeoutSeconds,
-            AllowInsecureLoopback = provider.AllowInsecureLoopback };
+            AllowInsecureHttp = provider.AllowInsecureHttp };
         editing = true;
         formError = error = null;
         message = null;
@@ -176,30 +175,11 @@
         return fallback;
     }
 
-    private void UseOpenAI()
-    {
-        if (!editing)
-            form = new();
-        else
-        {
-            form.AllowInsecureLoopback = false;
-            if (Uri.TryCreate(form.Endpoint, UriKind.Absolute, out var endpoint) && endpoint.IsLoopback)
-                form.Endpoint = "https://api.openai.com/v1/";
-        }
-    }
-    private void UseLmStudio()
-    {
-        form.AllowInsecureLoopback = true;
-        if (!editing && form.ProviderId == "openai.primary")
-            form = new() { ProviderId = "lm-studio", Version = "1.0.0", DisplayName = "LM Studio", Model = "", Endpoint = "http://localhost:1234/v1", TimeoutSeconds = 120, AllowInsecureLoopback = true };
-        else if (Uri.TryCreate(form.Endpoint, UriKind.Absolute, out var endpoint) && !endpoint.IsLoopback)
-            form.Endpoint = "http://localhost:1234/v1";
-    }
-
     private void ResetForm()
     {
         editing = false;
         credentialSourceVersion = null;
+        providerHasCredential = false;
         form = new();
         formError = null;
     }
@@ -235,12 +215,13 @@
         try
         {
             Providers.Add(form.ProviderId, form.Version, form.DisplayName, form.Model, form.Endpoint, form.TimeoutSeconds,
-                form.ApiKey, form.AllowInsecureLoopback, credentialSourceVersion);
+                form.ApiKey, form.AllowInsecureHttp, credentialSourceVersion, form.RemoveApiKey);
             providers = Providers.List();
             var savedName = form.DisplayName;
             var savedVersion = form.Version;
             editing = false;
             credentialSourceVersion = null;
+            providerHasCredential = false;
             form = new();
             message = $"Saved {savedName} version {savedVersion}. It is now available in agent nodes.";
         }

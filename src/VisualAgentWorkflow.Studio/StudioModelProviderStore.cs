@@ -7,9 +7,9 @@ using VisualAgentWorkflow.Providers.OpenAI;
 namespace VisualAgentWorkflow.Studio;
 
 public sealed record StudioModelProvider(string ProviderId, string Version, string DisplayName, string Model,
-    string Endpoint, int TimeoutSeconds, string ProtectedApiKey, bool AllowInsecureLoopback = false);
+    string Endpoint, int TimeoutSeconds, string ProtectedApiKey, bool AllowInsecureLoopback = false, bool AllowInsecureHttp = false);
 public sealed record StudioModelProviderView(string ProviderId, string Version, string DisplayName, string Model,
-    string Endpoint, int TimeoutSeconds, bool HasCredential, bool AllowInsecureLoopback);
+    string Endpoint, int TimeoutSeconds, bool HasCredential, bool AllowInsecureHttp);
 
 /// <summary>Local Studio settings. Credentials are protected at rest and never returned by the settings view.</summary>
 public sealed class StudioModelProviderStore
@@ -38,15 +38,24 @@ public sealed class StudioModelProviderStore
     public IReadOnlyList<StudioModelProviderView> List()
     {
         lock (gate) return saved.Select(provider => new StudioModelProviderView(provider.ProviderId, provider.Version,
-            provider.DisplayName, provider.Model, provider.Endpoint, provider.TimeoutSeconds, true, provider.AllowInsecureLoopback)).ToArray();
+            provider.DisplayName, provider.Model, provider.Endpoint, provider.TimeoutSeconds,
+            ReadApiKey(provider).Length > 0, provider.AllowInsecureHttp || provider.AllowInsecureLoopback)).ToArray();
     }
 
     public void Add(string id, string version, string name, string model, string endpoint, int timeoutSeconds, string apiKey,
-        bool allowInsecureLoopback, string? credentialSourceVersion = null)
+        bool allowInsecureHttp, string? credentialSourceVersion = null, bool removeApiKey = false)
     {
         var uri = Uri.TryCreate(endpoint, UriKind.Absolute, out var parsed) ? parsed : null;
-        var options = new OpenAIProviderOptions { ProviderId = id, Version = version, DisplayName = name, Model = model,
-            Endpoint = uri!, InvocationTimeout = TimeSpan.FromSeconds(timeoutSeconds), AllowInsecureLoopback = allowInsecureLoopback };
+        var options = new OpenAIProviderOptions
+        {
+            ProviderId = id,
+            Version = version,
+            DisplayName = name,
+            Model = model,
+            Endpoint = uri!,
+            InvocationTimeout = TimeSpan.FromSeconds(timeoutSeconds),
+            AllowInsecureHttp = allowInsecureHttp
+        };
         lock (gate)
         {
             if (saved.Any(provider => provider.ProviderId == id && provider.Version == version) || configured.Any(provider => provider.Descriptor.ProviderId == id && provider.Descriptor.Version == version))
@@ -55,12 +64,11 @@ public sealed class StudioModelProviderStore
                 ? saved.LastOrDefault(provider => provider.ProviderId == id)
                 : saved.SingleOrDefault(provider => provider.ProviderId == id && provider.Version == credentialSourceVersion)
                     ?? throw new InvalidOperationException("The provider version being edited was removed. Refresh the page and try again.");
-            var credential = !string.IsNullOrWhiteSpace(apiKey) ? apiKey :
-                allowInsecureLoopback && uri?.IsLoopback == true ? "lm-studio" :
-                previous is not null ? protector.Unprotect(previous.ProtectedApiKey) : "";
+            var credential = !string.IsNullOrWhiteSpace(apiKey) ? apiKey : removeApiKey ? "" :
+                previous is not null ? ReadApiKey(previous) : "";
             OpenAIProviders.ValidateOptions(options, credential);
             var updated = saved.Append(new StudioModelProvider(id, version, name, model, uri!.AbsoluteUri,
-                timeoutSeconds, protector.Protect(credential), allowInsecureLoopback)).ToList();
+                timeoutSeconds, protector.Protect(credential), AllowInsecureHttp: allowInsecureHttp)).ToList();
             Persist(updated);
             saved = updated;
             Refresh();
@@ -87,14 +95,27 @@ public sealed class StudioModelProviderStore
         File.Move(temporary, path, true);
     }
 
+    private string ReadApiKey(StudioModelProvider provider)
+    {
+        var key = protector.Unprotect(provider.ProtectedApiKey);
+        return provider.AllowInsecureLoopback && key == "lm-studio" ? "" : key;
+    }
+
     private void Refresh()
     {
         var dynamic = saved.Select(provider =>
         {
-            var options = new OpenAIProviderOptions { ProviderId = provider.ProviderId, Version = provider.Version,
-                DisplayName = provider.DisplayName, Model = provider.Model, Endpoint = new Uri(provider.Endpoint),
-                InvocationTimeout = TimeSpan.FromSeconds(provider.TimeoutSeconds), AllowInsecureLoopback = provider.AllowInsecureLoopback };
-            return OpenAIProviders.Create(options, () => protector.Unprotect(provider.ProtectedApiKey));
+            var options = new OpenAIProviderOptions
+            {
+                ProviderId = provider.ProviderId,
+                Version = provider.Version,
+                DisplayName = provider.DisplayName,
+                Model = provider.Model,
+                Endpoint = new Uri(provider.Endpoint),
+                InvocationTimeout = TimeSpan.FromSeconds(provider.TimeoutSeconds),
+                AllowInsecureHttp = provider.AllowInsecureHttp || provider.AllowInsecureLoopback
+            };
+            return OpenAIProviders.Create(options, () => ReadApiKey(provider));
         });
         executor.ReplaceProviders(configured.Concat(dynamic));
     }

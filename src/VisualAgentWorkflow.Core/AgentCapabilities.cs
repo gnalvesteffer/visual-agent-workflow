@@ -12,6 +12,10 @@ public sealed record AgentConfiguration(string ProviderId, string ProviderVersio
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public AgentReasoningEffort? ReasoningEffort { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ReasoningEffortParameterId { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? MaxOutputTokens { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? MaxTotalTokens { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? MaxTurns { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? TimeoutSeconds { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? RequireStructuredResult { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<AgentProfileReference>? Delegates { get; init; }
 }
 
@@ -53,6 +57,40 @@ public static class AgentOutputTokenLimits
     public const int LegacyDefault = 1024;
     public const int Minimum = 1;
     public const int Maximum = 16_384;
+}
+
+public static class AgentTotalTokenLimits
+{
+    public const int Minimum = 1;
+    public const int Maximum = 100_000;
+}
+
+public static class AgentExecutionLimits
+{
+    public const int DefaultMaximumTurns = 8;
+    public const int MinimumTurns = 1;
+    public const int MaximumTurns = 16;
+    public const int MinimumTimeoutSeconds = 1;
+    public const int MaximumTimeoutSeconds = 120;
+}
+
+public static class AgentResultLimits
+{
+    public const int MaximumPayloadCharacters = 16_384;
+}
+
+public static class AgentResultStatuses
+{
+    public const string Success = "success";
+    public const string ReportedFailure = "reported_failure";
+    public const string TurnsExhausted = "turns_exhausted";
+    public const string TokensExhausted = "tokens_exhausted";
+    public const string TokenUsageUnavailable = "token_usage_unavailable";
+    public const string Timeout = "timeout";
+    public const string InvalidResult = "invalid_result";
+    public const string ProviderError = "provider_error";
+    public const string ToolError = "tool_error";
+    public const string ExecutionError = "execution_error";
 }
 
 /// <summary>Only literal text and explicit stable references are rendered. No expression evaluation occurs.</summary>

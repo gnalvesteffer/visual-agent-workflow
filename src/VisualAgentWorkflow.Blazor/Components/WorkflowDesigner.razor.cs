@@ -134,13 +134,37 @@ public partial class WorkflowDesigner
     private void NewWorkflow()
     {
         ResetReuse();
-        var next = PipelineEditing.Remove(PipelineTemplates.Create("uppercase"), "step-1") with { WorkflowId = "workflow-" + Guid.NewGuid().ToString("N") };
+        var next = PipelineEditing.Remove(PipelineTemplates.Create("uppercase"), "step-1") with
+        {
+            WorkflowId = "workflow-" + Guid.NewGuid().ToString("N"),
+            DisplayName = "Untitled workflow"
+        };
         SetDesign(next, WorkflowLayout.Create(next));
         generation = 0; activeRevisionId = null; selectedRevisionId = null; preview = null;
         versions = []; audit = []; undo.Clear(); redo.Clear(); jsonText = "";
         savedHash = DesignHash;
         error = null; message = "New workflow created locally. Save its draft before publishing.";
     }
+
+    private void RenameWorkflow(ChangeEventArgs args)
+    {
+        if (definition is null) return;
+        try
+        {
+            Changed(WorkflowMetadataEditing.Rename(definition, args.Value?.ToString() ?? ""));
+        }
+        catch (ArgumentException exception)
+        {
+            error = exception.Message;
+        }
+    }
+
+    private static string WorkflowDisplayName(WorkflowDefinition workflow) =>
+        string.IsNullOrWhiteSpace(workflow.DisplayName) ? workflow.WorkflowId : workflow.DisplayName;
+
+    private bool WorkflowMatchesFilter(WorkflowDefinition workflow) =>
+        WorkflowDisplayName(workflow).Contains(workflowFilter, StringComparison.OrdinalIgnoreCase) ||
+        workflow.WorkflowId.Contains(workflowFilter, StringComparison.OrdinalIgnoreCase);
 
     private void SetDesign(WorkflowDefinition value, WorkflowLayout presentation)
     {

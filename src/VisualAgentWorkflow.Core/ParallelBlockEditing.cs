@@ -13,32 +13,40 @@ public static class ParallelBlockEditing
             selected.Type is not (NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin))
             throw new ArgumentException("Select a node in a parallel block.", nameof(nodeId));
 
-        var forkId = definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.ParallelFork).Key;
-        var joinId = definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.ParallelJoin).Key;
-        var members = new HashSet<string>(StringComparer.Ordinal) { forkId, joinId };
         var outgoing = definition.Connections.Values.GroupBy(edge => edge.Source.NodeId)
             .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
-
-        foreach (var branchPort in new[] { "branch_1", "branch_2" })
+        foreach (var forkId in definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.ParallelFork).Select(entry => entry.Key))
         {
-            var first = definition.Connections.Values.Single(edge => edge.Source.NodeId == forkId && edge.Source.PortId == branchPort);
-            var current = first.Target.NodeId;
-            while (members.Add(current))
+            var members = new HashSet<string>(StringComparer.Ordinal) { forkId };
+            string? joinId = null;
+            foreach (var branchPort in new[] { "branch_1", "branch_2" })
             {
-                if (current == joinId) break;
-                var edge = outgoing[current].Single();
-                current = edge.Target.NodeId;
+                var first = definition.Connections.Values.Single(edge => edge.Source.NodeId == forkId && edge.Source.PortId == branchPort);
+                var current = first.Target.NodeId;
+                while (members.Add(current))
+                {
+                    if (definition.Nodes[current].Type == NodeTypes.ParallelJoin)
+                    {
+                        joinId = current;
+                        break;
+                    }
+                    var edge = outgoing[current].Single();
+                    current = edge.Target.NodeId;
+                }
             }
+            if (joinId is null) continue;
+            members.Add(joinId);
+
+            // The selector inserted by the block keeps a pre-existing string continuation connected.
+            var joinOutput = definition.Connections.Values.Single(edge => edge.Source.NodeId == joinId);
+            if (definition.Nodes[joinOutput.Target.NodeId].Type == NodeTypes.JsonSelectString &&
+                definition.Nodes[joinOutput.Target.NodeId].JsonPropertySelection?.Pointer == "" &&
+                outgoing.TryGetValue(joinOutput.Target.NodeId, out var selectorEdges) && selectorEdges.Length == 1)
+                members.Add(joinOutput.Target.NodeId);
+
+            if (members.Contains(nodeId)) return members.Order(StringComparer.Ordinal).ToImmutableArray();
         }
-
-        // The selector inserted by the block keeps a pre-existing string continuation connected.
-        var joinOutput = definition.Connections.Values.Single(edge => edge.Source.NodeId == joinId);
-        if (definition.Nodes[joinOutput.Target.NodeId].Type == NodeTypes.JsonSelectString &&
-            definition.Nodes[joinOutput.Target.NodeId].JsonPropertySelection?.Pointer == "" &&
-            outgoing.TryGetValue(joinOutput.Target.NodeId, out var selectorEdges) && selectorEdges.Length == 1)
-            members.Add(joinOutput.Target.NodeId);
-
-        return members.Order(StringComparer.Ordinal).ToImmutableArray();
+        throw new ArgumentException("The selected node does not belong to a valid parallel block.", nameof(nodeId));
     }
 
     public static WorkflowDefinition Remove(WorkflowDefinition definition, string nodeId)

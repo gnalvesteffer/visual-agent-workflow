@@ -7,6 +7,8 @@ namespace VisualAgentWorkflow.Blazor.Components;
 public partial class PipelineEditor
 {
     private string? insertionConnection;
+    private bool UseGraphRemoval => UsesGraphEditing || WorkflowValidator.Validate(Definition).Any(issue =>
+        issue.Code is "graph.degree" or "pipeline.degree" or "graph.unreachable" or "graph.cycle" or "pipeline.terminals");
     private ImmutableArray<WorkflowPort> SelectedOutputs => selectedNode is { } id && Definition.Nodes.TryGetValue(id, out var node) ? WorkflowPorts.Outputs(node) : [];
     private Task ConnectionSelected(string id)
     {
@@ -17,15 +19,11 @@ public partial class PipelineEditor
 
     private PortReference? Insertion(GraphContextRequest? context)
     {
-        var connection = context?.ConnectionId ?? (context?.NodeId is null ? insertionConnection : null);
+        // Only a command opened directly on a wire is an explicit insert operation.
+        // A selected node or previously selected wire must never make a library click auto-connect.
+        var connection = context?.ConnectionId;
         if (connection is not null && Definition.Connections.TryGetValue(connection, out var edge)) return edge.Source;
-        var id = context?.NodeId ?? selectedNode ?? Definition.EntryNodeId;
-        if (!Definition.Nodes.TryGetValue(id, out var node)) return null;
-        if (node.Type is NodeTypes.ParallelFork or NodeTypes.Loop) return null;
-        if (node.Type is NodeTypes.Output or NodeTypes.Approval)
-            return Definition.Connections.Values.Single(e => e.Target.NodeId == id).Source;
-        var ports = WorkflowPorts.Outputs(node);
-        return ports.Length == 0 ? null : new(id, ports.Any(p => p.Id == selectedPort) ? selectedPort : ports[0].Id);
+        return null;
     }
 
     private string InsertionDescription(GraphContextRequest? context) => Insertion(context) is { } source
@@ -38,7 +36,8 @@ public partial class PipelineEditor
         var sourceType = insertion is { } source
             ? WorkflowPorts.Outputs(Definition.Nodes[source.NodeId]).Single(port => port.Id == source.PortId).DataType
             : null;
-        var canInsert = !ReadOnly && !Disabled && Definition.Nodes.Count < 256 && sourceType is not null;
+        var canCreate = !ReadOnly && !Disabled && Definition.Nodes.Count < 256;
+        var canInsert = canCreate && sourceType is not null;
         var textPath = canInsert && sourceType == "string";
         var jsonPath = canInsert && sourceType == "json";
         var jsonSelectorWouldBreakPath = insertion is { } jsonSource &&
@@ -47,24 +46,25 @@ public partial class PipelineEditor
             Definition.Nodes[joinEdge.Target.NodeId].Type == NodeTypes.JsonSelectString;
         var selected = context?.NodeId ?? selectedNode;
         var hasLoop = Definition.Nodes.Values.Any(node => node.Type == NodeTypes.Loop);
-        var canInsertCondition = textPath && Definition.Nodes.Count <= 254 && !hasLoop && !IsParallelBranchPath(insertion);
+        var canCreateCondition = canCreate && !hasLoop && !Definition.Nodes.Values.Any(node => node.Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin);
         var canInsertLoop = textPath && Definition.Nodes.Count <= 254 && !WorkflowGraph.HasControlNodes(Definition) && !WorkflowGraph.HasTypedJson(Definition);
         List<WorkflowNodeLibraryEntry> entries =
         [
-            new(NodeTypes.Uppercase, "Uppercase", "Text processing", "Convert text deterministically", textPath),
-            new(NodeTypes.Reverse, "Reverse", "Text processing", "Reverse text deterministically", textPath),
-            new(NodeTypes.TextTemplate, "Text template", "Text processing", "Build deterministic text from input and workflow values", textPath),
-            new(NodeTypes.WorkflowValue, "Workflow value", "Inputs", "Pass a configured workflow parameter into the graph", textPath && ParameterDefinitions.Count > 0),
+            new(NodeTypes.Uppercase, "Uppercase", "Text processing", "Convert text deterministically", canCreate),
+            new(NodeTypes.Reverse, "Reverse", "Text processing", "Reverse text deterministically", canCreate),
+            new(NodeTypes.TextTemplate, "Text template", "Text processing", "Build deterministic text from input and workflow values", canCreate),
+            new(NodeTypes.WorkflowValue, "Workflow value", "Inputs", "Pass a configured workflow parameter into the graph", canCreate && ParameterDefinitions.Count > 0),
             new(NodeTypes.JsonProject, "Project JSON fields", "Data", "Build a bounded JSON object from selected JSON Pointer values", jsonPath),
             new("json-selector", "Select JSON value as text", "Data", "Convert a selected JSON value to text", jsonPath && !jsonSelectorWouldBreakPath),
             new("parallel", "Parallel block", "Flow", "Run two visible branch paths concurrently and collect named results", textPath && Definition.Nodes.Count <= 251 && !hasLoop && !Definition.Nodes.Values.Any(node => node.Type == NodeTypes.ParallelFork)),
-            new("condition", "Condition", "Flow", "Create true / false paths; merge only when branches rejoin", canInsertCondition),
+            new("condition", "Condition", "Flow", "Add an unconnected true / false branch node", canCreateCondition),
+            new("merge", "Merge", "Flow", "Add an unconnected join for routes that should share downstream work", canCreate),
             new("loop", "Bounded loop", "Flow", "Repeat one linear body while a text condition holds, up to a fixed iteration limit", canInsertLoop),
-            new("terminate", "Terminate workflow", "Flow", "End this path successfully without returning a workflow result", textPath && Definition.Nodes.Values.Count(node => node.Type == NodeTypes.Terminate) < 16),
+            new("terminate", "Terminate workflow", "Flow", "Add an unconnected success or failure exit", canCreate && Definition.Nodes.Values.Count(node => node.Type == NodeTypes.Terminate) < 16),
             new("approval", "Approval", "Flow", "Select an MCP tool to require exact-action review", !hasLoop && textPath && selected is not null && Definition.Nodes.TryGetValue(selected, out var selectedDefinition) && selectedDefinition.Type == NodeTypes.McpTool && !GuardedTool(selected))
         ];
-        entries.AddRange(Providers.Select(p => new WorkflowNodeLibraryEntry(ProviderKey(p), p.DisplayName, "Agents", $"{p.ModelId} · {p.Version}", textPath)));
-        entries.AddRange(Bindings.Select(b => new WorkflowNodeLibraryEntry(ToolKey(b), b.DisplayName, "MCP tools", "Host-registered tool; node grants still apply", textPath)));
+        entries.AddRange(Providers.Select(p => new WorkflowNodeLibraryEntry(ProviderKey(p), p.DisplayName, "Agents", $"{p.ModelId} · {p.Version}", canCreate)));
+        entries.AddRange(Bindings.Select(b => new WorkflowNodeLibraryEntry(ToolKey(b), b.DisplayName, "MCP tools", "Host-registered tool; node grants still apply", canCreate)));
         return entries;
     }
 
@@ -90,7 +90,6 @@ public partial class PipelineEditor
     {
         if (!LibraryEntries(context).Any(e => e.Key == key && e.Enabled)) return;
         var insertion = Insertion(context);
-        if (insertion is null) return;
         await CloseMenu(context);
         if (key == "approval")
         {
@@ -98,20 +97,30 @@ public partial class PipelineEditor
             await Edit(() => GraphEditing.InsertApprovalBefore(Definition, target), context, insertion);
         }
         else if (key == "condition")
-            await Edit(() => GraphEditing.InsertConditionalAfter(Definition, insertion.NodeId, insertion.PortId), context, insertion);
-        else if (key == "parallel")
-            await Edit(() => GraphEditing.InsertParallelBlockAfter(Definition, insertion.NodeId, insertion.PortId), context, insertion);
-        else if (key == "loop")
-            await Edit(() => GraphEditing.InsertBoundedLoopAfter(Definition, insertion.NodeId, insertion.PortId), context, insertion);
+            await Edit(() => GraphEditing.AddUnconnectedNode(Definition, new(NodeTypes.Condition, "1.0.0") { Condition = new("contains", "yes") }), context, insertion);
+        else if (key == "merge")
+            await Edit(() => GraphEditing.AddUnconnectedNode(Definition, new(NodeTypes.Merge, "1.0.0")), context, insertion);
+        else if (key == "parallel" && insertion is { } parallelInsertion)
+            await Edit(() => GraphEditing.InsertParallelBlockAfter(Definition, parallelInsertion.NodeId, parallelInsertion.PortId), context, parallelInsertion);
+        else if (key == "loop" && insertion is { } loopInsertion)
+            await Edit(() => GraphEditing.InsertBoundedLoopAfter(Definition, loopInsertion.NodeId, loopInsertion.PortId), context, loopInsertion);
         else if (key == "terminate")
-            await Edit(() => GraphEditing.InsertTerminationAfter(Definition, insertion.NodeId, insertion.PortId), context, insertion);
-        else if (key == "json-selector")
-            await Edit(() => GraphEditing.InsertJsonSelectorAfterJson(Definition, insertion.NodeId, insertion.PortId), context, insertion);
-        else
+            await Edit(() => GraphEditing.AddUnconnectedNode(Definition, new(NodeTypes.Terminate, "1.0.0")), context, insertion);
+        else if (key == "json-selector" && insertion is { } jsonInsertion)
+            await Edit(() => GraphEditing.InsertJsonSelectorAfterJson(Definition, jsonInsertion.NodeId, jsonInsertion.PortId), context, jsonInsertion);
+        else if (insertion is not null)
             await Edit(() => UsesGraphEditing ? GraphEditing.InsertNodeAfter(Definition, insertion.NodeId, insertion.PortId, FromSelection(key)) :
                 PipelineEditing.InsertNodeAfter(Definition, insertion.NodeId, FromSelection(key)), context, insertion);
+        else
+            await Edit(() => GraphEditing.AddUnconnectedNode(Definition, FromSelection(key)), context);
         insertionConnection = null;
     }
+
+    private Task SetTerminationOutcome(string id, ChangeEventArgs args) => Edit(() =>
+        WorkflowTerminationEditing.SetOutcome(Definition, id, args.Value?.ToString() ?? string.Empty));
+
+    private Task AddConditionNode() => Edit(() => GraphEditing.AddUnconnectedNode(Definition,
+        new(NodeTypes.Condition, "1.0.0") { Condition = new("contains", "yes") }));
 
     private bool CanRemove(string id) => !ReadOnly && !Disabled && Definition.Nodes.TryGetValue(id, out var node) &&
         node.Type is not (NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.LoopBody) && !GuardedTool(id);
@@ -127,7 +136,7 @@ public partial class PipelineEditor
         { await RequestParallelBlockRemoval(id); return; }
         if (!CanRemove(id)) { error = "This node cannot be deleted independently. Input/output and branch boundaries are required; remove an approval before its guarded tool."; return; }
         await Edit(() => Definition.Nodes[id].Type == NodeTypes.Approval ? GraphEditing.RemoveApproval(Definition, id) :
-            UsesGraphEditing ? GraphEditing.RemoveNode(Definition, id) : PipelineEditing.Remove(Definition, id));
+            UseGraphRemoval ? GraphEditing.RemoveNode(Definition, id) : PipelineEditing.Remove(Definition, id));
     }
 
     private string? pendingBlockRemoval;
@@ -186,9 +195,7 @@ public partial class PipelineEditor
     {
         if (!CanDuplicate(id)) return;
         await CloseMenu(context);
-        var source = new PortReference(id, "out");
-        await Edit(() => UsesGraphEditing ? GraphEditing.InsertNodeAfter(Definition, id, "out", Definition.Nodes[id]) :
-            PipelineEditing.InsertNodeAfter(Definition, id, Definition.Nodes[id]), context, source);
+        await Edit(() => GraphEditing.AddUnconnectedNode(Definition, Definition.Nodes[id]), context);
     }
 
     private Task CloseMenu(GraphContextRequest? context) => context is not null && canvas is not null ? canvas.CloseContextMenu(context.Id) : Task.CompletedTask;
@@ -210,7 +217,9 @@ public partial class PipelineEditor
         if (added.Length == 0) return presentation;
         var anchor = selectedNode is { } id && added.Contains(id) ? id : added[0];
         var original = presentation.Nodes[anchor].Position;
-        var desired = context?.Position ?? (insertion is not null ? new GraphPoint(EffectiveLayout.Nodes[insertion.NodeId].Position.X + 360, EffectiveLayout.Nodes[insertion.NodeId].Position.Y) : original);
+        var desired = context?.Position ?? (insertion is not null
+            ? new GraphPoint(EffectiveLayout.Nodes[insertion.NodeId].Position.X + 360, EffectiveLayout.Nodes[insertion.NodeId].Position.Y)
+            : DefaultNodePosition(presentation, added));
         var minimumX = added.Min(nodeId => presentation.Nodes[nodeId].Position.X - original.X);
         var minimumY = added.Min(nodeId => presentation.Nodes[nodeId].Position.Y - original.Y);
         var maximumX = added.Max(nodeId => presentation.Nodes[nodeId].Position.X - original.X);
@@ -242,5 +251,18 @@ public partial class PipelineEditor
             }
         }
         return presentation with { Nodes = nodes, Wires = wires };
+    }
+
+    private GraphPoint DefaultNodePosition(WorkflowLayout presentation, string[] added)
+    {
+        var existing = Definition.Nodes.Keys.Where(id => !added.Contains(id, StringComparer.Ordinal))
+            .Select(id => presentation.Nodes[id].Position).ToArray();
+        if (existing.Length == 0) return new(320, 240);
+        var left = existing.Min(point => point.X);
+        var top = existing.Min(point => point.Y);
+        var right = existing.Max(point => point.X);
+        if (right <= WorkflowLayoutJson.MaximumCoordinate - 720) return new(right + 360, top);
+        var bottom = existing.Max(point => point.Y);
+        return new(left, Math.Min(bottom + 240, WorkflowLayoutJson.MaximumCoordinate - 320));
     }
 }

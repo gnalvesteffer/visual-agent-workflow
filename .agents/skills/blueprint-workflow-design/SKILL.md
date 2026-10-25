@@ -5,7 +5,7 @@ description: Use when designing or changing workflow node contracts, graph autho
 
 # Blueprint-inspired workflow design
 
-Read [the local adaptation guide](../../../docs/blueprint-authoring-guidance.md), [product design](../../../docs/design.md), and the [current roadmap](../../../docs/roadmap.md). Consult the official Unreal Engine references linked from the adaptation guide when reachable. The environment may block Epic documentation; if so, state that limitation and do not present local interpretations as verified Epic quotes.
+Read the [Unreal Blueprint design reference](../../../docs/unreal-blueprint-reference.md), [local adaptation guide](../../../docs/blueprint-authoring-guidance.md), [product design](../../../docs/design.md), and the [current roadmap](../../../docs/roadmap.md). The reference distinguishes summarized Unreal source concepts from Visual Agent Workflow recommendations; preserve that distinction and report its source scope and confidence accurately.
 
 Use the standalone [Blueprint design reference](../../../docs/unreal-blueprint-reference.md) for source concepts, adaptation boundaries, and representative acceptance scenarios. Its capability targets do not override the current schema or roadmap limits.
 

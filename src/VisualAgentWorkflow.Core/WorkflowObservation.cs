@@ -6,9 +6,12 @@ namespace VisualAgentWorkflow.Core;
 public sealed record RunSummary(Guid RunId, Guid RevisionId, string WorkflowId, string ContentHash,
     string Status, long LastSequence, DateTimeOffset? LastEventAt)
 {
+    public string? WorkflowName { get; init; }
+
     public static RunSummary From(RunSnapshot snapshot) => new(snapshot.Header.RunId, snapshot.Header.RevisionId,
         snapshot.Header.Definition.WorkflowId, snapshot.Header.ContentHash, snapshot.Status,
-        snapshot.Events.Length, snapshot.Events.LastOrDefault()?.Timestamp);
+        snapshot.Events.Length, snapshot.Events.LastOrDefault()?.Timestamp)
+    { WorkflowName = snapshot.Header.Definition.DisplayName };
 }
 
 public sealed record RunEventPage(Guid RunId, Guid RevisionId, long AfterSequence, long LastSequence,

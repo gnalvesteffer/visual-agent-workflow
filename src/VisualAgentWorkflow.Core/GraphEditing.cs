@@ -3,6 +3,25 @@ namespace VisualAgentWorkflow.Core;
 /// <summary>Validated local edge edits. No topological order is treated as an execution sequence.</summary>
 public static class GraphEditing
 {
+    /// <summary>Adds a configured node without connecting it. Incomplete topology remains an editable draft.</summary>
+    public static WorkflowDefinition AddUnconnectedNode(WorkflowDefinition definition, NodeDefinition node)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(node);
+        if (definition.Nodes.Count >= 256) throw new ArgumentException("A workflow can contain at most 256 nodes.", nameof(definition));
+        var prefix = node.Type switch
+        {
+            NodeTypes.Condition => "condition", NodeTypes.Terminate => "terminate", NodeTypes.Merge => "merge",
+            NodeTypes.Agent => "agent", NodeTypes.McpTool => "mcp", _ => node.Type
+        };
+        var id = NewId(prefix);
+        return definition with
+        {
+            SchemaVersion = PipelineEditing.SchemaFor(definition, node),
+            Nodes = definition.Nodes.Add(id, node)
+        };
+    }
+
     /// <summary>Reconnects pins in an editable draft. Structural validation remains visible until every issue is fixed.</summary>
     public static WorkflowDefinition ConnectPins(WorkflowDefinition definition, string sourceId, string sourcePortId, string targetId, string targetPortId)
     {
@@ -25,7 +44,7 @@ public static class GraphEditing
             Nodes = target.Type == NodeTypes.Output
                 ? definition.Nodes.SetItem(targetId, target with { OutputDataType = output.DataType == "json" ? "json" : null })
                 : definition.Nodes,
-            SchemaVersion = output.DataType == "json" && definition.SchemaVersion is not ("1.14" or "1.15" or "1.19" or "1.18" or "1.17" or "1.16") ? "1.13" : definition.SchemaVersion,
+            SchemaVersion = output.DataType == "json" && definition.SchemaVersion is not ("1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16") ? "1.13" : definition.SchemaVersion,
             Connections = connections.Add(connectionId, new(new(sourceId, sourcePortId), new(targetId, targetPortId), "data"))
         };
     }
@@ -47,12 +66,15 @@ public static class GraphEditing
         var connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(branch, "in"), "data"))
             .Add(NewId("link"), Link(branch, "true", merge)).Add(NewId("link"), Link(branch, "false", merge))
             .Add(NewId("link"), new(new(merge, "out"), edge.Value.Target, "data"));
-        return Checked(definition with { SchemaVersion = definition.SchemaVersion is "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : "1.4", Nodes = nodes, Connections = connections });
+        return Checked(definition with { SchemaVersion = definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : "1.4", Nodes = nodes, Connections = connections });
     }
 
     public static WorkflowDefinition InsertParallelBlockAfter(WorkflowDefinition definition, string sourceId, string portId)
     {
         WorkflowValidator.ThrowIfInvalid(definition);
+        var existingBlockCount = definition.Nodes.Values.Count(node => node.Type == NodeTypes.ParallelFork);
+        if (existingBlockCount >= ParallelGraphLimits.MaximumBlocks)
+            throw new ArgumentException($"A workflow can contain at most {ParallelGraphLimits.MaximumBlocks} sequential parallel blocks.", nameof(definition));
         var edge = Outgoing(definition, sourceId, portId);
         var source = definition.Nodes[sourceId];
         if (WorkflowPorts.Outputs(source).Single(port => port.Id == portId).DataType != "string")
@@ -90,7 +112,9 @@ public static class GraphEditing
             : connections.Add(NewId("link"), new(new(joinId, "out"), new(selectorId, "in"), "data"))
                 .Add(NewId("link"), new(new(selectorId, "out"), edge.Value.Target, "data"));
 
-        return Checked(definition with { SchemaVersion = definition.SchemaVersion is "1.19" or "1.18" or "1.17" or "1.16" ? definition.SchemaVersion : definition.SchemaVersion == "1.15" ? "1.15" : "1.14", Nodes = nodes, Connections = connections });
+        var schemaVersion = existingBlockCount > 0 ? definition.SchemaVersion is "1.22" or "1.21" ? definition.SchemaVersion : "1.20" : definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16"
+            ? definition.SchemaVersion : definition.SchemaVersion == "1.15" ? "1.15" : "1.14";
+        return Checked(definition with { SchemaVersion = schemaVersion, Nodes = nodes, Connections = connections });
     }
 
     public static WorkflowDefinition InsertBoundedLoopAfter(WorkflowDefinition definition, string sourceId, string portId)
@@ -109,7 +133,7 @@ public static class GraphEditing
         { Loop = new(new("contains", "continue"), 3) };
         return Checked(definition with
         {
-            SchemaVersion = definition.SchemaVersion == "1.19" ? "1.19" : definition.SchemaVersion == "1.18" ? "1.18" : "1.17",
+            SchemaVersion = definition.SchemaVersion is "1.22" or "1.21" or "1.20" ? definition.SchemaVersion : definition.SchemaVersion == "1.19" ? "1.19" : definition.SchemaVersion == "1.18" ? "1.18" : "1.17",
             Nodes = definition.Nodes.Add(loopId, loop).Add(bodyId, new(NodeTypes.LoopBody, "1.0.0")),
             Connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(loopId, "in"), "data"))
                 .Add(NewId("link"), Link(loopId, "body", bodyId))
@@ -135,7 +159,7 @@ public static class GraphEditing
         var id = NewId("terminate");
         var result = definition with
         {
-            SchemaVersion = definition.SchemaVersion == "1.19" ? "1.19" : "1.18",
+            SchemaVersion = definition.SchemaVersion is "1.22" or "1.21" or "1.20" ? definition.SchemaVersion : definition.SchemaVersion == "1.19" ? "1.19" : "1.18",
             Nodes = definition.Nodes.Add(id, new(NodeTypes.Terminate, "1.0.0")),
             Connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(id, "in"), "data"))
         };
@@ -177,7 +201,7 @@ public static class GraphEditing
 
         return Checked(definition with
         {
-            SchemaVersion = definition.SchemaVersion is "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : "1.9",
+            SchemaVersion = definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : "1.9",
             Nodes = definition.Nodes.SetItem(inputId, input with { InputDataType = "json" }).Add(selectorId, selector),
             Connections = definition.Connections.SetItem(edge.Key, new(new(selectorId, "out"), edge.Value.Target, "data"))
                 .Add(NewId("link"), new(new(inputId, "out"), new(selectorId, "in"), "data"))
@@ -204,17 +228,35 @@ public static class GraphEditing
 
     public static WorkflowDefinition ReplaceNode(WorkflowDefinition definition, string id, NodeDefinition node)
     {
-        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!WorkflowDraftEditing.HasOnlyIncompleteTopologyIssues(definition)) WorkflowValidator.ThrowIfInvalid(definition);
         if (!definition.Nodes.TryGetValue(id, out var existing)) throw new ArgumentException("Unknown node.");
         if (existing.Type == node.Type && existing.Type is NodeTypes.Condition or NodeTypes.Approval or NodeTypes.Loop)
-            return Checked(definition with { Nodes = definition.Nodes.SetItem(id, node) });
+            return WorkflowDraftEditing.ValidateEdit(definition, definition with { Nodes = definition.Nodes.SetItem(id, node) });
         RequireProcessing(existing.Type);
         RequireProcessing(node.Type);
-        return Checked(definition with { SchemaVersion = PipelineEditing.SchemaFor(definition, node), Nodes = definition.Nodes.SetItem(id, node) });
+        return WorkflowDraftEditing.ValidateEdit(definition,
+            definition with { SchemaVersion = PipelineEditing.SchemaFor(definition, node), Nodes = definition.Nodes.SetItem(id, node) });
     }
 
     public static WorkflowDefinition RemoveNode(WorkflowDefinition definition, string id)
     {
+        if (!definition.Nodes.TryGetValue(id, out var requestedNode)) throw new ArgumentException("Unknown node.", nameof(id));
+        if (!WorkflowValidator.Validate(definition).IsEmpty)
+        {
+            if (requestedNode.Type is NodeTypes.Input or NodeTypes.Output or NodeTypes.LoopBody)
+                throw new ArgumentException("Input, output, and loop-body boundary nodes cannot be removed independently.", nameof(id));
+            var removedIds = new HashSet<string>(StringComparer.Ordinal) { id };
+            if (requestedNode.Type == NodeTypes.Loop)
+                foreach (var edge in definition.Connections.Values.Where(edge => edge.Source.NodeId == id && edge.Source.PortId == "body"))
+                    if (definition.Nodes.TryGetValue(edge.Target.NodeId, out var body) && body.Type == NodeTypes.LoopBody) removedIds.Add(edge.Target.NodeId);
+            return definition with
+            {
+                Nodes = definition.Nodes.RemoveRange(removedIds),
+                Connections = definition.Connections.RemoveRange(definition.Connections
+                    .Where(edge => removedIds.Contains(edge.Value.Source.NodeId) || removedIds.Contains(edge.Value.Target.NodeId))
+                    .Select(edge => edge.Key))
+            };
+        }
         if (definition.Nodes.TryGetValue(id, out var loop) && loop.Type == NodeTypes.Loop)
             return RemoveBoundedLoop(definition, id);
         if (definition.Nodes.TryGetValue(id, out var merge) && merge.Type == NodeTypes.Merge)
@@ -305,7 +347,7 @@ public static class GraphEditing
 
         return Checked(definition with
         {
-            SchemaVersion = sourceType == "json" && definition.SchemaVersion is not ("1.14" or "1.15" or "1.19" or "1.18" or "1.17" or "1.16") ? "1.13" : definition.SchemaVersion,
+            SchemaVersion = sourceType == "json" && definition.SchemaVersion is not ("1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16") ? "1.13" : definition.SchemaVersion,
             Nodes = nodes,
             Connections = definition.Connections.Remove(incoming.Key).SetItem(outgoing.Key,
                 new(incoming.Value.Source, outgoing.Value.Target, "data"))
@@ -322,7 +364,7 @@ public static class GraphEditing
         var id = NewId("approval");
         return Checked(definition with
         {
-            SchemaVersion = definition.SchemaVersion is "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : "1.5",
+            SchemaVersion = definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : "1.5",
             Nodes = definition.Nodes.Add(id, new(NodeTypes.Approval, "1.0.0") { Approval = new("Review the exact MCP call before allowing it.") }),
             Connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(id, "in"), "data"))
                 .Add(NewId("link"), Link(id, "out", targetId))

@@ -151,6 +151,41 @@ public sealed class ConditionalExecutionTests
         Assert.False(result.Terminated);
     }
 
+    [Fact]
+    public async Task SeparateTerminationOutcomesSetTheCorrectTerminalRunStatus()
+    {
+        var graph = EmptyArmsGraph();
+        var branch = graph.Nodes.Single(node => node.Value.Type == NodeTypes.Condition).Key;
+        var merge = graph.Nodes.Single(node => node.Value.Type == NodeTypes.Merge).Key;
+        graph = GraphEditing.RemoveNode(graph, merge);
+        graph = GraphEditing.AddUnconnectedNode(graph, new(NodeTypes.Terminate, "1.0.0"));
+        var trueExit = graph.Nodes.Single(node => node.Value.Type == NodeTypes.Terminate).Key;
+        graph = GraphEditing.AddUnconnectedNode(graph, new(NodeTypes.Terminate, "1.0.0"));
+        var falseExit = graph.Nodes.Single(node => node.Value.Type == NodeTypes.Terminate && node.Key != trueExit).Key;
+        graph = GraphEditing.ConnectPins(graph, branch, "true", trueExit, "in");
+        graph = GraphEditing.ConnectPins(graph, branch, "false", falseExit, "in");
+        graph = WorkflowTerminationEditing.SetOutcome(graph, trueExit, WorkflowTerminationOutcomes.Failure);
+        var revision = WorkflowRevision.Create(graph, "fixture");
+
+        var failedEvents = new List<ExecutionEvent>();
+        var failed = await new PipelineRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(), revision, "yes", null,
+            evt => { failedEvents.Add(evt); return ValueTask.CompletedTask; });
+        Assert.Null(failed.Output);
+        Assert.True(failed.Terminated);
+        Assert.True(failed.Failed);
+        Assert.Equal(ExecutionEventKinds.Failed, failedEvents[^1].Kind);
+        Assert.Equal(trueExit, failedEvents[^1].NodeId);
+
+        var successEvents = new List<ExecutionEvent>();
+        var succeeded = await new PipelineRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(), revision, "no", null,
+            evt => { successEvents.Add(evt); return ValueTask.CompletedTask; });
+        Assert.Null(succeeded.Output);
+        Assert.True(succeeded.Terminated);
+        Assert.False(succeeded.Failed);
+        Assert.Equal(ExecutionEventKinds.Terminated, successEvents[^1].Kind);
+        Assert.Equal(falseExit, successEvents[^1].NodeId);
+    }
+
     [Theory]
     [InlineData("say yes", "SAY YES")]
     [InlineData("abc", "cba")]

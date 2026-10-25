@@ -108,6 +108,54 @@ public class AgentCapabilityTests
     }
 
     [Fact]
+    public void AgentTurnAndTimeoutLimitsAreVersionedAndBounded()
+    {
+        var skill = WorkflowSkill.Create("math", "1.0", "Arithmetic", "Return a single number.");
+        var baseline = Definition(skill);
+        var node = baseline.Nodes["step-1"];
+        var configured = baseline with
+        {
+            SchemaVersion = "1.21",
+            Nodes = baseline.Nodes.SetItem("step-1", node with
+            { Agent = node.Agent! with { MaxTurns = 4, TimeoutSeconds = 45 } })
+        };
+
+        Assert.Empty(WorkflowValidator.Validate(configured));
+        var serialized = WorkflowJson.Serialize(configured);
+        Assert.Equal(serialized, WorkflowJson.Serialize(WorkflowJson.Deserialize(serialized)));
+        Assert.Contains(WorkflowValidator.Validate(configured with { SchemaVersion = "1.20" }), issue => issue.Code == "agent.maxTurns");
+        Assert.Contains(WorkflowValidator.Validate(configured with { SchemaVersion = "1.20" }), issue => issue.Code == "agent.timeout");
+        Assert.Contains(WorkflowValidator.Validate(configured with { Nodes = configured.Nodes.SetItem("step-1",
+            configured.Nodes["step-1"] with { Agent = configured.Nodes["step-1"].Agent! with { MaxTurns = AgentExecutionLimits.MaximumTurns + 1 } }) }),
+            issue => issue.Code == "agent.maxTurns");
+        Assert.Contains(WorkflowValidator.Validate(configured with { Nodes = configured.Nodes.SetItem("step-1",
+            configured.Nodes["step-1"] with { Agent = configured.Nodes["step-1"].Agent! with { TimeoutSeconds = 0 } }) }),
+            issue => issue.Code == "agent.timeout");
+    }
+
+    [Fact]
+    public void AggregateAgentTokenBudgetIsVersionedBoundedAndRoundTrips()
+    {
+        var baseline = Definition(WorkflowSkill.Create("math", "1", "Arithmetic", "Return a single number."));
+        var node = baseline.Nodes["step-1"];
+        var configured = baseline with
+        {
+            SchemaVersion = "1.22",
+            Nodes = baseline.Nodes.SetItem("step-1", node with
+            { Agent = node.Agent! with { MaxTurns = 4, TimeoutSeconds = 45, MaxTotalTokens = 8192 } })
+        };
+
+        Assert.Empty(WorkflowValidator.Validate(configured));
+        var serialized = WorkflowJson.Serialize(configured);
+        Assert.Equal(serialized, WorkflowJson.Serialize(WorkflowJson.Deserialize(serialized)));
+        Assert.Contains(WorkflowValidator.Validate(configured with { SchemaVersion = "1.21" }), issue => issue.Code == "agent.totalTokens");
+        foreach (var value in new[] { AgentTotalTokenLimits.Minimum - 1, AgentTotalTokenLimits.Maximum + 1 })
+            Assert.Contains(WorkflowValidator.Validate(configured with { Nodes = configured.Nodes.SetItem("step-1",
+                configured.Nodes["step-1"] with { Agent = configured.Nodes["step-1"].Agent! with { MaxTotalTokens = value } }) }),
+                issue => issue.Code == "agent.totalTokens");
+    }
+
+    [Fact]
     public void PromptTemplateCodecPreservesReferencesAndEscapesLiteralTokens()
     {
         var parameters = new Dictionary<string, WorkflowParameterDefinition>

@@ -5,7 +5,7 @@ using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.AgentFramework;
 
-public sealed record WorkflowExecutionResult(string? Output, bool Terminated);
+public sealed record WorkflowExecutionResult(string? Output, bool Terminated, bool Failed = false);
 
 /// <summary>Translates the supported string pipeline into actual Agent Framework executors and edges.</summary>
 public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null)
@@ -75,7 +75,8 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             try
             {
                 var evt = new ExecutionEvent(runId, revision.RevisionId, Interlocked.Increment(ref sequence), DateTimeOffset.UtcNow,
-                    kind, node, invocation, connection, data) { ScopeId = scopeId };
+                    kind, node, invocation, connection, data)
+                { ScopeId = scopeId };
                 await record(evt);
             }
             finally { recordGate.Release(); }
@@ -109,6 +110,11 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             if (output is null) throw new InvalidOperationException("The workflow produced no output.");
             if (gate is not null) await gate.WaitForBoundaryAsync(null, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
+            if (output.FailureSignal)
+            {
+                await Emit(ExecutionEventKinds.Failed, output.SourceNode, data: "Workflow ended at a failure termination.");
+                return new(null, true, true);
+            }
             if (output.TerminationSignal)
             {
                 await Emit(ExecutionEventKinds.Terminated, output.SourceNode);
@@ -152,8 +158,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             builder.AddEdge<GraphMessage>(executors[edge.Source.NodeId], executors[edge.Target.NodeId], message =>
                 message?.SourceNode == edge.Source.NodeId && message.SourcePort == edge.Source.PortId);
         }
-        var join = definition.Nodes.SingleOrDefault(entry => entry.Value.Type == NodeTypes.ParallelJoin);
-        if (join.Value is not null)
+        foreach (var join in definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.ParallelJoin))
         {
             var branchSources = definition.Connections.Values
                 .Where(edge => edge.Target.NodeId == join.Key)
@@ -169,7 +174,8 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
     }
 
     private sealed record GraphMessage(string Text, string? SourceNode, string? SourcePort,
-        WorkflowApprovalPermit? Approval = null, string DataType = "string", int LoopIteration = 0, bool TerminationSignal = false);
+        WorkflowApprovalPermit? Approval = null, string DataType = "string", int LoopIteration = 0,
+        bool TerminationSignal = false, bool FailureSignal = false);
 
     private sealed class StringExecutor(
         string id,
@@ -323,7 +329,9 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 if (!internalTerminationHandoff)
                     await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null,
                         node.Type == NodeTypes.Loop ? JsonSerializer.Serialize(new { port, iteration = received.LoopIteration, maximumIterations = node.Loop!.MaximumIterations }) :
+                        node.Type == NodeTypes.WorkflowCall && childOutcome!.Failed ? "Nested workflow ended at a failure termination." :
                         node.Type == NodeTypes.WorkflowCall && childOutcome!.Terminated ? "Nested workflow terminated successfully." :
+                        node.Type == NodeTypes.Terminate && node.Termination?.Outcome == WorkflowTerminationOutcomes.Failure ? "Workflow ended at a failure termination." :
                         node.Type == NodeTypes.Terminate || received.TerminationSignal ? "Workflow terminated without returning a value." : result);
                 if (node.Type == NodeTypes.ParallelFork)
                 {
@@ -335,9 +343,11 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 }
                 var outputType = node.Type == NodeTypes.Terminate ? "string" : node.Type == NodeTypes.Output ? received.DataType :
                     WorkflowPorts.Outputs(node).Single(output => output.Id == port).DataType;
+                var failureSignal = node.Termination?.Outcome == WorkflowTerminationOutcomes.Failure ||
+                    received.FailureSignal || childOutcome?.Failed == true;
                 var terminated = node.Type == NodeTypes.Terminate || received.TerminationSignal || childOutcome?.Terminated == true;
                 return new(result, internalTerminationHandoff ? received.SourceNode : Id, terminated ? "terminated" : port, permit, outputType, nextLoopIteration,
-                    terminated);
+                    terminated, failureSignal);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -484,8 +494,13 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
 
         private static string JsonTypeName(JsonElement value) => value.ValueKind switch
         {
-            JsonValueKind.String => "string", JsonValueKind.Number => "number", JsonValueKind.True or JsonValueKind.False => "boolean",
-            JsonValueKind.Object => "object", JsonValueKind.Array => "array", JsonValueKind.Null => "null", _ => "undefined"
+            JsonValueKind.String => "string",
+            JsonValueKind.Number => "number",
+            JsonValueKind.True or JsonValueKind.False => "boolean",
+            JsonValueKind.Object => "object",
+            JsonValueKind.Array => "array",
+            JsonValueKind.Null => "null",
+            _ => "undefined"
         };
 
         private static void WriteMappedValue(Utf8JsonWriter writer, JsonElement value, JsonValueSchema schema, string path)

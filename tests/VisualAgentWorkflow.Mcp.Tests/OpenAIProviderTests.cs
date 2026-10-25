@@ -15,15 +15,22 @@ public sealed class OpenAIProviderTests
     private const string Key = "fixture-credential-never-record";
     private static OpenAIProviderOptions Options(TimeSpan? timeout = null) => new()
     {
-        ProviderId = "openai.fixture", Version = "1.0.0", Model = "fixture-model", InvocationTimeout = timeout ?? TimeSpan.FromSeconds(30)
+        ProviderId = "openai.fixture",
+        Version = "1.0.0",
+        Model = "fixture-model",
+        InvocationTimeout = timeout ?? TimeSpan.FromSeconds(30)
     };
     private static WorkflowRevision Revision(ToolBindingRequest? tool = null, int? maxOutputTokens = null)
     {
         var graph = PipelineEditing.ReplaceNode(PipelineTemplates.Create("uppercase"), "step-1",
             new(NodeTypes.Agent, "1.0.0", Agent: new("openai.fixture", "1.0.0", "Fixture instructions", tool is null ? [] : [tool])));
         if (maxOutputTokens is { } limit)
-            graph = graph with { SchemaVersion = "1.10", Nodes = graph.Nodes.SetItem("step-1",
-                graph.Nodes["step-1"] with { Agent = graph.Nodes["step-1"].Agent! with { MaxOutputTokens = limit } }) };
+            graph = graph with
+            {
+                SchemaVersion = "1.10",
+                Nodes = graph.Nodes.SetItem("step-1",
+                graph.Nodes["step-1"] with { Agent = graph.Nodes["step-1"].Agent! with { MaxOutputTokens = limit } })
+            };
         return WorkflowRevision.Create(graph, "fixture");
     }
 
@@ -47,7 +54,10 @@ public sealed class OpenAIProviderTests
     {
         Content = new StringContent(JsonSerializer.Serialize(new
         {
-            id = "chatcmpl-fixture", @object = "chat.completion", created = 1_700_000_000, model = "fixture-resolved-model",
+            id = "chatcmpl-fixture",
+            @object = "chat.completion",
+            created = 1_700_000_000,
+            model = "fixture-resolved-model",
             choices = new[] { new { index = 0, message = new { role = "assistant", content = text }, finish_reason = "stop" } },
             usage = new { prompt_tokens = 7, completion_tokens = 3, total_tokens = 10 }
         }), Encoding.UTF8, "application/json")
@@ -87,6 +97,21 @@ public sealed class OpenAIProviderTests
         Assert.Equal("fixture-resolved-model", response.RootElement.GetProperty("ModelId").GetString());
         Assert.Equal("chatcmpl-fixture", response.RootElement.GetProperty("ResponseId").GetString());
         Assert.Equal(10, response.RootElement.GetProperty("usage").GetProperty("TotalTokenCount").GetInt64());
+    }
+
+    [Fact]
+    public async Task OptionalApiKeyIsOmittedFromRequestsWhenEndpointDoesNotRequireAuthentication()
+    {
+        var handler = new Handler(async (request, _) =>
+        {
+            Assert.Null(request.Headers.Authorization);
+            return Reply();
+        });
+        var registration = OpenAIProviders.Create(Options(), () => "", () => handler);
+        var executor = new AgentNodeExecutor([registration], new McpToolBroker([], new ExplicitToolAuthorizationPolicy([])));
+
+        Assert.Equal("protocol response", await executor.ExecuteAsync(Context(Revision(), []), "no auth required"));
+        Assert.True(handler.Disposed);
     }
 
     [Theory]
@@ -145,19 +170,20 @@ public sealed class OpenAIProviderTests
     }
 
     [Fact]
-    public void ConfigurationIsDisabledByDefaultAndEnabledEntriesRequireCredentials()
+    public void ConfigurationIsDisabledByDefaultAndAllowsEndpointsWithoutCredentials()
     {
         using var configuration = new ConfigurationManager();
         configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["OpenAI:disabled:Enabled"] = "false", ["OpenAI:disabled:Model"] = "ignored",
-            ["OpenAI:openai.fixture:Enabled"] = "true", ["OpenAI:openai.fixture:Version"] = "1.0.0", ["OpenAI:openai.fixture:Model"] = "fixture-model"
+            ["OpenAI:disabled:Enabled"] = "false",
+            ["OpenAI:disabled:Model"] = "ignored",
+            ["OpenAI:openai.fixture:Enabled"] = "true",
+            ["OpenAI:openai.fixture:Version"] = "1.0.0",
+            ["OpenAI:openai.fixture:Model"] = "fixture-model"
         });
-        Assert.Throws<InvalidOperationException>(() => OpenAIProviders.FromConfiguration(configuration.GetSection("OpenAI")));
-        configuration["OpenAI:openai.fixture:ApiKey"] = Key;
         var registration = Assert.Single(OpenAIProviders.FromConfiguration(configuration.GetSection("OpenAI")));
         Assert.False(registration.Descriptor.IsDeterministic);
-        Assert.DoesNotContain(Key, registration.ToString());
+        Assert.DoesNotContain("api.openai.com", registration.ToString());
         configuration["OpenAI:openai.fixture:Enabled"] = "false";
         Assert.Empty(OpenAIProviders.FromConfiguration(configuration.GetSection("OpenAI")));
     }
@@ -170,6 +196,22 @@ public sealed class OpenAIProviderTests
     {
         Assert.Throws<ArgumentException>(() => OpenAIProviders.Create(new()
         { ProviderId = "openai.fixture", Version = "1.0.0", Model = "fixture-model", Endpoint = new(endpoint) }, () => Key));
+    }
+
+    [Fact]
+    public void ExplicitHttpOptInAllowsAnOpenAiCompatibleEndpointOutsideLoopback()
+    {
+        var registration = OpenAIProviders.Create(new()
+        {
+            ProviderId = "unsloth.local",
+            Version = "1.0.0",
+            DisplayName = "Unsloth",
+            Model = "served-model",
+            Endpoint = new("http://192.168.12.217:8888/v1"),
+            AllowInsecureHttp = true
+        }, () => "");
+
+        Assert.Equal("served-model", registration.Descriptor.ModelId);
     }
 
     [Fact]
@@ -188,7 +230,10 @@ public sealed class OpenAIProviderTests
                 {
                     Content = new StringContent(JsonSerializer.Serialize(new
                     {
-                        id = "chatcmpl-tool", @object = "chat.completion", created = 1_700_000_000, model = "fixture-model",
+                        id = "chatcmpl-tool",
+                        @object = "chat.completion",
+                        created = 1_700_000_000,
+                        model = "fixture-model",
                         choices = new[] { new { index = 0, message = new { role = "assistant", content = (string?)null,
                             tool_calls = new[] { new { id = "call-one", type = "function", function = new { name = "tool_0", arguments = "{\"text\":\"abc\"}" } } } }, finish_reason = "tool_calls" } }
                     }), Encoding.UTF8, "application/json")
@@ -250,7 +295,8 @@ public sealed class OpenAIProviderTests
         var events = new List<(string Kind, string? Data)>();
         var executor = new AgentNodeExecutor([registration], new McpToolBroker([], new ExplicitToolAuthorizationPolicy([])));
         await Assert.ThrowsAsync<InvalidOperationException>(() => executor.ExecuteAsync(Context(Revision(), events), "timeout"));
-        Assert.Contains(events, e => e.Kind == ExecutionEventKinds.AgentFailed && e.Data!.Contains("timed out", StringComparison.Ordinal));
+        Assert.Contains(events, e => e.Kind == ExecutionEventKinds.AgentLimitExceeded && e.Data!.Contains("\"outcome\":\"timeout\"", StringComparison.Ordinal));
+        Assert.Contains(events, e => e.Kind == ExecutionEventKinds.AgentFailed && e.Data!.Contains("\"outcome\":\"timeout\"", StringComparison.Ordinal));
         Assert.DoesNotContain(events, e => e.Kind == ExecutionEventKinds.AgentCompleted);
         Assert.True(created <= 1);
         if (created == 1) Assert.True(handler.Disposed);
@@ -260,7 +306,7 @@ public sealed class OpenAIProviderTests
     public async Task UnknownLengthResponsesCannotBypassTheTransportBudget()
     {
         var handler = new Handler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            { Content = new StreamContent(new NonSeekableStream(new byte[1_048_577])) }));
+        { Content = new StreamContent(new NonSeekableStream(new byte[1_048_577])) }));
         var registration = OpenAIProviders.Create(Options(), () => Key, () => handler);
         var executor = new AgentNodeExecutor([registration], new McpToolBroker([], new ExplicitToolAuthorizationPolicy([])));
         var events = new List<(string Kind, string? Data)>();

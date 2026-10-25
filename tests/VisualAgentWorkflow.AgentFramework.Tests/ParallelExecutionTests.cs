@@ -63,6 +63,39 @@ public sealed class ParallelExecutionTests
         Assert.Equal(ExecutionEventKinds.Failed, events[^1].Kind);
     }
 
+    [Fact]
+    public async Task SequentialParallelBlocksExecuteAndProduceASeparateRecordedJoinForEachBlock()
+    {
+        var definition = new WorkflowDefinition("1.0", "sequential-parallel-runtime", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("uppercase", new(NodeTypes.Uppercase, "1.0.0"))
+                .Add("output", new(NodeTypes.Output, "1.0.0")),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-uppercase", new(new("input", "out"), new("uppercase", "in"), "data"))
+                .Add("uppercase-output", new(new("uppercase", "out"), new("output", "in"), "data")));
+        definition = GraphEditing.InsertParallelBlockAfter(definition, "input", "out");
+        var firstSelector = definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.JsonSelectString).Key;
+        definition = GraphEditing.ReplaceNode(definition, firstSelector,
+            definition.Nodes[firstSelector] with { JsonPropertySelection = new("/branch_1") });
+        definition = GraphEditing.InsertParallelBlockAfter(definition, firstSelector, "out");
+        var secondSelectorId = definition.Nodes
+            .Where(entry => entry.Value.Type == NodeTypes.JsonSelectString && entry.Key != firstSelector)
+            .Select(entry => entry.Key)
+            .Single();
+        definition = GraphEditing.ReplaceNode(definition, secondSelectorId,
+            definition.Nodes[secondSelectorId] with { JsonPropertySelection = new("/branch_1") });
+        var events = new List<ExecutionEvent>();
+
+        var result = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "go",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal("GO", result);
+        var joins = definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.ParallelJoin).Select(entry => entry.Key).ToHashSet(StringComparer.Ordinal);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted && joins.Contains(evt.NodeId!) && evt.Data is not null));
+        Assert.Equal(ExecutionEventKinds.Completed, events[^1].Kind);
+    }
+
     private static WorkflowDefinition BranchesWithAgents()
     {
         var definition = new WorkflowDefinition("1.0", "parallel-runtime", "input",

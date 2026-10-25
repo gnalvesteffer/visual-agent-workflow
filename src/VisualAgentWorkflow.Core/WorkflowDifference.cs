@@ -32,6 +32,7 @@ public static class WorkflowDifference
         CompareMap("agentProfile", before.AgentProfiles ?? ImmutableSortedDictionary<string, AgentProfile>.Empty,
             after.AgentProfiles ?? ImmutableSortedDictionary<string, AgentProfile>.Empty, changes);
         if (before.WorkflowId != after.WorkflowId) changes.Add(new("workflow", "workflowId", before.WorkflowId, after.WorkflowId));
+        if (before.DisplayName != after.DisplayName) changes.Add(new("workflow", "displayName", before.DisplayName, after.DisplayName));
         if (before.EntryNodeId != after.EntryNodeId) changes.Add(new("workflow", "entryNodeId", before.EntryNodeId, after.EntryNodeId));
         if (before.SchemaVersion != after.SchemaVersion) changes.Add(new("workflow", "schemaVersion", before.SchemaVersion, after.SchemaVersion));
         return changes.ToImmutable();

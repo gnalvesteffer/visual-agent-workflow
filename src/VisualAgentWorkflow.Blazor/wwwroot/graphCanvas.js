@@ -63,7 +63,8 @@ export function attach(root, callback) {
             return;
         }
         if (!typing && event.key === 'Delete' && root.dataset.contextMenu === 'true') {
-            event.preventDefault(); invoke(state,'DeleteSelection'); return;
+            const focusedNode=event.target.closest('[data-drag-node]')?.dataset.dragNode || null;
+            event.preventDefault(); invoke(state,'DeleteSelection',focusedNode); return;
         }
         if (document.fullscreenElement === root && event.key === 'Escape') {
             event.preventDefault();
@@ -133,7 +134,7 @@ export function attach(root, callback) {
         schedule(state);
     };
     document.addEventListener('fullscreenchange', state.fullscreenChanged);
-    state.handle = { refresh: () => sync(root), fit: () => fit(state), reset: () => reset(state), dispose: () => detach(root) };
+    state.handle = { refresh: () => sync(root), center: () => center(state), fit: () => fit(state), reset: () => reset(state), dispose: () => detach(root) };
     canvases.set(root, state);
     sync(root);
     return state.handle;
@@ -203,6 +204,18 @@ function fit(state) {
     state.camera = { x: 0, y: 0 };
     state.pendingFit = { x: centerX, y: centerY };
     return zoom;
+}
+
+function center(state) {
+    const nodes = [...state.nodes.values()];
+    if (!nodes.length) return 1;
+    const left = Math.min(...nodes.map(node => position(node).x));
+    const top = Math.min(...nodes.map(node => position(node).y));
+    const right = Math.max(...nodes.map(node => position(node).x + node.offsetWidth));
+    const bottom = Math.max(...nodes.map(node => position(node).y + node.offsetHeight));
+    state.camera = { x: 0, y: 0 };
+    state.pendingFit = { x: (left + right) / 2, y: (top + bottom) / 2 };
+    return 1;
 }
 
 function reset(state) {

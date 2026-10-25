@@ -3,8 +3,9 @@ import re
 
 
 def workbench(designer):
-    if not designer.is_visible():
-        designer.page.get_by_role("button", name="Designer", exact=True).click()
+    tab = designer.page.get_by_role("button", name="Designer", exact=True)
+    if tab.get_attribute("aria-pressed") != "true":
+        tab.click()
     from playwright.sync_api import expect
     expect(designer).to_be_visible()
     return designer

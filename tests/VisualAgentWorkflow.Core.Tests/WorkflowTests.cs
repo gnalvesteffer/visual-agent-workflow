@@ -50,6 +50,30 @@ public class WorkflowTests
         Assert.NotEqual(WorkflowJson.ComputeHash(Pipeline()), WorkflowJson.ComputeHash(Pipeline(NodeTypes.Reverse)));
 
     [Fact]
+    public void Workflow_names_are_portable_and_preserve_the_stable_id()
+    {
+        var original = Pipeline();
+        var named = WorkflowMetadataEditing.Rename(original, "  Customer support  ");
+        var restored = WorkflowJson.Deserialize(WorkflowJson.Serialize(named));
+
+        Assert.Equal(original.WorkflowId, named.WorkflowId);
+        Assert.Equal("Customer support", restored.DisplayName);
+        Assert.Equal(WorkflowJson.ComputeHash(named), WorkflowJson.ComputeHash(restored));
+        Assert.NotEqual(WorkflowJson.ComputeHash(original), WorkflowJson.ComputeHash(named));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("workflow\nname")]
+    public void Workflow_name_rejects_empty_or_control_characters(string displayName) =>
+        Assert.Throws<ArgumentException>(() => WorkflowMetadataEditing.Rename(Pipeline(), displayName));
+
+    [Fact]
+    public void Workflow_name_rejects_values_over_the_supported_length() =>
+        Assert.Throws<ArgumentException>(() => WorkflowMetadataEditing.Rename(Pipeline(), new string('x', 129)));
+
+    [Fact]
     public void RehydratesHistoricalWindowsLineEndingHashesWithoutChangingTheirIdentity()
     {
         var revision = WorkflowRevision.Create(Pipeline(), "alice");

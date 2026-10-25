@@ -101,7 +101,7 @@ app.MapPost("/api/settings/model-providers", (AddModelProviderRequest request, S
     try
     {
         store.Add(request.ProviderId, request.Version, request.DisplayName, request.Model, request.Endpoint,
-            request.TimeoutSeconds, request.ApiKey, request.AllowInsecureLoopback);
+            request.TimeoutSeconds, request.ApiKey, request.AllowInsecureHttp, removeApiKey: request.RemoveApiKey);
         return Results.Ok(store.List());
     }
     catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
@@ -199,4 +199,4 @@ public sealed record StartRunRequest(JsonElement Definition, string? Input)
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record ApprovalDecisionRequest(string? ActionHash, bool? Approve);
 
-public sealed record AddModelProviderRequest(string ProviderId, string Version, string DisplayName, string Model, string Endpoint, int TimeoutSeconds, string ApiKey, bool AllowInsecureLoopback);
+public sealed record AddModelProviderRequest(string ProviderId, string Version, string DisplayName, string Model, string Endpoint, int TimeoutSeconds, string ApiKey, bool AllowInsecureHttp, bool RemoveApiKey);

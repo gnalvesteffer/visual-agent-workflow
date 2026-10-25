@@ -33,6 +33,7 @@ public static class WorkflowPorts
     {
         NodeTypes.Output or NodeTypes.Terminate => [],
         NodeTypes.WorkflowCall => [new("out", WorkflowCallOutputType(node))],
+        NodeTypes.Agent when node.Agent?.RequireStructuredResult == true => [new("out", "json")],
         NodeTypes.Condition => [new("true", "string"), new("false", "string")],
         NodeTypes.Input when node.InputDataType == "json" => [new("out", "json")],
         NodeTypes.JsonProject => [new("out", "json")],
@@ -56,6 +57,7 @@ public static class WorkflowPorts
 public static class ParallelGraphLimits
 {
     public const int MaximumBranches = 2;
+    public const int MaximumBlocks = 4;
     public const int MaximumAggregateCharacters = 16_384;
 }
 

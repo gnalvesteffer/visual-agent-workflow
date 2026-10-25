@@ -76,6 +76,25 @@ public sealed class WorkflowLayoutTests
         Assert.Equal(new[] { "step-1" }, reconciled.Sections["section"].NodeIds);
         Assert.All(reconciled.Wires.Keys, id => Assert.Contains(id, removed.Connections.Keys));
     }
+
+    [Fact]
+    public void ReconcilePositionsNewUnconnectedNodesAwayFromLinearGraphNodes()
+    {
+        var definition = Definition();
+        var layout = WorkflowLayout.Create(definition);
+        var expanded = GraphEditing.AddUnconnectedNode(definition, new(NodeTypes.Condition, "1.0.0")
+            { Condition = new("contains", "yes") });
+
+        var reconciled = layout.Reconcile(expanded);
+        var addedId = expanded.Nodes.Keys.Single(id => !definition.Nodes.ContainsKey(id));
+        Assert.All(definition.Nodes.Keys, id =>
+        {
+            var old = reconciled.Nodes[id].Position;
+            var added = reconciled.Nodes[addedId].Position;
+            Assert.True(Math.Abs(old.X - added.X) >= 300 || Math.Abs(old.Y - added.Y) >= 650);
+        });
+        WorkflowLayoutJson.Validate(reconciled, expanded);
+    }
     private static WorkflowDefinition Definition(bool twoSteps = false)
     {
         var nodes = new Dictionary<string, NodeDefinition>

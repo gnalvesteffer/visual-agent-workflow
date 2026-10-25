@@ -128,4 +128,102 @@ public sealed class ConditionalGraphTests
         Assert.Throws<ArgumentException>(() => WorkflowJson.Serialize(disconnected));
         Assert.Throws<ArgumentException>(() => WorkflowJson.Deserialize(json));
     }
+
+    [Fact]
+    public void UnconnectedNodeCanBeRemovedWhileDraftTopologyIsInvalid()
+    {
+        var baseline = Baseline();
+        var draft = GraphEditing.AddUnconnectedNode(baseline, new(NodeTypes.Reverse, "1.0.0"));
+        var addedId = draft.Nodes.Keys.Single(id => !baseline.Nodes.ContainsKey(id));
+
+        Assert.NotEmpty(WorkflowValidator.Validate(draft));
+        var cleaned = GraphEditing.RemoveNode(draft, addedId);
+
+        Assert.Equal(WorkflowJson.ComputeDraftHash(baseline), WorkflowJson.ComputeDraftHash(cleaned));
+        Assert.Empty(WorkflowValidator.Validate(cleaned));
+    }
+
+    [Fact]
+    public void UnconnectedProcessingNodeCanBeConfiguredWhileDraftTopologyIsInvalid()
+    {
+        var draft = GraphEditing.AddUnconnectedNode(Baseline(), new(NodeTypes.Uppercase, "1.0.0"));
+        var addedId = draft.Nodes.Keys.Single(id => id != "input" && id != "step" && id != "output");
+
+        var configured = PipelineEditing.ChangeOperation(draft, addedId, NodeTypes.Reverse);
+
+        Assert.Equal(NodeTypes.Reverse, configured.Nodes[addedId].Type);
+        Assert.Contains(WorkflowValidator.Validate(configured), issue => issue.Code is "pipeline.degree" or "graph.degree");
+        var withParameter = WorkflowParameterEditing.Add(configured, "customer", "Customer", "Ada");
+        Assert.Equal("Ada", withParameter.Parameters!["customer"].DefaultValue);
+        Assert.Equal(WorkflowJson.ComputeDraftHash(withParameter),
+            WorkflowJson.ComputeDraftHash(WorkflowJson.DeserializeDraft(WorkflowJson.SerializeDraft(withParameter))));
+    }
+
+    [Fact]
+    public void TerminationNodeCanBeDisconnectedConfiguredAndReconnectedAsAnInvalidDraft()
+    {
+        var graph = Graph();
+        var branch = graph.Nodes.Single(node => node.Value.Type == NodeTypes.Condition).Key;
+        var merge = graph.Nodes.Single(node => node.Value.Type == NodeTypes.Merge).Key;
+        var split = GraphEditing.RemoveNode(graph, merge);
+        var withTermination = GraphEditing.AddUnconnectedNode(split, new(NodeTypes.Terminate, "1.0.0"));
+        var termination = withTermination.Nodes.Single(node => node.Value.Type == NodeTypes.Terminate).Key;
+        var connected = GraphEditing.ConnectPins(withTermination, branch, "true", termination, "in");
+        var edge = connected.Connections.Single(connection => connection.Value.Target.NodeId == termination);
+
+        var disconnected = GraphEditing.Disconnect(connected, edge.Key);
+        var configuredWhileDisconnected = WorkflowTerminationEditing.SetOutcome(disconnected, termination, WorkflowTerminationOutcomes.Failure);
+        Assert.Contains(WorkflowValidator.Validate(configuredWhileDisconnected), issue => issue.Code == "graph.degree");
+        Assert.Equal(WorkflowJson.ComputeDraftHash(configuredWhileDisconnected),
+            WorkflowJson.ComputeDraftHash(WorkflowJson.DeserializeDraft(WorkflowJson.SerializeDraft(configuredWhileDisconnected))));
+
+        var reconnected = GraphEditing.ConnectPins(configuredWhileDisconnected, edge.Value.Source.NodeId, edge.Value.Source.PortId,
+            edge.Value.Target.NodeId, edge.Value.Target.PortId);
+        reconnected = GraphEditing.ConnectPins(reconnected, branch, "false", "output", "in");
+        Assert.Empty(WorkflowValidator.Validate(reconnected));
+        Assert.Equal(WorkflowTerminationOutcomes.Failure, reconnected.Nodes[termination].Termination?.Outcome);
+    }
+
+    [Fact]
+    public void AddingConditionCreatesOneUnconnectedNodeAndLeavesAnEditableInvalidDraft()
+    {
+        var before = Baseline();
+        var after = GraphEditing.AddUnconnectedNode(before,
+            new(NodeTypes.Condition, "1.0.0") { Condition = new("contains", "yes") });
+
+        Assert.Equal(before.Connections, after.Connections);
+        var condition = Assert.Single(after.Nodes, entry => entry.Value.Type == NodeTypes.Condition);
+        Assert.Equal(WorkflowJson.ComputeDraftHash(after),
+            WorkflowJson.ComputeDraftHash(WorkflowJson.DeserializeDraft(WorkflowJson.SerializeDraft(after))));
+        Assert.Contains(WorkflowValidator.Validate(after), issue => issue.Code == "graph.degree");
+        Assert.Throws<ArgumentException>(() => WorkflowJson.Serialize(after));
+
+        var connected = GraphEditing.ConnectPins(after, "input", "out", condition.Key, "in");
+        connected = GraphEditing.ConnectPins(connected, condition.Key, "true", "output", "in");
+        connected = GraphEditing.ConnectPins(connected, condition.Key, "false", "output", "in");
+        WorkflowValidator.ThrowIfInvalid(connected);
+        Assert.Single(connected.Nodes, entry => entry.Value.Type == NodeTypes.Condition);
+        Assert.DoesNotContain(connected.Nodes, entry => entry.Value.Type == NodeTypes.Merge);
+    }
+
+    [Fact]
+    public void MultipleTerminationNodesCanRepresentSeparateWorkflowPaths()
+    {
+        var graph = Graph();
+        var branch = graph.Nodes.Single(node => node.Value.Type == NodeTypes.Condition).Key;
+        var merge = graph.Nodes.Single(node => node.Value.Type == NodeTypes.Merge).Key;
+        var split = GraphEditing.RemoveNode(graph, merge);
+        var withTrueExit = GraphEditing.AddUnconnectedNode(split, new(NodeTypes.Terminate, "1.0.0"));
+        var withFalseExit = GraphEditing.AddUnconnectedNode(withTrueExit, new(NodeTypes.Terminate, "1.0.0"));
+        var trueExitId = withTrueExit.Nodes.Single(node => node.Value.Type == NodeTypes.Terminate).Key;
+        var falseExitId = withFalseExit.Nodes.Single(node => node.Value.Type == NodeTypes.Terminate && node.Key != trueExitId).Key;
+        var withTwoExits = GraphEditing.ConnectPins(withFalseExit, branch, "true", trueExitId, "in");
+        withTwoExits = GraphEditing.ConnectPins(withTwoExits, branch, "false", falseExitId, "in");
+        var falseExit = withTwoExits.Nodes.Single(node => node.Value.Type == NodeTypes.Terminate &&
+            withTwoExits.Connections.Values.Any(edge => edge.Target.NodeId == node.Key && edge.Source.PortId == "false")).Key;
+        var configured = WorkflowTerminationEditing.SetOutcome(withTwoExits, falseExit, WorkflowTerminationOutcomes.Failure);
+
+        Assert.Empty(WorkflowValidator.Validate(configured));
+        Assert.Equal(2, configured.Nodes.Values.Count(node => node.Type == NodeTypes.Terminate));
+    }
 }

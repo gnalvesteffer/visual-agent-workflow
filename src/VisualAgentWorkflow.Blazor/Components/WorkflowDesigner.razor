@@ -7,17 +7,20 @@
     @if (definition is not null)
     {
         <div class="vaw-controls vaw-designer-toolbar">
-            <label class="vaw-workflow-search">Find workflow <input aria-label="Find workflow" @bind="workflowFilter" @bind:event="oninput" placeholder="Filter by workflow ID" /></label>
+            <label class="vaw-workflow-search">Find workflow <input aria-label="Find workflow" @bind="workflowFilter" @bind:event="oninput" placeholder="Filter by name or ID" /></label>
             <label>Saved workflow
                 <select @key="(definition.WorkflowId, generation, workflows)" aria-label="Saved workflow" value="@definition.WorkflowId" @onchange="SelectWorkflow" disabled="@(busy || dirty)">
-                    @if (generation == 0) { <option value="@definition.WorkflowId">New workflow</option> }
-                    @foreach (var item in workflows.Where(w => w.Definition.WorkflowId == definition.WorkflowId || w.Definition.WorkflowId.Contains(workflowFilter, StringComparison.OrdinalIgnoreCase))) { <option @key="item.Definition.WorkflowId" value="@item.Definition.WorkflowId">@item.Definition.WorkflowId</option> }
+                    @if (generation == 0) { <option value="@definition.WorkflowId">@WorkflowDisplayName(definition) · New workflow</option> }
+                    @foreach (var item in workflows.Where(w => w.Definition.WorkflowId == definition.WorkflowId || WorkflowMatchesFilter(w.Definition))) { <option @key="item.Definition.WorkflowId" value="@item.Definition.WorkflowId">@WorkflowDisplayName(item.Definition)</option> }
                 </select>
             </label>
             <button type="button" @onclick="NewWorkflow" disabled="@(busy || dirty)">New workflow</button>
             <button type="button" @onclick="Discard" disabled="@busy">Discard local changes and reload</button>
         </div>
-        <p class="vaw-definition-status"><strong>@definition.WorkflowId</strong> · generation @generation · @(dirty ? "Unsaved changes" : generation == 0 ? "Not saved" : "Draft saved")</p>
+        <div class="vaw-workflow-identity">
+            <label>Workflow name <input aria-label="Workflow name" value="@WorkflowDisplayName(definition)" maxlength="@WorkflowMetadataEditing.MaximumDisplayNameLength" @onchange="RenameWorkflow" /></label>
+            <p class="vaw-definition-status"><strong>@WorkflowDisplayName(definition)</strong> <code>@definition.WorkflowId</code> · generation @generation · @(dirty ? "Unsaved changes" : generation == 0 ? "Not saved" : "Draft saved")</p>
+        </div>
         @if (dirty) { <p class="vaw-help">Save or discard edits before switching workflows.</p> }
         @if (preview is not null)
         {
@@ -70,7 +73,7 @@
                         <select aria-label="Reusable workflow" value="@reusableWorkflowId" @onchange="ChooseReusableWorkflow">
                             <option value="">Choose a published workflow</option>
                             @foreach (var workflow in workflows.Where(w => w.HeadRevisionId is not null && w.Definition.WorkflowId != definition.WorkflowId))
-                            { <option @key="workflow.Definition.WorkflowId" value="@workflow.Definition.WorkflowId">@workflow.Definition.WorkflowId</option> }
+                            { <option @key="workflow.Definition.WorkflowId" value="@workflow.Definition.WorkflowId">@WorkflowDisplayName(workflow.Definition)</option> }
                         </select>
                     </label>
                     <label>Reusable version

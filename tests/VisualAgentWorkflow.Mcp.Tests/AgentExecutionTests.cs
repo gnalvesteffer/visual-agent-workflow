@@ -57,6 +57,286 @@ public class AgentExecutionTests
     }
 
     [Fact]
+    public async Task AgentTurnLimitIsRecordedAndPassedToTheFrameworkLoop()
+    {
+        var baseline = Revision().Definition;
+        var node = baseline.Nodes["step-1"];
+        var definition = baseline with
+        {
+            SchemaVersion = "1.21",
+            Nodes = baseline.Nodes.SetItem("step-1", node with { Agent = node.Agent! with { MaxTurns = 1 } })
+        };
+        var events = new List<ExecutionEvent>();
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var registration = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient((_, _, _) => Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "bounded"))
+            { FinishReason = ChatFinishReason.Stop }))
+        };
+
+        var result = await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "question",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("bounded", result);
+        Assert.NotNull(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested));
+        using var started = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentStarted).Data!);
+        Assert.Equal(1, started.RootElement.GetProperty("maximumTurns").GetInt32());
+    }
+
+    [Fact]
+    public async Task AgentAggregateTokenBudgetShrinksRemainingOutputAllowanceAcrossTurns()
+    {
+        var broker = BrokerTests.CreateBroker(policy: new DemoToolPolicy());
+        var binding = (await broker.ListBindingsAsync()).Single(tool => tool.BindingId == "demo.reverse");
+        var baseline = Revision(new ToolBindingRequest(binding.BindingId, binding.ContractHash)
+        { DescriptionHash = binding.DescriptionHash }).Definition;
+        var node = baseline.Nodes["step-1"];
+        var definition = baseline with
+        {
+            SchemaVersion = "1.22",
+            Nodes = baseline.Nodes.SetItem("step-1", node with { Agent = node.Agent! with { MaxOutputTokens = 6, MaxTotalTokens = 8 } })
+        };
+        var modelCall = 0;
+        var registration = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient((_, _, _) =>
+            {
+                modelCall++;
+                return Task.FromResult(modelCall == 1
+                    ? new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                        [new FunctionCallContent("reverse-call", "tool_0", new Dictionary<string, object?> { ["text"] = "abc" })]))
+                    { FinishReason = ChatFinishReason.ToolCalls, Usage = new UsageDetails { InputTokenCount = 3, OutputTokenCount = 1, TotalTokenCount = 4 } }
+                    : new ChatResponse(new ChatMessage(ChatRole.Assistant, "done"))
+                    { FinishReason = ChatFinishReason.Stop, Usage = new UsageDetails { InputTokenCount = 3, OutputTokenCount = 1, TotalTokenCount = 4 } });
+            })
+        };
+        var events = new List<ExecutionEvent>();
+
+        var result = await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "reverse this",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("done", result);
+        Assert.Equal(2, modelCall);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested && evt.Data!.Contains("\"maxOutputTokens\":6", StringComparison.Ordinal));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested && evt.Data!.Contains("\"maxOutputTokens\":4", StringComparison.Ordinal));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+    }
+
+    [Fact]
+    public async Task AgentAggregateTokenBudgetStopsBeforeExecutingToolsFromAnOverBudgetResponse()
+    {
+        var broker = BrokerTests.CreateBroker(policy: new DemoToolPolicy());
+        var binding = (await broker.ListBindingsAsync()).Single(tool => tool.BindingId == "demo.reverse");
+        var baseline = Revision(new ToolBindingRequest(binding.BindingId, binding.ContractHash)
+        { DescriptionHash = binding.DescriptionHash }).Definition;
+        var node = baseline.Nodes["step-1"];
+        var definition = baseline with
+        {
+            SchemaVersion = "1.22",
+            Nodes = baseline.Nodes.SetItem("step-1", node with { Agent = node.Agent! with { MaxOutputTokens = 16, MaxTotalTokens = 5 } })
+        };
+        var registration = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient((_, _, _) => Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                [new FunctionCallContent("reverse-call", "tool_0", new Dictionary<string, object?> { ["text"] = "abc" })]))
+            { FinishReason = ChatFinishReason.ToolCalls, Usage = new UsageDetails { InputTokenCount = 4, OutputTokenCount = 3, TotalTokenCount = 7 } }))
+        };
+        var events = new List<ExecutionEvent>();
+
+        var failure = await Record.ExceptionAsync(() => new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "reverse this",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.NotNull(failure);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentLimitExceeded &&
+            evt.Data!.Contains("tokens_exhausted", StringComparison.Ordinal) && evt.Data.Contains("7", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AgentAggregateTokenBudgetFailsClosedWhenProviderOmitsUsage()
+    {
+        var broker = BrokerTests.CreateBroker(policy: new DemoToolPolicy());
+        var binding = (await broker.ListBindingsAsync()).Single(tool => tool.BindingId == "demo.reverse");
+        var baseline = Revision(new ToolBindingRequest(binding.BindingId, binding.ContractHash)
+        { DescriptionHash = binding.DescriptionHash }).Definition;
+        var node = baseline.Nodes["step-1"];
+        var definition = baseline with
+        {
+            SchemaVersion = "1.22",
+            Nodes = baseline.Nodes.SetItem("step-1", node with { Agent = node.Agent! with { MaxTotalTokens = 20 } })
+        };
+        var registration = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient((_, _, _) => Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                [new FunctionCallContent("reverse-call", "tool_0", new Dictionary<string, object?> { ["text"] = "abc" })]))
+            { FinishReason = ChatFinishReason.ToolCalls }))
+        };
+        var events = new List<ExecutionEvent>();
+
+        var failure = await Record.ExceptionAsync(() => new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "reverse this",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.NotNull(failure);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed &&
+            evt.Data!.Contains("token_usage_unavailable", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AgentTurnLimitBoundsRepeatedToolCallRounds()
+    {
+        var broker = BrokerTests.CreateBroker(policy: new DemoToolPolicy());
+        var binding = (await broker.ListBindingsAsync()).Single(tool => tool.BindingId == "demo.reverse");
+        var baseline = Revision(new ToolBindingRequest(binding.BindingId, binding.ContractHash)
+        { DescriptionHash = binding.DescriptionHash }).Definition;
+        var node = baseline.Nodes["step-1"];
+        var definition = baseline with
+        {
+            SchemaVersion = "1.21",
+            Nodes = baseline.Nodes.SetItem("step-1", node with { Agent = node.Agent! with { MaxTurns = 1 } })
+        };
+        var modelResponses = 0;
+        var registration = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient((_, _, _) =>
+            {
+                modelResponses++;
+                return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                    [new FunctionCallContent("reverse-call", "tool_0", new Dictionary<string, object?> { ["text"] = "abc" })]))
+                { FinishReason = ChatFinishReason.ToolCalls });
+            })
+        };
+        var events = new List<ExecutionEvent>();
+
+        var failure = await Record.ExceptionAsync(() => new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "reverse this",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.Equal(1, modelResponses);
+        Assert.NotNull(failure);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentLimitExceeded && evt.Data!.Contains("turns_exhausted", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AgentTimeoutRecordsLimitOutcomeAndDoesNotReportCompletion()
+    {
+        var baseline = Revision().Definition;
+        var node = baseline.Nodes["step-1"];
+        var definition = baseline with
+        {
+            SchemaVersion = "1.21",
+            Nodes = baseline.Nodes.SetItem("step-1", node with { Agent = node.Agent! with { TimeoutSeconds = 1 } })
+        };
+        var events = new List<ExecutionEvent>();
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var registration = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient(async (_, _, cancellationToken) =>
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return new ChatResponse(new ChatMessage(ChatRole.Assistant, "unreachable"));
+            })
+        };
+
+        var error = await Record.ExceptionAsync(() => new PipelineRunner(broker,
+            new AgentNodeExecutor([registration], broker)).ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "question",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.NotNull(error);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentLimitExceeded && evt.Data!.Contains("timeout", StringComparison.Ordinal));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed && evt.Data!.Contains("\"outcome\":\"timeout\"", StringComparison.Ordinal));
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.AgentCompleted);
+    }
+
+    [Fact]
+    public async Task StructuredAgentResultReturnsReportedFailureAndTypedJsonOutput()
+    {
+        var baseline = Revision().Definition;
+        var node = baseline.Nodes["step-1"];
+        var definition = baseline with
+        {
+            SchemaVersion = "1.21",
+            Nodes = baseline.Nodes
+                .SetItem("step-1", node with { Agent = node.Agent! with { RequireStructuredResult = true } })
+                .SetItem("output", baseline.Nodes["output"] with { OutputDataType = "json" })
+        };
+        var calls = 0;
+        var registration = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient((_, options, _) =>
+            {
+                calls++;
+                if (calls == 1)
+                {
+                    Assert.Contains(options!.Tools!, tool => tool.Name == "submit_result");
+                    return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                        [new FunctionCallContent("result-call", "submit_result", new Dictionary<string, object?>
+                        {
+                            ["status"] = "failure",
+                            ["payload"] = "{\"reason\":\"not found\",\"attempts\":2}"
+                        })])) { FinishReason = ChatFinishReason.ToolCalls });
+                }
+                return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "Submitted."))
+                { FinishReason = ChatFinishReason.Stop });
+            })
+        };
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var events = new List<ExecutionEvent>();
+
+        var output = await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "find it",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        using var result = JsonDocument.Parse(output);
+        Assert.Equal(AgentResultStatuses.ReportedFailure, result.RootElement.GetProperty("status").GetString());
+        Assert.Equal("not found", result.RootElement.GetProperty("payload").GetProperty("reason").GetString());
+        Assert.Equal("json", WorkflowPorts.Outputs(definition.Nodes["step-1"]).Single().DataType);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentCompleted && evt.Data!.Contains("reported_failure", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task StructuredAgentTimeoutReturnsRoutableOutcomeInsteadOfFailingRun()
+    {
+        var baseline = Revision().Definition;
+        var node = baseline.Nodes["step-1"];
+        var definition = baseline with
+        {
+            SchemaVersion = "1.21",
+            Nodes = baseline.Nodes
+                .SetItem("step-1", node with { Agent = node.Agent! with { RequireStructuredResult = true, TimeoutSeconds = 1 } })
+                .SetItem("output", baseline.Nodes["output"] with { OutputDataType = "json" })
+        };
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var registration = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient(async (_, _, cancellationToken) =>
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return new ChatResponse(new ChatMessage(ChatRole.Assistant, "unreachable"));
+            })
+        };
+        var events = new List<ExecutionEvent>();
+
+        var output = await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "question",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        using var result = JsonDocument.Parse(output);
+        Assert.Equal(AgentResultStatuses.Timeout, result.RootElement.GetProperty("status").GetString());
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentOutcome && evt.Data!.Contains("timeout", StringComparison.Ordinal));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed);
+    }
+
+    [Fact]
     public async Task ParentCanInvokeOnlyItsPinnedProfileAndChildToolsUseDistinctAuditedInvocation()
     {
         var broker = BrokerTests.CreateBroker(policy: new DemoToolPolicy());

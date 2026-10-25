@@ -11,6 +11,9 @@ public sealed record WorkflowDefinition(
     ImmutableSortedDictionary<string, NodeDefinition> Nodes,
     ImmutableSortedDictionary<string, ConnectionDefinition> Connections)
 {
+    /// <summary>Optional user-facing workflow name. WorkflowId remains the stable identity used for storage and references.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DisplayName { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ImmutableSortedDictionary<string, WorkflowParameterDefinition>? Parameters { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -37,6 +40,8 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     public StringCondition? Condition { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ApprovalConfiguration? Approval { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public TerminationConfiguration? Termination { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ParameterId { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -89,6 +94,13 @@ public static class NodeTypes
 }
 
 public sealed record LoopConfiguration(StringCondition ContinueWhile, int MaximumIterations);
+public sealed record TerminationConfiguration(string Outcome);
+
+public static class WorkflowTerminationOutcomes
+{
+    public const string Success = "success";
+    public const string Failure = "failure";
+}
 
 /// <summary>An immutable, self-contained reference to the exact child release used by this node.</summary>
 public sealed record WorkflowCallConfiguration(string WorkflowId, Guid RevisionId, int Version, string ContentHash,

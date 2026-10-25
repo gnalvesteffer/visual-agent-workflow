@@ -39,10 +39,14 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         return JsonDocument.Parse(JsonSerializer.Serialize(new { type = "object", properties, required, additionalProperties = false }));
     }
 
+    private static JsonDocument StructuredResultSchema() => JsonDocument.Parse("""
+        {"type":"object","properties":{"status":{"type":"string","enum":["success","failure"]},"payload":{"type":"string","minLength":2,"maxLength":16384,"description":"A JSON object encoded as text; it must fit the node's bounded result payload limit."}},"required":["status","payload"],"additionalProperties":false}
+        """);
+
     private static string RequiredString(AIFunctionArguments arguments, string name) =>
         arguments.TryGetValue(name, out var value) && value is string text
             ? text
-            : throw new InvalidOperationException($"A channel {name} is required.");
+            : throw new InvalidOperationException($"A string value for {name} is required.");
 
     public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
         Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(Volatile.Read(ref registrations).Values.Select(r => r.Descriptor).ToArray());
@@ -56,8 +60,10 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
     }
 
     private async Task<string> ExecuteConfigurationAsync(NodeInvocationContext invocation, AgentConfiguration configuration,
-        string input, bool allowDelegation, CancellationToken cancellationToken, AgentCoordinationChannelAccess? channelAccess = null)
+        string input, bool allowDelegation, CancellationToken cancellationToken, AgentCoordinationChannelAccess? channelAccess = null,
+        AgentTokenBudget? sharedTokenBudget = null)
     {
+        var tokenBudget = sharedTokenBudget ?? (configuration.MaxTotalTokens is { } maximumTokens ? new AgentTokenBudget(maximumTokens) : null);
         if (!Volatile.Read(ref registrations).TryGetValue(Key(configuration.ProviderId, configuration.ProviderVersion), out var provider))
             throw new InvalidOperationException("The pinned agent provider is unavailable.");
         var reasoningEffort = configuration.ReasoningEffortParameterId is { } parameterId && invocation.Parameters is { } values
@@ -79,15 +85,26 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         if (instructions.Length > 65_536) throw new InvalidOperationException("Combined agent instructions exceed the prompt budget.");
         var userMessage = configuration.UserMessage is null ? input :
             PromptRendering.Render(configuration.UserMessage, input, invocation.Parameters);
+        AgentStructuredSubmission? structuredSubmission = null;
+        var toolInvocationFailed = false;
+        var lastFinishReason = "";
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         if (provider.InvocationTimeout <= TimeSpan.Zero || provider.InvocationTimeout > TimeSpan.FromMinutes(2))
             throw new InvalidOperationException("The registered agent timeout is invalid.");
-        deadline.CancelAfter(provider.InvocationTimeout);
+        var configuredTimeout = configuration.TimeoutSeconds is { } timeoutSeconds
+            ? TimeSpan.FromSeconds(timeoutSeconds)
+            : provider.InvocationTimeout;
+        var effectiveTimeout = configuredTimeout <= provider.InvocationTimeout ? configuredTimeout : provider.InvocationTimeout;
+        deadline.CancelAfter(effectiveTimeout);
         await Record(ExecutionEventKinds.AgentStarted, new
         {
             provider = provider.Descriptor,
-            timeoutSeconds = provider.InvocationTimeout.TotalSeconds,
+            timeoutSeconds = effectiveTimeout.TotalSeconds,
+            configuredTimeoutSeconds = configuration.TimeoutSeconds,
+            maximumTurns = configuration.MaxTurns ?? AgentExecutionLimits.DefaultMaximumTurns,
             maxOutputTokens = configuration.MaxOutputTokens ?? AgentOutputTokenLimits.LegacyDefault,
+            maxTotalTokens = tokenBudget?.Maximum,
+            structuredResultRequired = configuration.RequireStructuredResult == true,
             reasoningEffort,
             requestedTools = configuration.Tools.Select((binding, index) => new { functionName = $"tool_{index}", binding.BindingId, binding.ContractHash }),
             skills = assignedSkills.Select(skill => new { skill.Id, skill.Version, skill.ContentHash })
@@ -100,6 +117,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             {
                 if (allowed.Any(t => t.BindingId == requirement.BindingId)) continue;
                 await Record(ExecutionEventKinds.ToolDenied, new { requirement.BindingId, reason = "Agent tool requirement has no effective host grant." });
+                toolInvocationFailed = true;
                 throw new ToolAccessDeniedException();
             }
             string? lastSuccessfulToolResult = null;
@@ -116,9 +134,39 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                     schema.RootElement.Clone(), async (arguments, token) =>
                     {
                         var json = JsonSerializer.SerializeToElement(arguments.ToDictionary(pair => pair.Key, pair => pair.Value));
-                        var result = await scope.InvokeJsonAsync(binding.BindingId, json, token);
-                        lastSuccessfulToolResult = result;
-                        return result;
+                        try
+                        {
+                            var result = await scope.InvokeJsonAsync(binding.BindingId, json, token);
+                            lastSuccessfulToolResult = result;
+                            return result;
+                        }
+                        catch
+                        {
+                            toolInvocationFailed = true;
+                            throw;
+                        }
+                    }));
+            }
+            if (configuration.RequireStructuredResult == true)
+            {
+                using var resultSchema = StructuredResultSchema();
+                functions.Add(new BoundMcpFunction("submit_result",
+                    "Submit the required bounded JSON object result exactly once. status must be success or failure; payload must be a JSON object encoded as text.",
+                    resultSchema.RootElement.Clone(), (arguments, _) =>
+                    {
+                        var status = RequiredString(arguments, "status");
+                        if (status is not ("success" or "failure"))
+                            throw new InvalidOperationException("The structured result status must be success or failure.");
+                        var payloadText = RequiredString(arguments, "payload");
+                        if (payloadText.Length > AgentResultLimits.MaximumPayloadCharacters)
+                            throw new InvalidOperationException("The structured result payload exceeds its size limit.");
+                        using var payload = JsonDocument.Parse(payloadText, new JsonDocumentOptions { MaxDepth = 16 });
+                        if (payload.RootElement.ValueKind != JsonValueKind.Object || HasDuplicateProperties(payload.RootElement))
+                            throw new InvalidOperationException("The structured result payload must be a JSON object without duplicate properties.");
+                        var submission = new AgentStructuredSubmission(status, payload.RootElement.GetRawText());
+                        if (Interlocked.CompareExchange(ref structuredSubmission, submission, null) is not null)
+                            throw new InvalidOperationException("A structured result can be submitted only once.");
+                        return ValueTask.FromResult<string>("Structured result accepted.");
                     }));
             }
             if (channelAccess is { } channels)
@@ -187,7 +235,8 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                     {
                         Skills = profile.Skills?.Select(skill => new SkillReference(skill.Id, skill.Version, skill.ContentHash)).ToImmutableArray(),
                         ReasoningEffort = profile.ReasoningEffort,
-                        MaxOutputTokens = profile.MaxOutputTokens
+                        MaxOutputTokens = profile.MaxOutputTokens,
+                        MaxTotalTokens = tokenBudget?.Maximum
                     };
                     await childContext.RecordEventAsync(ExecutionEventKinds.AgentStarted, JsonSerializer.Serialize(new
                     {
@@ -201,7 +250,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                     try
                     {
                         var result = await ExecuteConfigurationAsync(childContext, childConfiguration, task, false, token,
-                            channels is null ? null : new(channels, profile));
+                            channels is null ? null : new(channels, profile), tokenBudget);
                         await childContext.RecordEventAsync(ExecutionEventKinds.AgentCompleted, JsonSerializer.Serialize(new
                         {
                             delegatedProfileId = profile.Id,
@@ -313,9 +362,11 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                         }));
                 }
             }
-            using var client = new FunctionInvokingChatClient(new RecordingClient(provider.Create(), invocation))
+            var maximumTurns = configuration.MaxTurns ?? AgentExecutionLimits.DefaultMaximumTurns;
+            using var client = new FunctionInvokingChatClient(new RecordingClient(provider.Create(), invocation, maximumTurns,
+                tokenBudget, response => lastFinishReason = response.FinishReason?.ToString() ?? ""))
             {
-                MaximumIterationsPerRequest = 8,
+                MaximumIterationsPerRequest = maximumTurns,
                 MaximumConsecutiveErrorsPerRequest = 1,
                 AllowConcurrentInvocation = false,
                 IncludeDetailedErrors = false
@@ -326,7 +377,9 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                 UseProvidedChatClientAsIs = true,
             ChatOptions = new ChatOptions
             {
-                Instructions = instructions,
+                Instructions = configuration.RequireStructuredResult == true
+                    ? instructions + "\n\nThis node requires a structured result. Call submit_result exactly once with status success or failure and a JSON object payload. Free-form text alone does not complete the task."
+                    : instructions,
                 Tools = functions,
                 MaxOutputTokens = configuration.MaxOutputTokens ?? AgentOutputTokenLimits.LegacyDefault,
                 Reasoning = reasoningEffort is { } effort
@@ -342,6 +395,16 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             }
             });
             var response = await agent.RunAsync(userMessage, cancellationToken: deadline.Token);
+            if (configuration.RequireStructuredResult == true)
+            {
+                var submission = Volatile.Read(ref structuredSubmission);
+                if (submission is null)
+                    return await StructuredOutcomeAsync(lastFinishReason == "Length" ? AgentResultStatuses.TokensExhausted : AgentResultStatuses.InvalidResult,
+                        lastFinishReason == "Length" ? "The model response reached its output-token cap before submitting a result." : "The agent did not submit a valid structured result.");
+                var status = submission.Status == "success" ? AgentResultStatuses.Success : AgentResultStatuses.ReportedFailure;
+                await Record(ExecutionEventKinds.AgentCompleted, new { status, payload = JsonDocument.Parse(submission.PayloadJson).RootElement.Clone() });
+                return StructuredResultJson(status, submission.PayloadJson);
+            }
             var output = response.Text;
             var completionMode = "model-response";
             if (string.IsNullOrWhiteSpace(output) && lastSuccessfulToolResult is not null)
@@ -357,54 +420,182 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             await Record(ExecutionEventKinds.AgentCompleted, new { output, completionMode });
             return output;
         }
+        catch (AgentTurnLimitException)
+        {
+            await Record(ExecutionEventKinds.AgentLimitExceeded, new
+            {
+                outcome = "turns_exhausted",
+                maximumTurns = configuration.MaxTurns ?? AgentExecutionLimits.DefaultMaximumTurns
+            });
+            if (configuration.RequireStructuredResult == true)
+                return await StructuredOutcomeAsync(AgentResultStatuses.TurnsExhausted, "The agent reached its configured model-turn limit.");
+            await Record(ExecutionEventKinds.AgentFailed, new { outcome = "turns_exhausted", reason = "The agent reached its configured model-turn limit." });
+            throw new InvalidOperationException("The agent reached its configured model-turn limit.");
+        }
+        catch (AgentTokenLimitException failure)
+        {
+            await Record(ExecutionEventKinds.AgentLimitExceeded, new
+            {
+                outcome = AgentResultStatuses.TokensExhausted,
+                maximumTokens = failure.MaximumTokens,
+                observedTokens = failure.ObservedTokens
+            });
+            if (configuration.RequireStructuredResult == true)
+                return await StructuredOutcomeAsync(AgentResultStatuses.TokensExhausted, "The agent reached its configured reported-token limit.");
+            await Record(ExecutionEventKinds.AgentFailed, new { outcome = AgentResultStatuses.TokensExhausted, reason = "The agent reached its configured reported-token limit." });
+            throw new InvalidOperationException("The agent reached its configured reported-token limit.");
+        }
+        catch (AgentTokenUsageUnavailableException)
+        {
+            if (configuration.RequireStructuredResult == true)
+                return await StructuredOutcomeAsync(AgentResultStatuses.TokenUsageUnavailable, "The provider did not report usage required by the configured token budget.");
+            await Record(ExecutionEventKinds.AgentFailed, new
+            {
+                outcome = AgentResultStatuses.TokenUsageUnavailable,
+                reason = "The configured aggregate token budget requires provider-reported usage."
+            });
+            throw new InvalidOperationException("The provider did not report token usage required by the configured aggregate budget.");
+        }
         catch (OperationCanceledException)
         {
-            await Record(ExecutionEventKinds.AgentFailed, new { reason = "Agent cancelled or timed out. Provider outcome may be unknown; no automatic retry." });
-            if (cancellationToken.IsCancellationRequested) throw;
+            if (cancellationToken.IsCancellationRequested)
+            {
+                await Record(ExecutionEventKinds.AgentFailed, new { outcome = "cancelled", reason = "The host cancelled the agent invocation." });
+                throw;
+            }
+            await Record(ExecutionEventKinds.AgentLimitExceeded, new { outcome = "timeout", timeoutSeconds = effectiveTimeout.TotalSeconds });
+            if (configuration.RequireStructuredResult == true)
+                return await StructuredOutcomeAsync(AgentResultStatuses.Timeout, "The agent reached its configured time limit.");
+            await Record(ExecutionEventKinds.AgentFailed, new { outcome = "timeout", reason = "The agent reached its configured time limit. Provider outcome may be unknown; no automatic retry." });
             throw new InvalidOperationException("The agent operation timed out.");
         }
         catch (AgentProviderRequestException failure)
         {
+            if (configuration.RequireStructuredResult == true)
+                return await StructuredOutcomeAsync(AgentResultStatuses.ProviderError, "The configured provider request failed.");
             await Record(ExecutionEventKinds.AgentFailed, new { reason = "Configured provider request failed; no automatic retry.",
                 failureKind = failure.FailureKind.ToString(), statusCode = failure.StatusCode });
             throw;
         }
         catch
         {
+            if (configuration.RequireStructuredResult == true)
+                return await StructuredOutcomeAsync(toolInvocationFailed ? AgentResultStatuses.ToolError : AgentResultStatuses.ExecutionError,
+                    toolInvocationFailed ? "An assigned tool invocation failed." : "Agent execution failed.");
             await Record(ExecutionEventKinds.AgentFailed, new { reason = "Agent execution failed." });
             throw;
         }
 
         ValueTask Record(string kind, object payload) => invocation.RecordEventAsync(kind, JsonSerializer.Serialize(payload));
+
+        async Task<string> StructuredOutcomeAsync(string status, string message)
+        {
+            await Record(ExecutionEventKinds.AgentOutcome, new { status, message });
+            return StructuredResultJson(status, null, message);
+        }
     }
 
-    private sealed class RecordingClient(IChatClient inner, NodeInvocationContext invocation) : DelegatingChatClient(inner)
+    private static string StructuredResultJson(string status, string? payloadJson, string? message = null)
     {
+        JsonElement? payload = null;
+        if (payloadJson is not null)
+        {
+            using var document = JsonDocument.Parse(payloadJson, new JsonDocumentOptions { MaxDepth = 16 });
+            payload = document.RootElement.Clone();
+        }
+        return JsonSerializer.Serialize(new { status, payload, message });
+    }
+
+    private static bool HasDuplicateProperties(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var property in element.EnumerateObject())
+                if (!names.Add(property.Name) || HasDuplicateProperties(property.Value)) return true;
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+                if (HasDuplicateProperties(item)) return true;
+        }
+        return false;
+    }
+
+    private sealed record AgentStructuredSubmission(string Status, string PayloadJson);
+
+    private sealed class AgentTokenBudget(int maximum)
+    {
+        private long reportedTokens;
+        private int usageUnavailable;
+
+        public int Maximum { get; } = maximum;
+        public long ReportedTokens => Volatile.Read(ref reportedTokens);
+        public long Remaining => Volatile.Read(ref usageUnavailable) == 0 ? Math.Max(0, Maximum - ReportedTokens) : 0;
+        public bool UsageUnavailable => Volatile.Read(ref usageUnavailable) != 0;
+
+        public void MarkUsageUnavailable() => Interlocked.Exchange(ref usageUnavailable, 1);
+
+        public void Record(long usage)
+        {
+            var total = Interlocked.Add(ref reportedTokens, Math.Max(0, usage));
+            if (total > Maximum) throw new AgentTokenLimitException(Maximum, total);
+        }
+    }
+
+    private sealed class RecordingClient(IChatClient inner, NodeInvocationContext invocation, int maximumTurns, AgentTokenBudget? tokenBudget,
+        Action<ChatResponse>? responseObserved = null) : DelegatingChatClient(inner)
+    {
+        private int turns;
+
         public override async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
         {
+            var turn = Interlocked.Increment(ref turns);
+            if (turn > maximumTurns) throw new AgentTurnLimitException();
+            if (tokenBudget?.UsageUnavailable == true) throw new AgentTokenUsageUnavailableException();
+            var effectiveOptions = options?.Clone();
+            if (tokenBudget is { } requestBudget && effectiveOptions?.MaxOutputTokens is { } requestedOutputTokens)
+            {
+                var remainingTokens = requestBudget.Remaining;
+                if (remainingTokens <= 0) throw new AgentTokenLimitException(requestBudget.Maximum, requestBudget.ReportedTokens);
+                effectiveOptions.MaxOutputTokens = Math.Min(requestedOutputTokens, (int)remainingTokens);
+            }
             var snapshot = messages.ToArray();
             var modelCallId = Guid.NewGuid();
             await Record(ExecutionEventKinds.ModelRequested, new
             {
                 modelCallId,
-                instructions = options?.Instructions,
-                reasoningEffort = options?.Reasoning?.Effort?.ToString(),
-                maxOutputTokens = options?.MaxOutputTokens,
+                instructions = effectiveOptions?.Instructions,
+                reasoningEffort = effectiveOptions?.Reasoning?.Effort?.ToString(),
+                maxOutputTokens = effectiveOptions?.MaxOutputTokens,
                 messages = Project(snapshot),
-                tools = options?.Tools?.Select(t => t.Name).ToArray(),
-                toolDeclarations = options?.Tools?.OfType<AIFunctionDeclaration>()
+                tools = effectiveOptions?.Tools?.Select(t => t.Name).ToArray(),
+                toolDeclarations = effectiveOptions?.Tools?.OfType<AIFunctionDeclaration>()
                     .Select(tool => new { tool.Name, tool.Description, inputSchema = tool.JsonSchema }).ToArray()
             });
-            var response = await InnerClient.GetResponseAsync(snapshot, options, cancellationToken).WaitAsync(cancellationToken);
+            var response = await InnerClient.GetResponseAsync(snapshot, effectiveOptions, cancellationToken).WaitAsync(cancellationToken);
             await Record(ExecutionEventKinds.ModelResponded, new
             {
                 modelCallId,
                 response.ModelId,
                 response.ResponseId,
                 finishReason = response.FinishReason?.ToString(),
-                usage = response.Usage is { } usage ? new { usage.InputTokenCount, usage.OutputTokenCount, usage.TotalTokenCount } : null,
+                usage = response.Usage is { } recordedUsage ? new { recordedUsage.InputTokenCount, recordedUsage.OutputTokenCount, recordedUsage.TotalTokenCount } : null,
                 messages = Project(response.Messages)
             });
+            responseObserved?.Invoke(response);
+            if (tokenBudget is { } responseBudget)
+            {
+                var usageDetails = response.Usage;
+                if (usageDetails is null)
+                {
+                    responseBudget.MarkUsageUnavailable();
+                    throw new AgentTokenUsageUnavailableException();
+                }
+                long reported = usageDetails.TotalTokenCount ?? 0;
+                if (reported <= 0) reported = Math.Max(0L, usageDetails.InputTokenCount ?? 0) + Math.Max(0L, usageDetails.OutputTokenCount ?? 0);
+                responseBudget.Record(reported);
+            }
             return response;
         }
 
@@ -427,6 +618,16 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             }).ToArray()
         }).ToArray();
     }
+
+    private sealed class AgentTurnLimitException() : InvalidOperationException("The configured agent turn limit was reached.");
+    private sealed class AgentTokenLimitException(int maximumTokens, long observedTokens)
+        : InvalidOperationException("The configured aggregate token limit was reached.")
+    {
+        public int MaximumTokens { get; } = maximumTokens;
+        public long ObservedTokens { get; } = observedTokens;
+    }
+    private sealed class AgentTokenUsageUnavailableException()
+        : InvalidOperationException("The provider did not report token usage required by the configured aggregate budget.");
 
     private sealed class BoundMcpFunction(string name, string description, JsonElement schema,
         Func<AIFunctionArguments, CancellationToken, ValueTask<string>> invoke) : AIFunction

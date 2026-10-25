@@ -68,15 +68,16 @@ public static class PipelineEditing
 
     public static WorkflowDefinition ChangeOperation(WorkflowDefinition definition, string nodeId, string type)
     {
-        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!WorkflowDraftEditing.HasOnlyIncompleteTopologyIssues(definition)) WorkflowValidator.ThrowIfInvalid(definition);
         RequireTransformNode(definition, nodeId);
         RequireTransform(type);
-        return definition with { Nodes = definition.Nodes.SetItem(nodeId, new(type, "1.0.0")) };
+        return WorkflowDraftEditing.ValidateEdit(definition,
+            definition with { Nodes = definition.Nodes.SetItem(nodeId, new(type, "1.0.0")) });
     }
 
     public static WorkflowDefinition ReplaceNode(WorkflowDefinition definition, string nodeId, NodeDefinition node)
     {
-        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!WorkflowDraftEditing.HasOnlyIncompleteTopologyIssues(definition)) WorkflowValidator.ThrowIfInvalid(definition);
         RequireTransformNode(definition, nodeId);
         RequireEditable(node.Type);
         var result = definition with
@@ -84,8 +85,7 @@ public static class PipelineEditing
             SchemaVersion = SchemaFor(definition, node),
             Nodes = definition.Nodes.SetItem(nodeId, node)
         };
-        WorkflowValidator.ThrowIfInvalid(result);
-        return result;
+        return WorkflowDraftEditing.ValidateEdit(definition, result);
     }
 
     internal static WorkflowDefinition Reconnect(WorkflowDefinition definition, IReadOnlyList<string> order)
@@ -115,14 +115,15 @@ public static class PipelineEditing
     }
 
     internal static string SchemaFor(WorkflowDefinition definition, NodeDefinition node) =>
-        node.Type == NodeTypes.WorkflowCall ? "1.19" :
-        node.Type == NodeTypes.Terminate ? definition.SchemaVersion == "1.19" ? "1.19" : "1.18" :
-        node.Type is NodeTypes.Loop or NodeTypes.LoopBody ? "1.17" :
-        node.Type == NodeTypes.JsonProject && node.JsonProjection?.Fields.Any(field => field.ValueSchema is not null) == true ? definition.SchemaVersion is "1.19" or "1.18" or "1.17" ? definition.SchemaVersion : "1.16" :
-        node.Type == NodeTypes.JsonProject && node.JsonProjection?.Fields.Any(field => field.ValueType is not null) == true ? definition.SchemaVersion is "1.19" or "1.18" or "1.17" or "1.16" ? definition.SchemaVersion : "1.15" :
-        node.Type == NodeTypes.JsonProject && definition.SchemaVersion is not ("1.14" or "1.15" or "1.19" or "1.18" or "1.17" or "1.16") ? "1.13" :
-        node.Type == NodeTypes.TextTemplate && definition.SchemaVersion is not ("1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.18" or "1.17" or "1.16") ? "1.7" :
-        definition.SchemaVersion is "1.19" or "1.18" or "1.17" or "1.16" ? definition.SchemaVersion : definition.SchemaVersion == "1.15" ? "1.15" : definition.SchemaVersion == "1.14" ? "1.14" : definition.SchemaVersion == "1.13" ? "1.13" : definition.SchemaVersion == "1.12" ? "1.12" : definition.SchemaVersion == "1.11" ? "1.11" : definition.SchemaVersion == "1.10" ? "1.10" : definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : definition.SchemaVersion == "1.4" ? "1.4" : definition.SchemaVersion == "1.3" || node.Origin is not null ? "1.3" : node.Type == NodeTypes.Agent
+        node.Type == NodeTypes.WorkflowCall ? definition.SchemaVersion is "1.22" or "1.21" or "1.20" ? definition.SchemaVersion : "1.19" :
+        node.Type == NodeTypes.Terminate ? definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" ? definition.SchemaVersion : "1.18" :
+        node.Type is NodeTypes.Condition or NodeTypes.Merge ? definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" or "1.8" or "1.7" or "1.6" or "1.5" or "1.4" ? definition.SchemaVersion : "1.4" :
+        node.Type is NodeTypes.Loop or NodeTypes.LoopBody ? definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" ? definition.SchemaVersion : "1.17" :
+        node.Type == NodeTypes.JsonProject && node.JsonProjection?.Fields.Any(field => field.ValueSchema is not null) == true ? definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" ? definition.SchemaVersion : "1.16" :
+        node.Type == NodeTypes.JsonProject && node.JsonProjection?.Fields.Any(field => field.ValueType is not null) == true ? definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" ? definition.SchemaVersion : "1.15" :
+        node.Type == NodeTypes.JsonProject && definition.SchemaVersion is not ("1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16") ? "1.13" :
+        node.Type == NodeTypes.TextTemplate && definition.SchemaVersion is not ("1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16") ? "1.7" :
+        definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" ? definition.SchemaVersion : definition.SchemaVersion == "1.15" ? "1.15" : definition.SchemaVersion == "1.14" ? "1.14" : definition.SchemaVersion == "1.13" ? "1.13" : definition.SchemaVersion == "1.12" ? "1.12" : definition.SchemaVersion == "1.11" ? "1.11" : definition.SchemaVersion == "1.10" ? "1.10" : definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : definition.SchemaVersion == "1.4" ? "1.4" : definition.SchemaVersion == "1.3" || node.Origin is not null ? "1.3" : node.Type == NodeTypes.Agent
             ? "1.2" : node.Type == NodeTypes.McpTool && definition.SchemaVersion == "1.0" ? "1.1" : definition.SchemaVersion;
 
     private static void RequireTransform(string type)

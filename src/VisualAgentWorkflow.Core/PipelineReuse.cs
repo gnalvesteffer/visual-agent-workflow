@@ -32,16 +32,21 @@ public static class PipelineReuse
             .Add(input, new(NodeTypes.Input, "1.0.0")).Add(output, new(NodeTypes.Output, "1.0.0"));
         var definition = PipelineEditing.Reconnect(source with
         {
-            WorkflowId = workflowId, EntryNodeId = input, Nodes = nodes,
+            WorkflowId = workflowId,
+            EntryNodeId = input,
+            Nodes = nodes,
             Connections = source.Connections.Where(p => members.Contains(p.Value.Source.NodeId) && members.Contains(p.Value.Target.NodeId))
                 .ToImmutableSortedDictionary(StringComparer.Ordinal)
         }, new[] { input }.Concat(selection).Append(output).ToArray());
         var presentation = layout.Reconcile(definition);
         var first = layout.Nodes[selection[0]].Position;
         var last = layout.Nodes[selection[^1]].Position;
-        presentation = presentation with { Nodes = presentation.Nodes
+        presentation = presentation with
+        {
+            Nodes = presentation.Nodes
             .SetItem(input, new(new(Math.Max(0, first.X - 360), first.Y)))
-            .SetItem(output, new(new(Math.Min(WorkflowLayoutJson.MaximumCoordinate, last.X + 360), last.Y))) };
+            .SetItem(output, new(new(Math.Min(WorkflowLayoutJson.MaximumCoordinate, last.X + 360), last.Y)))
+        };
         WorkflowLayoutJson.Validate(presentation, definition);
         return new(definition, presentation);
     }
@@ -129,7 +134,7 @@ public static class PipelineReuse
         order.InsertRange(position + 1, steps.Select(id => ids[id]));
         var definition = PipelineEditing.Reconnect(target with
         {
-            SchemaVersion = target.SchemaVersion == "1.19" || source.SchemaVersion == "1.19" ? "1.19" : target.SchemaVersion == "1.18" || source.SchemaVersion == "1.18" ? "1.18" : target.SchemaVersion == "1.17" || source.SchemaVersion == "1.17" ? "1.17" : target.SchemaVersion == "1.16" || source.SchemaVersion == "1.16" ? "1.16" : target.SchemaVersion == "1.15" || source.SchemaVersion == "1.15" ? "1.15" : target.SchemaVersion == "1.14" || source.SchemaVersion == "1.14" ? "1.14" : target.SchemaVersion == "1.13" || source.SchemaVersion == "1.13" ? "1.13" : target.SchemaVersion == "1.12" || source.SchemaVersion == "1.12" ? "1.12" : target.SchemaVersion == "1.11" || source.SchemaVersion == "1.11" ? "1.11" : target.SchemaVersion == "1.10" || source.SchemaVersion == "1.10" ? "1.10" : target.SchemaVersion == "1.9" || source.SchemaVersion == "1.9" ? "1.9" :
+            SchemaVersion = target.SchemaVersion == "1.22" || source.SchemaVersion == "1.22" ? "1.22" : target.SchemaVersion == "1.21" || source.SchemaVersion == "1.21" ? "1.21" : target.SchemaVersion == "1.20" || source.SchemaVersion == "1.20" ? "1.20" : target.SchemaVersion == "1.19" || source.SchemaVersion == "1.19" ? "1.19" : target.SchemaVersion == "1.18" || source.SchemaVersion == "1.18" ? "1.18" : target.SchemaVersion == "1.17" || source.SchemaVersion == "1.17" ? "1.17" : target.SchemaVersion == "1.16" || source.SchemaVersion == "1.16" ? "1.16" : target.SchemaVersion == "1.15" || source.SchemaVersion == "1.15" ? "1.15" : target.SchemaVersion == "1.14" || source.SchemaVersion == "1.14" ? "1.14" : target.SchemaVersion == "1.13" || source.SchemaVersion == "1.13" ? "1.13" : target.SchemaVersion == "1.12" || source.SchemaVersion == "1.12" ? "1.12" : target.SchemaVersion == "1.11" || source.SchemaVersion == "1.11" ? "1.11" : target.SchemaVersion == "1.10" || source.SchemaVersion == "1.10" ? "1.10" : target.SchemaVersion == "1.9" || source.SchemaVersion == "1.9" ? "1.9" :
                 target.SchemaVersion == "1.8" || source.SchemaVersion == "1.8" ? "1.8" :
                 target.SchemaVersion == "1.7" || source.SchemaVersion == "1.7" ? "1.7" :
                 target.SchemaVersion == "1.6" || parameterMap.Count > 0 ? "1.6" : "1.3",

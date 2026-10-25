@@ -43,7 +43,7 @@
                 @foreach (var run in runs.Where(MatchesRunFilter).Take(50))
                 {
                     <li @key="run.Header.RunId"><button type="button" @onclick="() => SelectRun(run.Header.RunId)" aria-pressed="@(snapshot?.Header.RunId == run.Header.RunId ? "true" : "false")">
-                        <strong>@run.Header.Definition.WorkflowId</strong>
+                        <strong>@(string.IsNullOrWhiteSpace(run.Header.Definition.DisplayName) ? run.Header.Definition.WorkflowId : run.Header.Definition.DisplayName)</strong>
                         <span class="vaw-history-status">@run.Status</span>
                         <time datetime="@run.Header.CreatedAt.ToString("O")">@run.Header.CreatedAt.ToString("MMM d, HH:mm:ss")</time>
                         <small>@run.Header.RunId.ToString()[..8]</small>

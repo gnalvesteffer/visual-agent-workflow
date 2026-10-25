@@ -59,6 +59,8 @@ public static class ExecutionEventKinds
     public const string AgentStarted = "agent.started";
     public const string AgentCompleted = "agent.completed";
     public const string AgentFailed = "agent.failed";
+    public const string AgentLimitExceeded = "agent.limit_exceeded";
+    public const string AgentOutcome = "agent.outcome";
     public const string AgentTeamStarted = "agent.team.started";
     public const string AgentTeamCompleted = "agent.team.completed";
     public const string AgentTeamFailed = "agent.team.failed";

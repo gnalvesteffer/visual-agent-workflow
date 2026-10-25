@@ -67,6 +67,10 @@
 .vaw-help { color: var(--vaw-muted); font-size: 0.8125rem; max-inline-size: 75ch; }
 .vaw-definition-status { margin-block: var(--vaw-space-2); color: var(--vaw-muted); font-size: 0.8125rem; }
 .vaw-definition-status strong { color: var(--vaw-text); font-weight: 500; }
+.vaw-workflow-identity { display: flex; flex-wrap: wrap; align-items: end; gap: var(--vaw-space-3); margin-block: var(--vaw-space-2); }
+.vaw-workflow-identity label { flex: 0 1 18rem; margin: 0; }
+.vaw-workflow-identity .vaw-definition-status { margin: 0 0 var(--vaw-space-2); }
+.vaw-definition-status code { margin-inline-start: var(--vaw-space-2); color: var(--vaw-muted); font-size: 0.75rem; }
 .vaw-empty-state { border-inline-start: 3px solid var(--vaw-accent); padding-inline-start: var(--vaw-space-4); }
 .vaw-empty-state p { margin-block-end: 0; color: var(--vaw-muted); font-size: 0.875rem; }
 

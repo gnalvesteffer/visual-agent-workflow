@@ -129,7 +129,7 @@ public partial class WorkflowGraphCanvas
                     return;
                 }
                 browserSession = session;
-                zoom = Math.Clamp(await browserSession.InvokeAsync<double>("fit"), 0.25, 1.5);
+                zoom = Math.Clamp(await browserSession.InvokeAsync<double>("center"), 0.25, 1.5);
                 ready = true;
                 StateHasChanged();
             }
@@ -298,7 +298,12 @@ public partial class WorkflowGraphCanvas
     }
 
     [JSInvokable]
-    public Task DeleteSelection() => !disposed && !Disabled && EnableContextMenu && selectedNode is not null ? DeleteNodeRequested.InvokeAsync(selectedNode) : Task.CompletedTask;
+    public Task DeleteSelection(string? focusedNodeId = null)
+    {
+        var target = focusedNodeId is not null && Definition.Nodes.ContainsKey(focusedNodeId) ? focusedNodeId : selectedNode;
+        return !disposed && !Disabled && EnableContextMenu && target is not null
+            ? DeleteNodeRequested.InvokeAsync(target) : Task.CompletedTask;
+    }
 
     private static GraphPoint RelativeSnap(GraphPoint origin, double x, double y) => new(
         Math.Clamp(origin.X + Math.Round((x - origin.X) / 8) * 8, 0, WorkflowLayoutJson.MaximumCoordinate),

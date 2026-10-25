@@ -40,7 +40,7 @@
     <ToolbarContent>@EditorActions</ToolbarContent>
     <NodeLibrary>
         <WorkflowNodeLibrary Entries="LibraryEntries()" Disabled="Disabled" OnSelected="key => AddLibraryNode(key)" />
-        <p class="vaw-help">Click to insert on the selected path, or drag to place. Drop on a wire to insert there.</p>
+        <p class="vaw-help">Click to add an unconnected node. Connect its pins when ready; use a wire menu to explicitly insert into a path.</p>
         <p class="vaw-insertion-hint">@InsertionDescription(null)</p>
         @if (SelectedOutputs.Length > 1)
         {
@@ -270,6 +270,20 @@
                             <button type="button" @onclick="() => RemoveSelected(id)" disabled="@Disabled" aria-label="Remove merge @id">Remove merge and split paths</button>
                         }
                     }
+                    else if (node.Type == NodeTypes.Terminate)
+                    {
+                        var outcome = node.Termination?.Outcome ?? WorkflowTerminationOutcomes.Success;
+                        @if (!ReadOnly)
+                        {
+                            <label>Run outcome
+                                <select aria-label="Run outcome for @id" value="@outcome" @onchange="args => SetTerminationOutcome(id, args)" disabled="@Disabled">
+                                    <option value="@WorkflowTerminationOutcomes.Success">Success</option>
+                                    <option value="@WorkflowTerminationOutcomes.Failure">Failure</option>
+                                </select>
+                            </label>
+                        }
+                        <p>A successful end is recorded as <strong>Terminated</strong>; a failure end is recorded as a failed run with no result.</p>
+                    }
                     else if (terminal || ReadOnly)
                     {
                         <p>@node.Type</p>
@@ -299,7 +313,7 @@
                             <button type="button" @onclick="() => Edit(() => PipelineEditing.Move(Definition, id, -1))" disabled="@(Disabled || index == 1)" aria-label="Move @id up">Move up</button>
                             <button type="button" @onclick="() => Edit(() => PipelineEditing.Move(Definition, id, 1))" disabled="@(Disabled || index == Order.Length - 2)" aria-label="Move @id down">Move down</button>
                             }
-                            <button type="button" @onclick="() => Edit(() => UsesGraphEditing ? GraphEditing.RemoveNode(Definition, id) : PipelineEditing.Remove(Definition, id))" disabled="@(Disabled || GuardedTool(id))" aria-label="Remove @id">Remove</button>
+                            <button type="button" @onclick="() => Edit(() => UseGraphRemoval ? GraphEditing.RemoveNode(Definition, id) : PipelineEditing.Remove(Definition, id))" disabled="@(Disabled || GuardedTool(id))" aria-label="Remove @id">Remove</button>
                         </div>
                     }
                     @if (!ReadOnly && node.Type is not (NodeTypes.Approval or NodeTypes.ParallelFork or NodeTypes.Loop) && WorkflowPorts.Outputs(node).Length > 0)
@@ -321,7 +335,7 @@
                             {
                                 <button type="button" @onclick="() => InsertAfter(id, port.Id)" disabled="@(Disabled || Definition.Nodes.Count >= 256)" aria-label="Add node after @PortLabel(id, port.Id)">+ Add node after @port.Id</button>
                                 @if (!IsParallelBranchPath(new(id, port.Id)) && !Definition.Nodes.Values.Any(existing => existing.Type == NodeTypes.Loop))
-                                { <button type="button" @onclick="() => Edit(() => GraphEditing.InsertConditionalAfter(Definition, id, port.Id))" disabled="@(Disabled || Definition.Nodes.Count > 254)" aria-label="Add condition after @PortLabel(id, port.Id)">+ Condition after @port.Id</button> }
+                                { <button type="button" @onclick="AddConditionNode" disabled="@(Disabled || Definition.Nodes.Count >= 256)" aria-label="Add condition node near @PortLabel(id, port.Id)">+ Condition node</button> }
                             }
                         }
                     }
@@ -349,6 +363,24 @@
                                 <input aria-label="Maximum output tokens for @id" type="number" min="@AgentOutputTokenLimits.Minimum" max="@AgentOutputTokenLimits.Maximum" step="256" value="@(agent.MaxOutputTokens ?? AgentOutputTokenLimits.LegacyDefault)" @onchange="args => MaxOutputTokens(id, args)" disabled="@Disabled" />
                             </label>
                             <p class="vaw-help">Caps each model response. The endpoint may enforce a lower model-specific limit.</p>
+                            <label>Maximum total tokens
+                                <input aria-label="Maximum total tokens for @id" type="number" min="@AgentTotalTokenLimits.Minimum" max="@AgentTotalTokenLimits.Maximum" value="@agent.MaxTotalTokens" placeholder="No agent limit" @onchange="args => MaxTotalTokens(id, args)" disabled="@Disabled" />
+                            </label>
+                            <p class="vaw-help">Caps provider-reported input plus output tokens across this agent and its delegated profiles. Requires provider usage reporting. Oversized prompts and parallel requests already in flight can exceed the limit.</p>
+                            <label>Maximum model turns
+                                <input aria-label="Maximum model turns for @id" type="number" min="@AgentExecutionLimits.MinimumTurns" max="@AgentExecutionLimits.MaximumTurns" value="@(agent.MaxTurns ?? AgentExecutionLimits.DefaultMaximumTurns)" @onchange="args => MaxTurns(id, args)" disabled="@Disabled" />
+                            </label>
+                            <p class="vaw-help">Limits how many model responses this agent can request, including tool-call rounds. Default: @AgentExecutionLimits.DefaultMaximumTurns.</p>
+                            <label><input aria-label="Require structured result for @id" type="checkbox" checked="@(agent.RequireStructuredResult == true)" @onchange="args => RequireStructuredResult(id, args)" disabled="@Disabled" /> Require a structured result</label>
+                            <p class="vaw-help">Adds a built-in submit_result tool. The node returns JSON with status and payload; select status to route success, reported failure, or runtime limit outcomes.</p>
+                            <label>Agent timeout in seconds
+                                <input aria-label="Agent timeout in seconds for @id" type="number" min="@AgentExecutionLimits.MinimumTimeoutSeconds" max="@AgentExecutionLimits.MaximumTimeoutSeconds" value="@agent.TimeoutSeconds" placeholder="Host default" @onchange="args => AgentTimeout(id, args)" disabled="@Disabled" />
+                            </label>
+                            <p class="vaw-help">Optional node timeout. The host's provider timeout remains the hard upper bound; default: host-configured.</p>
+                        }
+                        else
+                        {
+                            <p>Limits: @(agent.MaxOutputTokens ?? AgentOutputTokenLimits.LegacyDefault) output tokens per response, @(agent.MaxTotalTokens?.ToString() ?? "no total-token cap") reported total tokens, @(agent.MaxTurns ?? AgentExecutionLimits.DefaultMaximumTurns) model turns, and @(agent.TimeoutSeconds is { } seconds ? $"{seconds} seconds" : "host-configured timeout"). Structured result: @(agent.RequireStructuredResult == true ? "required" : "disabled").</p>
                         }
                         @if (!ReadOnly && Providers.FirstOrDefault(p => p.ProviderId == agent.ProviderId && p.Version == agent.ProviderVersion) is { SupportsReasoningEffort: true })
                         {
@@ -469,7 +501,7 @@
     private string newParameterDescription = "";
     private System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition> ParameterDefinitions =>
         Definition.Parameters ?? System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
-    private string CapabilitySchema => Definition.SchemaVersion is "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
+    private string CapabilitySchema => Definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
     private string? error;
     private string? selectedNode;
     private string selectedPort = "out";
@@ -488,7 +520,7 @@
         NodeTypes.Condition => $"{node.Condition!.Operator} · {node.Condition.Operand}",
         NodeTypes.Loop => $"Continue while {node.Loop!.ContinueWhile.Operator} · max {node.Loop.MaximumIterations}",
         NodeTypes.LoopBody => "Start of bounded loop body",
-        NodeTypes.Terminate => "End workflow successfully without a result",
+        NodeTypes.Terminate => "End this route with a successful or failed workflow result",
         NodeTypes.WorkflowCall => $"Pinned workflow · {node.WorkflowCall?.WorkflowId} v{node.WorkflowCall?.Version}",
         NodeTypes.Merge => "Continue the selected path",
         NodeTypes.ParallelFork => "Start both branches concurrently",
@@ -712,7 +744,7 @@
         var parameterId = value?.StartsWith("parameter:", StringComparison.Ordinal) == true ? value[10..] : null;
         var node = Definition.Nodes[id];
         var parameterIncludesOff = parameterId is not null && ParameterDefinitions.TryGetValue(parameterId, out var parameter) && parameter.Choices?.Contains("off") == true;
-        var schema = effort == AgentReasoningEffort.Off || parameterIncludesOff ? Definition.SchemaVersion is "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10" : parameterId is not null ? Definition.SchemaVersion is "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : "1.8" : CapabilitySchema;
+        var schema = effort == AgentReasoningEffort.Off || parameterIncludesOff ? Definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10" : parameterId is not null ? Definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : "1.8" : CapabilitySchema;
         var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { ReasoningEffort = parameterId is null ? effort : null, ReasoningEffortParameterId = parameterId } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -724,9 +756,65 @@
         if (!int.TryParse(args.Value?.ToString(), out var limit) || limit is < AgentOutputTokenLimits.Minimum or > AgentOutputTokenLimits.Maximum)
             throw new ArgumentException($"Choose an output limit from {AgentOutputTokenLimits.Minimum} to {AgentOutputTokenLimits.Maximum} tokens.");
         var node = Definition.Nodes[id];
-        var schema = Definition.SchemaVersion is "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10";
+        var schema = Definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10";
         var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { MaxOutputTokens = limit } }) };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    });
+
+    private Task MaxTurns(string id, ChangeEventArgs args) => Edit(() =>
+    {
+        if (!int.TryParse(args.Value?.ToString(), out var limit) || limit is < AgentExecutionLimits.MinimumTurns or > AgentExecutionLimits.MaximumTurns)
+            throw new ArgumentException($"Choose a model-turn limit from {AgentExecutionLimits.MinimumTurns} to {AgentExecutionLimits.MaximumTurns}.");
+        var node = Definition.Nodes[id];
+        var schema = Definition.SchemaVersion == "1.22" ? "1.22" : "1.21";
+        var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
+            node with { Agent = node.Agent! with { MaxTurns = limit } }) };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    });
+
+    private Task MaxTotalTokens(string id, ChangeEventArgs args) => Edit(() =>
+    {
+        int? limit = null;
+        if (!string.IsNullOrWhiteSpace(args.Value?.ToString()))
+        {
+            if (!int.TryParse(args.Value.ToString(), out var parsed) || parsed is < AgentTotalTokenLimits.Minimum or > AgentTotalTokenLimits.Maximum)
+                throw new ArgumentException($"Choose a total-token limit from {AgentTotalTokenLimits.Minimum} to {AgentTotalTokenLimits.Maximum}, or leave it blank for no agent limit.");
+            limit = parsed;
+        }
+        var node = Definition.Nodes[id];
+        var definition = Definition with { SchemaVersion = limit is null ? Definition.SchemaVersion : "1.22", Nodes = Definition.Nodes.SetItem(id,
+            node with { Agent = node.Agent! with { MaxTotalTokens = limit } }) };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    });
+
+    private Task RequireStructuredResult(string id, ChangeEventArgs args) => Edit(() =>
+    {
+        var enabled = args.Value is true;
+        var node = Definition.Nodes[id];
+        var schema = enabled ? Definition.SchemaVersion == "1.22" ? "1.22" : "1.21" : Definition.SchemaVersion;
+        var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
+            node with { Agent = node.Agent! with { RequireStructuredResult = enabled ? true : null } }) };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    });
+
+    private Task AgentTimeout(string id, ChangeEventArgs args) => Edit(() =>
+    {
+        int? timeout = null;
+        if (!string.IsNullOrWhiteSpace(args.Value?.ToString()))
+        {
+            if (!int.TryParse(args.Value.ToString(), out var seconds) || seconds is < AgentExecutionLimits.MinimumTimeoutSeconds or > AgentExecutionLimits.MaximumTimeoutSeconds)
+                throw new ArgumentException($"Choose a timeout from {AgentExecutionLimits.MinimumTimeoutSeconds} to {AgentExecutionLimits.MaximumTimeoutSeconds} seconds, or leave it blank for the host default.");
+            timeout = seconds;
+        }
+        var node = Definition.Nodes[id];
+        var schema = timeout is null && node.Agent!.MaxTurns is null ? Definition.SchemaVersion : Definition.SchemaVersion == "1.22" ? "1.22" : "1.21";
+        var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
+            node with { Agent = node.Agent! with { TimeoutSeconds = timeout } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
     });
@@ -781,7 +869,7 @@
         var stillUsed = nodes.Values.Where(item => item.Agent is not null).SelectMany(item => item.Agent!.Delegates ?? [])
             .Any(reference => reference.Id == profile.Id && reference.Version == profile.Version);
         if (!stillUsed) profiles = profiles.Remove(profile.Id + "@" + profile.Version);
-        var definition = Definition with { SchemaVersion = profile.Channels is not null ? (Definition.SchemaVersion is "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" ? Definition.SchemaVersion : "1.12") : Definition.SchemaVersion is "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.11", AgentProfiles = profiles.Count == 0 ? null : profiles,
+        var definition = Definition with { SchemaVersion = profile.Channels is not null ? (Definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" ? Definition.SchemaVersion : "1.12") : Definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.11", AgentProfiles = profiles.Count == 0 ? null : profiles,
             Skills = skills.Count == 0 ? null : skills, Nodes = nodes };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;

@@ -9,5 +9,8 @@ public sealed class OpenAIProviderOptions
     public string DisplayName { get; init; } = "OpenAI chat model";
     public Uri Endpoint { get; init; } = new("https://api.openai.com/v1/");
     public TimeSpan InvocationTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    /// <summary>Explicit opt-in for any plain-HTTP endpoint. Credentials are sent without transport encryption.</summary>
+    public bool AllowInsecureHttp { get; init; }
+    /// <summary>Legacy loopback-only option retained for source and configuration compatibility.</summary>
     public bool AllowInsecureLoopback { get; init; }
 }

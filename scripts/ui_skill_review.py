@@ -8,11 +8,12 @@ from workbench_browser import workbench, inspect_control, show_runs
 
 import argparse
 import re
+import os
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
 
-BASE = "http://127.0.0.1:5099"
+BASE = os.environ.get("VAW_STUDIO_BASE_URL", "http://127.0.0.1:5099")
 THEMES = ("dark", "light", "vs-code-dark-plus", "solarized-dark", "nord", "monokai", "high-contrast")
 
 
@@ -49,7 +50,7 @@ def check(browser, screenshots):
         theme_picker.select_option("nord")
         page.wait_for_function("document.documentElement.dataset.vawTheme === 'nord'")
         page.get_by_role("link", name="Studio settings", exact=True).click()
-        expect(page.get_by_role("heading", name="Model providers")).to_be_visible()
+        expect(page.get_by_role("heading", name="Model connections", exact=True)).to_be_visible()
         expect(page.get_by_label("Color theme", exact=True)).to_have_value("nord")
         expect(page.locator("html")).to_have_attribute("data-vaw-theme", "nord")
         page.get_by_role("link", name="Workflow designer", exact=True).click()
@@ -163,8 +164,9 @@ def check(browser, screenshots):
         assert page.evaluate("document.activeElement.matches(':focus-visible') && getComputedStyle(document.activeElement).outlineStyle !== 'none'"), "Keyboard focus must remain visible"
 
         graph = workbench(designer).get_by_role("list", name="Editable pipeline nodes", exact=True)
-        canvas = workbench(designer).get_by_label("Workflow graph canvas. Scroll or drag the background to pan.", exact=True)
+        canvas = workbench(designer).get_by_label("Workflow graph canvas. Drag empty space to select nodes; middle-drag to pan.", exact=True)
         expect(workbench(designer).locator('.vaw-graph-editor')).to_have_attribute("data-ready", "true")
+        assert abs(canvas.locator('.vaw-canvas-world').evaluate("element=>new DOMMatrixReadOnly(getComputedStyle(element).transform).a") - 1) < 0.001, "The initial graph view must start at 100%"
         page.wait_for_function("""() => {
             const viewport=document.querySelector('.vaw-canvas-viewport');
             const nodes=[...document.querySelectorAll('.vaw-canvas-viewport li[data-node-id]')];

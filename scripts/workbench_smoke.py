@@ -8,7 +8,7 @@ import json
 import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
-from workbench_browser import workbench, inspect_control, show_runs
+from workbench_browser import workbench, inspect_control, show_runs, new_workflow_fixture
 
 BASE = os.environ.get("VAW_STUDIO_BASE_URL", "http://127.0.0.1:5099")
 
@@ -53,8 +53,13 @@ def text_template_node_check(page, designer):
     designer.get_by_role("button", name="New workflow", exact=True).click()
     designer.get_by_text("New workflow created locally. Save its draft before publishing.", exact=True).wait_for()
     workflow_id = designer.get_by_label("Saved workflow", exact=True).input_value()
-    designer.get_by_role("button", name="Add Text template", exact=True).click()
     canvas = designer.locator(".vaw-graph-editor")
+    wire=canvas.locator("path[data-wire]").first
+    wire_point=wire.evaluate("""path=>{const point=path.getPointAtLength(path.getTotalLength()/2), matrix=path.getScreenCTM();return {x:matrix.a*point.x+matrix.c*point.y+matrix.e,y:matrix.b*point.x+matrix.d*point.y+matrix.f}}""")
+    page.mouse.click(wire_point["x"],wire_point["y"],button="right")
+    menu=canvas.get_by_role("dialog",name="Graph actions",exact=True)
+    expect(menu).to_be_visible()
+    menu.get_by_role("button",name="Add Text template",exact=True).click()
     expect(canvas.locator("li[data-node-type='core.text.template']")).to_have_count(1)
     template_id = canvas.locator("li[data-node-type='core.text.template']").get_attribute("data-node-id")
     parameters = designer.locator("details.vaw-parameter-editor > summary")
@@ -151,10 +156,20 @@ def check(browser, screenshots):
     expect(designer.locator("li[data-node-id]")).to_have_count(2)
     designer.get_by_role("button",name="Add Uppercase",exact=True).click()
     expect(designer.locator("li[data-node-id]")).to_have_count(3)
-    step = designer.locator("li[data-node-type='core.text.uppercase']").get_attribute("data-node-id")
-    workflow_id = designer.get_by_label("Saved workflow",exact=True).input_value()
     canvas = designer.locator(".vaw-graph-editor")
     expect(canvas).to_have_attribute("data-ready","true")
+    added=canvas.locator("li[data-node-type='core.text.uppercase']")
+    added_id=added.get_attribute("data-node-id")
+    # A library click creates a standalone draft node. It does not silently alter existing routes.
+    assert canvas.locator("path[data-wire]").count() == 1
+    added.get_by_role("button",name=f"Move node {added_id}",exact=True).click()
+    page.keyboard.press("Delete")
+    expect(designer.locator("li[data-node-id]")).to_have_count(2)
+    # The remaining workbench checks use an explicitly connected fixture.
+    new_workflow_fixture(designer)
+    canvas = designer.locator(".vaw-graph-editor")
+    step = "step-1"
+    workflow_id = designer.get_by_label("Saved workflow",exact=True).input_value()
     assert canvas.locator("li[data-node-id] input, li[data-node-id] textarea, li[data-node-id] select").count() == 0
     assert canvas.locator("li[data-node-id]").evaluate_all("nodes => Math.max(...nodes.map(n=>n.getBoundingClientRect().height))") < 260
     canvas.get_by_role("button",name=f"Move node {step}",exact=True).click()
@@ -186,23 +201,33 @@ def check(browser, screenshots):
     library.get_by_role("button",name="Add Reverse",exact=True).drag_to(viewport,target_position={"x":bounds["width"]*.5,"y":350})
     expect(canvas.locator("li[data-node-id]")).to_have_count(4)
     dropped=canvas.locator("li[data-node-type='core.text.reverse']")
-    assert abs(dropped.bounding_box()["x"]-destination["x"])<12
-    assert abs(dropped.bounding_box()["y"]-destination["y"])<12
+    # Chromium may auto-scroll the document during native drag-and-drop. Compare
+    # against the viewport's post-drop position while keeping the drop offset.
+    after_drop_bounds=viewport.bounding_box()
+    after_drop_destination={"x":after_drop_bounds["x"]+after_drop_bounds["width"]*.5,"y":after_drop_bounds["y"]+350}
+    assert abs(dropped.bounding_box()["x"]-after_drop_destination["x"])<12
+    assert abs(dropped.bounding_box()["y"]-after_drop_destination["y"])<12, f"dropped node {dropped.bounding_box()} did not reach screen destination {after_drop_destination}; viewport {after_drop_bounds}"
     viewport.focus();page.keyboard.press("Control+z")
     expect(canvas.locator("li[data-node-id]")).to_have_count(3)
     # An output-pin gesture opens creation for that exact existing path.
     pin=canvas.locator(f"li[data-node-id='{step}'] .vaw-output-ports [data-socket]")
     pin.scroll_into_view_if_needed(); box=pin.bounding_box();bounds=viewport.bounding_box()
     page.mouse.move(box["x"]+box["width"]/2,box["y"]+box["height"]/2)
-    page.mouse.down();page.mouse.move(bounds["x"]+bounds["width"]*.5,bounds["y"]+350,steps=8);page.mouse.up()
+    page.mouse.down();page.mouse.move(bounds["x"]+bounds["width"]*.5,bounds["y"]+520,steps=8);page.mouse.up()
     expect(menu).to_be_visible()
     if screenshots:
         screenshots.mkdir(parents=True,exist_ok=True)
         page.screenshot(path=str(screenshots / "contextual-creation.png"))
     menu.get_by_role("button",name="Add Reverse",exact=True).click()
     expect(canvas.locator("li[data-node-id]")).to_have_count(4)
-    canvas.locator("li[data-node-type='core.text.reverse'] [data-drag-node]").focus()
+    reverse_id=canvas.locator("li[data-node-type='core.text.reverse']").get_attribute("data-node-id")
+    canvas.get_by_role("button",name=f"Move node {reverse_id}",exact=True).click()
+    assert canvas.get_attribute("data-context-menu") == "true"
+    canvas.evaluate("element => { window.__vawDeleteKeys=[]; element.addEventListener('keydown', event => window.__vawDeleteKeys.push({key:event.key,target:event.target.closest('[data-drag-node]')?.dataset.dragNode}), true); }")
     page.keyboard.press("Delete")
+    page.wait_for_timeout(300)
+    assert page.evaluate("window.__vawDeleteKeys") == [{"key":"Delete","target":reverse_id}], f"Delete did not reach the focused node: {page.evaluate('window.__vawDeleteKeys')}"
+    assert canvas.get_attribute("data-ready") == "true", canvas.locator("[data-canvas-error]").inner_text()
     expect(canvas.locator("li[data-node-id]")).to_have_count(3)
     canvas.get_by_role("button",name=f"Move node {step}",exact=True).click()
     canvas.get_by_label("Node label",exact=True).fill("Normalize message")
@@ -299,24 +324,23 @@ def check(browser, screenshots):
         }""")
         page.evaluate("window.scrollTo(0,0)")
         page.screenshot(path=str(screenshots / "studio-designer.png"))
-    # The false socket must create on the false arm, rather than the first available port.
+    # Library additions remain disconnected; users explicitly rewire pins when ready.
     library.get_by_role("button",name="Add Condition",exact=True).click()
-    expect(canvas.locator("li[data-node-id]")).to_have_count(5)
+    expect(canvas.locator("li[data-node-id]")).to_have_count(4)
     assert canvas.locator("li[data-node-type='core.condition']").count() == 1
-    assert canvas.locator("li[data-node-type='core.merge']").count() == 1
+    assert canvas.locator("li[data-node-type='core.merge']").count() == 0
     branch=canvas.locator("li[data-node-type='core.condition']").get_attribute("data-node-id")
     false_pin=canvas.locator(f"li[data-node-id='{branch}'] [data-socket='false']")
     false_pin.scroll_into_view_if_needed();box=false_pin.bounding_box();bounds=viewport.bounding_box()
     page.mouse.move(box["x"]+box["width"]/2,box["y"]+box["height"]/2)
     page.mouse.down();page.mouse.move(bounds["x"]+80,bounds["y"]+bounds["height"]-30,steps=8);page.mouse.up()
     expect(menu).to_be_visible()
-    expect(menu.locator(".vaw-insertion-hint")).to_contain_text("false")
     menu.get_by_role("button",name="Add Reverse",exact=True).click()
-    expect(canvas.locator("li[data-node-id]")).to_have_count(6)
-    false_target=canvas.locator(f"path[data-source='{branch}'][data-source-port='false']").first.get_attribute("data-target")
-    expect(canvas.locator(f"li[data-node-id='{false_target}']")).to_have_attribute("data-node-type","core.text.reverse")
-    canvas.get_by_role("button",name="Undo edit",exact=True).click()
     expect(canvas.locator("li[data-node-id]")).to_have_count(5)
+    assert canvas.locator(f"path[data-source='{branch}'][data-source-port='false']").count() == 0
+    expect(designer.get_by_role("alert",name="Workflow validation issues")).to_contain_text("unresolved issue")
+    canvas.get_by_role("button",name="Undo edit",exact=True).click()
+    expect(canvas.locator("li[data-node-id]")).to_have_count(4)
     canvas.get_by_role("button",name="Undo edit",exact=True).click()
     expect(canvas.locator("li[data-node-id]")).to_have_count(3)
     expect(designer.locator(".vaw-definition-status")).to_contain_text("Draft saved")

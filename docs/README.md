@@ -40,3 +40,8 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Applied skill review](skill-adherence.md) | Concrete improvements and validation evidence |
 
 Documentation changes follow [documentation-maintenance](../.agents/skills/documentation-maintenance/SKILL.md). Diagrams describe the page's stated scope; planned features belong in the product design rather than the current architecture. Validate local links with `python3 scripts/check_docs.py`. For Mermaid validation, install the development-only renderer with `npm ci --prefix tools/documentation`, install the existing browser requirements, and run `python3 scripts/check_docs.py --mermaid` (or add `--browser-executable /path/to/chromium`).
+
+## Architecture decisions
+
+- [Initial graph execution decision](decisions/0001-initial-execution-subset.md) — why the first runtime used a deliberately small, validated graph subset.
+- [Execution and data edges decision](decisions/0002-execution-and-data-edges.md) — separates scheduler activations from typed value bindings and defines compatibility for the forthcoming pure-node language.

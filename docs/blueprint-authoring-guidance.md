@@ -4,6 +4,8 @@ This project borrows interaction and authoring ideas from Unreal Engine Blueprin
 
 Epic's guidance is spread across several documentation pages rather than one product-neutral design specification. Start with the official [Blueprint visual scripting overview](https://dev.epicgames.com/documentation/en-us/unreal-engine/blueprints-visual-scripting-in-unreal-engine), [Blueprint variables](https://dev.epicgames.com/documentation/en-us/unreal-engine/blueprint-variables-in-unreal-engine), [Blueprint functions](https://dev.epicgames.com/documentation/en-us/unreal-engine/blueprint-functions-in-unreal-engine), and [Blueprint best practices](https://dev.epicgames.com/documentation/en-us/unreal-engine/blueprint-best-practices-in-unreal-engine). Direct retrieval from Epic returned HTTP 403 in this environment on 2026-10-24. The principles below are a local design interpretation informed by established Blueprint concepts; verify exact terminology and current Epic recommendations when those pages are reachable. Do not quote these notes as Epic's wording.
 
+The maintained [Blueprint capability reference](unreal-blueprint-reference.md) now captures the broader language, runtime, reuse, debugging, and implementation guidance. Use it as a design source; the roadmap and focused contracts remain authoritative for shipped behavior.
+
 ## Concepts to adapt
 
 | Blueprint concept | Workflow Studio adaptation |

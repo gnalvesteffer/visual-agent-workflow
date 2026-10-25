@@ -26,12 +26,13 @@ public static class OpenAIProviders
         { SupportsReasoningEffort = true };
         return new(descriptor, () =>
         {
-            var key = getApiKey();
+            var key = getApiKey() ?? "";
             ValidateKey(key);
-            var http = new HttpClient(new BoundedResponseHandler(createTransport())) { Timeout = Timeout.InfiniteTimeSpan };
+            var transport = new OptionalApiKeyHandler(key.Length > 0, createTransport());
+            var http = new HttpClient(new BoundedResponseHandler(transport)) { Timeout = Timeout.InfiniteTimeSpan };
             try
             {
-                var sdk = new OpenAIClient(new ApiKeyCredential(key), new OpenAIClientOptions
+                var sdk = new OpenAIClient(new ApiKeyCredential(key.Length == 0 ? "vaw-no-api-key" : key), new OpenAIClientOptions
                 {
                     Endpoint = options.Endpoint,
                     RetryPolicy = new ClientRetryPolicy(0),
@@ -45,7 +46,8 @@ public static class OpenAIProviders
                 http.Dispose();
                 throw;
             }
-        }) { InvocationTimeout = options.InvocationTimeout };
+        })
+        { InvocationTimeout = options.InvocationTimeout };
     }
 
     /// <summary>Reads named entries under a trusted host configuration section. Disabled entries create no clients.</summary>
@@ -59,11 +61,11 @@ public static class OpenAIProviders
             if (!enabled) continue;
             if (!int.TryParse(entry["TimeoutSeconds"] ?? "30", out var seconds) || seconds is < 1 or > 120)
                 throw new InvalidOperationException("Model provider timeout must be 1–120 seconds.");
-            if (!bool.TryParse(entry["AllowInsecureLoopback"] ?? "false", out var loopback))
-                throw new InvalidOperationException("Invalid model provider loopback setting.");
+            if (!bool.TryParse(entry["AllowInsecureHttp"] ?? "false", out var allowHttp) ||
+                !bool.TryParse(entry["AllowInsecureLoopback"] ?? "false", out var legacyLoopback))
+                throw new InvalidOperationException("Invalid model provider HTTP setting.");
             if (!Uri.TryCreate(entry["Endpoint"] ?? "https://api.openai.com/v1/", UriKind.Absolute, out var endpoint))
                 throw new InvalidOperationException("Invalid model provider endpoint configuration.");
-            ValidateKey(entry["ApiKey"]);
             var options = new OpenAIProviderOptions
             {
                 ProviderId = entry.Key,
@@ -72,7 +74,7 @@ public static class OpenAIProviders
                 DisplayName = entry["DisplayName"] ?? "OpenAI · " + entry.Key,
                 Endpoint = endpoint,
                 InvocationTimeout = TimeSpan.FromSeconds(seconds),
-                AllowInsecureLoopback = loopback
+                AllowInsecureHttp = allowHttp || legacyLoopback
             };
             registrations.Add(Create(options, () => entry["ApiKey"] ?? ""));
         }
@@ -94,16 +96,18 @@ public static class OpenAIProviders
             throw new ArgumentException("A bounded non-demo provider ID, version, model and display name are required.");
         var endpoint = options.Endpoint;
         if (endpoint is null || !endpoint.IsAbsoluteUri || endpoint.UserInfo.Length != 0 || endpoint.Query.Length != 0 || endpoint.Fragment.Length != 0 ||
-            endpoint.Scheme != "https" && !(options.AllowInsecureLoopback && endpoint.Scheme == "http" && endpoint.IsLoopback))
-            throw new ArgumentException("Provider endpoints require HTTPS without user information, query or fragment; loopback HTTP needs explicit opt-in.");
+            endpoint.Scheme != "https" && !(options.AllowInsecureHttp || options.AllowInsecureLoopback && endpoint.IsLoopback && endpoint.Scheme == "http") ||
+            endpoint.Scheme is not ("https" or "http"))
+            throw new ArgumentException("Use an HTTPS endpoint, or explicitly allow plain HTTP. Endpoints cannot include user information, query parameters, or fragments.");
         if (options.InvocationTimeout <= TimeSpan.Zero || options.InvocationTimeout > TimeSpan.FromMinutes(2))
             throw new ArgumentOutOfRangeException(nameof(options), "Model timeout must be positive and at most two minutes.");
     }
 
     private static void ValidateKey(string? key)
     {
-        if (string.IsNullOrEmpty(key) || key.Length > 4096 || key.Any(c => c <= ' ' || c > '~'))
-            throw new InvalidOperationException("An enabled model provider requires a valid host credential.");
+        if (string.IsNullOrEmpty(key)) return;
+        if (key.Length > 4096 || key.Any(c => c <= ' ' || c > '~'))
+            throw new InvalidOperationException("The API key must be printable ASCII and no longer than 4,096 characters.");
     }
 
     private sealed class OwnedChatClient(IChatClient inner, HttpClient http) : DelegatingChatClient(inner)
