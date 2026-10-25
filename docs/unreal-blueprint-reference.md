@@ -6,6 +6,23 @@ The goal is capability parity at the level of visual programming, not API or run
 
 The source material is `/home/xorberax/ebooks/01_unreal-engine-5-7-documentation.pdf`, especially the sections titled **Introduction to Blueprints in Unreal Engine**, **Blueprints Visual Scripting Overview in Unreal Engine**, **Basic Scripting with Blueprints**, **Anatomy of a Blueprint**, **Blueprint Best Practices**, **Blueprint Communication Usage**, and **Blueprint Debugger**. The PDF is a large compiled documentation volume, so page numbers are not stable enough to use as durable anchors; use the section titles when cross-checking it. Unreal concepts below are summarized rather than quoted, and every “workflow” requirement is project guidance rather than a claim about Unreal behavior.
 
+## Evidence map
+
+The analysis used targeted text extraction and section-level cross-checking in the supplied UE 5.7 PDF. The following map identifies the primary evidence for each design layer and the kind of conclusion drawn from it.
+
+| Design layer | Primary source sections | Finding type | What the implementation agent should take from it |
+| --- | --- | --- | --- |
+| Purpose and mental model | **Introduction to Blueprints in Unreal Engine**; **Blueprints Visual Scripting Overview in Unreal Engine** | Source fact + interpretation | Blueprint is presented as a visual programming language, not only a diagramming surface; the workflow system needs a real language/runtime model. |
+| Assets and composition | **Blueprints Visual Scripting Overview**; **Anatomy of a Blueprint**; **Blueprint Best Practices** | Source fact + project decision | Reusable assets, class-like composition, data-only variants, libraries, and specialization should have explicit identities and version boundaries. |
+| Types and data | **Basic Scripting with Blueprints**; **Blueprint Variables**; **Placing Nodes**; **Connecting Nodes** | Source fact + project decision | Typed pins, references, containers, conversions, defaults, and context-sensitive discovery are first-class authoring concepts. |
+| Execution | **Event Graph** material in **Anatomy of a Blueprint**; **Events**; **Flow Control**; **Custom Events** | Source fact + project decision | Execution wires activate work; data wires carry values; entry points and branches need explicit runtime semantics. |
+| Reuse and communication | **Functions**; **Making Macros**; **Blueprint Function Library**; **Blueprint Macro Library**; **Event Dispatchers**; **Blueprint Interfaces** | Source fact + interpretation | Functions, expanded graph fragments, interfaces, and broadcasts solve different reuse/communication problems and should not collapse into one opaque “subflow.” |
+| Time and external work | **Timelines**; latent/action references in the Blueprint API material | Source fact + project decision | Work that yields, waits, or progresses over time requires a lifecycle and resumption contract; browser timers are not sufficient. |
+| Authoring and quality | **Blueprint Editor**; **Blueprint Best Practices**; **Blueprint Basic User Guide** | Source fact + interpretation | Search, context filtering, comments, graph organization, compile feedback, and readable boundaries are part of the system's power. |
+| Debugging and evidence | **Blueprint Debugger**; **Blueprint Debugging Example** | Source fact + project decision | Breakpoints, watched values, call stacks, and execution traces should map to recorded workflow evidence without replaying live effects. |
+
+The document deliberately does not treat every Unreal-specific capability as a requirement. Actor replication, engine object lifetime, rendering, animation, physics, and editor-only utilities are source concepts that require separate analysis before they are mapped to agent workflows.
+
 ## The central model
 
 Blueprints are a node-based visual programming language. A Blueprint asset contains one or more graphs. Nodes represent events, operations, functions, variables, conversions, or control flow. Wires connect nodes, but not all wires mean the same thing: execution wires schedule work, while data wires carry typed values. This distinction is the foundation of the system.
@@ -304,6 +321,37 @@ Consider the visual scripting system Blueprint-level only when a user can move t
 The implementation is incomplete if any of these capabilities exists only as a visual placeholder. A node that renders a model call but cannot declare its profile, input roles, output schema, timeout, approval boundary, and evidence contract is not a finished Blueprint-equivalent primitive. A graph that can be drawn but cannot be validated, serialized, versioned, admitted, executed, and debugged is an editor mockup rather than a visual programming system. A reusable node that hides its dependencies or changes behavior when its source is edited is not a safe function or asset.
 
 Use the following questions as a review gate for every new capability. Can a user discover it from the right pin or context? Can the graph explain its inputs, outputs, side effects, and failure routes? Can the runtime execute it without relying on canvas position or browser lifetime? Can a published run identify the exact implementation and capabilities it used? Can the debugger show what happened and what did not happen? Can an imported definition be rejected safely? Can the behavior be tested with deterministic fixtures without claiming that a fixture is a live provider?
+
+## Implementation handoff by subsystem
+
+The analysis points to a set of collaborating subsystems rather than one “Blueprint feature.” The boundaries below are the recommended handoff points for implementation planning.
+
+| Subsystem | Owns | Must not own |
+| --- | --- | --- |
+| Definition/schema | Stable asset, graph, node, port, type, edge, parameter, dependency, and revision contracts. | Browser coordinates, transient selection, host credentials, or runtime leases. |
+| Graph authoring | Contextual creation, connection validation, extraction/reuse operations, comments, sections, reroutes, undo, and presentation layout. | Runtime scheduling, capability authorization, or inferred execution order. |
+| Compiler/validator | Canonicalization, type checking, reachability/route rules, boundedness checks, dependency validation, and executable-plan preparation. | Host approval, live provider calls, or mutation of published revisions. |
+| Runtime scheduler | Events, data availability, control flow, waits, child calls, retries, cancellation, limits, and terminal states. | Visual layout or browser connection lifetime. |
+| Capability host | Provider/model/tool/skill catalogs, credentials, approvals, policy, isolation, and external-effect admission. | Workflow-authored authority or arbitrary URL/credential resolution. |
+| Persistence/evidence | Immutable revisions, run state, event batches, redaction, checkpoints where supported, and playback reads. | Rerunning effects during playback or silently changing a historical revision. |
+| Debugger/observer | Breakpoints or controlled debug hooks, recorded trace navigation, watches, call-stack-like nesting, and evidence inspection. | Inventing runtime events from geometry or allowing observation to grant execution control. |
+| Test fixtures | Deterministic node/capability doubles, contract tests, route evidence, failure cases, and authoring smoke flows. | Claims about live model quality or production provider behavior. |
+
+This decomposition also prevents a common failure mode: implementing a convincing node card and canvas interaction before defining how the node is serialized, admitted, resumed, observed, and tested. A capability is complete only when all affected subsystem contracts agree.
+
+## Deliberate deviations from Unreal
+
+Visual similarity is useful only when it preserves the workflow's stronger trust and durability requirements. These deviations are intentional:
+
+| Unreal pattern | Visual Agent Workflow decision |
+| --- | --- |
+| A Blueprint can refer to objects in the engine's live world. | Portable definitions use explicit IDs and host-resolved capabilities; references do not grant authority. |
+| A placed instance can override exposed defaults. | A run may override invocation parameters, but published definition defaults remain immutable. |
+| A macro expands into a consuming graph during compilation. | Use expansion only for authoring templates with provenance; use pinned callable child workflows when runtime identity or audit matters. |
+| A latent node can resume inside a live game/editor world. | Suspensions require durable cursor, correlation, timeout, ownership, and restart semantics. |
+| Blueprint execution can mutate actors/components directly. | External effects require explicit capability contracts, policy admission, approvals where applicable, and evidence. |
+| Editor debugging can pause a local simulation. | Historical playback must be evidence-only; live pause/resume is a separate backend-owned control contract. |
+| Engine/editor behavior may be versioned by project assets and generated code. | Workflow runs reference exact immutable revisions and dependency identities. |
 
 ## Design constraints for Visual Agent Workflow
 

@@ -8,6 +8,7 @@ The structure follows `gnalvesteffer/ai-newspaper`: a project guide plus focused
 | --- | --- |
 | [Documentation maintenance](../.agents/skills/documentation-maintenance/SKILL.md) | Behavior/architecture/API/UI changes requiring current architecture, user-guide, link, and Mermaid updates |
 | [Technical writing](../.agents/skills/technical-writing/SKILL.md) | Clear developer documentation and explanations; see [local guidance and provenance](../.agents/skills/technical-writing/SOURCE.md) |
+| [Document architecture analysis](../.agents/skills/document-architecture-analysis/SKILL.md) | Extract architecture, capabilities, design philosophy, runtime models, evidence, and implementation implications from large technical documents |
 | [Mermaid diagrams](../.agents/skills/mermaid-diagrams/SKILL.md) | Architecture, lifecycle, sequence, and user-flow visualizations; see [local guidance and provenance](../.agents/skills/mermaid-diagrams/SOURCE.md) |
 | [Project guide](../.agents/skills/project-guide/SKILL.md) | Changing architecture, planning implementation, or orienting in the repository |
 | [Microsoft Agent Framework](../.agents/skills/microsoft-agent-framework/SKILL.md) | Selecting/upgrading .NET framework packages, implementing the adapter, or verifying agent/workflow/tool APIs |
