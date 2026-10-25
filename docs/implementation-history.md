@@ -2,6 +2,10 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Workflow parameter descriptions
+
+Workflow parameter definitions can include bounded optional descriptions. The Studio edits these descriptions and displays them beside published-run inputs; reusable insertion carries them with copied parameter definitions. Null descriptions remain omitted from JSON, preserving old canonical workflow hashes. Core tests cover round trips, bounds, edits and reuse. See [workflow parameters](workflow-parameters.md) and the [user guide](user-guide.md).
+
 ## Deterministic text-template node
 
 Schema 1.7 adds a `core.text.template` graph node that composes bounded literal text, its connected input, and declared workflow parameters using the structured prompt-part format already used by agents. The Studio reuses the token editor and preview; runtime output appears in normal node and transfer evidence. Reusable insertion copies and remaps referenced parameters, and referenced values cannot be deleted from the workflow. The node is deterministic and has no expression evaluation or external side effects. Core validation/round-trip/package tests, Agent Framework execution tests, the workbench browser smoke, and docs checks cover the feature. See [workflow parameters](workflow-parameters.md), [user guide](user-guide.md), and [architecture](architecture.md).

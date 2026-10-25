@@ -34,6 +34,7 @@ public static class WorkflowValidator
         foreach (var (id, parameter) in parameters)
             if (!ValidParameterId(id) || parameter is null || string.IsNullOrWhiteSpace(parameter.DisplayName) ||
                 parameter.DisplayName.Length > 128 || parameter.DefaultValue is null || parameter.DefaultValue.Length > 16_384 ||
+                parameter.Description?.Length > 512 ||
                 parameter.Type is not (null or "string" or "integer" or "number" or "boolean" or "choice") ||
                 parameter.Type is not (null or "string") && definition.SchemaVersion is not ("1.8" or "1.9") ||
                 parameter.Type == "choice" && (parameter.Choices is not { Length: > 0 and <= 32 } choices ||
@@ -43,8 +44,8 @@ public static class WorkflowValidator
         foreach (var (id, parameter) in parameters)
             if (parameter is not null && !WorkflowParameters.IsValidValue(parameter, parameter.DefaultValue))
                 Error("parameter.default", $"parameters.{id}.defaultValue", "The default must match its declared type and allowed choices.");
-        if (parameters.Sum(parameter => (long)parameter.Key.Length + (parameter.Value?.DisplayName.Length ?? 0) + (parameter.Value?.DefaultValue.Length ?? 0)) > 128_000)
-            Error("parameters.size", "parameters", "Combined parameter IDs, display names, and defaults must not exceed 128,000 characters.");
+        if (parameters.Sum(parameter => (long)parameter.Key.Length + (parameter.Value?.DisplayName.Length ?? 0) + (parameter.Value?.DefaultValue.Length ?? 0) + (parameter.Value?.Description?.Length ?? 0)) > 128_000)
+            Error("parameters.size", "parameters", "Combined parameter IDs, display names, descriptions, and defaults must not exceed 128,000 characters.");
         var skills = definition.Skills ?? ImmutableSortedDictionary<string, WorkflowSkill>.Empty;
         if (skills.Count > 32 || skills.Values.Sum(skill => (long)(skill?.Instructions?.Length ?? 0)) > 65_536)
             Error("skills.limit", "skills", "A workflow can include at most 32 skills and 65,536 instruction characters.");

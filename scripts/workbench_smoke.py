@@ -62,6 +62,7 @@ def text_template_node_check(page, designer):
     designer.get_by_label("Parameter ID", exact=True).fill("customer")
     designer.get_by_label("Display name", exact=True).fill("Customer")
     designer.get_by_label("Default value", exact=True).fill("Ada")
+    designer.get_by_label("Description", exact=True).fill("Person whose question is being answered")
     designer.get_by_role("button", name="Add parameter", exact=True).click()
     inspect_control(designer, f"Operation for {template_id}")
     editor = designer.get_by_role("textbox", name="Template text", exact=True)
@@ -71,6 +72,7 @@ def text_template_node_check(page, designer):
     designer.get_by_role("button", name="Save draft", exact=True).click()
     designer.get_by_text("Draft saved.", exact=True).wait_for()
     saved = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()
+    assert saved["draft"]["definition"]["parameters"]["customer"]["description"] == "Person whose question is being answered"
     assert saved["draft"]["definition"]["nodes"][template_id]["type"] == "core.text.template"
     assert saved["draft"]["definition"]["nodes"][template_id]["textTemplate"]["parts"] == [
         {"kind": "literal", "value": "Customer "},

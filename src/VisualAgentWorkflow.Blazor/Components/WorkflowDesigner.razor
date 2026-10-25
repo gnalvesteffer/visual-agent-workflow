@@ -116,6 +116,7 @@
             @foreach (var (parameterId, parameter) in SelectedRunParameters)
             {
                 <label @key="parameterId">@parameter.DisplayName · @parameterId
+                    @if (!string.IsNullOrWhiteSpace(parameter.Description)) { <span class="vaw-help">@parameter.Description</span> }
                     @if (parameter.Type == "choice")
                     {
                         <select value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)">

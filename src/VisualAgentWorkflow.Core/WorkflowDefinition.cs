@@ -20,6 +20,7 @@ public sealed record WorkflowDefinition(
 /// <summary>A workflow-owned, non-secret typed scalar represented portably as text.</summary>
 public sealed record WorkflowParameterDefinition(string DisplayName, string DefaultValue)
 {
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Description { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Type { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<string>? Choices { get; init; }
 }

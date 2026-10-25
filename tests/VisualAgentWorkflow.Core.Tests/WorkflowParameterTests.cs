@@ -35,6 +35,32 @@ public sealed class WorkflowParameterTests
     }
 
     [Fact]
+    public void OptionalDescriptionRoundTripsAndIsEditedWithoutChangingDefault()
+    {
+        var described = WorkflowParameterEditing.UpdateDescription(Definition(), "greeting", "Shown to the customer.");
+        var restored = WorkflowJson.Deserialize(WorkflowJson.Serialize(described));
+
+        Assert.Equal("Shown to the customer.", restored.Parameters!["greeting"].Description);
+        var renamed = WorkflowParameterEditing.Update(restored, "greeting", "Welcome text", "Hello");
+        Assert.Equal("Shown to the customer.", renamed.Parameters!["greeting"].Description);
+        Assert.Equal("Hello", renamed.Parameters["greeting"].DefaultValue);
+        Assert.Equal("1.6", renamed.SchemaVersion);
+    }
+
+    [Fact]
+    public void ParameterDescriptionIsBoundedAndNullIsOmitted()
+    {
+        Assert.DoesNotContain("description", WorkflowJson.Serialize(Definition()), StringComparison.Ordinal);
+        var invalid = Definition() with
+        {
+            Parameters = Definition().Parameters!.SetItem("greeting", new WorkflowParameterDefinition("Greeting", "Hello")
+            { Description = new string('x', 513) })
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(invalid), issue => issue.Code == "parameter.definition");
+    }
+
+    [Fact]
     public void ParameterNodeMustReferenceDeclaredParameter()
     {
         var invalid = Definition() with { Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty };
@@ -77,7 +103,12 @@ public sealed class WorkflowParameterTests
     [Fact]
     public void ReusableInsertionCopiesAndRemapsParameterIdsWhenDefaultsConflict()
     {
-        var source = Definition() with { WorkflowId = "reusable" };
+        var source = Definition() with
+        {
+            WorkflowId = "reusable",
+            Parameters = Definition().Parameters!.SetItem("greeting", new WorkflowParameterDefinition("Greeting", "Hello")
+            { Description = "A greeting used by this workflow." })
+        };
         var sourceRevision = WorkflowRevision.Create(source, "author");
         var target = new WorkflowDefinition("1.6", "consumer", "input",
             ImmutableSortedDictionary<string, NodeDefinition>.Empty
@@ -96,6 +127,7 @@ public sealed class WorkflowParameterTests
 
         Assert.NotEqual("greeting", copiedNode.ParameterId);
         Assert.Equal("Hello", composition.Definition.Parameters![copiedNode.ParameterId!].DefaultValue);
+        Assert.Equal("A greeting used by this workflow.", composition.Definition.Parameters[copiedNode.ParameterId!].Description);
         WorkflowValidator.ThrowIfInvalid(composition.Definition);
     }
 

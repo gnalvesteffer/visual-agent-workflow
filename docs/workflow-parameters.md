@@ -6,7 +6,7 @@ Typed parameters do not add mutable variables or arbitrary object ports. Every v
 
 ## Definition contract
 
-The optional `parameters` property is an object keyed by parameter ID. IDs contain 1–64 ASCII letters, digits, dashes, or underscores. A definition may contain at most 64 parameters; display names are 1–128 characters, defaults are bounded at 16,384 characters, and combined IDs/names/defaults are bounded at 128,000 characters to remain inside the workflow JSON size limit. The optional `type` field defaults to `string`. Choice parameters require 1–32 unique values, each at most 128 characters.
+The optional `parameters` property is an object keyed by parameter ID. IDs contain 1–64 ASCII letters, digits, dashes, or underscores. A definition may contain at most 64 parameters; display names are 1–128 characters, descriptions are at most 512 characters, defaults are bounded at 16,384 characters, and combined IDs/names/descriptions/defaults are bounded at 128,000 characters to remain inside the workflow JSON size limit. Descriptions are optional, omitted when empty, and shown as authoring/run-form help; they do not affect validation or execution. The optional `type` field defaults to `string`. Choice parameters require 1–32 unique values, each at most 128 characters.
 
 ```json
 {
@@ -37,6 +37,7 @@ The optional `parameters` property is an object keyed by parameter ID. IDs conta
   "parameters": {
     "greeting-text": {
       "displayName": "Greeting text",
+      "description": "Text shown at the start of the response.",
       "defaultValue": "Hello",
       "type": "string"
     }
@@ -67,7 +68,7 @@ sequenceDiagram
 
 `LocalWorkflowRuntime` implements the additive `IParameterizedWorkflowClient` capability. Existing `IWorkflowClient` method signatures remain unchanged and still resolve definition defaults. Parameter-bearing runs require an `IParameterizedWorkflowRunStore`; built-in file and SQLite stores implement it. Older/custom run stores that do not implement the optional capability reject parameterized definitions rather than dropping audit values.
 
-The Studio accepts overrides for selected published revisions and displays the effective values in the run inspector. The development HTTP endpoint accepts a `parameters` string map alongside `input`; consumer hosts should call the parameterized client directly or implement equivalent authenticated invocation policy. Text-template nodes resolve the same effective map used by agent prompts; their rendered result is captured in node and connection evidence for playback. Do not treat the unauthenticated local Studio endpoint as a production service boundary.
+The Studio accepts overrides for selected published revisions and displays the effective values in the run inspector. Parameter descriptions appear beside their edit and run controls to explain the expected value. The development HTTP endpoint accepts a `parameters` string map alongside `input`; consumer hosts should call the parameterized client directly or implement equivalent authenticated invocation policy. Text-template nodes resolve the same effective map used by agent prompts; their rendered result is captured in node and connection evidence for playback. Do not treat the unauthenticated local Studio endpoint as a production service boundary.
 
 ## Security and limits
 

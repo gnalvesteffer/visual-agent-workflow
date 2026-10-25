@@ -40,7 +40,7 @@ The **Configured providers** list is the settings page's read view. Select **Edi
 
 ### Define reusable workflow inputs
 
-1. Expand **Workflow parameters** above the graph. Add a parameter with a stable ID, display name, and default value, then choose Text, Integer, Number, True/false, or Choice. Choice values are comma-separated and the default must be one of them. IDs accept letters, digits, dashes, and underscores; values are limited to 16,384 characters.
+1. Expand **Workflow parameters** above the graph. Add a parameter with a stable ID, display name, default value, and optional description that explains how to use it. The description appears as help text when editing or running the published workflow. Choose Text, Integer, Number, True/false, or Choice. Choice values are comma-separated and the default must be one of them. IDs accept letters, digits, dashes, and underscores; values are limited to 16,384 characters.
 2. Add a **Workflow value** node from the **Inputs** section of the node library. Select which parameter it reads in the node properties. The node replaces its incoming string with that parameter and passes the selected value to the next node, so the data path stays visible in the graph.
 3. Save and publish the definition. The parameter schema and defaults travel with the workflow package. When running a published version, edit the displayed parameter values to override defaults for that run. The effective values are captured in the run header and shown in the playback inspector.
 

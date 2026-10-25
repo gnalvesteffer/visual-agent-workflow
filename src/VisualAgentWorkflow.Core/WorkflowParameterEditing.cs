@@ -5,14 +5,14 @@ namespace VisualAgentWorkflow.Core;
 /// <summary>Pure edits for portable workflow parameters and their explicit graph references.</summary>
 public static class WorkflowParameterEditing
 {
-    public static WorkflowDefinition Add(WorkflowDefinition definition, string id, string displayName, string defaultValue)
+    public static WorkflowDefinition Add(WorkflowDefinition definition, string id, string displayName, string defaultValue, string? description = null)
     {
         var parameters = definition.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
         if (parameters.ContainsKey(id)) throw new ArgumentException("A parameter with this ID already exists.", nameof(id));
         return Checked(definition with
         {
             SchemaVersion = Schema(definition),
-            Parameters = parameters.Add(id, new(displayName, defaultValue))
+            Parameters = parameters.Add(id, new WorkflowParameterDefinition(displayName, defaultValue) { Description = description })
         });
     }
 
@@ -21,6 +21,13 @@ public static class WorkflowParameterEditing
         var parameters = definition.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
         if (!parameters.TryGetValue(id, out var parameter)) throw new ArgumentException("The parameter does not exist.", nameof(id));
         return Checked(definition with { SchemaVersion = Schema(definition), Parameters = parameters.SetItem(id, parameter with { DisplayName = displayName, DefaultValue = defaultValue }) });
+    }
+
+    public static WorkflowDefinition UpdateDescription(WorkflowDefinition definition, string id, string? description)
+    {
+        var parameters = definition.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
+        if (!parameters.TryGetValue(id, out var parameter)) throw new ArgumentException("The parameter does not exist.", nameof(id));
+        return Checked(definition with { SchemaVersion = Schema(definition), Parameters = parameters.SetItem(id, parameter with { Description = description }) });
     }
 
     public static WorkflowDefinition Remove(WorkflowDefinition definition, string id)
