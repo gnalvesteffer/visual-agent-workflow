@@ -62,7 +62,7 @@ public sealed class StudioMcpLibrary
         await using var client = await Connect(endpoint, bearerToken, serverId, deadline.Token);
         var tools = await client.ListToolsAsync(cancellationToken: deadline.Token);
         return tools.Where(tool => McpToolInputSchemas.IsSupported(tool.JsonSchema) && McpToolDescription.IsSupported(tool.Description)).Select(tool =>
-            new StudioMcpToolView(tool.Name, serverId + "." + tool.Name, ToolContractHash.Compute(tool), Summarize(tool.JsonSchema),
+            new StudioMcpToolView(tool.Name, serverId + "." + tool.Name, ToolContractHash.Compute(tool), McpToolInputSchemas.Summarize(tool.JsonSchema),
                 McpToolDescription.Normalize(tool.Description), McpToolDescription.ComputeHash(tool.Description))).ToArray();
     }
 
@@ -121,15 +121,6 @@ public sealed class StudioMcpLibrary
         };
         return await McpClient.CreateAsync(new HttpClientTransport(options),
             new McpClientOptions { ProtocolVersion = "2025-11-25" }, cancellationToken: cancellationToken);
-    }
-
-    private static string Summarize(JsonElement schema)
-    {
-        var required = schema.TryGetProperty("required", out var fields)
-            ? fields.EnumerateArray().Select(field => field.GetString()).ToHashSet(StringComparer.Ordinal)
-            : new HashSet<string?>(StringComparer.Ordinal);
-        return string.Join(", ", schema.GetProperty("properties").EnumerateObject().Select(property =>
-            $"{property.Name}: {property.Value.GetProperty("type").GetString()}{(required.Contains(property.Name) ? " (required)" : " (optional)")}"));
     }
 
     private static void Validate(string id, string name, string folder, string endpoint)

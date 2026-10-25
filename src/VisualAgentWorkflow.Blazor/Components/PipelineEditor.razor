@@ -374,15 +374,7 @@
         { DescriptionHash: var descriptionHash } when request.DescriptionHash is not null && descriptionHash != request.DescriptionHash => "description has changed",
         _ => "is unavailable"
     };
-    private static string ToolInputSummary(ToolBindingDescriptor binding)
-    {
-        using var schema = System.Text.Json.JsonDocument.Parse(binding.InputSchemaJson);
-        var required = schema.RootElement.TryGetProperty("required", out var fields)
-            ? fields.EnumerateArray().Select(field => field.GetString()).ToHashSet(StringComparer.Ordinal)
-            : new HashSet<string?>(StringComparer.Ordinal);
-        return string.Join(", ", schema.RootElement.GetProperty("properties").EnumerateObject().Select(property =>
-            $"{property.Name}: {property.Value.GetProperty("type").GetString()} {(required.Contains(property.Name) ? "required" : "optional")}"));
-    }
+    private static string ToolInputSummary(ToolBindingDescriptor binding) => binding.InputSummary;
     private NodeDefinition FromSelection(string value, NodeDefinition? existing = null)
     {
         if (value == NodeTypes.WorkflowValue)

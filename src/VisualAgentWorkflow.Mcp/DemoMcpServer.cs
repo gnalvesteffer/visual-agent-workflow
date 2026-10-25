@@ -44,7 +44,8 @@ public static class DemoMcpServer
             new("demo.uppercase", "MCP · uppercase", "demo-text", "uppercase", Connect, ReadOnly: true),
             new("demo.reverse", "MCP · reverse", "demo-text", "reverse", Connect, ReadOnly: true),
             new("demo.submit-answer", "MCP · submit answer", "demo-text", "submit_answer", Connect, ReadOnly: true),
-            new("demo.add-integers", "MCP · add integers", "demo-text", "add_integers", Connect, ReadOnly: true)
+            new("demo.add-integers", "MCP · add integers", "demo-text", "add_integers", Connect, ReadOnly: true),
+            new("demo.inspect-payload", "MCP · inspect payload", "demo-text", "inspect_payload", Connect, ReadOnly: true)
         ];
     }
 
@@ -72,6 +73,23 @@ public static class DemoMcpServer
 
         [McpServerTool(Name = "add_integers", ReadOnly = true, Destructive = false), Description("Adds two base-10 integers and returns the sum.")]
         public static int AddIntegers(int left, int right) => checked(left + right);
+
+        [McpServerTool(Name = "inspect_payload", ReadOnly = true, Destructive = false),
+         Description("Returns a deterministic summary of a nested request object and its labels.")]
+        public static string InspectPayload(StructuredPayload payload) =>
+            $"{payload.Request.Name}:{payload.Request.Count}:{string.Join(',', payload.Labels)}";
+    }
+
+    public sealed class StructuredPayload
+    {
+        public required StructuredRequest Request { get; init; }
+        public required string[] Labels { get; init; }
+    }
+
+    public sealed class StructuredRequest
+    {
+        public required string Name { get; init; }
+        public required int Count { get; init; }
     }
 }
 
@@ -79,5 +97,5 @@ public static class DemoMcpServer
 public sealed class DemoToolPolicy : IToolAuthorizationPolicy
 {
     public bool IsAllowed(WorkflowRevision revision, string nodeId, string bindingId) =>
-        bindingId is "demo.uppercase" or "demo.reverse" or "demo.submit-answer" or "demo.add-integers";
+        bindingId is "demo.uppercase" or "demo.reverse" or "demo.submit-answer" or "demo.add-integers" or "demo.inspect-payload";
 }

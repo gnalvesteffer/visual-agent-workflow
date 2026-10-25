@@ -40,7 +40,7 @@ public class BrokerTests
     {
         var broker = CreateBroker(policy: new DemoToolPolicy());
         var bindings = await broker.ListBindingsAsync();
-        Assert.Equal(4, bindings.Count);
+        Assert.Equal(5, bindings.Count);
         var reverse = bindings.Single(b => b.BindingId == "demo.reverse");
         Assert.Contains("Reverses Unicode", reverse.ToolDescription);
         Assert.Equal(McpToolDescription.ComputeHash(reverse.ToolDescription), reverse.DescriptionHash);
@@ -54,6 +54,54 @@ public class BrokerTests
         await using var answerScope = broker.OpenScope(Invocation(Revision(submitAnswer), []));
         Assert.Equal("2", await answerScope.InvokeAsync(submitAnswer.BindingId, "2"));
         await Assert.ThrowsAsync<ToolInvocationException>(() => answerScope.InvokeAsync(submitAnswer.BindingId, "1 + 1 = 2"));
+
+        var structured = bindings.Single(binding => binding.BindingId == "demo.inspect-payload");
+        Assert.Contains("payload.request.name: string required", structured.InputSummary);
+        Assert.Contains("payload.labels: array<string> required", structured.InputSummary);
+        await using var structuredScope = broker.OpenScope(Invocation(Revision(structured), []));
+        using var valid = JsonDocument.Parse("""{"payload":{"request":{"name":"Ada","count":3},"labels":["blue","green"]}}""");
+        Assert.Equal("Ada:3:blue,green", await structuredScope.InvokeJsonAsync(structured.BindingId, valid.RootElement));
+
+        using var invalid = JsonDocument.Parse("""{"payload":{"request":{"name":"Ada","count":"three"},"labels":["blue"]}}""");
+        await Assert.ThrowsAsync<ToolInvocationException>(() => structuredScope.InvokeJsonAsync(structured.BindingId, invalid.RootElement));
+    }
+
+    [Fact]
+    public void NestedArraySchemasNormalizeAndRejectUnsupportedOrUnboundedShapes()
+    {
+        using var schema = JsonDocument.Parse("""
+            {"type":"object","properties":{"request":{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":48},"count":{"type":"integer","minimum":0,"maximum":10}},"required":["name","count"]},"labels":{"type":"array","items":{"type":"string","enum":["blue","green"]},"minItems":1,"maxItems":4}},"required":["request","labels"],"additionalProperties":false}
+            """);
+
+        Assert.True(McpToolInputSchemas.IsSupported(schema.RootElement));
+        var summary = McpToolInputSchemas.Summarize(schema.RootElement);
+        Assert.Contains("request.name: string required", summary);
+        Assert.Contains("labels: array<string> required", summary);
+
+        var normalized = McpToolInputSchemas.Normalize(schema.RootElement);
+        Assert.Equal(10, normalized.GetProperty("properties").GetProperty("request").GetProperty("properties")
+            .GetProperty("count").GetProperty("maximum").GetInt32());
+        using var validArguments = JsonDocument.Parse("""{"request":{"name":"Ada","count":3},"labels":["blue","green"]}""");
+        var converted = McpToolInputSchemas.ToCallArguments(schema.RootElement, validArguments.RootElement);
+        var request = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(converted["request"]);
+        Assert.Equal(3L, request["count"]);
+        Assert.Equal(new object?[] { "blue", "green" }, Assert.IsAssignableFrom<object?[]>(converted["labels"]));
+
+        var invalidInputs = new[]
+        {
+            """{"request":{"name":"","count":3},"labels":["blue"]}""",
+            """{"request":{"name":"Ada","count":11},"labels":["blue"]}""",
+            """{"request":{"name":"Ada","count":3},"labels":["red"]}""",
+            """{"request":{"name":"Ada","count":3},"labels":["blue","blue","blue","blue","blue"]}""",
+            """{"request":{"name":"Ada","count":3,"extra":true},"labels":["blue"]}"""
+        };
+        foreach (var invalidInput in invalidInputs)
+        {
+            using var arguments = JsonDocument.Parse(invalidInput);
+            Assert.Throws<ToolInvocationException>(() => McpToolInputSchemas.ToCallArguments(schema.RootElement, arguments.RootElement));
+        }
+        Assert.False(McpToolInputSchemas.IsSupported(JsonDocument.Parse("""{"type":"object","properties":{"value":{"type":"string","pattern":".*"}}}""").RootElement));
+        Assert.False(McpToolInputSchemas.IsSupported(JsonDocument.Parse("""{"type":"object","properties":{"values":{"type":"array","items":{"type":"string"},"maxItems":65}}}""").RootElement));
     }
 
     [Fact]

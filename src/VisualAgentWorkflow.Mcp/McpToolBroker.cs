@@ -69,6 +69,7 @@ public sealed class McpToolBroker : INodeToolBroker
         return new(registration.BindingId, registration.DisplayName, registration.ServerId, registration.ToolName, ToolContractHash.Compute(tool))
         {
             InputSchemaJson = McpInputSchema.Normalize(tool.JsonSchema).GetRawText(),
+            InputSummary = McpInputSchema.Summarize(tool.JsonSchema),
             ToolDescription = description,
             DescriptionHash = McpToolDescription.ComputeHash(description)
         };

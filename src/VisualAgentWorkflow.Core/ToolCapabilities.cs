@@ -14,6 +14,8 @@ public sealed record ToolBindingDescriptor(string BindingId, string DisplayName,
     public string InputSchemaJson { get; init; } = "{}";
     /// <summary>Untrusted, bounded MCP metadata shown to authors and included in agent function declarations.</summary>
     public string ToolDescription { get; init; } = "";
+    /// <summary>Concise, bounded argument summary for authoring surfaces.</summary>
+    public string InputSummary { get; init; } = "";
     /// <summary>Optional compatibility pin for the MCP tool description; absent on legacy workflow bindings.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? DescriptionHash { get; init; }
 }

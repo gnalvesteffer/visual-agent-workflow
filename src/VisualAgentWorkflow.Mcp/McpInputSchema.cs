@@ -3,93 +3,56 @@ using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Mcp;
 
-/// <summary>Validated portable MCP input shape supported by the agent adapter.</summary>
+/// <summary>Validated portable MCP input shapes supported by the agent adapter.</summary>
 public static class McpToolInputSchemas
 {
-    /// <summary>Returns whether an MCP tool uses the supported flat scalar object schema.</summary>
+    /// <summary>Returns whether an MCP tool uses the supported bounded JSON schema subset.</summary>
     public static bool IsSupported(JsonElement schema) => McpInputSchema.IsSupported(schema);
 
     /// <summary>Returns a normalized schema suitable for an agent function declaration.</summary>
     public static JsonElement Normalize(JsonElement schema) => McpInputSchema.Normalize(schema);
+
+    /// <summary>Returns a concise summary of supported fields, nested objects, and arrays.</summary>
+    public static string Summarize(JsonElement schema) => McpInputSchema.Summarize(schema);
+
+    /// <summary>Validates JSON arguments against the supported schema subset and converts them to MCP call values.</summary>
+    public static IReadOnlyDictionary<string, object?> ToCallArguments(JsonElement schema, JsonElement arguments) =>
+        McpInputSchema.Validate(schema).ToCallArguments(arguments);
 }
 
 internal sealed class McpInputSchema
 {
-    private static readonly HashSet<string> SupportedTypes = ["string", "integer", "number", "boolean"];
-    private readonly IReadOnlyDictionary<string, string> propertyTypes;
-    private readonly IReadOnlySet<string> required;
+    private const int MaximumSchemaLength = 16_384;
+    private const int MaximumArgumentLength = 65_536;
+    private const int MaximumDepth = 8;
+    private const int MaximumProperties = 32;
+    private const int MaximumArrayItems = 64;
+    private const int MaximumValueCount = 1_024;
+    private const int MaximumStringLength = 8_192;
+    private const int MaximumSummaryFields = 32;
+    private const int MaximumSummaryLength = 4_096;
+    private readonly JsonElement schema;
 
-    private McpInputSchema(IReadOnlyDictionary<string, string> propertyTypes, IReadOnlySet<string> required)
-    {
-        this.propertyTypes = propertyTypes;
-        this.required = required;
-    }
+    private McpInputSchema(JsonElement schema) => this.schema = schema;
 
     internal static McpInputSchema Validate(JsonElement schema)
     {
-        if (schema.ValueKind != JsonValueKind.Object || !schema.TryGetProperty("type", out var objectType) ||
-            objectType.ValueKind != JsonValueKind.String || objectType.GetString() != "object" || !schema.TryGetProperty("properties", out var properties) ||
-            schema.GetRawText().Length > 16_384 || properties.ValueKind != JsonValueKind.Object || properties.EnumerateObject().Count() > 32)
+        if (schema.ValueKind != JsonValueKind.Object || schema.GetRawText().Length > MaximumSchemaLength ||
+            !schema.TryGetProperty("type", out var rootType) || rootType.ValueKind != JsonValueKind.String || rootType.GetString() != "object")
             throw UnsupportedSchema();
 
-        var types = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var property in properties.EnumerateObject())
-        {
-            if (string.IsNullOrWhiteSpace(property.Name) || property.Name.Length > 128 || property.Value.ValueKind != JsonValueKind.Object ||
-                !property.Value.TryGetProperty("type", out var type) || type.ValueKind != JsonValueKind.String ||
-                !SupportedTypes.Contains(type.GetString()!) ||
-                property.Value.TryGetProperty("description", out var description) &&
-                    (description.ValueKind != JsonValueKind.String || description.GetString()!.Length > 1024) ||
-                property.Value.EnumerateObject().Any(field => field.Name is not ("type" or "description" or "title")))
-                throw UnsupportedSchema();
-            types.Add(property.Name, type.GetString()!);
-        }
-
-        var required = new HashSet<string>(StringComparer.Ordinal);
-        if (schema.TryGetProperty("required", out var requiredFields))
-        {
-            if (requiredFields.ValueKind != JsonValueKind.Array) throw UnsupportedSchema();
-            foreach (var field in requiredFields.EnumerateArray())
-                if (field.ValueKind != JsonValueKind.String || !types.ContainsKey(field.GetString()!) || !required.Add(field.GetString()!))
-                    throw UnsupportedSchema();
-        }
-
-        if (schema.TryGetProperty("additionalProperties", out var additional) && additional.ValueKind != JsonValueKind.False)
-            throw UnsupportedSchema();
-        if (schema.EnumerateObject().Any(field => field.Name is not ("type" or "properties" or "required" or "additionalProperties" or "$schema" or "title" or "description")))
-            throw UnsupportedSchema();
-
-        return new(types, required);
+        ValidateSchema(schema, depth: 0);
+        return new(schema.Clone());
     }
 
     internal static JsonElement Normalize(JsonElement schema)
     {
-        Validate(schema);
         using var output = new MemoryStream();
         using (var writer = new Utf8JsonWriter(output))
         {
-            writer.WriteStartObject();
-            writer.WriteString("type", "object");
-            writer.WritePropertyName("properties");
-            writer.WriteStartObject();
-            foreach (var property in schema.GetProperty("properties").EnumerateObject())
-            {
-                writer.WritePropertyName(property.Name);
-                writer.WriteStartObject();
-                writer.WriteString("type", property.Value.GetProperty("type").GetString());
-                if (property.Value.TryGetProperty("description", out var description) && description.ValueKind == JsonValueKind.String)
-                    writer.WriteString("description", description.GetString());
-                writer.WriteEndObject();
-            }
-            writer.WriteEndObject();
-            if (schema.TryGetProperty("required", out var required))
-            {
-                writer.WritePropertyName("required");
-                required.WriteTo(writer);
-            }
-            writer.WriteBoolean("additionalProperties", false);
-            writer.WriteEndObject();
+            WriteNormalizedSchema(writer, Validate(schema).schema);
         }
+
         using var normalized = JsonDocument.Parse(output.ToArray());
         return normalized.RootElement.Clone();
     }
@@ -100,29 +63,350 @@ internal sealed class McpInputSchema
         catch (ToolInvocationException) { return false; }
     }
 
-    public IReadOnlyDictionary<string, object?> ToCallArguments(JsonElement arguments)
+    internal static string Summarize(JsonElement schema)
     {
-        if (arguments.ValueKind != JsonValueKind.Object) throw new ToolInvocationException("Tool arguments must be an object.");
-        var values = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-        foreach (var property in arguments.EnumerateObject())
-            if (!values.TryAdd(property.Name, property.Value)) throw new ToolInvocationException("Tool arguments contain duplicate fields.");
-
-        if (values.Keys.Any(name => !propertyTypes.ContainsKey(name)) || required.Any(name => !values.ContainsKey(name)))
-            throw new ToolInvocationException("Tool arguments do not match the discovered input schema.");
-
-        return values.ToDictionary(pair => pair.Key, pair => (object?)ConvertValue(propertyTypes[pair.Key], pair.Value), StringComparer.Ordinal);
+        var root = Validate(schema).schema;
+        var fields = new List<string>();
+        SummarizeObject(root, "", depth: 0, fields);
+        var summary = string.Join(", ", fields);
+        return summary.Length <= MaximumSummaryLength ? summary : summary[..(MaximumSummaryLength - 3)] + "...";
     }
 
-    private static object ConvertValue(string type, JsonElement value) => (type, value.ValueKind) switch
+    private static void SummarizeObject(JsonElement definition, string prefix, int depth, List<string> fields)
     {
-        ("string", JsonValueKind.String) => value.GetString()!,
-        ("integer", JsonValueKind.Number) when value.TryGetInt64(out var integer) => integer,
-        ("number", JsonValueKind.Number) when value.TryGetDouble(out var number) => number,
-        ("boolean", JsonValueKind.True) => true,
-        ("boolean", JsonValueKind.False) => false,
-        _ => throw new ToolInvocationException("A tool argument has the wrong JSON type.")
+        var properties = definition.GetProperty("properties");
+        var required = definition.TryGetProperty("required", out var requiredFields)
+            ? requiredFields.EnumerateArray().Select(field => field.GetString()).ToHashSet(StringComparer.Ordinal)
+            : new HashSet<string?>(StringComparer.Ordinal);
+
+        foreach (var property in properties.EnumerateObject())
+        {
+            if (fields.Count >= MaximumSummaryFields) break;
+            var path = string.IsNullOrEmpty(prefix) ? property.Name : $"{prefix}.{property.Name}";
+            var type = property.Value.GetProperty("type").GetString()!;
+            var cardinality = required.Contains(property.Name) ? "required" : "optional";
+            if (type == "object" && depth < 4 && property.Value.GetProperty("properties").EnumerateObject().Any())
+            {
+                SummarizeObject(property.Value, path, depth + 1, fields);
+                continue;
+            }
+
+            if (type == "array") type = $"array<{property.Value.GetProperty("items").GetProperty("type").GetString()}>";
+            fields.Add($"{path}: {type} {cardinality}");
+        }
+    }
+
+    public IReadOnlyDictionary<string, object?> ToCallArguments(JsonElement arguments)
+    {
+        if (arguments.ValueKind != JsonValueKind.Object || arguments.GetRawText().Length > MaximumArgumentLength)
+            throw InvalidArguments();
+
+        var visitedValues = 0;
+        ValidateValue(schema, arguments, depth: 0, ref visitedValues);
+        return arguments.EnumerateObject().ToDictionary(property => property.Name,
+            property => ConvertValue(schema.GetProperty("properties").GetProperty(property.Name), property.Value),
+            StringComparer.Ordinal);
+    }
+
+    private static void ValidateSchema(JsonElement definition, int depth)
+    {
+        if (depth > MaximumDepth || definition.ValueKind != JsonValueKind.Object ||
+            !definition.TryGetProperty("type", out var typeElement) || typeElement.ValueKind != JsonValueKind.String)
+            throw UnsupportedSchema();
+
+        var type = typeElement.GetString();
+        var allowedFields = type switch
+        {
+            "object" => new[] { "type", "title", "description", "$schema", "properties", "required", "additionalProperties" },
+            "array" => new[] { "type", "title", "description", "items", "minItems", "maxItems" },
+            "string" => new[] { "type", "title", "description", "enum", "minLength", "maxLength" },
+            "integer" or "number" => new[] { "type", "title", "description", "enum", "minimum", "maximum" },
+            "boolean" => new[] { "type", "title", "description", "enum" },
+            _ => throw UnsupportedSchema()
+        };
+
+        if (definition.EnumerateObject().Any(field => !allowedFields.Contains(field.Name, StringComparer.Ordinal)))
+            throw UnsupportedSchema();
+
+        ValidateDescription(definition);
+        ValidateEnum(definition, type!);
+
+        switch (type)
+        {
+            case "object":
+                ValidateObjectSchema(definition, depth);
+                break;
+            case "array":
+                if (!definition.TryGetProperty("items", out var items)) throw UnsupportedSchema();
+                ValidateArrayBounds(definition);
+                ValidateSchema(items, depth + 1);
+                break;
+            case "string":
+                ValidateStringBounds(definition);
+                break;
+            case "integer":
+            case "number":
+                ValidateNumberBounds(definition, type!);
+                break;
+        }
+    }
+
+    private static void ValidateObjectSchema(JsonElement definition, int depth)
+    {
+        if (!definition.TryGetProperty("properties", out var properties) || properties.ValueKind != JsonValueKind.Object ||
+            properties.EnumerateObject().Count() > MaximumProperties ||
+            definition.TryGetProperty("additionalProperties", out var additional) && additional.ValueKind != JsonValueKind.False)
+            throw UnsupportedSchema();
+
+        var propertyNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var property in properties.EnumerateObject())
+        {
+            if (string.IsNullOrWhiteSpace(property.Name) || property.Name.Length > 128 || !propertyNames.Add(property.Name))
+                throw UnsupportedSchema();
+            ValidateSchema(property.Value, depth + 1);
+        }
+
+        if (!definition.TryGetProperty("required", out var required)) return;
+        if (required.ValueKind != JsonValueKind.Array) throw UnsupportedSchema();
+        var requiredNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var field in required.EnumerateArray())
+            if (field.ValueKind != JsonValueKind.String || !properties.TryGetProperty(field.GetString()!, out _) ||
+                !requiredNames.Add(field.GetString()!))
+                throw UnsupportedSchema();
+
+    }
+
+    private static void WriteNormalizedSchema(Utf8JsonWriter writer, JsonElement definition)
+    {
+        var type = definition.GetProperty("type").GetString()!;
+        writer.WriteStartObject();
+        writer.WriteString("type", type);
+        if (definition.TryGetProperty("description", out var description)) writer.WriteString("description", description.GetString());
+
+        if (type == "object")
+        {
+            writer.WritePropertyName("properties");
+            writer.WriteStartObject();
+            foreach (var property in definition.GetProperty("properties").EnumerateObject())
+            {
+                writer.WritePropertyName(property.Name);
+                WriteNormalizedSchema(writer, property.Value);
+            }
+            writer.WriteEndObject();
+            if (definition.TryGetProperty("required", out var required))
+            {
+                writer.WritePropertyName("required");
+                required.WriteTo(writer);
+            }
+            writer.WriteBoolean("additionalProperties", false);
+        }
+
+        if (type == "array")
+        {
+            writer.WritePropertyName("items");
+            WriteNormalizedSchema(writer, definition.GetProperty("items"));
+            WriteIntegerBound(writer, definition, "minItems", defaultValue: 0);
+            WriteIntegerBound(writer, definition, "maxItems", MaximumArrayItems);
+        }
+
+        if (type == "string")
+        {
+            WriteEnum(writer, definition);
+            WriteIntegerBound(writer, definition, "minLength", defaultValue: 0);
+            WriteIntegerBound(writer, definition, "maxLength", MaximumStringLength);
+        }
+
+        if (type is "integer" or "number")
+        {
+            WriteEnum(writer, definition);
+            WriteBound(writer, definition, "minimum");
+            WriteBound(writer, definition, "maximum");
+        }
+
+        if (type == "boolean") WriteEnum(writer, definition);
+        writer.WriteEndObject();
+    }
+
+    private static void ValidateValue(JsonElement definition, JsonElement value, int depth, ref int visitedValues)
+    {
+        visitedValues++;
+        if (depth > MaximumDepth || visitedValues > MaximumValueCount || !MatchesType(definition.GetProperty("type").GetString()!, value))
+            throw InvalidArguments();
+
+        var type = definition.GetProperty("type").GetString()!;
+        if (definition.TryGetProperty("enum", out var values) && !values.EnumerateArray().Any(candidate => SameScalar(candidate, value)))
+            throw InvalidArguments();
+
+        switch (type)
+        {
+            case "object":
+                ValidateObjectValue(definition, value, depth, ref visitedValues);
+                break;
+            case "array":
+                ValidateArrayValue(definition, value, depth, ref visitedValues);
+                break;
+            case "string":
+                var text = value.GetString()!;
+                ValidateLength(definition, text.Length, "minLength", "maxLength");
+                break;
+            case "integer":
+            case "number":
+                ValidateNumericValue(definition, value, type);
+                break;
+        }
+    }
+
+    private static void ValidateObjectValue(JsonElement definition, JsonElement value, int depth, ref int visitedValues)
+    {
+        var properties = definition.GetProperty("properties");
+        var supplied = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var field in value.EnumerateObject())
+        {
+            if (!supplied.Add(field.Name) || !properties.TryGetProperty(field.Name, out var fieldSchema)) throw InvalidArguments();
+            ValidateValue(fieldSchema, field.Value, depth + 1, ref visitedValues);
+        }
+
+        if (definition.TryGetProperty("required", out var required) &&
+            required.EnumerateArray().Any(field => !supplied.Contains(field.GetString()!)))
+            throw InvalidArguments();
+    }
+
+    private static void ValidateArrayValue(JsonElement definition, JsonElement value, int depth, ref int visitedValues)
+    {
+        var items = value.EnumerateArray().ToArray();
+        ValidateLength(definition, items.Length, "minItems", "maxItems");
+        foreach (var item in items) ValidateValue(definition.GetProperty("items"), item, depth + 1, ref visitedValues);
+    }
+
+    private static object? ConvertValue(JsonElement definition, JsonElement value)
+    {
+        var type = definition.GetProperty("type").GetString()!;
+        return type switch
+        {
+            "object" => value.EnumerateObject().ToDictionary(field => field.Name,
+                field => ConvertValue(definition.GetProperty("properties").GetProperty(field.Name), field.Value), StringComparer.Ordinal),
+            "array" => value.EnumerateArray().Select(item => ConvertValue(definition.GetProperty("items"), item)).ToArray(),
+            "string" => value.GetString()!,
+            "integer" => value.GetInt64(),
+            "number" => value.GetDouble(),
+            "boolean" => value.GetBoolean(),
+            _ => throw InvalidArguments()
+        };
+    }
+
+    private static bool MatchesType(string type, JsonElement value) => (type, value.ValueKind) switch
+    {
+        ("object", JsonValueKind.Object) => true,
+        ("array", JsonValueKind.Array) => true,
+        ("string", JsonValueKind.String) => true,
+        ("integer", JsonValueKind.Number) => value.TryGetInt64(out _),
+        ("number", JsonValueKind.Number) => value.TryGetDouble(out var number) && double.IsFinite(number),
+        ("boolean", JsonValueKind.True or JsonValueKind.False) => true,
+        _ => false
     };
 
+    private static void ValidateEnum(JsonElement definition, string type)
+    {
+        if (!definition.TryGetProperty("enum", out var values)) return;
+        if (values.ValueKind != JsonValueKind.Array || values.GetArrayLength() is < 1 or > 64 ||
+            values.EnumerateArray().Any(value => !MatchesType(type, value) || value.ValueKind is JsonValueKind.Object or JsonValueKind.Array))
+            throw UnsupportedSchema();
+        if (values.EnumerateArray().Select(value => value.GetRawText()).Distinct(StringComparer.Ordinal).Count() != values.GetArrayLength())
+            throw UnsupportedSchema();
+    }
+
+    private static void ValidateDescription(JsonElement definition)
+    {
+        if (definition.TryGetProperty("description", out var description) &&
+            (description.ValueKind != JsonValueKind.String || description.GetString()!.Length > 1_024))
+            throw UnsupportedSchema();
+    }
+
+    private static void ValidateArrayBounds(JsonElement definition)
+    {
+        var minimum = ReadIntegerBound(definition, "minItems", defaultValue: 0);
+        var maximum = ReadIntegerBound(definition, "maxItems", defaultValue: MaximumArrayItems);
+        if (minimum < 0 || maximum > MaximumArrayItems || minimum > maximum) throw UnsupportedSchema();
+    }
+
+    private static void ValidateStringBounds(JsonElement definition)
+    {
+        var minimum = ReadIntegerBound(definition, "minLength", defaultValue: 0);
+        var maximum = ReadIntegerBound(definition, "maxLength", defaultValue: MaximumStringLength);
+        if (minimum < 0 || maximum > MaximumStringLength || minimum > maximum) throw UnsupportedSchema();
+    }
+
+    private static int ReadIntegerBound(JsonElement definition, string name, int defaultValue)
+    {
+        if (!definition.TryGetProperty(name, out var value)) return defaultValue;
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out var bound)) throw UnsupportedSchema();
+        return bound;
+    }
+
+    private static void ValidateNumberBounds(JsonElement definition, string type)
+    {
+        var minimum = ReadNumberBound(definition, "minimum");
+        var maximum = ReadNumberBound(definition, "maximum");
+        if (minimum is { } lower && maximum is { } upper && lower > upper) throw UnsupportedSchema();
+        if (type == "integer" && (minimum is { } min && min != Math.Truncate(min) || maximum is { } max && max != Math.Truncate(max)))
+            throw UnsupportedSchema();
+    }
+
+    private static double? ReadNumberBound(JsonElement definition, string name)
+    {
+        if (!definition.TryGetProperty(name, out var value)) return null;
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetDouble(out var bound) || !double.IsFinite(bound))
+            throw UnsupportedSchema();
+        return bound;
+    }
+
+    private static void ValidateNumericValue(JsonElement definition, JsonElement value, string type)
+    {
+        if (type == "integer" && !value.TryGetInt64(out _)) throw InvalidArguments();
+        var number = value.GetDouble();
+        var minimum = ReadNumberBound(definition, "minimum");
+        var maximum = ReadNumberBound(definition, "maximum");
+        if (minimum is { } lower && number < lower || maximum is { } upper && number > upper) throw InvalidArguments();
+    }
+
+    private static void ValidateLength(JsonElement definition, int actual, string minimumName, string maximumName)
+    {
+        var maximumDefault = maximumName == "maxItems" ? MaximumArrayItems : MaximumStringLength;
+        var minimum = ReadIntegerBound(definition, minimumName, 0);
+        var maximum = ReadIntegerBound(definition, maximumName, maximumDefault);
+        if (actual < minimum || actual > maximum) throw InvalidArguments();
+    }
+
+    private static bool SameScalar(JsonElement left, JsonElement right) => (left.ValueKind, right.ValueKind) switch
+    {
+        (JsonValueKind.String, JsonValueKind.String) => left.GetString() == right.GetString(),
+        (JsonValueKind.Number, JsonValueKind.Number) => left.GetDouble() == right.GetDouble(),
+        (JsonValueKind.True, JsonValueKind.True) or (JsonValueKind.False, JsonValueKind.False) => true,
+        _ => false
+    };
+
+    private static void WriteEnum(Utf8JsonWriter writer, JsonElement definition)
+    {
+        if (!definition.TryGetProperty("enum", out var values)) return;
+        writer.WritePropertyName("enum");
+        values.WriteTo(writer);
+    }
+
+    private static void WriteBound(Utf8JsonWriter writer, JsonElement definition, string name)
+    {
+        if (!definition.TryGetProperty(name, out var value)) return;
+        writer.WritePropertyName(name);
+        value.WriteTo(writer);
+    }
+
+    private static void WriteIntegerBound(Utf8JsonWriter writer, JsonElement definition, string name, int defaultValue)
+    {
+        writer.WriteNumber(name, ReadIntegerBound(definition, name, defaultValue));
+    }
+
     private static ToolInvocationException UnsupportedSchema() =>
-        new("This MCP tool uses an unsupported input schema. Supported inputs are flat object fields of type string, integer, number, or boolean.");
+        new("This MCP tool uses an unsupported input schema. Supported inputs are bounded nested objects and arrays with string, integer, number, and boolean values.");
+
+    private static ToolInvocationException InvalidArguments() =>
+        new("Tool arguments do not match the discovered input schema or supported size limits.");
 }
