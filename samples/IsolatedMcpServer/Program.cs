@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
+using VisualAgentWorkflow.Mcp;
 
 var builder = Host.CreateApplicationBuilder();
 builder.Logging.ClearProviders();
@@ -16,6 +17,17 @@ internal sealed class IsolationProbeTools
     [McpServerTool(Name = "add_integers", ReadOnly = true, Destructive = false),
      Description("Adds two integers deterministically without external I/O.")]
     public static int AddIntegers(int left, int right) => checked(left + right);
+
+    [McpServerTool(Name = "delegate_add", ReadOnly = true, Destructive = false),
+     Description("Adds two integers by requesting the separately assigned sandbox.add host capability.")]
+    public static async Task<string> DelegateAdd(int left, int right, CancellationToken cancellationToken)
+    {
+        var capabilities = await new McpWorkerCapabilityClient().ListToolsAsync(cancellationToken);
+        if (capabilities.Count != 1 || capabilities[0].BindingId != "sandbox.add")
+            throw new InvalidOperationException("The host did not assign the sandbox.add capability.");
+        using var arguments = JsonDocument.Parse(JsonSerializer.Serialize(new { left, right }));
+        return await new McpWorkerCapabilityClient().InvokeJsonAsync("sandbox.add", arguments.RootElement, cancellationToken);
+    }
 
     [McpServerTool(Name = "inspect_isolation", ReadOnly = true, Destructive = false),
      Description("Reports whether the worker can access host state, direct network, and its ephemeral temp directory.")]

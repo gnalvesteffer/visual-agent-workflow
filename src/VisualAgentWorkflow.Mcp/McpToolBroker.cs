@@ -10,6 +10,23 @@ public sealed record McpToolRegistration(string BindingId, string DisplayName, s
     Func<CancellationToken, Task<McpClient>> Connect, bool ReadOnly = false)
 {
     public bool AllowInvocation { get; init; }
+    /// <summary>Optional invocation-bound connector for registrations that need a scoped host capability channel.</summary>
+    public Func<NodeInvocationContext, CancellationToken, Task<McpToolConnection>>? ConnectInScope { get; init; }
+}
+
+/// <summary>A scoped MCP connection and any invocation-specific resources it owns.</summary>
+public sealed class McpToolConnection(McpClient client, IAsyncDisposable? lifetime = null) : IAsyncDisposable
+{
+    public McpClient Client { get; } = client ?? throw new ArgumentNullException(nameof(client));
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await Client.DisposeAsync(); }
+        finally
+        {
+            if (lifetime is not null) await lifetime.DisposeAsync();
+        }
+    }
 }
 
 public sealed class McpToolBroker : INodeToolBroker
@@ -50,7 +67,8 @@ public sealed class McpToolBroker : INodeToolBroker
         if (invocation.RunId == Guid.Empty || invocation.InvocationId == Guid.Empty ||
             !invocation.Revision.Definition.Nodes.TryGetValue(invocation.NodeId, out var node))
             throw new ArgumentException("Invalid runtime invocation context.", nameof(invocation));
-        return new Scope(this, invocation, invocation.ToolRequirements ?? NodeToolRequirements.For(node));
+        var scopedInvocation = invocation with { OpenToolScope = OpenScope };
+        return new Scope(this, scopedInvocation, scopedInvocation.ToolRequirements ?? NodeToolRequirements.For(node));
     }
 
     private static async Task<McpClientTool> FindTool(McpClient client, McpToolRegistration registration, CancellationToken cancellationToken)
@@ -94,7 +112,8 @@ public sealed class McpToolBroker : INodeToolBroker
                     throw new ToolAccessDeniedException();
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 deadline.CancelAfter(owner.timeout);
-                await using var client = await registration.Connect(deadline.Token);
+                await using var connection = await Connect(registration, invocation, deadline.Token);
+                var client = connection.Client;
                 var tool = await FindTool(client, registration, deadline.Token);
                 var descriptor = Describe(registration, tool);
                 ValidatePinnedMetadata(requirement, descriptor);
@@ -124,15 +143,17 @@ public sealed class McpToolBroker : INodeToolBroker
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
             var toolCallId = Guid.NewGuid();
-            await Record(ExecutionEventKinds.ToolRequested, new { toolCallId, bindingId });
+            await Record(ExecutionEventKinds.ToolRequested, new { toolCallId, parentToolCallId = invocation.ParentToolCallId, bindingId });
             if (!Allowed(bindingId))
             {
-                await Record(ExecutionEventKinds.ToolDenied, new { toolCallId, bindingId, reason = "No effective node grant." });
+                await Record(ExecutionEventKinds.ToolDenied, new
+                { toolCallId, parentToolCallId = invocation.ParentToolCallId, bindingId, reason = "No effective node grant." });
                 throw new ToolAccessDeniedException();
             }
             if (Interlocked.Increment(ref calls) > 8 || arguments.ValueKind != JsonValueKind.Object || arguments.GetRawText().Length > 16_384)
             {
-                await Record(ExecutionEventKinds.ToolDenied, new { toolCallId, bindingId, reason = "Invocation budget exceeded." });
+                await Record(ExecutionEventKinds.ToolDenied, new
+                { toolCallId, parentToolCallId = invocation.ParentToolCallId, bindingId, reason = "Invocation budget exceeded." });
                 throw new ToolInvocationException("Tool invocation budget exceeded.");
             }
             if (!Volatile.Read(ref owner.registrations).TryGetValue(bindingId, out var registration))
@@ -143,7 +164,9 @@ public sealed class McpToolBroker : INodeToolBroker
             var dispatched = false;
             try
             {
-                await using var client = await registration.Connect(deadline.Token);
+                await using var connection = await Connect(registration,
+                    invocation with { ParentToolCallId = toolCallId }, deadline.Token);
+                var client = connection.Client;
                 var tool = await FindTool(client, registration, deadline.Token);
                 var descriptor = Describe(registration, tool);
                 ValidatePinnedMetadata(requirement, descriptor);
@@ -151,21 +174,35 @@ public sealed class McpToolBroker : INodeToolBroker
                 var callArguments = schema.ToCallArguments(arguments);
                 if (!Allowed(bindingId)) throw new ToolAccessDeniedException();
                 await Record(ExecutionEventKinds.ToolAuthorized, new
-                { toolCallId, bindingId, registration.ServerId, registration.ToolName, requirement.ContractHash,
-                    requirement.DescriptionHash, input = arguments });
+                {
+                    toolCallId,
+                    parentToolCallId = invocation.ParentToolCallId,
+                    bindingId,
+                    registration.ServerId,
+                    registration.ToolName,
+                    requirement.ContractHash,
+                    requirement.DescriptionHash,
+                    input = arguments
+                });
                 dispatched = true;
                 var result = await client.CallToolAsync(registration.ToolName, callArguments, cancellationToken: deadline.Token);
                 if (result.IsError == true) throw new ToolInvocationException("The MCP server reported a tool failure.");
                 if (result.Content.Any(c => c is not TextContentBlock)) throw new ToolInvocationException("The tool returned unsupported non-text content.");
                 var output = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(c => c.Text));
                 if (output.Length > 16_384) throw new ToolInvocationException("Tool output exceeds the pipeline limit.");
-                await Record(ExecutionEventKinds.ToolCompleted, new { toolCallId, bindingId, output });
+                await Record(ExecutionEventKinds.ToolCompleted, new { toolCallId, parentToolCallId = invocation.ParentToolCallId, bindingId, output });
                 return output;
             }
             catch (OperationCanceledException)
             {
                 await Record(dispatched ? ExecutionEventKinds.ToolUncertain : ExecutionEventKinds.ToolFailed,
-                    new { toolCallId, bindingId, reason = "Tool call cancelled or timed out; no automatic retry." });
+                    new
+                    {
+                        toolCallId,
+                        parentToolCallId = invocation.ParentToolCallId,
+                        bindingId,
+                        reason = "Tool call cancelled or timed out; no automatic retry."
+                    });
                 if (cancellationToken.IsCancellationRequested) throw;
                 throw new ToolInvocationException("The tool operation timed out.");
             }
@@ -173,15 +210,27 @@ public sealed class McpToolBroker : INodeToolBroker
             {
                 await Record(error is ToolAccessDeniedException ? ExecutionEventKinds.ToolDenied :
                     dispatched && error is not ToolInvocationException ? ExecutionEventKinds.ToolUncertain : ExecutionEventKinds.ToolFailed,
-                    new { toolCallId, bindingId, reason = error switch
+                    new
                     {
-                        ToolContractMismatchException => "Input/output schema mismatch.",
-                        ToolDescriptionMismatchException => "Description mismatch.",
-                        _ => "Tool operation failed."
-                    } });
+                        toolCallId,
+                        parentToolCallId = invocation.ParentToolCallId,
+                        bindingId,
+                        reason = error switch
+                        {
+                            ToolContractMismatchException => "Input/output schema mismatch.",
+                            ToolDescriptionMismatchException => "Description mismatch.",
+                            _ => "Tool operation failed."
+                        }
+                    });
                 throw;
             }
         }
+
+        private static async Task<McpToolConnection> Connect(McpToolRegistration registration,
+            NodeInvocationContext invocation, CancellationToken cancellationToken) =>
+            registration.ConnectInScope is { } scoped
+                ? await scoped(invocation, cancellationToken)
+                : new(await registration.Connect(cancellationToken));
 
         private static void ValidatePinnedMetadata(ToolBindingRequest requirement, ToolBindingDescriptor actual)
         {

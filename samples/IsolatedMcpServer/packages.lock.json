@@ -23,6 +23,16 @@
         "dependencies": {
           "Microsoft.Extensions.AI.Abstractions": "10.11.0"
         }
+      },
+      "visualagentworkflow.core": {
+        "type": "Project"
+      },
+      "visualagentworkflow.mcp": {
+        "type": "Project",
+        "dependencies": {
+          "ModelContextProtocol": "[2.3.0, )",
+          "VisualAgentWorkflow.Core": "[1.0.0, )"
+        }
       }
     }
   }

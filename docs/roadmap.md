@@ -107,7 +107,7 @@ flowchart TD
     TypedMapping --> Loops["Complete: bounded loop"]
     Loops --> Exit["Complete: explicit workflow return and termination"] --> Calls["Complete: typed pinned calls, parameter mapping, and revision upgrades"]
 Calls --> Assets["Complete: child graph drill-in"] --> NestedApproval["Complete: scoped nested approvals"]
-Assets --> ContainerWorkers["Active: digest-pinned container MCP workers"] --> BrokeredCaps["Next: brokered worker capabilities"] --> Extensions["Planned: isolated .NET extension assemblies"]
+    Assets --> ContainerWorkers["Active: container MCP workers + brokered capabilities"] --> Extensions["Planned: isolated .NET extension assemblies"]
     Orchestration --> Durable["Later: host-attributed reconciliation decisions"]
     Durable --> Collaboration["Workspace sharing and collaboration"]
     Extensions --> Production["Production qualification"]
@@ -154,13 +154,13 @@ The Studio can inspect the exact child definition embedded in a selected call an
 
 Approval actions in pinned child workflows bind to the root run/revision/hash, every exact call-node and child-revision/hash edge, the executing definition, and the immediate MCP action/input/invocation. The request event carries the identical child path scope; stale snapshot, node, action, or scope mismatches are rejected. Child approval details render in the approval panel and highlight the parent call in playback. Host grants remain separate and are checked at dispatch. Validation prevents two concurrent approval-bearing branches because the current run controller admits one pending decision. Nested approvals remain process-owned; restart interrupts them. Focused core, runtime, and rendering tests pass. See [approvals](approvals.md) and [nested workflow calls](nested-workflows.md).
 
-### Active: digest-pinned container MCP workers
+### Active: container MCP workers and brokered capabilities
 
-Consumer hosts can register digest-pinned MCP servers in disposable Docker workers using the normal broker and node grants. The worker is launched with no network, inherited environment, host mounts, or writable root, plus non-root identity, capability dropping, resource bounds, and ephemeral temporary storage. A Linux CI proof builds a deterministic MCP image and checks real discovery, invocation, environment/filesystem/network containment, and node authorization. The local environment could not pull the pinned MCR base image because the Docker registry returned `Forbidden`; implementation and ordinary build tests pass, but the real container proof must pass in CI before this milestone is marked complete. This implementation hosts MCP servers, not arbitrary DLLs; direct assembly workers and brokered worker capabilities remain planned. See [containerized MCP workers](extension-workers.md).
+Consumer hosts can register digest-pinned MCP servers in disposable Docker workers using the normal broker and node grants. The worker is launched with no network, inherited environment, or writable root, plus non-root identity, capability dropping, resource bounds, and ephemeral temporary storage. When explicitly configured, it receives one read-only mount containing only a private Unix socket through which it can request up to eight node-assigned MCP tools. Every request is rechecked against the current pinned workflow requirement and host grant; delegation is limited to one level and audit remains host-owned. A Linux CI proof builds a deterministic MCP image and checks real discovery, delegated invocation, environment/filesystem/network containment, and node authorization. The local environment could not pull the pinned MCR base image because the Docker registry returned `Forbidden`; implementation and ordinary build tests pass, but the real container proof must pass in CI before this milestone is marked complete. This implementation hosts MCP servers, not arbitrary DLLs; isolated .NET assemblies remain planned. See [containerized MCP workers](extension-workers.md).
 
-### Next: brokered worker capabilities
+### Planned: isolated .NET extension assemblies
 
-Design a versioned invocation protocol through which an isolated worker can request only the MCP bindings explicitly assigned to its node, with the host broker rechecking workflow requirements, grants, contract pins, budgets, timeout, and cancellation on every request. Bind each capability request to the immutable run/revision/node/invocation identity; never put credentials in the worker. Then the same boundary can host approved .NET assemblies without placing them in the engine process. Preserve the current no-network default and prove denial, revocation, cancellation, crash, and audit behavior before adding authoring controls.
+Define the approved .NET extension interface, signed/versioned artifact identity, and typed input/output/configuration contracts. Execute assemblies only inside the isolated worker protocol after the container boundary and brokered capability checks pass Linux CI. Add worker health/pooling and failure recovery only after proving the single-invocation boundary. An interface or AssemblyLoadContext is not a sandbox.
 
 ## Latest completed milestone: bounded parallel graph block
 
@@ -229,10 +229,6 @@ Add workspace identity, backend authorization, authenticated audit actors, paylo
 ### Planned: further reusable assets and specialization
 
 Explicit conditional-block removal is implemented for isolated decision regions, with affected-node confirmation and shared definition/layout undo. Shared-boundary removal remains unsupported. Continue reusable workflow work with embedded child-graph drill-in and scoped composition controls. Preserve historical playback when sources/providers are absent.
-
-### Planned: direct .NET extension assemblies
-
-Define the approved .NET extension interface, signed/versioned artifact identity, and typed input/output/configuration contracts. Execute assemblies only inside the isolated worker protocol after brokered capabilities are implemented. Add worker health/pooling and failure recovery only after proving the single-invocation boundary. An interface or AssemblyLoadContext is not a sandbox.
 
 ### Planned: collaboration, source control, and promotion
 

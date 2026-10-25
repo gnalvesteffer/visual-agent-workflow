@@ -9,6 +9,8 @@ public sealed record ContainerMcpServerOptions(string ImageReference)
 {
     public string DockerExecutable { get; init; } = "docker";
     public IReadOnlyList<string> Arguments { get; init; } = [];
+    /// <summary>Additional node-assigned host tool bindings this worker may request through the broker.</summary>
+    public IReadOnlyList<string> CapabilityBindingIds { get; init; } = [];
     public bool AllowInvocation { get; init; }
 }
 
@@ -32,6 +34,9 @@ public static partial class ContainerMcpToolRegistration
         ArgumentNullException.ThrowIfNull(options);
 
         ValidateOptions(options);
+        var capabilityBindingIds = options.CapabilityBindingIds.ToArray();
+        if (capabilityBindingIds.Contains(bindingId, StringComparer.Ordinal))
+            throw new ArgumentException("A worker cannot grant itself as a capability.", nameof(options));
         var arguments = BuildDockerArguments(options).ToArray();
 
         async Task<McpClient> Connect(CancellationToken cancellationToken)
@@ -46,9 +51,44 @@ public static partial class ContainerMcpToolRegistration
             return await McpClient.CreateAsync(transport, cancellationToken: cancellationToken);
         }
 
+        async Task<McpToolConnection> ConnectInScope(NodeInvocationContext invocation, CancellationToken cancellationToken)
+        {
+            var selected = (invocation.ToolRequirements ?? [])
+                .Where(requirement => capabilityBindingIds.Contains(requirement.BindingId, StringComparer.Ordinal))
+                .ToArray();
+            if (selected.Length == 0) return new(await Connect(cancellationToken));
+            if (invocation.BrokeredCapabilityDepth != 0)
+                throw new ToolAccessDeniedException();
+
+            var session = McpCapabilitySocketSession.Create(invocation, selected, cancellationToken);
+            try
+            {
+                var workerArguments = arguments.ToList();
+                var imageIndex = workerArguments.IndexOf(options.ImageReference);
+                workerArguments.Insert(imageIndex, "--mount");
+                workerArguments.Insert(imageIndex + 1,
+                    $"type=bind,source={session.MountSource},target=/run/vaw-capabilities,readonly");
+                var transport = new StdioClientTransport(new()
+                {
+                    Name = $"VAW isolated MCP worker · {serverId}",
+                    Command = options.DockerExecutable,
+                    Arguments = workerArguments,
+                    InheritEnvironmentVariables = false
+                });
+                var client = await McpClient.CreateAsync(transport, cancellationToken: cancellationToken);
+                return new(client, session);
+            }
+            catch
+            {
+                await session.DisposeAsync();
+                throw;
+            }
+        }
+
         return new(bindingId, displayName, serverId, toolName, Connect)
         {
-            AllowInvocation = options.AllowInvocation
+            AllowInvocation = options.AllowInvocation,
+            ConnectInScope = ConnectInScope
         };
     }
 
@@ -76,6 +116,10 @@ public static partial class ContainerMcpToolRegistration
         if (options.Arguments is null || options.Arguments.Count > MaximumArguments || options.Arguments.Any(argument =>
                 argument is null || argument.Length > MaximumArgumentLength || argument.Contains('\0')))
             throw new ArgumentException("Container MCP arguments exceed the allowed count or length.", nameof(options));
+        if (options.CapabilityBindingIds is null || options.CapabilityBindingIds.Count > 8 ||
+            options.CapabilityBindingIds.Any(string.IsNullOrWhiteSpace) ||
+            options.CapabilityBindingIds.Distinct(StringComparer.Ordinal).Count() != options.CapabilityBindingIds.Count)
+            throw new ArgumentException("Worker capability bindings must be unique and limited to eight entries.", nameof(options));
     }
 
     private static bool IsDigestPinned(string? imageReference) => imageReference is not null &&

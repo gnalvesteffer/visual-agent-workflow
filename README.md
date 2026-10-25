@@ -22,6 +22,8 @@ dotnet build --no-restore --configuration Release
 dotnet test --no-build --configuration Release
 ```
 
+The repository-root `.editorconfig` defines shared whitespace and modern C# style defaults for supported editors and `dotnet format`.
+
 No model credentials or external services are needed for core tests. Keep package lockfiles committed when adding dependencies.
 
 ## Run the development studio
