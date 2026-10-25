@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using VisualAgentWorkflow.Core;
 using Xunit;
 
@@ -67,7 +68,7 @@ public class AgentCapabilityTests
     }
 
     [Fact]
-    public void AgentOutputLimitsAndExplicitReasoningOffAreBoundedSchema110Settings()
+    public void OutputLimitsAreVersionedAndLegacyReasoningEnumValuesRemainStable()
     {
         var skill = WorkflowSkill.Create("math", "1.0", "Arithmetic", "Return a single number.");
         var baseline = Definition(skill);
@@ -81,8 +82,25 @@ public class AgentCapabilityTests
 
         Assert.Empty(WorkflowValidator.Validate(configured));
         Assert.Contains(WorkflowValidator.Validate(configured with { SchemaVersion = "1.9" }), issue => issue.Code == "agent.outputTokens");
-        Assert.Contains(WorkflowValidator.Validate(configured with { SchemaVersion = "1.9", Nodes = configured.Nodes.SetItem("step-1",
-            configured.Nodes["step-1"] with { Agent = configured.Nodes["step-1"].Agent! with { MaxOutputTokens = null } }) }), issue => issue.Code == "agent.reasoning");
+        var legacyLow = configured with { SchemaVersion = "1.9", Nodes = configured.Nodes.SetItem("step-1",
+            configured.Nodes["step-1"] with { Agent = configured.Nodes["step-1"].Agent! with { MaxOutputTokens = null, ReasoningEffort = AgentReasoningEffort.Low } }) };
+        Assert.Empty(WorkflowValidator.Validate(legacyLow));
+        var legacyJson = WorkflowJson.Serialize(legacyLow);
+        using (var parsed = JsonDocument.Parse(legacyJson))
+            Assert.Equal(0, parsed.RootElement.GetProperty("nodes").GetProperty("step-1").GetProperty("agent").GetProperty("reasoningEffort").GetInt32());
+        Assert.Equal(legacyJson, WorkflowJson.Serialize(WorkflowJson.Deserialize(legacyJson)));
+        Assert.Contains(WorkflowValidator.Validate(legacyLow with { Nodes = legacyLow.Nodes.SetItem("step-1",
+            legacyLow.Nodes["step-1"] with { Agent = legacyLow.Nodes["step-1"].Agent! with { ReasoningEffort = AgentReasoningEffort.Off } }) }),
+            issue => issue.Code == "agent.reasoning");
+
+        var parameterizedOff = legacyLow with
+        {
+            Parameters = legacyLow.Parameters!.Add("effort",
+                new("Reasoning effort", "off") { Type = "choice", Choices = ["default", "off", "low", "medium", "high"] }),
+            Nodes = legacyLow.Nodes.SetItem("step-1", legacyLow.Nodes["step-1"] with
+            { Agent = legacyLow.Nodes["step-1"].Agent! with { ReasoningEffort = null, ReasoningEffortParameterId = "effort" } })
+        };
+        Assert.Contains(WorkflowValidator.Validate(parameterizedOff), issue => issue.Code == "agent.reasoning.parameter");
         foreach (var value in new[] { 0, AgentOutputTokenLimits.Maximum + 1 })
             Assert.Contains(WorkflowValidator.Validate(configured with { Nodes = configured.Nodes.SetItem("step-1",
                 configured.Nodes["step-1"] with { Agent = configured.Nodes["step-1"].Agent! with { MaxOutputTokens = value } }) }),

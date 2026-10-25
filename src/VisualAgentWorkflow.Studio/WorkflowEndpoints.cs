@@ -103,7 +103,11 @@ internal static class WorkflowEndpoints
             }
             catch (KeyNotFoundException) { return Results.NotFound(); }
             catch (Exception error) when (error is ArgumentException or JsonException)
-            { return Results.BadRequest(new { error = "Invalid definition, revision, or generation." }); }
+            {
+                context.HttpContext.RequestServices.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CatalogErrorFilter>>()
+                    .LogWarning("Rejected workflow catalog request: {Reason}", error.Message);
+                return Results.BadRequest(new { error = "Invalid definition, revision, or generation." });
+            }
         }
     }
 

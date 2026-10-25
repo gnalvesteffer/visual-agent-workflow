@@ -14,7 +14,8 @@ public sealed record AgentConfiguration(string ProviderId, string ProviderVersio
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? MaxOutputTokens { get; init; }
 }
 
-public enum AgentReasoningEffort { Off, Low, Medium, High }
+// Preserve the persisted numeric values from the original schema: 0=Low, 1=Medium, 2=High.
+public enum AgentReasoningEffort { Low = 0, Medium = 1, High = 2, Off = 3 }
 
 public static class AgentOutputTokenLimits
 {

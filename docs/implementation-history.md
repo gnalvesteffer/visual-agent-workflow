@@ -12,7 +12,7 @@ Run snapshot reads verify their stored content hash and event sequence without r
 
 ## Per-agent inference limits and reasoning off
 
-Schema 1.10 adds an optional bounded `maxOutputTokens` setting (1–16,384) to agent configuration. Absent values retain the legacy 1,024-token cap, while configured values are passed to Microsoft.Extensions.AI and captured in model request evidence. Providers that advertise reasoning controls now expose explicit **Off**, mapped to `ReasoningEffort.None`, distinct from provider default. Core validation, Agent Framework evidence, and OpenAI-compatible request tests cover bounds and propagation. See [architecture](architecture.md) and the [user guide](user-guide.md).
+Schema 1.10 adds an optional bounded `maxOutputTokens` setting (1–16,384) to agent configuration. Absent values retain the legacy 1,024-token cap, while configured values are passed to Microsoft.Extensions.AI and captured in model request evidence. Providers that advertise reasoning controls now expose explicit **Off**, mapped to `ReasoningEffort.None`, distinct from provider default. Numeric reasoning enum assignments remain stable (`0=Low`, `1=Medium`, `2=High`) so saved drafts, published revisions, and run history retain their original meaning; explicit Off uses a new value and requires schema 1.10. Core validation, Agent Framework evidence, and OpenAI-compatible request tests cover bounds and propagation. See [architecture](architecture.md) and the [user guide](user-guide.md).
 
 ## Confirmed conditional block removal
 

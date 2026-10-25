@@ -266,13 +266,15 @@ def check(browser, screenshots):
     # Agent-only controls stay scoped to an agent node and are persisted independently.
     agent_definition = page.request.get(BASE + "/api/templates/default").json()
     agent_definition["workflowId"] = "agent-settings-smoke-" + uuid.uuid4().hex
-    agent_definition["schemaVersion"] = "1.10"
+    # Old saved drafts persist reasoning efforts as numeric enums; 0 must remain Low.
+    agent_definition["schemaVersion"] = "1.9"
     agent_definition["nodes"]["step-1"]["type"] = "core.agent"
     agent_definition["nodes"]["step-1"]["agent"] = {
         "providerId": "demo.scripted",
         "providerVersion": "1.0.0",
         "instructions": "Return a deterministic response.",
         "tools": [],
+        "reasoningEffort": 0,
     }
     agent_path = BASE + "/api/workflows/" + agent_definition["workflowId"]
     response = page.request.put(agent_path + "/draft", data={"definition": agent_definition, "expectedGeneration": 0})
@@ -289,6 +291,7 @@ def check(browser, screenshots):
     configured_agent = page.request.get(agent_path + "/design").json()["draft"]["definition"]
     assert configured_agent["schemaVersion"] == "1.10"
     assert configured_agent["nodes"]["step-1"]["agent"]["maxOutputTokens"] == 4096
+    assert configured_agent["nodes"]["step-1"]["agent"]["reasoningEffort"] == 0
     # The authoring control creates the typed input/selector pair and saves its RFC 6901 pointer.
     json_definition = page.request.get(BASE + "/api/templates/default").json()
     json_definition["workflowId"] = "json-canvas-smoke-" + uuid.uuid4().hex

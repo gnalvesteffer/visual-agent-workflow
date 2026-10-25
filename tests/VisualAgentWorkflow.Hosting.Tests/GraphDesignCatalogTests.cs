@@ -46,6 +46,31 @@ public sealed class GraphDesignCatalogTests : IDisposable
     }
 
     [Fact]
+    public async Task LegacyNumericReasoningEffortDefinitionsAndRevisionsRemainReadable()
+    {
+        var baseline = PipelineTemplates.Create("uppercase-reverse");
+        var node = baseline.Nodes["step-1"] with
+        {
+            Type = NodeTypes.Agent,
+            Agent = new AgentConfiguration("test.provider", "1.0", "Answer the request.", [])
+            { ReasoningEffort = AgentReasoningEffort.Low }
+        };
+        var definition = baseline with
+        {
+            SchemaVersion = "1.9",
+            Nodes = baseline.Nodes.SetItem("step-1", node)
+        };
+        var store = Open();
+        var saved = await store.SaveDesignAsync(definition, WorkflowLayout.Create(definition), 0);
+        var published = await store.PublishAsync(definition.WorkflowId, saved.Draft.Generation);
+
+        var reopened = Open();
+        Assert.Empty(WorkflowValidator.Validate((await reopened.GetDraftAsync(definition.WorkflowId))!.Definition));
+        Assert.Equal(published.Revision.ContentHash,
+            (await reopened.GetRevisionAsync(published.Revision.RevisionId))!.Revision.ContentHash);
+    }
+
+    [Fact]
     public async Task PublishedLayoutIsImmutableAndRestoreRestoresItsAnnotationsAndRoutes()
     {
         var definition = PipelineTemplates.Create("uppercase");

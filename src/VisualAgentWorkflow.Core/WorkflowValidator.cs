@@ -156,7 +156,8 @@ public static class WorkflowValidator
                     }
                     if (configured.ReasoningEffort is not null &&
                         (definition.SchemaVersion is not ("1.7" or "1.8" or "1.9" or "1.10") || !Enum.IsDefined(configured.ReasoningEffort.Value) ||
-                         configured.ReasoningEffort == AgentReasoningEffort.Off && definition.SchemaVersion != "1.10" || configured.ReasoningEffortParameterId is not null))
+                         configured.ReasoningEffort == AgentReasoningEffort.Off && definition.SchemaVersion != "1.10" ||
+                         configured.ReasoningEffortParameterId is not null))
                         Error("agent.reasoning", $"nodes.{id}.agent.reasoningEffort", "Reasoning effort requires schema 1.7; explicit off requires schema 1.10.");
                     if (configured.MaxOutputTokens is { } maxOutputTokens &&
                         (definition.SchemaVersion != "1.10" || maxOutputTokens is < AgentOutputTokenLimits.Minimum or > AgentOutputTokenLimits.Maximum))
