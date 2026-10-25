@@ -203,12 +203,12 @@ public static class WorkflowValidator
             if (node is null) continue;
             if (definition.SchemaVersion is "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10")
             {
-                var validIncoming = node.Type == NodeTypes.Input ? incoming[id] == 0 : node.Type == NodeTypes.Merge
-                    ? incoming[id] is >= 2 and <= 16 : incoming[id] == 1;
+                var validIncoming = node.Type == NodeTypes.Input ? incoming[id] == 0 : node.Type is NodeTypes.Merge or NodeTypes.Output
+                    ? incoming[id] is >= 1 and <= 16 : incoming[id] == 1;
                 var expected = WorkflowPorts.Outputs(node);
                 var edges = definition.Connections.Values.Where(e => e?.Source?.NodeId == id).ToArray();
                 if (!validIncoming || edges.Length != expected.Length || expected.Any(p => edges.Count(e => e.Source.PortId == p.Id) != 1))
-                    Error("graph.degree", $"nodes.{id}", "Each output must connect once; normal nodes have one input, exclusive merges have 2–16, and input has none.");
+                    Error("graph.degree", $"nodes.{id}", "Each output must connect once; normal nodes have one input, exclusive merges and the output may have 1–16 alternative incoming paths, and input has none.");
                 continue;
             }
             var expectedIncoming = node.Type == NodeTypes.Input ? 0 : 1;

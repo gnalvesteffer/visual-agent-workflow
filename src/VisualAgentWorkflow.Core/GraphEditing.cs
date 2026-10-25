@@ -15,7 +15,7 @@ public static class GraphEditing
         if (sourceId == targetId) throw new ArgumentException("A node cannot connect to itself.");
 
         var connections = definition.Connections
-            .RemoveRange(definition.Connections.Where(edge => edge.Value.Target.NodeId == targetId && edge.Value.Target.PortId == targetPortId ||
+            .RemoveRange(definition.Connections.Where(edge => target.Type is not (NodeTypes.Merge or NodeTypes.Output) && edge.Value.Target.NodeId == targetId && edge.Value.Target.PortId == targetPortId ||
                 edge.Value.Source.NodeId == sourceId && edge.Value.Source.PortId == sourcePortId).Select(edge => edge.Key));
         var connectionId = "link-" + Guid.NewGuid().ToString("N");
         return definition with { Connections = connections.Add(connectionId, new(new(sourceId, sourcePortId), new(targetId, targetPortId), "data")) };
@@ -91,6 +91,18 @@ public static class GraphEditing
 
     public static WorkflowDefinition RemoveNode(WorkflowDefinition definition, string id)
     {
+        if (definition.Nodes.TryGetValue(id, out var merge) && merge.Type == NodeTypes.Merge)
+        {
+            // Removing a merge intentionally leaves its former routes disconnected so the
+            // user can assign each condition arm its own destination in the draft editor.
+            return definition with
+            {
+                Nodes = definition.Nodes.Remove(id),
+                Connections = definition.Connections.RemoveRange(definition.Connections
+                    .Where(edge => edge.Value.Source.NodeId == id || edge.Value.Target.NodeId == id)
+                    .Select(edge => edge.Key))
+            };
+        }
         WorkflowValidator.ThrowIfInvalid(definition);
         if (!definition.Nodes.TryGetValue(id, out var node)) throw new ArgumentException("Unknown node.");
         if (node.Type == NodeTypes.JsonSelectString) return RemoveJsonSelector(definition, id);

@@ -113,6 +113,38 @@ public sealed class ConditionalExecutionTests
         Assert.Single(events, e => e.NodeId == merge && e.Kind == ExecutionEventKinds.NodeStarted);
     }
 
+    [Theory]
+    [InlineData("say yes", "SAY YES")]
+    [InlineData("abc", "cba")]
+    public async Task ConditionArmsCanTakeDifferentRoutesAndReturnDirectly(string input, string expected)
+    {
+        var graph = EmptyArmsGraph();
+        var branch = graph.Nodes.Single(node => node.Value.Type == NodeTypes.Condition).Key;
+        var merge = graph.Nodes.Single(node => node.Value.Type == NodeTypes.Merge).Key;
+        graph = GraphEditing.RemoveNode(graph, merge);
+
+        var upper = "upper";
+        var reverse = "reverse";
+        graph = graph with
+        {
+            Nodes = graph.Nodes.Add(upper, new(NodeTypes.Uppercase, "1.0.0")).Add(reverse, new(NodeTypes.Reverse, "1.0.0")),
+            Connections = graph.Connections
+                .Add("true-to-upper", new(new(branch, "true"), new(upper, "in"), "data"))
+                .Add("upper-to-output", new(new(upper, "out"), new("output", "in"), "data"))
+                .Add("false-to-reverse", new(new(branch, "false"), new(reverse, "in"), "data"))
+                .Add("reverse-to-output", new(new(reverse, "out"), new("output", "in"), "data"))
+        };
+
+        var events = new List<ExecutionEvent>();
+        Assert.Equal(expected, await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), input,
+            e => { events.Add(e); return ValueTask.CompletedTask; }));
+        var selected = input == "say yes" ? "upper" : "reverse";
+        var skipped = selected == upper ? reverse : upper;
+        Assert.Contains(events, e => e.NodeId == selected && e.Kind == ExecutionEventKinds.NodeCompleted);
+        Assert.DoesNotContain(events, e => e.NodeId == skipped);
+        Assert.Single(events, e => e.NodeId == "output" && e.Kind == ExecutionEventKinds.NodeStarted);
+    }
+
     [Fact]
     public async Task ApprovalFailsClosedWhenDirectCallerSuppliesNoCoordinator()
     {

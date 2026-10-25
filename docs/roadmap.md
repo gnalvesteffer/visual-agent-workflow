@@ -40,7 +40,7 @@ Schema 1.5 adds a backend-owned approval immediately before an explicit MCP tool
 
 ## Previous completed milestone: conditional string graphs
 
-Schema 1.4 adds approved ordinal predicates, true/false string ports, exclusive merges and bounded acyclic validation. The adapter uses real Agent Framework conditional edges and records decisions separately from actual deliveries. Designer controls insert conditional blocks, edit predicates/arms and preserve undo/version/package/playback behavior. Existing linear schemas/hashes remain supported; linear-only reuse rejects routing graphs. See [conditional graphs](conditional-graphs.md). Richer port types, loops and parallel joins remain planned.
+Schema 1.4 adds approved ordinal predicates, true/false string ports, exclusive merges and bounded acyclic validation. The adapter uses real Agent Framework conditional edges and records decisions separately from actual deliveries. Designer controls insert conditional blocks, edit predicates/arms and preserve undo/version/package/playback behavior. Branches can route independently to the workflow Output; merges remain available for shared downstream work. Existing linear schemas/hashes remain supported; linear-only reuse rejects routing graphs. See [conditional graphs](conditional-graphs.md). Richer port types, loops and parallel joins remain planned.
 
 ## Previous completed milestone: opt-in consumer observation
 
@@ -69,9 +69,13 @@ Core contracts, Studio controls, and end-to-end validation are complete. The hea
 
 This increment uses copy-on-insert template expansion, not recursive runtime prefab calls or automatic instance upgrades. See [reusable pipeline contracts](reusable-pipelines.md).
 
-## Latest bounded increment: conditional block removal
+## Previous bounded increment: conditional block removal
 
-The editor can remove an isolated condition, both arms, nested decisions and the matching merge after listing the affected nodes for confirmation. Core rejects shared incoming paths and reconnects the surrounding graph without changing published revisions. Unit and browser evidence is recorded in [implementation history](implementation-history.md).
+The editor can remove an isolated condition, both arms, nested decisions and the matching merge after listing the affected nodes for confirmation. It can also remove a merge to split branch routes toward separate work or the common Output. Core rejects shared incoming paths and reconnects the surrounding graph without changing published revisions. Unit and browser evidence is recorded in [implementation history](implementation-history.md).
+
+## Latest bounded increment: independent condition routes
+
+Conditional arms can now end at the workflow Output or take separate downstream paths. Removing an optional merge leaves a rewritable draft; Output accepts up to 16 alternative routes and returns whichever value reaches it. A merge is still available when branches need to rejoin for shared work. Runs continue to require a string output; no-result termination and parallel execution remain separate future capabilities.
 
 ## Delivery sequence
 

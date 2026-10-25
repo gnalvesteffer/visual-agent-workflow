@@ -68,6 +68,22 @@ public sealed class ConditionalGraphTests
     }
 
     [Fact]
+    public void ConditionArmsMayTerminateAtOutputAndMergeCanBeRemovedToSplitPaths()
+    {
+        var graph = Graph();
+        var branch = graph.Nodes.Single(n => n.Value.Type == NodeTypes.Condition).Key;
+        var merge = graph.Nodes.Single(n => n.Value.Type == NodeTypes.Merge).Key;
+
+        var split = GraphEditing.RemoveNode(graph, merge);
+        split = GraphEditing.ConnectPins(split, branch, "true", "output", "in");
+        split = GraphEditing.ConnectPins(split, branch, "false", "output", "in");
+
+        Assert.Empty(WorkflowValidator.Validate(split));
+        Assert.Equal(2, split.Connections.Values.Count(edge => edge.Target.NodeId == "output"));
+        Assert.DoesNotContain(split.Nodes, node => node.Value.Type == NodeTypes.Merge);
+    }
+
+    [Fact]
     public void LocalEditsPreserveOtherArmIdentitiesAndNeverFlattenRouting()
     {
         var graph = Graph();

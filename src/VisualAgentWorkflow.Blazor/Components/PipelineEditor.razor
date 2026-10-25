@@ -64,7 +64,7 @@
             <div class="vaw-context-actions">
                 <button type="button" @onclick="() => CloseMenu(context)">Edit selected node properties</button>
                 <button type="button" disabled="@(!CanDuplicate(contextNode))" @onclick="() => Duplicate(contextNode, context)">Duplicate node</button>
-                <button type="button" disabled="@(!CanRemove(contextNode))" @onclick="() => RemoveSelected(contextNode, context)">Delete node</button>
+                <button type="button" disabled="@(!CanRemove(contextNode))" @onclick="() => RemoveSelected(contextNode, context)">@(Definition.Nodes[contextNode].Type == NodeTypes.Merge ? "Remove merge and split paths" : "Delete node")</button>
                 @if (Definition.Nodes[contextNode].Type == NodeTypes.Condition)
                 { <button type="button" disabled="@Disabled" @onclick="() => RequestBlockRemoval(contextNode, context)">Remove conditional block…</button> }
             </div>
@@ -80,7 +80,7 @@
             @if (Definition.Nodes.TryGetValue(id, out var node))
             {
             var index = Order.IndexOf(id);
-            var terminal = node.Type is NodeTypes.Input or NodeTypes.Output or NodeTypes.Merge;
+            var terminal = node.Type is NodeTypes.Input or NodeTypes.Output;
                     @if (node.Type == NodeTypes.Input && !ReadOnly)
                     {
                         <p>The workflow input is text by default.</p>
@@ -153,6 +153,14 @@
                         }
                         else if (node.ParameterId is { } parameterId && parameterChoices.TryGetValue(parameterId, out var parameter))
                         { <p>@parameter.DisplayName · @parameterId</p><p class="vaw-help">Passes this value onward, replacing the incoming string.</p> }
+                    }
+                    else if (node.Type == NodeTypes.Merge)
+                    {
+                        <p>Passes the selected branch value into shared downstream processing. A merge is optional when branches take different routes or end at the Output node.</p>
+                        @if (!ReadOnly)
+                        {
+                            <button type="button" @onclick="() => RemoveSelected(id)" disabled="@Disabled" aria-label="Remove merge @id">Remove merge and split paths</button>
+                        }
                     }
                     else if (terminal || ReadOnly)
                     {

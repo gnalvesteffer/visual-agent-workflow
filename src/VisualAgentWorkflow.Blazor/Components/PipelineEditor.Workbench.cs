@@ -41,7 +41,7 @@ public partial class PipelineEditor
             new(NodeTypes.Reverse, "Reverse", "Text processing", "Reverse text deterministically", enabled),
             new(NodeTypes.TextTemplate, "Text template", "Text processing", "Build deterministic text from input and workflow values", enabled),
             new(NodeTypes.WorkflowValue, "Workflow value", "Inputs", "Pass a configured workflow parameter into the graph", enabled && ParameterDefinitions.Count > 0),
-            new("condition", "Condition", "Flow", "Create true / false paths and a merge", enabled && Definition.Nodes.Count <= 254),
+            new("condition", "Condition", "Flow", "Create true / false paths; merge only when branches rejoin", enabled && Definition.Nodes.Count <= 254),
             new("approval", "Approval", "Flow", "Select an MCP tool to require exact-action review", enabled && selected is not null && Definition.Nodes.TryGetValue(selected, out var selectedDefinition) && selectedDefinition.Type == NodeTypes.McpTool && !GuardedTool(selected))
         ];
         entries.AddRange(Providers.Select(p => new WorkflowNodeLibraryEntry(ProviderKey(p), p.DisplayName, "Agents", $"{p.ModelId} · {p.Version}", enabled)));
@@ -69,8 +69,8 @@ public partial class PipelineEditor
     }
 
     private bool CanRemove(string id) => !ReadOnly && !Disabled && Definition.Nodes.TryGetValue(id, out var node) &&
-        node.Type is not (NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge) && !GuardedTool(id);
-    private bool CanDuplicate(string id) => CanRemove(id) && Definition.Nodes[id].Type != NodeTypes.Approval;
+        node.Type is not (NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition) && !GuardedTool(id);
+    private bool CanDuplicate(string id) => CanRemove(id) && Definition.Nodes[id].Type is not (NodeTypes.Approval or NodeTypes.Merge);
     private async Task RemoveSelected(string id, GraphContextRequest? context = null)
     {
         await CloseMenu(context);
