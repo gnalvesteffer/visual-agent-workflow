@@ -19,6 +19,8 @@ Separate every conclusion into one of three categories:
 
 Do not present a project interpretation as a vendor guarantee. Do not infer runtime semantics from an editor screenshot, layout convention, or tutorial sequence alone. Record uncertainty and conflicting source statements instead of silently choosing one.
 
+Record source provenance, version, actual inspected coverage, and whether runtime/source-code verification occurred. For a compiled PDF, physical page numbers are useful locators even when printed pagination differs. Embed the concepts needed by the implementer so an absent source file does not prevent using the reference. Check lifecycle claims against detailed chapters when introductory summaries conflict; keep recommendations distinct from accepted product decisions.
+
 ## Analyze the system in layers
 
 Extract findings in this order, adapting the depth to the source:

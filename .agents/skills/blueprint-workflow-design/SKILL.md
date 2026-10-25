@@ -7,6 +7,8 @@ description: Use when designing or changing workflow node contracts, graph autho
 
 Read [the local adaptation guide](../../../docs/blueprint-authoring-guidance.md), [product design](../../../docs/design.md), and the [current roadmap](../../../docs/roadmap.md). Consult the official Unreal Engine references linked from the adaptation guide when reachable. The environment may block Epic documentation; if so, state that limitation and do not present local interpretations as verified Epic quotes.
 
+Use the standalone [Blueprint design reference](../../../docs/unreal-blueprint-reference.md) for source concepts, adaptation boundaries, and representative acceptance scenarios. Its capability targets do not override the current schema or roadmap limits.
+
 Use Blueprint concepts as authoring inspiration, not as permission to copy Unreal's runtime semantics. Keep definitions framework-independent and versioned; separate executable contracts from layout; distinguish data values, execution order, node configuration, and host permissions. Never let canvas position or topological display order define run order.
 
 When adding configurable workflow values, define stable typed parameter IDs, defaults, descriptions, validation, per-run/host override rules, serialization, and secret handling first. Keep immutable workflow defaults separate from invocation values. Expose graph values through explicit typed getters/pins; treat mutable run-scoped variables as a separate feature requiring defined ordering, loops, and parallel-write semantics. A model profile resolves through a host-authorized catalog, not a workflow URL or credential.

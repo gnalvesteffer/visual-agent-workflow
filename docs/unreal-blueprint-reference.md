@@ -23,6 +23,14 @@ The analysis used targeted text extraction and section-level cross-checking in t
 
 The document deliberately does not treat every Unreal-specific capability as a requirement. Actor replication, engine object lifetime, rendering, animation, physics, and editor-only utilities are source concepts that require separate analysis before they are mapped to agent workflows.
 
+### Source scope and confidence
+
+This reference is a documentation-based reconstruction of the Blueprint programming model. Targeted Blueprint chapters were inspected in a 25,910-page compilation labeled Unreal Engine 5.7; the entire compilation was not reviewed, and no Unreal runtime or compiler was executed. The PDF identifies itself as a compilation downloaded from UnrealDocs.net, so it should be treated as a supplied snapshot of documentation rather than an independently authenticated Epic release artifact. Some chapters retain older engine examples and terminology. Compiler details below describe the documented model and are not a claim of a UE 5.7 source-code audit.
+
+For reproducibility, these are one-based physical page numbers in that supplied PDF: **Blueprint Namespaces**, 10317; **Collapsing Graphs**, 10378; **Blueprint Debugger**, 10409; **Blueprint Compiler Overview**, 10449; **Exposing C++ to Blueprints**, 10460; **Functions**, 10533; **Timelines**, 10575; **Blueprint Variables**, 10658; **Flow Control**, 10693. They are provenance locators only; no implementation step requires this PDF. Section names and the embedded explanations carry the meaning if pagination changes.
+
+Statements describing Unreal are source summaries. Explanations of the value or intent of a pattern are interpretations. Statements using “should,” “target,” or “recommended” for Visual Agent Workflow are design recommendations requiring agreement with [product design](design.md); they do not silently establish a new product decision. [Architecture](architecture.md), [roadmap](roadmap.md), and the focused contract documents own shipped behavior and implementation limits.
+
 ## Embedded Unreal source context
 
 This section preserves the source knowledge needed to read the rest of the document without access to the original manual. It is a compact conceptual reference, not a step-by-step Unreal tutorial.
@@ -39,7 +47,7 @@ Blueprint also has specialized asset forms. A Blueprint Interface declares funct
 
 Components are the assembled parts of a Blueprint object, such as collision, rendered geometry, movement, camera, audio, or other engine capabilities. A Blueprint can be useful as a reusable component composition even without scripted behavior. Graphs can reference those Components and change them during construction or gameplay.
 
-Blueprint graphs have distinct roles. A Construction Script runs when an actor is created or updated in the editor and helps derive its configured components or appearance. An Event Graph contains event entry points and the gameplay behavior that follows them. Function graphs provide callable reusable logic with declared inputs and outputs. Multiple Event Graph views are organizational; their canvas arrangement does not establish runtime order.
+Blueprint graphs have distinct roles. A Construction Script runs during actor construction, including runtime spawning, and is also rerun for relevant editor changes to placed actors. It derives components or configured appearance; it is distinct from BeginPlay and ordinary gameplay event handling. An Event Graph contains event entry points and the gameplay behavior that follows them. Function graphs provide callable reusable logic with declared inputs and outputs. Multiple Event Graph views are organizational; their canvas arrangement does not establish runtime order.
 
 ### Nodes, pins, and typed data
 
@@ -192,6 +200,35 @@ Generic or wildcard pins can improve authoring ergonomics, but they must resolve
 
 Pure nodes deserve a distinct contract. Unreal pure functions have no execution pins and are evaluated as data is needed; they do not cache results merely because they are pure. In this project, pure nodes should be deterministic and side-effect-free. Model calls, tool calls, memory writes, approvals, waits, and other effectful operations must have explicit execution semantics even when their outputs are consumed as data.
 
+## Control-flow vocabulary and state ownership
+
+The source's **Flow Control** chapter exposes different programming mechanisms. Their differences matter more than the node shapes. Unreal's Sequence dispatches its outputs in order; it is not a parallel fork and does not provide a barrier that waits for latent work launched by an earlier output.
+
+| Blueprint mechanism | Embedded source meaning | Agent-workflow adaptation and invariant |
+| --- | --- | --- |
+| Branch | Select the true or false execution output from a boolean condition. | Exactly one route is chosen per activation; record the condition outcome separately from downstream delivery. |
+| Switch | Select an execution output by a selector such as an integer, string, name, or enumeration. | Validate cases, comparison rules, default behavior, and exhaustiveness; retain stable case-port identities when labels change. |
+| Sequence | Dispatch multiple execution outputs in a defined order. | Distinguish ordered dispatch from waiting for each operation's completion and from concurrency. Define which contract the node promises. |
+| Loops and loop break | Repeat a body by index or condition and expose completion; a break-capable loop can exit early. | Define iteration values, maximum work, cancellation, early exit, and whether collections are snapshotted. Existing bounded loops support only their documented subset. |
+| Gate | Allow or suppress incoming activations according to open/closed state; support open, close, and toggle. | State belongs to a declared scope. A suppressed activation needs a disposition so joins do not wait indefinitely. |
+| DoOnce / DoN | Admit one or a limited number of activations until reset. | Persist counter/reset state when its scope survives suspension. DoOnce alone does not guarantee exactly-once external side effects. |
+| FlipFlop | Alternate between two outputs across successive activations. | Define initial state and lifetime; state shared across concurrent runs must never be implicit. |
+| MultiGate | Route successive activations across outputs, optionally randomly or repeatedly. | Record the selected route, cursor, and randomness policy; playback uses recorded selections. |
+
+These are capability examples rather than a requirement to implement every Unreal node name. Equivalent power can come from fewer well-defined state and routing primitives. State keys must distinguish runs, nested calls, nodes, and activation/iteration/attempt where relevant. A fresh run must not inherit an earlier run's gate, counter, or cached result accidentally.
+
+An exclusive merge accepts the selected alternative's result. A parallel join waits for declared branch completions. A Sequence dispatches in order. Keep these operations distinct in schema, UI, evidence, and tests. Specify whether failure cancels sibling work, whether skipped branches count toward a join, and how duplicate or late branch results are handled before extending scheduling.
+
+## Reference identity, structured values, and availability
+
+Blueprint distinguishes a class/type from an object instance. Its `Self` target refers to the current object, an object-reference variable identifies an existing instance, and a cast checks whether that instance supports a more specific class. Casting does not create an object or transform arbitrary data into that class. A failed cast and an invalid reference need explicit handling.
+
+For workflows, distinguish a definition, its published revision, an invocation of that revision, and a host capability binding. A child-call node is a definition reference plus arguments; a child invocation is an execution scope. A provider profile is a logical catalog selection; its resolved configuration and credentials belong to the host. An identifier that parses correctly may still be missing, unauthorized, expired, or incompatible.
+
+Structs group named fields, arrays preserve indexed elements, sets express unique membership, maps associate keys with values, and enums provide named alternatives. A workflow type system should specify copy versus shared-reference behavior, key equality, element ordering, duplicates, schema identity, and size/depth limits for each supported container. A field extractor must distinguish missing from null and malformed from unavailable; those states must not collapse into an empty string. Make/break struct-style nodes correspond to explicit construction and field projection, not unrestricted object deserialization.
+
+Blueprint functions expose input/output parameters, defaults, visibility such as public/protected/private, and reference-style parameters. Workflow adaptation should default to explicit inputs and outputs with visible ownership. Define aliasing and concurrent-write behavior before supporting reference-style mutation. Definition-level visibility remains separate from host authorization: a public child-workflow interface still requires capability admission.
+
 ## Inheritance, templates, and specialization
 
 Blueprint Classes can derive from parent classes. A child inherits components, variables, and behavior, can change defaults, and can override selected functions. This gives teams a way to establish a base actor or system once and create specialized variants without copying the whole graph.
@@ -252,7 +289,7 @@ This separation is the most important adaptation from Blueprint's instance model
 
 Unreal commonly uses three graph roles:
 
-**Construction Script** runs when a Blueprint actor is created or updated in the editor and helps derive its configured presentation or components. It is not ordinary gameplay execution. A workflow analogue would be authoring-time normalization, preview computation, or validation. Such work must be clearly labeled as authoring-time and must not make live agent or external service calls.
+**Construction Script** runs during actor construction, including runtime spawning, and on relevant editor updates. It helps derive configured components and is distinct from BeginPlay. A selective workflow analogue is authoring-time normalization, preview computation, or validation. That adaptation must be labeled as authoring-time and must not make live agent or external service calls. Runtime workflow initialization needs its own explicit contract; it does not inherit Unreal construction behavior automatically.
 
 **Event Graph** contains event entry points and the gameplay logic that responds to them. It can have multiple event graphs for organization; the separate canvases do not establish behavior by themselves. For Visual Agent Workflow, an event-triggered graph should use explicit trigger/entry contracts and should not treat multiple disconnected regions as implicitly ordered.
 
@@ -320,6 +357,22 @@ For this project, the distinction maps to two separate implementation choices:
 
 Do not call an unversioned graph fragment a reusable workflow. If an agent, MCP tool, provider, approval, or external side effect is involved, prefer a callable version-pinned unit so audit and playback can identify what actually ran. Reuse should reduce graph complexity without hiding permissions or changing the meaning of the surrounding graph.
 
+### Collapse, call, and expand are different abstractions
+
+A collapsed graph wraps selected nodes with boundary/tunnel pins to organize one location. It is local encapsulation; duplicating it is not the same as having a shared reusable definition. A function creates a callable boundary with a single entry and return contract. A macro expands its implementation at each use. Comments and sections only organize the display. Extraction should therefore offer an explicit choice and explain identity, update propagation, and debugging consequences.
+
+Blueprint functions cannot contain latent operations such as Delay; macros can support latent operations where the consuming graph permits them. This constraint demonstrates why “reusable node” needs more than a visual wrapper. A workflow child call may legitimately suspend, but its contract must then identify how caller and child persist, resume, cancel, and propagate outputs. Do not import Blueprint's synchronous function restrictions accidentally or assume macro expansion makes any latent operation legal everywhere.
+
+## Native extension model and catalog discovery
+
+Blueprint's expressive power includes cooperation with programmers. Native C++ exposes selected functions and properties through Unreal reflection metadata. `BlueprintCallable` makes operations callable from graphs, `BlueprintPure` exposes data-producing operations without execution pins, `BlueprintImplementableEvent` lets Blueprint provide behavior called by native code, and `BlueprintNativeEvent` supplies a native default that Blueprint can override. An override can explicitly invoke the parent implementation. This creates a two-way boundary: native operations become visual building blocks, and visual behavior customizes designated native extension points.
+
+The design lesson is to expose domain operations at useful abstraction levels. A programmer can package a repeated or expensive graph pattern into a small native operation with a typed signature, useful name, defaults, documentation, category, and failure behavior. Authors retain visual composition while specialists supply additional primitives. Pure exposure alone does not prove determinism or authorization; those require separate contracts.
+
+For this project, approved MCP operations and [isolated .NET extensions](extension-assemblies.md) provide the corresponding extension route. Describe their supported input/output schemas, effect classification, cancellation behavior, and evidence attribution in catalog descriptors. Existing host registration and worker constraints remain authoritative. A new extension operation must not bypass node-scoped grants just because it appears in the palette.
+
+Blueprint Namespaces address editor loading and action/type discovery for libraries. They are a useful precedent for catalog organization and lazy loading, not for security isolation. Large workflow catalogs should support searchable categories, keywords, documentation, compatibility reasons, and explicit dependencies without contacting every external service on each menu opening. Separate availability for authoring from permission to invoke.
+
 ## Communication patterns
 
 Unreal documents three major Blueprint communication patterns. Direct communication calls a known function or reads/writes a known variable on a target object. Event Dispatchers let a Blueprint broadcast that something happened to listeners. Blueprint Interfaces define common function signatures that multiple Blueprints implement without sharing implementation.
@@ -343,6 +396,14 @@ Unreal's Compile action checks a Blueprint for errors and updates the runtime re
 5. A run references the exact published revision or an explicitly identified draft; playback reads recorded evidence and never executes live dependencies.
 
 “Compile” should not be presented as equivalent to “safe to run.” Compilation/normalization validates the graph shape. Host admission, approvals, provider availability, and runtime policy remain separate decisions. A graph that is visually connected but lacks a valid capability binding must fail validation or admission with a precise error.
+
+### What the documented Blueprint compiler contributes
+
+The **Blueprint Compiler Overview** describes conversion of asset properties and graphs into a generated class. It collects class properties and functions, combines/processes event graphs, works on temporary graph copies, expands nodes, calculates execution and data dependencies, emits intermediate statements, and translates those statements to VM bytecode. The documented pipeline also copies class defaults and reinstantiates objects after class changes. The exact internal implementation is outside this document's verification scope.
+
+The transferable pattern is a compilation boundary between the editable graph and an executable representation. Visual Agent Workflow may use an interpreter or framework adapter rather than bytecode, but should preserve typed validation, bounded expansion, stable diagnostics, and mappings from runtime instructions back to authored node/port IDs. Template expansion must allocate unique internal identities and preserve source provenance. Do not optimize across a side effect, approval, or observable boundary unless equivalence is defined. Debug traces should still explain the authored graph after normalization.
+
+Unreal's live reinstancing is not a reason to hot-swap a running workflow. Publish and dependency upgrades should create a new immutable effective definition; existing runs retain their recorded revision. See [nested workflows](nested-workflows.md) for the current revision-upgrade contract.
 
 ## Debugging and evidence
 
@@ -391,6 +452,25 @@ Consider the visual scripting system Blueprint-level only when a user can move t
 The implementation is incomplete if any of these capabilities exists only as a visual placeholder. A node that renders a model call but cannot declare its profile, input roles, output schema, timeout, approval boundary, and evidence contract is not a finished Blueprint-equivalent primitive. A graph that can be drawn but cannot be validated, serialized, versioned, admitted, executed, and debugged is an editor mockup rather than a visual programming system. A reusable node that hides its dependencies or changes behavior when its source is edited is not a safe function or asset.
 
 Use the following questions as a review gate for every new capability. Can a user discover it from the right pin or context? Can the graph explain its inputs, outputs, side effects, and failure routes? Can the runtime execute it without relying on canvas position or browser lifetime? Can a published run identify the exact implementation and capabilities it used? Can the debugger show what happened and what did not happen? Can an imported definition be rejected safely? Can the behavior be tested with deterministic fixtures without claiming that a fixture is a live provider?
+
+## Representative acceptance scenarios
+
+These are proposed acceptance scenarios for capability parity, not claims that the current release supports every graph below. Implement the relevant contract first, then verify its smallest supported form. Existing bounded contracts remain the baseline; broader scenarios require an explicit design increment.
+
+| Scenario | Authoring and execution expectation | Evidence or failure case to verify |
+| --- | --- | --- |
+| Typed decision | Accept a structured support request, select fields, validate a model-produced decision, and route by an enum-like outcome. | Missing, null, and wrong-type fields have distinct errors. Malformed model output cannot become an approved tool argument implicitly. |
+| Reusable decision function | Extract classification into a child workflow with named inputs and a pinned revision; call it from two parents. | Both callers see the same contract. Publishing a new child leaves old parents/runs unchanged until an explicit upgrade. |
+| Approval followed by effect | Bind an approval to the precise action and input before invoking a refund tool. | Changed arguments or child scope invalidate the decision. Playback makes zero tool calls. Approval does not grant a missing host capability. |
+| Parallel analysis | Run two independent analyses and combine named results at a barrier. | One fast branch does not release the join early; failure, cancellation, and duplicate delivery have defined dispositions. Earlier external effects are not rolled back. |
+| Bounded refinement | Repeatedly improve a result until a predicate succeeds or the work budget is exhausted. | Record iteration inputs/outputs and stop reason. A successful cap exit must not be confused with achieving the predicate's goal. |
+| Stateful activation | Admit one notification, reset its gate explicitly, then allow another. | Isolate state across runs and child calls; resumption preserves the declared scope rather than resetting accidentally. |
+| Suspension and recovery | Wait for a human response or deadline, then continue from a persisted cursor. | Define response-versus-timeout races, duplicate replies, owner loss, and unsupported recovery. Current process-owned approval waits do not satisfy durable recovery. |
+| Native capability reuse | Register a typed approved extension operation and compose it with a transformation and agent call. | Catalog metadata matches dispatch validation; missing grants fail at admission; errors retain invocation and source-node identity. |
+| Editor semantics | Move, group, comment, and reroute the same valid workflow, then undo an extraction/edit. | Presentation changes preserve executable identity; compound semantic/layout edits undo together; invalid drafts remain editable. |
+| Historical inspection | Open a run after its provider or child source is unavailable. | Inspect the recorded revision, values, routes, and nesting; distinguish unavailable/redacted/unexecuted values without querying live dependencies. |
+
+For example, the support decision scenario should make the data contract visible: a request contains a case identifier, message, and allowed action category; classification returns a validated decision and rationale; the selected route either returns advice, requests an exact approved operation, or escalates for a human response. The model's text is data to validate, not authority to grant a tool. A reusable child owns classification behavior, while the parent owns its routing and effect policy. These boundaries let an implementer reason about a concrete graph without needing the Unreal PDF.
 
 ## Implementation handoff by subsystem
 
