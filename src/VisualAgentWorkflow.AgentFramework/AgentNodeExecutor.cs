@@ -77,8 +77,11 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             {
                 var name = $"tool_{functions.Count}";
                 using var schema = JsonDocument.Parse(binding.InputSchemaJson);
+                var description = string.IsNullOrWhiteSpace(binding.ToolDescription)
+                    ? $"Approved MCP tool. Binding: {binding.BindingId}."
+                    : $"{binding.ToolDescription}\nMCP binding: {binding.BindingId}.";
                 functions.Add(new BoundMcpFunction(name,
-                    $"Approved MCP operation: {binding.DisplayName}. Binding: {binding.BindingId}.",
+                    description,
                     schema.RootElement.Clone(), async (arguments, token) =>
                     {
                         var json = JsonSerializer.SerializeToElement(arguments.ToDictionary(pair => pair.Key, pair => pair.Value));
@@ -151,7 +154,9 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                 instructions = options?.Instructions,
                 reasoningEffort = options?.Reasoning?.Effort?.ToString(),
                 messages = Project(snapshot),
-                tools = options?.Tools?.Select(t => t.Name).ToArray()
+                tools = options?.Tools?.Select(t => t.Name).ToArray(),
+                toolDeclarations = options?.Tools?.OfType<AIFunctionDeclaration>()
+                    .Select(tool => new { tool.Name, tool.Description, inputSchema = tool.JsonSchema }).ToArray()
             });
             var response = await InnerClient.GetResponseAsync(snapshot, options, cancellationToken).WaitAsync(cancellationToken);
             await Record(ExecutionEventKinds.ModelResponded, new

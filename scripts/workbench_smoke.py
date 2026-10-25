@@ -37,6 +37,13 @@ def prompt_template_check(page, designer):
     page.keyboard.press("Enter")
     expect(editor).to_have_value("What should I tell {{parameter:customer}}")
     expect(designer.get_by_text("Preview with sample input: What should I tell Ada", exact=True)).to_be_visible()
+    tool = designer.locator('input[aria-label="Assign demo.add-integers to step-1"]')
+    expect(tool).to_have_count(1)
+    tool.check()
+    tool_details = tool.locator("xpath=ancestor::div[contains(@class, 'vaw-agent-tool-assignment')]").locator("details")
+    tool_details.locator("summary").click()
+    expect(tool_details).to_contain_text("Adds two base-10 integers")
+    expect(tool_details).to_contain_text("left: integer required")
 
 
 def check(browser, screenshots):
@@ -230,7 +237,7 @@ def check(browser, screenshots):
     prompt_template_check(page, designer)
     assert not errors,errors
     page.close()
-    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, and keyboard prompt-token insertion passed.")
+    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, and MCP tool detail review passed.")
 
 
 if __name__=="__main__":

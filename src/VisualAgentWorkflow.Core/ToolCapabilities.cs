@@ -1,13 +1,21 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace VisualAgentWorkflow.Core;
 
 /// <summary>A requirement, never a permission grant or a server connection specification.</summary>
-public sealed record ToolBindingRequest(string BindingId, string ContractHash);
+public sealed record ToolBindingRequest(string BindingId, string ContractHash)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? DescriptionHash { get; init; }
+}
 public sealed record ToolBindingDescriptor(string BindingId, string DisplayName, string ServerId, string ToolName, string ContractHash)
 {
     /// <summary>Discovered input schema for authoring and agent function declaration; never an authority grant.</summary>
     public string InputSchemaJson { get; init; } = "{}";
+    /// <summary>Untrusted, bounded MCP metadata shown to authors and included in agent function declarations.</summary>
+    public string ToolDescription { get; init; } = "";
+    /// <summary>Optional compatibility pin for the MCP tool description; absent on legacy workflow bindings.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? DescriptionHash { get; init; }
 }
 
 public interface IToolBindingCatalog
@@ -56,5 +64,6 @@ public sealed class ExplicitToolAuthorizationPolicy(IEnumerable<NodeToolGrant> g
 }
 
 public sealed class ToolAccessDeniedException() : InvalidOperationException("The node has no effective grant for this tool.");
-public sealed class ToolContractMismatchException() : InvalidOperationException("The pinned tool contract no longer matches the server.");
+public sealed class ToolContractMismatchException() : InvalidOperationException("The pinned tool schema no longer matches the server.");
+public sealed class ToolDescriptionMismatchException() : InvalidOperationException("The pinned tool description no longer matches the server.");
 public sealed class ToolInvocationException(string message) : InvalidOperationException(message);

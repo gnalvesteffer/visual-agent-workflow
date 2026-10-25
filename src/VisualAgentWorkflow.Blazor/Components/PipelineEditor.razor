@@ -117,8 +117,8 @@
                                     <option value="@NodeTypes.Uppercase">Uppercase</option>
                                     <option value="@NodeTypes.Reverse">Reverse</option>
                                 }
-                                @if (node.Tool is { } pinned && !Bindings.Any(b => b.BindingId == pinned.BindingId && b.ContractHash == pinned.ContractHash))
-                                { <option value="@NodeKey(node)">Pinned MCP binding unavailable: @pinned.BindingId</option> }
+                                @if (node.Tool is { } pinned && !Bindings.Any(b => BindingMatches(pinned, b)))
+                                { <option value="@NodeKey(node)">Pinned MCP binding @ToolBindingStatus(pinned): @pinned.BindingId</option> }
                                 @foreach (var binding in Bindings) { <option @key="ToolKey(binding)" value="@ToolKey(binding)">@binding.DisplayName</option> }
                                 @if (node.Agent is { } pinnedAgent && !Providers.Any(p => p.ProviderId == pinnedAgent.ProviderId && p.Version == pinnedAgent.ProviderVersion))
                                 { <option value="@NodeKey(node)">Pinned agent provider unavailable: @pinnedAgent.ProviderId</option> }
@@ -216,18 +216,26 @@
                                 { <p>Assigned: @reference.Id · @reference.Version · @reference.ContentHash[..8]</p> }
                                 @if (SkillLibrary is not null) { <a href="/skills">Manage skill library</a> }
                             </fieldset>
-                            @foreach (var binding in Bindings)
-                            {
-                                var assigned = agent.Tools.Any(t => t.BindingId == binding.BindingId && t.ContractHash == binding.ContractHash);
-                                <label @key="ToolKey(binding)"><input type="checkbox" aria-label="Assign @binding.BindingId to @id" checked="@assigned"
-                                    @onchange="args => AssignTool(id, binding, args)" disabled="@(Disabled || !assigned && agent.Tools.Length >= 8)" /> @binding.DisplayName</label>
-                            }
+                                @foreach (var binding in Bindings)
+                                {
+                                    var assigned = agent.Tools.Any(request => BindingMatches(request, binding));
+                                    <div class="vaw-agent-tool-assignment" @key="ToolKey(binding)">
+                                        <label><input type="checkbox" aria-label="Assign @binding.BindingId to @id" checked="@assigned"
+                                            @onchange="args => AssignTool(id, binding, args)" disabled="@(Disabled || !assigned && agent.Tools.Length >= 8)" /> @binding.DisplayName</label>
+                                        <details>
+                                            <summary>Tool details</summary>
+                                            @if (!string.IsNullOrWhiteSpace(binding.ToolDescription)) { <p>@binding.ToolDescription</p> }
+                                            <p class="vaw-help">Input fields: @ToolInputSummary(binding)</p>
+                                            <p class="vaw-help">Schema @binding.ContractHash[..8] · description @binding.DescriptionHash?[..8]</p>
+                                        </details>
+                                    </div>
+                                }
                         }
                         <ul>
                             @foreach (var request in agent.Tools)
                             {
                                 <li @key="(request.BindingId, request.ContractHash)">Requested: @request.BindingId · @request.ContractHash[..8]
-                                    @if (!ReadOnly && !Bindings.Any(b => b.BindingId == request.BindingId && b.ContractHash == request.ContractHash))
+                                    @if (!ReadOnly && !Bindings.Any(b => BindingMatches(request, b)))
                                     { <button type="button" @onclick="() => RemoveTool(id, request.BindingId)" disabled="@Disabled">Remove unavailable request @request.BindingId</button> }
                                 </li>
                             }
@@ -351,10 +359,30 @@
     private Task ChangeType(string id, ChangeEventArgs args) =>
         Edit(() => ReplaceProcessing(id, FromSelection(args.Value?.ToString() ?? "", Definition.Nodes[id])));
 
-    private static string ToolKey(ToolBindingDescriptor binding) => $"mcp:{binding.BindingId}:{binding.ContractHash}";
+    private static string ToolKey(ToolBindingDescriptor binding) => $"mcp:{binding.BindingId}:{binding.ContractHash}:{binding.DescriptionHash}";
     private static string ProviderKey(AgentProviderDescriptor provider) => $"agent:{provider.ProviderId}:{provider.Version}";
-    private static string NodeKey(NodeDefinition node) => node.Agent is { } agent ? $"agent:{agent.ProviderId}:{agent.ProviderVersion}" :
-        node.Tool is { } tool ? $"mcp:{tool.BindingId}:{tool.ContractHash}" : node.Type;
+    private string NodeKey(NodeDefinition node) => node.Agent is { } agent ? $"agent:{agent.ProviderId}:{agent.ProviderVersion}" :
+        node.Tool is { } tool && Bindings.FirstOrDefault(binding => BindingMatches(tool, binding)) is { } currentBinding ? ToolKey(currentBinding) :
+        node.Tool is { } unavailable ? $"mcp:{unavailable.BindingId}:{unavailable.ContractHash}:{unavailable.DescriptionHash}" : node.Type;
+    private static bool BindingMatches(ToolBindingRequest request, ToolBindingDescriptor binding) =>
+        request.BindingId == binding.BindingId && request.ContractHash == binding.ContractHash &&
+        (request.DescriptionHash is null || request.DescriptionHash == binding.DescriptionHash);
+    private string ToolBindingStatus(ToolBindingRequest request) => Bindings.FirstOrDefault(binding => binding.BindingId == request.BindingId) switch
+    {
+        null => "is unavailable",
+        { ContractHash: var contractHash } when contractHash != request.ContractHash => "schema has changed",
+        { DescriptionHash: var descriptionHash } when request.DescriptionHash is not null && descriptionHash != request.DescriptionHash => "description has changed",
+        _ => "is unavailable"
+    };
+    private static string ToolInputSummary(ToolBindingDescriptor binding)
+    {
+        using var schema = System.Text.Json.JsonDocument.Parse(binding.InputSchemaJson);
+        var required = schema.RootElement.TryGetProperty("required", out var fields)
+            ? fields.EnumerateArray().Select(field => field.GetString()).ToHashSet(StringComparer.Ordinal)
+            : new HashSet<string?>(StringComparer.Ordinal);
+        return string.Join(", ", schema.RootElement.GetProperty("properties").EnumerateObject().Select(property =>
+            $"{property.Name}: {property.Value.GetProperty("type").GetString()} {(required.Contains(property.Name) ? "required" : "optional")}"));
+    }
     private NodeDefinition FromSelection(string value, NodeDefinition? existing = null)
     {
         if (value == NodeTypes.WorkflowValue)
@@ -363,7 +391,8 @@
         if (provider is not null) return new(NodeTypes.Agent, "1.0.0", Agent: (existing?.Agent ?? new(provider.ProviderId, provider.Version,
             "Use assigned tools when available and return the result.", [])) with { ProviderId = provider.ProviderId, ProviderVersion = provider.Version });
         var binding = Bindings.SingleOrDefault(b => ToolKey(b) == value);
-        return binding is null ? new(value, "1.0.0") : new(NodeTypes.McpTool, "1.0.0", new(binding.BindingId, binding.ContractHash));
+        return binding is null ? new(value, "1.0.0") : new(NodeTypes.McpTool, "1.0.0", new(binding.BindingId, binding.ContractHash)
+        { DescriptionHash = binding.DescriptionHash });
     }
 
     private Task Instructions(string id, ChangeEventArgs args) => Edit(() => ReplaceProcessing(id,
@@ -410,7 +439,7 @@
     {
         var node = Definition.Nodes[id];
         var tools = node.Agent!.Tools.RemoveAll(t => t.BindingId == binding.BindingId);
-        if (args.Value is true) tools = tools.Add(new(binding.BindingId, binding.ContractHash));
+        if (args.Value is true) tools = tools.Add(new(binding.BindingId, binding.ContractHash) { DescriptionHash = binding.DescriptionHash });
         return ReplaceProcessing(id, node with { Agent = node.Agent with { Tools = tools } });
     });
 

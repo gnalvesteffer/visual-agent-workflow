@@ -27,7 +27,8 @@ public class BrokerTests
     private static WorkflowRevision Revision(ToolBindingDescriptor binding)
     {
         var definition = PipelineTemplates.Create("uppercase");
-        definition = PipelineEditing.ReplaceNode(definition, "step-1", new(NodeTypes.McpTool, "1.0.0", new(binding.BindingId, binding.ContractHash)));
+        definition = PipelineEditing.ReplaceNode(definition, "step-1", new(NodeTypes.McpTool, "1.0.0",
+            new ToolBindingRequest(binding.BindingId, binding.ContractHash) { DescriptionHash = binding.DescriptionHash }));
         return WorkflowRevision.Create(definition, "test");
     }
 
@@ -41,6 +42,8 @@ public class BrokerTests
         var bindings = await broker.ListBindingsAsync();
         Assert.Equal(4, bindings.Count);
         var reverse = bindings.Single(b => b.BindingId == "demo.reverse");
+        Assert.Contains("Reverses Unicode", reverse.ToolDescription);
+        Assert.Equal(McpToolDescription.ComputeHash(reverse.ToolDescription), reverse.DescriptionHash);
         var events = new List<string>();
         await using var scope = broker.OpenScope(Invocation(Revision(reverse), events));
         Assert.Single(await scope.ListToolsAsync());
@@ -118,6 +121,20 @@ public class BrokerTests
         var events = new List<string>();
         await using var scope = broker.OpenScope(Invocation(Revision(reverse with { ContractHash = new string('0', 64) }), events));
         await Assert.ThrowsAsync<ToolContractMismatchException>(() => scope.InvokeAsync(reverse.BindingId, "test"));
+        Assert.DoesNotContain(ExecutionEventKinds.ToolAuthorized, events);
+        Assert.Contains(ExecutionEventKinds.ToolFailed, events);
+    }
+
+    [Fact]
+    public async Task DescriptionDriftFailsBeforeDispatchWhenDescriptionWasPinned()
+    {
+        var broker = CreateBroker(policy: new DemoToolPolicy());
+        var reverse = (await broker.ListBindingsAsync()).Single(binding => binding.BindingId == "demo.reverse");
+        var pinned = reverse with { DescriptionHash = McpToolDescription.ComputeHash("A different operation.") };
+        var events = new List<string>();
+        await using var scope = broker.OpenScope(Invocation(Revision(pinned), events));
+
+        await Assert.ThrowsAsync<ToolDescriptionMismatchException>(() => scope.InvokeAsync(reverse.BindingId, "test"));
         Assert.DoesNotContain(ExecutionEventKinds.ToolAuthorized, events);
         Assert.Contains(ExecutionEventKinds.ToolFailed, events);
     }

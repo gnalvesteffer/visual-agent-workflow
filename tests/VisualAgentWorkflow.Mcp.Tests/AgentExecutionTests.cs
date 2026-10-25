@@ -82,15 +82,17 @@ public class AgentExecutionTests
         var events = new List<ExecutionEvent>();
         var executor = new AgentNodeExecutor([DeterministicDemoChatClient.Registration()], broker);
         var output = await new PipelineRunner(broker, executor).ExecuteAsync(Guid.NewGuid(),
-            Revision(new ToolBindingRequest(addition.BindingId, addition.ContractHash)), "2+2",
+            Revision(new ToolBindingRequest(addition.BindingId, addition.ContractHash) { DescriptionHash = addition.DescriptionHash }), "2+2",
             e => { events.Add(e); return ValueTask.CompletedTask; });
 
         Assert.Equal("2", output);
         var authorized = Assert.Single(events, e => e.Kind == ExecutionEventKinds.ToolAuthorized);
         Assert.Contains("\"left\":1", authorized.Data);
         Assert.Contains("\"right\":1", authorized.Data);
+        Assert.Contains(addition.DescriptionHash!, authorized.Data);
         var modelRequest = events.First(e => e.Kind == ExecutionEventKinds.ModelRequested);
         Assert.Contains("tool_0", modelRequest.Data);
+        Assert.Contains("Adds two base-10 integers", modelRequest.Data);
     }
 
     [Fact]

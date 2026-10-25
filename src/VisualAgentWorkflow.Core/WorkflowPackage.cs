@@ -6,7 +6,10 @@ using System.Text.Json.Serialization;
 namespace VisualAgentWorkflow.Core;
 
 public sealed record PackageRequirement(string Kind, string Id, string Version,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ContractHash = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ContractHash = null)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? DescriptionHash { get; init; }
+}
 public sealed record WorkflowPackage(string FormatVersion, WorkflowDefinition Definition, WorkflowLayout Layout,
     ImmutableArray<PackageRequirement> Requirements, string DefinitionHash, string LayoutHash);
 
@@ -35,11 +38,12 @@ public static class WorkflowPackageJson
         foreach (var node in definition.Nodes.Values)
         {
             requirements.Add(new("node", node.Type, node.TypeVersion));
-            if (node.Tool is { } tool) requirements.Add(new("mcp-tool", tool.BindingId, "", tool.ContractHash));
+            if (node.Tool is { } tool) requirements.Add(new("mcp-tool", tool.BindingId, "", tool.ContractHash) { DescriptionHash = tool.DescriptionHash });
             if (node.Agent is { } agent)
             {
                 requirements.Add(new("agent-provider", agent.ProviderId, agent.ProviderVersion));
-                foreach (var request in agent.Tools) requirements.Add(new("mcp-tool", request.BindingId, "", request.ContractHash));
+                foreach (var request in agent.Tools) requirements.Add(new("mcp-tool", request.BindingId, "", request.ContractHash)
+                { DescriptionHash = request.DescriptionHash });
                 foreach (var skill in agent.Skills ?? []) requirements.Add(new("skill", skill.Id, skill.Version, skill.ContentHash));
             }
         }
@@ -48,7 +52,8 @@ public static class WorkflowPackageJson
 
     private static ImmutableArray<PackageRequirement> Sort(IEnumerable<PackageRequirement> requirements) => requirements
         .OrderBy(r => r.Kind, StringComparer.Ordinal).ThenBy(r => r.Id, StringComparer.Ordinal)
-        .ThenBy(r => r.Version, StringComparer.Ordinal).ThenBy(r => r.ContractHash, StringComparer.Ordinal).ToImmutableArray();
+        .ThenBy(r => r.Version, StringComparer.Ordinal).ThenBy(r => r.ContractHash, StringComparer.Ordinal)
+        .ThenBy(r => r.DescriptionHash, StringComparer.Ordinal).ToImmutableArray();
 
     public static string Serialize(WorkflowDefinition definition, WorkflowLayout layout)
     {

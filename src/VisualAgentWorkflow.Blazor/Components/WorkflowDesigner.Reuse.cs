@@ -137,10 +137,19 @@ public partial class WorkflowDesigner
     private string RequirementAvailability(PackageRequirement requirement) => requirement.Kind switch
     {
         "node" => "Supported implementation",
-        "mcp-tool" => bindings.Any(b => b.BindingId == requirement.Id && b.ContractHash == requirement.ContractHash)
-            ? "Matching host binding listed" : "Matching host binding not listed",
+        "mcp-tool" => McpRequirementAvailability(requirement),
         "agent-provider" => providers.Any(p => p.ProviderId == requirement.Id && p.Version == requirement.Version)
             ? "Matching host provider listed" : "Matching host provider not listed",
         _ => "Unknown requirement"
     };
+
+    private string McpRequirementAvailability(PackageRequirement requirement)
+    {
+        var binding = bindings.FirstOrDefault(candidate => candidate.BindingId == requirement.Id);
+        if (binding is null) return "Matching host binding not listed";
+        if (binding.ContractHash != requirement.ContractHash) return "MCP input/output schema changed";
+        if (requirement.DescriptionHash is not null && binding.DescriptionHash != requirement.DescriptionHash)
+            return "MCP tool description changed";
+        return "Matching host binding listed";
+    }
 }

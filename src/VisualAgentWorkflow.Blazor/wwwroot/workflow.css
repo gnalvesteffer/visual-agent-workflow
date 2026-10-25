@@ -119,6 +119,10 @@
 .vaw-prompt-picker { display: grid; gap: var(--vaw-space-2); max-block-size: 14rem; overflow-y: auto; border: 1px solid var(--vaw-border); border-radius: var(--vaw-control-radius); padding: var(--vaw-space-2); background: var(--vaw-surface); }
 .vaw-prompt-picker button { inline-size: 100%; text-align: start; }
 .vaw-visually-hidden { position: absolute; inline-size: 1px; block-size: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.vaw-agent-tool-assignment { border-block-end: 1px solid var(--vaw-border); padding-block: var(--vaw-space-2); }
+.vaw-agent-tool-assignment details { margin-inline-start: 1.75rem; }
+.vaw-mcp-tool-choice { border-block-end: 1px solid var(--vaw-border); padding-block: var(--vaw-space-2); }
+.vaw-mcp-tool-choice p { margin: 0 0 0 1.75rem; }
 
 /* Run navigation and graph cards retain text labels alongside color cues. */
 .vaw-history { display: grid; gap: var(--vaw-space-2); max-block-size: 32rem; overflow-y: auto; scrollbar-gutter: stable; list-style: none; padding: 0; }

@@ -10,7 +10,8 @@ public sealed record StudioMcpServer(string Id, string Name, string Folder, stri
     string ProtectedBearerToken, IReadOnlyList<string> EnabledTools);
 public sealed record StudioMcpServerView(string Id, string Name, string Folder, string Endpoint, bool HasToken,
     IReadOnlyList<string> EnabledTools);
-public sealed record StudioMcpToolView(string Name, string BindingId, string ContractHash, string InputSummary);
+public sealed record StudioMcpToolView(string Name, string BindingId, string ContractHash, string InputSummary,
+    string Description, string DescriptionHash);
 
 /// <summary>Operator-owned Studio connections. Only logical tool identities enter workflow definitions.</summary>
 public sealed class StudioMcpLibrary
@@ -60,8 +61,9 @@ public sealed class StudioMcpLibrary
         deadline.CancelAfter(TimeSpan.FromSeconds(10));
         await using var client = await Connect(endpoint, bearerToken, serverId, deadline.Token);
         var tools = await client.ListToolsAsync(cancellationToken: deadline.Token);
-        return tools.Where(tool => McpToolInputSchemas.IsSupported(tool.JsonSchema)).Select(tool =>
-            new StudioMcpToolView(tool.Name, serverId + "." + tool.Name, ToolContractHash.Compute(tool), Summarize(tool.JsonSchema))).ToArray();
+        return tools.Where(tool => McpToolInputSchemas.IsSupported(tool.JsonSchema) && McpToolDescription.IsSupported(tool.Description)).Select(tool =>
+            new StudioMcpToolView(tool.Name, serverId + "." + tool.Name, ToolContractHash.Compute(tool), Summarize(tool.JsonSchema),
+                McpToolDescription.Normalize(tool.Description), McpToolDescription.ComputeHash(tool.Description))).ToArray();
     }
 
     public void Save(string id, string name, string folder, string endpoint, string bearerToken, IReadOnlyList<string> enabledTools)

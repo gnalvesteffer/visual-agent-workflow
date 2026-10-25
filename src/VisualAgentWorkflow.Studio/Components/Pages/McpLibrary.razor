@@ -36,7 +36,12 @@
                 <fieldset class="vaw-provider-form-wide"><legend>Enable tools for this Studio</legend>
                     <p>Review each server tool before enabling it. Agents must separately request it in their node settings.</p>
                     @foreach (var tool in discovered)
-                    { <label><input type="checkbox" checked="@selected.Contains(tool.Name)" @onchange="args => Select(tool.Name, args)" />@tool.Name · @tool.InputSummary · contract @tool.ContractHash[..8]</label> }
+                    {
+                        <div class="vaw-mcp-tool-choice">
+                            <label><input type="checkbox" checked="@selected.Contains(tool.Name)" @onchange="args => Select(tool.Name, args)" />@tool.Name · @tool.InputSummary · schema @tool.ContractHash[..8] · description @tool.DescriptionHash[..8]</label>
+                            @if (!string.IsNullOrWhiteSpace(tool.Description)) { <p class="vaw-help">@tool.Description</p> }
+                        </div>
+                    }
                 </fieldset>
             }
             <button type="button" class="vaw-primary" @onclick="Save" disabled="@(busy || discovered.Count == 0)">Save server and selected tools</button>

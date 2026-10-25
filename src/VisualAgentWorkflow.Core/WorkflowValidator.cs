@@ -218,7 +218,7 @@ public static class WorkflowValidator
 
     private static bool ValidBinding(ToolBindingRequest tool) =>
         !string.IsNullOrWhiteSpace(tool.BindingId) && tool.BindingId.Length <= 128 &&
-        ValidHash(tool.ContractHash);
+        ValidHash(tool.ContractHash) && (tool.DescriptionHash is null || ValidHash(tool.DescriptionHash));
 
     private static bool ValidParameterId(string id) => id.Length is > 0 and <= 64 &&
         id.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-');

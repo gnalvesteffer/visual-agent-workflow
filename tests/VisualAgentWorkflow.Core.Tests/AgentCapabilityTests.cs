@@ -86,6 +86,24 @@ public class AgentCapabilityTests
     }
 
     [Fact]
+    public void ToolDescriptionPinSurvivesWorkflowPackageExport()
+    {
+        var skill = WorkflowSkill.Create("math", "1.0", "Arithmetic", "Return a single number.");
+        var definition = Definition(skill);
+        var original = definition.Nodes["step-1"];
+        var descriptionHash = new string('a', 64);
+        definition = definition with { Nodes = definition.Nodes.SetItem("step-1", original with
+        {
+            Agent = original.Agent! with { Tools = [new("tool.add", new string('b', 64)) { DescriptionHash = descriptionHash }] }
+        }) };
+
+        var package = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(definition, WorkflowLayout.Create(definition)));
+
+        Assert.Equal(descriptionHash, package.Definition.Nodes["step-1"].Agent!.Tools[0].DescriptionHash);
+        Assert.Equal(descriptionHash, Assert.Single(package.Requirements, requirement => requirement.Kind == "mcp-tool").DescriptionHash);
+    }
+
+    [Fact]
     public void TypedParametersValidateDefaultsAndOverridesAndRoundTripAsSchema18()
     {
         var definition = new WorkflowDefinition("1.8", "typed-parameters", "input",

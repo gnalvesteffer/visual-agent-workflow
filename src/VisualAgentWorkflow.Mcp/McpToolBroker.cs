@@ -59,12 +59,20 @@ public sealed class McpToolBroker : INodeToolBroker
         var tool = tools.SingleOrDefault(t => t.Name == registration.ToolName)
             ?? throw new ToolInvocationException("The registered tool is unavailable.");
         McpInputSchema.Validate(tool.JsonSchema);
+        McpToolDescription.Normalize(tool.Description);
         return tool;
     }
 
-    private static ToolBindingDescriptor Describe(McpToolRegistration registration, McpClientTool tool) =>
-        new(registration.BindingId, registration.DisplayName, registration.ServerId, registration.ToolName, ToolContractHash.Compute(tool))
-        { InputSchemaJson = McpInputSchema.Normalize(tool.JsonSchema).GetRawText() };
+    private static ToolBindingDescriptor Describe(McpToolRegistration registration, McpClientTool tool)
+    {
+        var description = McpToolDescription.Normalize(tool.Description);
+        return new(registration.BindingId, registration.DisplayName, registration.ServerId, registration.ToolName, ToolContractHash.Compute(tool))
+        {
+            InputSchemaJson = McpInputSchema.Normalize(tool.JsonSchema).GetRawText(),
+            ToolDescription = description,
+            DescriptionHash = McpToolDescription.ComputeHash(description)
+        };
+    }
 
     private sealed class Scope(McpToolBroker owner, NodeInvocationContext invocation, IReadOnlyList<ToolBindingRequest> requested) : INodeToolScope
     {
@@ -88,7 +96,7 @@ public sealed class McpToolBroker : INodeToolBroker
                 await using var client = await registration.Connect(deadline.Token);
                 var tool = await FindTool(client, registration, deadline.Token);
                 var descriptor = Describe(registration, tool);
-                if (descriptor.ContractHash != requirement.ContractHash) throw new ToolContractMismatchException();
+                ValidatePinnedMetadata(requirement, descriptor);
                 if (Allowed(requirement.BindingId)) results.Add(descriptor);
             }
             return results;
@@ -136,12 +144,14 @@ public sealed class McpToolBroker : INodeToolBroker
             {
                 await using var client = await registration.Connect(deadline.Token);
                 var tool = await FindTool(client, registration, deadline.Token);
-                if (ToolContractHash.Compute(tool) != requirement.ContractHash) throw new ToolContractMismatchException();
+                var descriptor = Describe(registration, tool);
+                ValidatePinnedMetadata(requirement, descriptor);
                 var schema = McpInputSchema.Validate(tool.JsonSchema);
                 var callArguments = schema.ToCallArguments(arguments);
                 if (!Allowed(bindingId)) throw new ToolAccessDeniedException();
                 await Record(ExecutionEventKinds.ToolAuthorized, new
-                { toolCallId, bindingId, registration.ServerId, registration.ToolName, requirement.ContractHash, input = arguments });
+                { toolCallId, bindingId, registration.ServerId, registration.ToolName, requirement.ContractHash,
+                    requirement.DescriptionHash, input = arguments });
                 dispatched = true;
                 var result = await client.CallToolAsync(registration.ToolName, callArguments, cancellationToken: deadline.Token);
                 if (result.IsError == true) throw new ToolInvocationException("The MCP server reported a tool failure.");
@@ -162,9 +172,21 @@ public sealed class McpToolBroker : INodeToolBroker
             {
                 await Record(error is ToolAccessDeniedException ? ExecutionEventKinds.ToolDenied :
                     dispatched && error is not ToolInvocationException ? ExecutionEventKinds.ToolUncertain : ExecutionEventKinds.ToolFailed,
-                    new { toolCallId, bindingId, reason = error is ToolContractMismatchException ? "Contract mismatch." : "Tool operation failed." });
+                    new { toolCallId, bindingId, reason = error switch
+                    {
+                        ToolContractMismatchException => "Input/output schema mismatch.",
+                        ToolDescriptionMismatchException => "Description mismatch.",
+                        _ => "Tool operation failed."
+                    } });
                 throw;
             }
+        }
+
+        private static void ValidatePinnedMetadata(ToolBindingRequest requirement, ToolBindingDescriptor actual)
+        {
+            if (actual.ContractHash != requirement.ContractHash) throw new ToolContractMismatchException();
+            if (requirement.DescriptionHash is { } descriptionHash && descriptionHash != actual.DescriptionHash)
+                throw new ToolDescriptionMismatchException();
         }
 
         private ValueTask Record(string kind, object payload) => invocation.Record(kind, JsonSerializer.Serialize(payload));
