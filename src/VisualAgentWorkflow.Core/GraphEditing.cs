@@ -8,15 +8,11 @@ public static class GraphEditing
         WorkflowValidator.ThrowIfInvalid(definition);
         var edge = Outgoing(definition, sourceId, portId);
         var branch = NewId("branch");
-        var whenTrue = NewId("true");
-        var whenFalse = NewId("false");
         var merge = NewId("merge");
         var nodes = definition.Nodes.Add(branch, new(NodeTypes.Condition, "1.0.0") { Condition = new("contains", "yes") })
-            .Add(whenTrue, new(NodeTypes.Uppercase, "1.0.0")).Add(whenFalse, new(NodeTypes.Reverse, "1.0.0"))
             .Add(merge, new(NodeTypes.Merge, "1.0.0"));
         var connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(branch, "in"), "data"))
-            .Add(NewId("link"), Link(branch, "true", whenTrue)).Add(NewId("link"), Link(branch, "false", whenFalse))
-            .Add(NewId("link"), Link(whenTrue, "out", merge)).Add(NewId("link"), Link(whenFalse, "out", merge))
+            .Add(NewId("link"), Link(branch, "true", merge)).Add(NewId("link"), Link(branch, "false", merge))
             .Add(NewId("link"), new(new(merge, "out"), edge.Value.Target, "data"));
         return Checked(definition with { SchemaVersion = definition.SchemaVersion is "1.8" or "1.9" ? definition.SchemaVersion : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : "1.4", Nodes = nodes, Connections = connections });
     }

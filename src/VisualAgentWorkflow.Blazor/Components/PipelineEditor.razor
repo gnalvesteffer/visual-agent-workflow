@@ -166,7 +166,7 @@
                         @foreach (var port in WorkflowPorts.Outputs(node))
                         {
                             <button type="button" @onclick="() => InsertAfter(id, port.Id)" disabled="@(Disabled || Definition.Nodes.Count >= 256)" aria-label="Add node after @PortLabel(id, port.Id)">+ Add node after @port.Id</button>
-                            <button type="button" @onclick="() => Edit(() => GraphEditing.InsertConditionalAfter(Definition, id, port.Id))" disabled="@(Disabled || Definition.Nodes.Count > 252)" aria-label="Add conditional after @PortLabel(id, port.Id)">+ Conditional after @port.Id</button>
+                            <button type="button" @onclick="() => Edit(() => GraphEditing.InsertConditionalAfter(Definition, id, port.Id))" disabled="@(Disabled || Definition.Nodes.Count > 254)" aria-label="Add condition after @PortLabel(id, port.Id)">+ Condition after @port.Id</button>
                         }
                     }
                     </details>

@@ -130,10 +130,12 @@ public sealed class CheckpointRecoveryTests : IDisposable
 
     [Theory]
     [InlineData("yes", "SEY")]
-    [InlineData("no", "no")]
+    [InlineData("no", "on")]
     public async Task ConditionalRecoveryPreservesChosenPathAndCanSuspendAgain(string input, string expected)
     {
         var definition = GraphEditing.InsertConditionalAfter(PipelineTemplates.Create("reverse"), "input", "out");
+        var branch = definition.Nodes.Single(node => node.Value.Type == NodeTypes.Condition).Key;
+        definition = GraphEditing.InsertNodeAfter(definition, branch, "true", new(NodeTypes.Uppercase, "1.0.0"));
         var revision = WorkflowRevision.Create(definition, "test");
         var store = Store();
         await using var runtime = new CheckpointWorkflowHost(store);

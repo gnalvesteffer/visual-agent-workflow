@@ -142,7 +142,7 @@ When a consumer has enabled its authorized observation endpoint and a Studio ope
 
 ## Add a conditional path
 
-On a node's connected output, choose **+ Conditional after out** (or true/false). Set the inserted condition's operator and operand, then configure the two processing arms. Only one arm runs; the exclusive merge passes its value forward. **Arrange nodes** provides a starting layout, and **Undo edit** reverses the insertion as one edit. Save and publish before running both matching and nonmatching inputs. The viewer records **Selected output: true/false** and highlights actual transfers; playback makes no calls. See [conditions, bounds and current editing limits](conditional-graphs.md).
+On a node's connected output, choose **+ Condition after out** (or true/false). This adds a condition and merge; the two branches pass through unchanged until you add nodes to either branch. Set the condition's operator and operand, then add only the processing steps you want after its true or false output. Only one branch runs; the exclusive merge passes its value forward. **Arrange nodes** provides a starting layout, and **Undo edit** reverses the condition insertion as one edit. Save and publish before running both matching and nonmatching inputs. The viewer records **Selected output: true/false** and highlights actual transfers; playback makes no calls. See [conditions, bounds and current editing limits](conditional-graphs.md).
 
 ## Require review before an MCP call
 

@@ -2,6 +2,8 @@
 
 Schema 1.4 adds deterministic conditional routing and exclusive merges to the existing string workflow contracts. Every run follows one path through an acyclic graph. This is not parallel execution, a loop engine or general-purpose scripting.
 
+The diagram shows a configured example. Adding a condition creates only the condition and the merge; each branch initially passes the input through unchanged.
+
 ```mermaid
 flowchart LR
     Input["Input: string"] --> Condition{"Contains allow?"}
@@ -47,8 +49,8 @@ Old definition schemas and hashes remain supported. The optional condition prope
 
 ## Author in Studio or embedded designer
 
-1. Create/open a draft. On a connected output, choose **+ Conditional after out** (or the true/false output). This inserts a condition, two default processing arms and an exclusive merge in one undoable edit. Existing node identities and unrelated connections remain stable.
-2. Set **Condition operator for …** and **Condition operand for …** on the condition card. Configure each arm's operation using its normal operation selector. Tools and agents retain node-local requirements and host authorization.
+1. Create/open a draft. On a connected output, choose **+ Condition after out** (or a true/false output). This inserts a condition and an exclusive merge in one undoable edit. Both branches initially connect directly to the merge, so no unrequested operations appear. Existing node identities and unrelated connections remain stable.
+2. Set **Condition operator for …** and **Condition operand for …** on the condition card. To make the branches do different work, choose an operation on the condition and add a node after its true or false output. Tools and agents retain node-local requirements and host authorization.
 3. Use **+ Add node after …** to extend an arm, **Remove** to remove a processing node, or another conditional insertion to nest a decision. Removing the condition/merge as a whole block and arbitrary socket rewiring are not yet exposed. Linear move-up/down controls are hidden for routing graphs because display order does not define execution order.
 4. Use **Arrange nodes** for a graph-aware starting layout, then freely position cards, add comments/sections or route wires. True/false sockets have distinct measured edge positions. Graph geometry never changes the predicate or route semantics.
 5. Save, publish and run the selected exact version. Exercise inputs taking both outcomes. Editing a draft or publishing a newer version does not change a run's pinned definition.

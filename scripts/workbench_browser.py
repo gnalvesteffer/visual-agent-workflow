@@ -16,7 +16,7 @@ def inspect_control(designer, label):
     matches = [node_id for node_id in ids if re.search(r"(?:^| )" + re.escape(node_id) + r"(?:$|[ .])", label)]
     if matches:
         designer.get_by_label("Node to organize", exact=True).select_option(max(matches, key=len))
-    if label == "New node operation" or label.startswith(("Add node after ", "Add conditional after ")):
+    if label.startswith("New node operation") or label.startswith(("Add node after ", "Add conditional after ", "Add condition after ")):
         summary=designer.get_by_text("Insertion options",exact=True)
         if not summary.evaluate("element=>element.parentElement.open"): summary.click()
     return designer

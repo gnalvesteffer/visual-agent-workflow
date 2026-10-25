@@ -12,6 +12,17 @@ public sealed class ConditionalExecutionTests
         var baseline = new WorkflowDefinition("1.0", "conditional-runtime", "input",
             new Dictionary<string, NodeDefinition> { ["input"] = new(NodeTypes.Input, "1.0.0"), ["output"] = new(NodeTypes.Output, "1.0.0") }.ToImmutableSortedDictionary(),
             new Dictionary<string, ConnectionDefinition> { ["edge"] = new(new("input", "out"), new("output", "in"), "data") }.ToImmutableSortedDictionary());
+        var graph = GraphEditing.InsertConditionalAfter(baseline, "input", "out");
+        var branch = graph.Nodes.Single(node => node.Value.Type == NodeTypes.Condition).Key;
+        graph = GraphEditing.InsertNodeAfter(graph, branch, "true", new(NodeTypes.Uppercase, "1.0.0"));
+        return GraphEditing.InsertNodeAfter(graph, branch, "false", new(NodeTypes.Reverse, "1.0.0"));
+    }
+
+    private static WorkflowDefinition EmptyArmsGraph()
+    {
+        var baseline = new WorkflowDefinition("1.0", "conditional-runtime", "input",
+            new Dictionary<string, NodeDefinition> { ["input"] = new(NodeTypes.Input, "1.0.0"), ["output"] = new(NodeTypes.Output, "1.0.0") }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition> { ["edge"] = new(new("input", "out"), new("output", "in"), "data") }.ToImmutableSortedDictionary());
         return GraphEditing.InsertConditionalAfter(baseline, "input", "out");
     }
 
@@ -77,7 +88,7 @@ public sealed class ConditionalExecutionTests
         var upper = graph.Nodes.Single(n => n.Value.Type == NodeTypes.Uppercase).Key;
         graph = GraphEditing.InsertConditionalAfter(graph, upper, "out");
         var events = new List<ExecutionEvent>();
-        Assert.Equal("SEY", await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "yes",
+        Assert.Equal("YES", await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "yes",
             e => { events.Add(e); return ValueTask.CompletedTask; }));
         var ports = events.Where(e => e.Kind == ExecutionEventKinds.BranchSelected)
             .Select(e => JsonDocument.Parse(e.Data!).RootElement.GetProperty("port").GetString()).ToArray();
@@ -91,9 +102,7 @@ public sealed class ConditionalExecutionTests
     [InlineData("abc", "false")]
     public async Task EmptyArmsCanBothConnectDirectlyToTheSameMerge(string input, string port)
     {
-        var graph = Graph();
-        foreach (var id in graph.Nodes.Where(n => n.Value.Type is NodeTypes.Uppercase or NodeTypes.Reverse).Select(n => n.Key).ToArray())
-            graph = GraphEditing.RemoveNode(graph, id);
+        var graph = EmptyArmsGraph();
         var events = new List<ExecutionEvent>();
         Assert.Equal(input, await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), input,
             e => { events.Add(e); return ValueTask.CompletedTask; }));

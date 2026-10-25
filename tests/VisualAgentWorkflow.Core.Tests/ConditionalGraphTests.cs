@@ -20,7 +20,9 @@ public sealed class ConditionalGraphTests
         var graph = Graph();
         Assert.Equal("1.4", graph.SchemaVersion);
         Assert.Empty(WorkflowValidator.Validate(graph));
-        Assert.Equal(6, WorkflowGraph.OrderedNodes(graph).Length);
+        Assert.Equal(4, WorkflowGraph.OrderedNodes(graph).Length);
+        Assert.Equal(2, graph.Nodes.Values.Count(node => node.Type is NodeTypes.Condition or NodeTypes.Merge));
+        Assert.DoesNotContain(graph.Nodes.Values, node => node.Type is NodeTypes.Uppercase or NodeTypes.Reverse);
         var layout = WorkflowLayout.Create(graph);
         var package = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(graph, layout));
         Assert.Equal(WorkflowJson.ComputeHash(graph), package.DefinitionHash);
