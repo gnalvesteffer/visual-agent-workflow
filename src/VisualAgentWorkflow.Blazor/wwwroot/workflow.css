@@ -176,9 +176,17 @@
 /* Payloads remain readable without expanding the surrounding page. */
 .vaw-inspector { border-block-start: 1px solid var(--vaw-border); margin-block-start: var(--vaw-space-4); }
 :where(.vaw-viewer, .vaw-designer, .vaw-pipeline-editor) pre { font-family: var(--vaw-mono); font-size: 0.875rem; white-space: pre-wrap; overflow-wrap: anywhere; background-color: var(--vaw-canvas); padding: var(--vaw-space-3); }
-.vaw-table-scroll { overflow-x: auto; }
-.vaw-viewer table { inline-size: 100%; border-collapse: collapse; text-align: start; }
+.vaw-table-scroll { max-inline-size: 100%; overflow-x: auto; }
+.vaw-viewer table { inline-size: 100%; table-layout: fixed; border-collapse: collapse; text-align: start; }
+.vaw-viewer .vaw-event-sequence-column { inline-size: 5rem; }
+.vaw-viewer .vaw-event-kind-column { inline-size: 14rem; }
+.vaw-viewer .vaw-event-node-column { inline-size: 22rem; }
 .vaw-viewer :where(th, td) { border-block-end: 1px solid var(--vaw-border); padding: var(--vaw-space-2); }
+.vaw-viewer :where(th, td) { overflow-wrap: anywhere; }
+.vaw-viewer td pre { max-inline-size: 100%; margin: 0; }
+@media (max-width: 56rem) {
+    .vaw-viewer table { min-inline-size: 52rem; }
+}
 .vaw-error { color: var(--vaw-error); }
 
 @media (prefers-reduced-motion: reduce) {
