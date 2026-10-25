@@ -15,6 +15,7 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Parallel graphs](parallel-graphs.md) | Schema 1.14 bounded two-branch fork/barrier join, JSON result, concurrency and failure limits |
 | [Bounded loop graphs](loop-graphs.md) | Schema 1.17 single-loop body, predicate, hard iteration cap, audit events, and authoring limits |
 | [Workflow termination](workflow-termination.md) | Schema 1.18 successful no-result exits and runtime/audit behavior |
+| [Nested workflow calls](nested-workflows.md) | Schema 1.19 pinned child workflows, scoped audit events, limits, and current authoring behavior |
 | [Consumer observation](observation.md) | Opt-in authorized consumer endpoint, remote Studio attachment and reusable read-only graph |
 | [Run reconciliation](run-reconciliation.md) | Read-only recovery dispositions, unsettled work, call correlation and observation UI |
 | [Checkpoint recovery](checkpoint-recovery.md) | Opt-in deterministic native checkpoints, saved-suspension recovery and exclusive local ownership |

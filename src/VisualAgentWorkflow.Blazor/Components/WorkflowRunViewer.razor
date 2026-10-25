@@ -41,15 +41,22 @@
             </NodeContent>
             <NodeInspector Context="inspected">
             @{ var selectedNode = inspected;
-            var started = VisibleEvents.LastOrDefault(e => e.NodeId == selectedNode && e.Kind == ExecutionEventKinds.NodeStarted);
-            var completed = VisibleEvents.LastOrDefault(e => e.NodeId == selectedNode && e.Kind == ExecutionEventKinds.NodeCompleted);
-            var failure = VisibleEvents.LastOrDefault(e => e.NodeId == selectedNode && e.Kind is ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled); }
+            var started = RootEvents.LastOrDefault(e => e.NodeId == selectedNode && e.Kind == ExecutionEventKinds.NodeStarted);
+            var completed = RootEvents.LastOrDefault(e => e.NodeId == selectedNode && e.Kind == ExecutionEventKinds.NodeCompleted);
+            var failure = RootEvents.LastOrDefault(e => e.NodeId == selectedNode && e.Kind is ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
+            var childEvents = VisibleEvents.Where(e => e.ScopeId == selectedNode || e.ScopeId?.StartsWith(selectedNode + "/", StringComparison.Ordinal) == true).ToArray(); }
             <section class="vaw-inspector" aria-label="Selected node payloads">
                 <h3>@(string.IsNullOrWhiteSpace(Presentation.Nodes[inspected].Label) ? WorkflowGraphCanvas.FriendlyName(Snapshot.Header.Definition.Nodes[inspected]) : Presentation.Nodes[inspected].Label)</h3>
                 <p>Invocation: @(started?.InvocationId?.ToString() ?? "Not recorded at this position")</p>
                 <h4>Input</h4><pre>@(started?.Data ?? "Not recorded at this position")</pre>
                 <h4>Output</h4><pre>@(completed?.Data ?? "Not recorded at this position")</pre>
                 @if (failure is not null) { <h4>@StateLabel(failure)</h4><pre>@failure.Data</pre> }
+                @if (Snapshot.Header.Definition.Nodes[inspected].Type == NodeTypes.WorkflowCall)
+                {
+                    <details><summary>Nested workflow events (@childEvents.Length)</summary>
+                        <ul>@foreach (var childEvent in childEvents) { <li><code>@childEvent.ScopeId</code> · @childEvent.Kind · @childEvent.NodeId @if (childEvent.Data is { Length: > 0 } data) { <pre>@data</pre> }</li> }</ul>
+                    </details>
+                }
             </section>
         <WorkflowApprovalPanel Snapshot="VisibleSnapshot" Client="ApprovalClient" CanDecide="@(follow && !Snapshot.IsTerminal)" OnDecision="ApprovalChanged" />
             </NodeInspector>
@@ -58,12 +65,12 @@
             <summary>Recorded events at this position (@Position)</summary>
             <div class="vaw-table-scroll">
                 <table><caption>Execution evidence</caption>
-                    <colgroup><col class="vaw-event-sequence-column" /><col class="vaw-event-kind-column" /><col class="vaw-event-node-column" /><col /></colgroup>
-                    <thead><tr><th>Sequence</th><th>Event</th><th>Node</th><th>Data</th></tr></thead>
+                    <colgroup><col class="vaw-event-sequence-column" /><col class="vaw-event-kind-column" /><col class="vaw-event-node-column" /><col class="vaw-event-node-column" /><col /></colgroup>
+                    <thead><tr><th>Sequence</th><th>Event</th><th>Scope</th><th>Node</th><th>Data</th></tr></thead>
                     <tbody>
                         @foreach (var evt in VisibleEvents)
                         {
-                            <tr @key="evt.Sequence"><td>@evt.Sequence</td><td>@evt.Kind</td><td>@evt.NodeId</td><td><pre>@evt.Data</pre></td></tr>
+                            <tr @key="evt.Sequence"><td>@evt.Sequence</td><td>@evt.Kind</td><td>@evt.ScopeId</td><td>@evt.NodeId</td><td><pre>@evt.Data</pre></td></tr>
                         }
                     </tbody>
                 </table>
@@ -80,21 +87,39 @@
     private WorkflowApprovalRequest? PendingApproval => VisibleSnapshot is { } visible ? WorkflowApprovalEvidence.Pending(visible) : null;
     [Parameter] public WorkflowLayout? Layout { get; set; }
     private WorkflowLayout Presentation = default!;
-    private ExecutionEvent? State(string id) => VisibleEvents.LastOrDefault(e => e.NodeId == id && e.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
+    private IEnumerable<ExecutionEvent> RootEvents => VisibleEvents.Where(e => e.ScopeId is null);
+    private ExecutionEvent? State(string id) => RootEvents.LastOrDefault(e => e.NodeId == id && e.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
     private string? ActiveActivity(string id)
     {
         if (State(id)?.Kind != ExecutionEventKinds.NodeStarted) return null;
+        if (Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type == NodeTypes.WorkflowCall)
+        {
+            var child = VisibleEvents.LastOrDefault(evt => evt.ScopeId == id || evt.ScopeId?.StartsWith(id + "/", StringComparison.Ordinal) == true);
+            if (child is not null)
+                return child.Kind switch
+                {
+                    ExecutionEventKinds.SubworkflowStarted => "Starting pinned workflow",
+                    ExecutionEventKinds.NodeStarted => $"Running child node · {child.NodeId}",
+                    ExecutionEventKinds.ModelRequested => "Waiting for child agent model",
+                    ExecutionEventKinds.ToolRequested => "Calling a child MCP tool",
+                    ExecutionEventKinds.AgentStarted => "Child agent working",
+                    ExecutionEventKinds.SubworkflowCompleted => "Child workflow completed",
+                    ExecutionEventKinds.SubworkflowTerminated => "Child workflow ended successfully",
+                    ExecutionEventKinds.SubworkflowFailed => "Child workflow failed",
+                    _ => child.Kind
+                };
+        }
         if (Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type == NodeTypes.Loop &&
-            VisibleEvents.LastOrDefault(evt => evt.NodeId == id && evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped) is { } loopActivity)
+            RootEvents.LastOrDefault(evt => evt.NodeId == id && evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped) is { } loopActivity)
             return LoopActivity(loopActivity, "Preparing loop");
         var invocation = State(id)?.InvocationId;
-        var events = VisibleEvents.Where(e => e.NodeId == id &&
+        var events = RootEvents.Where(e => e.NodeId == id &&
             (e.InvocationId == invocation || IsDelegatedInvocation(e, invocation))).ToArray();
         var terminalIndex = Array.FindLastIndex(events, e => e.Kind is ExecutionEventKinds.NodeCompleted or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
         if (terminalIndex >= 0) return null;
         var current = events.LastOrDefault(e => e.Kind is ExecutionEventKinds.AgentTeamStarted or ExecutionEventKinds.AgentTeamCompleted or ExecutionEventKinds.AgentTeamFailed or ExecutionEventKinds.AgentChannelMessageSent or ExecutionEventKinds.AgentChannelMessagesRead or ExecutionEventKinds.AgentStarted or ExecutionEventKinds.AgentCompleted or ExecutionEventKinds.AgentFailed or ExecutionEventKinds.ModelRequested or ExecutionEventKinds.ModelResponded or ExecutionEventKinds.ToolRequested or ExecutionEventKinds.ToolAuthorized or ExecutionEventKinds.ToolCompleted or ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ApprovalRequested or ExecutionEventKinds.ParallelJoinProgress);
         if (current is null && Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type == NodeTypes.ParallelJoin &&
-            VisibleEvents.LastOrDefault(evt => evt.NodeId == id && evt.Kind == ExecutionEventKinds.ParallelJoinProgress) is { } joinProgress)
+            RootEvents.LastOrDefault(evt => evt.NodeId == id && evt.Kind == ExecutionEventKinds.ParallelJoinProgress) is { } joinProgress)
             return joinProgress.Data ?? "Waiting for both branch results";
         if (current is null) return "Preparing node";
         var delegatedPrefix = DelegatedProfileLabel(current);
@@ -203,7 +228,7 @@
     }
     private string? BranchPort(string id)
     {
-        var decision = VisibleEvents.LastOrDefault(e => e.NodeId == id && e.Kind == ExecutionEventKinds.BranchSelected);
+        var decision = RootEvents.LastOrDefault(e => e.NodeId == id && e.Kind == ExecutionEventKinds.BranchSelected);
         if (decision?.Data is null) return null;
         try
         {
@@ -214,7 +239,7 @@
         catch (JsonException) { return null; }
     }
     private bool PausedBefore(string id) => VisibleStatus == "paused" &&
-        VisibleEvents.LastOrDefault(e => e.Kind == ExecutionEventKinds.Paused)?.NodeId == id;
+        RootEvents.LastOrDefault(e => e.Kind == ExecutionEventKinds.Paused)?.NodeId == id;
     private string NodeStateClass(string id) => PendingApproval?.Action.ApprovalNodeId == id ? "vaw-waiting-approval" : State(id)?.Kind switch
     {
         ExecutionEventKinds.NodeCompleted => "vaw-complete",

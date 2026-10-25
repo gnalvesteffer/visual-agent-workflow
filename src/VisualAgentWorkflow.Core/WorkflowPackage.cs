@@ -38,6 +38,11 @@ public static class WorkflowPackageJson
         foreach (var node in definition.Nodes.Values)
         {
             requirements.Add(new("node", node.Type, node.TypeVersion));
+            if (node.WorkflowCall is { } workflowCall)
+            {
+                requirements.Add(new("workflow-revision", workflowCall.WorkflowId, workflowCall.Version.ToString(System.Globalization.CultureInfo.InvariantCulture), workflowCall.ContentHash));
+                foreach (var requirement in Requirements(workflowCall.Definition)) requirements.Add(requirement);
+            }
             if (node.Tool is { } tool) requirements.Add(new("mcp-tool", tool.BindingId, "", tool.ContractHash) { DescriptionHash = tool.DescriptionHash });
             if (node.Agent is { } agent)
             {

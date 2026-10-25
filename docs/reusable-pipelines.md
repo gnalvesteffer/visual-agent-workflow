@@ -1,6 +1,6 @@
 # Reusable pipelines and portable packages
 
-Core now supports copy-on-insert reuse of a published linear pipeline. It does not introduce recursive runtime prefab calls, automatic source upgrades, capability inheritance, or arbitrary graph execution. The Studio exposes section extraction, published-version insertion, requirement review, and package import/export through its existing catalog and draft lifecycle.
+Core supports both copy-on-insert reuse of a published linear pipeline and bounded runtime calls to immutable workflow revisions. The Studio exposes section extraction, published-version insertion or call, requirement review, and package import/export through its existing catalog and draft lifecycle. Runtime call limits and audit scope are specified in [nested workflow calls](nested-workflows.md).
 
 ## Identity and execution
 
@@ -18,11 +18,11 @@ flowchart LR
 
 Definition schema `1.3` permits optional node `origin` metadata: source workflow, revision, version, definition hash, and source node ID. The existing node constructor and schemas 1.0–1.2 remain supported; absent origin is omitted so older canonical hashes remain unchanged. Provenance records where a copy came from, not an authenticated endorsement or a promise that subsequent local edits match the original. It never resolves code or grants permissions. Changing or removing a source publication cannot rewrite the consumer's expanded nodes. Inserting a workflow's own old publication is a finite copy, not recursion.
 
-Full nested prefab assets, instance upgrade/rebase with overrides, and runtime subworkflow calls remain future work. Current reuse is explicit versioned template expansion within the 256-node workflow and 64-section layout limits.
+Runtime calls embed the exact child definition and revision hash. Calls are bounded to three nested levels and 1,024 expanded nodes; typed ports, explicit input/parameter mappings, upgrades/rebase, and nested approvals remain future work. Copy insertion is still explicit versioned template expansion within the 256-node workflow and 64-section layout limits.
 
 ## Package format
 
-`WorkflowPackageJson` format `1.0` contains the executable definition, separate layout, their canonical SHA-256 checksums, and the exact derived node implementation, MCP contract, and agent-provider requirements. It has no host connection factories, credential exports, installation commands, or policy grants. User-authored text remains user content and should be reviewed before sharing.
+`WorkflowPackageJson` format `1.0` contains the executable definition, separate layout, their canonical SHA-256 checksums, and the exact derived node implementation, MCP contract, agent-provider, and recursively pinned workflow-revision requirements. It has no host connection factories, credential exports, installation commands, or policy grants. User-authored text remains user content and should be reviewed before sharing.
 
 Imports reject unsupported formats/schemas, unknown or duplicate properties, invalid graphs/layouts, mismatched checksums, and requirement manifests that disagree with the graph. Definition/layout bounds still apply individually; the complete package is bounded to 3 MiB. Requirement arrays are canonicalized as sets, while waypoint order remains meaningful and unchanged. Checksums detect mismatched contents; they are not signatures and do not authenticate an author.
 

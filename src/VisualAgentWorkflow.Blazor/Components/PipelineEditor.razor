@@ -132,6 +132,13 @@
                             <PromptTemplateEditor EditorLabel="Template text" Value="node.TextTemplate!" Parameters="ParameterDefinitions" ValueChanged="template => SetTextTemplate(id, template)" Disabled="Disabled" />
                         </fieldset>
                     }
+                    else if (node.Type == NodeTypes.WorkflowCall)
+                    {
+                        <p>This node executes the embedded workflow revision and returns its string result. The workflow ID, revision, version, and content hash are pinned in this node. Its tools, model providers, and skills remain subject to the host’s configured catalogs and grants.</p>
+                        @if (node.WorkflowCall is { } child)
+                        { <dl><dt>Workflow</dt><dd>@child.WorkflowId</dd><dt>Version</dt><dd>@child.Version</dd><dt>Revision</dt><dd><code>@child.RevisionId</code></dd><dt>Content hash</dt><dd><code>@child.ContentHash</code></dd></dl> }
+                        @if (!ReadOnly) { <button type="button" @onclick="() => RemoveSelected(id)" disabled="@Disabled">Remove workflow call</button> }
+                    }
                     else if (node.Type == NodeTypes.Loop)
                     {
                         <p>A bounded loop sends the current text through the body while the predicate matches. The loop stops when it no longer matches or reaches its maximum. The body anchor is on the graph; insert deterministic steps, agents, or MCP tools after it. Only one linear body is supported in this version.</p>
@@ -441,7 +448,7 @@
     private string newParameterDescription = "";
     private System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition> ParameterDefinitions =>
         Definition.Parameters ?? System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
-    private string CapabilitySchema => Definition.SchemaVersion is "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
+    private string CapabilitySchema => Definition.SchemaVersion is "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
     private string? error;
     private string? selectedNode;
     private string selectedPort = "out";
@@ -461,6 +468,7 @@
         NodeTypes.Loop => $"Continue while {node.Loop!.ContinueWhile.Operator} · max {node.Loop.MaximumIterations}",
         NodeTypes.LoopBody => "Start of bounded loop body",
         NodeTypes.Terminate => "End workflow successfully without a result",
+        NodeTypes.WorkflowCall => $"Pinned workflow · {node.WorkflowCall?.WorkflowId} v{node.WorkflowCall?.Version}",
         NodeTypes.Merge => "Continue the selected path",
         NodeTypes.ParallelFork => "Start both branches concurrently",
         NodeTypes.ParallelBranch => "Parallel branch anchor",
@@ -666,7 +674,7 @@
         var parameterId = value?.StartsWith("parameter:", StringComparison.Ordinal) == true ? value[10..] : null;
         var node = Definition.Nodes[id];
         var parameterIncludesOff = parameterId is not null && ParameterDefinitions.TryGetValue(parameterId, out var parameter) && parameter.Choices?.Contains("off") == true;
-        var schema = effort == AgentReasoningEffort.Off || parameterIncludesOff ? Definition.SchemaVersion is "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10" : parameterId is not null ? Definition.SchemaVersion is "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : "1.8" : CapabilitySchema;
+        var schema = effort == AgentReasoningEffort.Off || parameterIncludesOff ? Definition.SchemaVersion is "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10" : parameterId is not null ? Definition.SchemaVersion is "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : "1.8" : CapabilitySchema;
         var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { ReasoningEffort = parameterId is null ? effort : null, ReasoningEffortParameterId = parameterId } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -678,7 +686,7 @@
         if (!int.TryParse(args.Value?.ToString(), out var limit) || limit is < AgentOutputTokenLimits.Minimum or > AgentOutputTokenLimits.Maximum)
             throw new ArgumentException($"Choose an output limit from {AgentOutputTokenLimits.Minimum} to {AgentOutputTokenLimits.Maximum} tokens.");
         var node = Definition.Nodes[id];
-        var schema = Definition.SchemaVersion is "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10";
+        var schema = Definition.SchemaVersion is "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10";
         var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { MaxOutputTokens = limit } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -735,7 +743,7 @@
         var stillUsed = nodes.Values.Where(item => item.Agent is not null).SelectMany(item => item.Agent!.Delegates ?? [])
             .Any(reference => reference.Id == profile.Id && reference.Version == profile.Version);
         if (!stillUsed) profiles = profiles.Remove(profile.Id + "@" + profile.Version);
-        var definition = Definition with { SchemaVersion = profile.Channels is not null ? (Definition.SchemaVersion is "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" ? Definition.SchemaVersion : "1.12") : Definition.SchemaVersion is "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.11", AgentProfiles = profiles.Count == 0 ? null : profiles,
+        var definition = Definition with { SchemaVersion = profile.Channels is not null ? (Definition.SchemaVersion is "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" ? Definition.SchemaVersion : "1.12") : Definition.SchemaVersion is "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.11", AgentProfiles = profiles.Count == 0 ? null : profiles,
             Skills = skills.Count == 0 ? null : skills, Nodes = nodes };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;

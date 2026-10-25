@@ -10,7 +10,12 @@ public sealed record ExecutionEvent(
     string? NodeId = null,
     Guid? InvocationId = null,
     string? ConnectionId = null,
-    string? Data = null);
+    string? Data = null)
+{
+    /// <summary>Slash-separated workflow call node IDs; null identifies the root graph.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? ScopeId { get; init; }
+}
 
 public static class ExecutionEventKinds
 {
@@ -34,6 +39,11 @@ public static class ExecutionEventKinds
     public const string Transfer = "connection.received";
     public const string Completed = "run.completed";
     public const string Terminated = "run.terminated";
+    public const string SubworkflowStarted = "subworkflow.started";
+    public const string SubworkflowCompleted = "subworkflow.completed";
+    public const string SubworkflowTerminated = "subworkflow.terminated";
+    public const string SubworkflowFailed = "subworkflow.failed";
+    public const string SubworkflowCancelled = "subworkflow.cancelled";
     public const string Failed = "run.failed";
     public const string Cancelled = "run.cancelled";
     public const string Interrupted = "run.interrupted";

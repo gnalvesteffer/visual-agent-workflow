@@ -106,6 +106,28 @@ public partial class WorkflowDesigner
         message = $"Inserted version {source.Version} of '{source.Revision.Definition.WorkflowId}'. Review its requirements, then save and publish explicitly.";
     });
 
+    private Task InsertReusableWorkflowCall() => Perform(async current =>
+    {
+        if (definition is null || layout is null || preview is not null || reusableRevisionId is not { } id) return;
+        var source = await current.Catalog.GetRevisionAsync(id).WaitAsync(current.Token) ?? throw new KeyNotFoundException();
+        if (source.Revision.Definition.WorkflowId != reusableWorkflowId || source.Revision.Definition.WorkflowId == definition.WorkflowId)
+            throw new ArgumentException("Choose a different published workflow revision.");
+        var sourceVersion = reusableVersions.Single(item => item.Revision.RevisionId == id);
+        var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(source.Revision.Definition.WorkflowId, id, sourceVersion.Version,
+                source.Revision.ContentHash, source.Revision.Definition)
+        };
+        var after = definition.Nodes.TryGetValue(insertAfterNode, out var selected) && selected.Type != NodeTypes.Output
+            ? insertAfterNode : definition.EntryNodeId;
+        var output = WorkflowPorts.Outputs(definition.Nodes[after]).FirstOrDefault()?.Id;
+        if (output is null) throw new ArgumentException("Choose a node with an available output pin.");
+        var next = GraphEditing.InsertNodeAfter(definition, after, output, call);
+        if (!Current(current)) return;
+        ApplyComposition(new(next, layout));
+        message = $"Added a call to '{source.Revision.Definition.WorkflowId}' version {sourceVersion.Version}. This child revision is embedded and pinned in this workflow.";
+    });
+
     private void ApplyComposition(PipelineComposition next)
     {
         if (definition is null || layout is null) return;

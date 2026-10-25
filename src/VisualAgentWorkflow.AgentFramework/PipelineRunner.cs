@@ -65,13 +65,13 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         var resolvedParameters = WorkflowParameters.Resolve(revision.Definition, parameters);
         using var recordGate = new SemaphoreSlim(1, 1);
         long sequence = 0;
-        async ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null, string? data = null)
+        async ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null, string? data = null, string? scopeId = null)
         {
             await recordGate.WaitAsync();
             try
             {
                 var evt = new ExecutionEvent(runId, revision.RevisionId, Interlocked.Increment(ref sequence), DateTimeOffset.UtcNow,
-                    kind, node, invocation, connection, data);
+                    kind, node, invocation, connection, data) { ScopeId = scopeId };
                 await record(evt);
             }
             finally { recordGate.Release(); }
@@ -128,12 +128,17 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
 
     private Workflow BuildWorkflow(Guid runId, WorkflowRevision revision,
         IReadOnlyDictionary<string, string>? parameters,
-        Func<string, string?, Guid?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate)
+        Func<string, string?, Guid?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate) =>
+        BuildWorkflow(runId, revision, parameters, (kind, node, invocation, connection, data, _) => emit(kind, node, invocation, connection, data), gate);
+
+    private Workflow BuildWorkflow(Guid runId, WorkflowRevision revision,
+        IReadOnlyDictionary<string, string>? parameters,
+        Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate)
     {
         var definition = revision.Definition;
         var executors = definition.Nodes.ToDictionary(
             n => n.Key,
-            n => new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, emit, gate));
+            n => new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, emit, gate, null));
         var builder = new WorkflowBuilder(executors[definition.EntryNodeId]);
         foreach (var edge in definition.Connections.Values)
         {
@@ -150,9 +155,9 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             builder.AddFanInBarrierEdge(branchSources, (ExecutorBinding)executors[join.Key]);
         }
         var outputId = definition.Nodes.Single(n => n.Value.Type == NodeTypes.Output).Key;
-        foreach (var terminator in definition.Nodes.Where(n => n.Value.Type == NodeTypes.Terminate))
+        foreach (var terminator in definition.Nodes.Where(n => n.Value.Type is NodeTypes.Terminate or NodeTypes.WorkflowCall))
             builder.AddEdge<GraphMessage>(executors[terminator.Key], executors[outputId], message =>
-                message?.SourceNode == terminator.Key && message.SourcePort == "terminated");
+                message?.SourceNode == terminator.Key && message.SourcePort == "terminated" && message.TerminationSignal);
         builder.WithOutputFrom(executors[outputId]);
         return builder.Build();
     }
@@ -168,10 +173,15 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         IReadOnlyDictionary<string, string>? parameters,
         INodeToolBroker? tools,
         IAgentNodeExecutor? agents,
-        Func<string, string?, Guid?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate)
+        Func<string, string?, Guid?, string?, string?, string?, ValueTask> record, IWorkflowExecutionGate? gate,
+        string? scopeId)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
+        private ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null,
+            string? data = null, string? eventScope = null) =>
+            record(kind, node, invocation, connection, data, eventScope ?? scopeId);
+
         private sealed class JsonProjectionContractException(string message) : InvalidOperationException(message) { }
 
         private readonly object parallelJoinSync = new();
@@ -190,7 +200,8 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             string? incomingPort = null;
             if (received.SourceNode is not null && received.TerminationSignal)
             {
-                if (node.Type != NodeTypes.Output || !revision.Definition.Nodes.TryGetValue(received.SourceNode, out var sourceNode) || sourceNode.Type != NodeTypes.Terminate)
+                if (node.Type != NodeTypes.Output || !revision.Definition.Nodes.TryGetValue(received.SourceNode, out var sourceNode) ||
+                    sourceNode.Type is not (NodeTypes.Terminate or NodeTypes.WorkflowCall))
                     throw new InvalidOperationException("Invalid internal workflow termination signal.");
             }
             else if (received.SourceNode is not null)
@@ -199,7 +210,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                     e.Value.Source.PortId == received.SourcePort && e.Value.Target.NodeId == Id);
                 var inputType = WorkflowPorts.Inputs(node).Single(port => port.Id == incoming.Value.Target.PortId).DataType;
                 if (received.DataType != inputType) throw new InvalidOperationException("Connected workflow data type does not match the receiving node.");
-                await emit(ExecutionEventKinds.Transfer, Id, invocation, incoming.Key, message);
+                await Emit(ExecutionEventKinds.Transfer, Id, invocation, incoming.Key, message);
                 incomingPort = incoming.Value.Target.PortId;
             }
             if (node.Type == NodeTypes.ParallelJoin)
@@ -208,28 +219,31 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 try
                 {
                     var (started, complete, result, receivedCount) = CollectParallelJoinInput(incomingPort!, message);
-                    if (started) await emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, "Waiting for both parallel branch results.");
-                    await emit(ExecutionEventKinds.ParallelJoinProgress, Id, invocation, null,
+                    if (started) await Emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, "Waiting for both parallel branch results.");
+                    await Emit(ExecutionEventKinds.ParallelJoinProgress, Id, invocation, null,
                         complete ? "Both branch results received." : $"Received {receivedCount} of 2 branch results; waiting for the other branch.");
                     if (!complete) return new("", Id, "parallel.pending", DataType: "json");
-                    await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, result);
+                    await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, result);
                     return new(result!, Id, "out", DataType: "json");
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
-                    await emit(ExecutionEventKinds.NodeCancelled, Id, invocation, null, "Parallel join cancelled.");
+                    await Emit(ExecutionEventKinds.NodeCancelled, Id, invocation, null, "Parallel join cancelled.");
                     throw;
                 }
                 catch
                 {
-                    await emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, "Parallel join failed.");
+                    await Emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, "Parallel join failed.");
                     throw;
                 }
                 finally { parallelJoinExecution.Release(); }
             }
-            if (!internalTerminationHandoff) await emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, message);
+            if (!internalTerminationHandoff) await Emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, message);
             try
             {
+                var childOutcome = node.Type == NodeTypes.WorkflowCall
+                    ? await ExecuteWorkflowCall(message, cancellationToken)
+                    : null;
                 var result = node.Type switch
                 {
                     NodeTypes.Input when node.InputDataType == "json" => NormalizeJson(message),
@@ -245,12 +259,13 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.Uppercase => message.ToUpperInvariant(),
                     NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
                     NodeTypes.McpTool => await InvokeTool(message, invocation, cancellationToken),
+                    NodeTypes.WorkflowCall => childOutcome?.Output ?? string.Empty,
                     NodeTypes.Agent => agents is null ? throw new InvalidOperationException("No agent executor is configured.") :
                         await agents.ExecuteAsync(new NodeInvocationContext(runId, revision, Id, invocation,
-                            (kind, data) => emit(kind, Id, invocation, null, data))
+                            (kind, data) => Emit(kind, Id, invocation, null, data))
                         {
                             Parameters = parameters,
-                            RecordWithInvocation = (eventInvocationId, kind, data) => emit(kind, Id, eventInvocationId, null, data)
+                            RecordWithInvocation = (eventInvocationId, kind, data) => Emit(kind, Id, eventInvocationId, null, data)
                         }, message, cancellationToken),
                     _ => throw new InvalidOperationException("Unsupported executor type.")
                 };
@@ -270,7 +285,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 if (node.Type == NodeTypes.Condition)
                 {
                     port = node.Condition!.Evaluate(message) ? "true" : "false";
-                    await emit(ExecutionEventKinds.BranchSelected, Id, invocation, null, JsonSerializer.Serialize(new { port }));
+                    await Emit(ExecutionEventKinds.BranchSelected, Id, invocation, null, JsonSerializer.Serialize(new { port }));
                 }
                 var nextLoopIteration = received.LoopIteration;
                 if (node.Type == NodeTypes.Loop)
@@ -278,25 +293,26 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                     var loop = node.Loop!;
                     var shouldContinue = loop.ContinueWhile.Evaluate(result);
                     if (received.LoopIteration > 0)
-                        await emit(ExecutionEventKinds.LoopIterationCompleted, Id, invocation, null, JsonSerializer.Serialize(new { iteration = received.LoopIteration }));
+                        await Emit(ExecutionEventKinds.LoopIterationCompleted, Id, invocation, null, JsonSerializer.Serialize(new { iteration = received.LoopIteration }));
                     if (shouldContinue && received.LoopIteration < loop.MaximumIterations)
                     {
                         port = "body";
                         nextLoopIteration++;
-                        await emit(ExecutionEventKinds.LoopIterationStarted, Id, invocation, null,
+                        await Emit(ExecutionEventKinds.LoopIterationStarted, Id, invocation, null,
                             JsonSerializer.Serialize(new { iteration = nextLoopIteration, maximumIterations = loop.MaximumIterations }));
                     }
                     else
                     {
                         port = "done";
                         var reason = shouldContinue ? "maximum-iterations" : "predicate-false";
-                        await emit(ExecutionEventKinds.LoopStopped, Id, invocation, null,
+                        await Emit(ExecutionEventKinds.LoopStopped, Id, invocation, null,
                             JsonSerializer.Serialize(new { reason, iterations = received.LoopIteration, maximumIterations = loop.MaximumIterations }));
                     }
                 }
                 if (!internalTerminationHandoff)
-                    await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null,
+                    await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null,
                         node.Type == NodeTypes.Loop ? JsonSerializer.Serialize(new { port, iteration = received.LoopIteration, maximumIterations = node.Loop!.MaximumIterations }) :
+                        node.Type == NodeTypes.WorkflowCall && childOutcome!.Terminated ? "Nested workflow terminated successfully." :
                         node.Type == NodeTypes.Terminate || received.TerminationSignal ? "Workflow terminated without returning a value." : result);
                 if (node.Type == NodeTypes.ParallelFork)
                 {
@@ -308,22 +324,23 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 }
                 var outputType = node.Type == NodeTypes.Terminate ? "string" : node.Type == NodeTypes.Output ? received.DataType :
                     WorkflowPorts.Outputs(node).Single(output => output.Id == port).DataType;
-                return new(result, internalTerminationHandoff ? received.SourceNode : Id, node.Type == NodeTypes.Terminate ? "terminated" : port, permit, outputType, nextLoopIteration,
-                    node.Type == NodeTypes.Terminate || received.TerminationSignal);
+                var terminated = node.Type == NodeTypes.Terminate || received.TerminationSignal || childOutcome?.Terminated == true;
+                return new(result, internalTerminationHandoff ? received.SourceNode : Id, terminated ? "terminated" : port, permit, outputType, nextLoopIteration,
+                    terminated);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                await emit(ExecutionEventKinds.NodeCancelled, Id, invocation, null, "Node execution cancelled.");
+                await Emit(ExecutionEventKinds.NodeCancelled, Id, invocation, null, "Node execution cancelled.");
                 throw;
             }
             catch (JsonProjectionContractException exception)
             {
-                await emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, exception.Message);
+                await Emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, exception.Message);
                 throw;
             }
             catch
             {
-                await emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, "Node execution failed.");
+                await Emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, "Node execution failed.");
                 throw;
             }
         }
@@ -331,6 +348,33 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         private Guid ParallelJoinInvocation()
         {
             lock (parallelJoinSync) return parallelJoinInvocationId ??= Guid.NewGuid();
+        }
+
+        private async Task<WorkflowExecutionResult> ExecuteWorkflowCall(string input, CancellationToken cancellationToken)
+        {
+            var call = node.WorkflowCall ?? throw new InvalidOperationException("The nested workflow revision is unavailable.");
+            var child = WorkflowRevision.Rehydrate(call.RevisionId, call.Definition, "embedded-workflow-prefab", null,
+                DateTimeOffset.UnixEpoch, call.ContentHash);
+            var childScope = scopeId is null ? Id : $"{scopeId}/{Id}";
+            async ValueTask RecordChild(ExecutionEvent childEvent)
+            {
+                var kind = childEvent.Kind switch
+                {
+                    ExecutionEventKinds.Started => ExecutionEventKinds.SubworkflowStarted,
+                    ExecutionEventKinds.Completed => ExecutionEventKinds.SubworkflowCompleted,
+                    ExecutionEventKinds.Terminated => ExecutionEventKinds.SubworkflowTerminated,
+                    ExecutionEventKinds.Failed => ExecutionEventKinds.SubworkflowFailed,
+                    ExecutionEventKinds.Cancelled => ExecutionEventKinds.SubworkflowCancelled,
+                    _ => childEvent.Kind
+                };
+                var nestedScope = childEvent.ScopeId is null ? childScope : $"{childScope}/{childEvent.ScopeId}";
+                await Emit(kind, childEvent.NodeId, childEvent.InvocationId, childEvent.ConnectionId, childEvent.Data, nestedScope);
+            }
+
+            var runner = new PipelineRunner(tools, agents);
+            return gate is null
+                ? await runner.ExecuteWithOutcomeAsync(runId, child, input, null, RecordChild, cancellationToken)
+                : await runner.ExecuteControlledWithParametersAndOutcomeAsync(runId, child, input, null, RecordChild, gate, cancellationToken);
         }
 
         private (bool Started, bool Complete, string? Result, int ReceivedCount) CollectParallelJoinInput(string inputPort, string input)
@@ -354,7 +398,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         {
             if (tools is null) throw new InvalidOperationException("No tool broker is configured.");
             await using var scope = tools.OpenScope(new(runId, revision, Id, invocation,
-                (kind, data) => emit(kind, Id, invocation, null, data)));
+                (kind, data) => Emit(kind, Id, invocation, null, data)));
             return await scope.InvokeAsync(node.Tool!.BindingId, input, cancellationToken);
         }
 

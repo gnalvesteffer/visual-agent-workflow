@@ -77,6 +77,7 @@ public partial class WorkflowGraphCanvas
         NodeTypes.Condition => "Condition", NodeTypes.Merge => "Merge", NodeTypes.Approval => "Approval",
         NodeTypes.ParallelFork => "Parallel fork", NodeTypes.ParallelBranch => "Parallel branch", NodeTypes.ParallelJoin => "Parallel join",
         NodeTypes.Loop => "Bounded loop", NodeTypes.LoopBody => "Loop body", NodeTypes.Terminate => "Terminate workflow",
+        NodeTypes.WorkflowCall => $"Workflow · {node.WorkflowCall?.WorkflowId} v{node.WorkflowCall?.Version}",
         NodeTypes.Agent => "Agent", _ => "MCP tool"
     };
     private async Task SelectNode(string id)
@@ -90,6 +91,7 @@ public partial class WorkflowGraphCanvas
         node.Type == NodeTypes.Approval ? "Approval" : node.Type == NodeTypes.Condition ? "Condition" : node.Type == NodeTypes.Merge ? "Exclusive merge" :
         node.Type == NodeTypes.ParallelFork ? "Fork" : node.Type == NodeTypes.ParallelBranch ? "Branch" : node.Type == NodeTypes.ParallelJoin ? "Barrier join" :
         node.Type == NodeTypes.Loop ? "Bounded loop" : node.Type == NodeTypes.LoopBody ? "Loop body" : node.Type == NodeTypes.Terminate ? "Successful exit · no result" :
+        node.Type == NodeTypes.WorkflowCall ? "Pinned workflow call" :
         node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform";
 
     protected override void OnParametersSet()

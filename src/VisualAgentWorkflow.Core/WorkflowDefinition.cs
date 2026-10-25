@@ -51,6 +51,8 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     public PromptTemplate? TextTemplate { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public LoopConfiguration? Loop { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WorkflowCallConfiguration? WorkflowCall { get; init; }
 }
 
 /// <summary>Copy-on-insert source identity; informational provenance, never a grant or runtime resolver.</summary>
@@ -80,12 +82,23 @@ public static class NodeTypes
     public const string Loop = "core.loop";
     public const string LoopBody = "core.loop.body";
     public const string Terminate = "core.terminate";
+    public const string WorkflowCall = "core.workflow-call";
 
     public static bool IsSupported(string? type) =>
-        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin or Loop or LoopBody or Terminate;
+        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin or Loop or LoopBody or Terminate or WorkflowCall;
 }
 
 public sealed record LoopConfiguration(StringCondition ContinueWhile, int MaximumIterations);
+
+/// <summary>An immutable, self-contained reference to the exact child release used by this node.</summary>
+public sealed record WorkflowCallConfiguration(string WorkflowId, Guid RevisionId, int Version, string ContentHash,
+    WorkflowDefinition Definition);
+
+public static class WorkflowCallLimits
+{
+    public const int MaximumDepth = 4;
+    public const int MaximumExpandedNodes = 1024;
+}
 
 /// <summary>Selects a JSON value through a bounded RFC 6901 JSON Pointer.</summary>
 public sealed record JsonPropertySelection(string Pointer);
