@@ -12,6 +12,33 @@ from workbench_browser import workbench, inspect_control, show_runs
 BASE = "http://127.0.0.1:5099"
 
 
+def prompt_template_check(page, designer):
+    designer.get_by_role("button", name="New workflow", exact=True).click()
+    designer.get_by_text("New workflow created locally. Save its draft before publishing.", exact=True).wait_for()
+    definition = page.request.get(BASE + "/api/templates/default").json()
+    definition["schemaVersion"] = "1.7"
+    definition["parameters"] = {"customer": {"displayName": "Customer", "defaultValue": "Ada"}}
+    definition["nodes"]["step-1"] = {"type": "core.agent", "typeVersion": "1.0.0", "agent": {
+        "providerId": "demo.scripted", "providerVersion": "1.0.0", "instructions": "Answer briefly.", "tools": []}}
+    details = designer.get_by_text("Import / export definition", exact=True).locator("..")
+    if not details.evaluate("element => element.open"):
+        details.locator("summary").click()
+    designer.get_by_label("Workflow JSON", exact=True).fill(json.dumps(definition))
+    designer.get_by_role("button", name="Import JSON into draft", exact=True).click()
+    designer.get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for()
+    inspect_control(designer, "Operation for step-1")
+    designer.get_by_role("button", name="Customize user message", exact=True).click()
+    editor = designer.get_by_role("textbox", name="User message template", exact=True)
+    editor.fill("What should I tell {{parameter:c")
+    suggestion = designer.get_by_role("button", name="Customer · customer", exact=True)
+    expect(suggestion).to_be_visible()
+    editor.press("Tab")
+    expect(suggestion).to_be_focused()
+    page.keyboard.press("Enter")
+    expect(editor).to_have_value("What should I tell {{parameter:customer}}")
+    expect(designer.get_by_text("Preview with sample input: What should I tell Ada", exact=True)).to_be_visible()
+
+
 def check(browser, screenshots):
     page = browser.new_page(viewport={"width":1920,"height":1080})
     errors = []
@@ -199,9 +226,11 @@ def check(browser, screenshots):
     canvas.evaluate("root => delete root.requestFullscreen")
     page.set_viewport_size({"width":390,"height":844})
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), "Narrow viewport overflow"
+    page.set_viewport_size({"width":1920,"height":1080})
+    prompt_template_check(page, designer)
     assert not errors,errors
     page.close()
-    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback and workspace filters passed.")
+    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, and keyboard prompt-token insertion passed.")
 
 
 if __name__=="__main__":

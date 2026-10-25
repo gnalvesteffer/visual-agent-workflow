@@ -1,0 +1,133 @@
+@using VisualAgentWorkflow.Core
+
+<div class="vaw-prompt-template-editor">
+    <label for="@editorId">User message template</label>
+    <textarea id="@editorId" aria-label="User message template" aria-controls="@pickerId" aria-expanded="@PickerOpen"
+              value="@draft" @oninput="DraftChanged" @onchange="Commit"
+              maxlength="8192" rows="5" disabled="@Disabled"></textarea>
+    <p class="vaw-help">Type <code>{{</code> at the end of a line to insert a value. Use <code>{{input}}</code>, <code>{{parameter:ID}}</code>, and <code>\{{</code> for literal braces.</p>
+    @if (PickerOpen)
+    {
+        <div id="@pickerId" class="vaw-prompt-picker" role="group" aria-label="Insert a prompt value">
+            @if (Matches.Count == 0) { <p>No matching workflow values.</p> }
+            @foreach (var item in Matches)
+            {
+                <button type="button" @onclick="() => Insert(item.Token)">@item.Label</button>
+            }
+        </div>
+    }
+    <div class="vaw-controls vaw-prompt-insertions" aria-label="Insert prompt values">
+        <button type="button" @onclick='() => Insert("input")' disabled="@Disabled">Insert incoming value</button>
+        @foreach (var (parameterId, parameter) in Parameters)
+        {
+            <button type="button" @key="parameterId" @onclick='() => Insert("parameter:" + parameterId)' disabled="@Disabled">
+                Insert @parameter.DisplayName
+            </button>
+        }
+        <button type="button" @onclick="UseIncomingOnly" disabled="@Disabled">Use incoming value only</button>
+    </div>
+    @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
+    @if (TryParseDraft(out var preview))
+    {
+        <p class="vaw-help">Preview with sample input: @PromptRendering.Render(preview, "Sample input", Parameters.ToDictionary(p => p.Key, p => p.Value.DefaultValue))</p>
+    }
+    <p class="vaw-visually-hidden" aria-live="polite">@announcement</p>
+</div>
+
+@code {
+    private readonly string editorId = "vaw-prompt-" + Guid.NewGuid().ToString("N");
+    private string pickerId => editorId + "-picker";
+    private string draft = "";
+    private string? error;
+    private string announcement = "";
+    private PromptTemplate? previousValue;
+    private bool initialized;
+
+    [Parameter] public PromptTemplate? Value { get; set; }
+    [Parameter] public EventCallback<PromptTemplate?> ValueChanged { get; set; }
+    [Parameter] public IReadOnlyDictionary<string, WorkflowParameterDefinition> Parameters { get; set; } = new Dictionary<string, WorkflowParameterDefinition>();
+    [Parameter] public bool Disabled { get; set; }
+
+    private bool PickerOpen
+    {
+        get
+        {
+            var start = draft.LastIndexOf("{{", StringComparison.Ordinal);
+            return start >= 0 && draft.IndexOf("}}", start, StringComparison.Ordinal) < start;
+        }
+    }
+    private string Query => PickerOpen ? draft[(draft.LastIndexOf("{{", StringComparison.Ordinal) + 2)..] : "";
+    private List<PromptSuggestion> Matches => Suggestions()
+        .Where(suggestion => suggestion.Label.Contains(Query, StringComparison.OrdinalIgnoreCase) ||
+            suggestion.Token.Contains(Query, StringComparison.OrdinalIgnoreCase))
+        .ToList();
+
+    protected override void OnParametersSet()
+    {
+        if (!initialized || !Equals(Value, previousValue))
+        {
+            draft = PromptTemplateCodec.Format(Value);
+            previousValue = Value;
+            error = null;
+            initialized = true;
+        }
+    }
+
+    private void DraftChanged(ChangeEventArgs args)
+    {
+        var wasPickerOpen = PickerOpen;
+        draft = args.Value?.ToString() ?? "";
+        if (!wasPickerOpen && PickerOpen) announcement = "Value suggestions are available. Press Tab to choose a suggestion.";
+        error = null;
+    }
+
+    private async Task Commit(ChangeEventArgs args)
+    {
+        draft = args.Value?.ToString() ?? "";
+        await SaveDraft();
+    }
+
+    private async Task SaveDraft()
+    {
+        try
+        {
+            var parsed = PromptTemplateCodec.Parse(draft, Parameters);
+            error = null;
+            await ValueChanged.InvokeAsync(parsed);
+        }
+        catch (FormatException exception) { error = exception.Message; }
+        catch (ArgumentException exception) { error = exception.Message; }
+    }
+
+    private async Task Insert(string token)
+    {
+        var start = draft.LastIndexOf("{{", StringComparison.Ordinal);
+        draft = start >= 0 && draft.IndexOf("}}", start, StringComparison.Ordinal) < start
+            ? draft[..start] + "{{" + token + "}}"
+            : draft + "{{" + token + "}}";
+        error = null;
+        announcement = token == "input" ? "Inserted incoming value." : $"Inserted workflow parameter {Parameters.GetValueOrDefault(token[10..])?.DisplayName ?? token[10..]}.";
+        await SaveDraft();
+    }
+
+    private async Task UseIncomingOnly()
+    {
+        draft = "{{input}}";
+        error = null;
+        announcement = "User message now contains only the incoming value.";
+        await ValueChanged.InvokeAsync(null);
+    }
+
+    private bool TryParseDraft(out PromptTemplate template)
+    {
+        try { template = PromptTemplateCodec.Parse(draft, Parameters); return true; }
+        catch (FormatException) { template = new([new("literal", draft)]); return false; }
+        catch (ArgumentException) { template = new([new("literal", draft)]); return false; }
+    }
+
+    private IEnumerable<PromptSuggestion> Suggestions() =>
+        [new("Incoming value", "input"), .. Parameters.Select(pair => new PromptSuggestion(
+            $"{pair.Value.DisplayName} · {pair.Key}", "parameter:" + pair.Key))];
+
+    private sealed record PromptSuggestion(string Label, string Token);
+}

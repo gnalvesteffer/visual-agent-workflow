@@ -67,6 +67,25 @@ public class AgentCapabilityTests
     }
 
     [Fact]
+    public void PromptTemplateCodecPreservesReferencesAndEscapesLiteralTokens()
+    {
+        var parameters = new Dictionary<string, WorkflowParameterDefinition>
+        {
+            ["customer"] = new("Customer", "Ada")
+        };
+        var expected = new PromptTemplate([
+            new("literal", "Say "), new("input", ""), new("literal", " to "),
+            new("parameter", "customer"), new("literal", "; literal {{input}} and slash \\")]);
+
+        var formatted = PromptTemplateCodec.Format(expected);
+        Assert.Equal("Say {{input}} to {{parameter:customer}}; literal \\{{input}} and slash \\\\", formatted);
+        var parsed = PromptTemplateCodec.Parse(formatted, parameters);
+        Assert.Equal(expected.Parts.ToArray(), parsed.Parts.ToArray());
+        Assert.Throws<FormatException>(() => PromptTemplateCodec.Parse("{{missing}}", parameters));
+        Assert.Throws<FormatException>(() => PromptTemplateCodec.Parse("Start {{", parameters));
+    }
+
+    [Fact]
     public void TypedParametersValidateDefaultsAndOverridesAndRoundTripAsSchema18()
     {
         var definition = new WorkflowDefinition("1.8", "typed-parameters", "input",

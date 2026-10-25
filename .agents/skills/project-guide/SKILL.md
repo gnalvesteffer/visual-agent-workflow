@@ -15,6 +15,7 @@ Read [the design baseline](../../../docs/design.md), [roadmap and current scope]
 - Isolate Microsoft Agent Framework APIs behind an adapter. Use [microsoft-agent-framework](../microsoft-agent-framework/SKILL.md) for version-specific API research, package selection, integration, and upgrades; distinguish confirmed API support from proposed mappings.
 - User authoring is no-code visual composition. MCP supplies external operations; approved .NET extensions supply specialized behavior. Do not add general C# scripting or arbitrary URL tools by default.
 - Apply [Blueprint-inspired workflow design](../blueprint-workflow-design/SKILL.md) when shaping graph interactions, variables/parameters, agent settings, and reusable workflows. Borrow typed, exposed variables and readable graphs without importing Unreal's execution semantics.
+- Keep agent prompts role-separated. User-message interpolation is built from structured literal/input/parameter parts; any text editor syntax is only a codec over those stable references, never an expression language. Caller input and prior node output must not be elevated into system instructions implicitly.
 - Keep published workflows and dependencies immutable. A run references its exact revision. Playback reconstructs recorded evidence without execution.
 - Definitions use platform-owned JSON contracts, not CLR type names, framework instances, or canvas-library models.
 

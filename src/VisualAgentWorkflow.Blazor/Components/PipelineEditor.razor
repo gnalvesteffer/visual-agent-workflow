@@ -198,31 +198,11 @@
                             </label>
                             <fieldset disabled="@Disabled">
                                 <legend>User message</legend>
-                                <p class="vaw-help">The incoming graph value is used by default. Add literal text and explicit values for a custom task.</p>
+                                <p class="vaw-help">The incoming graph value is used by default. Reference tokens resolve only declared inputs, never arbitrary expressions.</p>
                                 @if (agent.UserMessage is null)
                                 { <button type="button" @onclick="() => StartUserTemplate(id)">Customize user message</button> }
                                 else
-                                {
-                                    @for (var partIndex = 0; partIndex < agent.UserMessage.Parts.Length; partIndex++)
-                                    {
-                                        var partPosition = partIndex;
-                                        var part = agent.UserMessage.Parts[partPosition];
-                                        <div class="vaw-controls" @key="partPosition">
-                                            @if (part.Kind == "literal")
-                                            { <label>Text <textarea aria-label="User message text part @(partPosition + 1)" value="@part.Value" @onchange="args => ChangePromptPart(id, partPosition, args)" maxlength="8192" rows="2"></textarea></label> }
-                                            else { <span class="vaw-badge">@(part.Kind == "input" ? "Incoming value" : ParameterDefinitions.GetValueOrDefault(part.Value)?.DisplayName ?? part.Value)</span> }
-                                            <button type="button" @onclick="() => RemovePromptPart(id, partPosition)">Remove part</button>
-                                        </div>
-                                    }
-                                    <div class="vaw-controls">
-                                        <button type="button" @onclick="() => AddLiteralPart(id)">Add text</button>
-                                        <button type="button" @onclick="() => AddInputPart(id)">Insert incoming value</button>
-                                        @foreach (var (parameterId, parameter) in ParameterDefinitions)
-                                        { <button type="button" @onclick="() => AddParameterPart(id, parameterId)">Insert @parameter.DisplayName</button> }
-                                        <button type="button" @onclick="() => ResetUserTemplate(id)">Use incoming value only</button>
-                                    </div>
-                                    <p class="vaw-help">Preview with sample input: @PromptRendering.Render(agent.UserMessage, "Sample input", ParameterDefinitions.ToDictionary(p => p.Key, p => p.Value.DefaultValue))</p>
-                                }
+                                { <PromptTemplateEditor Value="agent.UserMessage" Parameters="ParameterDefinitions" ValueChanged="template => SetUserTemplate(id, template)" Disabled="Disabled" /> }
                             </fieldset>
                             <fieldset disabled="@Disabled"><legend>Skills</legend>
                                 <p class="vaw-help">Only assigned revisions are sent to this agent. Skills cannot grant tools.</p>
@@ -401,19 +381,6 @@
     });
 
     private Task StartUserTemplate(string id) => SetUserTemplate(id, new([new("input", "")]));
-    private Task ResetUserTemplate(string id) => SetUserTemplate(id, null);
-    private Task AddLiteralPart(string id) => AddPromptPart(id, new("literal", ""));
-    private Task AddInputPart(string id) => AddPromptPart(id, new("input", ""));
-    private Task AddParameterPart(string id, string parameterId) => AddPromptPart(id, new("parameter", parameterId));
-    private Task AddPromptPart(string id, PromptPart part) => SetUserTemplate(id,
-        new(Definition.Nodes[id].Agent!.UserMessage!.Parts.Add(part)));
-    private Task ChangePromptPart(string id, int index, ChangeEventArgs args) => SetUserTemplate(id,
-        new(Definition.Nodes[id].Agent!.UserMessage!.Parts.SetItem(index, new("literal", args.Value?.ToString() ?? ""))));
-    private Task RemovePromptPart(string id, int index)
-    {
-        var parts = Definition.Nodes[id].Agent!.UserMessage!.Parts.RemoveAt(index);
-        return SetUserTemplate(id, parts.IsEmpty ? null : new(parts));
-    }
     private Task SetUserTemplate(string id, PromptTemplate? template) => Edit(() =>
     {
         var node = Definition.Nodes[id];
