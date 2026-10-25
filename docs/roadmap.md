@@ -6,11 +6,11 @@ Statuses mean **Complete** (implemented and verified), **Active** (currently bei
 
 ## Current product boundary
 
-The development Studio edits and runs validated linear and conditional graphs through Microsoft Agent Framework. Most graph connections carry strings; schema 1.9 adds a bounded JSON entry input and pointer selector that returns text, while schema 1.7 adds deterministic text-template nodes that combine connected input and declared workflow parameters without expression evaluation. It has free node placement, compatible pin rewiring, wire disconnect, saved incomplete drafts with validation gates, edge sockets, multi-selection/group movement, pan/reset/fit, reroutes/pinned angles, labels/comments, named sections, immutable publications, restore/activation, persisted local audit/run evidence, and recorded playback, plus reusable published pipelines and portable packages. Agent nodes configure system instructions/provider/model, node-scoped MCP tools, bounded per-agent output tokens, and provider-advertised reasoning controls including explicit off. Studio has a local Streamable HTTP MCP library with a portable nested argument subset and a text-only versioned skill library; selected skill revisions and structured user-message templates travel in schema 1.7 definitions. Schema 1.6 supports up to 64 string parameters; schema 1.8 adds integer, number, boolean and choice validation and exposes a reasoning-effort input. Mutable variables, hierarchical agent delegation, parallel agent teams and run-scoped coordination channels, general object/collection graph mapping, parallel fan-out/joins, loops and additional agent-configuration pins remain planned. Model providers can be managed in Studio settings. The default agent provider is a deterministic fixture; the opt-in OpenAI SDK adapter is protocol-verified, while credentialed live-service qualification remains outstanding.
+The development Studio edits and runs validated linear and conditional graphs through Microsoft Agent Framework. Most graph connections carry strings; schema 1.9 adds a bounded JSON entry input and pointer selector that returns text, while schema 1.7 adds deterministic text-template nodes that combine connected input and declared workflow parameters without expression evaluation. It has free node placement, compatible pin rewiring, wire disconnect, saved incomplete drafts with validation gates, edge sockets, multi-selection/group movement, pan/reset/fit, reroutes/pinned angles, labels/comments, named sections, immutable publications, restore/activation, persisted local audit/run evidence, and recorded playback, plus reusable published pipelines and portable packages. Conditional arms can take separate routes and return through the workflow Output; merges are optional when branches need shared downstream work. Agent nodes configure system instructions/provider/model, node-scoped MCP tools, bounded per-agent output tokens, and provider-advertised reasoning controls including explicit off. Studio has a local Streamable HTTP MCP library with a portable nested argument subset and a text-only versioned skill library; selected skill revisions and structured user-message templates travel in schema 1.7 definitions. Schema 1.6 supports up to 64 string parameters; schema 1.8 adds integer, number, boolean and choice validation and exposes a reasoning-effort input. Mutable variables, hierarchical agent delegation, parallel agent teams and run-scoped coordination channels, general object/collection graph mapping, parallel fan-out/joins, loops and additional agent-configuration pins remain planned. Model providers can be managed in Studio settings. The default agent provider is a deterministic fixture; the opt-in OpenAI SDK adapter is protocol-verified, while credentialed live-service qualification remains outstanding.
 
 The backend owns execution. Studio/ordinary queued runs still interrupt after host failure; a separate opt-in host explicitly resumes deterministic saved checkpoints. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Socket rewiring is supported for matching typed pins, while incomplete drafts remain non-executable until validation succeeds. Parallel execution is a separate planned capability; conditional routing is an explicit validated operation.
 
-## Latest completed milestone: Provider management and Studio theme refinement
+## Previous completed milestone: Provider management and Studio theme refinement
 
 The Settings page can list, add, version, and delete locally saved OpenAI-compatible providers. API credentials are protected in local Studio storage, descriptors remain secret-free, and new provider versions appear immediately in agent nodes. The Studio theme and provider-management layout were refined. Host configuration remains available for consumer services. The Studio remains a loopback-only unauthenticated prototype; multi-user credential management is not implemented. See [provider configuration](model-providers.md) and [design system](design-system.md).
 
@@ -73,7 +73,7 @@ This increment uses copy-on-insert template expansion, not recursive runtime pre
 
 The editor can remove an isolated condition, both arms, nested decisions and the matching merge after listing the affected nodes for confirmation. It can also remove a merge to split branch routes toward separate work or the common Output. Core rejects shared incoming paths and reconnects the surrounding graph without changing published revisions. Unit and browser evidence is recorded in [implementation history](implementation-history.md).
 
-## Latest bounded increment: independent condition routes
+## Latest completed milestone: independent condition routes
 
 Conditional arms can now end at the workflow Output or take separate downstream paths. Removing an optional merge leaves a rewritable draft; Output accepts up to 16 alternative routes and returns whichever value reaches it. A merge is still available when branches need to rejoin for shared work. Runs continue to require a string output; no-result termination and parallel execution remain separate future capabilities.
 
@@ -89,10 +89,11 @@ flowchart TD
     Models --> Store["Complete: atomic run storage boundary"]
     Store --> Recovery["Complete: explicit deterministic checkpoint recovery"]
     Recovery --> Assess["Complete: read-only run reconciliation"]
-    Assess --> Agents["Next: configurable MCP servers, tools, and agent skills"]
+    Assess --> Agents["Complete: configurable MCP servers, tools, and agent skills"]
     Agents --> JsonData["Complete: bounded JSON input and selection"]
-    JsonData --> Delegation["Planned: versioned agent profiles and subagent delegation"]
-    Delegation --> Teams["Planned: parallel agent teams and coordination"]
+    JsonData --> Controls["Complete: per-agent inference controls"]
+    Controls --> Delegation["Next: versioned agent profiles and bounded subagent delegation"]
+    Delegation --> Teams["Planned: parallel agent teams and run-scoped channels"]
     Teams --> Orchestration["Planned: typed mapping and complex graph orchestration"]
     Orchestration --> Assets["Planned: nested versioned workflow prefabs"]
     Orchestration --> Durable["Later: host-attributed reconciliation decisions"]
