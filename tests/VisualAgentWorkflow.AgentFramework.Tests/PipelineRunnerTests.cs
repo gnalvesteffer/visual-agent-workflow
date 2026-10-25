@@ -196,6 +196,40 @@ public class PipelineRunnerTests
     }
 
     [Fact]
+    public async Task TypedJsonProjectionChecksMappedValueKindsBeforeEmittingOutput()
+    {
+        var definition = new WorkflowDefinition("1.15", "json-projection-types", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0") { InputDataType = "json" },
+                ["project"] = new(NodeTypes.JsonProject, "1.0.0")
+                {
+                    JsonProjection = new([new JsonProjectionField("name", "/name") { ValueType = "string" }, new JsonProjectionField("items", "/items") { ValueType = "array" }])
+                },
+                ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = "json" }
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["json"] = new(new("input", "out"), new("project", "in"), "data"),
+                ["result"] = new(new("project", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary());
+        var events = new List<ExecutionEvent>();
+
+        var output = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"),
+            "{\"name\":\"Ada\",\"items\":[1,2]}", evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("{\"name\":\"Ada\",\"items\":[1,2]}", output);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "project" && evt.Data == output);
+
+        events.Clear();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new PipelineRunner().ExecuteAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "test"), "{\"name\":42,\"items\":[]}",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "project" && evt.Data!.Contains("expected string but received number", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task ExpandedPublishedPipelineExecutesWithoutSourceCatalogOrRuntimePrefabLookup()
     {
         var source = Revision();

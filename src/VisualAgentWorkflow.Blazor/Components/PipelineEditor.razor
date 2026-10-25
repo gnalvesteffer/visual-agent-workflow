@@ -105,8 +105,14 @@
                             {
                                 <fieldset @key="fieldIndex">
                                     <legend>Field @(fieldIndex + 1)</legend>
-                                    <label>Output property <input aria-label="JSON output property @fieldIndex for @id" value="@field.Name" maxlength="@JsonProjectionLimits.MaximumNameCharacters" @onchange="args => JsonProjectionField(id, fieldIndex, true, args)" disabled="@Disabled" /></label>
-                                    <label>JSON Pointer <input aria-label="JSON pointer @fieldIndex for @id" value="@field.Pointer" maxlength="@WorkflowJsonPointer.MaximumLength" @onchange="args => JsonProjectionField(id, fieldIndex, false, args)" disabled="@Disabled" /></label>
+                                    <label>Output property <input aria-label="JSON output property @fieldIndex for @id" value="@field.Name" maxlength="@JsonProjectionLimits.MaximumNameCharacters" @onchange="args => JsonProjectionName(id, fieldIndex, args)" disabled="@Disabled" /></label>
+                                    <label>JSON Pointer <input aria-label="JSON pointer @fieldIndex for @id" value="@field.Pointer" maxlength="@WorkflowJsonPointer.MaximumLength" @onchange="args => JsonProjectionPointer(id, fieldIndex, args)" disabled="@Disabled" /></label>
+                                    <label>Expected JSON type
+                                        <select aria-label="Expected JSON type for field @fieldIndex on @id" value="@(field.ValueType ?? "any")" @onchange="args => JsonProjectionType(id, fieldIndex, args)" disabled="@Disabled">
+                                            @foreach (var valueType in JsonProjectionLimits.ValueTypes) { <option value="@valueType">@valueType</option> }
+                                        </select>
+                                    </label>
+                                    <p class="vaw-help">The run fails at this node if the selected value does not match this type.</p>
                                     <button type="button" @onclick="() => RemoveJsonProjectionField(id, fieldIndex)" disabled="@(Disabled || node.JsonProjection.Fields.Length <= 1)">Remove field</button>
                                 </fieldset>
                             }
@@ -404,7 +410,7 @@
     private string newParameterDescription = "";
     private System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition> ParameterDefinitions =>
         Definition.Parameters ?? System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
-    private string CapabilitySchema => Definition.SchemaVersion is "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
+    private string CapabilitySchema => Definition.SchemaVersion is "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
     private string? error;
     private string? selectedNode;
     private string selectedPort = "out";
@@ -416,7 +422,7 @@
         NodeTypes.Uppercase => "Convert text to uppercase",
         NodeTypes.Reverse => "Reverse text",
         NodeTypes.JsonSelectString => $"JSON pointer · {node.JsonPropertySelection?.Pointer}",
-        NodeTypes.JsonProject => $"Project JSON fields · {node.JsonProjection?.Fields.Length ?? 0}",
+        NodeTypes.JsonProject => $"JSON object · {string.Join(", ", node.JsonProjection?.Fields.Select(field => $"{field.Name}: {field.ValueType ?? "any"}") ?? [])}",
         NodeTypes.TextTemplate => $"Template · {PromptTemplateCodec.Format(node.TextTemplate)}",
         NodeTypes.WorkflowValue => node.ParameterId is { } parameterId && ParameterDefinitions.TryGetValue(parameterId, out var parameter)
             ? $"Workflow value · {parameter.DisplayName}" : "Workflow value",
@@ -504,16 +510,26 @@
     private Task JsonPointer(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
         Definition.Nodes[id] with { JsonPropertySelection = new(args.Value?.ToString() ?? "") }));
 
-    private Task JsonProjectionField(string id, int index, bool updateName, ChangeEventArgs args) => Edit(() =>
+    private Task JsonProjectionField(string id, int index, string property, ChangeEventArgs args) => Edit(() =>
     {
         var node = Definition.Nodes[id];
         var projection = node.JsonProjection!;
         var field = projection.Fields[index];
         var value = args.Value?.ToString() ?? "";
-        var updated = updateName ? field with { Name = value } : field with { Pointer = value };
+        var updated = property switch
+        {
+            "name" => field with { Name = value },
+            "pointer" => field with { Pointer = value },
+            "type" => field with { ValueType = value == "any" ? null : value },
+            _ => throw new ArgumentOutOfRangeException(nameof(property))
+        };
         return GraphEditing.ReplaceNode(Definition, id, node with
         { JsonProjection = projection with { Fields = projection.Fields.SetItem(index, updated) } });
     });
+
+    private Task JsonProjectionName(string id, int index, ChangeEventArgs args) => JsonProjectionField(id, index, "name", args);
+    private Task JsonProjectionPointer(string id, int index, ChangeEventArgs args) => JsonProjectionField(id, index, "pointer", args);
+    private Task JsonProjectionType(string id, int index, ChangeEventArgs args) => JsonProjectionField(id, index, "type", args);
 
     private Task AddJsonProjectionField(string id) => Edit(() =>
     {
@@ -582,7 +598,7 @@
         var parameterId = value?.StartsWith("parameter:", StringComparison.Ordinal) == true ? value[10..] : null;
         var node = Definition.Nodes[id];
         var parameterIncludesOff = parameterId is not null && ParameterDefinitions.TryGetValue(parameterId, out var parameter) && parameter.Choices?.Contains("off") == true;
-        var schema = effort == AgentReasoningEffort.Off || parameterIncludesOff ? Definition.SchemaVersion is "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10" : parameterId is not null ? Definition.SchemaVersion is "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : "1.8" : CapabilitySchema;
+        var schema = effort == AgentReasoningEffort.Off || parameterIncludesOff ? Definition.SchemaVersion is "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10" : parameterId is not null ? Definition.SchemaVersion is "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : "1.8" : CapabilitySchema;
         var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { ReasoningEffort = parameterId is null ? effort : null, ReasoningEffortParameterId = parameterId } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -594,7 +610,7 @@
         if (!int.TryParse(args.Value?.ToString(), out var limit) || limit is < AgentOutputTokenLimits.Minimum or > AgentOutputTokenLimits.Maximum)
             throw new ArgumentException($"Choose an output limit from {AgentOutputTokenLimits.Minimum} to {AgentOutputTokenLimits.Maximum} tokens.");
         var node = Definition.Nodes[id];
-        var schema = Definition.SchemaVersion is "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10";
+        var schema = Definition.SchemaVersion is "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10";
         var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { MaxOutputTokens = limit } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -651,7 +667,7 @@
         var stillUsed = nodes.Values.Where(item => item.Agent is not null).SelectMany(item => item.Agent!.Delegates ?? [])
             .Any(reference => reference.Id == profile.Id && reference.Version == profile.Version);
         if (!stillUsed) profiles = profiles.Remove(profile.Id + "@" + profile.Version);
-        var definition = Definition with { SchemaVersion = profile.Channels is not null ? (Definition.SchemaVersion is "1.14" or "1.13" ? Definition.SchemaVersion : "1.12") : Definition.SchemaVersion is "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.11", AgentProfiles = profiles.Count == 0 ? null : profiles,
+        var definition = Definition with { SchemaVersion = profile.Channels is not null ? (Definition.SchemaVersion is "1.15" or "1.14" or "1.13" ? Definition.SchemaVersion : "1.12") : Definition.SchemaVersion is "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.11", AgentProfiles = profiles.Count == 0 ? null : profiles,
             Skills = skills.Count == 0 ? null : skills, Nodes = nodes };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;

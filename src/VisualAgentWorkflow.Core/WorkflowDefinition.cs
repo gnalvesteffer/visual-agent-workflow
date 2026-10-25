@@ -83,4 +83,7 @@ public static class NodeTypes
 /// <summary>Selects a JSON value through a bounded RFC 6901 JSON Pointer.</summary>
 public sealed record JsonPropertySelection(string Pointer);
 public sealed record JsonProjectionConfiguration(ImmutableArray<JsonProjectionField> Fields);
-public sealed record JsonProjectionField(string Name, string Pointer);
+public sealed record JsonProjectionField(string Name, string Pointer)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ValueType { get; init; }
+}

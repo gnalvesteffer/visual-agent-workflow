@@ -5,11 +5,12 @@ running development Studio on port 5099; no model/MCP credentials or calls.
 """
 import argparse
 import json
+import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 from workbench_browser import workbench, inspect_control, show_runs
 
-BASE = "http://127.0.0.1:5099"
+BASE = os.environ.get("VAW_STUDIO_BASE_URL", "http://127.0.0.1:5099")
 
 
 def prompt_template_check(page, designer):
@@ -91,6 +92,38 @@ def text_template_node_check(page, designer):
     run = page.request.get(BASE + f"/api/runs/{run_id}").json()
     assert any(event["nodeId"] == template_id and event["kind"] == "node.completed" and
                event.get("data") == "Customer Grace asks: What is 1+1?" for event in run["events"])
+
+
+def typed_json_projection_check(page, designer):
+    designer.get_by_role("button", name="New workflow", exact=True).click()
+    designer.get_by_text("New workflow created locally. Save its draft before publishing.", exact=True).wait_for()
+    workflow_id = designer.get_by_label("Saved workflow", exact=True).input_value()
+    definition = page.request.get(BASE + "/api/templates/default").json()
+    definition.update({"schemaVersion": "1.13", "workflowId": workflow_id, "entryNodeId": "input"})
+    definition["nodes"] = {
+        "input": {"type": "core.input", "typeVersion": "1.0.0", "inputDataType": "json"},
+        "project": {"type": "core.json.project", "typeVersion": "1.0.0", "jsonProjection": {
+            "fields": [{"name": "name", "pointer": "/name"}, {"name": "items", "pointer": "/items"}]}},
+        "output": {"type": "core.output", "typeVersion": "1.0.0", "outputDataType": "json"}}
+    definition["connections"] = {
+        "json": {"source": {"nodeId": "input", "portId": "out"}, "target": {"nodeId": "project", "portId": "in"}, "kind": "data"},
+        "result": {"source": {"nodeId": "project", "portId": "out"}, "target": {"nodeId": "output", "portId": "in"}, "kind": "data"}}
+    details = designer.get_by_text("Import / export definition", exact=True).locator("..")
+    if not details.evaluate("element => element.open"):
+        details.locator("summary").click()
+    designer.get_by_label("Workflow JSON", exact=True).fill(json.dumps(definition))
+    designer.get_by_role("button", name="Import JSON into draft", exact=True).click()
+    designer.get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for()
+    designer.get_by_label("Node to organize", exact=True).select_option("project")
+    designer.get_by_label("Expected JSON type for field 0 on project", exact=True).select_option("string")
+    designer.get_by_label("Expected JSON type for field 1 on project", exact=True).select_option("array")
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    designer.get_by_text("Draft saved.", exact=True).wait_for()
+    saved = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()["draft"]["definition"]
+    assert saved["schemaVersion"] == "1.15"
+    assert saved["nodes"]["project"]["jsonProjection"]["fields"] == [
+        {"name": "name", "pointer": "/name", "valueType": "string"},
+        {"name": "items", "pointer": "/items", "valueType": "array"}]
 
 
 def check(browser, screenshots):
@@ -285,9 +318,10 @@ def check(browser, screenshots):
     page.set_viewport_size({"width":1920,"height":1080})
     prompt_template_check(page, designer)
     text_template_node_check(page, designer)
+    typed_json_projection_check(page, designer)
     assert not errors,errors
     page.close()
-    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring and replay, and MCP tool detail review passed.")
+    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring/replay, typed JSON projection authoring, and MCP tool detail review passed.")
 
 
 if __name__=="__main__":

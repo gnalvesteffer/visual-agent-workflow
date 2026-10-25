@@ -25,7 +25,7 @@ public static class GraphEditing
             Nodes = target.Type == NodeTypes.Output
                 ? definition.Nodes.SetItem(targetId, target with { OutputDataType = output.DataType == "json" ? "json" : null })
                 : definition.Nodes,
-            SchemaVersion = output.DataType == "json" && definition.SchemaVersion != "1.14" ? "1.13" : definition.SchemaVersion,
+            SchemaVersion = output.DataType == "json" && definition.SchemaVersion is not ("1.14" or "1.15") ? "1.13" : definition.SchemaVersion,
             Connections = connections.Add(connectionId, new(new(sourceId, sourcePortId), new(targetId, targetPortId), "data"))
         };
     }
@@ -47,7 +47,7 @@ public static class GraphEditing
         var connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(branch, "in"), "data"))
             .Add(NewId("link"), Link(branch, "true", merge)).Add(NewId("link"), Link(branch, "false", merge))
             .Add(NewId("link"), new(new(merge, "out"), edge.Value.Target, "data"));
-        return Checked(definition with { SchemaVersion = definition.SchemaVersion is "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : "1.4", Nodes = nodes, Connections = connections });
+        return Checked(definition with { SchemaVersion = definition.SchemaVersion is "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : "1.4", Nodes = nodes, Connections = connections });
     }
 
     public static WorkflowDefinition InsertParallelBlockAfter(WorkflowDefinition definition, string sourceId, string portId)
@@ -90,7 +90,7 @@ public static class GraphEditing
             : connections.Add(NewId("link"), new(new(joinId, "out"), new(selectorId, "in"), "data"))
                 .Add(NewId("link"), new(new(selectorId, "out"), edge.Value.Target, "data"));
 
-        return Checked(definition with { SchemaVersion = "1.14", Nodes = nodes, Connections = connections });
+        return Checked(definition with { SchemaVersion = definition.SchemaVersion == "1.15" ? "1.15" : "1.14", Nodes = nodes, Connections = connections });
     }
 
     public static WorkflowDefinition InsertNodeAfter(WorkflowDefinition definition, string sourceId, string portId, NodeDefinition node)
@@ -128,7 +128,7 @@ public static class GraphEditing
 
         return Checked(definition with
         {
-            SchemaVersion = definition.SchemaVersion is "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : "1.9",
+            SchemaVersion = definition.SchemaVersion is "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : "1.9",
             Nodes = definition.Nodes.SetItem(inputId, input with { InputDataType = "json" }).Add(selectorId, selector),
             Connections = definition.Connections.SetItem(edge.Key, new(new(selectorId, "out"), edge.Value.Target, "data"))
                 .Add(NewId("link"), new(new(inputId, "out"), new(selectorId, "in"), "data"))
@@ -215,7 +215,7 @@ public static class GraphEditing
 
         return Checked(definition with
         {
-            SchemaVersion = sourceType == "json" && definition.SchemaVersion != "1.14" ? "1.13" : definition.SchemaVersion,
+            SchemaVersion = sourceType == "json" && definition.SchemaVersion is not ("1.14" or "1.15") ? "1.13" : definition.SchemaVersion,
             Nodes = nodes,
             Connections = definition.Connections.Remove(incoming.Key).SetItem(outgoing.Key,
                 new(incoming.Value.Source, outgoing.Value.Target, "data"))
@@ -232,7 +232,7 @@ public static class GraphEditing
         var id = NewId("approval");
         return Checked(definition with
         {
-            SchemaVersion = definition.SchemaVersion is "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : "1.5",
+            SchemaVersion = definition.SchemaVersion is "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : "1.5",
             Nodes = definition.Nodes.Add(id, new(NodeTypes.Approval, "1.0.0") { Approval = new("Review the exact MCP call before allowing it.") }),
             Connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(id, "in"), "data"))
                 .Add(NewId("link"), Link(id, "out", targetId))

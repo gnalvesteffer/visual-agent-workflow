@@ -142,6 +142,8 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
+        private sealed class JsonProjectionTypeMismatchException(string message) : InvalidOperationException(message) { }
+
         private readonly object parallelJoinSync = new();
         private readonly SemaphoreSlim parallelJoinExecution = new(1, 1);
         private readonly SortedDictionary<string, string> parallelJoinInputs = new(StringComparer.Ordinal);
@@ -251,6 +253,11 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 await emit(ExecutionEventKinds.NodeCancelled, Id, invocation, null, "Node execution cancelled.");
                 throw;
             }
+            catch (JsonProjectionTypeMismatchException exception)
+            {
+                await emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, exception.Message);
+                throw;
+            }
             catch
             {
                 await emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, "Node execution failed.");
@@ -320,7 +327,10 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 foreach (var field in projection.Fields)
                 {
                     writer.WritePropertyName(field.Name);
-                    ResolvePointer(document.RootElement, WorkflowJsonPointer.Parse(field.Pointer)).WriteTo(writer);
+                    var value = ResolvePointer(document.RootElement, WorkflowJsonPointer.Parse(field.Pointer));
+                    if (field.ValueType is { } expectedType && !MatchesJsonType(value, expectedType))
+                        throw new JsonProjectionTypeMismatchException($"JSON projection field '{field.Name}' expected {expectedType} but received {JsonTypeName(value)}.");
+                    value.WriteTo(writer);
                 }
                 writer.WriteEndObject();
             }
@@ -329,6 +339,26 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 throw new InvalidOperationException($"Projected JSON exceeds {JsonProjectionLimits.MaximumPayloadCharacters} characters.");
             return projected;
         }
+
+        private static bool MatchesJsonType(JsonElement value, string expectedType) => expectedType switch
+        {
+            "any" => true,
+            "string" => value.ValueKind == JsonValueKind.String,
+            "number" => value.ValueKind == JsonValueKind.Number,
+            "integer" => value.ValueKind == JsonValueKind.Number && decimal.TryParse(value.GetRawText(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var number) && decimal.Truncate(number) == number,
+            "boolean" => value.ValueKind is JsonValueKind.True or JsonValueKind.False,
+            "object" => value.ValueKind == JsonValueKind.Object,
+            "array" => value.ValueKind == JsonValueKind.Array,
+            "null" => value.ValueKind == JsonValueKind.Null,
+            _ => false
+        };
+
+        private static string JsonTypeName(JsonElement value) => value.ValueKind switch
+        {
+            JsonValueKind.String => "string", JsonValueKind.Number => "number", JsonValueKind.True or JsonValueKind.False => "boolean",
+            JsonValueKind.Object => "object", JsonValueKind.Array => "array", JsonValueKind.Null => "null", _ => "undefined"
+        };
 
         private static JsonElement ResolvePointer(JsonElement root, IReadOnlyList<string> segments)
         {

@@ -85,6 +85,7 @@ public static class JsonProjectionLimits
     public const int MaximumNameCharacters = 128;
     public const int MaximumConfigurationCharacters = 16_384;
     public const int MaximumPayloadCharacters = 16_384;
+    public static readonly ImmutableArray<string> ValueTypes = ["any", "string", "number", "integer", "boolean", "object", "array", "null"];
 }
 
 public static class WorkflowGraph

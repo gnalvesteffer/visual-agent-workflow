@@ -52,6 +52,42 @@ public sealed class JsonProjectionTests
     }
 
     [Fact]
+    public void TypedProjectionDeclaresSupportedJsonValueKindsOnlyInSchema115()
+    {
+        var definition = JsonGraph() with { SchemaVersion = "1.15" };
+        var typed = definition.Nodes["project"] with
+        {
+            JsonProjection = new([new JsonProjectionField("name", "/name") { ValueType = "string" }, new JsonProjectionField("items", "/items") { ValueType = "array" }])
+        };
+
+        var updated = definition with { Nodes = definition.Nodes.SetItem("project", typed) };
+        Assert.Empty(WorkflowValidator.Validate(updated));
+        Assert.Equal(WorkflowJson.Serialize(updated), WorkflowJson.Serialize(WorkflowJson.Deserialize(WorkflowJson.Serialize(updated))));
+
+        var wrongSchema = updated with { SchemaVersion = "1.14" };
+        Assert.Contains(WorkflowValidator.Validate(wrongSchema), issue => issue.Code == "json.projection.schema");
+
+        var unsupportedType = typed with { JsonProjection = new([new JsonProjectionField("name", "/name") { ValueType = "date" }]) };
+        Assert.Contains(WorkflowValidator.Validate(definition with { Nodes = definition.Nodes.SetItem("project", unsupportedType) }),
+            issue => issue.Code == "json.projection");
+    }
+
+    [Fact]
+    public void EditingAProjectionFieldTypeUpgradesTheWorkflowSchema()
+    {
+        var definition = JsonGraph();
+        var project = definition.Nodes["project"] with
+        {
+            JsonProjection = new([new JsonProjectionField("person", "/customer/name") { ValueType = "string" }, new JsonProjectionField("amount", "/orders/0/amount") { ValueType = "integer" }])
+        };
+
+        var updated = GraphEditing.ReplaceNode(definition, "project", project);
+
+        Assert.Equal("1.15", updated.SchemaVersion);
+        Assert.Empty(WorkflowValidator.Validate(updated));
+    }
+
+    [Fact]
     public void ProjectionEnforcesFieldAndPropertyNameBounds()
     {
         var definition = JsonGraph();
