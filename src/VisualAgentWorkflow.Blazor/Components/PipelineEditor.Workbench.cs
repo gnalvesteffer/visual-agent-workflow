@@ -33,19 +33,26 @@ public partial class PipelineEditor
 
     private IReadOnlyList<WorkflowNodeLibraryEntry> LibraryEntries(GraphContextRequest? context = null)
     {
-        var enabled = !ReadOnly && !Disabled && Definition.Nodes.Count < 256 && Insertion(context) is not null;
+        var insertion = Insertion(context);
+        var sourceType = insertion is { } source
+            ? WorkflowPorts.Outputs(Definition.Nodes[source.NodeId]).Single(port => port.Id == source.PortId).DataType
+            : null;
+        var canInsert = !ReadOnly && !Disabled && Definition.Nodes.Count < 256 && sourceType is not null;
+        var textPath = canInsert && sourceType == "string";
+        var jsonPath = canInsert && sourceType == "json";
         var selected = context?.NodeId ?? selectedNode;
         List<WorkflowNodeLibraryEntry> entries =
         [
-            new(NodeTypes.Uppercase, "Uppercase", "Text processing", "Convert text deterministically", enabled),
-            new(NodeTypes.Reverse, "Reverse", "Text processing", "Reverse text deterministically", enabled),
-            new(NodeTypes.TextTemplate, "Text template", "Text processing", "Build deterministic text from input and workflow values", enabled),
-            new(NodeTypes.WorkflowValue, "Workflow value", "Inputs", "Pass a configured workflow parameter into the graph", enabled && ParameterDefinitions.Count > 0),
-            new("condition", "Condition", "Flow", "Create true / false paths; merge only when branches rejoin", enabled && Definition.Nodes.Count <= 254),
-            new("approval", "Approval", "Flow", "Select an MCP tool to require exact-action review", enabled && selected is not null && Definition.Nodes.TryGetValue(selected, out var selectedDefinition) && selectedDefinition.Type == NodeTypes.McpTool && !GuardedTool(selected))
+            new(NodeTypes.Uppercase, "Uppercase", "Text processing", "Convert text deterministically", textPath),
+            new(NodeTypes.Reverse, "Reverse", "Text processing", "Reverse text deterministically", textPath),
+            new(NodeTypes.TextTemplate, "Text template", "Text processing", "Build deterministic text from input and workflow values", textPath),
+            new(NodeTypes.WorkflowValue, "Workflow value", "Inputs", "Pass a configured workflow parameter into the graph", textPath && ParameterDefinitions.Count > 0),
+            new(NodeTypes.JsonProject, "Project JSON fields", "Data", "Build a bounded JSON object from selected JSON Pointer values", jsonPath),
+            new("condition", "Condition", "Flow", "Create true / false paths; merge only when branches rejoin", textPath && Definition.Nodes.Count <= 254),
+            new("approval", "Approval", "Flow", "Select an MCP tool to require exact-action review", textPath && selected is not null && Definition.Nodes.TryGetValue(selected, out var selectedDefinition) && selectedDefinition.Type == NodeTypes.McpTool && !GuardedTool(selected))
         ];
-        entries.AddRange(Providers.Select(p => new WorkflowNodeLibraryEntry(ProviderKey(p), p.DisplayName, "Agents", $"{p.ModelId} · {p.Version}", enabled)));
-        entries.AddRange(Bindings.Select(b => new WorkflowNodeLibraryEntry(ToolKey(b), b.DisplayName, "MCP tools", "Host-registered tool; node grants still apply", enabled)));
+        entries.AddRange(Providers.Select(p => new WorkflowNodeLibraryEntry(ProviderKey(p), p.DisplayName, "Agents", $"{p.ModelId} · {p.Version}", textPath)));
+        entries.AddRange(Bindings.Select(b => new WorkflowNodeLibraryEntry(ToolKey(b), b.DisplayName, "MCP tools", "Host-registered tool; node grants still apply", textPath)));
         return entries;
     }
 
@@ -63,7 +70,7 @@ public partial class PipelineEditor
         else if (key == "condition")
             await Edit(() => GraphEditing.InsertConditionalAfter(Definition, insertion.NodeId, insertion.PortId), context, insertion);
         else
-            await Edit(() => HasRouting ? GraphEditing.InsertNodeAfter(Definition, insertion.NodeId, insertion.PortId, FromSelection(key)) :
+            await Edit(() => UsesGraphEditing ? GraphEditing.InsertNodeAfter(Definition, insertion.NodeId, insertion.PortId, FromSelection(key)) :
                 PipelineEditing.InsertNodeAfter(Definition, insertion.NodeId, FromSelection(key)), context, insertion);
         insertionConnection = null;
     }
@@ -78,7 +85,7 @@ public partial class PipelineEditor
         { await RequestBlockRemoval(id); return; }
         if (!CanRemove(id)) { error = "This node cannot be deleted independently. Input/output and branch boundaries are required; remove an approval before its guarded tool."; return; }
         await Edit(() => Definition.Nodes[id].Type == NodeTypes.Approval ? GraphEditing.RemoveApproval(Definition, id) :
-            HasRouting ? GraphEditing.RemoveNode(Definition, id) : PipelineEditing.Remove(Definition, id));
+            UsesGraphEditing ? GraphEditing.RemoveNode(Definition, id) : PipelineEditing.Remove(Definition, id));
     }
 
     private string? pendingBlockRemoval;
@@ -112,7 +119,7 @@ public partial class PipelineEditor
         if (!CanDuplicate(id)) return;
         await CloseMenu(context);
         var source = new PortReference(id, "out");
-        await Edit(() => HasRouting ? GraphEditing.InsertNodeAfter(Definition, id, "out", Definition.Nodes[id]) :
+        await Edit(() => UsesGraphEditing ? GraphEditing.InsertNodeAfter(Definition, id, "out", Definition.Nodes[id]) :
             PipelineEditing.InsertNodeAfter(Definition, id, Definition.Nodes[id]), context, source);
     }
 

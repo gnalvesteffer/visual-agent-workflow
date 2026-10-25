@@ -42,7 +42,11 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? InputDataType { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OutputDataType { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public JsonPropertySelection? JsonPropertySelection { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public JsonProjectionConfiguration? JsonProjection { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public PromptTemplate? TextTemplate { get; init; }
 }
@@ -66,11 +70,14 @@ public static class NodeTypes
     public const string Approval = "core.approval";
     public const string WorkflowValue = "core.workflow-value";
     public const string JsonSelectString = "core.json.select-string";
+    public const string JsonProject = "core.json.project";
     public const string TextTemplate = "core.text.template";
 
     public static bool IsSupported(string? type) =>
-        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or TextTemplate;
+        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate;
 }
 
 /// <summary>Selects a JSON value through a bounded RFC 6901 JSON Pointer.</summary>
 public sealed record JsonPropertySelection(string Pointer);
+public sealed record JsonProjectionConfiguration(ImmutableArray<JsonProjectionField> Fields);
+public sealed record JsonProjectionField(string Name, string Pointer);

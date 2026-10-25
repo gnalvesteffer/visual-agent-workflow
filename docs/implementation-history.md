@@ -2,6 +2,10 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Bounded JSON projection and typed workflow output
+
+Schema 1.13 adds a declarative `core.json.project` node for mapping 1–16 named RFC 6901 pointers into a new JSON object, plus a JSON-typed Output pin. The Studio exposes editable field rows and makes projection nodes available only on JSON paths. Core validates unique names, pointers, field/configuration limits, and typed connections; the runner bounds JSON depth and input/output payload size and records the exact projected object in normal node/transfer evidence for playback. A selected value can be converted back to text before an existing agent or MCP node. Core serialization/package/editing tests and an Agent Framework end-to-end execution test cover this path; general expressions, dynamic mappings, arbitrary object ports, loops, and graph-level joins remain planned. See [architecture](architecture.md), [roadmap](roadmap.md), and [the user guide](user-guide.md#select-and-project-json-input).
+
 ## Parent-coordinated sequential subagent turns
 
 The parent agent can select assigned delegate tools in sequence, and those child invocations share bounded coordination channels scoped to that parent invocation. Parallel team fan-out uses a distinct per-team board. Every exchange remains attached to the child invocation for audit and replay; tool isolation, one-level delegation and the shared four-child limit remain in force. A deterministic end-to-end regression test verifies manager-selected order and a later delegate reading the earlier delegate's message. Release build passed with zero warnings; the full suite passed (271 tests, one opt-in live-model test skipped), and all 24 Mermaid diagrams rendered. See [agent profiles](agent-profiles.md), [architecture](architecture.md), and the [user guide](user-guide.md#design-reusable-subagents).

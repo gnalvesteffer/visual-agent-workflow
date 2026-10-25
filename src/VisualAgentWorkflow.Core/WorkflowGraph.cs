@@ -21,7 +21,8 @@ public static class WorkflowPorts
     public static ImmutableArray<WorkflowPort> Inputs(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input => [],
-        NodeTypes.JsonSelectString => [new("in", "json")],
+        NodeTypes.JsonSelectString or NodeTypes.JsonProject => [new("in", "json")],
+        NodeTypes.Output => [new("in", node.OutputDataType ?? "string")],
         _ => [new("in", "string")]
     };
     public static ImmutableArray<WorkflowPort> Outputs(NodeDefinition node) => node.Type switch
@@ -29,6 +30,7 @@ public static class WorkflowPorts
         NodeTypes.Output => [],
         NodeTypes.Condition => [new("true", "string"), new("false", "string")],
         NodeTypes.Input when node.InputDataType == "json" => [new("out", "json")],
+        NodeTypes.JsonProject => [new("out", "json")],
         _ => [new("out", "string")]
     };
 }
@@ -67,11 +69,22 @@ public static class WorkflowJsonPointer
     }
 }
 
+public static class JsonProjectionLimits
+{
+    public const int MaximumFields = 16;
+    public const int MaximumNameCharacters = 128;
+    public const int MaximumConfigurationCharacters = 16_384;
+    public const int MaximumPayloadCharacters = 16_384;
+}
+
 public static class WorkflowGraph
 {
     public static bool HasRouting(WorkflowDefinition definition) => definition.Nodes.Values.Any(n => n?.Type is NodeTypes.Condition or NodeTypes.Merge);
 
     public static bool HasControlNodes(WorkflowDefinition definition) => HasRouting(definition) || definition.Nodes.Values.Any(n => n?.Type == NodeTypes.Approval);
+
+    public static bool HasTypedJson(WorkflowDefinition definition) => definition.Nodes.Values.Any(node =>
+        node?.Type is NodeTypes.JsonSelectString or NodeTypes.JsonProject || node?.InputDataType == "json" || node?.OutputDataType == "json");
 
     /// <summary>Deterministic presentation/analysis order, never a runtime scheduler.</summary>
     public static ImmutableArray<string> OrderedNodes(WorkflowDefinition definition)

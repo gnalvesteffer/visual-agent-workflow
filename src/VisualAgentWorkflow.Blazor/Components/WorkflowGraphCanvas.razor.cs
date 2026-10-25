@@ -73,6 +73,7 @@ public partial class WorkflowGraphCanvas
     internal static string FriendlyName(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input => "Input", NodeTypes.Output => "Output", NodeTypes.Uppercase => "Uppercase", NodeTypes.Reverse => "Reverse", NodeTypes.TextTemplate => "Text template",
+        NodeTypes.JsonProject => "JSON projection", NodeTypes.JsonSelectString => "JSON selector",
         NodeTypes.Condition => "Condition", NodeTypes.Merge => "Merge", NodeTypes.Approval => "Approval", NodeTypes.Agent => "Agent", _ => "MCP tool"
     };
     private async Task SelectNode(string id)

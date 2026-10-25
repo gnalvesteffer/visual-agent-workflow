@@ -8,7 +8,8 @@ public static class PipelineEditing
     public static ImmutableArray<string> OrderedNodes(WorkflowDefinition definition)
     {
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (WorkflowGraph.HasControlNodes(definition)) throw new ArgumentException("Linear edits cannot flatten graphs with control nodes.", nameof(definition));
+        if (WorkflowGraph.HasControlNodes(definition) || WorkflowGraph.HasTypedJson(definition))
+            throw new ArgumentException("Linear edits cannot flatten graphs with control or typed-data nodes.", nameof(definition));
         var successors = definition.Connections.Values.ToDictionary(e => e.Source.NodeId, e => e.Target.NodeId);
         var result = ImmutableArray.CreateBuilder<string>();
         var current = definition.EntryNodeId;
@@ -109,13 +110,14 @@ public static class PipelineEditing
 
     private static void RequireEditable(string type)
     {
-        if (type is not (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.WorkflowValue or NodeTypes.JsonSelectString or NodeTypes.TextTemplate))
+        if (type is not (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.WorkflowValue or NodeTypes.JsonSelectString or NodeTypes.JsonProject or NodeTypes.TextTemplate))
             throw new ArgumentException("Only registered processing nodes can be edited.", nameof(type));
     }
 
     internal static string SchemaFor(WorkflowDefinition definition, NodeDefinition node) =>
-        node.Type == NodeTypes.TextTemplate && definition.SchemaVersion is not ("1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12") ? "1.7" :
-        definition.SchemaVersion == "1.12" ? "1.12" : definition.SchemaVersion == "1.11" ? "1.11" : definition.SchemaVersion == "1.10" ? "1.10" : definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : definition.SchemaVersion == "1.4" ? "1.4" : definition.SchemaVersion == "1.3" || node.Origin is not null ? "1.3" : node.Type == NodeTypes.Agent
+        node.Type == NodeTypes.JsonProject ? "1.13" :
+        node.Type == NodeTypes.TextTemplate && definition.SchemaVersion is not ("1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13") ? "1.7" :
+        definition.SchemaVersion == "1.13" ? "1.13" : definition.SchemaVersion == "1.12" ? "1.12" : definition.SchemaVersion == "1.11" ? "1.11" : definition.SchemaVersion == "1.10" ? "1.10" : definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : definition.SchemaVersion == "1.4" ? "1.4" : definition.SchemaVersion == "1.3" || node.Origin is not null ? "1.3" : node.Type == NodeTypes.Agent
             ? "1.2" : node.Type == NodeTypes.McpTool && definition.SchemaVersion == "1.0" ? "1.1" : definition.SchemaVersion;
 
     private static void RequireTransform(string type)

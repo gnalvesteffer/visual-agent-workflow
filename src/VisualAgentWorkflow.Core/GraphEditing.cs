@@ -9,7 +9,9 @@ public static class GraphEditing
         if (!definition.Nodes.TryGetValue(sourceId, out var source) || !definition.Nodes.TryGetValue(targetId, out var target))
             throw new ArgumentException("Choose pins on existing nodes.");
         var output = WorkflowPorts.Outputs(source).SingleOrDefault(port => port.Id == sourcePortId);
-        var input = WorkflowPorts.Inputs(target).SingleOrDefault(port => port.Id == targetPortId);
+        var input = target.Type == NodeTypes.Output && targetPortId == "in"
+            ? new WorkflowPort("in", output?.DataType ?? "")
+            : WorkflowPorts.Inputs(target).SingleOrDefault(port => port.Id == targetPortId);
         if (output is null || input is null || output.DataType != input.DataType)
             throw new ArgumentException("Connect an output pin to an input pin with the same data type.");
         if (sourceId == targetId) throw new ArgumentException("A node cannot connect to itself.");
@@ -18,7 +20,14 @@ public static class GraphEditing
             .RemoveRange(definition.Connections.Where(edge => target.Type is not (NodeTypes.Merge or NodeTypes.Output) && edge.Value.Target.NodeId == targetId && edge.Value.Target.PortId == targetPortId ||
                 edge.Value.Source.NodeId == sourceId && edge.Value.Source.PortId == sourcePortId).Select(edge => edge.Key));
         var connectionId = "link-" + Guid.NewGuid().ToString("N");
-        return definition with { Connections = connections.Add(connectionId, new(new(sourceId, sourcePortId), new(targetId, targetPortId), "data")) };
+        return definition with
+        {
+            Nodes = target.Type == NodeTypes.Output
+                ? definition.Nodes.SetItem(targetId, target with { OutputDataType = output.DataType == "json" ? "json" : null })
+                : definition.Nodes,
+            SchemaVersion = output.DataType == "json" ? "1.13" : definition.SchemaVersion,
+            Connections = connections.Add(connectionId, new(new(sourceId, sourcePortId), new(targetId, targetPortId), "data"))
+        };
     }
 
     public static WorkflowDefinition Disconnect(WorkflowDefinition definition, string connectionId)
@@ -38,7 +47,7 @@ public static class GraphEditing
         var connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(branch, "in"), "data"))
             .Add(NewId("link"), Link(branch, "true", merge)).Add(NewId("link"), Link(branch, "false", merge))
             .Add(NewId("link"), new(new(merge, "out"), edge.Value.Target, "data"));
-        return Checked(definition with { SchemaVersion = definition.SchemaVersion is "1.8" or "1.9" or "1.10" or "1.11" or "1.12" ? definition.SchemaVersion : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : "1.4", Nodes = nodes, Connections = connections });
+        return Checked(definition with { SchemaVersion = definition.SchemaVersion is "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" ? definition.SchemaVersion : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : "1.4", Nodes = nodes, Connections = connections });
     }
 
     public static WorkflowDefinition InsertNodeAfter(WorkflowDefinition definition, string sourceId, string portId, NodeDefinition node)
@@ -49,10 +58,15 @@ public static class GraphEditing
         RequireProcessing(node.Type);
         var edge = Outgoing(definition, sourceId, portId);
         var id = NewId("node");
+        var outputType = WorkflowPorts.Outputs(node).Single().DataType;
+        var nodes = definition.Nodes.Add(id, node);
+        if (definition.Nodes[edge.Value.Target.NodeId].Type == NodeTypes.Output)
+            nodes = nodes.SetItem(edge.Value.Target.NodeId,
+                nodes[edge.Value.Target.NodeId] with { OutputDataType = outputType == "json" ? "json" : null });
         return Checked(definition with
         {
             SchemaVersion = PipelineEditing.SchemaFor(definition, node),
-            Nodes = definition.Nodes.Add(id, node),
+            Nodes = nodes,
             Connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(id, "in"), "data"))
                 .Add(NewId("link"), new(new(id, "out"), edge.Value.Target, "data"))
         });
@@ -71,7 +85,7 @@ public static class GraphEditing
 
         return Checked(definition with
         {
-            SchemaVersion = definition.SchemaVersion == "1.12" ? "1.12" : definition.SchemaVersion == "1.11" ? "1.11" : definition.SchemaVersion == "1.10" ? "1.10" : "1.9",
+            SchemaVersion = definition.SchemaVersion is "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : "1.9",
             Nodes = definition.Nodes.SetItem(inputId, input with { InputDataType = "json" }).Add(selectorId, selector),
             Connections = definition.Connections.SetItem(edge.Key, new(new(selectorId, "out"), edge.Value.Target, "data"))
                 .Add(NewId("link"), new(new(inputId, "out"), new(selectorId, "in"), "data"))
@@ -123,13 +137,25 @@ public static class GraphEditing
             throw new ArgumentException("Choose a JSON selector node.", nameof(id));
         var incoming = definition.Connections.Single(edge => edge.Value.Target.NodeId == id);
         var outgoing = definition.Connections.Single(edge => edge.Value.Source.NodeId == id);
-        var inputId = incoming.Value.Source.NodeId;
-        if (!definition.Nodes.TryGetValue(inputId, out var input) || input.Type != NodeTypes.Input)
-            throw new ArgumentException("The JSON selector is not connected directly to the workflow input.", nameof(id));
+        var sourceId = incoming.Value.Source.NodeId;
+        var source = definition.Nodes[sourceId];
+        var sourceType = WorkflowPorts.Outputs(source).Single(port => port.Id == incoming.Value.Source.PortId).DataType;
+        var target = definition.Nodes[outgoing.Value.Target.NodeId];
+        var nodes = definition.Nodes.Remove(id);
+        if (source.Type == NodeTypes.Input && target.Type != NodeTypes.Output && sourceType == "json" &&
+            WorkflowPorts.Inputs(target).Single(port => port.Id == outgoing.Value.Target.PortId).DataType == "string")
+        {
+            source = source with { InputDataType = null };
+            nodes = nodes.SetItem(sourceId, source);
+            sourceType = "string";
+        }
+        if (target.Type == NodeTypes.Output)
+            nodes = nodes.SetItem(outgoing.Value.Target.NodeId, target with { OutputDataType = sourceType == "json" ? "json" : null });
 
         return Checked(definition with
         {
-            Nodes = definition.Nodes.Remove(id).SetItem(inputId, input with { InputDataType = null }),
+            SchemaVersion = sourceType == "json" ? "1.13" : definition.SchemaVersion,
+            Nodes = nodes,
             Connections = definition.Connections.Remove(incoming.Key).SetItem(outgoing.Key,
                 new(incoming.Value.Source, outgoing.Value.Target, "data"))
         });
@@ -145,7 +171,7 @@ public static class GraphEditing
         var id = NewId("approval");
         return Checked(definition with
         {
-            SchemaVersion = definition.SchemaVersion is "1.8" or "1.9" or "1.10" or "1.11" or "1.12" ? definition.SchemaVersion : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : "1.5",
+            SchemaVersion = definition.SchemaVersion is "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" ? definition.SchemaVersion : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : "1.5",
             Nodes = definition.Nodes.Add(id, new(NodeTypes.Approval, "1.0.0") { Approval = new("Review the exact MCP call before allowing it.") }),
             Connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(id, "in"), "data"))
                 .Add(NewId("link"), Link(id, "out", targetId))
@@ -177,7 +203,7 @@ public static class GraphEditing
             ? edge : throw new ArgumentException("Choose a connected output port.");
     private static void RequireProcessing(string type)
     {
-        if (type is not (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.WorkflowValue or NodeTypes.JsonSelectString or NodeTypes.TextTemplate))
+        if (type is not (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.WorkflowValue or NodeTypes.JsonSelectString or NodeTypes.JsonProject or NodeTypes.TextTemplate))
             throw new ArgumentException("Only processing nodes can be inserted, replaced or removed here.");
     }
 }

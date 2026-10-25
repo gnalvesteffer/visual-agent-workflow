@@ -149,6 +149,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.Input when node.InputDataType == "json" => NormalizeJson(message),
                     NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval => message,
                     NodeTypes.JsonSelectString => SelectJsonText(message, node.JsonPropertySelection!.Pointer),
+                    NodeTypes.JsonProject => ProjectJson(message, node.JsonProjection!),
                     NodeTypes.TextTemplate => PromptRendering.Render(node.TextTemplate!, message, parameters),
                     NodeTypes.WorkflowValue => parameters is null || !parameters.TryGetValue(node.ParameterId!, out var value)
                         ? throw new InvalidOperationException("The workflow parameter was not resolved for this run.") : value,
@@ -219,8 +220,40 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         {
             if (input.Length > 16_384) throw new InvalidOperationException("JSON workflow data exceeds 16,384 characters.");
             using var document = JsonDocument.Parse(input, new JsonDocumentOptions { MaxDepth = 32 });
-            var selected = document.RootElement;
-            foreach (var segment in WorkflowJsonPointer.Parse(pointer))
+            var selected = ResolvePointer(document.RootElement, WorkflowJsonPointer.Parse(pointer));
+
+            if (selected.ValueKind == JsonValueKind.String) return selected.GetString()!;
+            using var serialized = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(serialized)) selected.WriteTo(writer);
+            return System.Text.Encoding.UTF8.GetString(serialized.ToArray());
+        }
+
+        private static string ProjectJson(string input, JsonProjectionConfiguration projection)
+        {
+            if (input.Length > JsonProjectionLimits.MaximumPayloadCharacters)
+                throw new InvalidOperationException($"JSON workflow data exceeds {JsonProjectionLimits.MaximumPayloadCharacters} characters.");
+            using var document = JsonDocument.Parse(input, new JsonDocumentOptions { MaxDepth = 32 });
+            using var serialized = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(serialized))
+            {
+                writer.WriteStartObject();
+                foreach (var field in projection.Fields)
+                {
+                    writer.WritePropertyName(field.Name);
+                    ResolvePointer(document.RootElement, WorkflowJsonPointer.Parse(field.Pointer)).WriteTo(writer);
+                }
+                writer.WriteEndObject();
+            }
+            var projected = System.Text.Encoding.UTF8.GetString(serialized.ToArray());
+            if (projected.Length > JsonProjectionLimits.MaximumPayloadCharacters)
+                throw new InvalidOperationException($"Projected JSON exceeds {JsonProjectionLimits.MaximumPayloadCharacters} characters.");
+            return projected;
+        }
+
+        private static JsonElement ResolvePointer(JsonElement root, IReadOnlyList<string> segments)
+        {
+            var selected = root;
+            foreach (var segment in segments)
             {
                 selected = selected.ValueKind switch
                 {
@@ -229,11 +262,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                     _ => throw new InvalidOperationException("The configured JSON pointer does not resolve to a value.")
                 };
             }
-
-            if (selected.ValueKind == JsonValueKind.String) return selected.GetString()!;
-            using var serialized = new MemoryStream();
-            using (var writer = new Utf8JsonWriter(serialized)) selected.WriteTo(writer);
-            return System.Text.Encoding.UTF8.GetString(serialized.ToArray());
+            return selected;
         }
 
         private static bool TryArrayIndex(string segment, int length, out int index) =>
