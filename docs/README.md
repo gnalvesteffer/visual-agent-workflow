@@ -10,6 +10,7 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Implementation history](implementation-history.md) | Detailed historical delivery notes, validation, and limitations |
 | [Product design](design.md) | Agreed direction and proposed future capabilities; not a deployment description |
 | [Blueprint authoring guidance](blueprint-authoring-guidance.md) | Project-specific principles for adapting Unreal Blueprint authoring concepts |
+| [Unreal Blueprint reference](unreal-blueprint-reference.md) | UE 5.7 Blueprint visual-scripting concepts translated into implementation guidance |
 | [Exact-action approvals](approvals.md) | Exact MCP action review, nested call-path binding, attribution, controls and process ownership |
 | [Conditional graphs](conditional-graphs.md) | Schema 1.4 predicates, typed string ports, exclusive merges, authoring and actual-path evidence |
 | [Parallel graphs](parallel-graphs.md) | Schema 1.14 bounded two-branch fork/barrier join, JSON result, concurrency and failure limits |
