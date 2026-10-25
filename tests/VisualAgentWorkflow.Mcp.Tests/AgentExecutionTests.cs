@@ -32,17 +32,20 @@ public class AgentExecutionTests
             Nodes = baseline.Nodes.SetItem("step-1", node with { Agent = node.Agent! with
             {
                 Skills = [new("arithmetic", "1", skill.ContentHash)],
-                UserMessage = new([new("literal", "Question: "), new("input", ""), new("literal", " / "), new("parameter", "context")])
+                UserMessage = new([new("literal", "Question: "), new("input", ""), new("literal", " / "), new("parameter", "context")]),
+                ReasoningEffort = AgentReasoningEffort.High
             } })
         };
         var events = new List<ExecutionEvent>();
         var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
-        var executor = new AgentNodeExecutor([DeterministicDemoChatClient.Registration()], broker);
+        var fixture = DeterministicDemoChatClient.Registration();
+        var executor = new AgentNodeExecutor([fixture with { Descriptor = fixture.Descriptor with { SupportsReasoningEffort = true } }], broker);
         await new PipelineRunner(broker, executor).ExecuteWithParametersAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"),
             "1+1?", new Dictionary<string, string> { ["context"] = "integer arithmetic" },
             e => { events.Add(e); return ValueTask.CompletedTask; });
         var request = Assert.Single(events, e => e.Kind == ExecutionEventKinds.ModelRequested);
         Assert.Contains("Give one number.", request.Data);
+        Assert.Contains("\"reasoningEffort\":\"High\"", request.Data);
         using var recorded = JsonDocument.Parse(request.Data!);
         var messageText = recorded.RootElement.GetProperty("messages")[0].GetProperty("content")[0].GetProperty("text").GetString();
         Assert.Equal("Question: 1+1? / integer arithmetic", messageText);

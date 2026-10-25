@@ -9,7 +9,10 @@ public sealed record AgentConfiguration(string ProviderId, string ProviderVersio
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public PromptTemplate? UserMessage { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<SkillReference>? Skills { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public AgentReasoningEffort? ReasoningEffort { get; init; }
 }
+
+public enum AgentReasoningEffort { Low, Medium, High }
 
 /// <summary>Only literal text and explicit stable references are rendered. No expression evaluation occurs.</summary>
 public sealed record PromptPart(string Kind, string Value);
@@ -47,7 +50,10 @@ public static class PromptRendering
         return text.ToString();
     }
 }
-public sealed record AgentProviderDescriptor(string ProviderId, string Version, string DisplayName, string ModelId, bool IsDeterministic);
+public sealed record AgentProviderDescriptor(string ProviderId, string Version, string DisplayName, string ModelId, bool IsDeterministic)
+{
+    public bool SupportsReasoningEffort { get; init; }
+}
 
 public interface IAgentProviderCatalog
 {

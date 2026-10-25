@@ -22,7 +22,8 @@ public static class OpenAIProviders
         ArgumentNullException.ThrowIfNull(getApiKey);
         ArgumentNullException.ThrowIfNull(createTransport);
         Validate(options);
-        var descriptor = new AgentProviderDescriptor(options.ProviderId, options.Version, options.DisplayName, options.Model, false);
+        var descriptor = new AgentProviderDescriptor(options.ProviderId, options.Version, options.DisplayName, options.Model, false)
+        { SupportsReasoningEffort = true };
         return new(descriptor, () =>
         {
             var key = getApiKey();

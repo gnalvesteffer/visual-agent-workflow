@@ -127,6 +127,9 @@ public static class WorkflowValidator
                                 !skills.TryGetValue(reference.Id + "@" + reference.Version, out var skill) || skill.ContentHash != reference.ContentHash))
                             Error("agent.skills", $"nodes.{id}.agent.skills", "Each assigned skill must match an embedded immutable revision.");
                     }
+                    if (configured.ReasoningEffort is not null &&
+                        (definition.SchemaVersion != "1.7" || !Enum.IsDefined(configured.ReasoningEffort.Value)))
+                        Error("agent.reasoning", $"nodes.{id}.agent.reasoningEffort", "Reasoning effort requires schema 1.7 and a supported low, medium, or high value.");
                 }
             }
             else if (node.Agent is not null)

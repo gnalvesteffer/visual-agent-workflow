@@ -167,6 +167,17 @@
                     @if (node.Agent is { } agent)
                     {
                         <p>Agent provider: @agent.ProviderId · @agent.ProviderVersion</p>
+                        @if (!ReadOnly && Providers.FirstOrDefault(p => p.ProviderId == agent.ProviderId && p.Version == agent.ProviderVersion) is { SupportsReasoningEffort: true })
+                        {
+                            <label>Reasoning effort
+                                <select aria-label="Reasoning effort for @id" value="@(agent.ReasoningEffort?.ToString() ?? "")" @onchange="args => ReasoningEffort(id, args)" disabled="@Disabled">
+                                    <option value="">Provider default</option><option value="Low">Low</option><option value="Medium">Medium</option><option value="High">High</option>
+                                </select>
+                            </label>
+                            <p class="vaw-help">The provider adapter sends this preference. Compatible endpoints may interpret or ignore it.</p>
+                        }
+                        else if (!ReadOnly && agent.ReasoningEffort is not null)
+                        { <p role="alert" class="vaw-error">This provider does not advertise reasoning effort support.</p> }
                         @if (Providers.Any(p => p.ProviderId == agent.ProviderId && p.IsDeterministic))
                         { <p>Scripted fixture: calls the first assigned tool or echoes input. It does not interpret instructions.</p> }
                         @if (Providers.FirstOrDefault(p => p.ProviderId == agent.ProviderId && p.Version == agent.ProviderVersion) is { IsDeterministic: false } liveProvider)
@@ -356,6 +367,16 @@
 
     private Task Instructions(string id, ChangeEventArgs args) => Edit(() => ReplaceProcessing(id,
         Definition.Nodes[id] with { Agent = Definition.Nodes[id].Agent! with { Instructions = args.Value?.ToString() ?? "" } }));
+    private Task ReasoningEffort(string id, ChangeEventArgs args) => Edit(() =>
+    {
+        var value = args.Value?.ToString();
+        var effort = Enum.TryParse<AgentReasoningEffort>(value, ignoreCase: false, out var parsed) ? parsed : (AgentReasoningEffort?)null;
+        var node = Definition.Nodes[id];
+        var definition = Definition with { SchemaVersion = "1.7", Nodes = Definition.Nodes.SetItem(id,
+            node with { Agent = node.Agent! with { ReasoningEffort = effort } }) };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    });
 
     private Task StartUserTemplate(string id) => SetUserTemplate(id, new([new("input", "")]));
     private Task ResetUserTemplate(string id) => SetUserTemplate(id, null);

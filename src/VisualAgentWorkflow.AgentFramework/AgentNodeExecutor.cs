@@ -33,6 +33,8 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             ?? throw new ArgumentException("The invocation is not an agent node.");
         if (!Volatile.Read(ref registrations).TryGetValue(Key(configuration.ProviderId, configuration.ProviderVersion), out var provider))
             throw new InvalidOperationException("The pinned agent provider is unavailable.");
+        if (configuration.ReasoningEffort is not null && !provider.Descriptor.SupportsReasoningEffort)
+            throw new InvalidOperationException("The selected provider does not support reasoning effort.");
         var assignedSkills = (configuration.Skills ?? []).Select(reference =>
             invocation.Revision.Definition.Skills![reference.Id + "@" + reference.Version]).ToArray();
         var instructions = string.Join("\n\n", new[] { configuration.Instructions }
@@ -80,7 +82,21 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             {
                 Name = invocation.NodeId,
                 UseProvidedChatClientAsIs = true,
-                ChatOptions = new ChatOptions { Instructions = instructions, Tools = functions, MaxOutputTokens = 1024 }
+            ChatOptions = new ChatOptions
+            {
+                Instructions = instructions,
+                Tools = functions,
+                MaxOutputTokens = 1024,
+                Reasoning = configuration.ReasoningEffort is { } effort
+                    ? new ReasoningOptions { Effort = effort switch
+                    {
+                        AgentReasoningEffort.Low => Microsoft.Extensions.AI.ReasoningEffort.Low,
+                        AgentReasoningEffort.Medium => Microsoft.Extensions.AI.ReasoningEffort.Medium,
+                        AgentReasoningEffort.High => Microsoft.Extensions.AI.ReasoningEffort.High,
+                        _ => throw new InvalidOperationException("Unsupported reasoning effort.")
+                    } }
+                    : null
+            }
             });
             var response = await agent.RunAsync(userMessage, cancellationToken: deadline.Token);
             if (string.IsNullOrWhiteSpace(response.Text) || response.Text.Length > 16_384)
@@ -119,6 +135,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             {
                 modelCallId,
                 instructions = options?.Instructions,
+                reasoningEffort = options?.Reasoning?.Effort?.ToString(),
                 messages = Project(snapshot),
                 tools = options?.Tools?.Select(t => t.Name).ToArray()
             });
