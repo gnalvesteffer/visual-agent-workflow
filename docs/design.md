@@ -105,6 +105,25 @@ Child calls appear under the parent node with separate invocation IDs and profil
 
 Channel IDs are profile-pinned logical names. At execution, scope each board to the parent-agent invocation or team invocation; never use a global namespace that can leak messages across runs or calls. The implementation allows up to eight memberships per profile, validates membership on each operation, and caps messages at 4,000 characters, 32 per channel and 64 per board. Store channel traffic as bounded, sequenced, append-only run evidence, not unrestricted shared mutable memory. Every send/read is audited; read evidence captures exactly what the participant received so playback requires no agent calls. The parent selects sequential delegate turns through its assigned tools; no independent scheduler or durable shared memory is introduced. Aggregate budgets and richer failure policies remain future orchestration work. Parallel fan-out/fan-in of separate graph nodes remains a general control-flow capability; team channels are an agent-specific messaging layer.
 
+**Planned collaborative parallel region:** the existing `team_0` is optional because a parent model must choose to call it. For graph-level collaboration, allow separate Agent nodes on parallel branches to join a declared collaboration group. The first region contract should be a bounded static DAG with stable branch and participant IDs, exactly one invocation of each declared participant per barrier generation, and no conditions, loops, or nested forks that can bypass or repeat a barrier. Those members share a bounded board scoped to the region invocation. At each barrier, the scheduler records each arrival and parks it without retaining an execution permit; it releases the next phase only after all declared participants arrive. Each phase reads the same bounded, ordered message snapshot captured at release; writes made during that phase become visible in the next snapshot. Concurrent append order is recorded as observed host order, not inferred causal order. A final join collects stable, named outputs for ordinary downstream workflow logic.
+
+Prefer composing the region from visible fork branches, configured Agent nodes, a group-scoped channel, and explicit barriers over hiding the work in one monolithic team node. This permits deterministic processing between collaboration phases and lets authors route each result independently. The scheduler must admit participants in bounded waves when the host concurrency cap is below group size, while parked barrier arrivals release their execution permits. Bound branch/member count, rounds, messages, tokens, time, and tool calls; compose region budgets with existing child-execution limits. Before implementation, settle timeout, cancellation, member-failure/partial-result, retry/restart, and external-side-effect behavior. A Team prefab/preset may package a common topology while expanding to the same serialized region semantics. Reuse version-pinned profiles, per-agent capability grants, and append-only message evidence. Record region/barrier generations, participant invocation IDs, snapshot boundaries, exact reads/writes, arrivals/releases, and final outputs so playback can reconstruct observed evidence without rerunning agents. A dedicated single Agent Team runtime node remains a simpler fallback, but should not become a second team/profile execution contract.
+
+```mermaid
+flowchart LR
+    Fork["Parallel collaboration region"] --> A["Agent A · pinned profile"]
+    Fork --> B["Agent B · pinned profile"]
+    A --> Barrier["Barrier · wait for A and B"]
+    B --> Barrier
+    Board["Invocation-scoped shared channel"] <--> A
+    Board <--> B
+    Barrier --> A2["Next A phase"]
+    Barrier --> B2["Next B phase"]
+    A2 --> Join["Final join · named results"]
+    B2 --> Join
+    Join --> Next["Any downstream workflow nodes"]
+```
+
 ### Workflow parameters and variables
 
 **Implemented first slice:** schema 1.6 currently supports up to 64 non-secret string parameters with stable IDs, display names, and defaults. The Studio can create/edit/remove parameters, add visible `core.workflow-value` nodes and choose a parameter per node. A getter replaces its incoming string with the resolved value. Draft and published run endpoints accept per-run string overrides; the run store captures the full effective parameter map in run metadata, and playback displays it. This first slice does not yet implement typed parameters, required/choice validation, descriptions, named pins on the entry node, agent-configuration pins, secret references/redaction, or mutable variables. See [workflow parameters](workflow-parameters.md) for the implemented contract.
