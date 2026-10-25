@@ -79,6 +79,21 @@ flowchart LR
 
 Linear and acyclic conditional string graphs are executable today. Schema 1.6 adds workflow-defined string parameters and getter nodes; it does not add arbitrary data types or mutable variables. Conditions select one string output and exclusive merges pass through the selected value; they are not parallel join barriers. See [conditional graph semantics](conditional-graphs.md). Uppercase/reverse are deterministic operations. The host's `demo.scripted` agent exercises the framework tool loop but does not interpret instructions or contact an LLM. The optional OpenAI provider adapter supplies host-configured, versioned factories through the official SDK and AI bridge; protocol tests cover its path, while credentialed live-service qualification remains outstanding. Core and Blazor have no provider SDK dependency. See [model providers](model-providers.md). MCP bindings are pinned requirements that must also pass host policy on every invocation. Tool/provider catalogs are authoring choices, not permissions.
 
+Schema 1.7 optionally embeds reviewed text-only skill revisions and per-agent structured user-message parts. The agent's existing `instructions` remain the system message; the user-message template resolves only incoming text and declared string parameters. A run records the resolved model request and exact assigned skill IDs, versions, and content hashes. Imported skill text cannot grant MCP access. Studio's local Skill library manages revisions and folders, while the published definition carries the assigned revision text; a consumer service can execute it without Studio. This is a bounded text capability, not arbitrary skill scripts or remote skill resources.
+
+Studio's local MCP library can connect Streamable HTTP endpoints, discover tools with one `text` string input, and explicitly enable them. Its endpoint and protected bearer token remain in Studio storage. Workflow definitions and packages contain only logical tool IDs and pinned contract hashes; a consumer must register matching connections and host policy itself. Folder paths are authoring metadata. The broker checks a node's requested contract and effective host policy before invocation, including tools exposed to an agent. Configured servers run under the local Studio operator's trust boundary; they are not a sandbox or a production tenant boundary.
+
+```mermaid
+flowchart LR
+    Studio["Studio MCP and skill libraries"] --> Draft["Agent selections in draft"]
+    Draft --> Package["Portable published definition"]
+    Package --> Host["Consumer host resolves MCP bindings and policy"]
+    Package --> Skill["Embedded exact skill text"]
+    Host --> Run["Backend agent execution"]
+    Skill --> Run
+    Run --> Evidence["Recorded model and tool evidence"]
+```
+
 ## Persistence and failure boundaries
 
 SQLite stores drafts, immutable revisions, layouts, and catalog audit. The separate `IWorkflowRunStore` persists each run's pinned definition and execution evidence. The default file implementation publishes complete snapshots atomically; the optional SQLite implementation commits event batches with sequence/status in one transaction. Runtime/controller and read-only observers can share a host-selected store. Catalog and run stores do not share a transaction. Runtime ownership is exclusive even with SQLite concurrency checks; the ordinary local runtime interrupts unfinished runs after restart. A separate opt-in checkpoint host can explicitly rehydrate deterministic graphs saved in a suspended state. Historical payload viewing makes no live calls. See [run storage](run-storage.md) for legacy journal compatibility, store selection and failure boundaries.

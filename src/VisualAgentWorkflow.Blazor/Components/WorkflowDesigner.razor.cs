@@ -12,6 +12,7 @@ public partial class WorkflowDesigner
     [Parameter] public EventCallback<RunSnapshot> OnRunStarted { get; set; }
     [Parameter] public IToolBindingCatalog? ToolCatalog { get; set; }
     [Parameter] public IAgentProviderCatalog? AgentCatalog { get; set; }
+    [Parameter] public ISkillLibrary? SkillLibrary { get; set; }
 
     private sealed record Binding(IWorkflowCatalog Catalog, IPublishedWorkflowClient Client, CancellationToken Token);
     private Binding? binding;

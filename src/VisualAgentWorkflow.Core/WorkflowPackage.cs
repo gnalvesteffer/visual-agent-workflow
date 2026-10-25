@@ -40,6 +40,7 @@ public static class WorkflowPackageJson
             {
                 requirements.Add(new("agent-provider", agent.ProviderId, agent.ProviderVersion));
                 foreach (var request in agent.Tools) requirements.Add(new("mcp-tool", request.BindingId, "", request.ContractHash));
+                foreach (var skill in agent.Skills ?? []) requirements.Add(new("skill", skill.Id, skill.Version, skill.ContentHash));
             }
         }
         return Sort(requirements);

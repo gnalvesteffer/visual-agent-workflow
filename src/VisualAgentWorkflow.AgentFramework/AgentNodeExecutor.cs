@@ -33,6 +33,13 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             ?? throw new ArgumentException("The invocation is not an agent node.");
         if (!Volatile.Read(ref registrations).TryGetValue(Key(configuration.ProviderId, configuration.ProviderVersion), out var provider))
             throw new InvalidOperationException("The pinned agent provider is unavailable.");
+        var assignedSkills = (configuration.Skills ?? []).Select(reference =>
+            invocation.Revision.Definition.Skills![reference.Id + "@" + reference.Version]).ToArray();
+        var instructions = string.Join("\n\n", new[] { configuration.Instructions }
+            .Concat(assignedSkills.Select(skill => $"Skill: {skill.Name}\n{skill.Instructions}")));
+        if (instructions.Length > 65_536) throw new InvalidOperationException("Combined agent instructions exceed the prompt budget.");
+        var userMessage = configuration.UserMessage is null ? input :
+            PromptRendering.Render(configuration.UserMessage, input, invocation.Parameters);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         if (provider.InvocationTimeout <= TimeSpan.Zero || provider.InvocationTimeout > TimeSpan.FromMinutes(2))
             throw new InvalidOperationException("The registered agent timeout is invalid.");
@@ -42,6 +49,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             provider = provider.Descriptor,
             timeoutSeconds = provider.InvocationTimeout.TotalSeconds,
             requestedTools = configuration.Tools.Select((binding, index) => new { functionName = $"tool_{index}", binding.BindingId, binding.ContractHash })
+            , skills = assignedSkills.Select(skill => new { skill.Id, skill.Version, skill.ContentHash })
         });
         try
         {
@@ -72,9 +80,9 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             {
                 Name = invocation.NodeId,
                 UseProvidedChatClientAsIs = true,
-                ChatOptions = new ChatOptions { Instructions = configuration.Instructions, Tools = functions, MaxOutputTokens = 1024 }
+                ChatOptions = new ChatOptions { Instructions = instructions, Tools = functions, MaxOutputTokens = 1024 }
             });
-            var response = await agent.RunAsync(input, cancellationToken: deadline.Token);
+            var response = await agent.RunAsync(userMessage, cancellationToken: deadline.Token);
             if (string.IsNullOrWhiteSpace(response.Text) || response.Text.Length > 16_384)
                 throw new InvalidOperationException("The agent did not produce bounded final text.");
             await Record(ExecutionEventKinds.AgentCompleted, new { output = response.Text });

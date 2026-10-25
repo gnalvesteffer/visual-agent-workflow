@@ -9,6 +9,7 @@ public partial class WorkflowStudio
     [Parameter] public IWorkflowCatalog? Catalog { get; set; }
     [Parameter] public IToolBindingCatalog? ToolCatalog { get; set; }
     [Parameter] public IAgentProviderCatalog? AgentCatalog { get; set; }
+    [Parameter] public ISkillLibrary? SkillLibrary { get; set; }
     private string workspaceView = "designer";
     private string runFilter = "";
     private void ShowDesigner() => workspaceView = "designer";

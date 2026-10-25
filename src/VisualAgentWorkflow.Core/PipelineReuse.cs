@@ -63,7 +63,9 @@ public static class PipelineReuse
         var ids = steps.ToDictionary(id => id, _ => "node-" + Guid.NewGuid().ToString("N"), StringComparer.Ordinal);
         var targetParameters = target.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
         var parameterMap = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var parameterId in steps.Select(id => source.Nodes[id].ParameterId).Where(id => id is not null).Distinct(StringComparer.Ordinal))
+        foreach (var parameterId in steps.SelectMany(id => new[] { source.Nodes[id].ParameterId }
+            .Concat(source.Nodes[id].Agent?.UserMessage?.Parts.Where(part => part.Kind == "parameter").Select(part => part.Value) ?? []))
+            .Where(id => id is not null).Distinct(StringComparer.Ordinal))
         {
             var sourceParameter = source.Parameters![parameterId!];
             var destinationId = parameterId!;
@@ -81,21 +83,34 @@ public static class PipelineReuse
             parameterMap[parameterId!] = destinationId;
         }
         var nodes = target.Nodes;
+        var targetSkills = target.Skills ?? ImmutableSortedDictionary<string, WorkflowSkill>.Empty;
         foreach (var id in steps)
         {
             var sourceNode = source.Nodes[id];
+            foreach (var reference in sourceNode.Agent?.Skills ?? [])
+            {
+                var key = reference.Id + "@" + reference.Version;
+                var skill = source.Skills![key];
+                if (targetSkills.TryGetValue(key, out var existingSkill) && existingSkill != skill)
+                    throw new ArgumentException("The target has a different skill with the same ID and version.");
+                targetSkills = targetSkills.SetItem(key, skill);
+            }
             nodes = nodes.Add(ids[id], sourceNode with
             {
                 ParameterId = sourceNode.ParameterId is { } parameterId ? parameterMap[parameterId] : null,
+                Agent = sourceNode.Agent is { UserMessage: { } prompt } agent ? agent with
+                { UserMessage = new(prompt.Parts.Select(part => part.Kind == "parameter" ? part with { Value = parameterMap[part.Value] } : part).ToImmutableArray()) } : sourceNode.Agent,
                 Origin = new(source.WorkflowId, published.Revision.RevisionId, published.Version, published.Revision.ContentHash, id)
             });
         }
         order.InsertRange(position + 1, steps.Select(id => ids[id]));
         var definition = PipelineEditing.Reconnect(target with
         {
-            SchemaVersion = target.SchemaVersion == "1.6" || parameterMap.Count > 0 ? "1.6" : "1.3",
+            SchemaVersion = target.SchemaVersion == "1.7" || source.SchemaVersion == "1.7" ? "1.7" :
+                target.SchemaVersion == "1.6" || parameterMap.Count > 0 ? "1.6" : "1.3",
             Nodes = nodes,
-            Parameters = targetParameters.Count == 0 ? null : targetParameters
+            Parameters = targetParameters.Count == 0 ? null : targetParameters,
+            Skills = targetSkills.Count == 0 ? null : targetSkills
         }, order);
         var presentation = layout.Reconcile(definition);
         var points = steps.Select(id => sourceLayout.Nodes[id].Position)

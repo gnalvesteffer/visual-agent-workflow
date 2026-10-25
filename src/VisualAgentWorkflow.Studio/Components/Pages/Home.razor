@@ -4,14 +4,15 @@
 @inject IWorkflowCatalog Catalog
 @inject IToolBindingCatalog Tools
 @inject IAgentProviderCatalog Agents
+@inject ISkillLibrary Skills
 @inject NavigationManager Navigation
 
 <PageTitle>Visual Agent Workflow</PageTitle>
 <main>
-    <nav class="vaw-studio-navigation" aria-label="Studio sections"><a href="/observe">Observe a consumer service</a><span aria-hidden="true">·</span><a href="/settings">Studio settings</a><StudioThemePicker /></nav>
+    <nav class="vaw-studio-navigation" aria-label="Studio sections"><a href="/observe">Observe a consumer service</a><span aria-hidden="true">·</span><a href="/settings">Studio settings</a><span aria-hidden="true">·</span><a href="/mcp">MCP library</a><span aria-hidden="true">·</span><a href="/skills">Skill library</a><StudioThemePicker /></nav>
     <WorkflowErrorBoundary>
         <ChildContent>
-            <WorkflowStudio Client="Client" Catalog="Catalog" ToolCatalog="Tools" AgentCatalog="Agents" />
+            <WorkflowStudio Client="Client" Catalog="Catalog" ToolCatalog="Tools" AgentCatalog="Agents" SkillLibrary="Skills" />
         </ChildContent>
         <ErrorContent>
             <section class="vaw-viewer" role="alert">

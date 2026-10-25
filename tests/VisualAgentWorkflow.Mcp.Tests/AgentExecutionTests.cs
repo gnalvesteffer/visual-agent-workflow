@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using Microsoft.Extensions.AI;
 using VisualAgentWorkflow.AgentFramework;
 using VisualAgentWorkflow.Blazor;
@@ -15,6 +16,37 @@ public class AgentExecutionTests
         var definition = PipelineEditing.ReplaceNode(PipelineTemplates.Create("uppercase"), "step-1",
             new(NodeTypes.Agent, "1.0.0", Agent: new("demo.scripted", "1.0.0", "Use only assigned tools.", [.. tools])));
         return WorkflowRevision.Create(definition, "test");
+    }
+
+    [Fact]
+    public async Task AgentReceivesAssignedSkillAndResolvedUserMessageInRecordedModelRequest()
+    {
+        var skill = WorkflowSkill.Create("arithmetic", "1", "Arithmetic", "Give one number.");
+        var baseline = Revision().Definition;
+        var node = baseline.Nodes["step-1"];
+        var definition = baseline with
+        {
+            SchemaVersion = "1.7",
+            Skills = ImmutableSortedDictionary<string, WorkflowSkill>.Empty.Add("arithmetic@1", skill),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty.Add("context", new("Context", "default")),
+            Nodes = baseline.Nodes.SetItem("step-1", node with { Agent = node.Agent! with
+            {
+                Skills = [new("arithmetic", "1", skill.ContentHash)],
+                UserMessage = new([new("literal", "Question: "), new("input", ""), new("literal", " / "), new("parameter", "context")])
+            } })
+        };
+        var events = new List<ExecutionEvent>();
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var executor = new AgentNodeExecutor([DeterministicDemoChatClient.Registration()], broker);
+        await new PipelineRunner(broker, executor).ExecuteWithParametersAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"),
+            "1+1?", new Dictionary<string, string> { ["context"] = "integer arithmetic" },
+            e => { events.Add(e); return ValueTask.CompletedTask; });
+        var request = Assert.Single(events, e => e.Kind == ExecutionEventKinds.ModelRequested);
+        Assert.Contains("Give one number.", request.Data);
+        using var recorded = JsonDocument.Parse(request.Data!);
+        var messageText = recorded.RootElement.GetProperty("messages")[0].GetProperty("content")[0].GetProperty("text").GetString();
+        Assert.Equal("Question: 1+1? / integer arithmetic", messageText);
+        Assert.Contains(events, e => e.Kind == ExecutionEventKinds.AgentStarted && e.Data!.Contains(skill.ContentHash, StringComparison.Ordinal));
     }
 
     [Fact]

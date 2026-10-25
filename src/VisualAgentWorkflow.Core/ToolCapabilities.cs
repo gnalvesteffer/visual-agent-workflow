@@ -11,7 +11,10 @@ public interface IToolBindingCatalog
 
 /// <summary>Constructed only by the trusted runtime, independent of browser request identity.</summary>
 public sealed record NodeInvocationContext(Guid RunId, WorkflowRevision Revision, string NodeId, Guid InvocationId,
-    Func<string, string?, ValueTask> Record);
+    Func<string, string?, ValueTask> Record)
+{
+    public IReadOnlyDictionary<string, string>? Parameters { get; init; }
+}
 
 public interface INodeToolScope : IAsyncDisposable
 {

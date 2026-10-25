@@ -1,0 +1,89 @@
+@page "/mcp"
+@rendermode InteractiveServer
+@inject StudioMcpLibrary Library
+
+<PageTitle>MCP library · Visual Agent Workflow</PageTitle>
+<main class="vaw-provider-settings">
+    <nav class="vaw-studio-navigation" aria-label="MCP library navigation"><a href="/">← Workflow designer</a><span>MCP library</span><StudioThemePicker /></nav>
+    <header class="vaw-settings-heading"><div><p class="vaw-settings-kicker">WORKFLOW STUDIO</p><h1>MCP library</h1>
+        <p class="vaw-settings-intro">Connect an operator-approved MCP endpoint, discover its text tools, and choose which are available for assignment to agents. Workflow files contain only logical tool IDs and pinned contracts.</p></div></header>
+    <section class="vaw-settings-section" aria-label="Configured MCP servers">
+        <h2>Configured servers</h2>
+        @if (Library.List().Count == 0) { <p>No servers configured yet. The built-in demo tools remain available.</p> }
+        @foreach (var server in Library.List())
+        {
+            <article class="vaw-provider-card" @key="server.Id">
+                <h3>@server.Name</h3><p><code>@server.Id</code> · @(string.IsNullOrEmpty(server.Folder) ? "Unfiled" : server.Folder)</p>
+                <p>@server.Endpoint · @server.EnabledTools.Count enabled tools</p>
+                <ul>@foreach (var tool in server.EnabledTools) { <li>@server.Id.@tool</li> }</ul>
+                <button type="button" @onclick="() => Edit(server)">Edit connection and tools</button>
+                <button type="button" class="vaw-danger-quiet" @onclick="() => Delete(server)">Delete server</button>
+            </article>
+        }
+    </section>
+    <section class="vaw-settings-section" aria-label="MCP server setup">
+        <h2>@(editing ? "Edit MCP server" : "Connect MCP server")</h2>
+        <p>Use a Streamable HTTP endpoint. HTTPS is required except for localhost. A bearer token, if supplied, stays encrypted in this Studio.</p>
+        <div class="vaw-provider-form">
+            <label>Server ID <input @bind="id" maxlength="64" disabled="@editing" placeholder="research" /></label>
+            <label>Display name <input @bind="name" maxlength="128" placeholder="Research tools" /></label>
+            <label>Folder <input @bind="folder" maxlength="256" placeholder="Research/Search" /></label>
+            <label class="vaw-provider-form-wide">MCP endpoint <input @bind="endpoint" type="url" placeholder="http://127.0.0.1:3000/mcp" /></label>
+            <label class="vaw-provider-form-wide">Bearer token <input @bind="token" type="password" autocomplete="new-password" placeholder="Optional; blank keeps the saved token when editing" /></label>
+            <button type="button" @onclick="Discover" disabled="@busy">@(busy ? "Discovering…" : "Discover text tools")</button>
+            @if (discovered.Count > 0)
+            {
+                <fieldset class="vaw-provider-form-wide"><legend>Enable tools for this Studio</legend>
+                    <p>Review each server tool before enabling it. Agents must separately request it in their node settings.</p>
+                    @foreach (var tool in discovered)
+                    { <label><input type="checkbox" checked="@selected.Contains(tool.Name)" @onchange="args => Select(tool.Name, args)" />@tool.Name · @tool.ContractHash[..8]</label> }
+                </fieldset>
+            }
+            <button type="button" class="vaw-primary" @onclick="Save" disabled="@(busy || discovered.Count == 0)">Save server and selected tools</button>
+            @if (editing) { <button type="button" @onclick="Reset">Cancel edit</button> }
+        </div>
+        @if (message is not null) { <p role="status">@message</p> }
+        @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
+    </section>
+</main>
+
+@code {
+    private string id = "";
+    private string name = "";
+    private string folder = "";
+    private string endpoint = "";
+    private string token = "";
+    private bool editing;
+    private bool busy;
+    private string? error;
+    private string? message;
+    private IReadOnlyList<StudioMcpToolView> discovered = [];
+    private HashSet<string> selected = new(StringComparer.Ordinal);
+
+    private async Task Discover()
+    {
+        busy = true; error = null; message = null;
+        try
+        {
+            discovered = await Library.DiscoverAsync(endpoint.Trim(), token, id.Trim());
+            selected.IntersectWith(discovered.Select(tool => tool.Name));
+            message = $"Found {discovered.Count} supported text tools. Select the tools this Studio may offer.";
+        }
+        catch (ArgumentException exception) { error = exception.Message; discovered = []; }
+        catch (Exception) { error = "Could not connect or discover supported tools. Check the endpoint, token and server logs."; discovered = []; }
+        finally { busy = false; }
+    }
+    private void Select(string tool, ChangeEventArgs args)
+    { if (args.Value is true) selected.Add(tool); else selected.Remove(tool); }
+    private void Save()
+    {
+        try { Library.Save(id.Trim(), name.Trim(), folder.Trim(), endpoint.Trim(), token, selected.ToArray()); Reset(); message = "MCP server saved. Refresh tools in the designer to assign them."; error = null; }
+        catch (ArgumentException exception) { error = exception.Message; }
+    }
+    private void Edit(StudioMcpServerView server)
+    { id = server.Id; name = server.Name; folder = server.Folder; endpoint = server.Endpoint; token = ""; selected = server.EnabledTools.ToHashSet(StringComparer.Ordinal); discovered = []; editing = true; message = "Rediscover tools before saving this connection."; }
+    private void Delete(StudioMcpServerView server)
+    { Library.Delete(server.Id); if (id == server.Id) Reset(); message = "Server removed. Existing workflow bindings now require a compatible host registration."; }
+    private void Reset()
+    { id = ""; name = ""; folder = ""; endpoint = ""; token = ""; selected.Clear(); discovered = []; editing = false; }
+}

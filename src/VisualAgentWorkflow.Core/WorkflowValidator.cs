@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace VisualAgentWorkflow.Core;
 
@@ -12,8 +14,8 @@ public static class WorkflowValidator
         var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
 
-        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6"))
-            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.6.");
+        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7"))
+            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.7.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.Nodes is null || definition.Connections is null)
@@ -21,20 +23,32 @@ public static class WorkflowValidator
             Error("graph.missing", "nodes", "Nodes and connections must be present.");
             return issues.ToImmutable();
         }
-        if (definition.Nodes.Count is < 2 or > 256 || definition.Connections.Count > (definition.SchemaVersion is "1.4" or "1.5" or "1.6" ? 510 : 255))
-            Error("graph.limit", "nodes", "A graph requires 2–256 nodes and at most 255 connections (510 for schemas 1.4–1.6).");
+        if (definition.Nodes.Count is < 2 or > 256 || definition.Connections.Count > (definition.SchemaVersion is "1.4" or "1.5" or "1.6" or "1.7" ? 510 : 255))
+            Error("graph.limit", "nodes", "A graph requires 2–256 nodes and at most 255 connections (510 for schemas 1.4–1.7).");
 
         var parameters = definition.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
         if (parameters.Count > 64)
             Error("parameters.limit", "parameters", "A workflow can define at most 64 parameters.");
-        if (definition.Parameters is { Count: > 0 } && definition.SchemaVersion != "1.6")
-            Error("parameters.schema", "parameters", "Workflow parameters require schema 1.6.");
+        if (definition.Parameters is { Count: > 0 } && definition.SchemaVersion is not ("1.6" or "1.7"))
+            Error("parameters.schema", "parameters", "Workflow parameters require schema 1.6 or later.");
         foreach (var (id, parameter) in parameters)
             if (!ValidParameterId(id) || parameter is null || string.IsNullOrWhiteSpace(parameter.DisplayName) ||
                 parameter.DisplayName.Length > 128 || parameter.DefaultValue is null || parameter.DefaultValue.Length > 16_384)
                 Error("parameter.definition", $"parameters.{id}", "Parameters require a safe ID, display name up to 128 characters, and a string default up to 16,384 characters.");
         if (parameters.Sum(parameter => (long)parameter.Key.Length + (parameter.Value?.DisplayName.Length ?? 0) + (parameter.Value?.DefaultValue.Length ?? 0)) > 128_000)
             Error("parameters.size", "parameters", "Combined parameter IDs, display names, and defaults must not exceed 128,000 characters.");
+        var skills = definition.Skills ?? ImmutableSortedDictionary<string, WorkflowSkill>.Empty;
+        if (skills.Count > 32 || skills.Values.Sum(skill => (long)(skill?.Instructions?.Length ?? 0)) > 65_536)
+            Error("skills.limit", "skills", "A workflow can include at most 32 skills and 65,536 instruction characters.");
+        if (skills.Count > 0 && definition.SchemaVersion != "1.7")
+            Error("skills.schema", "skills", "Portable skills require schema 1.7.");
+        foreach (var (key, skill) in skills)
+            if (skill is null || key != skill.Id + "@" + skill.Version || !ValidParameterId(skill.Id) ||
+                string.IsNullOrWhiteSpace(skill.Version) || skill.Version.Length > 64 ||
+                string.IsNullOrWhiteSpace(skill.Name) || skill.Name.Length > 128 ||
+                string.IsNullOrWhiteSpace(skill.Instructions) || skill.Instructions.Length > 8192 ||
+                !string.Equals(skill.ContentHash, Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(skill.Instructions))), StringComparison.Ordinal))
+                Error("skill.definition", $"skills.{key}", "A skill needs a valid identity, bounded text and matching content hash.");
 
         var incoming = definition.Nodes.Keys.ToDictionary(id => id, _ => 0);
         var outgoing = definition.Nodes.Keys.ToDictionary(id => id, _ => new List<string>());
@@ -44,11 +58,11 @@ public static class WorkflowValidator
             if (node is null || !NodeTypes.IsSupported(node.Type) || node.TypeVersion != "1.0.0")
                 Error("node.unsupported", $"nodes.{id}", "Unknown node type or implementation version.");
             if (node is null) continue;
-            if (node.Type is NodeTypes.Condition or NodeTypes.Merge && definition.SchemaVersion is not ("1.4" or "1.5" or "1.6"))
+            if (node.Type is NodeTypes.Condition or NodeTypes.Merge && definition.SchemaVersion is not ("1.4" or "1.5" or "1.6" or "1.7"))
                 Error("node.schema", $"nodes.{id}", "Conditional and merge nodes require schema 1.4.");
             if (node.Type == NodeTypes.WorkflowValue)
             {
-                if (definition.SchemaVersion != "1.6") Error("node.schema", $"nodes.{id}", "Workflow value nodes require schema 1.6.");
+                if (definition.SchemaVersion is not ("1.6" or "1.7")) Error("node.schema", $"nodes.{id}", "Workflow value nodes require schema 1.6 or later.");
                 if (node.ParameterId is not { } parameterId || !parameters.ContainsKey(parameterId))
                     Error("parameter.reference", $"nodes.{id}.parameterId", "Select a parameter defined by this workflow.");
             }
@@ -56,7 +70,7 @@ public static class WorkflowValidator
                 Error("parameter.unexpected", $"nodes.{id}.parameterId", "Only workflow value nodes may reference a parameter.");
             if (node.Type == NodeTypes.Approval)
             {
-                if (definition.SchemaVersion is not ("1.5" or "1.6")) Error("node.schema", $"nodes.{id}", "Approval nodes require schema 1.5 or later.");
+                if (definition.SchemaVersion is not ("1.5" or "1.6" or "1.7")) Error("node.schema", $"nodes.{id}", "Approval nodes require schema 1.5 or later.");
                 if (node.Approval is not { } approval || string.IsNullOrWhiteSpace(approval.Prompt) || approval.Prompt.Length > 2000)
                     Error("approval.configuration", $"nodes.{id}.approval", "An approval prompt of 1–2000 characters is required.");
                 var targets = definition.Connections.Values.Where(e => e?.Source?.NodeId == id).ToArray();
@@ -74,7 +88,7 @@ public static class WorkflowValidator
             }
             else if (node.Condition is not null)
                 Error("condition.unexpected", $"nodes.{id}.condition", "Only conditional nodes may declare a predicate.");
-            if (node.Origin is { } origin && (definition.SchemaVersion is not ("1.3" or "1.4" or "1.5" or "1.6") ||
+            if (node.Origin is { } origin && (definition.SchemaVersion is not ("1.3" or "1.4" or "1.5" or "1.6" or "1.7") ||
                 string.IsNullOrWhiteSpace(origin.WorkflowId) || origin.WorkflowId.Length > 256 ||
                 string.IsNullOrWhiteSpace(origin.NodeId) || origin.NodeId.Length > 256 || origin.RevisionId == Guid.Empty ||
                 origin.Version < 1 || !ValidHash(origin.ContentHash)))
@@ -90,12 +104,30 @@ public static class WorkflowValidator
                 Error("tool.unexpected", $"nodes.{id}.tool", "This node type cannot declare an MCP tool.");
             if (node.Type == NodeTypes.Agent)
             {
-                if (definition.SchemaVersion is not ("1.2" or "1.3" or "1.4" or "1.5" or "1.6")) Error("node.schema", $"nodes.{id}", "Agent nodes require schema 1.2 or later.");
+                if (definition.SchemaVersion is not ("1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7")) Error("node.schema", $"nodes.{id}", "Agent nodes require schema 1.2 or later.");
                 if (node.Agent is not { } agent || string.IsNullOrWhiteSpace(agent.ProviderId) || agent.ProviderId.Length > 128 ||
                     string.IsNullOrWhiteSpace(agent.ProviderVersion) || agent.ProviderVersion.Length > 64 ||
                     agent.Instructions is null || agent.Instructions.Length > 8192 || agent.Tools.IsDefault || agent.Tools.Length > 8 ||
                     agent.Tools.Any(t => t is null || !ValidBinding(t)) || agent.Tools.Select(t => t.BindingId).Distinct(StringComparer.Ordinal).Count() != agent.Tools.Length)
                     Error("agent.configuration", $"nodes.{id}.agent", "An agent requires a provider/version, bounded instructions, and up to eight unique tool requirements.");
+                if (node.Agent is { } configured)
+                {
+                    if (configured.UserMessage is { } template)
+                    {
+                        if (definition.SchemaVersion != "1.7" || template.Parts.IsDefault || template.Parts.Length is < 1 or > 64 ||
+                            template.Parts.Any(part => part is null || part.Value is null || part.Value.Length > 8192 ||
+                                part.Kind is not ("literal" or "input" or "parameter") ||
+                                part.Kind == "parameter" && !parameters.ContainsKey(part.Value)))
+                            Error("agent.prompt", $"nodes.{id}.agent.userMessage", "Use up to 64 literal, input or declared-parameter prompt parts in schema 1.7.");
+                    }
+                    if (configured.Skills is { } references)
+                    {
+                        if (definition.SchemaVersion != "1.7" || references.IsDefault || references.Length > 8 ||
+                            references.Distinct().Count() != references.Length || references.Any(reference => reference is null ||
+                                !skills.TryGetValue(reference.Id + "@" + reference.Version, out var skill) || skill.ContentHash != reference.ContentHash))
+                            Error("agent.skills", $"nodes.{id}.agent.skills", "Each assigned skill must match an embedded immutable revision.");
+                    }
+                }
             }
             else if (node.Agent is not null)
                 Error("agent.unexpected", $"nodes.{id}.agent", "Only agent nodes may declare agent configuration.");
@@ -127,7 +159,7 @@ public static class WorkflowValidator
         foreach (var (id, node) in definition.Nodes)
         {
             if (node is null) continue;
-            if (definition.SchemaVersion is "1.4" or "1.5" or "1.6")
+            if (definition.SchemaVersion is "1.4" or "1.5" or "1.6" or "1.7")
             {
                 var validIncoming = node.Type == NodeTypes.Input ? incoming[id] == 0 : node.Type == NodeTypes.Merge
                     ? incoming[id] is >= 2 and <= 16 : incoming[id] == 1;

@@ -11,7 +11,7 @@ public static class WorkflowParameterEditing
         if (parameters.ContainsKey(id)) throw new ArgumentException("A parameter with this ID already exists.", nameof(id));
         return Checked(definition with
         {
-            SchemaVersion = "1.6",
+            SchemaVersion = definition.SchemaVersion == "1.7" ? "1.7" : "1.6",
             Parameters = parameters.Add(id, new(displayName, defaultValue))
         });
     }
@@ -20,7 +20,7 @@ public static class WorkflowParameterEditing
     {
         var parameters = definition.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
         if (!parameters.ContainsKey(id)) throw new ArgumentException("The parameter does not exist.", nameof(id));
-        return Checked(definition with { SchemaVersion = "1.6", Parameters = parameters.SetItem(id, new(displayName, defaultValue)) });
+        return Checked(definition with { SchemaVersion = definition.SchemaVersion == "1.7" ? "1.7" : "1.6", Parameters = parameters.SetItem(id, new(displayName, defaultValue)) });
     }
 
     public static WorkflowDefinition Remove(WorkflowDefinition definition, string id)
@@ -29,7 +29,7 @@ public static class WorkflowParameterEditing
             throw new ArgumentException("Remove or reassign every workflow value node before deleting this parameter.", nameof(id));
         var parameters = definition.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
         if (!parameters.ContainsKey(id)) throw new ArgumentException("The parameter does not exist.", nameof(id));
-        return Checked(definition with { SchemaVersion = "1.6", Parameters = parameters.Remove(id) });
+        return Checked(definition with { SchemaVersion = definition.SchemaVersion == "1.7" ? "1.7" : "1.6", Parameters = parameters.Remove(id) });
     }
 
     public static WorkflowDefinition BindNode(WorkflowDefinition definition, string nodeId, string parameterId)
@@ -38,7 +38,7 @@ public static class WorkflowParameterEditing
             throw new ArgumentException("The parameter does not exist.", nameof(parameterId));
         var node = definition.Nodes.TryGetValue(nodeId, out var value) ? value : throw new ArgumentException("The node does not exist.", nameof(nodeId));
         if (node.Type != NodeTypes.WorkflowValue) throw new ArgumentException("Only workflow value nodes can reference a parameter.", nameof(nodeId));
-        return Checked(definition with { SchemaVersion = "1.6", Nodes = definition.Nodes.SetItem(nodeId, node with { ParameterId = parameterId }) });
+        return Checked(definition with { SchemaVersion = definition.SchemaVersion == "1.7" ? "1.7" : "1.6", Nodes = definition.Nodes.SetItem(nodeId, node with { ParameterId = parameterId }) });
     }
 
     private static WorkflowDefinition Checked(WorkflowDefinition definition)

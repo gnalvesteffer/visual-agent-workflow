@@ -1,0 +1,63 @@
+@page "/skills"
+@rendermode InteractiveServer
+@inject StudioSkillLibrary Library
+
+<PageTitle>Skill library · Visual Agent Workflow</PageTitle>
+<main class="vaw-provider-settings">
+    <nav class="vaw-studio-navigation" aria-label="Skill library navigation"><a href="/">← Workflow designer</a><span>Skill library</span><StudioThemePicker /></nav>
+    <header class="vaw-settings-heading"><div><p class="vaw-settings-kicker">WORKFLOW STUDIO</p><h1>Skill library</h1>
+        <p class="vaw-settings-intro">Create text-only, versioned skills. Assign exact revisions to agents in the graph. A published workflow carries its assigned skill text.</p></div></header>
+    <section class="vaw-settings-section" aria-label="Saved skills">
+        <h2>Saved skills</h2>
+        @if (Library.List().Count == 0) { <p>No skills yet. Create one below.</p> }
+        @foreach (var item in Library.List())
+        {
+            <article class="vaw-provider-card" @key="(item.Skill.Id,item.Skill.Version)">
+                <h3>@item.Skill.Name <small>@item.Skill.Version</small></h3>
+                <p><code>@item.Skill.Id</code> · @(string.IsNullOrWhiteSpace(item.Folder) ? "Unfiled" : item.Folder) · @item.Skill.ContentHash[..8]</p>
+                <details><summary>View instructions</summary><pre>@item.Skill.Instructions</pre></details>
+                <label>Folder <input aria-label="Folder for @item.Skill.Id @item.Skill.Version" value="@item.Folder" @onchange="args => Move(item, args)" /></label>
+                <button type="button" @onclick="() => Copy(item)">New version from this skill</button>
+                <button type="button" class="vaw-danger-quiet" @onclick="() => Delete(item)">Delete from library</button>
+            </article>
+        }
+    </section>
+    <section class="vaw-settings-section" aria-label="Create skill">
+        <h2>Create skill revision</h2>
+        <p>Editing instructions creates a new version. Existing workflow publications keep their embedded copy.</p>
+        <form class="vaw-provider-form" @onsubmit="Save" @onsubmit:preventDefault>
+            <label>Skill ID <input required @bind="id" maxlength="64" /></label>
+            <label>Version <input required @bind="version" maxlength="64" /></label>
+            <label>Name <input required @bind="name" maxlength="128" /></label>
+            <label>Folder <input @bind="folder" maxlength="256" placeholder="Research/Review" /></label>
+            <label class="vaw-provider-form-wide">Instructions <textarea required @bind="instructions" maxlength="8192" rows="8"></textarea></label>
+            <button type="submit" class="vaw-primary">Save skill version</button>
+        </form>
+        @if (message is not null) { <p role="status">@message</p> }
+        @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
+    </section>
+</main>
+
+@code {
+    private string id = "";
+    private string version = "1.0.0";
+    private string name = "";
+    private string folder = "";
+    private string instructions = "";
+    private string? message;
+    private string? error;
+    private void Save()
+    {
+        try { Library.Add(id.Trim(), version.Trim(), name.Trim(), instructions, folder.Trim()); message = "Skill revision saved."; error = null; }
+        catch (ArgumentException exception) { error = exception.Message; message = null; }
+    }
+    private void Copy(SkillLibraryItem item)
+    { id = item.Skill.Id; version = item.Skill.Version + ".1"; name = item.Skill.Name; instructions = item.Skill.Instructions; folder = item.Folder; message = "Edit the copied instructions and save a new version."; }
+    private void Move(SkillLibraryItem item, ChangeEventArgs args)
+    {
+        try { Library.Move(item.Skill.Id, item.Skill.Version, args.Value?.ToString() ?? ""); error = null; }
+        catch (ArgumentException exception) { error = exception.Message; }
+    }
+    private void Delete(SkillLibraryItem item)
+    { Library.Delete(item.Skill.Id, item.Skill.Version); message = "Removed from library. Published workflows keep their embedded revision."; }
+}

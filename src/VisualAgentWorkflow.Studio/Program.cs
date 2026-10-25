@@ -28,7 +28,14 @@ builder.Services.AddRazorComponents().AddInteractiveServerComponents()
     // Bound JSON editing can duplicate field text in a Blazor event. Keep transport bounded
     // while permitting the 1 MiB definition import limit; domain validation remains stricter.
     .AddHubOptions(options => options.MaximumReceiveMessageSize = 8 * 1024 * 1024);
-builder.Services.AddSingleton<INodeToolBroker>(new McpToolBroker(DemoMcpServer.ForCurrentExecutable(), new DemoToolPolicy()));
+var builtInTools = DemoMcpServer.ForCurrentExecutable();
+var studioToolPolicy = new StudioToolPolicy();
+builder.Services.AddSingleton(studioToolPolicy);
+builder.Services.AddSingleton(new McpToolBroker(builtInTools, studioToolPolicy));
+builder.Services.AddSingleton<StudioMcpLibrary>(services => new StudioMcpLibrary(studioDataDirectory,
+    services.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>(),
+    services.GetRequiredService<McpToolBroker>(), studioToolPolicy, builtInTools));
+builder.Services.AddSingleton<INodeToolBroker>(services => { _ = services.GetRequiredService<StudioMcpLibrary>(); return services.GetRequiredService<McpToolBroker>(); });
 builder.Services.AddSingleton<IToolBindingCatalog>(services => services.GetRequiredService<INodeToolBroker>());
 var agentProviders = new[] { DeterministicDemoChatClient.Registration() }
     .Concat(OpenAIProviders.FromConfiguration(builder.Configuration.GetSection("WorkflowAgents:OpenAI"))).ToArray();
@@ -38,6 +45,8 @@ builder.Services.AddSingleton<StudioModelProviderStore>(services => new StudioMo
     services.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>(), services.GetRequiredService<AgentNodeExecutor>(),
     services.GetRequiredService<INodeToolBroker>(), agentProviders));
 builder.Services.AddSingleton<IAgentProviderCatalog>(services => { _ = services.GetRequiredService<StudioModelProviderStore>(); return services.GetRequiredService<IAgentNodeExecutor>(); });
+builder.Services.AddSingleton(new StudioSkillLibrary(studioDataDirectory));
+builder.Services.AddSingleton<ISkillLibrary>(services => services.GetRequiredService<StudioSkillLibrary>());
 var runStoreKind = builder.Configuration["WorkflowStudio:RunStore"] ?? "file";
 if (runStoreKind == "sqlite")
     builder.Services.AddSingleton<IWorkflowRunStore>(_ => new SqliteWorkflowRunStore(Path.Combine(studioDataDirectory, "runs.sqlite3")));

@@ -7,11 +7,14 @@ namespace VisualAgentWorkflow.Mcp;
 
 /// <summary>Trusted host registration, never deserialized from a workflow.</summary>
 public sealed record McpToolRegistration(string BindingId, string DisplayName, string ServerId, string ToolName,
-    Func<CancellationToken, Task<McpClient>> Connect, bool ReadOnly = false);
+    Func<CancellationToken, Task<McpClient>> Connect, bool ReadOnly = false)
+{
+    public bool AllowInvocation { get; init; }
+}
 
 public sealed class McpToolBroker : INodeToolBroker
 {
-    private readonly IReadOnlyDictionary<string, McpToolRegistration> registrations;
+    private IReadOnlyDictionary<string, McpToolRegistration> registrations;
     private readonly IToolAuthorizationPolicy policy;
     private readonly TimeSpan timeout;
 
@@ -23,10 +26,14 @@ public sealed class McpToolBroker : INodeToolBroker
         if (this.timeout <= TimeSpan.Zero || this.timeout > TimeSpan.FromMinutes(1)) throw new ArgumentOutOfRangeException(nameof(timeout));
     }
 
+    /// <summary>Atomically replaces host-approved registrations. Active scopes recheck each dispatch.</summary>
+    public void ReplaceRegistrations(IEnumerable<McpToolRegistration> updated) =>
+        Volatile.Write(ref registrations, updated.ToDictionary(registration => registration.BindingId, StringComparer.Ordinal));
+
     public async Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default)
     {
         var results = new List<ToolBindingDescriptor>();
-        foreach (var registration in registrations.Values.Where(r => r.ReadOnly))
+        foreach (var registration in Volatile.Read(ref registrations).Values.Where(r => r.ReadOnly || r.AllowInvocation))
         {
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             deadline.CancelAfter(timeout);
@@ -68,7 +75,7 @@ public sealed class McpToolBroker : INodeToolBroker
         private int calls;
 
         private bool Allowed(string bindingId) => requested.Any(r => r.BindingId == bindingId) &&
-            owner.registrations.TryGetValue(bindingId, out var registration) && registration.ReadOnly &&
+            Volatile.Read(ref owner.registrations).TryGetValue(bindingId, out var registration) && (registration.ReadOnly || registration.AllowInvocation) &&
             owner.policy.IsAllowed(invocation.Revision, invocation.NodeId, bindingId);
 
         public async Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default)
@@ -77,7 +84,8 @@ public sealed class McpToolBroker : INodeToolBroker
             var results = new List<ToolBindingDescriptor>();
             foreach (var requirement in requested.Where(r => Allowed(r.BindingId)))
             {
-                var registration = owner.registrations[requirement.BindingId];
+                if (!Volatile.Read(ref owner.registrations).TryGetValue(requirement.BindingId, out var registration))
+                    throw new ToolAccessDeniedException();
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 deadline.CancelAfter(owner.timeout);
                 await using var client = await registration.Connect(deadline.Token);
@@ -105,7 +113,8 @@ public sealed class McpToolBroker : INodeToolBroker
                 await Record(ExecutionEventKinds.ToolDenied, new { toolCallId, bindingId, reason = "Invocation budget exceeded." });
                 throw new ToolInvocationException("Tool invocation budget exceeded.");
             }
-            var registration = owner.registrations[bindingId];
+            if (!Volatile.Read(ref owner.registrations).TryGetValue(bindingId, out var registration))
+                throw new ToolAccessDeniedException();
             var requirement = requested.Single(r => r.BindingId == bindingId);
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             deadline.CancelAfter(owner.timeout);
