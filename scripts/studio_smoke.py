@@ -225,11 +225,46 @@ def browser_check(executable):
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), "Mobile horizontal overflow"
             assert not errors, errors
             print("Browser run controls, output inspector, playback, reload, and mobile overflow checks passed.")
+            project_workspace_check(browser)
             designer_check(browser)
             mcp_designer_check(browser)
             agent_designer_check(browser)
         finally:
             browser.close()
+
+
+def project_workspace_check(browser):
+    from playwright.sync_api import expect
+
+    page = browser.new_page(viewport={"width": 1280, "height": 1000})
+    page_name = "Smoke project " + uuid.uuid4().hex[:8]
+    page.goto(BASE + "/projects")
+    page.wait_for_timeout(1500)  # Allow the interactive-server circuit to attach before form events.
+    page.get_by_label("Project name", exact=True).fill(page_name)
+    page.get_by_role("button", name="Create project", exact=True).click()
+    expect(page.get_by_text(f"Created {page_name}.", exact=True)).to_be_visible()
+
+    project_card = page.locator("article.vaw-provider-card").filter(has_text=page_name)
+    project_url = project_card.get_by_role("link", name="Open project", exact=True).get_attribute("href")
+    project_card.get_by_role("link", name="Open project", exact=True).click()
+    page.wait_for_url("**" + project_url)
+    page.wait_for_timeout(1500)
+    expect(page.locator('nav[aria-label="Project and Studio navigation"]')).to_contain_text(page_name)
+
+    page.goto(BASE + project_url + "/skills")
+    page.wait_for_timeout(1500)
+    page.get_by_label("Skill ID", exact=True).fill("smoke-project-skill")
+    page.get_by_label("Version", exact=True).fill("1.0.0")
+    page.get_by_label("Name", exact=True).fill("Project-only skill")
+    page.get_by_label("Instructions", exact=True).fill("This skill belongs to one local project.")
+    page.get_by_role("button", name="Save skill version", exact=True).click()
+    expect(page.get_by_text("Skill revision saved.", exact=True)).to_be_visible()
+
+    page.goto(BASE + "/projects/default/skills")
+    page.wait_for_timeout(1500)
+    expect(page.locator("main")).not_to_contain_text("Project-only skill")
+    page.close()
+    print("Browser project creation, selection, and project-scoped skill isolation passed.")
 
 
 def designer_check(browser):

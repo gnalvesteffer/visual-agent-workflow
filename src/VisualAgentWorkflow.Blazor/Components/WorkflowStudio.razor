@@ -62,7 +62,7 @@
             <div hidden="@(workspaceView != "designer")">
             @if (Catalog is not null && Client is IPublishedWorkflowClient publishedClient)
             {
-                <WorkflowDesigner @key="(Catalog, publishedClient)" Catalog="Catalog" Client="publishedClient" OnRunStarted="PublishedCallback(publishedClient)" ToolCatalog="ToolCatalog" AgentCatalog="AgentCatalog" SkillLibrary="SkillLibrary" AgentProfileLibrary="AgentProfileLibrary" FunctionCatalog="FunctionCatalog" />
+                <WorkflowDesigner @key="(Catalog, publishedClient)" ProjectId="ProjectId" Catalog="Catalog" Client="publishedClient" OnRunStarted="PublishedCallback(publishedClient)" ToolCatalog="ToolCatalog" AgentCatalog="AgentCatalog" SkillLibrary="SkillLibrary" AgentProfileLibrary="AgentProfileLibrary" FunctionCatalog="FunctionCatalog" />
             }
             </div>
             <div hidden="@(workspaceView != "run")">

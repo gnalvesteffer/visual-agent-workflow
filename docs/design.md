@@ -269,7 +269,7 @@ Pin node implementation versions, configuration schemas, skills, prefabs, and ex
 
 Promote the same immutable release across environments using separately authorized environment bindings. Record relevant resolved binding metadata for each run without copying credentials into definitions or logs.
 
-## Sharing, collaboration, and source control
+## Projects and Git-based source control
 
 Organize authoring like a Visual Studio solution with an Unreal-style asset navigator: a workspace contains projects, and each project groups its workflows, graph/function assets, agent presets, skills, and workflow-specific parameter schemas. The project browser and asset tree provide navigation and organization; the Blueprint-style graph editor remains the primary surface for composing execution and data flow.
 
@@ -277,11 +277,11 @@ Project ownership is catalog metadata, not executable authority. A project may r
 
 Workflow parameters remain declared workflow inputs/defaults and per-run values; do not imply mutable project-global variables. Define mutable Set/Get semantics only after ordering, loops, parallel writes, isolation and run evidence are specified.
 
-Enforce roles such as viewer, editor, runner, publisher, and administrator through a host-selected authorization context. Workflow-definition access and execution-payload access may require different permissions. Do not trust a caller-supplied project ID without resolving it against the authenticated actor's workspace membership.
+Studio is designed first for one local operator. Do not add multi-user editing, presence, or project roles as a prerequisite for project organization. A separately hosted consumer may enforce its own identity and authorization policy around workflow access and run payloads; never treat a project ID as an authenticated identity or permission grant.
 
 ```mermaid
 flowchart TB
-    Actor["Authenticated actor"] --> Workspace["Authorized workspace"]
+    Author["Local author"] --> Workspace["Local workspace"]
     Workspace --> Project["Project: authoring and asset ownership"]
     Project --> Workflows["Workflow and graph revisions"]
     Project --> Reusable["Functions, agent presets and skills"]
@@ -295,15 +295,11 @@ flowchart TB
 
 Keep project membership separate from runtime authority. Published workflow snapshots and packages remain self-contained for portable behavior and requirements; a consumer host resolves environment references and supplies grants. A project bundle is an authoring/sharing artifact, not a deployment credential bundle.
 
-Introduce projects in stages: first define the host authorization/ownership contracts and deterministic default workspace/project; then migrate catalog records and APIs without changing workflow/revision identities, hashes, audit, layout, generation or active pointers; next scope Studio navigation and asset catalogs; finally define project bundle import/export, explicit environment remapping, cross-project pinned references/forks, and collaboration. Archive projects rather than deleting data that published runs and playback still reference. Keep stable globally unique asset IDs unless a demonstrated collision requirement justifies changing executable references.
+Introduce projects in stages: establish the deterministic default project; migrate catalog records and APIs without changing workflow/revision identities, hashes, audit, layout, generation or active pointers; scope Studio navigation and asset catalogs; then define a Git-friendly project snapshot and explicit environment remapping. Archive projects rather than deleting data that published runs and playback still reference. Keep stable globally unique asset IDs unless a demonstrated collision requirement justifies changing executable references.
 
 Sharing supports pinned references to catalog assets and independent copies/forks with provenance. Export bundles include dependency manifests, never credentials. Imports validate content and require explicit mapping to authorized local capabilities. Imported extension references must not trigger automatic assembly installation or loading.
 
-Start collaborative drafts with optimistic concurrency and explicit conflicts; never silently overwrite another editor's changes. Later add presence, selections, comments, and real-time operations using a server-authoritative log. Define conflicts such as deletion versus connection creation. Undo should reverse the user's operations without reverting others' changes.
-
-Support branching, visual comparison, and semantic merging. Compatible changes may merge automatically; conflicting port, configuration, or dependency changes require resolution and revalidation.
-
-Design serialization for Git from the beginning. Git commits capture deliberate reviewable snapshots, while collaboration operations capture editing activity. Do not commit every drag operation. A future integration should validate definitions/dependencies in CI and explicitly define import/export ownership and conflict behavior rather than allowing two silent sources of truth.
+Use Git as the source-control and sharing mechanism for project snapshots; do not build simultaneous editing into Studio. Store workflows and project-owned assets as stable, reviewable, versioned files with IDs and content hashes. Avoid committing every canvas gesture: persist layout with the graph and let Git commits capture deliberate snapshots. Validate files and dependencies in CI. When two branches change the same semantic asset, let Git report the textual conflict and require an explicit Studio import/validation step; never silently choose a definition or merge behavior that can change execution.
 
 ## Serialization
 

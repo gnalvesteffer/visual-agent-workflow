@@ -1,0 +1,70 @@
+@page "/projects"
+@rendermode InteractiveServer
+@inject StudioProjectStore ProjectStore
+
+<PageTitle>Projects · Visual Agent Workflow</PageTitle>
+<main class="vaw-provider-settings">
+    <nav class="vaw-studio-navigation" aria-label="Studio navigation">
+        <a href="/projects/default">Open default project</a><a href="/mcp">MCP environment</a><a href="/settings">Model environment</a><StudioThemePicker />
+    </nav>
+    <header class="vaw-settings-heading">
+        <div><p class="vaw-settings-kicker">WORKFLOW STUDIO</p><h1>Projects</h1>
+            <p class="vaw-settings-intro">Keep workflows and reusable authoring assets organized by project. Projects do not contain model credentials, MCP endpoints, or host permissions.</p></div>
+    </header>
+    <section class="vaw-settings-section" aria-label="Create project">
+        <h2>Create a project</h2>
+        <form class="vaw-project-create" @onsubmit="Create" @onsubmit:preventDefault>
+            <label>Project name <input @bind="name" maxlength="80" required /></label>
+            <button type="submit" class="vaw-primary">Create project</button>
+        </form>
+        @if (message is not null) { <p role="status">@message</p> }
+        @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
+    </section>
+    <section class="vaw-settings-section" aria-label="Your projects">
+        <h2>Your projects</h2>
+        @foreach (var project in ProjectStore.List())
+        {
+            <article class="vaw-provider-card" @key="project.Id">
+                <h3>@project.Name @if (project.IsArchived) { <small>Archived</small> }</h3>
+                <p>Created @project.CreatedAt.ToLocalTime().ToString("g")</p>
+                @if (!project.IsArchived)
+                {
+                    <a class="vaw-button-link" href="/projects/@project.Id">Open project</a>
+                    @if (project.Id != StudioProjectStore.DefaultProjectId)
+                    {
+                        <button type="button" class="vaw-danger-quiet" @onclick="() => SetArchived(project, true)">Archive project</button>
+                    }
+                }
+                else
+                {
+                    <button type="button" @onclick="() => SetArchived(project, false)">Restore project</button>
+                }
+            </article>
+        }
+    </section>
+</main>
+
+@code {
+    private string name = "";
+    private string? message;
+    private string? error;
+
+    private void Create()
+    {
+        try
+        {
+            var project = ProjectStore.Create(name);
+            name = "";
+            message = $"Created {project.Name}.";
+            error = null;
+        }
+        catch (ArgumentException exception) { error = exception.Message; message = null; }
+    }
+
+    private void SetArchived(StudioProject project, bool archived)
+    {
+        ProjectStore.SetArchived(project.Id, archived);
+        message = archived ? $"Archived {project.Name}. Its data is retained." : $"Restored {project.Name}.";
+        error = null;
+    }
+}

@@ -2,9 +2,9 @@
 
 The engine and designer are independently consumable libraries; Studio is their optional IDE and development composition. User-owned service hosting is a first-class product goal, with direct execution APIs and a local hosting helper already available; a production SDK and stable package distribution remain planned. See [service integration](service-integration.md).
 
-The Studio is a .NET 10 Interactive Server development host that composes embeddable Blazor components, a SQLite workflow catalog, a background run queue, Microsoft Agent Framework adapters, and a node-scoped MCP broker. Execution belongs to the backend. A browser edits definitions and observes recorded evidence; closing it does not cancel a run.
+The Studio is a .NET 10 Interactive Server development host that composes embeddable Blazor components, local project-scoped authoring catalogs, a background run queue, Microsoft Agent Framework adapters, and a node-scoped MCP broker. Execution belongs to the backend. A browser edits definitions and observes recorded evidence; closing it does not cancel a run. Studio project workspaces are single-operator; Git is intended for source control and sharing serialized project snapshots, rather than simultaneous editing in Studio.
 
-This page describes shipped code. The broader [product design](design.md) includes planned distributed recovery, workspace/project catalogs and authorization, nested and unbounded parallelism, collaboration, extensions, and reusable assets. The current Studio still uses one local catalog/library scope; it does not provide projects or project-level permissions. Those are not implied by these diagrams.
+This page describes shipped code. The broader [product design](design.md) includes planned project bundles, Git-friendly project serialization, environment binding references, nested and unbounded parallelism, collaboration, extensions, and reusable assets. Studio project selection is local organization for one operator; it is not multi-user authorization, and project membership never grants runtime capabilities.
 
 ## Package boundaries
 
@@ -36,6 +36,10 @@ flowchart TB
 Definition serialization sorts ID-keyed maps and normalizes indented JSON line endings to LF before hashing, so content hashes remain stable across Windows and Unix.
 
 `IWorkflowDesignCatalog` extends the original catalog without breaking its methods. A design save writes definition, layout, generation, and audit entries in one SQLite transaction. A stale generation returns a conflict without overwriting either document. Publication captures an immutable definition/revision and layout; restoring copies a historical version into the draft. Activation selects which revision new runs use.
+
+Standalone Studio owns a local `projects.json` registry and a data directory for each active project. Each project has its own SQLite workflow catalog plus JSON skill, profile, and graph-function libraries. Workflow IDs and revisions remain unchanged within their migrated catalog. API routes under `/api/projects/{projectId}` and project-aware Studio routes select that catalog; unscoped workflow API routes continue to address the default project. The project identifier is a local selection key, not an authenticated principal or a security boundary. The project manager archives projects instead of deleting their files. The first access to the deterministic `default` project copies the legacy root catalog with SQLite backup and copies legacy skill/profile/function files if the destination does not already exist; the source files are retained. This migration is per-file and repeatable, not a cross-catalog transaction.
+
+Project-owned authoring assets are workflows, skills, agent profiles, and pure graph functions. Settings for model providers, MCP endpoints, protected credentials, broker registrations, and effective host grants remain global to the local Studio environment. Projects do not yet store environment binding manifests or narrow the process-wide MCP allowlist. Runtime history also remains in the host-level run store. This is a single-user local workflow; sharing projects through Git is not yet a supported source-controlled project format. Workflow package export remains the portable artifact. See [local project workspaces](project-workspaces.md) for migration and file layout.
 
 ```mermaid
 sequenceDiagram

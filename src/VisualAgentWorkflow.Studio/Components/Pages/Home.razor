@@ -1,20 +1,17 @@
 @page "/"
+@page "/projects/{ProjectId}"
 @rendermode InteractiveServer
-@inject IWorkflowClient Client
-@inject IWorkflowCatalog Catalog
 @inject IToolBindingCatalog Tools
 @inject IAgentProviderCatalog Agents
-@inject ISkillLibrary Skills
-@inject IAgentProfileLibrary AgentProfiles
-@inject IGraphFunctionCatalog Functions
+@inject StudioProjectWorkspace ProjectWorkspace
 @inject NavigationManager Navigation
 
 <PageTitle>Visual Agent Workflow</PageTitle>
 <main>
-    <nav class="vaw-studio-navigation" aria-label="Studio sections"><a href="/observe">Observe a consumer service</a><span aria-hidden="true">·</span><a href="/settings">Studio settings</a><span aria-hidden="true">·</span><a href="/mcp">MCP library</a><span aria-hidden="true">·</span><a href="/skills">Skill library</a><span aria-hidden="true">·</span><a href="/agents">Agent Designer</a><span aria-hidden="true">·</span><a href="/functions">Function library</a><StudioThemePicker /></nav>
+    <StudioProjectNavigation ProjectId="@ProjectWorkspace.CurrentProjectId" />
     <WorkflowErrorBoundary>
         <ChildContent>
-            <WorkflowStudio Client="Client" Catalog="Catalog" ToolCatalog="Tools" AgentCatalog="Agents" SkillLibrary="Skills" AgentProfileLibrary="AgentProfiles" FunctionCatalog="Functions" />
+            <WorkflowStudio @key="ProjectWorkspace.CurrentProjectId" ProjectId="ProjectWorkspace.CurrentProjectId" Client="ProjectWorkspace.Client" Catalog="ProjectWorkspace.Catalog" ToolCatalog="Tools" AgentCatalog="Agents" SkillLibrary="ProjectWorkspace.Skills" AgentProfileLibrary="ProjectWorkspace.AgentProfiles" FunctionCatalog="ProjectWorkspace.Functions" />
         </ChildContent>
         <ErrorContent>
             <section class="vaw-viewer" role="alert">
@@ -27,5 +24,13 @@
 </main>
 
 @code {
+    [Parameter] public string? ProjectId { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        try { ProjectWorkspace.Select(ProjectId); }
+        catch (KeyNotFoundException) { Navigation.NavigateTo("/projects", forceLoad: true); }
+    }
+
     private void Reload() => Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
 }

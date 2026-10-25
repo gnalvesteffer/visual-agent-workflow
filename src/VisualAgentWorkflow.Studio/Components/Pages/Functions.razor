@@ -1,11 +1,12 @@
 @page "/functions"
+@page "/projects/{ProjectId}/functions"
 @rendermode InteractiveServer
 @using System.Collections.Immutable
-@inject StudioGraphFunctionLibrary Library
+@inject StudioProjectWorkspace ProjectWorkspace
 
 <PageTitle>Function library · Visual Agent Workflow</PageTitle>
 <main class="vaw-provider-settings">
-    <nav class="vaw-studio-navigation" aria-label="Function library navigation"><a href="/">← Workflow designer</a><a href="/agents">Agent Designer</a><a href="/skills">Skill library</a><span>Function library</span><StudioThemePicker /></nav>
+    <StudioProjectNavigation ProjectId="@ProjectWorkspace.CurrentProjectId" />
     <header class="vaw-settings-heading"><div><p class="vaw-settings-kicker">WORKFLOW STUDIO</p><h1>Function library</h1>
         <p class="vaw-settings-intro">Build reusable deterministic functions from typed graph nodes. Saved revisions are immutable; workflow nodes embed the exact snapshot they use.</p></div></header>
 
@@ -100,6 +101,11 @@
 </main>
 
 @code {
+    [Parameter] public string? ProjectId { get; set; }
+    private StudioGraphFunctionLibrary Library => ProjectWorkspace.Functions;
+
+    protected override void OnParametersSet() => ProjectWorkspace.Select(ProjectId);
+
     private ImmutableSortedDictionary<string, GraphFunctionPort> inputPorts = ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal);
     private ImmutableSortedDictionary<string, GraphFunctionPort> outputPorts = ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal);
     private WorkflowDefinition editor = default!;

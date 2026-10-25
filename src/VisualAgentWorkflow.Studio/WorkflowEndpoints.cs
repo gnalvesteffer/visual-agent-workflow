@@ -5,9 +5,9 @@ namespace VisualAgentWorkflow.Studio;
 
 internal static class WorkflowEndpoints
 {
-    public static void MapWorkflowEndpoints(this WebApplication app)
+    public static void MapWorkflowEndpoints(this WebApplication app, string routePrefix = "/api")
     {
-        var group = app.MapGroup("/api").AddEndpointFilter<CatalogErrorFilter>();
+        var group = app.MapGroup(routePrefix).AddEndpointFilter<CatalogErrorFilter>();
         group.MapGet("/workflows", async (IWorkflowCatalog catalog) => Results.Ok(await catalog.ListDraftsAsync()));
         group.MapGet("/workflows/{workflowId}", async (string workflowId, IWorkflowCatalog catalog) =>
             await catalog.GetDraftAsync(workflowId) is { } draft ? Results.Ok(draft) : Results.NotFound());

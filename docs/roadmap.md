@@ -34,9 +34,11 @@ Studio now has a local, folder-organized function library with immutable hash-pi
 
 Schema 1.28 allows an Agent node to embed up to eight exact immutable pure-function revisions and expose only those selections as model tools. Each invocation validates its declared input contract, evaluates the pure function with bounded calls, node visits, and payload sizes, and records correlated start/completion/failure evidence including the pinned content hash and values. Agent MCP permissions are not inherited by graph functions; functions remain deterministic, data-only, and cannot perform external effects. Workflow packages list graph-function-tool requirements and include the exact snapshots. See [graph-defined function tools](graph-values.md#graph-defined-function-tools) and the [user guide](user-guide.md#expose-pure-graph-functions-as-agent-tools).
 
-## Next milestone: multi-project authoring workspaces
+## Active milestone: local multi-project authoring workspaces
 
-Move Studio toward a Visual Studio solution/workspace experience: workspaces contain projects, each project owns its workflow catalog and reusable authoring assets, and the graph editor remains the primary canvas inside a project. The planned asset navigator groups workflows, functions, agent presets, skills, project configuration values, workflow parameters, and logical model/MCP references. Project configuration values should be versioned and bound into workflows as explicit inputs/snapshots, not mutable process-global state. Project organization must remain separate from host/environment credentials and runtime grants. Existing executable IDs, content hashes, run histories, and pinned snapshots must survive migration into a deterministic default project. See the [project workspace design](design.md#sharing-collaboration-and-source-control).
+The Studio now supports local project creation, selection, archival/restoration, project-scoped workflow catalogs, skills, agent profiles, and graph functions. Opening the deterministic Default Project migrates legacy workflow DB data through SQLite backup and copies legacy JSON libraries, retaining the sources. Project-aware API routes address the selected project; older unscoped routes remain mapped to Default Project. Regression tests cover migration of workflow IDs, revisions/hashes, layout, generation, active pointers, audit, and skill assets, plus project isolation. See [local project workspaces](project-workspaces.md).
+
+This is local organization for one operator, not a multi-user authorization or simultaneous-editing feature. Model-provider and MCP settings, credentials, broker registrations/grants, and run history remain host-wide. Projects do not yet hold environment binding manifests, so project membership does not change tool permission. The remaining work for this milestone is a Git-friendly project file format and an asset navigator that can show host-provided logical model/MCP references without turning selection into authorization. Git is the intended mechanism for branches, reviews, and sharing project snapshots; Studio will provide deterministic serialization and validation, not collaborative editing. Mutable project-wide variables remain out of scope; workflow parameters are still workflow-owned. See the [project workspace design](design.md#projects-and-git-based-source-control) and [current architecture](architecture.md).
 
 ## Previous completed milestone: Provider management and Studio theme refinement
 
@@ -271,9 +273,9 @@ Introduce a Visual Studio-style workspace/project navigator around the Blueprint
 
 Explicit conditional-block removal is implemented for isolated decision regions, with affected-node confirmation and shared definition/layout undo. Shared-boundary removal remains unsupported. Continue reusable workflow work with embedded child-graph drill-in and scoped composition controls. Preserve historical playback when sources/providers are absent.
 
-### Planned: collaboration, source control, and promotion
+### Planned: environment promotion and portable project snapshots
 
-Add authorized workspace sharing, asset discovery, deployment binding remapping, and reviewable portable artifacts. Define ownership between live drafts and Git snapshots, semantic conflict handling, and later simultaneous editing. Test overlapping edit/delete/connect/restore operations; do not describe text merging as safe semantic merging.
+Keep provider endpoints, credentials, and MCP grants outside source-controlled project files. Define explicit environment binding references and promotion between development/test/production, plus portable project snapshot import/export. Git remains the user's source-control system; Studio should validate imported snapshots, report conflicting or unresolved asset references, and require explicit remapping. Multi-user editing and presence are out of scope.
 
 ### Planned: production qualification
 

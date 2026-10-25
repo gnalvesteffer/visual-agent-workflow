@@ -528,7 +528,7 @@
                                 }
                                 @foreach (var reference in agent.Skills ?? [])
                                 { <p>Assigned: @reference.Id · @reference.Version · @reference.ContentHash[..8]</p> }
-                                @if (SkillLibrary is not null) { <a href="/skills">Manage skill library</a> }
+                                @if (SkillLibrary is not null) { <a href="/projects/@ProjectId/skills">Manage skill library</a> }
                             </fieldset>
                             <fieldset disabled="@Disabled"><legend>Subagents</legend>
                                 <p class="vaw-help">Selected profiles appear as delegate tools, so the parent agent chooses which specialist to call and when. Sequential delegate turns can exchange bounded messages on shared Agent Designer channels; the parallel team tool uses a separate channel scope for that team call. Membership is pinned with each profile revision. Each child gets only its own profile tools within host authorization. Teams run up to four members concurrently, one level deep, with a four-child-call limit per parent-agent invocation.</p>
@@ -543,7 +543,7 @@
                                     @if (!(AgentProfileLibrary?.List() ?? []).Any(item => item.Profile.Id == reference.Id && item.Profile.Version == reference.Version))
                                     { <p>Embedded profile: @reference.Id · @reference.Version · @reference.ContentHash[..8] <button type="button" @onclick="() => RemoveProfile(id, reference)">Remove unavailable profile</button></p> }
                                 }
-                                @if (AgentProfileLibrary is not null) { <a href="/agents">Open Agent Designer</a> }
+                                @if (AgentProfileLibrary is not null) { <a href="/projects/@ProjectId/agents">Open Agent Designer</a> }
                             </fieldset>
                             @if (Definition.SchemaVersion is WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools)
                             {
@@ -563,7 +563,7 @@
                                         @if (!(FunctionCatalog?.List() ?? []).Any(item => item.Function.ContentHash == snapshot.ContentHash))
                                         { <p>Embedded function: @snapshot.Definition.DisplayName · v@snapshot.Definition.Version · @snapshot.ContentHash[..8] <button type="button" @onclick="() => RemoveGraphFunction(id, snapshot.ContentHash)" disabled="@Disabled">Remove embedded function</button></p> }
                                     }
-                                    @if (FunctionCatalog is not null) { <a href="/functions">Manage function library</a> }
+                                    @if (FunctionCatalog is not null) { <a href="/projects/@ProjectId/functions">Manage function library</a> }
                                     <p class="vaw-help">At most @AgentGraphFunctionToolLimits.MaximumAssignedFunctions function revisions and @AgentGraphFunctionToolLimits.MaximumCallsPerInvocation calls per agent invocation. Aggregate inputs and outputs are bounded to @AgentGraphFunctionToolLimits.MaximumInputCharacters characters each.</p>
                                 </fieldset>
                             }
@@ -599,6 +599,7 @@
 </section>
 
 @code {
+    [Parameter] public string ProjectId { get; set; } = "default";
     [Parameter, EditorRequired] public WorkflowDefinition Definition { get; set; } = default!;
     [Parameter] public RenderFragment? EditorActions { get; set; }
     [Parameter] public EventCallback<WorkflowGraphEdit> GraphEdited { get; set; }

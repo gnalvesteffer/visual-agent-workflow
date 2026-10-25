@@ -1,10 +1,11 @@
 @page "/skills"
+@page "/projects/{ProjectId}/skills"
 @rendermode InteractiveServer
-@inject StudioSkillLibrary Library
+@inject StudioProjectWorkspace ProjectWorkspace
 
 <PageTitle>Skill library · Visual Agent Workflow</PageTitle>
 <main class="vaw-provider-settings">
-    <nav class="vaw-studio-navigation" aria-label="Skill library navigation"><a href="/">← Workflow designer</a><a href="/agents">Agent Designer</a><a href="/functions">Function library</a><span>Skill library</span><StudioThemePicker /></nav>
+    <StudioProjectNavigation ProjectId="@ProjectWorkspace.CurrentProjectId" />
     <header class="vaw-settings-heading"><div><p class="vaw-settings-kicker">WORKFLOW STUDIO</p><h1>Skill library</h1>
         <p class="vaw-settings-intro">Create text-only, versioned skills. Assign exact revisions to agents in the graph. A published workflow carries its assigned skill text.</p></div></header>
     <section class="vaw-settings-section" aria-label="Saved skills">
@@ -39,6 +40,11 @@
 </main>
 
 @code {
+    [Parameter] public string? ProjectId { get; set; }
+    private StudioSkillLibrary Library => ProjectWorkspace.Skills;
+
+    protected override void OnParametersSet() => ProjectWorkspace.Select(ProjectId);
+
     private string id = "";
     private string version = "1.0.0";
     private string name = "";

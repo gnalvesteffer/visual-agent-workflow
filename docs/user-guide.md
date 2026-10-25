@@ -6,6 +6,14 @@ Use the **Theme** selector in the top navigation to switch between **Dark Modern
 
 Use disposable text in the local development app. It records inputs, outputs, and comments in local storage without workspace authentication or payload encryption.
 
+## Organize work with projects
+
+Select **Projects** in the Studio navigation to create a project, open it, archive it, or restore an archived project. The workflow editor, Skill library, Agent Designer, and Function library follow the selected project. The first project is **Default Project**; when an older Studio data directory is opened, the Studio copies its workflow catalog and skill/profile/function files into this project and keeps the original files as a recovery copy.
+
+Projects organize local authoring. Model provider and MCP connection settings remain environment-wide because they contain endpoints, credentials, and host registrations. Choosing a tool in a project does not grant it permission; the current development host still applies its local broker policy. Run history is also host-wide. Archived projects are omitted from the selector, and their data is retained; restore an archived project from **Projects** to open it again.
+
+Studio does not yet provide a Git-native project format or project-level commit UI. Use the existing workflow package export when you need a portable, reviewable workflow artifact. Project bundles, import remapping, and Git-aware multi-asset project files remain planned. See [local project workspaces](project-workspaces.md) for the migration and persistence details.
+
 ## Build workflows for your own service
 
 Studio can act as an IDE for workflows that your own application will run. You can also embed the designer in your application or use the engine without a designer. These are independent integration choices.

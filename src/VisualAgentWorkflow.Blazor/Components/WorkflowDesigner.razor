@@ -36,7 +36,7 @@
             </details>
         }
         @if (Catalog is not IWorkflowDesignCatalog) { <p class="vaw-help">This host does not save graph layout. Position and annotation editing are disabled.</p> }
-        <WorkflowEditor Layout="@(preview is not null ? previewLayout ?? WorkflowLayout.Create(preview.Revision.Definition) : layout)" LayoutChanged="ChangedLayout" LayoutReadOnly="@(Catalog is not IWorkflowDesignCatalog)" Definition="@(preview?.Revision.Definition ?? definition)" DefinitionChanged="Changed" ReadOnly="@(preview is not null)" Disabled="@busy" Bindings="bindings" Providers="providers" SkillLibrary="SkillLibrary" AgentProfileLibrary="AgentProfileLibrary" FunctionCatalog="FunctionCatalog" GraphEdited="ChangedGraph">
+        <WorkflowEditor ProjectId="ProjectId" Layout="@(preview is not null ? previewLayout ?? WorkflowLayout.Create(preview.Revision.Definition) : layout)" LayoutChanged="ChangedLayout" LayoutReadOnly="@(Catalog is not IWorkflowDesignCatalog)" Definition="@(preview?.Revision.Definition ?? definition)" DefinitionChanged="Changed" ReadOnly="@(preview is not null)" Disabled="@busy" Bindings="bindings" Providers="providers" SkillLibrary="SkillLibrary" AgentProfileLibrary="AgentProfileLibrary" FunctionCatalog="FunctionCatalog" GraphEdited="ChangedGraph">
             <EditorActions>
                 @if (preview is null)
                 {

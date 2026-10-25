@@ -23,6 +23,7 @@ if (studioPort is < 1 or > 65535) throw new InvalidOperationException("Invalid S
 builder.WebHost.UseUrls($"http://127.0.0.1:{studioPort}");
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 1_048_576);
 var studioDataDirectory = Path.GetFullPath(builder.Configuration["WorkflowStudio:DataDirectory"] ?? Path.Combine(builder.Environment.ContentRootPath, ".local"));
+var projectStore = new StudioProjectStore(studioDataDirectory);
 builder.Services.AddDataProtection();
 builder.Services.AddRazorComponents().AddInteractiveServerComponents()
     // Bound JSON editing can duplicate field text in a Blazor event. Keep transport bounded
@@ -45,24 +46,24 @@ builder.Services.AddSingleton<StudioModelProviderStore>(services => new StudioMo
     services.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>(), services.GetRequiredService<AgentNodeExecutor>(),
     services.GetRequiredService<INodeToolBroker>(), agentProviders));
 builder.Services.AddSingleton<IAgentProviderCatalog>(services => { _ = services.GetRequiredService<StudioModelProviderStore>(); return services.GetRequiredService<IAgentNodeExecutor>(); });
-builder.Services.AddSingleton(new StudioSkillLibrary(studioDataDirectory));
-builder.Services.AddSingleton<ISkillLibrary>(services => services.GetRequiredService<StudioSkillLibrary>());
-builder.Services.AddSingleton(new StudioAgentProfileLibrary(studioDataDirectory));
-builder.Services.AddSingleton<IAgentProfileLibrary>(services => services.GetRequiredService<StudioAgentProfileLibrary>());
-builder.Services.AddSingleton(new StudioGraphFunctionLibrary(studioDataDirectory));
-builder.Services.AddSingleton<IGraphFunctionCatalog>(services => services.GetRequiredService<StudioGraphFunctionLibrary>());
+builder.Services.AddSingleton(projectStore);
+builder.Services.AddScoped<StudioProjectWorkspace>(services => new StudioProjectWorkspace(studioDataDirectory,
+    services.GetRequiredService<StudioProjectStore>(), services.GetRequiredService<LocalWorkflowRuntime>()));
 var runStoreKind = builder.Configuration["WorkflowStudio:RunStore"] ?? "file";
 if (runStoreKind == "sqlite")
     builder.Services.AddSingleton<IWorkflowRunStore>(_ => new SqliteWorkflowRunStore(Path.Combine(studioDataDirectory, "runs.sqlite3")));
 else if (runStoreKind != "file") throw new InvalidOperationException("RunStore must be file or sqlite.");
 builder.Services.AddLocalWorkflowRuntime(Path.Combine(studioDataDirectory, "runs"));
-builder.Services.AddSingleton<IWorkflowCatalog>(new SqliteWorkflowCatalog(Path.Combine(studioDataDirectory, "workflows.db")));
-builder.Services.AddSingleton<PublishedWorkflowClient>();
-builder.Services.AddSingleton<IPublishedWorkflowClient>(services => services.GetRequiredService<PublishedWorkflowClient>());
-builder.Services.AddSingleton<IWorkflowClient>(services => services.GetRequiredService<PublishedWorkflowClient>());
-builder.Services.AddSingleton<IWorkflowRunControl>(services => services.GetRequiredService<PublishedWorkflowClient>());
-builder.Services.AddSingleton<IPublishedWorkflowRunControl>(services => services.GetRequiredService<PublishedWorkflowClient>());
-builder.Services.AddSingleton<IWorkflowApprovalClient>(services => services.GetRequiredService<PublishedWorkflowClient>());
+builder.Services.AddScoped<IWorkflowCatalog>(services => services.GetRequiredService<StudioProjectWorkspace>().Catalog);
+builder.Services.AddScoped<PublishedWorkflowClient>(services => (PublishedWorkflowClient)services.GetRequiredService<StudioProjectWorkspace>().Client);
+builder.Services.AddScoped<IPublishedWorkflowClient>(services => services.GetRequiredService<PublishedWorkflowClient>());
+builder.Services.AddScoped<IWorkflowClient>(services => services.GetRequiredService<PublishedWorkflowClient>());
+builder.Services.AddScoped<IWorkflowRunControl>(services => services.GetRequiredService<PublishedWorkflowClient>());
+builder.Services.AddScoped<IPublishedWorkflowRunControl>(services => services.GetRequiredService<PublishedWorkflowClient>());
+builder.Services.AddScoped<IWorkflowApprovalClient>(services => services.GetRequiredService<PublishedWorkflowClient>());
+builder.Services.AddScoped<ISkillLibrary>(services => services.GetRequiredService<StudioProjectWorkspace>().Skills);
+builder.Services.AddScoped<IAgentProfileLibrary>(services => services.GetRequiredService<StudioProjectWorkspace>().AgentProfiles);
+builder.Services.AddScoped<IGraphFunctionCatalog>(services => services.GetRequiredService<StudioProjectWorkspace>().Functions);
 builder.Services.AddSingleton<ObservationSources>();
 var app = builder.Build();
 
@@ -89,9 +90,21 @@ app.Use(async (context, next) =>
     }
     await next();
 });
+app.UseRouting();
+app.Use(async (context, next) =>
+{
+    var selectedProject = context.Request.RouteValues.TryGetValue("projectId", out var value) ? value?.ToString() : null;
+    if (selectedProject is not null)
+    {
+        try { context.RequestServices.GetRequiredService<StudioProjectWorkspace>().Select(selectedProject); }
+        catch (KeyNotFoundException) { context.Response.StatusCode = StatusCodes.Status404NotFound; return; }
+    }
+    await next();
+});
 app.UseStaticFiles();
 app.UseAntiforgery();
 app.MapWorkflowEndpoints();
+app.MapWorkflowEndpoints("/api/projects/{projectId}");
 app.MapGet("/api/tool-bindings", async (IToolBindingCatalog catalog, CancellationToken cancellationToken) =>
     Results.Ok(await catalog.ListBindingsAsync(cancellationToken)));
 app.MapGet("/api/agent-providers", async (IAgentProviderCatalog catalog) => Results.Ok(await catalog.ListProvidersAsync()));
