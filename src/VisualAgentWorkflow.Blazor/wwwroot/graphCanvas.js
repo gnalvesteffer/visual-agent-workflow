@@ -331,7 +331,7 @@ function orthogonal(a, b) {
 function pointerDown(state, event) {
     if (state.drag || state.faulted || (event.button !== 0 && event.button !== 1)) return;
     const pin = event.target.closest('.vaw-output-ports [data-socket]');
-    if (pin && state.root.dataset.contextMenu === 'true' && event.button === 0) {
+    if (pin && state.root.dataset.disabled !== 'true' && event.button === 0) {
         const box=pin.getBoundingClientRect(),start=local(state,{clientX:box.left+box.width/2,clientY:box.top+box.height/2});
         state.drag={kind:'pin',pointer:event.pointerId,screenX:event.clientX,screenY:event.clientY,target:state.viewport,
             id:pin.closest('[data-node-id]').dataset.nodeId,port:pin.dataset.socket,socketType:pin.dataset.socketType,socketKind:pin.dataset.socketKind,start,moved:false,items:[]};
@@ -431,7 +431,7 @@ function pointerEnd(state, event, cancelled) {
             const input=target?.closest('.vaw-input-ports [data-socket]');
             if (input && input.dataset.socketType === drag.socketType && input.dataset.socketKind === drag.socketKind) invoke(state,'ConnectPins',drag.id,drag.port,input.closest('[data-node-id]').dataset.nodeId,input.dataset.socket);
             else if (target?.closest('li[data-node-id]')) state.root.querySelector('[data-pin-hint]').hidden=false;
-            else {
+            else if (state.root.dataset.contextMenu === 'true') {
                 const edge=state.paths.find(path=>path.dataset.source===drag.id&&path.dataset.sourcePort===drag.port);
                 const point=local(state,event);
                 invoke(state,'OpenContextMenu',null,edge?.dataset.wire || null,0,clamp(point.x),clamp(point.y),
@@ -459,7 +459,8 @@ function pointerEnd(state, event, cancelled) {
 
 function invoke(state, method, ...args) {
     if (!state.active) return;
-    state.callback.invokeMethodAsync(method, ...args).catch(() => {
+    state.callback.invokeMethodAsync(method, ...args).catch(error => {
+        console.error(`Graph canvas action '${method}' failed.`, error);
         if (state.active) {
             state.faulted = true;
             state.root.dataset.ready = 'false';

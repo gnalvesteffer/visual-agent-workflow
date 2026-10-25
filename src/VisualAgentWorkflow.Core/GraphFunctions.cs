@@ -19,6 +19,14 @@ public sealed record GraphFunctionDefinition(
 
 public sealed record GraphFunctionPort(string DisplayName, string DataType);
 public sealed record GraphFunctionConfiguration(GraphFunctionDefinition Definition, string ContentHash);
+public sealed record GraphFunctionCatalogEntry(GraphFunctionConfiguration Function, string Folder);
+
+/// <summary>Authoring catalog used to select immutable graph-function revisions; execution uses embedded snapshots.</summary>
+public interface IGraphFunctionCatalog
+{
+    IReadOnlyList<GraphFunctionCatalogEntry> List();
+}
+
 public sealed record GraphFunctionEvaluation(string DataType, object Value, ImmutableArray<GraphFunctionValueEvidence> Values);
 public sealed record GraphFunctionValueEvidence(string NodeId, string PortId, string DataType, object Value);
 
@@ -117,6 +125,12 @@ public static class GraphFunctionJson
                 var ports = node.Type == NodeTypes.FunctionInput ? function.Inputs : function.Outputs;
                 if (node.FunctionPortId is not { } portId || !ports.ContainsKey(portId))
                     Error("function.port", $"graphFunction.definition.nodes.{id}.functionPortId", "Function boundary nodes must reference a declared port ID.");
+                if (node.Type == NodeTypes.FunctionInput && node.OutputDataType is { } inputType &&
+                    (!function.Inputs.TryGetValue(node.FunctionPortId ?? "", out var inputPort) || inputPort.DataType != inputType))
+                    Error("function.port.type", $"graphFunction.definition.nodes.{id}.outputDataType", "Function input boundary type must match its declared interface pin.");
+                if (node.Type == NodeTypes.FunctionOutput && node.InputDataType is { } outputType &&
+                    (!function.Outputs.TryGetValue(node.FunctionPortId ?? "", out var outputPort) || outputPort.DataType != outputType))
+                    Error("function.port.type", $"graphFunction.definition.nodes.{id}.inputDataType", "Function output boundary type must match its declared interface pin.");
             }
             else if (node.FunctionPortId is not null || node.GraphFunction is not null || node.WorkflowCall is not null)
                 Error("function.configuration", $"graphFunction.definition.nodes.{id}", "Pure value nodes cannot contain function or workflow call configuration.");
@@ -280,7 +294,7 @@ public static class GraphFunctionJson
 
     private static ImmutableArray<WorkflowPort> Inputs(NodeDefinition node, GraphFunctionDefinition function) => node.Type switch
     {
-        NodeTypes.FunctionOutput when node.FunctionPortId is { } id && function.Outputs.TryGetValue(id, out var output) => [new("in", output.DataType)],
+        NodeTypes.FunctionOutput when node.FunctionPortId is { } id && function.Outputs.TryGetValue(id, out var output) => [new("in", node.InputDataType ?? output.DataType)],
         NodeTypes.TextConcat or NodeTypes.StringEquals => [new("left", "string"), new("right", "string")],
         NodeTypes.BooleanNot => [new("value", "boolean")],
         _ => []
@@ -288,7 +302,7 @@ public static class GraphFunctionJson
 
     private static ImmutableArray<WorkflowPort> Outputs(NodeDefinition node, GraphFunctionDefinition function) => node.Type switch
     {
-        NodeTypes.FunctionInput when node.FunctionPortId is { } id && function.Inputs.TryGetValue(id, out var input) => [new("out", input.DataType)],
+        NodeTypes.FunctionInput when node.FunctionPortId is { } id && function.Inputs.TryGetValue(id, out var input) => [new("out", node.OutputDataType ?? input.DataType)],
         NodeTypes.StringConstant or NodeTypes.TextConcat => [new("out", "string")],
         NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", "boolean")],
         _ => []
@@ -298,15 +312,16 @@ public static class GraphFunctionJson
     {
         var hasCommonConfiguration = node.Tool is not null || node.Agent is not null || node.Origin is not null ||
             node.Condition is not null || node.Approval is not null || node.Termination is not null || node.ParameterId is not null ||
-            node.InputDataType is not null || node.OutputDataType is not null || node.JsonPropertySelection is not null ||
+            node.JsonPropertySelection is not null ||
             node.JsonProjection is not null || node.TextTemplate is not null || node.Loop is not null || node.WorkflowCall is not null ||
             node.GraphFunction is not null;
         return hasCommonConfiguration || node.Type switch
         {
-            NodeTypes.FunctionInput or NodeTypes.FunctionOutput => node.StringConstant is not null || node.BooleanConstant is not null,
-            NodeTypes.StringConstant => node.FunctionPortId is not null || node.BooleanConstant is not null,
-            NodeTypes.BooleanConstant => node.FunctionPortId is not null || node.StringConstant is not null,
-            _ => node.FunctionPortId is not null || node.StringConstant is not null || node.BooleanConstant is not null
+            NodeTypes.FunctionInput => node.StringConstant is not null || node.BooleanConstant is not null || node.InputDataType is not null,
+            NodeTypes.FunctionOutput => node.StringConstant is not null || node.BooleanConstant is not null || node.OutputDataType is not null,
+            NodeTypes.StringConstant => node.FunctionPortId is not null || node.BooleanConstant is not null || node.InputDataType is not null || node.OutputDataType is not null,
+            NodeTypes.BooleanConstant => node.FunctionPortId is not null || node.StringConstant is not null || node.InputDataType is not null || node.OutputDataType is not null,
+            _ => node.FunctionPortId is not null || node.StringConstant is not null || node.BooleanConstant is not null || node.InputDataType is not null || node.OutputDataType is not null
         };
     }
 

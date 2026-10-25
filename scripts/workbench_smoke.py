@@ -318,6 +318,88 @@ def explicit_graph_preview_check(page, designer):
     assert sum(node["type"] == "core.terminate" for node in saved_topology["nodes"].values()) == 2
 
 
+def graph_function_authoring_check(page, designer):
+    """Verify function canvas pin wiring, immutable revisions, and workflow snapshot insertion."""
+    page.goto(BASE + "/functions")
+    expect(page.get_by_role("heading", name="Function library", exact=True)).to_be_visible()
+    canvas = page.locator(".vaw-graph-editor")
+    expect(canvas).to_have_attribute("data-context-menu", "false")
+    expect(canvas).to_have_attribute("data-ready", "true")
+
+    # Function editors intentionally disable the context menu. Pin authoring must
+    # still work independently of that optional canvas interaction.
+    canvas.get_by_text("Labels, comments, sections, and wire routing", exact=True).click()
+    canvas.get_by_label("Wire to organize", exact=True).select_option("data:argument")
+    canvas.get_by_role("button", name="Disconnect wire", exact=True).click()
+    expect(canvas.locator("path[data-wire]")).to_have_count(2)
+    canvas.get_by_role("button", name="Fit graph", exact=True).click()
+    viewport = canvas.locator(".vaw-canvas-viewport")
+    source = canvas.locator("li[data-node-id='input'] .vaw-output-ports [data-socket='out']")
+    target = canvas.locator("li[data-node-id='concat'] .vaw-input-ports [data-socket='left']")
+    source.scroll_into_view_if_needed(); target.scroll_into_view_if_needed()
+    source_box = source.bounding_box(); target_box = target.bounding_box()
+    page.mouse.move(source_box["x"] + source_box["width"] / 2, source_box["y"] + source_box["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(target_box["x"] + target_box["width"] / 2, target_box["y"] + target_box["height"] / 2, steps=12)
+    page.mouse.up()
+    expect(canvas.locator("path[data-source='input'][data-source-port='out'][data-target='concat'][data-target-port='left']")).to_have_count(1)
+
+    page.get_by_label("Function ID", exact=True).fill("smoke.function")
+    page.get_by_role("button", name="Save immutable function version", exact=True).click()
+    expect(page.get_by_role("status")).to_contain_text("Saved Append suffix v1")
+    first = page.locator("article.vaw-provider-card").filter(has_text="smoke.function")
+    expect(first).to_contain_text("v1")
+    first.get_by_role("button", name="New version from this function", exact=True).click()
+    page.get_by_label("Display name", exact=True).fill("Append suffix v2")
+    page.get_by_role("button", name="Save immutable function version", exact=True).click()
+    expect(page.get_by_role("status")).to_contain_text("Saved Append suffix v2")
+    expect(page.locator("article.vaw-provider-card").filter(has_text="smoke.function")).to_have_count(2)
+    page.get_by_role("button", name="New function", exact=True).click()
+    expect(page.get_by_label("Function ID", exact=True)).not_to_have_value("smoke.function")
+
+    page.goto(BASE)
+    designer = page.get_by_role("region", name="Workflow designer", exact=True)
+    designer.get_by_role("button", name="New workflow", exact=True).click()
+    designer.get_by_text("New workflow created locally. Save its draft before publishing.", exact=True).wait_for()
+    workflow_id = designer.get_by_label("Saved workflow", exact=True).input_value()
+    definition = page.request.get(BASE + "/api/templates/default").json()
+    definition.update({"schemaVersion": "1.26", "workflowId": workflow_id, "entryNodeId": "input"})
+    definition["nodes"] = {
+        "input": {"type": "core.input", "typeVersion": "1.0.0"},
+        "constant": {"type": "core.constant.boolean", "typeVersion": "1.0.0", "booleanConstant": {"value": True}},
+        "branch": {"type": "core.branch.boolean", "typeVersion": "1.0.0"},
+        "output": {"type": "core.output", "typeVersion": "1.0.0"},
+        "terminate": {"type": "core.terminate", "typeVersion": "1.0.0", "termination": {"outcome": "failure"}}}
+    definition["connections"] = {
+        "condition": {"source": {"nodeId": "constant", "portId": "out"}, "target": {"nodeId": "branch", "portId": "condition"}, "kind": "data"},
+        "value": {"source": {"nodeId": "input", "portId": "out"}, "target": {"nodeId": "output", "portId": "in"}, "kind": "data"}}
+    definition["executionConnections"] = {
+        "activate": {"source": {"nodeId": "input", "portId": "then"}, "target": {"nodeId": "branch", "portId": "execute"}, "kind": "execution"},
+        "success": {"source": {"nodeId": "branch", "portId": "true"}, "target": {"nodeId": "output", "portId": "execute"}, "kind": "execution"},
+        "failure": {"source": {"nodeId": "branch", "portId": "false"}, "target": {"nodeId": "terminate", "portId": "execute"}, "kind": "execution"}}
+    details = designer.get_by_text("Import / export definition", exact=True).locator("..")
+    if not details.evaluate("element => element.open"):
+        details.locator("summary").click()
+    designer.get_by_label("Workflow JSON", exact=True).fill(json.dumps(definition))
+    designer.get_by_role("button", name="Import JSON into draft", exact=True).click()
+    designer.get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for()
+    designer.get_by_role("button", name="Enable pure graph functions", exact=True).click()
+    library = designer.locator(".vaw-node-library")
+    library.get_by_role("button", name="Add Function · Append suffix v2").click()
+    call = designer.locator("li[data-node-type='core.function.call']")
+    expect(call).to_have_count(1)
+    expect(call.locator("[data-socket='text'][data-socket-kind='data'][data-socket-type='string']")).to_have_count(1)
+    expect(call.locator("[data-socket='result'][data-socket-kind='data'][data-socket-type='string']")).to_have_count(1)
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    expect(designer.locator(".vaw-definition-status")).to_contain_text("Draft saved")
+    saved = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()["draft"]["definition"]
+    node_id = call.get_attribute("data-node-id")
+    snapshot = saved["nodes"][node_id]["graphFunction"]
+    assert snapshot["definition"]["functionId"] == "smoke.function"
+    assert snapshot["definition"]["version"] == 2
+    assert snapshot["contentHash"]
+
+
 def check(browser, screenshots):
     page = browser.new_page(viewport={"width":1920,"height":1080})
     errors = []
@@ -504,6 +586,7 @@ def check(browser, screenshots):
     expect(canvas.locator("li[data-node-id]")).to_have_count(4)
     assert canvas.locator("li[data-node-type='core.condition']").count() == 1
     assert canvas.locator("li[data-node-type='core.merge']").count() == 0
+    canvas.get_by_role("button",name="Fit graph",exact=True).click()
     branch=canvas.locator("li[data-node-type='core.condition']").get_attribute("data-node-id")
     false_pin=canvas.locator(f"li[data-node-id='{branch}'] [data-socket='false']")
     false_pin.scroll_into_view_if_needed();box=false_pin.bounding_box();bounds=viewport.bounding_box()
@@ -532,9 +615,10 @@ def check(browser, screenshots):
     text_template_node_check(page, designer)
     typed_json_projection_check(page, designer)
     explicit_graph_preview_check(page, designer)
+    graph_function_authoring_check(page, designer)
     assert not errors,errors
     page.close()
-    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring/replay, recursive JSON projection authoring, explicit typed-graph authoring/execution/replay, Boolean branch authoring, typed Boolean primitive upgrade/configuration, bounded branch topology upgrade and node authoring, draft save, and MCP tool detail review passed.")
+    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring/replay, recursive JSON projection authoring, explicit typed-graph authoring/execution/replay, Boolean branch authoring, typed Boolean primitive upgrade/configuration, bounded branch topology upgrade and node authoring, pure function editor pin wiring, immutable function revisions, pinned workflow call insertion, draft save, and MCP tool detail review passed.")
 
 
 if __name__=="__main__":

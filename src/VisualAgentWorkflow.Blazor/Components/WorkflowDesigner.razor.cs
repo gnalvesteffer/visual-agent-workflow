@@ -14,6 +14,7 @@ public partial class WorkflowDesigner
     [Parameter] public IAgentProviderCatalog? AgentCatalog { get; set; }
     [Parameter] public ISkillLibrary? SkillLibrary { get; set; }
     [Parameter] public IAgentProfileLibrary? AgentProfileLibrary { get; set; }
+    [Parameter] public IGraphFunctionCatalog? FunctionCatalog { get; set; }
 
     private sealed record Binding(IWorkflowCatalog Catalog, IPublishedWorkflowClient Client, CancellationToken Token);
     private Binding? binding;

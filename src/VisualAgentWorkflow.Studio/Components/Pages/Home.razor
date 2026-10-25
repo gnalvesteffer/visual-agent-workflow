@@ -6,14 +6,15 @@
 @inject IAgentProviderCatalog Agents
 @inject ISkillLibrary Skills
 @inject IAgentProfileLibrary AgentProfiles
+@inject IGraphFunctionCatalog Functions
 @inject NavigationManager Navigation
 
 <PageTitle>Visual Agent Workflow</PageTitle>
 <main>
-    <nav class="vaw-studio-navigation" aria-label="Studio sections"><a href="/observe">Observe a consumer service</a><span aria-hidden="true">·</span><a href="/settings">Studio settings</a><span aria-hidden="true">·</span><a href="/mcp">MCP library</a><span aria-hidden="true">·</span><a href="/skills">Skill library</a><span aria-hidden="true">·</span><a href="/agents">Agent Designer</a><StudioThemePicker /></nav>
+    <nav class="vaw-studio-navigation" aria-label="Studio sections"><a href="/observe">Observe a consumer service</a><span aria-hidden="true">·</span><a href="/settings">Studio settings</a><span aria-hidden="true">·</span><a href="/mcp">MCP library</a><span aria-hidden="true">·</span><a href="/skills">Skill library</a><span aria-hidden="true">·</span><a href="/agents">Agent Designer</a><span aria-hidden="true">·</span><a href="/functions">Function library</a><StudioThemePicker /></nav>
     <WorkflowErrorBoundary>
         <ChildContent>
-            <WorkflowStudio Client="Client" Catalog="Catalog" ToolCatalog="Tools" AgentCatalog="Agents" SkillLibrary="Skills" AgentProfileLibrary="AgentProfiles" />
+            <WorkflowStudio Client="Client" Catalog="Catalog" ToolCatalog="Tools" AgentCatalog="Agents" SkillLibrary="Skills" AgentProfileLibrary="AgentProfiles" FunctionCatalog="Functions" />
         </ChildContent>
         <ErrorContent>
             <section class="vaw-viewer" role="alert">

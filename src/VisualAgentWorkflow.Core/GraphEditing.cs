@@ -60,6 +60,16 @@ public static class GraphEditing
         return definition with { SchemaVersion = WorkflowSchemaVersions.BooleanTopologyGraph };
     }
 
+    /// <summary>Upgrades a valid schema 1.26 topology to support embedded pure graph functions.</summary>
+    public static WorkflowDefinition EnablePureGraphFunctions(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.BooleanTopologyGraph || definition.ExecutionConnections is null)
+            throw new ArgumentException("Enable bounded Boolean branch topologies before adding pure graph functions.", nameof(definition));
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition with { SchemaVersion = WorkflowSchemaVersions.PureGraphFunctions };
+    }
+
     /// <summary>Adds a configured node without connecting it. Incomplete topology remains an editable draft.</summary>
     public static WorkflowDefinition AddUnconnectedNode(WorkflowDefinition definition, NodeDefinition node)
     {

@@ -60,6 +60,9 @@ public partial class PipelineEditor
     private bool CanUpgradeBooleanTopology => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.TypedBooleanGraph &&
         WorkflowValidator.Validate(Definition).IsEmpty;
     private Task EnableBooleanTopologyPreview() => Edit(() => GraphEditing.EnableBooleanTopologyGraph(Definition));
+    private bool CanUpgradePureGraphFunctions => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.BooleanTopologyGraph &&
+        WorkflowValidator.Validate(Definition).IsEmpty;
+    private Task EnablePureGraphFunctionsPreview() => Edit(() => GraphEditing.EnablePureGraphFunctions(Definition));
 
     private IReadOnlyList<WorkflowNodeLibraryEntry> LibraryEntries(GraphContextRequest? context = null)
     {
@@ -88,6 +91,11 @@ public partial class PipelineEditor
                 explicitEntries.Insert(0, new(NodeTypes.BooleanConstant, "Boolean constant", "Values", "Provide a literal true or false value", !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
                 explicitEntries.Insert(1, new(NodeTypes.BooleanNot, "Boolean NOT", "Values", "Invert a Boolean value without converting its type", !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
             }
+            if (Definition.SchemaVersion == WorkflowSchemaVersions.PureGraphFunctions)
+                explicitEntries.AddRange((FunctionCatalog?.List() ?? []).Select(entry => new WorkflowNodeLibraryEntry(
+                    FunctionKey(entry.Function), $"Function · {entry.Function.Definition.DisplayName} v{entry.Function.Definition.Version}",
+                    "Functions", $"{entry.Function.Definition.Inputs.Count} inputs · {entry.Function.Definition.Outputs.Count} outputs · snapshot pinned on insert",
+                    !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));
             return explicitEntries;
         }
         var insertion = Insertion(context);

@@ -29,6 +29,7 @@ public static class WorkflowPorts
 
     public static ImmutableArray<WorkflowPort> ExplicitDataInputs(NodeDefinition node) => node.Type switch
     {
+        NodeTypes.FunctionOutput => [new("in", node.InputDataType ?? "string")],
         NodeTypes.Output => [new("in", "string")],
         NodeTypes.TextConcat => [new("left", "string"), new("right", "string")],
         NodeTypes.StringEquals => [new("left", "string"), new("right", "string")],
@@ -40,6 +41,7 @@ public static class WorkflowPorts
 
     public static ImmutableArray<WorkflowPort> ExplicitDataOutputs(NodeDefinition node) => node.Type switch
     {
+        NodeTypes.FunctionInput => [new("out", node.OutputDataType ?? "string")],
         NodeTypes.Input or NodeTypes.StringConstant or NodeTypes.TextConcat => [new("out", "string")],
         NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", "boolean")],
         NodeTypes.FunctionCall when node.GraphFunction?.Definition?.Outputs is { } outputs => [.. outputs.Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))],

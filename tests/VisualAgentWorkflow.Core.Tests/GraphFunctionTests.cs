@@ -116,4 +116,18 @@ public sealed class GraphFunctionTests
         Assert.Contains(GraphFunctionJson.Validate(cyclic), issue => issue.Code == "function.cycle");
         Assert.Contains(GraphFunctionJson.Validate(unsupportedType), issue => issue.Code == "function.port.type");
     }
+
+    [Fact]
+    public void Function_boundary_sockets_keep_the_declared_data_type()
+    {
+        var function = AppendSuffixFunction();
+        var mismatched = function with
+        {
+            Nodes = function.Nodes.SetItem("input", function.Nodes["input"] with { OutputDataType = "boolean" })
+        };
+        var inputNode = function.Nodes["input"] with { OutputDataType = "boolean" };
+
+        Assert.Contains(GraphFunctionJson.Validate(mismatched), issue => issue.Code == "function.port.type");
+        Assert.Contains(WorkflowPorts.Explicit(inputNode), port => port.Id == "out" && port.DataType == "boolean");
+    }
 }

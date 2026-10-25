@@ -71,6 +71,14 @@
                 <button type="button" @onclick="EnableBooleanTopologyPreview" disabled="@Disabled">Enable branch topologies</button>
             </section>
         }
+        @if (CanUpgradePureGraphFunctions)
+        {
+            <section class="vaw-library-note" aria-label="Pure graph functions">
+                <strong>Pure graph functions</strong>
+                <p class="vaw-help">Upgrade this valid graph to insert pinned, reusable string/Boolean function snapshots as lazy data nodes.</p>
+                <button type="button" @onclick="EnablePureGraphFunctionsPreview" disabled="@Disabled">Enable pure graph functions</button>
+            </section>
+        }
         <WorkflowNodeLibrary Entries="LibraryEntries()" Disabled="Disabled" OnSelected="key => AddLibraryNode(key)" />
         <p class="vaw-help">Click to add an unconnected node. Connect its pins when ready; use a wire menu to explicitly insert into a path.</p>
         <p class="vaw-insertion-hint">@InsertionDescription(null)</p>
@@ -582,6 +590,7 @@
     [Parameter] public IReadOnlyList<AgentProviderDescriptor> Providers { get; set; } = [];
     [Parameter] public ISkillLibrary? SkillLibrary { get; set; }
     [Parameter] public IAgentProfileLibrary? AgentProfileLibrary { get; set; }
+    [Parameter] public IGraphFunctionCatalog? FunctionCatalog { get; set; }
     private string newType = NodeTypes.Uppercase;
     private string newParameterId = "";
     private string newParameterName = "";
@@ -802,6 +811,7 @@
 
     private static string ToolKey(ToolBindingDescriptor binding) => $"mcp:{binding.BindingId}:{binding.ContractHash}:{binding.DescriptionHash}";
     private static string ProviderKey(AgentProviderDescriptor provider) => $"agent:{provider.ProviderId}:{provider.Version}";
+    private static string FunctionKey(GraphFunctionConfiguration function) => $"function:{function.ContentHash}";
     private string NodeKey(NodeDefinition node) => node.Agent is { } agent ? $"agent:{agent.ProviderId}:{agent.ProviderVersion}" :
         node.Tool is { } tool && Bindings.FirstOrDefault(binding => BindingMatches(tool, binding)) is { } currentBinding ? ToolKey(currentBinding) :
         node.Tool is { } unavailable ? $"mcp:{unavailable.BindingId}:{unavailable.ContractHash}:{unavailable.DescriptionHash}" : node.Type;
@@ -834,6 +844,8 @@
             return new(NodeTypes.TextTemplate, "1.0.0") { TextTemplate = existing?.TextTemplate ?? new([new("input", "")]) };
         if (value == NodeTypes.WorkflowValue)
             return new(NodeTypes.WorkflowValue, "1.0.0") { ParameterId = ParameterDefinitions.Keys.FirstOrDefault() };
+        if (FunctionCatalog?.List().FirstOrDefault(item => FunctionKey(item.Function) == value) is { } function)
+            return new(NodeTypes.FunctionCall, "1.0.0") { GraphFunction = function.Function };
         var provider = Providers.SingleOrDefault(p => ProviderKey(p) == value);
         if (provider is not null) return new(NodeTypes.Agent, "1.0.0", Agent: (existing?.Agent ?? new(provider.ProviderId, provider.Version,
             "Use assigned tools when available and return the result.", [])) with { ProviderId = provider.ProviderId, ProviderVersion = provider.Version });

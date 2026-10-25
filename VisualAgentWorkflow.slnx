@@ -19,5 +19,6 @@
     <Project Path="tests/VisualAgentWorkflow.Core.Tests/VisualAgentWorkflow.Core.Tests.csproj" />
     <Project Path="tests/VisualAgentWorkflow.Hosting.Tests/VisualAgentWorkflow.Hosting.Tests.csproj" />
     <Project Path="tests/VisualAgentWorkflow.Mcp.Tests/VisualAgentWorkflow.Mcp.Tests.csproj" />
+    <Project Path="tests/VisualAgentWorkflow.Studio.Tests/VisualAgentWorkflow.Studio.Tests.csproj" />
   </Folder>
 </Solution>
