@@ -2,9 +2,13 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Windows history compatibility and read-only browser smoke
+
+Portable LF hashes now verify historical Windows CRLF hashes for run records, published revisions and shared packages without rewriting their evidence. New definitions and layouts use portable line endings. A Linux browser smoke assertion now checks that insertion controls are absent in read-only revision view without opening an authoring-only disclosure. Tests cover legacy hash rehydration, file-journal listing and package import; the real Chromium Studio smoke passes locally.
+
 ## Cross-platform definition hashes and file-journal replacement
 
-Windows CI exposed portability defects: indented JSON used CRLF when hashing workflow definitions, and file replacement could fail while another in-process store instance read the snapshot. Serialization now normalizes line endings to LF, preserving the existing canonical hash. File journal instances for one path now share an in-process access gate, with bounded retries for transient OS file-access denials. The local stdio MCP fixture pins an initialize-capable protocol version so cold startup cannot cause a false fallback from the newer discover probe. Linux tests verify these changes; Windows CI remains the platform verification.
+Windows CI exposed portability defects: indented JSON used CRLF when hashing workflow definitions, and file replacement could fail while another in-process store instance read the snapshot. Serialization now normalizes line endings to LF. File journal instances for one path now share an in-process access gate, with bounded retries for transient OS file-access denials. The local stdio MCP fixture pins an initialize-capable protocol version so cold startup cannot cause a false fallback from the newer discover probe. The .NET matrix, including Windows, passes.
 
 ## schema-1.6 workflow parameters
 

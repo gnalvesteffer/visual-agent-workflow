@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using VisualAgentWorkflow.Core;
 using Xunit;
@@ -46,6 +48,21 @@ public class WorkflowTests
     [Fact]
     public void ChangingAnOperationChangesHash() =>
         Assert.NotEqual(WorkflowJson.ComputeHash(Pipeline()), WorkflowJson.ComputeHash(Pipeline(NodeTypes.Reverse)));
+
+    [Fact]
+    public void RehydratesHistoricalWindowsLineEndingHashesWithoutChangingTheirIdentity()
+    {
+        var revision = WorkflowRevision.Create(Pipeline(), "alice");
+        var legacyHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(
+            WorkflowJson.Serialize(revision.Definition).Replace("\n", "\r\n", StringComparison.Ordinal))));
+
+        Assert.NotEqual(revision.ContentHash, legacyHash);
+        Assert.True(WorkflowJson.MatchesHash(revision.Definition, legacyHash));
+        var restored = WorkflowRevision.Rehydrate(revision.RevisionId, revision.Definition, revision.Author,
+            revision.ParentRevisionId, revision.CreatedAt, legacyHash);
+        Assert.Equal(legacyHash, restored.ContentHash);
+        Assert.False(WorkflowJson.MatchesHash(revision.Definition, new string('0', 64)));
+    }
 
     [Fact]
     public void RestoreCreatesNewRevisionWithoutChangingHistory()

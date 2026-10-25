@@ -158,7 +158,7 @@ public static class WorkflowLayoutJson
             Sections = layout.Sections.ToImmutableSortedDictionary(p => p.Key,
                 p => p.Value with { NodeIds = p.Value.NodeIds.Order(StringComparer.Ordinal).ToImmutableArray() }, StringComparer.Ordinal)
         };
-        var json = JsonSerializer.Serialize(normalized, Options);
+        var json = JsonSerializer.Serialize(normalized, Options).Replace("\r\n", "\n", StringComparison.Ordinal);
         if (Encoding.UTF8.GetByteCount(json) > 1_048_576) throw new ArgumentException("Layout exceeds 1 MiB.");
         return json;
     }
@@ -175,5 +175,16 @@ public static class WorkflowLayoutJson
 
     public static string ComputeHash(WorkflowLayout layout, WorkflowDefinition definition) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(Serialize(layout, definition))));
+
+    /// <summary>Accepts the canonical layout hash and the prior Windows CRLF hash for persisted packages.</summary>
+    public static bool MatchesHash(WorkflowLayout layout, WorkflowDefinition definition, string? hash)
+    {
+        if (hash is null) return false;
+        var serialized = Serialize(layout, definition);
+        static string Hash(string value) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+        if (string.Equals(Hash(serialized), hash, StringComparison.Ordinal)) return true;
+        // Before portable serialization, Windows hashed the same JSON with CRLF indentation.
+        return string.Equals(Hash(serialized.Replace("\n", "\r\n", StringComparison.Ordinal)), hash, StringComparison.Ordinal);
+    }
 
 }

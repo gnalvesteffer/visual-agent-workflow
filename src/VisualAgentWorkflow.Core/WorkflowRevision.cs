@@ -14,6 +14,10 @@ public sealed record WorkflowRevision
         : this(Guid.NewGuid(), definition, author, parentRevisionId, DateTimeOffset.UtcNow) { }
 
     private WorkflowRevision(Guid revisionId, WorkflowDefinition definition, string author, Guid? parentRevisionId, DateTimeOffset createdAt)
+        : this(revisionId, definition, author, parentRevisionId, createdAt, null) { }
+
+    private WorkflowRevision(Guid revisionId, WorkflowDefinition definition, string author, Guid? parentRevisionId,
+        DateTimeOffset createdAt, string? storedContentHash)
     {
         if (string.IsNullOrWhiteSpace(author)) throw new ArgumentException("An author is required.", nameof(author));
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -24,7 +28,10 @@ public sealed record WorkflowRevision
         CreatedAt = createdAt;
         // Round-trip also normalizes dictionary comparison/order independently of caller construction.
         Definition = WorkflowJson.Deserialize(WorkflowJson.Serialize(definition));
-        ContentHash = WorkflowJson.ComputeHash(Definition);
+        var computedHash = WorkflowJson.ComputeHash(Definition);
+        if (storedContentHash is not null && !WorkflowJson.MatchesHash(Definition, storedContentHash))
+            throw new ArgumentException("Stored revision content does not match its hash.", nameof(storedContentHash));
+        ContentHash = storedContentHash ?? computedHash;
     }
 
     public static WorkflowRevision Create(WorkflowDefinition definition, string author, Guid? parentRevisionId = null) =>
@@ -34,10 +41,7 @@ public sealed record WorkflowRevision
     public static WorkflowRevision Rehydrate(Guid revisionId, WorkflowDefinition definition, string author,
         Guid? parentRevisionId, DateTimeOffset createdAt, string contentHash)
     {
-        var revision = new WorkflowRevision(revisionId, definition, author, parentRevisionId, createdAt);
-        if (!string.Equals(revision.ContentHash, contentHash, StringComparison.Ordinal))
-            throw new ArgumentException("Stored revision content does not match its hash.", nameof(contentHash));
-        return revision;
+        return new WorkflowRevision(revisionId, definition, author, parentRevisionId, createdAt, contentHash);
     }
 
     public static WorkflowRevision Restore(WorkflowRevision historical, WorkflowRevision current, string author)

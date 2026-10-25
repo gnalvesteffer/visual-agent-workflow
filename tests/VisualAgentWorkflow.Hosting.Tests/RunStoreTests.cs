@@ -103,6 +103,28 @@ public sealed class RunStoreTests : IDisposable
     }
 
     [Fact]
+    public void FileJournalReadsWindowsSnapshotsWrittenBeforePortableHashNormalization()
+    {
+        var store = new FileRunJournal(directory);
+        var revision = Revision();
+        var run = store.Create(revision, "legacy Windows evidence");
+        var legacyHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(WorkflowJson.Serialize(revision.Definition)
+                .Replace("\n", "\r\n", StringComparison.Ordinal))));
+        var oldSnapshot = run with { Header = run.Header with { ContentHash = legacyHash } };
+        var path = Path.Combine(directory, run.Header.RunId + ".snapshot.json");
+        File.WriteAllText(path, JsonSerializer.Serialize(oldSnapshot, JsonSerializerOptions.Web));
+
+        var reopened = new FileRunJournal(directory);
+
+        Assert.Equal(legacyHash, reopened.Get(run.Header.RunId)!.Header.ContentHash);
+        Assert.Single(reopened.List());
+        var restoredRevision = WorkflowRevision.Rehydrate(run.Header.RevisionId, run.Header.Definition,
+            run.Header.Author, run.Header.ParentRevisionId, run.Header.CreatedAt, legacyHash);
+        Assert.Equal(legacyHash, restoredRevision.ContentHash);
+    }
+
+    [Fact]
     public void SqliteFailureAfterEventInsertRollsBackEvidenceAndState()
     {
         var store = new SqliteWorkflowRunStore(Database);

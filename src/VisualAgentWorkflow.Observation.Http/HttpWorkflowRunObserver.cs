@@ -38,7 +38,7 @@ public sealed class HttpWorkflowRunObserver : IWorkflowRunObserver, IWorkflowRun
         if (snapshot is null) return null;
         if (snapshot.Header is null || snapshot.Header.Definition is null || snapshot.Header.RunId != runId ||
             snapshot.Header.RevisionId == Guid.Empty || snapshot.Events.IsDefault ||
-            WorkflowJson.ComputeHash(snapshot.Header.Definition) != snapshot.Header.ContentHash ||
+            !WorkflowJson.MatchesHash(snapshot.Header.Definition, snapshot.Header.ContentHash) ||
             snapshot.Events.Where((e, i) => e is null || e.RunId != runId || e.RevisionId != snapshot.Header.RevisionId || e.Sequence != i + 1).Any())
             throw new InvalidDataException("Invalid run identity, definition hash or event sequence.");
         return snapshot;

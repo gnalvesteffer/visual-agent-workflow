@@ -42,7 +42,7 @@ internal static class RunStoreRecords
     public static void Validate(RunSnapshot snapshot, Guid runId)
     {
         if (snapshot.Header.RunId != runId || snapshot.Header.RevisionId == Guid.Empty ||
-            WorkflowJson.ComputeHash(snapshot.Header.Definition) != snapshot.Header.ContentHash)
+            !WorkflowJson.MatchesHash(snapshot.Header.Definition, snapshot.Header.ContentHash))
             throw new InvalidDataException("Run header identity/content mismatch.");
         WorkflowValidator.ThrowIfInvalid(snapshot.Header.Definition);
         var resolvedParameters = WorkflowParameters.Resolve(snapshot.Header.Definition, snapshot.Header.Parameters);

@@ -132,4 +132,23 @@ public sealed class PipelineReuseTests
         Assert.Throws<JsonException>(() => WorkflowPackageJson.Deserialize(json.Replace("\"formatVersion\": \"1.0\",", "\"formatVersion\": \"1.0\", \"formatVersion\": \"1.0\",")));
         Assert.Throws<ArgumentException>(() => WorkflowPackageJson.Deserialize(new string(' ', WorkflowPackageJson.MaximumBytes + 1)));
     }
+
+    [Fact]
+    public void PackageImportAcceptsAndNormalizesHistoricalWindowsHashes()
+    {
+        var definition = Definition();
+        var layout = WorkflowLayout.Create(definition);
+        var root = System.Text.Json.Nodes.JsonNode.Parse(WorkflowPackageJson.Serialize(definition, layout))!;
+        root["definitionHash"] = LegacyWindowsHash(WorkflowJson.Serialize(definition));
+        root["layoutHash"] = LegacyWindowsHash(WorkflowLayoutJson.Serialize(layout, definition));
+
+        var imported = WorkflowPackageJson.Deserialize(root.ToJsonString());
+
+        Assert.Equal(WorkflowJson.ComputeHash(imported.Definition), imported.DefinitionHash);
+        Assert.Equal(WorkflowLayoutJson.ComputeHash(imported.Layout, imported.Definition), imported.LayoutHash);
+
+        static string LegacyWindowsHash(string json) => Convert.ToHexStringLower(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+                json.Replace("\n", "\r\n", StringComparison.Ordinal))));
+    }
 }

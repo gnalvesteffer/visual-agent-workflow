@@ -277,7 +277,8 @@ def designer_check(browser):
     workbench(designer).get_by_role("button", name="View selected version", exact=True).click()
     workbench(designer).get_by_text("Viewing published version 1 (read-only).", exact=True).wait_for()
     expect(nodes).to_have_count(3)
-    expect(inspect_control(designer, "Add node after input").get_by_role("button", name="Add node after input", exact=True)).to_have_count(0)
+    # Read-only published revisions omit insertion controls and their disclosure entirely.
+    expect(designer.get_by_role("button", name="Add node after input", exact=True)).to_have_count(0)
     workbench(designer).get_by_role("button", name="Return to draft", exact=True).click()
     expect(nodes).to_have_count(4)
     workbench(designer).get_by_role("button", name="Restore selected to draft", exact=True).click()

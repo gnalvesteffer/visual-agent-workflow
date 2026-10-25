@@ -46,4 +46,18 @@ public static class WorkflowJson
     public static string ComputeHash(WorkflowDefinition definition) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(Serialize(definition))));
 
+    /// <summary>Accepts the canonical hash and the prior Windows CRLF hash for persisted cross-version evidence.</summary>
+    public static bool MatchesHash(WorkflowDefinition definition, string? hash)
+    {
+        if (hash is null) return false;
+        var serialized = Serialize(definition);
+        if (string.Equals(Hash(serialized), hash, StringComparison.Ordinal)) return true;
+
+        // Before the cross-platform serialization fix, Windows hashed the same JSON with CRLF indentation.
+        return string.Equals(Hash(serialized.Replace("\n", "\r\n", StringComparison.Ordinal)), hash, StringComparison.Ordinal);
+    }
+
+    private static string Hash(string serialized) =>
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(serialized)));
+
 }

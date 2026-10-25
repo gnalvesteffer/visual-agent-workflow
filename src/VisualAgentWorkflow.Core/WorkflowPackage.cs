@@ -69,7 +69,8 @@ public static class WorkflowPackageJson
         var definition = WorkflowJson.Deserialize(document.RootElement.GetProperty("definition").GetRawText());
         var layout = WorkflowLayoutJson.Deserialize(document.RootElement.GetProperty("layout").GetRawText(), definition);
         var expected = Create(definition, layout);
-        if (package.DefinitionHash != expected.DefinitionHash || package.LayoutHash != expected.LayoutHash ||
+        if (!WorkflowJson.MatchesHash(definition, package.DefinitionHash) ||
+            !WorkflowLayoutJson.MatchesHash(layout, definition, package.LayoutHash) ||
             package.Requirements.Distinct().Count() != package.Requirements.Length ||
             !Sort(package.Requirements).SequenceEqual(expected.Requirements))
             throw new ArgumentException("Package checksums or requirements do not match its contents.");
