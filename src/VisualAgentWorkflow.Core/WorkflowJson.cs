@@ -61,7 +61,8 @@ public static class WorkflowJson
         var normalized = definition with
         {
             Nodes = definition.Nodes.ToImmutableSortedDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
-            Connections = definition.Connections.ToImmutableSortedDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal)
+            Connections = definition.Connections.ToImmutableSortedDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
+            ExecutionConnections = definition.ExecutionConnections?.ToImmutableSortedDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal)
         };
         // System.Text.Json writes environment-native indented line endings. Definitions and their hashes
         // must be byte-stable across Windows and Unix, so the portable form always uses LF.

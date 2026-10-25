@@ -23,6 +23,28 @@ public class WorkflowTests
             ["second"] = new(new("transform", "out"), new("output", "in"), "data")
         }.ToImmutableSortedDictionary(StringComparer.Ordinal));
 
+    private static WorkflowDefinition ExplicitDataAndExecutionGraph() => new WorkflowDefinition(
+        "1.23", "explicit-graph", "input",
+        new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["constant"] = new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("!") },
+            ["concat"] = new(NodeTypes.TextConcat, "1.0.0"),
+            ["output"] = new(NodeTypes.Output, "1.0.0")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+        new Dictionary<string, ConnectionDefinition>
+        {
+            ["input-value"] = new(new("input", "out"), new("concat", "left"), "data"),
+            ["suffix"] = new(new("constant", "out"), new("concat", "right"), "data"),
+            ["result"] = new(new("concat", "out"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+    {
+        ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+        {
+            ["activate-output"] = new(new("input", "then"), new("output", "execute"), "execution")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+    };
+
     [Fact]
     public void ValidPipelineRoundTripsWithStableHash()
     {
@@ -32,6 +54,47 @@ public class WorkflowTests
         Assert.Empty(WorkflowValidator.Validate(loaded));
         Assert.Equal(json, WorkflowJson.Serialize(loaded));
         Assert.Equal(WorkflowJson.ComputeHash(definition), WorkflowJson.ComputeHash(loaded));
+    }
+
+    [Fact]
+    public void Explicit_execution_and_data_channels_round_trip_without_conflating_their_edges()
+    {
+        var definition = ExplicitDataAndExecutionGraph();
+
+        var json = WorkflowJson.Serialize(definition);
+        var restored = WorkflowJson.Deserialize(json);
+
+        Assert.Empty(WorkflowValidator.Validate(restored));
+        Assert.Equal("data", Assert.Single(restored.Connections.Values, edge => edge.Target.NodeId == "output").Kind);
+        Assert.Equal("execution", Assert.Single(restored.ExecutionConnections!).Value.Kind);
+        Assert.Equal(json, WorkflowJson.Serialize(restored));
+        Assert.Equal(WorkflowJson.ComputeHash(definition), WorkflowJson.ComputeHash(restored));
+        Assert.Collection(WorkflowPorts.Explicit(restored.Nodes["output"]),
+            port => Assert.Equal(new WorkflowPortDescriptor("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, "string"), port),
+            port => Assert.Equal(new WorkflowPortDescriptor("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution), port));
+    }
+
+    [Fact]
+    public void Explicit_data_edges_do_not_satisfy_execution_activation_requirements()
+    {
+        var definition = ExplicitDataAndExecutionGraph() with { ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty };
+
+        var issues = WorkflowValidator.Validate(definition);
+
+        Assert.Contains(issues, issue => issue.Code == "execution.degree");
+        Assert.Contains(issues, issue => issue.Code == "execution.path");
+    }
+
+    [Fact]
+    public void Explicit_data_cycles_are_rejected_even_when_the_execution_path_is_valid()
+    {
+        var definition = ExplicitDataAndExecutionGraph() with
+        {
+            Connections = ExplicitDataAndExecutionGraph().Connections
+                .SetItem("cycle-back", new(new("concat", "out"), new("concat", "left"), "data"))
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "data.cycle");
     }
 
     [Fact]

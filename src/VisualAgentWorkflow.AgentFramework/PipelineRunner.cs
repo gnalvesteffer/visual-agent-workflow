@@ -82,7 +82,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             finally { recordGate.Release(); }
         }
 
-        var workflow = BuildWorkflow(runId, revision, resolvedParameters, Emit, gate, rootRevision, workflowPath);
+        var workflow = BuildWorkflow(runId, revision, input, resolvedParameters, Emit, gate, rootRevision, workflowPath);
 
         await Emit(ExecutionEventKinds.Started);
         try
@@ -136,23 +136,27 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         }
     }
 
-    private Workflow BuildWorkflow(Guid runId, WorkflowRevision revision,
+    private Workflow BuildWorkflow(Guid runId, WorkflowRevision revision, string input,
         IReadOnlyDictionary<string, string>? parameters,
         Func<string, string?, Guid?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate,
         WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath) =>
-        BuildWorkflow(runId, revision, parameters, (kind, node, invocation, connection, data, _) => emit(kind, node, invocation, connection, data), gate, rootRevision, workflowPath);
+        BuildWorkflow(runId, revision, input, parameters, (kind, node, invocation, connection, data, _) => emit(kind, node, invocation, connection, data), gate, rootRevision, workflowPath);
 
-    private Workflow BuildWorkflow(Guid runId, WorkflowRevision revision,
+    private Workflow BuildWorkflow(Guid runId, WorkflowRevision revision, string input,
         IReadOnlyDictionary<string, string>? parameters,
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate,
         WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath)
     {
         var definition = revision.Definition;
+        var dataEvaluator = definition.SchemaVersion == "1.23" ? new ExplicitGraphDataEvaluator(definition, input) : null;
         var executors = definition.Nodes.ToDictionary(
             n => n.Key,
-            n => new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, emit, gate, null, rootRevision, workflowPath));
+            n => new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, dataEvaluator, emit, gate, null, rootRevision, workflowPath));
         var builder = new WorkflowBuilder(executors[definition.EntryNodeId]);
-        foreach (var edge in definition.Connections.Values)
+        var executionEdges = definition.SchemaVersion == "1.23"
+            ? definition.ExecutionConnections!.Values
+            : definition.Connections.Values;
+        foreach (var edge in executionEdges)
         {
             if (definition.Nodes[edge.Target.NodeId].Type == NodeTypes.ParallelJoin) continue;
             builder.AddEdge<GraphMessage>(executors[edge.Source.NodeId], executors[edge.Target.NodeId], message =>
@@ -160,7 +164,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         }
         foreach (var join in definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.ParallelJoin))
         {
-            var branchSources = definition.Connections.Values
+            var branchSources = executionEdges
                 .Where(edge => edge.Target.NodeId == join.Key)
                 .Select(edge => (ExecutorBinding)executors[edge.Source.NodeId]);
             builder.AddFanInBarrierEdge(branchSources, (ExecutorBinding)executors[join.Key]);
@@ -177,6 +181,74 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         WorkflowApprovalPermit? Approval = null, string DataType = "string", int LoopIteration = 0,
         bool TerminationSignal = false, bool FailureSignal = false);
 
+    private sealed record EvaluatedDataValue(string NodeId, string PortId, string Value);
+    private sealed record DataInputEvaluation(string Value, ImmutableArray<EvaluatedDataValue> Evaluations);
+
+    /// <summary>Evaluates only the bounded, pure schema-1.23 value nodes in one activation context.</summary>
+    private sealed class ExplicitGraphDataEvaluator(WorkflowDefinition definition, string input)
+    {
+        public DataInputEvaluation ResolveInput(string nodeId, string inputPort)
+        {
+            var edge = definition.Connections.Values.Single(connection => connection.Target.NodeId == nodeId && connection.Target.PortId == inputPort);
+            var evaluated = ImmutableArray.CreateBuilder<EvaluatedDataValue>();
+            var cache = new Dictionary<(string NodeId, string PortId), string>();
+            var active = new HashSet<(string NodeId, string PortId)>();
+            var value = ResolveOutput(edge.Source.NodeId, edge.Source.PortId, evaluated, cache, active);
+            return new(value, evaluated.ToImmutable());
+        }
+
+        private string ResolveOutput(string nodeId, string outputPort,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), string> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            var key = (nodeId, outputPort);
+            if (cache.TryGetValue(key, out var cached)) return cached;
+            if (!active.Add(key)) throw new InvalidOperationException("Pure data evaluation encountered a cycle.");
+            try
+            {
+                if (!definition.Nodes.TryGetValue(nodeId, out var node) || node is null)
+                    throw new InvalidOperationException("Pure data source is unavailable.");
+                var value = node.Type switch
+                {
+                    NodeTypes.Input when outputPort == "out" => input,
+                    NodeTypes.StringConstant when outputPort == "out" => node.StringConstant!.Value,
+                    NodeTypes.TextConcat when outputPort == "out" => Concatenate(nodeId, "left", "right", evaluated, cache, active),
+                    _ => throw new InvalidOperationException("The data source is not a supported pure value node.")
+                };
+                if (value.Length > 16_384) throw new InvalidOperationException("Pure data output exceeds 16,384 characters.");
+                cache.Add(key, value);
+                evaluated.Add(new(nodeId, outputPort, value));
+                return value;
+            }
+            finally
+            {
+                active.Remove(key);
+            }
+        }
+
+        private string Concatenate(string nodeId, string leftPort, string rightPort,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), string> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            var left = ResolveInput(nodeId, leftPort, evaluated, cache, active);
+            var right = ResolveInput(nodeId, rightPort, evaluated, cache, active);
+            if ((long)left.Length + right.Length > 16_384)
+                throw new InvalidOperationException("Text concatenation exceeds 16,384 characters.");
+            return string.Concat(left, right);
+        }
+
+        private string ResolveInput(string nodeId, string inputPort,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), string> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            var edge = definition.Connections.Values.Single(connection => connection.Target.NodeId == nodeId && connection.Target.PortId == inputPort);
+            return ResolveOutput(edge.Source.NodeId, edge.Source.PortId, evaluated, cache, active);
+        }
+    }
+
     private sealed class StringExecutor(
         string id,
         NodeDefinition node,
@@ -185,6 +257,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         IReadOnlyDictionary<string, string>? parameters,
         INodeToolBroker? tools,
         IAgentNodeExecutor? agents,
+        ExplicitGraphDataEvaluator? dataEvaluator,
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> record, IWorkflowExecutionGate? gate,
         string? scopeId, WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
@@ -218,12 +291,35 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             }
             else if (received.SourceNode is not null)
             {
-                var incoming = revision.Definition.Connections.Single(e => e.Value.Source.NodeId == received.SourceNode &&
-                    e.Value.Source.PortId == received.SourcePort && e.Value.Target.NodeId == Id);
-                var inputType = WorkflowPorts.Inputs(node).Single(port => port.Id == incoming.Value.Target.PortId).DataType;
-                if (received.DataType != inputType) throw new InvalidOperationException("Connected workflow data type does not match the receiving node.");
-                await Emit(ExecutionEventKinds.Transfer, Id, invocation, incoming.Key, message);
-                incomingPort = incoming.Value.Target.PortId;
+                if (revision.Definition.SchemaVersion == "1.23")
+                {
+                    var incoming = revision.Definition.ExecutionConnections!.Single(edge => edge.Value.Source.NodeId == received.SourceNode &&
+                        edge.Value.Source.PortId == received.SourcePort && edge.Value.Target.NodeId == Id);
+                    await Emit(ExecutionEventKinds.ExecutionActivated, Id, invocation, incoming.Key);
+                    incomingPort = incoming.Value.Target.PortId;
+                }
+                else
+                {
+                    var incoming = revision.Definition.Connections.Single(edge => edge.Value.Source.NodeId == received.SourceNode &&
+                        edge.Value.Source.PortId == received.SourcePort && edge.Value.Target.NodeId == Id);
+                    var inputType = WorkflowPorts.Inputs(node).Single(port => port.Id == incoming.Value.Target.PortId).DataType;
+                    if (received.DataType != inputType) throw new InvalidOperationException("Connected workflow data type does not match the receiving node.");
+                    await Emit(ExecutionEventKinds.Transfer, Id, invocation, incoming.Key, message);
+                    incomingPort = incoming.Value.Target.PortId;
+                }
+            }
+            if (revision.Definition.SchemaVersion == "1.23" && node.Type == NodeTypes.Output)
+            {
+                var evaluation = dataEvaluator!.ResolveInput(Id, "in");
+                message = evaluation.Value;
+                foreach (var value in evaluation.Evaluations)
+                    await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation, null, JsonSerializer.Serialize(new
+                    {
+                        activatedByNodeId = Id,
+                        port = value.PortId,
+                        dataType = "string",
+                        value = value.Value
+                    }));
             }
             if (node.Type == NodeTypes.ParallelJoin)
             {
@@ -299,6 +395,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                         throw new InvalidOperationException("The approval permit does not match the recorded action.");
                 }
                 var port = "out";
+                if (revision.Definition.SchemaVersion == "1.23" && node.Type == NodeTypes.Input) port = "then";
                 if (node.Type == NodeTypes.Condition)
                 {
                     port = node.Condition!.Evaluate(message) ? "true" : "false";
@@ -342,7 +439,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                     return new(result, Id, "parallel.dispatched", DataType: "string");
                 }
                 var outputType = node.Type == NodeTypes.Terminate ? "string" : node.Type == NodeTypes.Output ? received.DataType :
-                    WorkflowPorts.Outputs(node).Single(output => output.Id == port).DataType;
+                    revision.Definition.SchemaVersion == "1.23" ? "string" : WorkflowPorts.Outputs(node).Single(output => output.Id == port).DataType;
                 var failureSignal = node.Termination?.Outcome == WorkflowTerminationOutcomes.Failure ||
                     received.FailureSignal || childOutcome?.Failed == true;
                 var terminated = node.Type == NodeTypes.Terminate || received.TerminationSignal || childOutcome?.Terminated == true;

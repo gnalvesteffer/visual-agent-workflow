@@ -16,6 +16,9 @@ public sealed record WorkflowDefinition(
     public string? DisplayName { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ImmutableSortedDictionary<string, WorkflowParameterDefinition>? Parameters { get; init; }
+    /// <summary>Explicit execution activations used by schema 1.23 and later; legacy versions schedule through Connections.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableSortedDictionary<string, ConnectionDefinition>? ExecutionConnections { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ImmutableSortedDictionary<string, WorkflowSkill>? Skills { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -53,6 +56,8 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public JsonProjectionConfiguration? JsonProjection { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public StringConstantConfiguration? StringConstant { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public PromptTemplate? TextTemplate { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public LoopConfiguration? Loop { get; init; }
@@ -88,10 +93,14 @@ public static class NodeTypes
     public const string LoopBody = "core.loop.body";
     public const string Terminate = "core.terminate";
     public const string WorkflowCall = "core.workflow-call";
+    public const string StringConstant = "core.constant.string";
+    public const string TextConcat = "core.text.concat";
 
     public static bool IsSupported(string? type) =>
-        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin or Loop or LoopBody or Terminate or WorkflowCall;
+        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin or Loop or LoopBody or Terminate or WorkflowCall or StringConstant or TextConcat;
 }
+
+public sealed record StringConstantConfiguration(string Value);
 
 public sealed record LoopConfiguration(StringCondition ContinueWhile, int MaximumIterations);
 public sealed record TerminationConfiguration(string Outcome);

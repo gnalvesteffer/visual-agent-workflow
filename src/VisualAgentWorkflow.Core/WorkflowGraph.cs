@@ -3,6 +3,9 @@ using System.Collections.Immutable;
 namespace VisualAgentWorkflow.Core;
 
 public sealed record WorkflowPort(string Id, string DataType);
+public enum WorkflowPortKind { Execution, Data }
+public enum WorkflowPortDirection { Input, Output }
+public sealed record WorkflowPortDescriptor(string Id, WorkflowPortDirection Direction, WorkflowPortKind Kind, string? DataType = null);
 public sealed record StringCondition(string Operator, string Operand)
 {
     public bool Evaluate(string input) => Operator switch
@@ -18,6 +21,37 @@ public sealed record StringCondition(string Operator, string Operand)
 /// <summary>Explicit typed ports for the bounded workflow graph; no CLR types or executable expressions.</summary>
 public static class WorkflowPorts
 {
+    public static ImmutableArray<WorkflowPortDescriptor> Explicit(NodeDefinition node) =>
+        [.. ExplicitDataInputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType)),
+         .. ExplicitDataOutputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType)),
+         .. ExplicitExecutionInputs(node).Select(port => new WorkflowPortDescriptor(port, WorkflowPortDirection.Input, WorkflowPortKind.Execution)),
+         .. ExplicitExecutionOutputs(node).Select(port => new WorkflowPortDescriptor(port, WorkflowPortDirection.Output, WorkflowPortKind.Execution))];
+
+    public static ImmutableArray<WorkflowPort> ExplicitDataInputs(NodeDefinition node) => node.Type switch
+    {
+        NodeTypes.Output => [new("in", "string")],
+        NodeTypes.TextConcat => [new("left", "string"), new("right", "string")],
+        _ => []
+    };
+
+    public static ImmutableArray<WorkflowPort> ExplicitDataOutputs(NodeDefinition node) => node.Type switch
+    {
+        NodeTypes.Input or NodeTypes.StringConstant or NodeTypes.TextConcat => [new("out", "string")],
+        _ => []
+    };
+
+    public static ImmutableArray<string> ExplicitExecutionInputs(NodeDefinition node) => node.Type switch
+    {
+        NodeTypes.Output => ["execute"],
+        _ => []
+    };
+
+    public static ImmutableArray<string> ExplicitExecutionOutputs(NodeDefinition node) => node.Type switch
+    {
+        NodeTypes.Input => ["then"],
+        _ => []
+    };
+
     public static ImmutableArray<WorkflowPort> Inputs(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input => [],
