@@ -111,6 +111,8 @@ public class BrokerTests
         using var arguments = JsonDocument.Parse("""{"tool":"ntfy.publish","arguments":{"topic":"alerts","priority":5,"tags":["red",true,null],"meta":{"source":"agent"}}}""");
 
         Assert.True(McpToolInputSchemas.IsSupported(schema.RootElement));
+        var summary = McpToolInputSchemas.Summarize(schema.RootElement);
+        Assert.Contains("arguments: dynamic JSON object required", summary);
         var normalized = McpToolInputSchemas.Normalize(schema.RootElement);
         Assert.Equal(JsonValueKind.Object, normalized.GetProperty("properties").GetProperty("arguments").GetProperty("additionalProperties").ValueKind);
         var converted = McpToolInputSchemas.ToCallArguments(schema.RootElement, arguments.RootElement);

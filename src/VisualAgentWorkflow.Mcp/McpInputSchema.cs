@@ -75,7 +75,12 @@ internal sealed class McpInputSchema
 
     private static void SummarizeObject(JsonElement definition, string prefix, int depth, List<string> fields)
     {
-        var properties = definition.GetProperty("properties");
+        if (!definition.TryGetProperty("properties", out var properties) || properties.ValueKind != JsonValueKind.Object)
+        {
+            var path = string.IsNullOrEmpty(prefix) ? "(root arguments)" : prefix;
+            fields.Add($"{path}: dynamic JSON object (bounded)");
+            return;
+        }
         var required = definition.TryGetProperty("required", out var requiredFields)
             ? requiredFields.EnumerateArray().Select(field => field.GetString()).ToHashSet(StringComparer.Ordinal)
             : new HashSet<string?>(StringComparer.Ordinal);
@@ -84,15 +89,21 @@ internal sealed class McpInputSchema
         {
             if (fields.Count >= MaximumSummaryFields) break;
             var path = string.IsNullOrEmpty(prefix) ? property.Name : $"{prefix}.{property.Name}";
-            var type = property.Value.GetProperty("type").GetString()!;
+            var type = property.Value.TryGetProperty("type", out var typeSchema) ? typeSchema.GetString()! : "JSON value";
             var cardinality = required.Contains(property.Name) ? "required" : "optional";
-            if (type == "object" && depth < 4 && property.Value.GetProperty("properties").EnumerateObject().Any())
+            if (type == "object" && property.Value.TryGetProperty("additionalProperties", out var additional) && additional.ValueKind == JsonValueKind.Object)
+            {
+                fields.Add($"{path}: dynamic JSON object {cardinality} · bounded");
+                continue;
+            }
+            if (type == "object" && depth < 4 && property.Value.TryGetProperty("properties", out var nestedProperties) && nestedProperties.ValueKind == JsonValueKind.Object && nestedProperties.EnumerateObject().Any())
             {
                 SummarizeObject(property.Value, path, depth + 1, fields);
                 continue;
             }
 
-            if (type == "array") type = $"array<{property.Value.GetProperty("items").GetProperty("type").GetString()}>";
+            if (type == "array") type = property.Value.GetProperty("items").TryGetProperty("type", out var itemType)
+                ? $"array<{itemType.GetString()}>" : "array<JSON value>";
             fields.Add($"{path}: {type} {cardinality}");
         }
     }
