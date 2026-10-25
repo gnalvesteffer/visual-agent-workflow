@@ -121,6 +121,8 @@ Schema 1.6 adds workflow-owned string parameters with stable IDs, labels and def
 
 The next milestone makes agent nodes useful with user-owned capabilities. Today the designer already edits agent instructions, chooses an available model provider, and assigns selected tools to an individual agent node. The standalone Studio's tool catalog, however, is hard-coded to the built-in `uppercase`, `reverse`, and `submit_answer` fixture tools; there is no server-management UI or reusable skill catalog. Consumer hosts can supply their own trusted registrations, but that does not let a workflow author configure the Studio's catalog.
 
+The [agent capability library design](agent-capability-libraries.md) records competitor research and the proposed Studio flow. MCP servers and skills should have searchable, folder-organized libraries; folders are organizational metadata, while exact IDs and revisions remain stable. The agent inspector needs separate system instructions and user-message fields, plus keyboard-accessible value insertion, preview, and an explicit text-template node. Publish validated reference segments rather than executable interpolation expressions.
+
 Deliver one coherent authoring flow:
 
 1. Add and manage host-owned MCP server connections in Studio settings, then discover and inspect each server's tools, descriptions, and input/output schemas. Start with standard stdio and Streamable HTTP transports only after a compatibility/security spike confirms the pinned client APIs and required limits.
