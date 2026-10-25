@@ -83,7 +83,7 @@ Initial node categories:
 | Data | Constants, typed objects, field selection, list operations |
 | Computation | Arithmetic, comparison, text transformation, validation |
 | Control flow | Branch, switch, bounded loop, parallel branches, join |
-| Agents | Agent invocation, provider/model, instructions, assigned skills and tools, and provider-supported reasoning controls |
+| Agents | Agent invocation, provider/model, instructions, assigned skills and tools, provider-supported reasoning controls, and explicitly exposed delegated agents |
 | External operations | Explicitly granted MCP tool invocation |
 | Interaction | Human approval, wait for input |
 | Composition | Versioned prefab/subworkflow invocation |
@@ -92,6 +92,12 @@ Initial node categories:
 Define data flow, execution dependencies, and configuration references explicitly. A connection must have one documented meaning; visual proximity must never imply execution behavior. Specify join policy, loop bounds, error propagation, ordering, cancellation, and retry behavior before implementing each control node.
 
 Agent-node settings are per node and versioned with the workflow. Optional controls such as reasoning effort are capability-aware: adapters expose which values a provider/model supports, map them to that provider's semantics, and surface unsupported choices instead of silently ignoring them. Do not assume similarly named controls have identical behavior across providers. Record the requested and effective setting with the model/provider identity in bounded run evidence, without recording credentials.
+
+### Hierarchical agent delegation
+
+**Planned:** an agent node may expose a selected set of immutable, versioned agent profiles as delegate tools. A profile describes its role/instructions, provider/model selection or host-resolved profile, supported inference limits, skill revisions, MCP tool requirements, and bounded input/output contract. The parent may choose among the delegate profiles that the workflow author explicitly attached; model output cannot create profiles, modify their tool lists, or grant capabilities. Each child runs with a separate conversation context and its own declared capabilities, still intersected with host authorization. Parent permissions are not inherited implicitly, and a child cannot widen its scope by delegating.
+
+Define maximum delegation depth, child-call count, aggregate and per-child token/time budgets, concurrency, cancellation, cycle validation, and error propagation before execution support. Child calls should appear as a parent-linked audit tree under the workflow run so live observation and replay can show the selected profile version, resolved model, input/output, assigned skills/tools, and child events without reissuing calls. Begin with request/response delegation exposed as a tool; agent handoff, autonomous team scheduling, and runtime workflow-as-child are separate orchestration/composition features. Agent presets and their requested capabilities declare requirements only; the consuming host remains responsible for registration and authorization.
 
 ### Workflow parameters and variables
 
