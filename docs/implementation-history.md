@@ -2,6 +2,10 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Confirmed conditional block removal
+
+Core can preview and remove an isolated condition region, including both arms, nested decisions and the matching merge, then reconnect the surrounding path. The editor lists affected nodes and requires confirmation; cancellation leaves the draft unchanged. Context-menu and Delete-key entry points use the same flow, and shared undo/redo restores definition and layout. Outside incoming paths cause rejection, preserving unrelated branches. Published revisions and historical runs stay unchanged. Eight focused Core cases cover empty/nested/sequential regions, immutable source definitions and shared-boundary/non-condition rejection. The conditional browser smoke verifies cancellation, confirmation, definition/layout undo/redo, saved removal, unchanged published v1, and framework execution of the reconnected v2. Release build, full .NET suite (246 passed; one opt-in inference test skipped), and documentation link/Mermaid checks passed locally on Linux. See [conditional graphs](conditional-graphs.md).
+
 ## Workflow parameter descriptions
 
 Workflow parameter definitions can include bounded optional descriptions. The Studio edits these descriptions and displays them beside published-run inputs; reusable insertion carries them with copied parameter definitions. Null descriptions remain omitted from JSON, preserving old canonical workflow hashes. Core tests cover round trips, bounds, edits and reuse. See [workflow parameters](workflow-parameters.md) and the [user guide](user-guide.md).

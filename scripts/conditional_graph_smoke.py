@@ -135,9 +135,51 @@ def check(browser, screenshots):
     expect(workbench(designer).get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
     workbench(designer).get_by_label("Saved workflow", exact=True).select_option(workflow_id)
     expect(inspect_control(designer, "Condition operand for " + branch).get_by_label("Condition operand for " + branch, exact=True)).to_have_value("never-match")
+    # Removing a block is explicit, cancelable, and one definition/layout undo unit.
+    nodes = workbench(designer).locator(".vaw-node[data-node-id]")
+    layout_before_removal = get(f"/api/workflows/{workflow_id}/design")["layout"]
+    inspector = inspect_control(designer, "Condition operand for " + branch)
+    branch_handle = branch_card.locator("[data-drag-node]")
+    branch_handle.click()
+    expect(branch_handle).to_have_attribute("aria-pressed", "true")
+    branch_handle.press("Delete")
+    confirmation = workbench(designer).get_by_role("region", name="Confirm conditional block removal", exact=True)
+    expect(confirmation).to_contain_text("Remove these 4 nodes")
+    expect(confirmation.locator("li")).to_have_count(4)
+    if screenshots:
+        confirmation.screenshot(path=str(screenshots / "conditional-removal-confirmation.png"))
+    confirmation.get_by_role("button", name="Cancel block removal", exact=True).click()
+    expect(confirmation).to_have_count(0)
+    expect(nodes).to_have_count(7)
+    inspector.get_by_role("button", name="Remove conditional block…", exact=True).click()
+    confirmation.get_by_role("button", name="Remove block and reconnect", exact=True).click()
+    expect(nodes).to_have_count(3)
+    expect(workbench(designer).locator(".vaw-node[data-node-type='core.condition']")).to_have_count(0)
+    workbench(designer).get_by_role("button", name="Undo edit", exact=True).click()
+    expect(nodes).to_have_count(7)
+    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
+    workbench(designer).get_by_text("Draft saved.", exact=True).wait_for()
+    assert get(f"/api/workflows/{workflow_id}/design")["layout"] == layout_before_removal
+    workbench(designer).get_by_role("button", name="Redo edit", exact=True).click()
+    expect(nodes).to_have_count(3)
+    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
+    workbench(designer).get_by_text("Draft saved.", exact=True).wait_for()
+    removed = get(f"/api/workflows/{workflow_id}/design")["draft"]["definition"]
+    assert set(removed["nodes"]) == {"input", "step-1", "output"}
+    assert get(f"/api/revisions/{revision['revisionId']}/package")["definition"] == definition
+    workbench(designer).get_by_role("button", name="Publish & activate", exact=True).click()
+    workbench(designer).get_by_text("Published and activated version 2.", exact=True).wait_for()
+    new_revision = get(f"/api/workflows/{workflow_id}/revisions")[0]["revision"]
+    response = page.request.post(BASE + f"/api/revisions/{new_revision['revisionId']}/runs", data={"input":"abc"})
+    assert response.ok, response.text()
+    removed_run_id = response.json()["header"]["runId"]
+    page.wait_for_function("""async id => (await (await fetch('/api/runs/'+id)).json()).status==='completed'""", arg=removed_run_id)
+    removed_run = get("/api/runs/" + removed_run_id)
+    assert removed_run["events"][-1]["data"] == "ABC"
+    assert not any(event["kind"] == "branch.selected" for event in removed_run["events"])
     assert not errors, errors
     page.close()
-    print("Conditional insertion/undo/redo, predicate editing, edge sockets, true/false framework paths, merge, recorded playback, package/reload, revision pinning and invalid wiring rejection passed.")
+    print("Conditional insertion/undo/redo, predicate editing, edge sockets, true/false framework paths, merge, recorded playback, package/reload, revision pinning, invalid wiring rejection, and confirmed block removal/undo/redo/bypass execution passed.")
 
 
 if __name__ == "__main__":

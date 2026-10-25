@@ -15,3 +15,5 @@ When adding agent tools or skills, assign them explicitly to the specific agent/
 
 Prefer focused nodes, clear names, visible inputs/outputs, useful comments/sections, and reusable components with explicit contracts. Avoid hidden prompt substitution, implicit cross-node state, decorative execution animation, or an overgrown canvas. Verify the real graph editor and recorded runtime evidence, not only the rendered page; report which live behaviors and browser actions were checked. Keep proposed Blueprint-like features distinct from what current schema, package, and runner support.
 
+
+For conditional-block edits, use `ConditionalBlockEditing` to preview and remove a single-entry/single-exit region. A matching merge must lie on every downstream route; reachability from both arms alone is insufficient. Reject outside incoming paths, list all affected nodes before confirmation, and commit definition/layout as one undo unit. Verify nested and sequential boundaries plus shared-merge rejection.

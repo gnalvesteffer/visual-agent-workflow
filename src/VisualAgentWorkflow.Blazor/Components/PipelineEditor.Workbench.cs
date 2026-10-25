@@ -74,9 +74,37 @@ public partial class PipelineEditor
     private async Task RemoveSelected(string id, GraphContextRequest? context = null)
     {
         await CloseMenu(context);
+        if (!ReadOnly && !Disabled && Definition.Nodes.TryGetValue(id, out var node) && node.Type == NodeTypes.Condition)
+        { await RequestBlockRemoval(id); return; }
         if (!CanRemove(id)) { error = "This node cannot be deleted independently. Input/output and branch boundaries are required; remove an approval before its guarded tool."; return; }
         await Edit(() => Definition.Nodes[id].Type == NodeTypes.Approval ? GraphEditing.RemoveApproval(Definition, id) :
             HasRouting ? GraphEditing.RemoveNode(Definition, id) : PipelineEditing.Remove(Definition, id));
+    }
+
+    private string? pendingBlockRemoval;
+    private ImmutableArray<string> pendingBlockNodes = [];
+    private async Task RequestBlockRemoval(string id, GraphContextRequest? context = null)
+    {
+        if (ReadOnly || Disabled) return;
+        await CloseMenu(context);
+        CancelBlockRemoval();
+        try
+        {
+            pendingBlockNodes = ConditionalBlockEditing.Nodes(Definition, id);
+            pendingBlockRemoval = id;
+            await SelectNode(id);
+            error = null;
+        }
+        catch (ArgumentException exception) { error = exception.Message; }
+    }
+
+    private void CancelBlockRemoval() { pendingBlockRemoval = null; pendingBlockNodes = []; }
+
+    private async Task ConfirmBlockRemoval()
+    {
+        if (pendingBlockRemoval is not { } id || ReadOnly || Disabled) return;
+        await Edit(() => ConditionalBlockEditing.Remove(Definition, id));
+        CancelBlockRemoval();
     }
 
     private async Task Duplicate(string id, GraphContextRequest context)

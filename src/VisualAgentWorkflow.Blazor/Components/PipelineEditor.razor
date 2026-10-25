@@ -57,6 +57,8 @@
                 <button type="button" @onclick="() => CloseMenu(context)">Edit selected node properties</button>
                 <button type="button" disabled="@(!CanDuplicate(contextNode))" @onclick="() => Duplicate(contextNode, context)">Duplicate node</button>
                 <button type="button" disabled="@(!CanRemove(contextNode))" @onclick="() => RemoveSelected(contextNode, context)">Delete node</button>
+                @if (Definition.Nodes[contextNode].Type == NodeTypes.Condition)
+                { <button type="button" disabled="@Disabled" @onclick="() => RequestBlockRemoval(contextNode, context)">Remove conditional block…</button> }
             </div>
         }
         @if (context.ConnectionId is not null)
@@ -114,6 +116,20 @@
                             <input aria-label="Condition operand for @id" value="@node.Condition!.Operand" @onchange="args => ConditionOperand(id, args)" maxlength="1024" disabled="@(Disabled || node.Condition.Operator == "is-empty")" />
                         </label>
                         <p class="vaw-help">Ordinal, case-sensitive text comparison. Exactly one output passes the unchanged text.</p>
+                        @if (pendingBlockRemoval == id)
+                        {
+                            <section aria-label="Confirm conditional block removal">
+                                <p>Remove these @pendingBlockNodes.Length nodes, including both branches and nested decisions? The input will pass directly to the next node.</p>
+                                <ul>
+                                    @foreach (var removedId in pendingBlockNodes)
+                                    { <li>@(string.IsNullOrWhiteSpace(EffectiveLayout.Nodes[removedId].Label) ? WorkflowGraphCanvas.FriendlyName(Definition.Nodes[removedId]) : EffectiveLayout.Nodes[removedId].Label) · @removedId</li> }
+                                </ul>
+                                <button type="button" disabled="@Disabled" @onclick="ConfirmBlockRemoval">Remove block and reconnect</button>
+                                <button type="button" @onclick="CancelBlockRemoval">Cancel block removal</button>
+                            </section>
+                        }
+                        else
+                        { <button type="button" disabled="@Disabled" @onclick="() => RequestBlockRemoval(id)">Remove conditional block…</button> }
                     }
                     else if (node.Type == NodeTypes.WorkflowValue)
                     {
@@ -327,6 +343,7 @@
     protected override void OnParametersSet()
     {
         if (ReferenceEquals(orderedDefinition, Definition)) return;
+        CancelBlockRemoval();
         Order = WorkflowGraph.OrderedNodes(Definition);
         localLayout = orderedDefinition?.WorkflowId != Definition.WorkflowId
             ? WorkflowLayout.Create(Definition)

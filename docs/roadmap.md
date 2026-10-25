@@ -69,6 +69,10 @@ Core contracts, Studio controls, and end-to-end validation are complete. The hea
 
 This increment uses copy-on-insert template expansion, not recursive runtime prefab calls or automatic instance upgrades. See [reusable pipeline contracts](reusable-pipelines.md).
 
+## Latest bounded increment: conditional block removal
+
+The editor can remove an isolated condition, both arms, nested decisions and the matching merge after listing the affected nodes for confirmation. Core rejects shared incoming paths and reconnects the surrounding graph without changing published revisions. Unit and browser evidence is recorded in [implementation history](implementation-history.md).
+
 ## Delivery sequence
 
 ```mermaid
@@ -122,7 +126,7 @@ Schema 1.6 adds workflow-owned typed parameters with stable IDs, labels, default
 
 The first executable slice now supplies local Streamable HTTP MCP connection/discovery, explicit tool enablement, a versioned text-only skill library, per-agent skill selection, and structured user-message templates in schema 1.7. Published definitions embed assigned skill text and exact hashes; tool endpoints, bearer tokens and host grants stay out of exports. Agent tools carry normalized bounded nested-object/array schemas over scalar values and bounded descriptions through discovery, Agent Framework function declarations, recursive broker validation, audit, and dispatch. New bindings pin the description hash separately from the stable input/output schema hash; legacy bindings without a description pin remain valid. Unsupported JSON Schema constructs and non-text results remain unavailable. The consumer host still supplies its own registrations and policy. The implementation has bounded text graph inputs, typed scalar parameters, and a reasoning-effort pin; it does not complete the broader acceptance criterion below.
 
-The [agent capability library design](agent-capability-libraries.md) records competitor research and the broader Studio flow. Folder organization, structured literal/input/parameter references, and a keyboard-accessible `{{` prompt picker are implemented. A standalone text-template node, stdio connection management, richer skill resources, provider capability discovery beyond the reasoning flag and additional typed/exposed agent parameters remain to be built.
+The [agent capability library design](agent-capability-libraries.md) records competitor research and the broader Studio flow. Folder organization, structured literal/input/parameter references, and a keyboard-accessible `{{` prompt picker are implemented. A standalone text-template node is implemented. Stdio connection management, richer skill resources, provider capability discovery beyond the reasoning flag and additional typed/exposed agent parameters remain to be built.
 
 Deliver one coherent authoring flow:
 
@@ -158,7 +162,7 @@ Add workspace identity, backend authorization, authenticated audit actors, paylo
 
 ### Planned: further reusable assets and specialization
 
-Add explicit conditional-block removal rather than treating canvas movement or topological order as execution edits. Evolve template copies into nested workflow prefab instances with pinned dependencies, declared inputs/outputs, explicit upgrades/overrides, cycle detection, and readable invocation scopes. Preserve historical playback when sources/providers are absent.
+Explicit conditional-block removal is implemented for isolated decision regions, with affected-node confirmation and shared definition/layout undo. Shared-boundary removal and arbitrary rewiring remain unsupported. Evolve template copies into nested workflow prefab instances with pinned dependencies, declared inputs/outputs, explicit upgrades/overrides, cycle detection, and readable invocation scopes. Preserve historical playback when sources/providers are absent.
 
 ### Planned: approved extension workers
 
