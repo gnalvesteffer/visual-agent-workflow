@@ -135,7 +135,7 @@ public partial class WorkflowDesigner
     private void NewWorkflow()
     {
         ResetReuse();
-        var next = PipelineEditing.Remove(PipelineTemplates.Create("uppercase"), "step-1") with
+        var next = WorkflowEditing.Remove(WorkflowTemplates.Create("uppercase"), "step-1") with
         {
             WorkflowId = "workflow-" + Guid.NewGuid().ToString("N"),
             DisplayName = "Untitled workflow"
@@ -393,7 +393,7 @@ public partial class WorkflowDesigner
         catch (WorkflowConflictException)
         { if (Current(current)) error = "Another editor changed this workflow. Your local edits are preserved. Discard local changes and reload before continuing."; }
         catch (Exception exception) when (exception is ArgumentException or System.Text.Json.JsonException)
-        { if (Current(current)) error = "Invalid workflow, layout, or JSON. Check the supported pipeline and graph limits."; }
+        { if (Current(current)) error = "Invalid workflow, layout, or JSON. Check the supported workflow and graph limits."; }
         catch
         { if (Current(current)) error = "The operation failed. Local edits are preserved; reload saved state before retrying."; }
         finally { if (Current(current)) busy = false; }

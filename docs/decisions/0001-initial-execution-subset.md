@@ -1,6 +1,6 @@
 # 0001: establish a small executable graph subset first
 
-Start with a linear string pipeline to prove stable graph identities, fail-closed validation, serialization, revision snapshots, and framework translation without requiring credentials or external side effects.
+Start with a linear string workflow to prove stable graph identities, fail-closed validation, serialization, revision snapshots, and framework translation without requiring credentials or external side effects.
 
 Target .NET 10 using SDK 10.0.402. Keep the core free of Agent Framework references. The intended adapter package is `Microsoft.Agents.AI.Workflows` 1.26.0, whose published NuGet metadata includes a net10.0 target. Framework integration must compile and execute against that version before being called verified; published package XML documentation is an API reference, not runtime evidence.
 

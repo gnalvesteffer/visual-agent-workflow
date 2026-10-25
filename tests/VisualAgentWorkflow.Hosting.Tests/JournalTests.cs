@@ -18,7 +18,7 @@ public sealed class JournalTests : IDisposable
     public void RecordedEvidenceSurvivesReopeningWithoutAnExecutor()
     {
         var journal = new FileRunJournal(directory);
-        var revision = WorkflowRevision.Create(PipelineTemplates.Create("reverse"), "test");
+        var revision = WorkflowRevision.Create(WorkflowTemplates.Create("reverse"), "test");
         var run = journal.Create(revision, "hello");
         journal.Append(new(run.Header.RunId, revision.RevisionId, 1, DateTimeOffset.UtcNow, ExecutionEventKinds.Started));
         journal.Append(new(run.Header.RunId, revision.RevisionId, 2, DateTimeOffset.UtcNow, ExecutionEventKinds.Completed, Data: "olleh"));
@@ -34,7 +34,7 @@ public sealed class JournalTests : IDisposable
     public void SequenceAndRevisionMismatchCannotBeAppended()
     {
         var journal = new FileRunJournal(directory);
-        var run = journal.Create(WorkflowRevision.Create(PipelineTemplates.Create("uppercase"), "test"), "hello");
+        var run = journal.Create(WorkflowRevision.Create(WorkflowTemplates.Create("uppercase"), "test"), "hello");
         var evt = new ExecutionEvent(run.Header.RunId, run.Header.RevisionId, 2, DateTimeOffset.UtcNow, ExecutionEventKinds.Started);
         Assert.Throws<InvalidOperationException>(() => journal.Append(evt));
         Assert.Throws<InvalidOperationException>(() => journal.Append(evt with { Sequence = 1, RevisionId = Guid.NewGuid() }));
@@ -45,7 +45,7 @@ public sealed class JournalTests : IDisposable
     public void RestartMarksUnfinishedRunWithoutReexecuting()
     {
         var journal = new FileRunJournal(directory);
-        var run = journal.Create(WorkflowRevision.Create(PipelineTemplates.Create("uppercase"), "test"), "hello");
+        var run = journal.Create(WorkflowRevision.Create(WorkflowTemplates.Create("uppercase"), "test"), "hello");
         var reopened = new FileRunJournal(directory);
         reopened.MarkUnfinishedAsInterrupted();
         reopened.MarkUnfinishedAsInterrupted();
@@ -58,7 +58,7 @@ public sealed class JournalTests : IDisposable
     public async Task RecordedViewerRendersWithNoRuntimeOrClientRegistered()
     {
         var journal = new FileRunJournal(directory);
-        var revision = WorkflowRevision.Create(PipelineTemplates.Create("reverse"), "test");
+        var revision = WorkflowRevision.Create(WorkflowTemplates.Create("reverse"), "test");
         var run = journal.Create(revision, "<script>unsafe</script>");
         journal.Append(new(run.Header.RunId, revision.RevisionId, 1, DateTimeOffset.UtcNow,
             ExecutionEventKinds.NodeCompleted, "output", Guid.NewGuid(), Data: "<script>unsafe</script>"));
@@ -85,7 +85,7 @@ public sealed class JournalTests : IDisposable
         await runtime.StartAsync(CancellationToken.None);
         try
         {
-            var run = await runtime.StartRunAsync(PipelineTemplates.Create("uppercase-reverse"), "hello");
+            var run = await runtime.StartRunAsync(WorkflowTemplates.Create("uppercase-reverse"), "hello");
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             RunSnapshot result;
             do

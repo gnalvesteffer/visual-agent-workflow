@@ -1,4 +1,4 @@
-<section class="vaw-pipeline-editor" aria-label="Visual pipeline editor">
+<section class="vaw-workflow-editor" aria-label="Visual workflow editor">
     @if (!ReadOnly && WorkflowValidator.Validate(Definition) is { Length: > 0 } validationIssues)
     {
         <section class="vaw-graph-issues" role="alert" aria-label="Workflow validation issues">
@@ -414,10 +414,10 @@
                         <div class="vaw-controls">
                             @if (!UsesGraphEditing)
                             {
-                            <button type="button" @onclick="() => Edit(() => PipelineEditing.Move(Definition, id, -1))" disabled="@(Disabled || index == 1)" aria-label="Move @id up">Move up</button>
-                            <button type="button" @onclick="() => Edit(() => PipelineEditing.Move(Definition, id, 1))" disabled="@(Disabled || index == Order.Length - 2)" aria-label="Move @id down">Move down</button>
+                            <button type="button" @onclick="() => Edit(() => WorkflowEditing.Move(Definition, id, -1))" disabled="@(Disabled || index == 1)" aria-label="Move @id up">Move up</button>
+                            <button type="button" @onclick="() => Edit(() => WorkflowEditing.Move(Definition, id, 1))" disabled="@(Disabled || index == Order.Length - 2)" aria-label="Move @id down">Move down</button>
                             }
-                            <button type="button" @onclick="() => Edit(() => UseGraphRemoval ? GraphEditing.RemoveNode(Definition, id) : PipelineEditing.Remove(Definition, id))" disabled="@(Disabled || GuardedTool(id))" aria-label="Remove @id">Remove</button>
+                            <button type="button" @onclick="() => Edit(() => UseGraphRemoval ? GraphEditing.RemoveNode(Definition, id) : WorkflowEditing.Remove(Definition, id))" disabled="@(Disabled || GuardedTool(id))" aria-label="Remove @id">Remove</button>
                         </div>
                     }
                     @if (!ReadOnly && node.Type is not (NodeTypes.Approval or NodeTypes.ParallelFork or NodeTypes.Loop) && WorkflowPorts.Outputs(node).Length > 0)
@@ -709,9 +709,9 @@
     private bool UsesGraphEditing => WorkflowSchemaVersions.UsesExplicitGraph(Definition.SchemaVersion) || HasRouting || WorkflowGraph.HasTypedJson(Definition);
     private static string PortLabel(string id, string port) => port == "out" ? id : id + "." + port;
     private WorkflowDefinition ReplaceProcessing(string id, NodeDefinition node) => UsesGraphEditing
-        ? GraphEditing.ReplaceNode(Definition, id, node) : PipelineEditing.ReplaceNode(Definition, id, node);
+        ? GraphEditing.ReplaceNode(Definition, id, node) : WorkflowEditing.ReplaceNode(Definition, id, node);
     private Task InsertAfter(string id, string port) => Edit(() => UsesGraphEditing
-        ? GraphEditing.InsertNodeAfter(Definition, id, port, FromSelection(newType)) : PipelineEditing.InsertNodeAfter(Definition, id, FromSelection(newType)));
+        ? GraphEditing.InsertNodeAfter(Definition, id, port, FromSelection(newType)) : WorkflowEditing.InsertNodeAfter(Definition, id, FromSelection(newType)));
     private Task ConditionOperator(string id, ChangeEventArgs args) => Edit(() =>
     {
         var operation = args.Value?.ToString() ?? "";

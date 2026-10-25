@@ -64,7 +64,7 @@ public sealed class ReconciliationComponentTests
     private static ParameterView Parameters(params (string Key, object? Value)[] values) => ParameterView.FromDictionary(values.ToDictionary(v => v.Key, v => v.Value));
     private static RunSnapshot Recorded(string workflow)
     {
-        var revision = WorkflowRevision.Create(PipelineTemplates.Create("uppercase") with { WorkflowId = workflow }, "test");
+        var revision = WorkflowRevision.Create(WorkflowTemplates.Create("uppercase") with { WorkflowId = workflow }, "test");
         var id = Guid.NewGuid();
         return new(new(id, revision.RevisionId, null, "test", revision.CreatedAt, revision.ContentHash, revision.Definition, "private"),
             [new(id, revision.RevisionId, 1, DateTimeOffset.UtcNow, ExecutionEventKinds.Completed)]);

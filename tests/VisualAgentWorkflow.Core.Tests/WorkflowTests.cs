@@ -9,7 +9,7 @@ namespace VisualAgentWorkflow.Core.Tests;
 
 public class WorkflowTests
 {
-    private static WorkflowDefinition Pipeline(string transform = NodeTypes.Uppercase) => new(
+    private static WorkflowDefinition Workflow(string transform = NodeTypes.Uppercase) => new(
         "1.0", "example", "input",
         new Dictionary<string, NodeDefinition>
         {
@@ -132,9 +132,9 @@ public class WorkflowTests
     };
 
     [Fact]
-    public void ValidPipelineRoundTripsWithStableHash()
+    public void ValidWorkflowRoundTripsWithStableHash()
     {
-        var definition = Pipeline();
+        var definition = Workflow();
         var json = WorkflowJson.Serialize(definition);
         var loaded = WorkflowJson.Deserialize(json);
         Assert.Empty(WorkflowValidator.Validate(loaded));
@@ -381,7 +381,7 @@ public class WorkflowTests
     }
 
     [Fact]
-    public void Blank_pipeline_can_be_upgraded_to_the_explicit_graph_preview()
+    public void Blank_workflow_can_be_upgraded_to_the_explicit_graph_preview()
     {
         var blank = new WorkflowDefinition("1.0", "blank", "input",
             new Dictionary<string, NodeDefinition>
@@ -400,13 +400,13 @@ public class WorkflowTests
         Assert.Single(explicitGraph.Connections);
         Assert.Single(explicitGraph.ExecutionConnections!);
         Assert.Empty(WorkflowValidator.Validate(explicitGraph));
-        Assert.Throws<ArgumentException>(() => GraphEditing.EnableExplicitGraph(Pipeline()));
+        Assert.Throws<ArgumentException>(() => GraphEditing.EnableExplicitGraph(Workflow()));
     }
 
     [Fact]
     public void CanonicalSerializationIgnoresCallerDictionaryOrdering()
     {
-        var definition = Pipeline();
+        var definition = Workflow();
         var reversed = definition with
         {
             Nodes = definition.Nodes.WithComparers(Comparer<string>.Create((a, b) => StringComparer.Ordinal.Compare(b, a)))
@@ -416,12 +416,12 @@ public class WorkflowTests
 
     [Fact]
     public void ChangingAnOperationChangesHash() =>
-        Assert.NotEqual(WorkflowJson.ComputeHash(Pipeline()), WorkflowJson.ComputeHash(Pipeline(NodeTypes.Reverse)));
+        Assert.NotEqual(WorkflowJson.ComputeHash(Workflow()), WorkflowJson.ComputeHash(Workflow(NodeTypes.Reverse)));
 
     [Fact]
     public void Workflow_names_are_portable_and_preserve_the_stable_id()
     {
-        var original = Pipeline();
+        var original = Workflow();
         var named = WorkflowMetadataEditing.Rename(original, "  Customer support  ");
         var restored = WorkflowJson.Deserialize(WorkflowJson.Serialize(named));
 
@@ -436,16 +436,16 @@ public class WorkflowTests
     [InlineData("   ")]
     [InlineData("workflow\nname")]
     public void Workflow_name_rejects_empty_or_control_characters(string displayName) =>
-        Assert.Throws<ArgumentException>(() => WorkflowMetadataEditing.Rename(Pipeline(), displayName));
+        Assert.Throws<ArgumentException>(() => WorkflowMetadataEditing.Rename(Workflow(), displayName));
 
     [Fact]
     public void Workflow_name_rejects_values_over_the_supported_length() =>
-        Assert.Throws<ArgumentException>(() => WorkflowMetadataEditing.Rename(Pipeline(), new string('x', 129)));
+        Assert.Throws<ArgumentException>(() => WorkflowMetadataEditing.Rename(Workflow(), new string('x', 129)));
 
     [Fact]
     public void RehydratesHistoricalWindowsLineEndingHashesWithoutChangingTheirIdentity()
     {
-        var revision = WorkflowRevision.Create(Pipeline(), "alice");
+        var revision = WorkflowRevision.Create(Workflow(), "alice");
         var legacyHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(
             WorkflowJson.Serialize(revision.Definition).Replace("\n", "\r\n", StringComparison.Ordinal))));
 
@@ -460,8 +460,8 @@ public class WorkflowTests
     [Fact]
     public void RestoreCreatesNewRevisionWithoutChangingHistory()
     {
-        var first = WorkflowRevision.Create(Pipeline(), "alice");
-        var second = WorkflowRevision.Create(Pipeline(NodeTypes.Reverse), "bob", first.RevisionId);
+        var first = WorkflowRevision.Create(Workflow(), "alice");
+        var second = WorkflowRevision.Create(Workflow(NodeTypes.Reverse), "bob", first.RevisionId);
         var restored = WorkflowRevision.Restore(first, second, "alice");
         Assert.NotEqual(first.RevisionId, restored.RevisionId);
         Assert.Equal(second.RevisionId, restored.ParentRevisionId);
@@ -472,15 +472,15 @@ public class WorkflowTests
     [Fact]
     public void RestoreRejectsAnotherWorkflow()
     {
-        var first = WorkflowRevision.Create(Pipeline(), "alice");
-        var other = WorkflowRevision.Create(Pipeline() with { WorkflowId = "other" }, "alice");
+        var first = WorkflowRevision.Create(Workflow(), "alice");
+        var other = WorkflowRevision.Create(Workflow() with { WorkflowId = "other" }, "alice");
         Assert.Throws<ArgumentException>(() => WorkflowRevision.Restore(first, other, "alice"));
     }
 
     [Fact]
     public void MissingEndpointIsReported()
     {
-        var definition = Pipeline();
+        var definition = Workflow();
         definition = definition with { Connections = definition.Connections.SetItem("first", new(new("absent", "out"), new("transform", "in"), "data")) };
         Assert.Contains(WorkflowValidator.Validate(definition), i => i.Code == "connection.reference");
     }
@@ -488,7 +488,7 @@ public class WorkflowTests
     [Fact]
     public void DisconnectedCycleIsRejected()
     {
-        var definition = Pipeline();
+        var definition = Workflow();
         definition = definition with
         {
             Nodes = definition.Nodes.Add("orphan", new(NodeTypes.Reverse, "1.0.0")),
@@ -501,12 +501,12 @@ public class WorkflowTests
     [InlineData("custom.assembly")]
     [InlineData("core.future-agent")]
     public void UnknownOrUnimplementedNodesAreRejected(string type) =>
-        Assert.Contains(WorkflowValidator.Validate(Pipeline(type)), i => i.Code == "node.unsupported");
+        Assert.Contains(WorkflowValidator.Validate(Workflow(type)), i => i.Code == "node.unsupported");
 
     [Fact]
     public void UnsupportedPortsAreRejected()
     {
-        var definition = Pipeline();
+        var definition = Workflow();
         definition = definition with { Connections = definition.Connections.SetItem("first", new(new("input", "wrong"), new("transform", "in"), "data")) };
         Assert.Contains(WorkflowValidator.Validate(definition), i => i.Code == "connection.port");
     }
@@ -514,21 +514,21 @@ public class WorkflowTests
     [Fact]
     public void DuplicateJsonPropertiesAreRejected()
     {
-        var json = WorkflowJson.Serialize(Pipeline()).Replace("\"schemaVersion\": \"1.0\",", "\"schemaVersion\": \"2.0\", \"schemaVersion\": \"1.0\",");
+        var json = WorkflowJson.Serialize(Workflow()).Replace("\"schemaVersion\": \"1.0\",", "\"schemaVersion\": \"2.0\", \"schemaVersion\": \"1.0\",");
         Assert.Throws<JsonException>(() => WorkflowJson.Deserialize(json));
     }
 
     [Fact]
     public void UnknownJsonFieldsAreRejected()
     {
-        var json = WorkflowJson.Serialize(Pipeline()).Replace("\"schemaVersion\":", "\"assembly\": \"unsafe.dll\", \"schemaVersion\":");
+        var json = WorkflowJson.Serialize(Workflow()).Replace("\"schemaVersion\":", "\"assembly\": \"unsafe.dll\", \"schemaVersion\":");
         Assert.Throws<JsonException>(() => WorkflowJson.Deserialize(json));
     }
 
     [Fact]
     public void UnsupportedSchemaAndMissingGraphAreReported()
     {
-        var issues = WorkflowValidator.Validate(Pipeline() with { SchemaVersion = "2.0", Nodes = null! });
+        var issues = WorkflowValidator.Validate(Workflow() with { SchemaVersion = "2.0", Nodes = null! });
         Assert.Contains(issues, i => i.Code == "schema.unsupported");
         Assert.Contains(issues, i => i.Code == "graph.missing");
     }

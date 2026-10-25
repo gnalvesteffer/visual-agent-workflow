@@ -2,8 +2,8 @@ using System.Collections.Immutable;
 
 namespace VisualAgentWorkflow.Core;
 
-/// <summary>Validated immutable edits for the supported linear pipeline, preserving unrelated identities.</summary>
-public static class PipelineEditing
+/// <summary>Validated immutable edits for the supported linear workflow, preserving unrelated identities.</summary>
+public static class WorkflowEditing
 {
     public static ImmutableArray<string> OrderedNodes(WorkflowDefinition definition)
     {

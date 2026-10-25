@@ -52,7 +52,7 @@ def check(browser, screenshots):
 
     designer = open_editor()
     canvas = workbench(designer).locator(".vaw-graph-editor")
-    nodes = workbench(designer).locator("ol[aria-label='Editable pipeline nodes'] > li")
+    nodes = workbench(designer).locator("ol[aria-label='Editable workflow nodes'] > li")
     step = nodes.filter(has=page.get_by_role("button", name="Move node step-1", exact=True))
     original = design()
     before_x = original["layout"]["nodes"]["step-1"]["position"]["x"]

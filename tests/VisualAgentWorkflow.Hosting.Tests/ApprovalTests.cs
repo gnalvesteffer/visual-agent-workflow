@@ -10,7 +10,7 @@ public sealed class ApprovalTests : IDisposable
 {
     private readonly string directory = Path.Combine(Path.GetTempPath(), "vaw-approval-" + Guid.NewGuid());
     private static WorkflowDefinition Definition() => GraphEditing.InsertApprovalBefore(
-        PipelineEditing.ReplaceNode(PipelineTemplates.Create("uppercase"), "step-1", new(NodeTypes.McpTool, "1.0.0", new("fixture.tool", new string('0', 64)))), "step-1");
+        WorkflowEditing.ReplaceNode(WorkflowTemplates.Create("uppercase"), "step-1", new(NodeTypes.McpTool, "1.0.0", new("fixture.tool", new string('0', 64)))), "step-1");
     private LocalWorkflowRuntime Runtime(CountingBroker broker) => new(new(directory), NullLogger<LocalWorkflowRuntime>.Instance, broker);
     private static async Task<RunSnapshot> WaitFor(LocalWorkflowRuntime runtime, Guid id, Func<RunSnapshot, bool> condition)
     {
@@ -41,7 +41,7 @@ public sealed class ApprovalTests : IDisposable
             Assert.Equal(started.Header.RevisionId, request.Action.RevisionId);
             Assert.Equal("step-1", request.Action.TargetNodeId);
             Assert.Equal("fixture.tool", request.Action.Tool.BindingId);
-            var other = await runtime.StartRunAsync(PipelineTemplates.Create("uppercase"), "other");
+            var other = await runtime.StartRunAsync(WorkflowTemplates.Create("uppercase"), "other");
             Assert.Equal("completed", (await WaitFor(runtime, other.Header.RunId, r => r.IsTerminal)).Status);
             await runtime.ResumeRunAsync(started.Header.RunId);
             Assert.Equal("waiting-approval", (await runtime.GetRunAsync(started.Header.RunId))!.Status);
@@ -72,7 +72,7 @@ public sealed class ApprovalTests : IDisposable
         {
             WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
         };
-        var parent = GraphEditing.InsertNodeAfter(PipelineTemplates.Create("uppercase") with { WorkflowId = "approval-parent" },
+        var parent = GraphEditing.InsertNodeAfter(WorkflowTemplates.Create("uppercase") with { WorkflowId = "approval-parent" },
             "input", "out", call);
         var callNodeId = parent.Nodes.Single(entry => entry.Value.Type == NodeTypes.WorkflowCall).Key;
         using var runtime = Runtime(broker);

@@ -70,14 +70,14 @@ def check(browser, screenshots):
         workbench(designer).get_by_role("button",name="Publish & activate",exact=True).click()
         workbench(designer).get_by_text(f"Published and activated version {version}.",exact=True).wait_for()
 
-    open_details("Reusable pipelines")
+    open_details("Reusable workflows")
     workbench(designer).get_by_label("Reusable workflow",exact=True).select_option(source_id)
     expect(workbench(designer).get_by_label("Reusable version",exact=True).locator("option")).to_have_count(2)
     workbench(designer).get_by_label("Reusable version",exact=True).select_option(v1["revision"]["revisionId"])
-    workbench(designer).get_by_label("Insert pipeline after",exact=True).select_option("input")
-    workbench(designer).get_by_role("button",name="Insert published pipeline",exact=True).click()
+    workbench(designer).get_by_label("Insert workflow after",exact=True).select_option("input")
+    workbench(designer).get_by_role("button",name="Insert published workflow",exact=True).click()
     workbench(designer).get_by_role("status").filter(has_text="Inserted version 1").wait_for()
-    nodes = workbench(designer).locator("ol[aria-label='Editable pipeline nodes'] > li")
+    nodes = workbench(designer).locator("ol[aria-label='Editable workflow nodes'] > li")
     expect(nodes).to_have_count(6)
     workbench(designer).get_by_role("button",name="Undo edit",exact=True).click()
     expect(nodes).to_have_count(4)
@@ -144,11 +144,11 @@ def check(browser, screenshots):
     assert get("/api/workflows/"+imported_id+"/design")==imported
 
     # Extract the copied labeled section without replacing or publishing the current draft.
-    open_details("Reusable pipelines")
+    open_details("Reusable workflows")
     section_id = next(iter(imported["layout"]["sections"]))
     reusable_id = "extracted-"+suffix
     workbench(designer).get_by_label("Section to save",exact=True).select_option(section_id)
-    workbench(designer).get_by_label("Reusable pipeline ID",exact=True).fill(reusable_id)
+    workbench(designer).get_by_label("Reusable workflow ID",exact=True).fill(reusable_id)
     workbench(designer).get_by_role("button",name="Save section as reusable draft",exact=True).click()
     workbench(designer).get_by_role("status").filter(has_text=f"Reusable draft '{reusable_id}' created").wait_for()
     expect(workbench(designer).get_by_label("Saved workflow",exact=True)).to_have_value(imported_id)
@@ -157,7 +157,7 @@ def check(browser, screenshots):
     assert extracted["draft"]["activeRevisionId"] is None
     assert get("/api/workflows/"+imported_id+"/design")==imported
     if screenshots:
-        workbench(designer).locator(".vaw-reuse-panel").screenshot(path=str(screenshots/"reusable-pipelines.png"))
+        workbench(designer).locator(".vaw-reuse-panel").screenshot(path=str(screenshots/"reusable-workflows.png"))
 
     # A correctly checksummed package can declare unavailable tools, but cannot grant them.
     missing = copy.deepcopy(template); missing["workflowId"]="missing-tool-"+suffix; missing["schemaVersion"]="1.1"

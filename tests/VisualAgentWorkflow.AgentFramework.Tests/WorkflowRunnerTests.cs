@@ -4,7 +4,7 @@ using Xunit;
 
 namespace VisualAgentWorkflow.AgentFramework.Tests;
 
-public class PipelineRunnerTests
+public class WorkflowRunnerTests
 {
     private static WorkflowRevision Revision() => WorkflowRevision.Create(new("1.0", "demo", "input",
         new Dictionary<string, NodeDefinition>
@@ -27,7 +27,7 @@ public class PipelineRunnerTests
         var revision = Revision();
         var runId = Guid.NewGuid();
         var events = new List<ExecutionEvent>();
-        var output = await new PipelineRunner().ExecuteAsync(runId, revision, "Hello 🌍", e => { events.Add(e); return ValueTask.CompletedTask; });
+        var output = await new WorkflowRunner().ExecuteAsync(runId, revision, "Hello 🌍", e => { events.Add(e); return ValueTask.CompletedTask; });
         Assert.Equal("🌍 OLLEH", output);
         Assert.Equal(ExecutionEventKinds.Started, events[0].Kind);
         Assert.Equal(ExecutionEventKinds.Completed, events[^1].Kind);
@@ -61,12 +61,12 @@ public class PipelineRunnerTests
         var revision = WorkflowRevision.Create(definition, "test");
         var events = new List<ExecutionEvent>();
 
-        var defaultOutput = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), revision, "ignored",
+        var defaultOutput = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), revision, "ignored",
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
         Assert.Equal("default", defaultOutput);
         events.Clear();
 
-        var output = await new PipelineRunner().ExecuteWithParametersAsync(Guid.NewGuid(), revision, "ignored",
+        var output = await new WorkflowRunner().ExecuteWithParametersAsync(Guid.NewGuid(), revision, "ignored",
             new Dictionary<string, string> { ["message"] = "override" }, evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
         Assert.Equal("override", output);
@@ -97,7 +97,7 @@ public class PipelineRunnerTests
         };
         var events = new List<ExecutionEvent>();
 
-        var result = await new PipelineRunner().ExecuteWithParametersAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"),
+        var result = await new WorkflowRunner().ExecuteWithParametersAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"),
             "answer the question", new Dictionary<string, string> { ["name"] = "Grace" },
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -127,7 +127,7 @@ public class PipelineRunnerTests
         var revision = WorkflowRevision.Create(definition, "test");
         var events = new List<ExecutionEvent>();
 
-        var result = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), revision, input,
+        var result = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), revision, input,
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
         Assert.Equal(expected, result);
@@ -156,7 +156,7 @@ public class PipelineRunnerTests
             }.ToImmutableSortedDictionary());
         var events = new List<ExecutionEvent>();
 
-        var result = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"),
+        var result = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"),
             "{\"customer\":{\"name\":\"Ada\"},\"orders\":[{\"amount\":42,\"secret\":\"omit\"}]}",
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -187,7 +187,7 @@ public class PipelineRunnerTests
         var events = new List<ExecutionEvent>();
         var input = "{\"value\":\"" + new string('x', 16_260) + "\"}";
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => new PipelineRunner().ExecuteAsync(Guid.NewGuid(),
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner().ExecuteAsync(Guid.NewGuid(),
             WorkflowRevision.Create(definition, "test"), input,
             evt => { events.Add(evt); return ValueTask.CompletedTask; }));
 
@@ -215,14 +215,14 @@ public class PipelineRunnerTests
             }.ToImmutableSortedDictionary());
         var events = new List<ExecutionEvent>();
 
-        var output = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"),
+        var output = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"),
             "{\"name\":\"Ada\",\"items\":[1,2]}", evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
         Assert.Equal("{\"name\":\"Ada\",\"items\":[1,2]}", output);
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "project" && evt.Data == output);
 
         events.Clear();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => new PipelineRunner().ExecuteAsync(Guid.NewGuid(),
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner().ExecuteAsync(Guid.NewGuid(),
             WorkflowRevision.Create(definition, "test"), "{\"name\":42,\"items\":[]}",
             evt => { events.Add(evt); return ValueTask.CompletedTask; }));
 
@@ -264,7 +264,7 @@ public class PipelineRunnerTests
             }.ToImmutableSortedDictionary());
         var events = new List<ExecutionEvent>();
 
-        var output = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"),
+        var output = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"),
             "{\"customer\":{\"fullName\":\"Ada\",\"metadata\":{\"active\":true},\"secret\":\"drop\",\"orders\":[{\"id\":7,\"amount\":12.5}]}}",
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -274,28 +274,28 @@ public class PipelineRunnerTests
         Assert.DoesNotContain("secret", output);
 
         events.Clear();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => new PipelineRunner().ExecuteAsync(Guid.NewGuid(),
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner().ExecuteAsync(Guid.NewGuid(),
             WorkflowRevision.Create(definition, "test"), "{\"customer\":{\"metadata\":{},\"orders\":[]}}",
             evt => { events.Add(evt); return ValueTask.CompletedTask; }));
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.Data!.Contains("Required mapped property 'customer.displayName' was not found.", StringComparison.Ordinal));
 
         var tooManyItems = "{\"customer\":{\"fullName\":\"Ada\",\"orders\":[" + string.Join(',', Enumerable.Repeat("{}", JsonProjectionLimits.MaximumArrayItems + 1)) + "]}}";
         events.Clear();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => new PipelineRunner().ExecuteAsync(Guid.NewGuid(),
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner().ExecuteAsync(Guid.NewGuid(),
             WorkflowRevision.Create(definition, "test"), tooManyItems,
             evt => { events.Add(evt); return ValueTask.CompletedTask; }));
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.Data!.Contains("exceeds 64 items", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task ExpandedPublishedPipelineExecutesWithoutSourceCatalogOrRuntimePrefabLookup()
+    public async Task ExpandedPublishedWorkflowExecutesWithoutSourceCatalogOrRuntimePrefabLookup()
     {
         var source = Revision();
-        var composition = PipelineReuse.Insert(source.Definition, WorkflowLayout.Create(source.Definition), "input",
+        var composition = WorkflowReuse.Insert(source.Definition, WorkflowLayout.Create(source.Definition), "input",
             new(1, source), WorkflowLayout.Create(source.Definition));
         var revision = WorkflowRevision.Create(composition.Definition, "consumer");
         var events = new List<ExecutionEvent>();
-        var output = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), revision, "abc", e => { events.Add(e); return ValueTask.CompletedTask; });
+        var output = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), revision, "abc", e => { events.Add(e); return ValueTask.CompletedTask; });
         Assert.Equal("ABC", output); // uppercase/reverse from the copy, followed by uppercase/reverse from the target.
         Assert.Equal(6, events.Count(e => e.Kind == ExecutionEventKinds.NodeStarted));
         Assert.Equal(5, events.Count(e => e.Kind == ExecutionEventKinds.Transfer));
@@ -308,7 +308,7 @@ public class PipelineRunnerTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         var events = new List<ExecutionEvent>();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new PipelineRunner().ExecuteAsync(
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new WorkflowRunner().ExecuteAsync(
             Guid.NewGuid(), Revision(), "input", e => { events.Add(e); return ValueTask.CompletedTask; }, cancellation.Token));
         Assert.Equal(new[] { ExecutionEventKinds.Started, ExecutionEventKinds.Cancelled }, events.Select(e => e.Kind));
     }
@@ -317,7 +317,7 @@ public class PipelineRunnerTests
     public async Task InvalidDefinitionNeverStartsAFrameworkRun()
     {
         var events = new List<ExecutionEvent>();
-        await Assert.ThrowsAsync<ArgumentException>(() => new PipelineRunner().ExecuteAsync(
+        await Assert.ThrowsAsync<ArgumentException>(() => new WorkflowRunner().ExecuteAsync(
             Guid.NewGuid(), Revision(), new string('x', 16_385), e => { events.Add(e); return ValueTask.CompletedTask; }));
         Assert.Empty(events);
     }
@@ -326,7 +326,7 @@ public class PipelineRunnerTests
     {
         var gate = new CompletionGate();
         var events = new List<ExecutionEvent>();
-        var execution = new PipelineRunner().ExecuteControlledAsync(Guid.NewGuid(), Revision(), "abc",
+        var execution = new WorkflowRunner().ExecuteControlledAsync(Guid.NewGuid(), Revision(), "abc",
             evt => { events.Add(evt); return ValueTask.CompletedTask; }, gate);
         await gate.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(4, events.Count(e => e.Kind == ExecutionEventKinds.NodeCompleted));

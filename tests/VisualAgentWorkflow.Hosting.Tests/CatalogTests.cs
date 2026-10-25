@@ -14,10 +14,10 @@ public sealed class CatalogTests : IDisposable
     public async Task PublishRestoreAndActivatePreserveImmutableHistoryAcrossReopen()
     {
         var catalog = Open();
-        var firstDraft = await catalog.SaveDraftAsync(PipelineTemplates.Create("uppercase"), 0);
+        var firstDraft = await catalog.SaveDraftAsync(WorkflowTemplates.Create("uppercase"), 0);
         var first = await catalog.PublishAsync(firstDraft.Definition.WorkflowId, firstDraft.Generation);
         var current = (await catalog.GetDraftAsync(firstDraft.Definition.WorkflowId))!;
-        var secondDraft = await catalog.SaveDraftAsync(PipelineTemplates.Create("reverse"), current.Generation);
+        var secondDraft = await catalog.SaveDraftAsync(WorkflowTemplates.Create("reverse"), current.Generation);
         var second = await catalog.PublishAsync(secondDraft.Definition.WorkflowId, secondDraft.Generation);
         current = (await catalog.GetDraftAsync(firstDraft.Definition.WorkflowId))!;
         var restored = await catalog.RestoreDraftAsync(current.Definition.WorkflowId, first.Revision.RevisionId, current.Generation);
@@ -43,12 +43,12 @@ public sealed class CatalogTests : IDisposable
     public async Task StaleSavePublishRestoreAndActivateLeaveNoMutationOrAudit()
     {
         var catalog = Open();
-        var definition = PipelineTemplates.Create("uppercase");
+        var definition = WorkflowTemplates.Create("uppercase");
         var saved = await catalog.SaveDraftAsync(definition, 0);
         var revision = await catalog.PublishAsync(definition.WorkflowId, saved.Generation);
         var before = (await catalog.GetDraftAsync(definition.WorkflowId))!;
         var audit = await catalog.ReadAuditAsync(definition.WorkflowId);
-        await Assert.ThrowsAsync<WorkflowConflictException>(() => catalog.SaveDraftAsync(PipelineTemplates.Create("reverse"), 0));
+        await Assert.ThrowsAsync<WorkflowConflictException>(() => catalog.SaveDraftAsync(WorkflowTemplates.Create("reverse"), 0));
         await Assert.ThrowsAsync<WorkflowConflictException>(() => catalog.PublishAsync(definition.WorkflowId, 0));
         await Assert.ThrowsAsync<WorkflowConflictException>(() => catalog.RestoreDraftAsync(definition.WorkflowId, revision.Revision.RevisionId, 0));
         await Assert.ThrowsAsync<WorkflowConflictException>(() => catalog.ActivateAsync(definition.WorkflowId, revision.Revision.RevisionId, 0));
@@ -64,12 +64,12 @@ public sealed class CatalogTests : IDisposable
     {
         var first = Open();
         var second = Open();
-        var saved = await first.SaveDraftAsync(PipelineTemplates.Create("uppercase"), 0);
+        var saved = await first.SaveDraftAsync(WorkflowTemplates.Create("uppercase"), 0);
         using var gate = new ManualResetEventSlim();
         async Task<bool> Save(SqliteWorkflowCatalog store, string operation)
         {
             gate.Wait();
-            try { await store.SaveDraftAsync(PipelineTemplates.Create(operation), saved.Generation); return true; }
+            try { await store.SaveDraftAsync(WorkflowTemplates.Create(operation), saved.Generation); return true; }
             catch (WorkflowConflictException) { return false; }
         }
         var a = Task.Run(() => Save(first, "reverse"));
@@ -85,8 +85,8 @@ public sealed class CatalogTests : IDisposable
     public async Task CrossWorkflowRestoreAndActivationAreRejectedWithoutAudit()
     {
         var catalog = Open();
-        var original = await catalog.SaveDraftAsync(PipelineTemplates.Create("uppercase"), 0);
-        var other = await catalog.SaveDraftAsync(PipelineTemplates.Create("reverse") with { WorkflowId = "other" }, 0);
+        var original = await catalog.SaveDraftAsync(WorkflowTemplates.Create("uppercase"), 0);
+        var other = await catalog.SaveDraftAsync(WorkflowTemplates.Create("reverse") with { WorkflowId = "other" }, 0);
         var published = await catalog.PublishAsync("other", other.Generation);
         await Assert.ThrowsAsync<ArgumentException>(() => catalog.RestoreDraftAsync(original.Definition.WorkflowId, published.Revision.RevisionId, original.Generation));
         await Assert.ThrowsAsync<ArgumentException>(() => catalog.ActivateAsync(original.Definition.WorkflowId, published.Revision.RevisionId, original.Generation));
@@ -97,10 +97,10 @@ public sealed class CatalogTests : IDisposable
     public async Task PublishedRunUsesStoredIdentityEvenAfterDraftChanges()
     {
         var catalog = Open();
-        var saved = await catalog.SaveDraftAsync(PipelineTemplates.Create("uppercase"), 0);
+        var saved = await catalog.SaveDraftAsync(WorkflowTemplates.Create("uppercase"), 0);
         var published = await catalog.PublishAsync(saved.Definition.WorkflowId, saved.Generation);
         var draft = (await catalog.GetDraftAsync(saved.Definition.WorkflowId))!;
-        await catalog.SaveDraftAsync(PipelineTemplates.Create("reverse"), draft.Generation);
+        await catalog.SaveDraftAsync(WorkflowTemplates.Create("reverse"), draft.Generation);
         var journal = new FileRunJournal(Path.Combine(directory, "runs"));
         using var runtime = new LocalWorkflowRuntime(journal, NullLogger<LocalWorkflowRuntime>.Instance);
         await runtime.StartAsync(CancellationToken.None);
@@ -127,7 +127,7 @@ public sealed class CatalogTests : IDisposable
     public async Task AuditIsOrderedAttributedAndTransactionallyConsistent()
     {
         var catalog = Open();
-        var draft = await catalog.SaveDraftAsync(PipelineTemplates.Create("uppercase"), 0);
+        var draft = await catalog.SaveDraftAsync(WorkflowTemplates.Create("uppercase"), 0);
         var published = await catalog.PublishAsync(draft.Definition.WorkflowId, draft.Generation);
         var entries = await Open().ReadAuditAsync(draft.Definition.WorkflowId);
         Assert.Equal(new[] { "draft.saved", "revision.published-and-activated" }, entries.Select(e => e.Kind));

@@ -31,7 +31,7 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Workflow parameters](workflow-parameters.md) | Schema 1.6 string parameters, run overrides, persisted evidence, and current limits |
 | [Agent capability libraries](agent-capability-libraries.md) | Implemented text-only skill and Streamable HTTP MCP slice, plus proposed richer agent authoring |
 | [Agent profiles and delegation](agent-profiles.md) | Versioned specialist profiles, bounded delegate calls, dependency packaging, and audit scope |
-| [Reusable pipelines](reusable-pipelines.md) | Version-pinned expansion, provenance, package validation, and limitations |
+| [Reusable workflows](reusable-workflows.md) | Version-pinned expansion, provenance, package validation, and limitations |
 | [Graph editor](graph-editor.md) | Canvas controls, layout schema, versioning, and research references |
 | [Graph values and functions](graph-values.md) | Typed deterministic values, pure graph function constraints, and future visual-language design |
 | [Graph values and functions](graph-values.md) | Typed deterministic values, pure graph function constraints, and future visual-language design |

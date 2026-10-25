@@ -25,7 +25,7 @@ public sealed class WorkflowCallTests
     [Fact]
     public void PinnedWorkflowCallValidatesAndPackageListsItsExactRevisionAndRequirements()
     {
-        var childDefinition = PipelineEditing.InsertAfter(Baseline("child"), "input", NodeTypes.Uppercase);
+        var childDefinition = WorkflowEditing.InsertAfter(Baseline("child"), "input", NodeTypes.Uppercase);
         var child = WorkflowRevision.Create(childDefinition, "test");
         var definition = GraphEditing.InsertNodeAfter(Baseline("parent"), "input", "out", Call(child));
 

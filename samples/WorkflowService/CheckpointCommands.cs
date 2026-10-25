@@ -23,8 +23,8 @@ internal static class CheckpointCommands
                 threshold = int.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture);
                 if (threshold < 1) throw new ArgumentOutOfRangeException(nameof(args));
                 revision = await Deployment.LoadAsync(args[1], CancellationToken.None);
-                PipelineRunner.ValidateCheckpointGraph(revision.Definition);
-                if (args[3].Length > 16_384) throw new ArgumentException("Input exceeds the pipeline limit.");
+                WorkflowRunner.ValidateCheckpointGraph(revision.Definition);
+                if (args[3].Length > 16_384) throw new ArgumentException("Input exceeds the workflow limit.");
             }
             var store = new SqliteWorkflowRunStore(args[starting ? 2 : 1]);
             await using var runtime = new CheckpointWorkflowHost(store);

@@ -33,7 +33,7 @@ try
     using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
     var broker = await DeploymentDependencies.ResolveAsync(revision, args.Length == 5, providers, deadline.Token);
     var agents = new AgentNodeExecutor(providers, broker);
-    if (args[3].Length > 16_384) throw new ArgumentException("Input exceeds the pipeline limit.");
+    if (args[3].Length > 16_384) throw new ArgumentException("Input exceeds the workflow limit.");
     IWorkflowRunStore journal = (builder.Configuration["WorkflowService:RunStore"] ?? "file") switch
     {
         "file" => new FileRunJournal(args[2]),
@@ -60,7 +60,7 @@ try
         {
             var initial = journal.Create(revision, args[3]);
             runId = initial.Header.RunId;
-            await new PipelineRunner(broker, agents).ExecuteAsync(runId.Value, revision, args[3], evt =>
+            await new WorkflowRunner(broker, agents).ExecuteAsync(runId.Value, revision, args[3], evt =>
             {
                 journal.Append(evt);
                 return ValueTask.CompletedTask;

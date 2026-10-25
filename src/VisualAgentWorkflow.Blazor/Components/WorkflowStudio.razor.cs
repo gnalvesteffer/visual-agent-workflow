@@ -136,7 +136,7 @@ public partial class WorkflowStudio
         actionError = null;
         try
         {
-            var definition = PipelineTemplates.Create(operation);
+            var definition = WorkflowTemplates.Create(operation);
             var request = startPaused && client is IWorkflowRunControl controls
                 ? controls.StartPausedRunAsync(definition, input) : client.StartRunAsync(definition, input);
             var run = await request.WaitAsync(contextToken);

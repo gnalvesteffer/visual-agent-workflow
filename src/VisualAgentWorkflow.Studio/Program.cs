@@ -109,7 +109,7 @@ app.MapPost("/api/settings/model-providers", (AddModelProviderRequest request, S
     catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
     catch (InvalidOperationException error) { return Results.BadRequest(new { error = error.Message }); }
 });
-app.MapGet("/api/templates/default", () => Results.Text(WorkflowJson.Serialize(PipelineTemplates.Create("uppercase-reverse")), "application/json"));
+app.MapGet("/api/templates/default", () => Results.Text(WorkflowJson.Serialize(WorkflowTemplates.Create("uppercase-reverse")), "application/json"));
 app.MapPost("/api/runs", async (StartRunRequest request, IWorkflowClient client) =>
 {
     try
@@ -137,7 +137,7 @@ app.MapPost("/api/runs", async (StartRunRequest request, IWorkflowClient client)
     }
     catch (Exception error) when (error is ArgumentException or JsonException)
     {
-        return Results.BadRequest(new { error = "Invalid workflow definition or input. Only validated string pipelines are supported." });
+        return Results.BadRequest(new { error = "Invalid workflow definition or input. Only validated string workflows are supported." });
     }
 });
 app.MapGet("/api/runs", async (IWorkflowClient client) => Results.Ok(await client.ListRunsAsync()));

@@ -143,7 +143,7 @@ Blueprint asset types establish scope and reuse boundaries. Visual Agent Workflo
 | Blueprint Macro Library | Reusable graph fragments expanded into consuming graphs during compilation. | A reusable authoring template only if expansion, identity, versioning, and audit behavior are explicitly defined. A callable version-pinned workflow is safer when runtime provenance matters. |
 | Editor Utility Blueprint | Editor-only automation that acts on the editor or selected objects. | An authoring-time utility, never a runtime workflow node unless its side effects and trust boundary are separately defined. |
 
-Blueprint Classes provide reusable behavior across instances and levels; Level Blueprints scope behavior to one level. Apply the same distinction here: reusable graph behavior belongs in a named workflow or reusable pipeline; host-specific coordination belongs at the host boundary or in an explicitly scoped orchestration definition.
+Blueprint Classes provide reusable behavior across instances and levels; Level Blueprints scope behavior to one level. Apply the same distinction here: reusable graph behavior belongs in a named workflow or reusable workflow; host-specific coordination belongs at the host boundary or in an explicitly scoped orchestration definition.
 
 ## Agent workflow primitives
 

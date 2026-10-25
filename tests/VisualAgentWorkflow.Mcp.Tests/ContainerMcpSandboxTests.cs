@@ -38,7 +38,7 @@ public sealed class ContainerMcpSandboxTests
         var broker = new McpToolBroker(registrations, allowed, TimeSpan.FromSeconds(20));
         var tools = await broker.ListBindingsAsync();
         var delegated = tools.Single(tool => tool.BindingId == "sandbox.extension.host-add");
-        var definition = PipelineEditing.ReplaceNode(PipelineTemplates.Create("uppercase") with { WorkflowId = "container-mcp-test" },
+        var definition = WorkflowEditing.ReplaceNode(WorkflowTemplates.Create("uppercase") with { WorkflowId = "container-mcp-test" },
             "step-1", new(NodeTypes.McpTool, "1.0.0", new(delegated.BindingId, delegated.ContractHash)));
         var revision = WorkflowRevision.Create(definition, "container-sandbox-test");
         var audit = new System.Collections.Concurrent.ConcurrentQueue<string>();
@@ -58,7 +58,7 @@ public sealed class ContainerMcpSandboxTests
         Assert.Contains(audit, entry => entry.Contains("sandbox.add", StringComparison.Ordinal));
 
         var inspection = tools.Single(tool => tool.BindingId == "sandbox.inspect");
-        definition = PipelineEditing.ReplaceNode(definition, "step-1", new(NodeTypes.McpTool, "1.0.0",
+        definition = WorkflowEditing.ReplaceNode(definition, "step-1", new(NodeTypes.McpTool, "1.0.0",
             new(inspection.BindingId, inspection.ContractHash)));
         revision = WorkflowRevision.Create(definition, "container-sandbox-test");
         await using var inspectionScope = broker.OpenScope(new(Guid.NewGuid(), revision, "step-1", Guid.NewGuid(), (_, _) => ValueTask.CompletedTask));

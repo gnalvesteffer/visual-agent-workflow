@@ -13,7 +13,7 @@ public partial class WorkflowDesigner
         WorkflowGraph.HasControlNodes(selected.Revision.Definition);
     private string insertAfterNode = "";
     private string reusableSectionId = "";
-    private string reusablePipelineId = "pipeline-" + Guid.NewGuid().ToString("N")[..8];
+    private string newReusableWorkflowId = "workflow-" + Guid.NewGuid().ToString("N")[..8];
     private IReadOnlyList<PublishedWorkflowRevision> reusableVersions = [];
     private IReadOnlyList<PackageRequirement> reusableRequirements = [];
     private IReadOnlyList<PackageRequirement> packageRequirements = [];
@@ -59,7 +59,7 @@ public partial class WorkflowDesigner
         reusableWorkflowId = ""; reusableRevisionId = null; reusableVersions = []; reusableRequirements = [];
         packageRequirements = []; reusableSectionId = ""; insertAfterNode = "";
         ResetCallUpgrade();
-        reusablePipelineId = "pipeline-" + Guid.NewGuid().ToString("N")[..8];
+        newReusableWorkflowId = "workflow-" + Guid.NewGuid().ToString("N")[..8];
     }
 
     private void ResetCallUpgrade()
@@ -203,27 +203,27 @@ public partial class WorkflowDesigner
     {
         if (current.Catalog is not IWorkflowDesignCatalog designs || definition is null || layout is null ||
             !layout.Sections.TryGetValue(reusableSectionId, out var section)) return;
-        PipelineComposition extracted;
-        try { extracted = PipelineReuse.Extract(definition, layout, section.NodeIds, reusablePipelineId); }
+        WorkflowComposition extracted;
+        try { extracted = WorkflowReuse.Extract(definition, layout, section.NodeIds, newReusableWorkflowId); }
         catch (ArgumentException)
         {
-            error = "Choose a section containing consecutive processing steps only, and a pipeline ID using letters, digits, dots, dashes, or underscores.";
+            error = "Choose a section containing consecutive processing steps only, and a workflow ID using letters, digits, dots, dashes, or underscores.";
             return;
         }
         try { await designs.SaveDesignAsync(extracted.Definition, extracted.Layout, 0).WaitAsync(current.Token); }
         catch (WorkflowConflictException)
         {
-            if (Current(current)) error = "That reusable pipeline ID already exists. Choose another ID; your current draft is unchanged.";
+            if (Current(current)) error = "That reusable workflow ID already exists. Choose another ID; your current draft is unchanged.";
             return;
         }
         var drafts = await current.Catalog.ListDraftsAsync().WaitAsync(current.Token);
         if (!Current(current)) return;
         workflows = drafts;
         message = $"Reusable draft '{extracted.Definition.WorkflowId}' created. Save current edits, then open it from Saved workflow and publish before reuse.";
-        reusablePipelineId = "pipeline-" + Guid.NewGuid().ToString("N")[..8];
+        newReusableWorkflowId = "workflow-" + Guid.NewGuid().ToString("N")[..8];
     });
 
-    private Task InsertReusablePipeline() => Perform(async current =>
+    private Task InsertReusableWorkflow() => Perform(async current =>
     {
         if (definition is null || layout is null || preview is not null || reusableRevisionId is not { } id) return;
         var consumer = definition; var presentation = layout;
@@ -233,7 +233,7 @@ public partial class WorkflowDesigner
         if (source.Revision.Definition.WorkflowId != reusableWorkflowId) throw new ArgumentException("Source selection changed.");
         var sourceLayout = current.Catalog is IWorkflowDesignCatalog designs
             ? await designs.GetRevisionLayoutAsync(id).WaitAsync(current.Token) : null;
-        var next = PipelineReuse.Insert(consumer, presentation, after, source,
+        var next = WorkflowReuse.Insert(consumer, presentation, after, source,
             sourceLayout ?? WorkflowLayout.Create(source.Revision.Definition));
         if (!Current(current)) return;
         ApplyComposition(next);
@@ -262,7 +262,7 @@ public partial class WorkflowDesigner
         message = $"Added a call to '{source.Revision.Definition.WorkflowId}' version {sourceVersion.Version}. This child revision is embedded and pinned in this workflow.";
     });
 
-    private void ApplyComposition(PipelineComposition next)
+    private void ApplyComposition(WorkflowComposition next)
     {
         if (definition is null || layout is null) return;
         var nextHash = WorkflowJson.ComputeHash(next.Definition) + ":" + WorkflowLayoutJson.ComputeHash(next.Layout, next.Definition);

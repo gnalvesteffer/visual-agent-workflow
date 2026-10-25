@@ -14,7 +14,7 @@ public sealed class ApprovalRenderingTests
 {
     private static RunSnapshot Waiting()
     {
-        var graph = GraphEditing.InsertApprovalBefore(PipelineEditing.ReplaceNode(PipelineTemplates.Create("uppercase"), "step-1",
+        var graph = GraphEditing.InsertApprovalBefore(WorkflowEditing.ReplaceNode(WorkflowTemplates.Create("uppercase"), "step-1",
             new(NodeTypes.McpTool, "1.0.0", new("fixture.tool", new string('0', 64)))), "step-1");
         var approval = graph.Nodes.Single(n => n.Value.Type == NodeTypes.Approval).Key;
         graph = graph with { Nodes = graph.Nodes.SetItem(approval, graph.Nodes[approval] with { Approval = new("<script>review</script>") }) };
@@ -39,7 +39,7 @@ public sealed class ApprovalRenderingTests
 
     private static RunSnapshot WaitingOnNestedApproval()
     {
-        var childGraph = GraphEditing.InsertNodeAfter(PipelineTemplates.Create("uppercase") with { WorkflowId = "approval-child" },
+        var childGraph = GraphEditing.InsertNodeAfter(WorkflowTemplates.Create("uppercase") with { WorkflowId = "approval-child" },
             "input", "out", new(NodeTypes.McpTool, "1.0.0", new("fixture.tool", new string('0', 64))));
         var toolNodeId = childGraph.Nodes.Single(entry => entry.Value.Type == NodeTypes.McpTool).Key;
         childGraph = GraphEditing.InsertApprovalBefore(childGraph, toolNodeId);
@@ -48,7 +48,7 @@ public sealed class ApprovalRenderingTests
         {
             WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
         };
-        var root = GraphEditing.InsertNodeAfter(PipelineTemplates.Create("uppercase") with { WorkflowId = "approval-parent" },
+        var root = GraphEditing.InsertNodeAfter(WorkflowTemplates.Create("uppercase") with { WorkflowId = "approval-parent" },
             "input", "out", childCall);
         var callNodeId = root.Nodes.Single(entry => entry.Value.Type == NodeTypes.WorkflowCall).Key;
         var rootRevision = WorkflowRevision.Create(root, "fixture");

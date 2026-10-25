@@ -4,15 +4,15 @@
     <header class="vaw-studio-header">
         <div class="vaw-brand">
             <svg class="vaw-brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M7 8h8v7h10v9H15v-9H7z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="7" cy="8" r="3" fill="currentColor"/><circle cx="25" cy="24" r="3" fill="currentColor"/></svg>
-            <div><p class="vaw-product-name">Visual Agent Workflow</p><h1>Pipeline studio</h1></div>
+            <div><p class="vaw-product-name">Visual Agent Workflow</p><h1>Workflow Studio</h1></div>
         </div>
         <p class="vaw-notice">Local development prototype</p>
     </header>
-    <p class="vaw-studio-description">Design a pipeline. Run it independently. Inspect every recorded step.</p>
+    <p class="vaw-studio-description">Design a workflow. Run it independently. Inspect every recorded step.</p>
     <div class="vaw-workspace @(workspaceView == "designer" ? "vaw-authoring-workspace" : "")">
         <aside class="vaw-sidebar" hidden="@(workspaceView == "designer")">
             <h2>Quick template run</h2>
-            <label>Pipeline
+            <label>Workflow
                 <select @bind="operation">
                     <option value="uppercase">Uppercase</option>
                     <option value="reverse">Reverse</option>

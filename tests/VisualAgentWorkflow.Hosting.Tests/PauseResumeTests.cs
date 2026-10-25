@@ -10,7 +10,7 @@ public sealed class PauseResumeTests : IDisposable
     private readonly string directory = Path.Combine(Path.GetTempPath(), "vaw-pause-" + Guid.NewGuid());
     private FileRunJournal Journal => new(directory);
     private LocalWorkflowRuntime Runtime(IAgentNodeExecutor? agents = null) => new(Journal, NullLogger<LocalWorkflowRuntime>.Instance, agents: agents);
-    private static WorkflowDefinition WithAgent() => PipelineEditing.ReplaceNode(PipelineTemplates.Create("uppercase-reverse"), "step-1",
+    private static WorkflowDefinition WithAgent() => WorkflowEditing.ReplaceNode(WorkflowTemplates.Create("uppercase-reverse"), "step-1",
         new(NodeTypes.Agent, "1.0.0", Agent: new("controlled-test", "1.0", "", [])));
 
     private static async Task<RunSnapshot> WaitFor(LocalWorkflowRuntime runtime, Guid id, Func<RunSnapshot, bool> condition)
@@ -31,10 +31,10 @@ public sealed class PauseResumeTests : IDisposable
         await runtime.StartAsync(CancellationToken.None);
         try
         {
-            var first = await runtime.StartPausedRunAsync(PipelineTemplates.Create("uppercase-reverse"), "abc");
+            var first = await runtime.StartPausedRunAsync(WorkflowTemplates.Create("uppercase-reverse"), "abc");
             Assert.Equal("paused", first.Status);
             Assert.DoesNotContain(first.Events, e => e.Kind == ExecutionEventKinds.NodeStarted);
-            var other = await runtime.StartRunAsync(PipelineTemplates.Create("uppercase"), "other");
+            var other = await runtime.StartRunAsync(WorkflowTemplates.Create("uppercase"), "other");
             Assert.Equal("completed", (await WaitFor(runtime, other.Header.RunId, r => r.IsTerminal)).Status);
             Assert.Equal("paused", (await runtime.GetRunAsync(first.Header.RunId))!.Status);
             await runtime.PauseRunAsync(first.Header.RunId); // idempotent while paused
@@ -135,7 +135,7 @@ public sealed class PauseResumeTests : IDisposable
     [Fact]
     public async Task PauseAfterLastProcessingNodeWaitsBeforeOutputWithoutRepeatingWork()
     {
-        var definition = PipelineEditing.Remove(WithAgent(), "step-2");
+        var definition = WorkflowEditing.Remove(WithAgent(), "step-2");
         var agent = new ControlledAgent();
         using var runtime = Runtime(agent);
         await runtime.StartAsync(CancellationToken.None);
@@ -161,7 +161,7 @@ public sealed class PauseResumeTests : IDisposable
         using (var runtime = Runtime())
         {
             await runtime.StartAsync(CancellationToken.None);
-            var run = await runtime.StartPausedRunAsync(PipelineTemplates.Create("uppercase"), "abc");
+            var run = await runtime.StartPausedRunAsync(WorkflowTemplates.Create("uppercase"), "abc");
             await runtime.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
             Assert.True((await runtime.GetRunAsync(run.Header.RunId))!.IsTerminal);
             using var reopened = Runtime();
@@ -175,7 +175,7 @@ public sealed class PauseResumeTests : IDisposable
     public async Task CrashHistoryIsMarkedInterruptedRatherThanReexecuted()
     {
         var journal = Journal;
-        var run = journal.Create(WorkflowRevision.Create(PipelineTemplates.Create("uppercase"), "test"), "abc");
+        var run = journal.Create(WorkflowRevision.Create(WorkflowTemplates.Create("uppercase"), "test"), "abc");
         journal.Append(new(run.Header.RunId, run.Header.RevisionId, 1, DateTimeOffset.UtcNow, ExecutionEventKinds.Paused));
         using var runtime = Runtime();
         await runtime.StartAsync(CancellationToken.None);
@@ -197,8 +197,8 @@ public sealed class PauseResumeTests : IDisposable
         try
         {
             var paused = new List<RunSnapshot>();
-            for (var i = 0; i < 32; i++) paused.Add(await runtime.StartPausedRunAsync(PipelineTemplates.Create("uppercase"), "abc"));
-            var rejected = await runtime.StartRunAsync(PipelineTemplates.Create("uppercase"), "overflow");
+            for (var i = 0; i < 32; i++) paused.Add(await runtime.StartPausedRunAsync(WorkflowTemplates.Create("uppercase"), "abc"));
+            var rejected = await runtime.StartRunAsync(WorkflowTemplates.Create("uppercase"), "overflow");
             Assert.Equal("failed", rejected.Status);
             foreach (var run in paused) await runtime.CancelRunAsync(run.Header.RunId);
             foreach (var run in paused) await WaitFor(runtime, run.Header.RunId, r => r.IsTerminal);

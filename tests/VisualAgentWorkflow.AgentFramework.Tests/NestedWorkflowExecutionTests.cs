@@ -29,14 +29,14 @@ public sealed class NestedWorkflowExecutionTests
     [Fact]
     public async Task CallsPinnedChildAndRecordsItsEventsInsideOneRunScope()
     {
-        var childDefinition = PipelineEditing.InsertAfter(Baseline("child"), "input", NodeTypes.Uppercase);
+        var childDefinition = WorkflowEditing.InsertAfter(Baseline("child"), "input", NodeTypes.Uppercase);
         var child = WorkflowRevision.Create(childDefinition, "test");
         var parent = WithCall(Baseline("parent"), child);
         var revision = WorkflowRevision.Create(parent, "test");
         var events = new List<ExecutionEvent>();
         var runId = Guid.NewGuid();
 
-        var output = await new PipelineRunner().ExecuteAsync(runId, revision, "hello",
+        var output = await new WorkflowRunner().ExecuteAsync(runId, revision, "hello",
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
         Assert.Equal("HELLO", output);
@@ -60,7 +60,7 @@ public sealed class NestedWorkflowExecutionTests
         var parent = WithCall(Baseline("parent"), child);
         var events = new List<ExecutionEvent>();
 
-        var result = await new PipelineRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(), WorkflowRevision.Create(parent, "test"), "skip",
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(), WorkflowRevision.Create(parent, "test"), "skip",
             null, evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
         Assert.True(result.Terminated);
@@ -86,7 +86,7 @@ public sealed class NestedWorkflowExecutionTests
         var parent = GraphEditing.InsertNodeAfter(parentDefinition, "input", "out", call);
         var revision = WorkflowRevision.Create(parent, "test");
 
-        var output = await new PipelineRunner().ExecuteWithParametersAsync(Guid.NewGuid(), revision, "ignored",
+        var output = await new WorkflowRunner().ExecuteWithParametersAsync(Guid.NewGuid(), revision, "ignored",
             new Dictionary<string, string> { ["style"] = "mapped value" }, _ => ValueTask.CompletedTask);
 
         Assert.Equal("mapped value", output);
@@ -110,7 +110,7 @@ public sealed class NestedWorkflowExecutionTests
         };
         var parent = GraphEditing.InsertNodeAfter(JsonBoundary(Baseline("json-parent")), "input", "out", call);
 
-        var output = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(parent, "test"),
+        var output = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(parent, "test"),
             "{ \"answer\": 42 }", _ => ValueTask.CompletedTask);
 
         Assert.Equal("{\"answer\":42}", output);

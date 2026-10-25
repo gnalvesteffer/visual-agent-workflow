@@ -163,7 +163,7 @@ def check(browser, screenshots):
         page.keyboard.press("Tab")
         assert page.evaluate("document.activeElement.matches(':focus-visible') && getComputedStyle(document.activeElement).outlineStyle !== 'none'"), "Keyboard focus must remain visible"
 
-        graph = workbench(designer).get_by_role("list", name="Editable pipeline nodes", exact=True)
+        graph = workbench(designer).get_by_role("list", name="Editable workflow nodes", exact=True)
         canvas = workbench(designer).get_by_label("Workflow graph canvas. Drag empty space to select nodes; middle-drag to pan.", exact=True)
         expect(workbench(designer).locator('.vaw-graph-editor')).to_have_attribute("data-ready", "true")
         assert abs(canvas.locator('.vaw-canvas-world').evaluate("element=>new DOMMatrixReadOnly(getComputedStyle(element).transform).a") - 1) < 0.001, "The initial graph view must start at 100%"

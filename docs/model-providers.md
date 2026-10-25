@@ -48,7 +48,7 @@ Reference the optional provider project alongside the Agent Framework adapter. R
 var providers = OpenAIProviders.FromConfiguration(
     configuration.GetSection("WorkflowAgents:OpenAI"));
 var agents = new AgentNodeExecutor(providers, broker);
-var runner = new PipelineRunner(broker, agents);
+var runner = new WorkflowRunner(broker, agents);
 ```
 
 Alternatively, `OpenAIProviders.Create(OpenAIProviderOptions, Func<string>)` accepts a host-owned secret accessor. Options deliberately carry no credential. Return fresh transports when using the custom transport overload; the trusted host then owns redirect and TLS policy. Never let imported workflow content select transport factories or credentials. `AddLocalWorkflowRuntime` does not automatically register providers or grant tools. Hosts still own cancellation, journal storage and lifecycle; see [hosting](hosting-sdk.md).

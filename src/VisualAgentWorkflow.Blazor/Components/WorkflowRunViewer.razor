@@ -20,7 +20,7 @@
                 </details>
             }
         </header>
-        <WorkflowGraphCanvas @key="Snapshot.Header.RunId" Definition="Snapshot.Header.Definition" Layout="Presentation" ReadOnly="true" NodesLabel="@(WorkflowGraph.HasRouting(Snapshot.Header.Definition) ? "Workflow nodes in topological display order" : "Pipeline nodes in execution order")" NodeClass="NodeStateClass" DeliveredConnections="Delivered" SelectedNodeId="@selectedNode" SelectedNodeIdChanged="SelectNode" InspectorTitle="Execution details">
+        <WorkflowGraphCanvas @key="Snapshot.Header.RunId" Definition="Snapshot.Header.Definition" Layout="Presentation" ReadOnly="true" NodesLabel="@(WorkflowGraph.HasRouting(Snapshot.Header.Definition) ? "Workflow nodes in topological display order" : "Workflow nodes in execution order")" NodeClass="NodeStateClass" DeliveredConnections="Delivered" SelectedNodeId="@selectedNode" SelectedNodeIdChanged="SelectNode" InspectorTitle="Execution details">
             <ToolbarContent>
         <div class="vaw-controls" aria-label="Playback controls">
             <button type="button" @onclick="Previous" disabled="@(Position == 0)">Previous event</button>

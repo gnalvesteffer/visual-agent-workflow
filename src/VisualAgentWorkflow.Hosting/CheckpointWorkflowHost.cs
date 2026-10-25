@@ -56,11 +56,11 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
             {
                 ArgumentNullException.ThrowIfNull(revision);
                 ArgumentNullException.ThrowIfNull(input);
-                PipelineRunner.ValidateCheckpointGraph(revision.Definition);
+                WorkflowRunner.ValidateCheckpointGraph(revision.Definition);
                 snapshot = store.Create(revision, input);
             }
             var sink = new Sink(store, snapshot, restored?.Native, suspendAfterCompletedNodes);
-            await new PipelineRunner().ExecuteCheckpointedAsync(snapshot.Header.RunId, revision!, input!, sink.RecordAsync, sink, linked.Token);
+            await new WorkflowRunner().ExecuteCheckpointedAsync(snapshot.Header.RunId, revision!, input!, sink.RecordAsync, sink, linked.Token);
             return store.Get(snapshot.Header.RunId)!;
         }
         finally { execution.Release(); }
@@ -80,10 +80,10 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
         // The cancellation source/semaphore remain valid for callers already queued during disposal.
     }
 
-    private sealed class Sink(SqliteWorkflowRunStore store, RunSnapshot initial, NativePipelineCheckpoint? restored, int? suspendAfter) : IPipelineCheckpointSink
+    private sealed class Sink(SqliteWorkflowRunStore store, RunSnapshot initial, NativeWorkflowCheckpoint? restored, int? suspendAfter) : IWorkflowCheckpointSink
     {
         private RunSnapshot snapshot = initial;
-        public NativePipelineCheckpoint? RestoredCheckpoint => restored;
+        public NativeWorkflowCheckpoint? RestoredCheckpoint => restored;
 
         public ValueTask RecordAsync(ExecutionEvent evt)
         {
@@ -91,13 +91,13 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
             return ValueTask.CompletedTask;
         }
 
-        public ValueTask<bool> CaptureAsync(NativePipelineCheckpoint native)
+        public ValueTask<bool> CaptureAsync(NativeWorkflowCheckpoint native)
         {
             var completed = snapshot.Events.Where(e => e.Kind == ExecutionEventKinds.NodeCompleted).ToArray();
             var suspended = suspendAfter is { } count && completed.Length >= count &&
                 !completed.Any(e => snapshot.Header.Definition.Nodes[e.NodeId!].Type == NodeTypes.Output);
             var hash = WorkflowRunCheckpoint.Hash(native.Payload);
-            var metadata = JsonSerializer.Serialize(new { native.CheckpointId, payloadHash = hash, runtimeVersion = PipelineRunner.CheckpointRuntimeVersion });
+            var metadata = JsonSerializer.Serialize(new { native.CheckpointId, payloadHash = hash, runtimeVersion = WorkflowRunner.CheckpointRuntimeVersion });
             var events = new List<ExecutionEvent>
             {
                 new(snapshot.Header.RunId, snapshot.Header.RevisionId, snapshot.Events.Length + 1, DateTimeOffset.UtcNow,
@@ -105,7 +105,7 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
             };
             if (suspended) events.Add(new(snapshot.Header.RunId, snapshot.Header.RevisionId, snapshot.Events.Length + 2,
                 DateTimeOffset.UtcNow, ExecutionEventKinds.Suspended, Data: "Saved deterministic boundary; explicit host recovery required."));
-            var checkpoint = new WorkflowRunCheckpoint("1.0", PipelineRunner.CheckpointRuntimeVersion, snapshot.Header.RunId,
+            var checkpoint = new WorkflowRunCheckpoint("1.0", WorkflowRunner.CheckpointRuntimeVersion, snapshot.Header.RunId,
                 snapshot.Header.RevisionId, snapshot.Header.ContentHash, snapshot.Events.Length + events.Count, native, hash);
             snapshot = store.CommitCheckpoint(snapshot.Header.RunId, snapshot.Events.Length, events, checkpoint);
             return ValueTask.FromResult(suspended);

@@ -96,7 +96,7 @@ public static class GraphEditing
         var id = NewId(prefix);
         return definition with
         {
-            SchemaVersion = PipelineEditing.SchemaFor(definition, node),
+            SchemaVersion = WorkflowEditing.SchemaFor(definition, node),
             Nodes = definition.Nodes.Add(id, node)
         };
     }
@@ -307,7 +307,7 @@ public static class GraphEditing
                 nodes[edge.Value.Target.NodeId] with { OutputDataType = outputType == "json" ? "json" : null });
         return Checked(definition with
         {
-            SchemaVersion = PipelineEditing.SchemaFor(definition, node),
+            SchemaVersion = WorkflowEditing.SchemaFor(definition, node),
             Nodes = nodes,
             Connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(id, "in"), "data"))
                 .Add(NewId("link"), new(new(id, "out"), edge.Value.Target, "data"))
@@ -361,7 +361,7 @@ public static class GraphEditing
         RequireProcessing(existing.Type);
         RequireProcessing(node.Type);
         return WorkflowDraftEditing.ValidateEdit(definition,
-            definition with { SchemaVersion = PipelineEditing.SchemaFor(definition, node), Nodes = definition.Nodes.SetItem(id, node) });
+            definition with { SchemaVersion = WorkflowEditing.SchemaFor(definition, node), Nodes = definition.Nodes.SetItem(id, node) });
     }
 
     public static WorkflowDefinition RemoveNode(WorkflowDefinition definition, string id)

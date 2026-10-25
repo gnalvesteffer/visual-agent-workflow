@@ -35,7 +35,7 @@ public partial class WorkflowGraphCanvas
     [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public bool CompactReadOnly { get; set; }
     [Parameter] public bool Disabled { get; set; }
-    [Parameter] public string NodesLabel { get; set; } = "Editable pipeline nodes";
+    [Parameter] public string NodesLabel { get; set; } = "Editable workflow nodes";
     [Parameter] public Func<string, string>? NodeClass { get; set; }
     [Parameter] public IReadOnlySet<string>? DeliveredConnections { get; set; }
     [Inject] private IServiceProvider Services { get; set; } = default!;

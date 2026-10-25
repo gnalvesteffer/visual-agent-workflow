@@ -446,14 +446,14 @@ public static class WorkflowValidator
             var expectedIncoming = node.Type == NodeTypes.Input ? 0 : 1;
             var expectedOutgoing = node.Type == NodeTypes.Output ? 0 : 1;
             if (incoming[id] != expectedIncoming || outgoing[id].Count != expectedOutgoing)
-                Error("pipeline.degree", $"nodes.{id}", "Only a single input-to-output pipeline is supported; branches and joins are not yet supported.");
+                Error("workflow.degree", $"nodes.{id}", "Only a single input-to-output workflow is supported; branches and joins are not yet supported.");
         }
         var terminators = definition.Nodes.Where(n => n.Value?.Type == NodeTypes.Terminate).Select(n => n.Key).ToHashSet(StringComparer.Ordinal);
         if (definition.Nodes.Values.Count(n => n?.Type == NodeTypes.Terminate) > 16)
             Error("graph.termination.limit", "nodes", "A workflow may have at most 16 termination exits.");
         if (definition.Nodes.Values.Count(n => n?.Type == NodeTypes.Input) != 1 ||
             definition.Nodes.Values.Count(n => n?.Type == NodeTypes.Output) != 1)
-            Error("pipeline.terminals", "nodes", "Exactly one input and one output node are required.");
+            Error("workflow.terminals", "nodes", "Exactly one input and one output node are required.");
 
         ValidateParallelRegion(definition, Error);
 
@@ -497,7 +497,7 @@ public static class WorkflowValidator
         var inputs = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Input).Select(pair => pair.Key).ToArray();
         var outputs = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Output).Select(pair => pair.Key).ToArray();
         if (inputs.Length != 1 || outputs.Length != 1 || inputs[0] != definition.EntryNodeId)
-            error("pipeline.terminals", "nodes", "An explicit graph requires one configured input entry and one output node.");
+            error("workflow.terminals", "nodes", "An explicit graph requires one configured input entry and one output node.");
 
         var seen = new HashSet<(string Kind, string Source, string SourcePort, string Target, string TargetPort)>();
         var dataIncoming = new Dictionary<(string Node, string Port), int>();
@@ -628,7 +628,7 @@ public static class WorkflowValidator
         var branches = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.BooleanBranch).Select(pair => pair.Key).ToArray();
         var terminators = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Terminate).Select(pair => pair.Key).ToArray();
         if (inputs.Length != 1 || outputs.Length != 1 || inputs.FirstOrDefault() != definition.EntryNodeId)
-            error("pipeline.terminals", "nodes", "An explicit graph requires one configured input entry and one output node.");
+            error("workflow.terminals", "nodes", "An explicit graph requires one configured input entry and one output node.");
         if (allowBooleanTopology)
         {
             if ((!allowAgentNodes && branches.Length < 1) || branches.Length > 8)

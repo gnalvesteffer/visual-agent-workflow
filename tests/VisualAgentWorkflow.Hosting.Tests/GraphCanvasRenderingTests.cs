@@ -14,7 +14,7 @@ public sealed class GraphCanvasRenderingTests
     [Fact]
     public async Task RecordedLayoutEncodesUntrustedLabelsAndCommentsWithoutExecutionServices()
     {
-        var definition = PipelineTemplates.Create("uppercase");
+        var definition = WorkflowTemplates.Create("uppercase");
         var layout = WorkflowLayout.Create(definition);
         layout = layout with
         {

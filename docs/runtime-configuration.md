@@ -16,7 +16,7 @@ Agent MCP tool contracts support nested closed objects and arrays of `string`, `
 
 ## Agent providers
 
-`AgentProviderRegistration` pairs an `AgentProviderDescriptor` with a factory returning an owned `Microsoft.Extensions.AI.IChatClient`. The executor disposes that client pipeline after the invocation, so return a fresh client or an ownership-aware wrapper rather than an application-wide singleton that must remain alive.
+`AgentProviderRegistration` pairs an `AgentProviderDescriptor` with a factory returning an owned `Microsoft.Extensions.AI.IChatClient`. The executor disposes that client workflow after the invocation, so return a fresh client or an ownership-aware wrapper rather than an application-wide singleton that must remain alive.
 
 Construct `AgentNodeExecutor` with the registrations and the same node tool broker used by direct MCP nodes. Register it as `IAgentNodeExecutor` for execution and `IAgentProviderCatalog` for authoring choices. `LocalWorkflowRuntime` accepts both interfaces through its constructor. The Studio's DI composition in `Program.cs` demonstrates this with the deterministic fixture.
 

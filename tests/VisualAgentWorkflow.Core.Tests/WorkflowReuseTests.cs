@@ -5,7 +5,7 @@ using Xunit;
 
 namespace VisualAgentWorkflow.Core.Tests;
 
-public sealed class PipelineReuseTests
+public sealed class WorkflowReuseTests
 {
     private static WorkflowDefinition Definition(string id = "source", int count = 2)
     {
@@ -30,12 +30,12 @@ public sealed class PipelineReuseTests
         var layout = WorkflowLayout.Create(source);
         layout = layout with { Nodes = layout.Nodes.SetItem("step-1", layout.Nodes["step-1"] with { Label = "Reusable reverse", Comment = "Why this exists" }),
             Sections = layout.Sections.Add("group", new("Process text", ["step-1", "step-2"])) };
-        var extracted = PipelineReuse.Extract(source, layout, ["step-1", "step-2"], "reusable-text");
+        var extracted = WorkflowReuse.Extract(source, layout, ["step-1", "step-2"], "reusable-text");
         Assert.Equal(4, extracted.Definition.Nodes.Count);
         Assert.Equal("Reusable reverse", extracted.Layout.Nodes["step-1"].Label);
         Assert.Equal("Process text", extracted.Layout.Sections["group"].Label);
         Assert.Equal(hash, WorkflowJson.ComputeHash(source));
-        Assert.Equal(new[] { "step-1", "step-2" }, PipelineEditing.OrderedNodes(extracted.Definition).Skip(1).SkipLast(1));
+        Assert.Equal(new[] { "step-1", "step-2" }, WorkflowEditing.OrderedNodes(extracted.Definition).Skip(1).SkipLast(1));
     }
 
     [Fact]
@@ -43,8 +43,8 @@ public sealed class PipelineReuseTests
     {
         var source = Definition(count: 3); var layout = WorkflowLayout.Create(source);
         foreach (var ids in new[] { Array.Empty<string>(), ["step-0", "step-2"], ["input"], ["missing"] })
-            Assert.Throws<ArgumentException>(() => PipelineReuse.Extract(source, layout, ids, "reusable"));
-        Assert.Throws<ArgumentException>(() => PipelineReuse.Extract(source, layout, ["step-0"], ".."));
+            Assert.Throws<ArgumentException>(() => WorkflowReuse.Extract(source, layout, ids, "reusable"));
+        Assert.Throws<ArgumentException>(() => WorkflowReuse.Extract(source, layout, ["step-0"], ".."));
     }
 
     [Fact]
@@ -60,8 +60,8 @@ public sealed class PipelineReuseTests
         var revision = WorkflowRevision.Create(source, "test");
         var published = new PublishedWorkflowRevision(3, revision);
         var target = Definition("target", 1); var layout = WorkflowLayout.Create(target);
-        var inserted = PipelineReuse.Insert(target, layout, "input", published, sourceLayout);
-        var again = PipelineReuse.Insert(inserted.Definition, inserted.Layout, "input", published, sourceLayout);
+        var inserted = WorkflowReuse.Insert(target, layout, "input", published, sourceLayout);
+        var again = WorkflowReuse.Insert(inserted.Definition, inserted.Layout, "input", published, sourceLayout);
         var copied = inserted.Definition.Nodes.Where(p => p.Value.Origin is not null).ToArray();
         Assert.Equal(2, copied.Length);
         Assert.Equal(7, again.Definition.Nodes.Count);
@@ -77,7 +77,7 @@ public sealed class PipelineReuseTests
         Assert.Contains(inserted.Layout.Wires.Values, w => w.Points.Length == 1 && w.Points[0].Angle == 45);
         Assert.Equal("Reusable section", inserted.Layout.Sections.Single().Value.Label);
         Assert.Equal("1.3", inserted.Definition.SchemaVersion);
-        var changedSource = PipelineEditing.ChangeOperation(source, "step-0", NodeTypes.Reverse);
+        var changedSource = WorkflowEditing.ChangeOperation(source, "step-0", NodeTypes.Reverse);
         Assert.Equal(NodeTypes.Uppercase, copied.Single(p => p.Value.Origin!.NodeId == "step-0").Value.Type);
         Assert.NotEqual(WorkflowJson.ComputeHash(changedSource), revision.ContentHash);
     }
@@ -90,7 +90,7 @@ public sealed class PipelineReuseTests
         source = source with { Nodes = source.Nodes
             .SetItem("step-0", new(NodeTypes.McpTool, "1.0.0", request))
             .SetItem("step-1", new(NodeTypes.Agent, "1.0.0", Agent: new("host-provider", "2.0", "Instructions", [request]))) };
-        var inserted = PipelineReuse.Insert(Definition("target"), WorkflowLayout.Create(Definition("target")), "input",
+        var inserted = WorkflowReuse.Insert(Definition("target"), WorkflowLayout.Create(Definition("target")), "input",
             new(1, WorkflowRevision.Create(source, "test")), WorkflowLayout.Create(source));
         var imported = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(inserted.Definition, inserted.Layout));
         Assert.Contains(new PackageRequirement("mcp-tool", request.BindingId, "", request.ContractHash), imported.Requirements);
@@ -116,7 +116,7 @@ public sealed class PipelineReuseTests
             Nodes = source.Nodes.SetItem("step-0", new(NodeTypes.Agent, "1.0.0", Agent: originalAgent))
         };
 
-        var inserted = PipelineReuse.Insert(Definition("target", 1), WorkflowLayout.Create(Definition("target", 1)), "input",
+        var inserted = WorkflowReuse.Insert(Definition("target", 1), WorkflowLayout.Create(Definition("target", 1)), "input",
             new(1, WorkflowRevision.Create(source, "test")), WorkflowLayout.Create(source));
         var imported = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(inserted.Definition, inserted.Layout));
 
@@ -131,12 +131,12 @@ public sealed class PipelineReuseTests
     public void RejectsOverLimitInsertAndPreservesOldHashesAndSchemaThroughEdits()
     {
         var target = Definition("large", 253); var source = Definition();
-        Assert.Throws<ArgumentException>(() => PipelineReuse.Insert(target, WorkflowLayout.Create(target), "input",
+        Assert.Throws<ArgumentException>(() => WorkflowReuse.Insert(target, WorkflowLayout.Create(target), "input",
             new(1, WorkflowRevision.Create(source, "test")), WorkflowLayout.Create(source)));
         Assert.DoesNotContain("origin", WorkflowJson.Serialize(source));
-        var inserted = PipelineReuse.Insert(source, WorkflowLayout.Create(source), "input", new(1, WorkflowRevision.Create(source, "test")), WorkflowLayout.Create(source));
+        var inserted = WorkflowReuse.Insert(source, WorkflowLayout.Create(source), "input", new(1, WorkflowRevision.Create(source, "test")), WorkflowLayout.Create(source));
         var id = inserted.Definition.Nodes.First(p => p.Value.Origin is not null).Key;
-        var replaced = PipelineEditing.ReplaceNode(inserted.Definition, id, new(NodeTypes.Agent, "1.0.0", Agent: new("demo", "1", "", [])));
+        var replaced = WorkflowEditing.ReplaceNode(inserted.Definition, id, new(NodeTypes.Agent, "1.0.0", Agent: new("demo", "1", "", [])));
         Assert.Equal("1.3", replaced.SchemaVersion);
         WorkflowValidator.ThrowIfInvalid(replaced);
         Assert.Throws<ArgumentException>(() => WorkflowJson.Serialize(inserted.Definition with { SchemaVersion = "1.0" }));

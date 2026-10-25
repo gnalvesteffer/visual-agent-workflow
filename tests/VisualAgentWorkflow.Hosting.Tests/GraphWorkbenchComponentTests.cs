@@ -16,7 +16,7 @@ public sealed class GraphWorkbenchComponentTests
     {
         using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
-        var definition = PipelineTemplates.Create("uppercase");
+        var definition = WorkflowTemplates.Create("uppercase");
         WorkflowGraphCanvas? canvas = null;
         RenderFragment<string> summary = id => builder => builder.AddContent(0, $"Summary {id}");
         RenderFragment<string> inspector = id => builder => builder.AddContent(0, $"Properties {id}");
@@ -40,7 +40,7 @@ public sealed class GraphWorkbenchComponentTests
         Assert.Contains("Summary input", html);
         Assert.Contains("Summary output", html);
 
-        var removed = PipelineEditing.Remove(definition, "step-1");
+        var removed = WorkflowEditing.Remove(definition, "step-1");
         await renderer.Dispatcher.InvokeAsync(() => canvas!.SetParametersAsync(ParameterView.FromDictionary(new Dictionary<string, object?>
         {
             [nameof(WorkflowGraphCanvas.Definition)] = removed,

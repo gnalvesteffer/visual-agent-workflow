@@ -22,7 +22,7 @@ public sealed class OpenAIProviderTests
     };
     private static WorkflowRevision Revision(ToolBindingRequest? tool = null, int? maxOutputTokens = null)
     {
-        var graph = PipelineEditing.ReplaceNode(PipelineTemplates.Create("uppercase"), "step-1",
+        var graph = WorkflowEditing.ReplaceNode(WorkflowTemplates.Create("uppercase"), "step-1",
             new(NodeTypes.Agent, "1.0.0", Agent: new("openai.fixture", "1.0.0", "Fixture instructions", tool is null ? [] : [tool])));
         if (maxOutputTokens is { } limit)
             graph = graph with

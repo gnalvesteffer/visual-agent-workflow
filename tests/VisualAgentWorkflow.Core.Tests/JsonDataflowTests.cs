@@ -48,7 +48,7 @@ public sealed class JsonDataflowTests
 
         Assert.Throws<ArgumentException>(() => GraphEditing.InsertNodeAfter(definition, "step", "out",
             new NodeDefinition(NodeTypes.JsonSelectString, "1.0.0") { JsonPropertySelection = new("/user/name") }));
-        Assert.Throws<ArgumentException>(() => PipelineReuse.Extract(definition, WorkflowLayout.Create(definition),
+        Assert.Throws<ArgumentException>(() => WorkflowReuse.Extract(definition, WorkflowLayout.Create(definition),
             new[] { selectorId }, "json-prefab"));
     }
 

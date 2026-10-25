@@ -189,7 +189,7 @@ public sealed class McpToolBroker : INodeToolBroker
                 if (result.IsError == true) throw new ToolInvocationException("The MCP server reported a tool failure.");
                 if (result.Content.Any(c => c is not TextContentBlock)) throw new ToolInvocationException("The tool returned unsupported non-text content.");
                 var output = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(c => c.Text));
-                if (output.Length > 16_384) throw new ToolInvocationException("Tool output exceeds the pipeline limit.");
+                if (output.Length > 16_384) throw new ToolInvocationException("Tool output exceeds the workflow limit.");
                 await Record(ExecutionEventKinds.ToolCompleted, new { toolCallId, parentToolCallId = invocation.ParentToolCallId, bindingId, output });
                 return output;
             }

@@ -24,7 +24,7 @@ public sealed class ObservationClientTests
     [Fact]
     public async Task InvalidIdentityAndSequenceAreRejectedWithoutAnyExecutionInfrastructure()
     {
-        var revision = WorkflowRevision.Create(PipelineTemplates.Create("uppercase"), "fixture");
+        var revision = WorkflowRevision.Create(WorkflowTemplates.Create("uppercase"), "fixture");
         var id = Guid.NewGuid();
         var snapshot = new RunSnapshot(new(id, revision.RevisionId, null, "fixture", revision.CreatedAt, revision.ContentHash, revision.Definition, "abc"), []);
         foreach (var invalid in new[]

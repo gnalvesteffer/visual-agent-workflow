@@ -47,7 +47,7 @@ public sealed class TextTemplateNodeTests
             ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
                 .Add("edge", new(new("input", "out"), new("output", "in"), "data")));
 
-        var inserted = PipelineEditing.InsertNodeAfter(source, "input",
+        var inserted = WorkflowEditing.InsertNodeAfter(source, "input",
             new(NodeTypes.TextTemplate, "1.0.0") { TextTemplate = new([new("input", "")]) });
 
         Assert.Equal("1.7", inserted.SchemaVersion);
@@ -106,7 +106,7 @@ public sealed class TextTemplateNodeTests
                 .Add("name", new("Name", "Grace"))
         };
 
-        var composition = PipelineReuse.Insert(target, WorkflowLayout.Create(target), "input",
+        var composition = WorkflowReuse.Insert(target, WorkflowLayout.Create(target), "input",
             new(1, revision), WorkflowLayout.Create(source));
         var copied = composition.Definition.Nodes.Values.Single(node => node.Type == NodeTypes.TextTemplate);
         var parameterReference = Assert.Single(copied.TextTemplate!.Parts.Where(part => part.Kind == "parameter"));

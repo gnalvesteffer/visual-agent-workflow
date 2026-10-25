@@ -147,7 +147,7 @@ public sealed class ComponentLifecycleTests
     private static ToolBindingDescriptor Tool(string name) => new("text", name, "server", "text", new string('a', 64));
     private static RunSnapshot Run(string workflowId)
     {
-        var revision = WorkflowRevision.Create(PipelineTemplates.Create("uppercase") with { WorkflowId = workflowId }, "test");
+        var revision = WorkflowRevision.Create(WorkflowTemplates.Create("uppercase") with { WorkflowId = workflowId }, "test");
         return new(new(Guid.NewGuid(), revision.RevisionId, null, "test", revision.CreatedAt, revision.ContentHash, revision.Definition, "input"), []);
     }
 
@@ -197,7 +197,7 @@ public sealed class ComponentLifecycleTests
         private readonly Func<Task<IReadOnlyList<WorkflowDraft>>> list;
         public TestCatalog(string id, Func<Task<IReadOnlyList<WorkflowDraft>>>? list = null)
         {
-            Draft = new(PipelineTemplates.Create("uppercase") with { WorkflowId = id }, 1, null, null);
+            Draft = new(WorkflowTemplates.Create("uppercase") with { WorkflowId = id }, 1, null, null);
             this.list = list ?? (() => Task.FromResult<IReadOnlyList<WorkflowDraft>>([Draft]));
         }
         public Task<IReadOnlyList<WorkflowDraft>> ListDraftsAsync() { ListCalls++; return list(); }

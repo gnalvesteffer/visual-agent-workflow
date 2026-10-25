@@ -7,22 +7,22 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.AgentFramework;
 
 /// <summary>Trusted adapter state, not an importable workflow or a portable cross-version format.</summary>
-public sealed record NativePipelineCheckpoint(string SessionId, string CheckpointId, string? ParentCheckpointId, string Payload);
+public sealed record NativeWorkflowCheckpoint(string SessionId, string CheckpointId, string? ParentCheckpointId, string Payload);
 
 /// <summary>Host owns atomic evidence/checkpoint storage and recovery admission. Return true to suspend at the saved boundary.</summary>
-public interface IPipelineCheckpointSink
+public interface IWorkflowCheckpointSink
 {
-    NativePipelineCheckpoint? RestoredCheckpoint { get; }
-    ValueTask<bool> CaptureAsync(NativePipelineCheckpoint checkpoint);
+    NativeWorkflowCheckpoint? RestoredCheckpoint { get; }
+    ValueTask<bool> CaptureAsync(NativeWorkflowCheckpoint checkpoint);
 }
 
-public sealed partial class PipelineRunner
+public sealed partial class WorkflowRunner
 {
     public const string CheckpointRuntimeVersion = "agent-framework/1.26.0;vaw-adapter/1";
 
     /// <summary>Opt-in deterministic-only native checkpoint path. Null output means a saved suspension, not completion.</summary>
     public async Task<string?> ExecuteCheckpointedAsync(Guid runId, WorkflowRevision revision, string input,
-        Func<ExecutionEvent, ValueTask> record, IPipelineCheckpointSink checkpoints, CancellationToken cancellationToken = default)
+        Func<ExecutionEvent, ValueTask> record, IWorkflowCheckpointSink checkpoints, CancellationToken cancellationToken = default)
     {
         ValidateCheckpointGraph(revision.Definition);
         ArgumentNullException.ThrowIfNull(checkpoints);
@@ -79,9 +79,9 @@ public sealed partial class PipelineRunner
 
     private sealed class SavedBoundarySignal : Exception;
 
-    private sealed class NativeCheckpointBridge(IPipelineCheckpointSink sink) : ICheckpointStore<JsonElement>
+    private sealed class NativeCheckpointBridge(IWorkflowCheckpointSink sink) : ICheckpointStore<JsonElement>
     {
-        private NativePipelineCheckpoint? latest = sink.RestoredCheckpoint;
+        private NativeWorkflowCheckpoint? latest = sink.RestoredCheckpoint;
         private readonly List<(CheckpointInfo Info, string? Parent)> index = sink.RestoredCheckpoint is { } restored
             ? [(new(restored.SessionId, restored.CheckpointId), restored.ParentCheckpointId)] : [];
         public bool Suspended { get; private set; }
@@ -89,7 +89,7 @@ public sealed partial class PipelineRunner
         public async ValueTask<CheckpointInfo> CreateCheckpointAsync(string sessionId, JsonElement value, CheckpointInfo? parent = null)
         {
             var key = new CheckpointInfo(sessionId, Guid.NewGuid().ToString("N"));
-            var checkpoint = new NativePipelineCheckpoint(sessionId, key.CheckpointId, parent?.CheckpointId, value.GetRawText());
+            var checkpoint = new NativeWorkflowCheckpoint(sessionId, key.CheckpointId, parent?.CheckpointId, value.GetRawText());
             if (await sink.CaptureAsync(checkpoint))
             {
                 // Saving at the native superstep callback precedes scheduling the next superstep.

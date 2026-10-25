@@ -2,7 +2,7 @@
 
 Schema 1.6 adds portable string parameters for workflow-specific configuration. Schema 1.8 adds scalar types (`string`, `integer`, `number`, `boolean`, and bounded `choice`) with validated defaults and overrides. Parameters remain immutable definition data with stable IDs and display names. A `core.workflow-value` node reads one resolved parameter and replaces the incoming string with its canonical text value, making the data path explicit in the graph.
 
-Typed parameters do not add mutable variables or arbitrary object ports. Every value must be treated as non-secret because local run histories record it in plaintext. Schema 1.8 can expose a choice parameter as an agent's reasoning-effort setting, limited to `default`, `low`, `medium`, and `high`; provider support is checked at runtime. Schema 1.7 also supports deterministic `core.text.template` nodes: ordered literal, incoming-text and declared-parameter parts build one bounded string without expression evaluation. Referenced parameters are copied and remapped when a reusable pipeline containing a template node is inserted.
+Typed parameters do not add mutable variables or arbitrary object ports. Every value must be treated as non-secret because local run histories record it in plaintext. Schema 1.8 can expose a choice parameter as an agent's reasoning-effort setting, limited to `default`, `low`, `medium`, and `high`; provider support is checked at runtime. Schema 1.7 also supports deterministic `core.text.template` nodes: ordered literal, incoming-text and declared-parameter parts build one bounded string without expression evaluation. Referenced parameters are copied and remapped when a reusable workflow containing a template node is inserted.
 
 ## Definition contract
 

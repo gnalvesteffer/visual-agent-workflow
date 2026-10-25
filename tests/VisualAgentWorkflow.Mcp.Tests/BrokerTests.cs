@@ -26,8 +26,8 @@ public class BrokerTests
 
     private static WorkflowRevision Revision(ToolBindingDescriptor binding)
     {
-        var definition = PipelineTemplates.Create("uppercase");
-        definition = PipelineEditing.ReplaceNode(definition, "step-1", new(NodeTypes.McpTool, "1.0.0",
+        var definition = WorkflowTemplates.Create("uppercase");
+        definition = WorkflowEditing.ReplaceNode(definition, "step-1", new(NodeTypes.McpTool, "1.0.0",
             new ToolBindingRequest(binding.BindingId, binding.ContractHash) { DescriptionHash = binding.DescriptionHash }));
         return WorkflowRevision.Create(definition, "test");
     }
@@ -330,12 +330,12 @@ public class BrokerTests
     [Fact]
     public void ExistingPureWorkflowHashesRemainCompatible()
     {
-        var definition = PipelineTemplates.Create("uppercase-reverse");
+        var definition = WorkflowTemplates.Create("uppercase-reverse");
         var serialized = WorkflowJson.Serialize(definition);
         Assert.DoesNotContain("\r", serialized);
         Assert.Equal("24a0d04c870b902c333b83ef8f1eb2806115e550418a9e631edcb1b7bd842cec",
             WorkflowJson.ComputeHash(definition));
-        Assert.DoesNotContain("\"tool\"", WorkflowJson.Serialize(PipelineTemplates.Create("uppercase")));
+        Assert.DoesNotContain("\"tool\"", WorkflowJson.Serialize(WorkflowTemplates.Create("uppercase")));
     }
 
     private sealed class SwitchPolicy : IToolAuthorizationPolicy

@@ -31,7 +31,7 @@ public sealed class BoundedLoopExecutionTests
         var bodyId = graph.Nodes.Single(pair => pair.Value.Type == NodeTypes.Uppercase).Key;
         var events = new List<ExecutionEvent>();
 
-        var output = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "continue",
+        var output = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "continue",
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
         Assert.Equal("CONTINUE", output);
@@ -49,7 +49,7 @@ public sealed class BoundedLoopExecutionTests
     {
         var graph = Graph();
         var events = new List<ExecutionEvent>();
-        var output = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "continue",
+        var output = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "continue",
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
         Assert.Equal("continue", output);

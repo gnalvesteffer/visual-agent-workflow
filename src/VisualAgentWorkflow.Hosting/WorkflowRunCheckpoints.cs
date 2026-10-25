@@ -8,13 +8,13 @@ namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>Trusted local recovery envelope. Native state is runtime-version-specific, never accepted from workflow imports.</summary>
 public sealed record WorkflowRunCheckpoint(string SchemaVersion, string RuntimeVersion, Guid RunId, Guid RevisionId,
-    string ContentHash, long Sequence, NativePipelineCheckpoint Native, string PayloadHash)
+    string ContentHash, long Sequence, NativeWorkflowCheckpoint Native, string PayloadHash)
 {
     public static string Hash(string payload) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
 
     public void Validate(RunSnapshot snapshot)
     {
-        if (Native is null || Native.Payload is null || SchemaVersion != "1.0" || RuntimeVersion != PipelineRunner.CheckpointRuntimeVersion ||
+        if (Native is null || Native.Payload is null || SchemaVersion != "1.0" || RuntimeVersion != WorkflowRunner.CheckpointRuntimeVersion ||
             RunId != snapshot.Header.RunId || RevisionId != snapshot.Header.RevisionId || ContentHash != snapshot.Header.ContentHash ||
             Sequence < 1 || Sequence > snapshot.Events.Length || Native.SessionId != RunId.ToString("D") ||
             string.IsNullOrWhiteSpace(Native.CheckpointId) || Native.CheckpointId.Length > 128 ||
@@ -23,7 +23,7 @@ public sealed record WorkflowRunCheckpoint(string SchemaVersion, string RuntimeV
             throw new InvalidDataException("Checkpoint version, identity, cursor or integrity mismatch.");
         using var json = JsonDocument.Parse(Native.Payload);
         if (json.RootElement.ValueKind != JsonValueKind.Object) throw new InvalidDataException("Checkpoint state must be an object.");
-        PipelineRunner.ValidateCheckpointGraph(snapshot.Header.Definition);
+        WorkflowRunner.ValidateCheckpointGraph(snapshot.Header.Definition);
     }
 }
 

@@ -7,8 +7,8 @@ namespace VisualAgentWorkflow.AgentFramework;
 
 public sealed record WorkflowExecutionResult(string? Output, bool Terminated, bool Failed = false);
 
-/// <summary>Translates the supported string pipeline into actual Agent Framework executors and edges.</summary>
-public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null)
+/// <summary>Translates the supported string workflow into actual Agent Framework executors and edges.</summary>
+public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null)
 {
     public async Task<string> ExecuteAsync(Guid runId, WorkflowRevision revision, string input,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default) =>
@@ -131,7 +131,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         catch
         {
             // Do not copy arbitrary exception messages or provider internals into captured payloads.
-            await Emit(ExecutionEventKinds.Failed, data: "Pipeline execution failed.");
+            await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed.");
             throw;
         }
     }
@@ -611,7 +611,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 await Emit(kind, childEvent.NodeId, childEvent.InvocationId, childEvent.ConnectionId, childEvent.Data, nestedScope);
             }
 
-            var runner = new PipelineRunner(tools, agents);
+            var runner = new WorkflowRunner(tools, agents);
             var childWorkflowPath = workflowPath.Add(new WorkflowApprovalScope(Id, child.RevisionId, child.ContentHash));
             IReadOnlyDictionary<string, string>? childParameters = call.ParameterMappings is { Length: > 0 } mappings
                 ? mappings.ToDictionary(mapping => mapping.ChildParameterId, mapping => parameters![mapping.ParentParameterId], StringComparer.Ordinal)

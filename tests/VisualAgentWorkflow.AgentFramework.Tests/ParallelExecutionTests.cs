@@ -13,7 +13,7 @@ public sealed class ParallelExecutionTests
         var definition = BranchesWithAgents();
         var executor = new ConcurrentAgentExecutor();
         var events = new List<ExecutionEvent>();
-        var result = await new PipelineRunner(agents: executor).ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "input",
+        var result = await new WorkflowRunner(agents: executor).ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "input",
             evt => { events.Add(evt); return ValueTask.CompletedTask; }).WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.Equal("{\"branch_1\":\"input:branch_1\",\"branch_2\":\"input:branch_2\"}", result);
@@ -37,7 +37,7 @@ public sealed class ParallelExecutionTests
         var executor = new ConcurrentAgentExecutor("branch_2");
         var events = new List<ExecutionEvent>();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => new PipelineRunner(agents: executor)
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(agents: executor)
             .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "input",
                 evt => { events.Add(evt); return ValueTask.CompletedTask; }));
 
@@ -54,7 +54,7 @@ public sealed class ParallelExecutionTests
         var definition = BranchesWithAgents();
         var events = new List<ExecutionEvent>();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => new PipelineRunner(agents: new ConcurrentAgentExecutor(responseLength: 9_000))
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(agents: new ConcurrentAgentExecutor(responseLength: 9_000))
             .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "input",
                 evt => { events.Add(evt); return ValueTask.CompletedTask; }));
 
@@ -87,7 +87,7 @@ public sealed class ParallelExecutionTests
             definition.Nodes[secondSelectorId] with { JsonPropertySelection = new("/branch_1") });
         var events = new List<ExecutionEvent>();
 
-        var result = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "go",
+        var result = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "go",
             evt => { events.Add(evt); return ValueTask.CompletedTask; }).WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.Equal("GO", result);

@@ -45,7 +45,7 @@ Exactly one input and one declared Output are required. Every processing node an
 
 Old definition schemas and hashes remain supported. The optional condition property is omitted when absent; old serialized nodes do not gain null properties. New condition/merge types require schema 1.4, and termination nodes require schema 1.18. Origin metadata from schema 1.3 is also valid in 1.4. Layout schema 1.0, package format 1.0 and SQLite schema 2 remain unchanged. Packages declare the new node implementation requirements. Older consumers must reject unsupported schema/types rather than silently flattening a graph.
 
-`WorkflowGraph.OrderedNodes` returns a deterministic topological order for display and analysis. It is not an execution schedule. Linear-only `PipelineEditing` and reusable pipeline operations reject routing graphs rather than turning that order into a sequence. Complete conditional workflows can be saved, published, restored and shared as packages; extracting/inserting conditional prefab blocks is not implemented.
+`WorkflowGraph.OrderedNodes` returns a deterministic topological order for display and analysis. It is not an execution schedule. Linear-only `WorkflowEditing` and reusable workflow operations reject routing graphs rather than turning that order into a sequence. Complete conditional workflows can be saved, published, restored and shared as packages; extracting/inserting conditional prefab blocks is not implemented.
 
 ## Author in Studio or embedded designer
 

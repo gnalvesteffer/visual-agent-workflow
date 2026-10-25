@@ -13,7 +13,7 @@ public class AgentExecutionTests
 {
     private static WorkflowRevision Revision(params ToolBindingRequest[] tools)
     {
-        var definition = PipelineEditing.ReplaceNode(PipelineTemplates.Create("uppercase"), "step-1",
+        var definition = WorkflowEditing.ReplaceNode(WorkflowTemplates.Create("uppercase"), "step-1",
             new(NodeTypes.Agent, "1.0.0", Agent: new("demo.scripted", "1.0.0", "Use only assigned tools.", [.. tools])));
         return WorkflowRevision.Create(definition, "test");
     }
@@ -43,7 +43,7 @@ public class AgentExecutionTests
         var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
         var fixture = DeterministicDemoChatClient.Registration();
         var executor = new AgentNodeExecutor([fixture with { Descriptor = fixture.Descriptor with { SupportsReasoningEffort = true } }], broker);
-        await new PipelineRunner(broker, executor).ExecuteWithParametersAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"),
+        await new WorkflowRunner(broker, executor).ExecuteWithParametersAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"),
             "1+1?", new Dictionary<string, string> { ["context"] = "integer arithmetic", ["effort"] = "off" },
             e => { events.Add(e); return ValueTask.CompletedTask; });
         var request = Assert.Single(events, e => e.Kind == ExecutionEventKinds.ModelRequested);
@@ -74,7 +74,7 @@ public class AgentExecutionTests
             { FinishReason = ChatFinishReason.Stop }))
         };
 
-        var result = await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+        var result = await new WorkflowRunner(broker, new AgentNodeExecutor([registration], broker))
             .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "question",
                 evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -113,7 +113,7 @@ public class AgentExecutionTests
         };
         var events = new List<ExecutionEvent>();
 
-        var result = await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+        var result = await new WorkflowRunner(broker, new AgentNodeExecutor([registration], broker))
             .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "reverse this",
                 evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -146,7 +146,7 @@ public class AgentExecutionTests
         };
         var events = new List<ExecutionEvent>();
 
-        var failure = await Record.ExceptionAsync(() => new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(broker, new AgentNodeExecutor([registration], broker))
             .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "reverse this",
                 evt => { events.Add(evt); return ValueTask.CompletedTask; }));
 
@@ -178,7 +178,7 @@ public class AgentExecutionTests
         };
         var events = new List<ExecutionEvent>();
 
-        var failure = await Record.ExceptionAsync(() => new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(broker, new AgentNodeExecutor([registration], broker))
             .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "reverse this",
                 evt => { events.Add(evt); return ValueTask.CompletedTask; }));
 
@@ -215,7 +215,7 @@ public class AgentExecutionTests
         };
         var events = new List<ExecutionEvent>();
 
-        var failure = await Record.ExceptionAsync(() => new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(broker, new AgentNodeExecutor([registration], broker))
             .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "reverse this",
                 evt => { events.Add(evt); return ValueTask.CompletedTask; }));
 
@@ -246,7 +246,7 @@ public class AgentExecutionTests
             })
         };
 
-        var error = await Record.ExceptionAsync(() => new PipelineRunner(broker,
+        var error = await Record.ExceptionAsync(() => new WorkflowRunner(broker,
             new AgentNodeExecutor([registration], broker)).ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "question",
                 evt => { events.Add(evt); return ValueTask.CompletedTask; }));
 
@@ -291,7 +291,7 @@ public class AgentExecutionTests
         var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
         var events = new List<ExecutionEvent>();
 
-        var output = await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+        var output = await new WorkflowRunner(broker, new AgentNodeExecutor([registration], broker))
             .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "find it",
                 evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -325,7 +325,7 @@ public class AgentExecutionTests
         };
         var events = new List<ExecutionEvent>();
 
-        var output = await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+        var output = await new WorkflowRunner(broker, new AgentNodeExecutor([registration], broker))
             .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "question",
                 evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -376,7 +376,7 @@ public class AgentExecutionTests
             })
         };
         var events = new List<ExecutionEvent>();
-        var output = await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+        var output = await new WorkflowRunner(broker, new AgentNodeExecutor([registration], broker))
             .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "abc",
                 evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -455,7 +455,7 @@ public class AgentExecutionTests
         };
         var events = new List<ExecutionEvent>();
 
-        var result = await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+        var result = await new WorkflowRunner(broker, new AgentNodeExecutor([registration], broker))
             .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "Analyze this.",
                 evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -543,7 +543,7 @@ public class AgentExecutionTests
         };
         var events = new List<ExecutionEvent>();
 
-        var result = await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+        var result = await new WorkflowRunner(broker, new AgentNodeExecutor([registration], broker))
             .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "Review this proposal.",
                 evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -615,7 +615,7 @@ public class AgentExecutionTests
                 return new ChatResponse(new ChatMessage(ChatRole.Assistant, "Finding reviewed.")) { FinishReason = ChatFinishReason.Stop };
             })
         };
-        var executor = new PipelineRunner(broker, new AgentNodeExecutor([registration], broker));
+        var executor = new WorkflowRunner(broker, new AgentNodeExecutor([registration], broker));
         var definitionRevision = WorkflowRevision.Create(definition, "test");
 
         async Task<List<ExecutionEvent>> ExecuteRun(string task)
@@ -703,7 +703,7 @@ public class AgentExecutionTests
         };
         var events = new List<ExecutionEvent>();
 
-        var result = await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+        var result = await new WorkflowRunner(broker, new AgentNodeExecutor([registration], broker))
             .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "Review this.",
                 evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -779,7 +779,7 @@ public class AgentExecutionTests
         };
         var events = new List<ExecutionEvent>();
 
-        var output = await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+        var output = await new WorkflowRunner(broker, new AgentNodeExecutor([registration], broker))
             .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "Check the claim.",
                 evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -812,7 +812,7 @@ public class AgentExecutionTests
         var reverse = (await broker.ListBindingsAsync()).Single(b => b.BindingId == "demo.reverse");
         var agent = new AgentNodeExecutor([DeterministicDemoChatClient.Registration()], broker);
         var events = new List<ExecutionEvent>();
-        var output = await new PipelineRunner(broker, agent).ExecuteAsync(Guid.NewGuid(), Revision(new ToolBindingRequest(reverse.BindingId, reverse.ContractHash)),
+        var output = await new WorkflowRunner(broker, agent).ExecuteAsync(Guid.NewGuid(), Revision(new ToolBindingRequest(reverse.BindingId, reverse.ContractHash)),
             "abc", e => { events.Add(e); return ValueTask.CompletedTask; });
         Assert.Equal("cba", output);
         Assert.Equal(2, events.Count(e => e.Kind == ExecutionEventKinds.ModelRequested));
@@ -842,7 +842,7 @@ public class AgentExecutionTests
         var executor = new AgentNodeExecutor([registration], broker);
         var events = new List<ExecutionEvent>();
 
-        var output = await new PipelineRunner(broker, executor).ExecuteAsync(Guid.NewGuid(),
+        var output = await new WorkflowRunner(broker, executor).ExecuteAsync(Guid.NewGuid(),
             Revision(new ToolBindingRequest(reverse.BindingId, reverse.ContractHash)), "abc",
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -860,7 +860,7 @@ public class AgentExecutionTests
         var addition = (await broker.ListBindingsAsync()).Single(binding => binding.BindingId == "demo.add-integers");
         var events = new List<ExecutionEvent>();
         var executor = new AgentNodeExecutor([DeterministicDemoChatClient.Registration()], broker);
-        var output = await new PipelineRunner(broker, executor).ExecuteAsync(Guid.NewGuid(),
+        var output = await new WorkflowRunner(broker, executor).ExecuteAsync(Guid.NewGuid(),
             Revision(new ToolBindingRequest(addition.BindingId, addition.ContractHash) { DescriptionHash = addition.DescriptionHash }), "2+2",
             e => { events.Add(e); return ValueTask.CompletedTask; });
 
@@ -903,7 +903,7 @@ public class AgentExecutionTests
         };
         var events = new List<ExecutionEvent>();
 
-        var output = await new PipelineRunner(broker, new AgentNodeExecutor([registrationWithFunctionCall], broker))
+        var output = await new WorkflowRunner(broker, new AgentNodeExecutor([registrationWithFunctionCall], broker))
             .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "Hello",
                 evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -936,7 +936,7 @@ public class AgentExecutionTests
         var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
         var events = new List<ExecutionEvent>();
 
-        await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+        await new WorkflowRunner(broker, new AgentNodeExecutor([registration], broker))
             .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "Hello",
                 evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -1025,7 +1025,7 @@ public class AgentExecutionTests
         var executor = new AgentNodeExecutor([registration], broker);
         using var cancellation = new CancellationTokenSource();
         var events = new List<ExecutionEvent>();
-        var execution = new PipelineRunner(broker, executor).ExecuteAsync(Guid.NewGuid(), Revision(), "abc",
+        var execution = new WorkflowRunner(broker, executor).ExecuteAsync(Guid.NewGuid(), Revision(), "abc",
             e => { events.Add(e); return ValueTask.CompletedTask; }, cancellation.Token);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
         await cancellation.CancelAsync();

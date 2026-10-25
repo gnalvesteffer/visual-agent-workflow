@@ -52,7 +52,7 @@ The [graph workbench](docs/graph-editor.md) provides a searchable node library, 
 
 For the [graph canvas](docs/graph-editor.md), run `python3 scripts/graph_canvas_smoke.py` against the development Studio with Playwright/Chromium installed. Pass `--browser-executable` for an existing Chromium or `--screenshots DIRECTORY` for review images.
 
-For reusable pipelines and sharing, `python3 scripts/pipeline_reuse_smoke.py` exercises exact-version insertion, section extraction, full-package import/export, and missing-tool denial in the browser.
+For reusable workflows and sharing, `python3 scripts/workflow_reuse_smoke.py` exercises exact-version insertion, section extraction, full-package import/export, and missing-tool denial in the browser.
 
 ## Run in your own service
 

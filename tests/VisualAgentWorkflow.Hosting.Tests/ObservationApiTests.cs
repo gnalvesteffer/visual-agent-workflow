@@ -154,7 +154,7 @@ public sealed class ObservationApiTests
             var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { BaseAddress = new Uri(app.Urls.Single() + "/observation/") };
             return new(app, directory, http);
         }
-        public Task<RunSnapshot> StartPausedAsync() => Runtime.StartPausedRunAsync(PipelineTemplates.Create("uppercase"), "private fixture input");
+        public Task<RunSnapshot> StartPausedAsync() => Runtime.StartPausedRunAsync(WorkflowTemplates.Create("uppercase"), "private fixture input");
         public async ValueTask DisposeAsync()
         {
             Http.Dispose();

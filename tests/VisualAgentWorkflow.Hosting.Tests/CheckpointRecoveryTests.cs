@@ -12,7 +12,7 @@ public sealed class CheckpointRecoveryTests : IDisposable
     private readonly string directory = Path.Combine(Path.GetTempPath(), "vaw-recovery-" + Guid.NewGuid());
     private string Database => Path.Combine(directory, "runs.sqlite3");
     private SqliteWorkflowRunStore Store() => new(Database);
-    private static WorkflowRevision Revision() => WorkflowRevision.Create(PipelineTemplates.Create("uppercase-reverse"), "test");
+    private static WorkflowRevision Revision() => WorkflowRevision.Create(WorkflowTemplates.Create("uppercase-reverse"), "test");
 
     [Fact]
     public async Task SavedNativeStateResumesAfterHostReplacementWithoutDuplicateNodes()
@@ -62,14 +62,14 @@ public sealed class CheckpointRecoveryTests : IDisposable
         using var first = new LocalWorkflowRuntime(StoreForRuntime(), NullLogger<LocalWorkflowRuntime>.Instance);
         using var second = new LocalWorkflowRuntime(StoreForRuntime(), NullLogger<LocalWorkflowRuntime>.Instance);
         await first.StartAsync(CancellationToken.None);
-        var run = await first.StartPausedRunAsync(PipelineTemplates.Create("uppercase"), "abc");
+        var run = await first.StartPausedRunAsync(WorkflowTemplates.Create("uppercase"), "abc");
         await Assert.ThrowsAsync<InvalidOperationException>(() => second.StartAsync(CancellationToken.None));
         await second.StopAsync(CancellationToken.None);
         Assert.Equal("paused", (await first.GetRunAsync(run.Header.RunId))!.Status);
         await first.StopAsync(CancellationToken.None);
         await second.StartAsync(CancellationToken.None);
         // Repeated cleanup of the previous owner must not interrupt the new owner's run.
-        var next = await second.StartPausedRunAsync(PipelineTemplates.Create("uppercase"), "next");
+        var next = await second.StartPausedRunAsync(WorkflowTemplates.Create("uppercase"), "next");
         await first.StopAsync(CancellationToken.None);
         Assert.Equal("paused", (await second.GetRunAsync(next.Header.RunId))!.Status);
         await second.StopAsync(CancellationToken.None);
@@ -95,9 +95,9 @@ public sealed class CheckpointRecoveryTests : IDisposable
     {
         var store = Store();
         await using var runtime = new CheckpointWorkflowHost(store);
-        var external = PipelineEditing.ReplaceNode(PipelineTemplates.Create("uppercase"), "step-1",
+        var external = WorkflowEditing.ReplaceNode(WorkflowTemplates.Create("uppercase"), "step-1",
             new(NodeTypes.Agent, "1.0.0", Agent: new("absent", "1", "instructions", [])));
-        var mcp = PipelineEditing.ReplaceNode(PipelineTemplates.Create("uppercase"), "step-1",
+        var mcp = WorkflowEditing.ReplaceNode(WorkflowTemplates.Create("uppercase"), "step-1",
             new(NodeTypes.McpTool, "1.0.0", new("fixture", new string('0', 64))));
         foreach (var definition in new[] { external, mcp, GraphEditing.InsertApprovalBefore(mcp, "step-1") })
             await Assert.ThrowsAsync<InvalidOperationException>(() => runtime.StartAsync(WorkflowRevision.Create(definition, "test"), "abc", 1));
@@ -133,7 +133,7 @@ public sealed class CheckpointRecoveryTests : IDisposable
     [InlineData("no", "on")]
     public async Task ConditionalRecoveryPreservesChosenPathAndCanSuspendAgain(string input, string expected)
     {
-        var definition = GraphEditing.InsertConditionalAfter(PipelineTemplates.Create("reverse"), "input", "out");
+        var definition = GraphEditing.InsertConditionalAfter(WorkflowTemplates.Create("reverse"), "input", "out");
         var branch = definition.Nodes.Single(node => node.Value.Type == NodeTypes.Condition).Key;
         definition = GraphEditing.InsertNodeAfter(definition, branch, "true", new(NodeTypes.Uppercase, "1.0.0"));
         var revision = WorkflowRevision.Create(definition, "test");

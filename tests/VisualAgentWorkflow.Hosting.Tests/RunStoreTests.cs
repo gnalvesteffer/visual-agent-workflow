@@ -13,7 +13,7 @@ public sealed class RunStoreTests : IDisposable
     private readonly string directory = Path.Combine(Path.GetTempPath(), "vaw-store-" + Guid.NewGuid());
     private string Database => Path.Combine(directory, "runs.sqlite3");
     private IWorkflowRunStore Store(bool sqlite) => sqlite ? new SqliteWorkflowRunStore(Database) : new FileRunJournal(directory);
-    private static WorkflowRevision Revision() => WorkflowRevision.Create(PipelineTemplates.Create("reverse"), "test");
+    private static WorkflowRevision Revision() => WorkflowRevision.Create(WorkflowTemplates.Create("reverse"), "test");
     private static ExecutionEvent Event(RunSnapshot run, long sequence, string kind = ExecutionEventKinds.Started) =>
         new(run.Header.RunId, run.Header.RevisionId, sequence, DateTimeOffset.UtcNow, kind);
 

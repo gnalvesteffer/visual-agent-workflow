@@ -152,7 +152,7 @@ def mcp_check():
     drifted = execute(definition)
     assert drifted["status"] == "failed"
     assert not any(event["kind"] == "tool.authorized" for event in drifted["events"])
-    print("Actual MCP pipeline execution, correlated recording, denied binding, and contract-drift checks passed.")
+    print("Actual MCP workflow execution, correlated recording, denied binding, and contract-drift checks passed.")
 
 
 def agent_check():
@@ -244,7 +244,7 @@ def designer_check(browser):
     new_workflow_fixture(designer)
     workbench(designer).get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for()
     workflow_id = workbench(designer).get_by_label("Saved workflow", exact=True).input_value()
-    nodes = workbench(designer).locator('ol[aria-label="Editable pipeline nodes"] > li')
+    nodes = workbench(designer).locator('ol[aria-label="Editable workflow nodes"] > li')
     expect(nodes).to_have_count(3)
     inspect_control(designer, "New node operation").get_by_label("New node operation", exact=True).select_option("core.text.reverse")
     inspect_control(designer, "Add node after step-1").get_by_role("button", name="Add node after step-1", exact=True).click()
@@ -299,9 +299,9 @@ def designer_check(browser):
     inspect_control(second, "Add node after input").get_by_role("button", name="Add node after input", exact=True).click()
     workbench(second).get_by_role("button", name="Save draft", exact=True).click()
     expect(workbench(second).get_by_role("alert")).to_contain_text("Your local edits are preserved")
-    expect(workbench(second).locator('ol[aria-label="Editable pipeline nodes"] > li')).to_have_count(4)
+    expect(workbench(second).locator('ol[aria-label="Editable workflow nodes"] > li')).to_have_count(4)
     workbench(second).get_by_role("button", name="Discard local changes and reload", exact=True).click()
-    expect(workbench(second).locator('ol[aria-label="Editable pipeline nodes"] > li')).to_have_count(3)
+    expect(workbench(second).locator('ol[aria-label="Editable workflow nodes"] > li')).to_have_count(3)
     expect(inspect_control(second, "Operation for step-1").get_by_label("Operation for step-1", exact=True)).to_have_value("core.text.reverse")
     other.close()
 

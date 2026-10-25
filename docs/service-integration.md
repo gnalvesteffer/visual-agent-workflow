@@ -29,7 +29,7 @@ The table below describes implemented public APIs. These are lower-level integra
 | Load an executable definition | `WorkflowJson.Deserialize` | Obtain an approved artifact and enforce access/deployment policy |
 | Load a portable design package | `WorkflowPackageJson.Deserialize` | Review user text and requirements; checksums do not authenticate the author |
 | Capture a run's immutable definition | `WorkflowRevision.Create` or a catalog's stored publication | Retain the approved identity/hash and resolved dependencies; creating a revision gives a new identity |
-| Execute directly from .NET code | `PipelineRunner.ExecuteAsync` | Supply run ID, revision, string input, event sink, cancellation, and optional tool/agent adapters |
+| Execute directly from .NET code | `WorkflowRunner.ExecuteAsync` | Supply run ID, revision, string input, event sink, cancellation, and optional tool/agent adapters |
 | Enqueue a stored exact revision in the development host | `LocalWorkflowRuntime.StartRevisionAsync` | Start/stop the background service, provide its journal/adapters, and accept its single-process development limits |
 | Start by published revision ID in that host | `PublishedWorkflowClient.StartPublishedRunAsync` | Supply the catalog and local runtime; authorize calls independently |
 | Render historical evidence | `WorkflowRunViewer` with a snapshot and optional layout | Optional UI only; it must not invoke the engine during playback |
@@ -48,7 +48,7 @@ A deployment update selects approved content for future runs. Already-started ru
 
 ## Standalone consumer proof
 
-The [WorkflowService sample](../samples/WorkflowService/README.md) consumes a package plus operator-owned revision/content pin, with no Studio/Blazor reference, HTTP connection or authoring catalog. Direct mode awaits `PipelineRunner`; queued mode returns a paused run identity before resuming the same backend continuation. A parked mode demonstrates host-stop cancellation. Pure fixtures and the real local MCP reverse tool run without model credentials. Dependency and node-grant checks fail before admission; the broker repeats enforcement during calls.
+The [WorkflowService sample](../samples/WorkflowService/README.md) consumes a package plus operator-owned revision/content pin, with no Studio/Blazor reference, HTTP connection or authoring catalog. Direct mode awaits `WorkflowRunner`; queued mode returns a paused run identity before resuming the same backend continuation. A parked mode demonstrates host-stop cancellation. Pure fixtures and the real local MCP reverse tool run without model credentials. Dependency and node-grant checks fail before admission; the broker repeats enforcement during calls.
 
 ```mermaid
 sequenceDiagram

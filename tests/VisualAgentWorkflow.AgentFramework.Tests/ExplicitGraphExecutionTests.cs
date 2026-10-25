@@ -18,7 +18,7 @@ public sealed class ExplicitGraphExecutionTests
         WorkflowValidator.ThrowIfInvalid(definition);
         var events = new List<ExecutionEvent>();
 
-        var result = await new PipelineRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
             WorkflowRevision.Create(definition, "test"), input, null,
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -55,7 +55,7 @@ public sealed class ExplicitGraphExecutionTests
         WorkflowValidator.ThrowIfInvalid(definition);
         var events = new List<ExecutionEvent>();
 
-        var result = await new PipelineRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
             WorkflowRevision.Create(definition, "test"), input, null,
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -78,7 +78,7 @@ public sealed class ExplicitGraphExecutionTests
         WorkflowValidator.ThrowIfInvalid(definition);
         var events = new List<ExecutionEvent>();
 
-        var result = await new PipelineRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
             WorkflowRevision.Create(definition, "test"), "Hello", null,
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -102,7 +102,7 @@ public sealed class ExplicitGraphExecutionTests
         WorkflowValidator.ThrowIfInvalid(definition);
         var events = new List<ExecutionEvent>();
 
-        var result = await new PipelineRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
             WorkflowRevision.Create(definition, "test"), "Hello", null,
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -138,7 +138,7 @@ public sealed class ExplicitGraphExecutionTests
         WorkflowValidator.ThrowIfInvalid(definition);
         var events = new List<ExecutionEvent>();
 
-        var result = await new PipelineRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
             WorkflowRevision.Create(definition, "test"), "Hello", null,
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -157,7 +157,7 @@ public sealed class ExplicitGraphExecutionTests
         WorkflowValidator.ThrowIfInvalid(definition);
         var events = new List<ExecutionEvent>();
 
-        var result = await new PipelineRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
             WorkflowRevision.Create(definition, "test"), "hello", null,
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
@@ -198,7 +198,7 @@ public sealed class ExplicitGraphExecutionTests
         };
         var events = new List<ExecutionEvent>();
 
-        var result = await new PipelineRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
             WorkflowRevision.Create(definition, "test"), "Hello",
             parameters: null,
             evt => { events.Add(evt); return ValueTask.CompletedTask; });

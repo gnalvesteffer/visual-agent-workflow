@@ -2,27 +2,27 @@ using System.Collections.Immutable;
 
 namespace VisualAgentWorkflow.Core;
 
-public sealed record PipelineComposition(WorkflowDefinition Definition, WorkflowLayout Layout);
+public sealed record WorkflowComposition(WorkflowDefinition Definition, WorkflowLayout Layout);
 
 /// <summary>Version-pinned, copy-on-insert reuse. No executable source loading or implicit capability grant.</summary>
-public static class PipelineReuse
+public static class WorkflowReuse
 {
-    public static PipelineComposition Extract(WorkflowDefinition source, WorkflowLayout layout,
+    public static WorkflowComposition Extract(WorkflowDefinition source, WorkflowLayout layout,
         IEnumerable<string> nodeIds, string workflowId)
     {
         WorkflowValidator.ThrowIfInvalid(source);
         WorkflowLayoutJson.Validate(layout, source);
         if (string.IsNullOrWhiteSpace(workflowId) || workflowId.Length > 128 || !char.IsAsciiLetterOrDigit(workflowId[0]) ||
             !workflowId.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.'))
-            throw new ArgumentException("Choose a reusable pipeline ID containing only letters, digits, dots, dashes, or underscores.");
+            throw new ArgumentException("Choose a reusable workflow ID containing only letters, digits, dots, dashes, or underscores.");
         var members = nodeIds.ToHashSet(StringComparer.Ordinal);
-        var order = PipelineEditing.OrderedNodes(source);
+        var order = WorkflowEditing.OrderedNodes(source);
         var selection = order.Where(members.Contains).ToArray();
         if (selection.Length == 0 || selection.Length != members.Count ||
             selection.Any(id => source.Nodes[id].Type is NodeTypes.Input or NodeTypes.Output))
             throw new ArgumentException("Select processing nodes only.");
         if (selection.Any(id => source.Nodes[id].Type == NodeTypes.JsonSelectString))
-            throw new ArgumentException("JSON input selectors cannot yet be extracted into reusable string pipelines.");
+            throw new ArgumentException("JSON input selectors cannot yet be extracted into reusable string workflows.");
         var start = order.IndexOf(selection[0]);
         if (!order.Skip(start).Take(selection.Length).SequenceEqual(selection))
             throw new ArgumentException("A reusable section must contain consecutive steps in execution order.");
@@ -30,7 +30,7 @@ public static class PipelineReuse
         var output = "output-" + Guid.NewGuid().ToString("N");
         var nodes = selection.ToImmutableSortedDictionary(id => id, id => source.Nodes[id], StringComparer.Ordinal)
             .Add(input, new(NodeTypes.Input, "1.0.0")).Add(output, new(NodeTypes.Output, "1.0.0"));
-        var definition = PipelineEditing.Reconnect(source with
+        var definition = WorkflowEditing.Reconnect(source with
         {
             WorkflowId = workflowId,
             EntryNodeId = input,
@@ -51,7 +51,7 @@ public static class PipelineReuse
         return new(definition, presentation);
     }
 
-    public static PipelineComposition Insert(WorkflowDefinition target, WorkflowLayout layout, string afterNodeId,
+    public static WorkflowComposition Insert(WorkflowDefinition target, WorkflowLayout layout, string afterNodeId,
         PublishedWorkflowRevision published, WorkflowLayout sourceLayout)
     {
         WorkflowValidator.ThrowIfInvalid(target);
@@ -59,15 +59,15 @@ public static class PipelineReuse
         ArgumentNullException.ThrowIfNull(published);
         var source = published.Revision.Definition;
         WorkflowLayoutJson.Validate(sourceLayout, source);
-        var sourceOrder = PipelineEditing.OrderedNodes(source);
+        var sourceOrder = WorkflowEditing.OrderedNodes(source);
         var steps = sourceOrder.Skip(1).SkipLast(1).ToArray();
         if (steps.Any(id => source.Nodes[id].Type == NodeTypes.JsonSelectString))
-            throw new ArgumentException("JSON input selectors cannot yet be inserted as reusable string pipelines.");
-        var order = PipelineEditing.OrderedNodes(target).ToList();
+            throw new ArgumentException("JSON input selectors cannot yet be inserted as reusable string workflows.");
+        var order = WorkflowEditing.OrderedNodes(target).ToList();
         var position = order.IndexOf(afterNodeId);
         if (position < 0 || position == order.Count - 1) throw new ArgumentException("Insert after a non-output node.");
         if (steps.Length == 0 || target.Nodes.Count + steps.Length > 256)
-            throw new ArgumentException("Reusable pipelines require processing steps and must fit the 256-node limit.");
+            throw new ArgumentException("Reusable workflows require processing steps and must fit the 256-node limit.");
         if (published.Version < 1) throw new ArgumentException("A published version is required.");
         var ids = steps.ToDictionary(id => id, _ => "node-" + Guid.NewGuid().ToString("N"), StringComparer.Ordinal);
         var targetParameters = target.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
@@ -132,7 +132,7 @@ public static class PipelineReuse
             });
         }
         order.InsertRange(position + 1, steps.Select(id => ids[id]));
-        var definition = PipelineEditing.Reconnect(target with
+        var definition = WorkflowEditing.Reconnect(target with
         {
             SchemaVersion = target.SchemaVersion == "1.22" || source.SchemaVersion == "1.22" ? "1.22" : target.SchemaVersion == "1.21" || source.SchemaVersion == "1.21" ? "1.21" : target.SchemaVersion == "1.20" || source.SchemaVersion == "1.20" ? "1.20" : target.SchemaVersion == "1.19" || source.SchemaVersion == "1.19" ? "1.19" : target.SchemaVersion == "1.18" || source.SchemaVersion == "1.18" ? "1.18" : target.SchemaVersion == "1.17" || source.SchemaVersion == "1.17" ? "1.17" : target.SchemaVersion == "1.16" || source.SchemaVersion == "1.16" ? "1.16" : target.SchemaVersion == "1.15" || source.SchemaVersion == "1.15" ? "1.15" : target.SchemaVersion == "1.14" || source.SchemaVersion == "1.14" ? "1.14" : target.SchemaVersion == "1.13" || source.SchemaVersion == "1.13" ? "1.13" : target.SchemaVersion == "1.12" || source.SchemaVersion == "1.12" ? "1.12" : target.SchemaVersion == "1.11" || source.SchemaVersion == "1.11" ? "1.11" : target.SchemaVersion == "1.10" || source.SchemaVersion == "1.10" ? "1.10" : target.SchemaVersion == "1.9" || source.SchemaVersion == "1.9" ? "1.9" :
                 target.SchemaVersion == "1.8" || source.SchemaVersion == "1.8" ? "1.8" :

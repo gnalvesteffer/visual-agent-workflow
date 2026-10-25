@@ -36,7 +36,7 @@
             </details>
         }
         @if (Catalog is not IWorkflowDesignCatalog) { <p class="vaw-help">This host does not save graph layout. Position and annotation editing are disabled.</p> }
-        <PipelineEditor Layout="@(preview is not null ? previewLayout ?? WorkflowLayout.Create(preview.Revision.Definition) : layout)" LayoutChanged="ChangedLayout" LayoutReadOnly="@(Catalog is not IWorkflowDesignCatalog)" Definition="@(preview?.Revision.Definition ?? definition)" DefinitionChanged="Changed" ReadOnly="@(preview is not null)" Disabled="@busy" Bindings="bindings" Providers="providers" SkillLibrary="SkillLibrary" AgentProfileLibrary="AgentProfileLibrary" FunctionCatalog="FunctionCatalog" GraphEdited="ChangedGraph">
+        <WorkflowEditor Layout="@(preview is not null ? previewLayout ?? WorkflowLayout.Create(preview.Revision.Definition) : layout)" LayoutChanged="ChangedLayout" LayoutReadOnly="@(Catalog is not IWorkflowDesignCatalog)" Definition="@(preview?.Revision.Definition ?? definition)" DefinitionChanged="Changed" ReadOnly="@(preview is not null)" Disabled="@busy" Bindings="bindings" Providers="providers" SkillLibrary="SkillLibrary" AgentProfileLibrary="AgentProfileLibrary" FunctionCatalog="FunctionCatalog" GraphEdited="ChangedGraph">
             <EditorActions>
                 @if (preview is null)
                 {
@@ -48,10 +48,10 @@
                 }
                 else { <button type="button" disabled>Save draft</button> }
             </EditorActions>
-        </PipelineEditor>
+        </WorkflowEditor>
         <details class="vaw-reuse-panel">
-            <summary>Reusable pipelines</summary>
-            @if (WorkflowGraph.HasControlNodes(definition)) { <p class="vaw-help">Reusable pipeline extraction and insertion currently require a linear workflow. Control-flow graphs can still be shared as complete packages.</p> }
+            <summary>Reusable workflows</summary>
+            @if (WorkflowGraph.HasControlNodes(definition)) { <p class="vaw-help">Reusable workflow extraction and insertion currently require a linear workflow. Control-flow graphs can still be shared as complete packages.</p> }
             <p class="vaw-help">Insert a copy when you want to edit the steps in this graph. Add a workflow call when you want to keep a reusable published workflow as a separately visible, version-pinned child.</p>
             <div class="vaw-layout-columns">
                 <section aria-label="Save reusable section">
@@ -63,11 +63,11 @@
                             { <option @key="id" value="@id">@section.Label</option> }
                         </select>
                     </label>
-                    <label>Reusable pipeline ID <input aria-label="Reusable pipeline ID" @bind="reusablePipelineId" maxlength="128" /></label>
+                    <label>Reusable workflow ID <input aria-label="Reusable workflow ID" @bind="newReusableWorkflowId" maxlength="128" /></label>
                     <button type="button" @onclick="SaveReusableSection" disabled="@(preview is not null || WorkflowGraph.HasControlNodes(definition) || reusableSectionId.Length == 0 || Catalog is not IWorkflowDesignCatalog)">Save section as reusable draft</button>
                     <p class="vaw-help">Creates a separate draft. Open, review, and publish it before reuse. Input/output nodes cannot be section members.</p>
                 </section>
-                <section aria-label="Insert reusable pipeline">
+                <section aria-label="Insert reusable workflow">
                     <h3>Insert a published version</h3>
                     <label>Reusable workflow
                         <select aria-label="Reusable workflow" value="@reusableWorkflowId" @onchange="ChooseReusableWorkflow">
@@ -82,13 +82,13 @@
                             { <option @key="version.Revision.RevisionId" value="@version.Revision.RevisionId">Version @version.Version · @version.Revision.ContentHash[..8]</option> }
                         </select>
                     </label>
-                    <label>Insert pipeline after
-                        <select aria-label="Insert pipeline after" value="@(insertAfterNode.Length == 0 || !definition.Nodes.ContainsKey(insertAfterNode) ? definition.EntryNodeId : insertAfterNode)" @onchange="args => insertAfterNode = args.Value?.ToString() ?? definition.EntryNodeId">
+                    <label>Insert workflow after
+                        <select aria-label="Insert workflow after" value="@(insertAfterNode.Length == 0 || !definition.Nodes.ContainsKey(insertAfterNode) ? definition.EntryNodeId : insertAfterNode)" @onchange="args => insertAfterNode = args.Value?.ToString() ?? definition.EntryNodeId">
                         @foreach (var id in WorkflowGraph.DisplayOrder(definition).Where(id => definition.Nodes[id].Type != NodeTypes.Output))
                             { <option @key="id" value="@id">@(layout?.Nodes[id].Label is { Length: > 0 } label ? label : id)</option> }
                         </select>
                     </label>
-                    <button type="button" @onclick="InsertReusablePipeline" disabled="@(preview is not null || WorkflowGraph.HasControlNodes(definition) || ReusableHasControlNodes || reusableRevisionId is null)">Insert published pipeline</button>
+                    <button type="button" @onclick="InsertReusableWorkflow" disabled="@(preview is not null || WorkflowGraph.HasControlNodes(definition) || ReusableHasControlNodes || reusableRevisionId is null)">Insert published workflow</button>
                     <button type="button" @onclick="InsertReusableWorkflowCall" disabled="@(preview is not null || reusableRevisionId is null || reusableWorkflowId == definition.WorkflowId)">Call pinned workflow version</button>
                     <p class="vaw-help">A call embeds the selected immutable revision. Pins inherit the child’s string or JSON boundary types; compatible parent parameters can be mapped in the call node properties. Its tools and provider requirements remain host-configured.</p>
                     <ul class="vaw-requirements">

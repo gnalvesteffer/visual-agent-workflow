@@ -223,7 +223,7 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, request.Control.Cancellation.Token);
         try
         {
-            await new PipelineRunner(tools, agents).ExecuteControlledWithParametersAsync(request.RunId, request.Revision, request.Input,
+            await new WorkflowRunner(tools, agents).ExecuteControlledWithParametersAsync(request.RunId, request.Revision, request.Input,
                 request.Parameters, request.Control.RecordAsync, request.Control, linked.Token);
         }
         catch (OperationCanceledException) when (linked.IsCancellationRequested) { }

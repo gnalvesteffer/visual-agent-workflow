@@ -28,7 +28,7 @@ public sealed class ApprovalContractTests
         var package = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(graph, WorkflowLayout.Create(graph)));
         Assert.Equal(WorkflowJson.ComputeHash(graph), package.DefinitionHash);
         Assert.Equal(baseline.Nodes["tool"], graph.Nodes["tool"]);
-        Assert.Throws<ArgumentException>(() => PipelineEditing.OrderedNodes(graph));
+        Assert.Throws<ArgumentException>(() => WorkflowEditing.OrderedNodes(graph));
         Assert.Contains(WorkflowValidator.Validate(graph with { SchemaVersion = "1.4" }), i => i.Code == "node.schema");
         var removed = GraphEditing.RemoveApproval(graph, node);
         Assert.Equal(original, WorkflowJson.Serialize(removed with { SchemaVersion = baseline.SchemaVersion }));

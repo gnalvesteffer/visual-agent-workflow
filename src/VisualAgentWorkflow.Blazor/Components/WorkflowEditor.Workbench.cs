@@ -4,11 +4,11 @@ using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Blazor.Components;
 
-public partial class PipelineEditor
+public partial class WorkflowEditor
 {
     private string? insertionConnection;
     private bool UseGraphRemoval => WorkflowSchemaVersions.UsesExplicitGraph(Definition.SchemaVersion) || UsesGraphEditing || WorkflowValidator.Validate(Definition).Any(issue =>
-        issue.Code is "graph.degree" or "pipeline.degree" or "graph.unreachable" or "graph.cycle" or "pipeline.terminals");
+        issue.Code is "graph.degree" or "workflow.degree" or "graph.unreachable" or "graph.cycle" or "workflow.terminals");
     private ImmutableArray<WorkflowPort> SelectedOutputs => selectedNode is { } id && Definition.Nodes.TryGetValue(id, out var node)
         ? WorkflowSchemaVersions.UsesExplicitGraph(Definition.SchemaVersion)
             ? [.. WorkflowPorts.Explicit(node).Where(port => port.Direction == WorkflowPortDirection.Output)
@@ -183,7 +183,7 @@ public partial class PipelineEditor
             await Edit(() => GraphEditing.InsertJsonSelectorAfterJson(Definition, jsonInsertion.NodeId, jsonInsertion.PortId), context, jsonInsertion);
         else if (insertion is not null)
             await Edit(() => UsesGraphEditing ? GraphEditing.InsertNodeAfter(Definition, insertion.NodeId, insertion.PortId, FromSelection(key)) :
-                PipelineEditing.InsertNodeAfter(Definition, insertion.NodeId, FromSelection(key)), context, insertion);
+                WorkflowEditing.InsertNodeAfter(Definition, insertion.NodeId, FromSelection(key)), context, insertion);
         else
             await Edit(() => GraphEditing.AddUnconnectedNode(Definition, FromSelection(key)), context);
         insertionConnection = null;
@@ -209,7 +209,7 @@ public partial class PipelineEditor
         { await RequestParallelBlockRemoval(id); return; }
         if (!CanRemove(id)) { error = "This node cannot be deleted independently. Input/output and branch boundaries are required; remove an approval before its guarded tool."; return; }
         await Edit(() => Definition.Nodes[id].Type == NodeTypes.Approval ? GraphEditing.RemoveApproval(Definition, id) :
-            UseGraphRemoval ? GraphEditing.RemoveNode(Definition, id) : PipelineEditing.Remove(Definition, id));
+            UseGraphRemoval ? GraphEditing.RemoveNode(Definition, id) : WorkflowEditing.Remove(Definition, id));
     }
 
     private string? pendingBlockRemoval;

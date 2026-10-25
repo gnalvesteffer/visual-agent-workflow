@@ -16,7 +16,7 @@ public sealed class ReconciliationTests : IDisposable
     {
         var store = new SqliteWorkflowRunStore(Database);
         await using var host = new CheckpointWorkflowHost(store);
-        var run = await host.StartAsync(WorkflowRevision.Create(PipelineTemplates.Create("reverse"), "test"), "private payload", 1);
+        var run = await host.StartAsync(WorkflowRevision.Create(WorkflowTemplates.Create("reverse"), "test"), "private payload", 1);
         var observer = JournalRunObserver.FromStore(store);
         var saved = (await observer.GetReconciliationAsync(run.Header.RunId))!;
         Assert.Equal(RunRecoveryDisposition.SavedSuspension, saved.Disposition);
@@ -39,7 +39,7 @@ public sealed class ReconciliationTests : IDisposable
     {
         var store = new SqliteWorkflowRunStore(Database);
         await using var host = new CheckpointWorkflowHost(store);
-        var run = await host.StartAsync(WorkflowRevision.Create(PipelineTemplates.Create("reverse"), "test"), "private", 1);
+        var run = await host.StartAsync(WorkflowRevision.Create(WorkflowTemplates.Create("reverse"), "test"), "private", 1);
         using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Database, Pooling = false }.ToString());
         connection.Open();
         using var command = connection.CreateCommand();
@@ -57,7 +57,7 @@ public sealed class ReconciliationTests : IDisposable
     public async Task FileStoreExplainsUnsettledTerminalWorkWithoutProviderOrToolServices()
     {
         var store = new FileRunJournal(directory);
-        var run = store.Create(WorkflowRevision.Create(PipelineTemplates.Create("reverse"), "test"), "private");
+        var run = store.Create(WorkflowRevision.Create(WorkflowTemplates.Create("reverse"), "test"), "private");
         var invocation = Guid.NewGuid();
         var call = Guid.NewGuid();
         var data = JsonSerializer.Serialize(new { modelCallId = call, instructions = "private" });

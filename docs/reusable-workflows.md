@@ -1,6 +1,6 @@
-# Reusable pipelines and portable packages
+# Reusable workflows and portable packages
 
-Core supports both copy-on-insert reuse of a published linear pipeline and bounded runtime calls to immutable workflow revisions. The Studio exposes section extraction, published-version insertion or call, requirement review, and package import/export through its existing catalog and draft lifecycle. Runtime call limits and audit scope are specified in [nested workflow calls](nested-workflows.md).
+Core supports both copy-on-insert reuse of a published linear workflow and bounded runtime calls to immutable workflow revisions. The Studio exposes section extraction, published-version insertion or call, requirement review, and package import/export through its existing catalog and draft lifecycle. Runtime call limits and audit scope are specified in [nested workflow calls](nested-workflows.md).
 
 ## Identity and execution
 
@@ -40,18 +40,18 @@ Core tests verify extraction, pinned copies and fresh identities, layout retenti
 
 ## Studio workflow
 
-Open **Reusable pipelines**. Under **Save a section**, choose a labeled section of consecutive processing nodes, enter a unique **Reusable pipeline ID** starting with a letter/digit (up to 128 letters, digits, dots, dashes, or underscores), and select **Save section as reusable draft**. This creates an independent draft without replacing the consumer or publishing anything. Save any current edits, open the new workflow, review its tools/layout, and publish it with the normal controls.
+Open **Reusable workflows**. Under **Save a section**, choose a labeled section of consecutive processing nodes, enter a unique **Reusable workflow ID** starting with a letter/digit (up to 128 letters, digits, dots, dashes, or underscores), and select **Save section as reusable draft**. This creates an independent draft without replacing the consumer or publishing anything. Save any current edits, open the new workflow, review its tools/layout, and publish it with the normal controls.
 
-Under **Insert a published version**, choose **Reusable workflow**, **Reusable version**, and **Insert pipeline after**. The requirements list reports matching host registrations, not authorization. Select **Insert published pipeline** to create one undoable local edit; save/publish the consumer explicitly. The copies show their source/version and remain independently editable. Choosing a newer source publication affects only new explicit insertions.
+Under **Insert a published version**, choose **Reusable workflow**, **Reusable version**, and **Insert workflow after**. The requirements list reports matching host registrations, not authorization. Select **Insert published workflow** to create one undoable local edit; save/publish the consumer explicitly. The copies show their source/version and remain independently editable. Choosing a newer source publication affects only new explicit insertions.
 
 Under **Import / export definition**, **Copy workflow package into JSON editor** and **Download workflow package** export the viewed draft or read-only publication. **Import package into draft** validates the pasted package, preserves the current workflow ID, and atomically replaces the local definition/layout as one undoable edit. It does not save, publish, install, authorize, or execute automatically. Existing separate definition/layout import/export controls remain supported. The JSON editor accommodates the 3 MiB package bound; definition/layout validation still enforces their separate 1 MiB limits.
 
 Read-only API exports are `GET /api/workflows/{workflowId}/package` for a saved design and `GET /api/revisions/{revisionId}/package` for an immutable publication. There is no package-install endpoint or implicit permission transfer. Consuming applications can use the Core serializer and composition helpers with their host catalog.
 
-`python3 scripts/pipeline_reuse_smoke.py` tests the actual controls, exact historical version selection, source identity/fresh IDs, undo/redo, real output, package round trips and tamper rejection, extraction without publication/consumer overwrite, selected-workflow identity, and backend denial of an imported unavailable tool. Use `--browser-executable` for an installed Chromium and `--screenshots DIRECTORY` for review images. This supplements existing adapter, catalog, capability, and canvas tests.
+`python3 scripts/workflow_reuse_smoke.py` tests the actual controls, exact historical version selection, source identity/fresh IDs, undo/redo, real output, package round trips and tamper rejection, extraction without publication/consumer overwrite, selected-workflow identity, and backend denial of an imported unavailable tool. Use `--browser-executable` for an installed Chromium and `--screenshots DIRECTORY` for review images. This supplements existing adapter, catalog, capability, and canvas tests.
 
 ## Conditional graph boundary
 
-Schema-1.4 conditional workflows can be shared as complete packages and retain their immutable revision semantics. Pipeline extraction/insertion still requires linear source and consumer graphs; these APIs reject routing graphs instead of flattening topological display order. The designer disables reuse in routing consumers or for a routing source publication. See [conditional graphs](conditional-graphs.md).
+Schema-1.4 conditional workflows can be shared as complete packages and retain their immutable revision semantics. Workflow extraction/insertion still requires linear source and consumer graphs; these APIs reject routing graphs instead of flattening topological display order. The designer disables reuse in routing consumers or for a routing source publication. See [conditional graphs](conditional-graphs.md).
 
-Approval nodes in schema 1.5 are also control nodes: whole-workflow packages preserve them, but linear pipeline extraction/insertion rejects them rather than copying an incomplete approval/target binding.
+Approval nodes in schema 1.5 are also control nodes: whole-workflow packages preserve them, but linear workflow extraction/insertion rejects them rather than copying an incomplete approval/target binding.

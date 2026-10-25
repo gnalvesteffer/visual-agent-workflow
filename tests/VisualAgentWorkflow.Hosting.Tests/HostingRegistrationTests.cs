@@ -47,7 +47,7 @@ public sealed class HostingRegistrationTests : IDisposable
         await host.StartAsync();
         var runtime = host.Services.GetRequiredService<LocalWorkflowRuntime>();
         var controls = host.Services.GetRequiredService<IWorkflowRunControl>();
-        var run = await controls.StartPausedRunAsync(PipelineTemplates.Create("uppercase"), "abc");
+        var run = await controls.StartPausedRunAsync(WorkflowTemplates.Create("uppercase"), "abc");
         Assert.Equal("paused", run.Status);
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await host.StopAsync(deadline.Token);

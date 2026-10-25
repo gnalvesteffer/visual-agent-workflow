@@ -78,7 +78,7 @@ public sealed class ObservationComponentTests
     private static ParameterView Parameters(params (string Key, object? Value)[] values) => ParameterView.FromDictionary(values.ToDictionary(v => v.Key, v => v.Value));
     private static RunSnapshot RecordedRun(string workflow)
     {
-        var definition = PipelineTemplates.Create("uppercase") with { WorkflowId = workflow };
+        var definition = WorkflowTemplates.Create("uppercase") with { WorkflowId = workflow };
         var revision = WorkflowRevision.Create(definition, "fixture");
         var id = Guid.NewGuid();
         return new(new(id, revision.RevisionId, null, revision.Author, revision.CreatedAt, revision.ContentHash, definition, "abc"),

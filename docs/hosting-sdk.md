@@ -17,7 +17,7 @@ await host.StartAsync();
 // run authorization, lifetime, and explicit shutdown.
 ```
 
-For a complete executable invocation and stop sequence, use the [service sample](../samples/WorkflowService/README.md). The sample validates a deployment pin and dependencies before admitting a run. Low-level direct execution through `PipelineRunner.ExecuteAsync` remains available without the helper or a hosted queue.
+For a complete executable invocation and stop sequence, use the [service sample](../samples/WorkflowService/README.md). The sample validates a deployment pin and dependencies before admitting a run. Low-level direct execution through `WorkflowRunner.ExecuteAsync` remains available without the helper or a hosted queue.
 
 ## Registration behavior
 

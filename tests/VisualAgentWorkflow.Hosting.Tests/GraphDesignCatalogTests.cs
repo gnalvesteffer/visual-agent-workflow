@@ -14,14 +14,14 @@ public sealed class GraphDesignCatalogTests : IDisposable
     [Fact]
     public async Task LayoutAndDefinitionSaveAtomicallyAndStaleEditorsCannotOverwriteEither()
     {
-        var definition = PipelineTemplates.Create("uppercase");
+        var definition = WorkflowTemplates.Create("uppercase");
         var layout = WorkflowLayout.Create(definition);
         layout = layout with { Nodes = layout.Nodes.SetItem("step-1", new(new(500, 200), "Title", "Comment")) };
         var store = Open();
         var saved = await store.SaveDesignAsync(definition, layout, 0);
         var audit = await store.ReadAuditAsync(definition.WorkflowId);
         await Assert.ThrowsAsync<WorkflowConflictException>(() => store.SaveDesignAsync(
-            PipelineTemplates.Create("reverse"), WorkflowLayout.Create(definition), 0));
+            WorkflowTemplates.Create("reverse"), WorkflowLayout.Create(definition), 0));
         var current = (await Open().GetDesignAsync(definition.WorkflowId))!;
         Assert.Equal(saved.Draft.Generation, current.Draft.Generation);
         Assert.Equal(WorkflowJson.ComputeHash(definition), WorkflowJson.ComputeHash(current.Draft.Definition));
@@ -33,7 +33,7 @@ public sealed class GraphDesignCatalogTests : IDisposable
     [Fact]
     public async Task IncompleteDraftCanBeSavedAndReloadedButCannotBePublished()
     {
-        var definition = PipelineTemplates.Create("uppercase");
+        var definition = WorkflowTemplates.Create("uppercase");
         var disconnected = GraphEditing.Disconnect(definition, definition.Connections.Keys.First());
         var store = Open();
 
@@ -48,7 +48,7 @@ public sealed class GraphDesignCatalogTests : IDisposable
     [Fact]
     public async Task LegacyNumericReasoningEffortDefinitionsAndRevisionsRemainReadable()
     {
-        var baseline = PipelineTemplates.Create("uppercase-reverse");
+        var baseline = WorkflowTemplates.Create("uppercase-reverse");
         var node = baseline.Nodes["step-1"] with
         {
             Type = NodeTypes.Agent,
@@ -73,7 +73,7 @@ public sealed class GraphDesignCatalogTests : IDisposable
     [Fact]
     public async Task PublishedLayoutIsImmutableAndRestoreRestoresItsAnnotationsAndRoutes()
     {
-        var definition = PipelineTemplates.Create("uppercase");
+        var definition = WorkflowTemplates.Create("uppercase");
         var layout = WorkflowLayout.Create(definition);
         var link = definition.Connections.Keys.First();
         layout = layout with
@@ -100,7 +100,7 @@ public sealed class GraphDesignCatalogTests : IDisposable
     [Fact]
     public async Task VersionOneDatabaseMigratesWithoutChangingExistingDefinitionOrGeneration()
     {
-        var definition = PipelineTemplates.Create("uppercase");
+        var definition = WorkflowTemplates.Create("uppercase");
         var draft = await Open().SaveDraftAsync(definition, 0);
         using (var connection = new SqliteConnection($"Data Source={Database};Pooling=False"))
         {
@@ -118,11 +118,11 @@ public sealed class GraphDesignCatalogTests : IDisposable
     [Fact]
     public async Task InvalidLayoutSaveLeavesBothDocumentsAndAuditUntouched()
     {
-        var definition = PipelineTemplates.Create("uppercase");
+        var definition = WorkflowTemplates.Create("uppercase");
         var store = Open();
         var saved = await store.SaveDraftAsync(definition, 0);
         var invalid = WorkflowLayout.Create(definition) with { SchemaVersion = "unsupported" };
-        await Assert.ThrowsAsync<ArgumentException>(() => store.SaveDesignAsync(PipelineTemplates.Create("reverse"), invalid, saved.Generation));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.SaveDesignAsync(WorkflowTemplates.Create("reverse"), invalid, saved.Generation));
         Assert.Equal(WorkflowJson.ComputeHash(definition), WorkflowJson.ComputeHash((await store.GetDraftAsync(definition.WorkflowId))!.Definition));
         Assert.Single(await store.ReadAuditAsync(definition.WorkflowId));
     }

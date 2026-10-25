@@ -68,7 +68,7 @@ public sealed class WorkflowLayoutTests
             Wires = layout.Wires.Add(definition.Connections.Keys.First(), new("curve", [new(new(100, 100))])),
             Sections = layout.Sections.Add("section", new("Steps", ["step-1", "step-2"]))
         };
-        var removed = PipelineEditing.Remove(definition, "step-2");
+        var removed = WorkflowEditing.Remove(definition, "step-2");
         var reconciled = layout.Reconcile(removed);
         WorkflowLayoutJson.Validate(reconciled, removed);
         Assert.Equal(layout.Nodes["step-1"], reconciled.Nodes["step-1"]);

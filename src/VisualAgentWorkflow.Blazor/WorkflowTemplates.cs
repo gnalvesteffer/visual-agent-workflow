@@ -3,7 +3,7 @@ using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Blazor;
 
-public static class PipelineTemplates
+public static class WorkflowTemplates
 {
     public static WorkflowDefinition Create(string operation)
     {
@@ -12,7 +12,7 @@ public static class PipelineTemplates
             "uppercase" => [NodeTypes.Uppercase],
             "reverse" => [NodeTypes.Reverse],
             "uppercase-reverse" => [NodeTypes.Uppercase, NodeTypes.Reverse],
-            _ => throw new ArgumentException("Unknown pipeline template.", nameof(operation))
+            _ => throw new ArgumentException("Unknown workflow template.", nameof(operation))
         };
         var nodes = ImmutableSortedDictionary.CreateBuilder<string, NodeDefinition>(StringComparer.Ordinal);
         var connections = ImmutableSortedDictionary.CreateBuilder<string, ConnectionDefinition>(StringComparer.Ordinal);

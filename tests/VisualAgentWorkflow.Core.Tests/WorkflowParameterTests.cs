@@ -81,7 +81,7 @@ public sealed class WorkflowParameterTests
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty.Add("greeting", new("Greeting", "hello"))
         };
 
-        var inserted = PipelineEditing.InsertNodeAfter(source, "input",
+        var inserted = WorkflowEditing.InsertNodeAfter(source, "input",
             new NodeDefinition(NodeTypes.WorkflowValue, "1.0.0") { ParameterId = "greeting" });
 
         Assert.Equal("1.6", inserted.SchemaVersion);
@@ -121,7 +121,7 @@ public sealed class WorkflowParameterTests
         {
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty.Add("greeting", new("Greeting", "consumer default"))
         };
-        var composition = PipelineReuse.Insert(target, WorkflowLayout.Create(target), "input",
+        var composition = WorkflowReuse.Insert(target, WorkflowLayout.Create(target), "input",
             new(1, sourceRevision), WorkflowLayout.Create(source));
         var copiedNode = composition.Definition.Nodes.Values.Single(node => node.Type == NodeTypes.WorkflowValue);
 

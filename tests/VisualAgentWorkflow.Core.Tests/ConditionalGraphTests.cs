@@ -27,8 +27,8 @@ public sealed class ConditionalGraphTests
         var package = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(graph, layout));
         Assert.Equal(WorkflowJson.ComputeHash(graph), package.DefinitionHash);
         Assert.Equal(json, WorkflowJson.Serialize(WorkflowJson.Deserialize(json)));
-        Assert.Throws<ArgumentException>(() => PipelineEditing.OrderedNodes(graph));
-        Assert.Throws<ArgumentException>(() => PipelineEditing.InsertAfter(graph, "input", NodeTypes.Uppercase));
+        Assert.Throws<ArgumentException>(() => WorkflowEditing.OrderedNodes(graph));
+        Assert.Throws<ArgumentException>(() => WorkflowEditing.InsertAfter(graph, "input", NodeTypes.Uppercase));
     }
 
     [Theory]
@@ -149,10 +149,10 @@ public sealed class ConditionalGraphTests
         var draft = GraphEditing.AddUnconnectedNode(Baseline(), new(NodeTypes.Uppercase, "1.0.0"));
         var addedId = draft.Nodes.Keys.Single(id => id != "input" && id != "step" && id != "output");
 
-        var configured = PipelineEditing.ChangeOperation(draft, addedId, NodeTypes.Reverse);
+        var configured = WorkflowEditing.ChangeOperation(draft, addedId, NodeTypes.Reverse);
 
         Assert.Equal(NodeTypes.Reverse, configured.Nodes[addedId].Type);
-        Assert.Contains(WorkflowValidator.Validate(configured), issue => issue.Code is "pipeline.degree" or "graph.degree");
+        Assert.Contains(WorkflowValidator.Validate(configured), issue => issue.Code is "workflow.degree" or "graph.degree");
         var withParameter = WorkflowParameterEditing.Add(configured, "customer", "Customer", "Ada");
         Assert.Equal("Ada", withParameter.Parameters!["customer"].DefaultValue);
         Assert.Equal(WorkflowJson.ComputeDraftHash(withParameter),

@@ -34,7 +34,7 @@ public sealed class ConditionalExecutionTests
         var graph = Graph();
         var revision = WorkflowRevision.Create(graph, "fixture");
         var events = new List<ExecutionEvent>();
-        Assert.Equal(expected, await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), revision, input, e => { events.Add(e); return ValueTask.CompletedTask; }));
+        Assert.Equal(expected, await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), revision, input, e => { events.Add(e); return ValueTask.CompletedTask; }));
         var branch = graph.Nodes.Single(n => n.Value.Type == NodeTypes.Condition).Key;
         var chosen = graph.Connections.Single(e => e.Value.Source.NodeId == branch && e.Value.Source.PortId == port);
         var skipped = graph.Connections.Single(e => e.Value.Source.NodeId == branch && e.Value.Source.PortId != port);
@@ -57,7 +57,7 @@ public sealed class ConditionalExecutionTests
         var unchosen = graph.Nodes.Single(n => n.Value.Type == NodeTypes.Reverse).Key;
         graph = GraphEditing.ReplaceNode(graph, unchosen, new(NodeTypes.McpTool, "1.0.0", new("unavailable.tool", new string('0', 64))));
         var events = new List<ExecutionEvent>();
-        Assert.Equal("YES", await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "yes", e => { events.Add(e); return ValueTask.CompletedTask; }));
+        Assert.Equal("YES", await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "yes", e => { events.Add(e); return ValueTask.CompletedTask; }));
         Assert.DoesNotContain(events, e => e.NodeId == unchosen);
         Assert.DoesNotContain(events, e => e.Kind.StartsWith("tool.", StringComparison.Ordinal));
     }
@@ -70,7 +70,7 @@ public sealed class ConditionalExecutionTests
         var gate = new BoundaryGate(chosen);
         var events = new List<ExecutionEvent>();
         using var cancellation = new CancellationTokenSource();
-        var execution = new PipelineRunner().ExecuteControlledAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "yes",
+        var execution = new WorkflowRunner().ExecuteControlledAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "yes",
             e => { events.Add(e); return ValueTask.CompletedTask; }, gate, cancellation.Token);
         await gate.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Contains(events, e => e.Kind == ExecutionEventKinds.BranchSelected);
@@ -88,7 +88,7 @@ public sealed class ConditionalExecutionTests
         var upper = graph.Nodes.Single(n => n.Value.Type == NodeTypes.Uppercase).Key;
         graph = GraphEditing.InsertConditionalAfter(graph, upper, "out");
         var events = new List<ExecutionEvent>();
-        Assert.Equal("YES", await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "yes",
+        Assert.Equal("YES", await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "yes",
             e => { events.Add(e); return ValueTask.CompletedTask; }));
         var ports = events.Where(e => e.Kind == ExecutionEventKinds.BranchSelected)
             .Select(e => JsonDocument.Parse(e.Data!).RootElement.GetProperty("port").GetString()).ToArray();
@@ -104,7 +104,7 @@ public sealed class ConditionalExecutionTests
     {
         var graph = EmptyArmsGraph();
         var events = new List<ExecutionEvent>();
-        Assert.Equal(input, await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), input,
+        Assert.Equal(input, await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), input,
             e => { events.Add(e); return ValueTask.CompletedTask; }));
         var branch = graph.Nodes.Single(n => n.Value.Type == NodeTypes.Condition).Key;
         var expectedEdge = graph.Connections.Single(e => e.Value.Source.NodeId == branch && e.Value.Source.PortId == port).Key;
@@ -122,7 +122,7 @@ public sealed class ConditionalExecutionTests
         var runId = Guid.NewGuid();
         var events = new List<ExecutionEvent>();
 
-        var result = await new PipelineRunner().ExecuteWithOutcomeAsync(runId, WorkflowRevision.Create(graph, "fixture"), "no",
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(runId, WorkflowRevision.Create(graph, "fixture"), "no",
             null, evt => { events.Add(evt); return ValueTask.CompletedTask; });
 
         Assert.Null(result.Output);
@@ -133,7 +133,7 @@ public sealed class ConditionalExecutionTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.Data == "Workflow terminated without returning a value.");
         Assert.DoesNotContain(events, evt => evt.NodeId == "output");
 
-        var legacyOutput = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "no",
+        var legacyOutput = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "no",
             _ => ValueTask.CompletedTask);
         Assert.Equal(string.Empty, legacyOutput);
     }
@@ -144,7 +144,7 @@ public sealed class ConditionalExecutionTests
         var baseline = EmptyArmsGraph();
         var condition = baseline.Nodes.Single(n => n.Value.Type == NodeTypes.Condition).Key;
         var graph = GraphEditing.InsertTerminationAfter(baseline, condition, "false");
-        var result = await new PipelineRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "yes",
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "yes",
             null, _ => ValueTask.CompletedTask);
 
         Assert.Equal("yes", result.Output);
@@ -168,7 +168,7 @@ public sealed class ConditionalExecutionTests
         var revision = WorkflowRevision.Create(graph, "fixture");
 
         var failedEvents = new List<ExecutionEvent>();
-        var failed = await new PipelineRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(), revision, "yes", null,
+        var failed = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(), revision, "yes", null,
             evt => { failedEvents.Add(evt); return ValueTask.CompletedTask; });
         Assert.Null(failed.Output);
         Assert.True(failed.Terminated);
@@ -177,7 +177,7 @@ public sealed class ConditionalExecutionTests
         Assert.Equal(trueExit, failedEvents[^1].NodeId);
 
         var successEvents = new List<ExecutionEvent>();
-        var succeeded = await new PipelineRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(), revision, "no", null,
+        var succeeded = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(), revision, "no", null,
             evt => { successEvents.Add(evt); return ValueTask.CompletedTask; });
         Assert.Null(succeeded.Output);
         Assert.True(succeeded.Terminated);
@@ -209,7 +209,7 @@ public sealed class ConditionalExecutionTests
         };
 
         var events = new List<ExecutionEvent>();
-        Assert.Equal(expected, await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), input,
+        Assert.Equal(expected, await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), input,
             e => { events.Add(e); return ValueTask.CompletedTask; }));
         var selected = input == "say yes" ? "upper" : "reverse";
         var skipped = selected == upper ? reverse : upper;
@@ -226,7 +226,7 @@ public sealed class ConditionalExecutionTests
         graph = GraphEditing.ReplaceNode(graph, target, new(NodeTypes.McpTool, "1.0.0", new("fixture.tool", new string('0', 64))));
         graph = GraphEditing.InsertApprovalBefore(graph, target);
         var events = new List<ExecutionEvent>();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "abc",
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "abc",
             e => { events.Add(e); return ValueTask.CompletedTask; }));
         Assert.DoesNotContain(events, e => e.NodeId == target);
         Assert.DoesNotContain(events, e => e.Kind.StartsWith("tool.", StringComparison.Ordinal));

@@ -14,7 +14,7 @@ public sealed class RealModelInferenceTests
 
     [RealModelFact]
     [Trait("Category", "RealModel")]
-    public async Task LocalOpenAiCompatibleModelExecutesThroughTheWorkflowPipeline()
+    public async Task LocalOpenAiCompatibleModelExecutesThroughTheWorkflow()
     {
         var endpoint = Environment.GetEnvironmentVariable("VAW_REAL_MODEL_ENDPOINT");
         var model = Environment.GetEnvironmentVariable("VAW_REAL_MODEL_NAME");
@@ -38,7 +38,7 @@ public sealed class RealModelInferenceTests
         var broker = new McpToolBroker(BrokerTests.Registrations(), new DemoToolPolicy());
         var submitAnswer = (await broker.ListBindingsAsync()).Single(binding => binding.BindingId == "demo.submit-answer");
         var agents = new AgentNodeExecutor([provider], broker);
-        var baseline = PipelineTemplates.Create("uppercase") with { SchemaVersion = "1.22" };
+        var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.22" };
         var definition = baseline with
         {
             Nodes = baseline.Nodes
@@ -54,7 +54,7 @@ public sealed class RealModelInferenceTests
         };
         var events = new List<ExecutionEvent>();
 
-        var output = await new PipelineRunner(broker, agents).ExecuteAsync(Guid.NewGuid(),
+        var output = await new WorkflowRunner(broker, agents).ExecuteAsync(Guid.NewGuid(),
             WorkflowRevision.Create(definition, "local-model-arithmetic-workflow"),
             "What is 1+1? /no_think",
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
