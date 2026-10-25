@@ -1,0 +1,31 @@
+@inject IJSRuntime JavaScript
+
+<label class="vaw-theme-picker" data-ready="@interactive">
+    <span>Theme</span>
+    <select aria-label="Color theme" value="@selectedTheme" disabled="@(!interactive)" @onchange="ChangeTheme">
+        <option value="dark">Dark Modern</option>
+        <option value="light">Light Modern</option>
+        <option value="high-contrast">High Contrast</option>
+    </select>
+</label>
+
+@code {
+    private string selectedTheme = "dark";
+    private bool interactive;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        selectedTheme = await JavaScript.InvokeAsync<string>("vawStudioTheme.get");
+        interactive = true;
+        StateHasChanged();
+    }
+
+    private async Task ChangeTheme(ChangeEventArgs args)
+    {
+        var theme = args.Value?.ToString();
+        if (theme is not ("dark" or "light" or "high-contrast")) return;
+        selectedTheme = theme;
+        await JavaScript.InvokeVoidAsync("vawStudioTheme.set", theme);
+    }
+}

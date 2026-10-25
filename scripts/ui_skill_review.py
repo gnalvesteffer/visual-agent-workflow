@@ -32,6 +32,41 @@ def check(browser, screenshots):
     page.on("pageerror", lambda error: errors.append(str(error)))
     try:
         page.goto(BASE)
+        theme_picker = page.get_by_label("Color theme", exact=True)
+        expect(theme_picker).to_be_enabled()
+        expect(theme_picker).to_have_value("dark")
+        theme_picker.select_option("light")
+        page.wait_for_function("document.documentElement.dataset.vawTheme === 'light'")
+        assert page.locator("body").evaluate("element=>getComputedStyle(element).backgroundColor") == "rgb(244, 245, 246)"
+        page.reload()
+        theme_picker = page.get_by_label("Color theme", exact=True)
+        expect(theme_picker).to_have_value("light")
+        theme_picker.select_option("high-contrast")
+        page.wait_for_function("document.documentElement.dataset.vawTheme === 'high-contrast'")
+        assert page.locator("body").evaluate("element=>getComputedStyle(element).backgroundColor") == "rgb(0, 0, 0)"
+        theme_picker.select_option("dark")
+        page.wait_for_function("document.documentElement.dataset.vawTheme === 'dark'")
+        for theme in ("dark", "light", "high-contrast"):
+            theme_picker.select_option(theme)
+            page.wait_for_function("theme => document.documentElement.dataset.vawTheme === theme", arg=theme)
+            if screenshots:
+                page.screenshot(path=str(screenshots / f"theme-{theme}.png"), full_page=True)
+            theme_samples = page.evaluate("""() => {
+                const rgb = value => value.match(/[0-9.]+/g).slice(0,3).map(Number);
+                const pair = (foreground, background) => [rgb(getComputedStyle(document.querySelector(foreground)).color),
+                    rgb(getComputedStyle(document.querySelector(background)).backgroundColor)];
+                return {
+                    text: pair('.vaw-studio', '.vaw-studio'),
+                    primary: pair('.vaw-primary', '.vaw-primary'),
+                    graphText: pair('.vaw-node-drag', '.vaw-node-drag'),
+                    input: pair('.vaw-sidebar textarea', '.vaw-sidebar textarea'),
+                    notice: pair('.vaw-notice', '.vaw-studio')
+                };
+            }""")
+            theme_ratios = {name: contrast(*colors) for name, colors in theme_samples.items()}
+            assert all(ratio >= 4.5 for ratio in theme_ratios.values()), {theme: theme_ratios}
+        theme_picker.select_option("dark")
+        page.wait_for_function("document.documentElement.dataset.vawTheme === 'dark'")
         show_runs(page)
         start = page.get_by_role("button", name="Start independent run", exact=True)
         expect(start).to_be_enabled()
@@ -44,7 +79,7 @@ def check(browser, screenshots):
         chrome=designer.locator(".vaw-canvas-toolbar")
         viewport=designer.locator(".vaw-canvas-viewport")
         assert "radial-gradient" in viewport.evaluate("element=>getComputedStyle(element).backgroundImage")
-        assert viewport.evaluate("element=>getComputedStyle(element).backgroundColor") == "rgb(23, 33, 38)"
+        assert viewport.evaluate("element=>getComputedStyle(element).backgroundColor") == "rgb(17, 26, 32)"
         assert designer.locator(".vaw-canvas-world").evaluate("element=>getComputedStyle(element).backgroundImage") == "none"
         assert "none" == page.locator(".vaw-studio").evaluate("element=>getComputedStyle(element).backgroundImage")
 

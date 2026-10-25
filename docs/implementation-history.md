@@ -2,6 +2,10 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Persistent Studio theme selector
+
+The Studio navigation now offers Dark Modern, Light Modern, and High Contrast themes. A small synchronous bootstrap applies the browser's saved choice before the stylesheet paints; the interactive selector updates and persists it. Theme tokens adapt the standalone shell and graph together, while embedded components continue to inherit their host's own theme.
+
 ## Flat Studio theme and fitted graph viewport
 
 The standalone Studio now uses a flat, light neutral shell with a single dark graph canvas. Its subdued grid fills the whole viewport and tracks camera pan and zoom rather than ending at the logical world's edge. Initial attachment and **Fit graph** center visible nodes using transient camera offsets; workflow layout coordinates remain unchanged. Browser review covers full-width grid, initial centering, fit, graph gestures, theme contrast, forced colors, reduced motion, and narrow embeds.
