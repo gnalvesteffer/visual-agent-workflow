@@ -5,13 +5,13 @@ description: Use before proposing or implementing consequential product behavior
 
 # Adversarial review
 
-Use this review before committing the work to a consequential design direction. It is a decision-quality check, not an implementation delegation. For routine coding after the design is settled, do not repeat the full review. If routine implementation exposes a new consequential choice, pause at that choice and review it before proceeding.
+Use this review before recommending or acting on a choice among materially different viable approaches when choosing poorly could carry meaningful product, compatibility, security, operational, or rework cost. Apply it while exploring or proposing ideas, designs, architecture, workflow behavior, and other consequential courses of action—not only immediately before implementation. The adjudicator's recommendation is the decision-quality take that guides follow-through. This is a decision-quality check, not an implementation delegation. For routine coding after the design is settled, do not repeat the full review. If implementation exposes a materially new consequential choice, pause at that choice and review it before proceeding. A new review is needed only when a materially new decision boundary appears.
 
 Read [project-guide](../project-guide/SKILL.md), the relevant design/roadmap documents, and [agent-orchestration](../agent-orchestration/SKILL.md). The user's stated outcome and constraints govern the review; reviewers may identify risks and propose alternatives but cannot silently change scope or override an explicit user choice.
 
 ## When to use the full review
 
-Run the three roles for decisions involving one or more of:
+Run the three roles before making a recommendation or acting on decisions involving one or more of:
 
 - New or materially changed product behavior, graph semantics, or user-facing authoring concepts.
 - Runtime, persistence, recovery, scheduling, concurrency, or host-integration architecture.
@@ -19,7 +19,7 @@ Run the three roles for decisions involving one or more of:
 - Security, credentials, authorization, tool access, isolation, or trust boundaries.
 - A cross-layer change or a decision with multiple plausible designs and meaningful cost if wrong.
 
-Skip the full review for mechanical edits, routine implementation of an already reviewed design, focused documentation, test-only maintenance, and clear localized fixes. A direct user request to adversarially review a specific idea always triggers it, even if the idea appears small.
+Skip the full review for mechanical edits, routine implementation of an already reviewed design, focused documentation, test-only maintenance, and clear localized fixes that do not introduce a materially new decision. A direct user request to adversarially review a specific idea always triggers it, even if the idea appears small. Do not turn every implementation detail or reversible choice into a review; use the material-choice and cost-if-wrong threshold above.
 
 ## Three independent roles
 
@@ -27,7 +27,7 @@ Use three distinct, clean-context subagents when the platform supports them. Giv
 
 1. **Proponent:** Make the strongest evidence-backed case for a viable design that fulfills the user's intent. State the decision, benefits, assumptions, tradeoffs, and what evidence would validate it. Do not implement or edit files.
 2. **Opponent:** Independently identify concrete failure cases, counterexamples, security/compatibility risks, hidden costs, and the strongest alternative. If there is a candidate design, assess that design directly; do not see the proponent's argument before submitting. Do not invent objections solely to appear adversarial. Do not implement or edit files.
-3. **Adjudicator:** Receive the original brief, governing instructions and sources, and both submitted arguments. Recommend **proceed**, **revise**, or **reject**. Resolve disagreement using evidence, distinguish confirmed facts from assumptions, state material unknowns, and identify any changes needed before implementation. Do not implement or edit files.
+3. **Adjudicator:** Receive the original brief, governing instructions and sources, and both submitted arguments. Recommend **proceed**, **revise**, or **reject**, then state the final take the coordinator should follow through with (including a revised option or a reasoned alternative when appropriate). Resolve disagreement using evidence, distinguish confirmed facts from assumptions, state material unknowns, and identify any changes needed before implementation. Do not implement or edit files.
 
 Proponent and opponent may work in parallel if each gets an independent clean context. The adjudicator runs only after both reports are complete. Where a candidate proposal is needed to focus the opponent, provide the proposal itself, not the proponent's reasoning. Keep each report concise and cite repository files, tests, official references, or reproducible evidence when available.
 
