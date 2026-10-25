@@ -115,15 +115,28 @@ def typed_json_projection_check(page, designer):
     designer.get_by_role("button", name="Import JSON into draft", exact=True).click()
     designer.get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for()
     designer.get_by_label("Node to organize", exact=True).select_option("project")
-    designer.get_by_label("Expected JSON type for field 0 on project", exact=True).select_option("string")
+    designer.get_by_label("Expected JSON type for field 0 on project", exact=True).select_option("object")
+    designer.get_by_label("JSON output property 0 for project", exact=True).fill("customer")
+    designer.get_by_label("JSON pointer 0 for project", exact=True).fill("/customer")
+    designer.get_by_role("button", name="Add object property", exact=True).nth(0).click()
+    designer.get_by_label("JSON field 0 customer property 0 name", exact=True).fill("displayName")
+    designer.get_by_label("JSON field 0 customer property 0 pointer", exact=True).fill("/fullName")
+    designer.get_by_label("JSON field 0 customer property 0 value kind", exact=True).select_option("string")
     designer.get_by_label("Expected JSON type for field 1 on project", exact=True).select_option("array")
+    designer.get_by_label("JSON field 1 items array item value kind", exact=True).select_option("object")
+    designer.get_by_role("button", name="Add object property", exact=True).nth(1).click()
+    designer.get_by_label("JSON field 1 items array item property 0 name", exact=True).fill("itemId")
+    designer.get_by_label("JSON field 1 items array item property 0 pointer", exact=True).fill("/id")
+    designer.get_by_label("JSON field 1 items array item property 0 value kind", exact=True).select_option("integer")
     designer.get_by_role("button", name="Save draft", exact=True).click()
     designer.get_by_text("Draft saved.", exact=True).wait_for()
     saved = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()["draft"]["definition"]
-    assert saved["schemaVersion"] == "1.15"
+    assert saved["schemaVersion"] == "1.16"
     assert saved["nodes"]["project"]["jsonProjection"]["fields"] == [
-        {"name": "name", "pointer": "/name", "valueType": "string"},
-        {"name": "items", "pointer": "/items", "valueType": "array"}]
+        {"name": "customer", "pointer": "/customer", "valueSchema": {
+            "type": "object", "properties": [{"name": "displayName", "pointer": "/fullName", "schema": {"type": "string"}}]}},
+        {"name": "items", "pointer": "/items", "valueSchema": {"type": "array", "items": {
+            "type": "object", "properties": [{"name": "itemId", "pointer": "/id", "schema": {"type": "integer"}}]}}}]
 
 
 def check(browser, screenshots):
@@ -321,7 +334,7 @@ def check(browser, screenshots):
     typed_json_projection_check(page, designer)
     assert not errors,errors
     page.close()
-    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring/replay, typed JSON projection authoring, and MCP tool detail review passed.")
+    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring/replay, recursive JSON projection authoring, and MCP tool detail review passed.")
 
 
 if __name__=="__main__":

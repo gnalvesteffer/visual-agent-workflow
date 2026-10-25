@@ -1,0 +1,36 @@
+<section class="vaw-json-value-schema" aria-label="@EditorLabel">
+    <label>Value kind
+        <select aria-label="@($"{EditorLabel} value kind")" value="@Schema.Type" @onchange="ChangeType" disabled="@Disabled">
+            @foreach (var valueType in JsonProjectionLimits.ValueTypes) { <option value="@valueType" disabled="@(Depth >= JsonProjectionLimits.MaximumSchemaDepth && valueType is "object" or "array")">@valueType</option> }
+        </select>
+    </label>
+    @if (Schema.Type == "object")
+    {
+        var properties = Schema.Properties ?? [];
+        <fieldset disabled="@Disabled">
+            <legend>Mapped object properties (@properties.Length)</legend>
+            <p class="vaw-help">Only these properties are included. Pointers are relative to this object.</p>
+            @foreach (var (property, index) in properties.Select((property, index) => (property, index)))
+            {
+                <fieldset @key="index">
+                    <legend>Property @(index + 1)</legend>
+                    <label>Output property <input aria-label="@($"{EditorLabel} property {index} name")" value="@property.Name" maxlength="@JsonProjectionLimits.MaximumNameCharacters" @onchange="args => ChangePropertyName(index, args)" disabled="@Disabled" /></label>
+                    <label>Source JSON Pointer <input aria-label="@($"{EditorLabel} property {index} pointer")" value="@property.Pointer" maxlength="@WorkflowJsonPointer.MaximumLength" @onchange="args => ChangePropertyPointer(index, args)" disabled="@Disabled" /></label>
+                    <label><input type="checkbox" aria-label="@($"{EditorLabel} property {index} optional")" checked="@property.Optional" @onchange="args => ChangeOptional(index, args)" disabled="@Disabled" /> Optional when missing</label>
+                    <JsonValueSchemaEditor Schema="property.Schema" SchemaChanged="schema => ChangePropertySchema(index, schema)"
+                                           EditorLabel="@($"{EditorLabel} property {index}")" Depth="@(Depth + 1)" Disabled="@Disabled" />
+                    <button type="button" @onclick="() => RemoveProperty(index)" disabled="@Disabled">Remove property</button>
+                </fieldset>
+            }
+            <button type="button" @onclick="AddProperty" disabled="@(Disabled || Depth >= JsonProjectionLimits.MaximumSchemaDepth || properties.Length >= JsonProjectionLimits.MaximumFields)">Add object property</button>
+        </fieldset>
+    }
+    else if (Schema.Type == "array")
+    {
+        <fieldset disabled="@Disabled">
+            <legend>Array item contract</legend>
+            <p class="vaw-help">Each item is mapped with this contract. Arrays are limited to @JsonProjectionLimits.MaximumArrayItems items.</p>
+            <JsonValueSchemaEditor Schema="Schema.Items ?? AnySchema" SchemaChanged="ChangeItems" EditorLabel="@($"{EditorLabel} array item")" Depth="@(Depth + 1)" Disabled="@Disabled" />
+        </fieldset>
+    }
+</section>

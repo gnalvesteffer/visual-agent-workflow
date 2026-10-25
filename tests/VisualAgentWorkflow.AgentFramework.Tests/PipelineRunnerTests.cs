@@ -230,6 +230,64 @@ public class PipelineRunnerTests
     }
 
     [Fact]
+    public async Task RecursiveJsonProjectionMapsNestedObjectsAndArrayItemsWithPlaybackEvidence()
+    {
+        var schema = new JsonValueSchema("object")
+        {
+            Properties = System.Collections.Immutable.ImmutableArray.Create(
+                new JsonValueProperty("displayName", "/fullName", new("string")),
+                new JsonValueProperty("active", "/metadata/active", new("boolean")) { Optional = true },
+                new JsonValueProperty("orders", "/orders", new("array")
+                {
+                    Items = new("object")
+                    {
+                        Properties = System.Collections.Immutable.ImmutableArray.Create(
+                            new JsonValueProperty("orderId", "/id", new("integer")),
+                            new JsonValueProperty("total", "/amount", new("number")))
+                    }
+                }))
+        };
+        var definition = new WorkflowDefinition("1.16", "recursive-json-project", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0") { InputDataType = "json" },
+                ["project"] = new(NodeTypes.JsonProject, "1.0.0")
+                {
+                    JsonProjection = new([new JsonProjectionField("customer", "/customer") { ValueSchema = schema }])
+                },
+                ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = "json" }
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["json"] = new(new("input", "out"), new("project", "in"), "data"),
+                ["result"] = new(new("project", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary());
+        var events = new List<ExecutionEvent>();
+
+        var output = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"),
+            "{\"customer\":{\"fullName\":\"Ada\",\"metadata\":{\"active\":true},\"secret\":\"drop\",\"orders\":[{\"id\":7,\"amount\":12.5}]}}",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("{\"customer\":{\"displayName\":\"Ada\",\"active\":true,\"orders\":[{\"orderId\":7,\"total\":12.5}]}}", output);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "project" && evt.Data == output);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Transfer && evt.ConnectionId == "result" && evt.Data == output);
+        Assert.DoesNotContain("secret", output);
+
+        events.Clear();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new PipelineRunner().ExecuteAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "test"), "{\"customer\":{\"metadata\":{},\"orders\":[]}}",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.Data!.Contains("Required mapped property 'customer.displayName' was not found.", StringComparison.Ordinal));
+
+        var tooManyItems = "{\"customer\":{\"fullName\":\"Ada\",\"orders\":[" + string.Join(',', Enumerable.Repeat("{}", JsonProjectionLimits.MaximumArrayItems + 1)) + "]}}";
+        events.Clear();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new PipelineRunner().ExecuteAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "test"), tooManyItems,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.Data!.Contains("exceeds 64 items", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task ExpandedPublishedPipelineExecutesWithoutSourceCatalogOrRuntimePrefabLookup()
     {
         var source = Revision();

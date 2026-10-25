@@ -2,6 +2,10 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Recursive JSON object and collection mapping
+
+Schema 1.16 adds recursive declarative mapping contracts to JSON projection fields. Object contracts select named source properties through relative JSON Pointers, with required/optional handling; array contracts map each item through its own value schema. Unlisted object properties are omitted, array size is capped at 64, and schema depth/node/configuration limits bound work. Runtime checks kinds and required paths before emitting output; node failure evidence explains the path/type issue without copying the source value. The Studio uses a recursive property editor, and saved definitions preserve earlier schemas and hashes when no new contract is used. Core serialization/validation tests and Agent Framework mapping, playback, missing-property, and size-limit tests cover the behavior. See [architecture](architecture.md), [roadmap](roadmap.md), and the [user guide](user-guide.md#select-and-project-json-input).
+
 ## Typed JSON projection fields
 
 Schema 1.15 lets each field in `core.json.project` declare the expected top-level JSON value kind. The runner checks the selected value before writing it and fails with a node event that identifies the field and expected/actual kind without echoing the value. Studio exposes the type selector and displays the projection contract on the graph card. Missing type metadata preserves schema 1.13/1.14 pass-through semantics and canonical serialization. This is a shallow contract; nested object properties and array items remain unvalidated. Core round-trip/schema-upgrade tests and an Agent Framework success/failure execution test cover the behavior. See [architecture](architecture.md), [roadmap](roadmap.md), and [the user guide](user-guide.md#select-and-project-json-input).

@@ -142,7 +142,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
-        private sealed class JsonProjectionTypeMismatchException(string message) : InvalidOperationException(message) { }
+        private sealed class JsonProjectionContractException(string message) : InvalidOperationException(message) { }
 
         private readonly object parallelJoinSync = new();
         private readonly SemaphoreSlim parallelJoinExecution = new(1, 1);
@@ -253,7 +253,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 await emit(ExecutionEventKinds.NodeCancelled, Id, invocation, null, "Node execution cancelled.");
                 throw;
             }
-            catch (JsonProjectionTypeMismatchException exception)
+            catch (JsonProjectionContractException exception)
             {
                 await emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, exception.Message);
                 throw;
@@ -327,10 +327,16 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 foreach (var field in projection.Fields)
                 {
                     writer.WritePropertyName(field.Name);
-                    var value = ResolvePointer(document.RootElement, WorkflowJsonPointer.Parse(field.Pointer));
-                    if (field.ValueType is { } expectedType && !MatchesJsonType(value, expectedType))
-                        throw new JsonProjectionTypeMismatchException($"JSON projection field '{field.Name}' expected {expectedType} but received {JsonTypeName(value)}.");
-                    value.WriteTo(writer);
+                    if (!TryResolvePointer(document.RootElement, WorkflowJsonPointer.Parse(field.Pointer), out var value))
+                        throw new JsonProjectionContractException($"JSON pointer for projection field '{field.Name}' did not resolve.");
+                    if (field.ValueSchema is { } schema)
+                        WriteMappedValue(writer, value, schema, field.Name);
+                    else
+                    {
+                        if (field.ValueType is { } expectedType && !MatchesJsonType(value, expectedType))
+                            throw new JsonProjectionContractException($"JSON projection field '{field.Name}' expected {expectedType} but received {JsonTypeName(value)}.");
+                        value.WriteTo(writer);
+                    }
                 }
                 writer.WriteEndObject();
             }
@@ -360,19 +366,63 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             JsonValueKind.Object => "object", JsonValueKind.Array => "array", JsonValueKind.Null => "null", _ => "undefined"
         };
 
+        private static void WriteMappedValue(Utf8JsonWriter writer, JsonElement value, JsonValueSchema schema, string path)
+        {
+            if (!MatchesJsonType(value, schema.Type))
+                throw new JsonProjectionContractException($"Mapped JSON value '{path}' expected {schema.Type} but received {JsonTypeName(value)}.");
+
+            switch (schema.Type)
+            {
+                case "object":
+                    writer.WriteStartObject();
+                    foreach (var property in schema.Properties!)
+                    {
+                        if (!TryResolvePointer(value, WorkflowJsonPointer.Parse(property.Pointer), out var nestedValue))
+                        {
+                            if (property.Optional) continue;
+                            throw new JsonProjectionContractException($"Required mapped property '{path}.{property.Name}' was not found.");
+                        }
+                        writer.WritePropertyName(property.Name);
+                        WriteMappedValue(writer, nestedValue, property.Schema, $"{path}.{property.Name}");
+                    }
+                    writer.WriteEndObject();
+                    return;
+                case "array":
+                    var items = schema.Items!;
+                    if (value.GetArrayLength() > JsonProjectionLimits.MaximumArrayItems)
+                        throw new JsonProjectionContractException($"Mapped array '{path}' exceeds {JsonProjectionLimits.MaximumArrayItems} items.");
+                    writer.WriteStartArray();
+                    var index = 0;
+                    foreach (var item in value.EnumerateArray())
+                        WriteMappedValue(writer, item, items, $"{path}[{index++}]");
+                    writer.WriteEndArray();
+                    return;
+                default:
+                    value.WriteTo(writer);
+                    return;
+            }
+        }
+
         private static JsonElement ResolvePointer(JsonElement root, IReadOnlyList<string> segments)
         {
-            var selected = root;
+            return TryResolvePointer(root, segments, out var selected)
+                ? selected
+                : throw new InvalidOperationException("The configured JSON pointer does not resolve to a value.");
+        }
+
+        private static bool TryResolvePointer(JsonElement root, IReadOnlyList<string> segments, out JsonElement value)
+        {
+            value = root;
             foreach (var segment in segments)
             {
-                selected = selected.ValueKind switch
-                {
-                    JsonValueKind.Object when selected.TryGetProperty(segment, out var property) => property,
-                    JsonValueKind.Array when TryArrayIndex(segment, selected.GetArrayLength(), out var index) => selected[index],
-                    _ => throw new InvalidOperationException("The configured JSON pointer does not resolve to a value.")
-                };
+                if (value.ValueKind == JsonValueKind.Object && value.TryGetProperty(segment, out var property))
+                { value = property; continue; }
+                if (value.ValueKind == JsonValueKind.Array && TryArrayIndex(segment, value.GetArrayLength(), out var index))
+                { value = value[index]; continue; }
+                value = default;
+                return false;
             }
-            return selected;
+            return true;
         }
 
         private static bool TryArrayIndex(string segment, int length, out int index) =>

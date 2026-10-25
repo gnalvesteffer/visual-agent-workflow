@@ -86,4 +86,14 @@ public sealed record JsonProjectionConfiguration(ImmutableArray<JsonProjectionFi
 public sealed record JsonProjectionField(string Name, string Pointer)
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ValueType { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public JsonValueSchema? ValueSchema { get; init; }
+}
+public sealed record JsonValueSchema(string Type)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<JsonValueProperty>? Properties { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public JsonValueSchema? Items { get; init; }
+}
+public sealed record JsonValueProperty(string Name, string Pointer, JsonValueSchema Schema)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public bool Optional { get; init; }
 }

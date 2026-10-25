@@ -88,6 +88,47 @@ public sealed class JsonProjectionTests
     }
 
     [Fact]
+    public void RecursiveObjectAndArraySchemasRoundTripAndRespectSchemaVersionAndDepth()
+    {
+        var definition = JsonGraph() with { SchemaVersion = "1.16" };
+        var nested = new JsonValueSchema("object")
+        {
+            Properties = ImmutableArray.Create(
+                new JsonValueProperty("name", "/fullName", new("string")),
+                new JsonValueProperty("metadata", "/metadata", new("object")
+                {
+                    Properties = ImmutableArray.Create(new JsonValueProperty("active", "/active", new("boolean")))
+                }) { Optional = true },
+                new JsonValueProperty("orders", "/orders", new("array")
+                {
+                    Items = new("object")
+                    {
+                        Properties = ImmutableArray.Create(new JsonValueProperty("id", "/id", new("integer")))
+                    }
+                }))
+        };
+        var project = definition.Nodes["project"] with
+        {
+            JsonProjection = new([new JsonProjectionField("customer", "/customer") { ValueSchema = nested }])
+        };
+        var mapped = definition with { Nodes = definition.Nodes.SetItem("project", project) };
+
+        Assert.Empty(WorkflowValidator.Validate(mapped));
+        Assert.Equal(WorkflowJson.Serialize(mapped), WorkflowJson.Serialize(WorkflowJson.Deserialize(WorkflowJson.Serialize(mapped))));
+        Assert.Contains(WorkflowValidator.Validate(mapped with { SchemaVersion = "1.15" }), issue => issue.Code == "json.projection.schema");
+
+        var tooDeep = new JsonValueSchema("any");
+        for (var depth = 0; depth < JsonProjectionLimits.MaximumSchemaDepth; depth++)
+            tooDeep = new("array") { Items = tooDeep };
+        var overDepth = mapped with
+        {
+            Nodes = mapped.Nodes.SetItem("project", project with
+            { JsonProjection = new([new JsonProjectionField("customer", "/customer") { ValueSchema = tooDeep }]) })
+        };
+        Assert.Contains(WorkflowValidator.Validate(overDepth), issue => issue.Code == "json.projection");
+    }
+
+    [Fact]
     public void ProjectionEnforcesFieldAndPropertyNameBounds()
     {
         var definition = JsonGraph();
