@@ -100,7 +100,7 @@ public class BrokerTests
             using var arguments = JsonDocument.Parse(invalidInput);
             Assert.Throws<ToolInvocationException>(() => McpToolInputSchemas.ToCallArguments(schema.RootElement, arguments.RootElement));
         }
-        Assert.False(McpToolInputSchemas.IsSupported(JsonDocument.Parse("""{"type":"object","properties":{"value":{"type":"string","pattern":".*"}}}""").RootElement));
+        Assert.False(McpToolInputSchemas.IsSupported(JsonDocument.Parse("""{"type":"object","properties":{"value":{"type":"string","format":"date-time"}}}""").RootElement));
         Assert.False(McpToolInputSchemas.IsSupported(JsonDocument.Parse("""{"type":"object","properties":{"values":{"type":"array","items":{"type":"string"},"maxItems":65}}}""").RootElement));
     }
 
@@ -156,8 +156,8 @@ public class BrokerTests
     [Fact]
     public void UnsupportedSchemaKeywordsProduceActionableDiscoveryReason()
     {
-        using var schema = JsonDocument.Parse("""{"type":"object","properties":{"value":{"type":"string","pattern":".*"}}}""");
-        Assert.Equal("Unsupported input schema: Unsupported JSON Schema keyword 'pattern'.",
+        using var schema = JsonDocument.Parse("""{"type":"object","properties":{"value":{"type":"string","format":"date-time"}}}""");
+        Assert.Equal("Unsupported input schema: Unsupported JSON Schema keyword 'format'.",
             McpToolInputSchemas.GetUnsupportedReason(schema.RootElement));
     }
 
@@ -167,6 +167,25 @@ public class BrokerTests
         Assert.Equal("Tool description exceeds the 2048-character limit.",
             McpToolDescription.GetUnsupportedReason(new string('x', McpToolDescription.MaximumLength + 1)));
         Assert.Null(McpToolDescription.GetUnsupportedReason("A supported tool description."));
+    }
+
+    [Fact]
+    public void StringPatternsAreNormalizedAndEnforcedWithBoundedRegexEvaluation()
+    {
+        using var schema = JsonDocument.Parse("""{"type":"object","properties":{"topic":{"type":"string","pattern":"^[a-zA-Z0-9_-]+$"}},"required":["topic"]}""");
+        Assert.True(McpToolInputSchemas.IsSupported(schema.RootElement));
+        Assert.Equal("^[a-zA-Z0-9_-]+$", McpToolInputSchemas.Normalize(schema.RootElement)
+            .GetProperty("properties").GetProperty("topic").GetProperty("pattern").GetString());
+
+        using var valid = JsonDocument.Parse("""{"topic":"news_updates-01"}""");
+        Assert.Equal("news_updates-01", McpToolInputSchemas.ToCallArguments(schema.RootElement, valid.RootElement)["topic"]);
+        using var invalid = JsonDocument.Parse("""{"topic":"bad/topic"}""");
+        Assert.Throws<ToolInvocationException>(() => McpToolInputSchemas.ToCallArguments(schema.RootElement, invalid.RootElement));
+
+        using var malformed = JsonDocument.Parse("""{"type":"object","properties":{"topic":{"type":"string","pattern":"["}}}""");
+        Assert.Contains("not a valid", McpToolInputSchemas.GetUnsupportedReason(malformed.RootElement));
+        using var unsupportedFeature = JsonDocument.Parse("""{"type":"object","properties":{"topic":{"type":"string","pattern":"(?=a)a"}}}""");
+        Assert.Contains("not supported by the safe non-backtracking engine", McpToolInputSchemas.GetUnsupportedReason(unsupportedFeature.RootElement));
     }
 
     [Fact]

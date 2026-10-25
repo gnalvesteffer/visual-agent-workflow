@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Mcp;
@@ -32,6 +33,9 @@ internal sealed class McpInputSchema
     private const int MaximumArrayItems = 64;
     private const int MaximumValueCount = 1_024;
     private const int MaximumStringLength = 8_192;
+    private const int MaximumPatternLength = 256;
+    private static readonly RegexOptions PatternOptions = RegexOptions.CultureInvariant | RegexOptions.NonBacktracking;
+    private static readonly TimeSpan PatternTimeout = TimeSpan.FromMilliseconds(50);
     private const int MaximumObjectProperties = 128;
     private const int MaximumSummaryFields = 32;
     private const int MaximumSummaryLength = 4_096;
@@ -113,7 +117,9 @@ internal sealed class McpInputSchema
 
             if (type == "array") type = property.Value.GetProperty("items").TryGetProperty("type", out var itemType)
                 ? $"array<{itemType.GetString()}>" : "array<JSON value>";
-            fields.Add($"{path}: {type} {cardinality}");
+            var pattern = type == "string" && property.Value.TryGetProperty("pattern", out var stringPattern)
+                ? $" matching /{stringPattern.GetString()}/" : "";
+            fields.Add($"{path}: {type}{pattern} {cardinality}");
         }
     }
 
@@ -141,7 +147,7 @@ internal sealed class McpInputSchema
         {
             "object" => new[] { "type", "title", "description", "default", "$schema", "properties", "required", "additionalProperties", "propertyNames" },
             "array" => new[] { "type", "title", "description", "default", "items", "minItems", "maxItems" },
-            "string" => new[] { "type", "title", "description", "default", "enum", "minLength", "maxLength" },
+            "string" => new[] { "type", "title", "description", "default", "enum", "minLength", "maxLength", "pattern" },
             "integer" or "number" => new[] { "type", "title", "description", "default", "enum", "minimum", "maximum" },
             "boolean" => new[] { "type", "title", "description", "default", "enum" },
             _ => throw UnsupportedSchema()
@@ -167,6 +173,7 @@ internal sealed class McpInputSchema
                 break;
             case "string":
                 ValidateStringBounds(definition);
+                ValidatePattern(definition);
                 break;
             case "integer":
             case "number":
@@ -259,6 +266,7 @@ internal sealed class McpInputSchema
             WriteEnum(writer, definition);
             WriteIntegerBound(writer, definition, "minLength", defaultValue: 0);
             WriteIntegerBound(writer, definition, "maxLength", MaximumStringLength);
+            if (definition.TryGetProperty("pattern", out var pattern)) writer.WriteString("pattern", pattern.GetString());
         }
 
         if (type is "integer" or "number")
@@ -293,6 +301,8 @@ internal sealed class McpInputSchema
             case "string":
                 var text = value.GetString()!;
                 ValidateLength(definition, text.Length, "minLength", "maxLength");
+                if (definition.TryGetProperty("pattern", out var pattern) && !PatternMatches(pattern.GetString()!, text))
+                    throw InvalidArguments();
                 break;
             case "integer":
             case "number":
@@ -441,6 +451,31 @@ internal sealed class McpInputSchema
         var minimum = ReadIntegerBound(definition, "minLength", defaultValue: 0);
         var maximum = ReadIntegerBound(definition, "maxLength", defaultValue: MaximumStringLength);
         if (minimum < 0 || maximum > MaximumStringLength || minimum > maximum) throw UnsupportedSchema();
+    }
+
+    private static void ValidatePattern(JsonElement definition)
+    {
+        if (!definition.TryGetProperty("pattern", out var pattern)) return;
+        if (pattern.ValueKind != JsonValueKind.String)
+            throw UnsupportedSchema("A string pattern must be a regular-expression string.");
+        var expression = pattern.GetString()!;
+        if (expression.Length > MaximumPatternLength)
+            throw UnsupportedSchema($"String patterns cannot exceed {MaximumPatternLength} characters.");
+        try { _ = new Regex(expression, PatternOptions, PatternTimeout); }
+        catch (ArgumentException)
+        {
+            throw UnsupportedSchema("The string pattern is not a valid .NET non-backtracking regular expression.");
+        }
+        catch (NotSupportedException)
+        {
+            throw UnsupportedSchema("The string pattern uses a regex feature that is not supported by the safe non-backtracking engine.");
+        }
+    }
+
+    private static bool PatternMatches(string expression, string value)
+    {
+        try { return new Regex(expression, PatternOptions, PatternTimeout).IsMatch(value); }
+        catch (RegexMatchTimeoutException) { return false; }
     }
 
     private static int ReadIntegerBound(JsonElement definition, string name, int defaultValue)
