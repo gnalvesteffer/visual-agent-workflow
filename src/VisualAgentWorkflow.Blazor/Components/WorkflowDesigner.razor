@@ -38,7 +38,7 @@
                 @if (preview is null)
                 {
                     <button type="button" data-graph-save @onclick="Save" disabled="@(busy || !interactive)">Save draft</button>
-                    <button type="button" class="vaw-primary" @onclick="Publish" disabled="@(busy || dirty || generation == 0)">Publish &amp; activate</button>
+                    <button type="button" class="vaw-primary" @onclick="Publish" disabled="@(busy || dirty || generation == 0 || WorkflowValidator.Validate(definition!).Length > 0)">Publish &amp; activate</button>
                     <button type="button" data-graph-undo @onclick="Undo" disabled="@(busy || undo.Count == 0)">Undo edit</button>
                     <button type="button" data-graph-redo @onclick="Redo" disabled="@(busy || redo.Count == 0)">Redo edit</button>
                     @if (ToolCatalog is not null) { <button type="button" @onclick="RefreshTools" disabled="@busy">Refresh MCP tools</button> }
@@ -81,7 +81,7 @@
                     </label>
                     <label>Insert pipeline after
                         <select aria-label="Insert pipeline after" value="@(insertAfterNode.Length == 0 || !definition.Nodes.ContainsKey(insertAfterNode) ? definition.EntryNodeId : insertAfterNode)" @onchange="args => insertAfterNode = args.Value?.ToString() ?? definition.EntryNodeId">
-                            @foreach (var id in WorkflowGraph.OrderedNodes(definition).Where(id => definition.Nodes[id].Type != NodeTypes.Output))
+                        @foreach (var id in WorkflowGraph.DisplayOrder(definition).Where(id => definition.Nodes[id].Type != NodeTypes.Output))
                             { <option @key="id" value="@id">@(layout?.Nodes[id].Label is { Length: > 0 } label ? label : id)</option> }
                         </select>
                     </label>
@@ -107,7 +107,7 @@
             <div class="vaw-controls">
                 <button type="button" @onclick="Preview" disabled="@(busy || selectedRevisionId is null)">View selected version</button>
                 <button type="button" @onclick="Restore" disabled="@(busy || dirty || selectedRevisionId is null)">Restore selected to draft</button>
-                <button type="button" @onclick="Activate" disabled="@(busy || dirty || selectedRevisionId is null)">Activate selected version</button>
+                <button type="button" @onclick="Activate" disabled="@(busy || dirty || !CurrentDraftIsValid || selectedRevisionId is null)">Activate selected version</button>
             </div>
             </div>
             <div class="vaw-version-run">
@@ -145,15 +145,16 @@
             <p>Import replaces this draft's graph and keeps its workflow ID. It does not grant capabilities or execute code.</p>
             <label>Workflow JSON <textarea @bind="jsonText" rows="8" maxlength="3145728"></textarea></label>
             <div class="vaw-controls">
-                <button type="button" @onclick="Export" disabled="@busy">Copy definition into JSON editor</button>
+                <button type="button" @onclick="Export" disabled="@(busy || !CanExportViewedDefinition)">Copy definition into JSON editor</button>
                 <button type="button" @onclick="Import" disabled="@(busy || preview is not null)">Import JSON into draft</button>
-                <a download="workflow.json" href="@DownloadHref">Download viewed definition</a>
-                <button type="button" @onclick="ExportLayout" disabled="@busy">Copy graph layout into JSON editor</button>
+                @if (CanExportViewedDefinition) { <a download="workflow.json" href="@DownloadHref">Download viewed definition</a> }
+                <button type="button" @onclick="ExportLayout" disabled="@(busy || !CanExportViewedDefinition)">Copy graph layout into JSON editor</button>
                 <button type="button" @onclick="ImportLayout" disabled="@(busy || preview is not null || Catalog is not IWorkflowDesignCatalog)">Import graph layout into draft</button>
-                <a download="workflow.layout.json" href="@LayoutDownloadHref">Download graph layout</a>
-                <button type="button" @onclick="ExportPackage" disabled="@busy">Copy workflow package into JSON editor</button>
+                @if (CanExportViewedDefinition) { <a download="workflow.layout.json" href="@LayoutDownloadHref">Download graph layout</a> }
+                <button type="button" @onclick="ExportPackage" disabled="@(busy || !CanExportViewedDefinition)">Copy workflow package into JSON editor</button>
                 <button type="button" @onclick="ImportPackage" disabled="@(busy || preview is not null || Catalog is not IWorkflowDesignCatalog)">Import package into draft</button>
-                <a download="workflow.package.json" href="@PackageDownloadHref">Download workflow package</a>
+                @if (CanExportViewedDefinition) { <a download="workflow.package.json" href="@PackageDownloadHref">Download workflow package</a> }
+                else { <span class="vaw-help">Resolve graph issues before exporting a workflow or package.</span> }
             </div>
             <p class="vaw-help">Packages include definition, layout, checksums, and declared requirements. Imports retain this workflow's ID and grant no permissions.</p>
             <ul class="vaw-requirements">

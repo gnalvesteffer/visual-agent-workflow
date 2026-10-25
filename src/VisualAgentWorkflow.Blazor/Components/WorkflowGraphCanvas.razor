@@ -13,7 +13,7 @@
         <button type="button" @onclick="AutoLayout" disabled="@(!CanEdit)">Arrange nodes</button>
         <span class="vaw-help">@(ReadOnly ? "Recorded layout. Drag the background to pan; use the playback controls to inspect evidence." : "Drag empty space to select nodes; hold Ctrl or Shift to add or remove nodes. Middle-drag to pan. Drag a selected node to move the group.")</span>
     </div>
-    <p class="vaw-help" role="status" data-pin-hint hidden>Release on empty canvas to create a step on this output. Existing-node rewiring is not available yet.</p>
+    <p class="vaw-help" role="status" data-pin-hint hidden>@pinHintText</p>
     <p class="vaw-error" role="status" data-fullscreen-error hidden>Fullscreen is unavailable in this host. Embedded apps must allow fullscreen for this frame.</p>
     <div class="vaw-canvas-workspace @(NodeInspector is not null ? "vaw-with-properties" : "") @(NodeLibrary is not null && ShowNodeLibrary ? "vaw-with-library" : "")">
     @if (NodeLibrary is not null && ShowNodeLibrary)
@@ -52,11 +52,11 @@
                                 <div class="vaw-socket-row">
                                     <div class="vaw-input-ports">
                                         @foreach (var port in WorkflowPorts.Inputs(node))
-                                        { <span class="vaw-socket-label vaw-socket-input"><span class="vaw-socket" data-socket="@port.Id" title="@($"{port.Id} · {port.DataType} input")" aria-hidden="true"></span>@port.Id · @port.DataType</span> }
+                                        { <span class="vaw-socket-label vaw-socket-input"><span class="vaw-socket" data-socket="@port.Id" data-socket-type="@port.DataType" title="@($"{port.Id} · {port.DataType} input")" aria-hidden="true"></span>@port.Id · @port.DataType</span> }
                                     </div>
                                     <div class="vaw-output-ports">
                                         @foreach (var port in WorkflowPorts.Outputs(node))
-                                        { <span class="vaw-socket-label vaw-socket-output">@port.Id · @port.DataType<span class="vaw-socket" data-socket="@port.Id" title="@($"{port.Id} · {port.DataType} output")" aria-hidden="true"></span></span> }
+                                        { <span class="vaw-socket-label vaw-socket-output">@port.Id · @port.DataType<span class="vaw-socket" data-socket="@port.Id" data-socket-type="@port.DataType" title="@($"{port.Id} · {port.DataType} output")" aria-hidden="true"></span></span> }
                                     </div>
                                 </div>
                                 @if (!string.IsNullOrWhiteSpace(presentation.Comment))
@@ -165,6 +165,7 @@
                     @if (selectedWire is { } wireId)
                     {
                         var route = Route(wireId);
+                        @if (!ReadOnly) { <button type="button" @onclick="() => ConnectionDisconnectRequested.InvokeAsync(wireId)" disabled="@(!CanEdit)">Disconnect wire</button> }
                         <label>Wire style <select aria-label="Wire style" value="@route.Style" @onchange="args => Style(wireId, args)"><option value="curve">Curved</option><option value="orthogonal">Right-angle</option></select></label>
                         <button type="button" @onclick="() => AddMidpoint(wireId)" disabled="@(route.Points.Length >= 32)">Add reroute point</button>
                         <button type="button" @onclick="() => ClearRoute(wireId)">Reset wire route</button>

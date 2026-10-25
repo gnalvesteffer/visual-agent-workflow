@@ -11,9 +11,17 @@ public sealed record AgentConfiguration(string ProviderId, string ProviderVersio
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<SkillReference>? Skills { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public AgentReasoningEffort? ReasoningEffort { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ReasoningEffortParameterId { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? MaxOutputTokens { get; init; }
 }
 
-public enum AgentReasoningEffort { Low, Medium, High }
+public enum AgentReasoningEffort { Off, Low, Medium, High }
+
+public static class AgentOutputTokenLimits
+{
+    public const int LegacyDefault = 1024;
+    public const int Minimum = 1;
+    public const int Maximum = 16_384;
+}
 
 /// <summary>Only literal text and explicit stable references are rendered. No expression evaluation occurs.</summary>
 public sealed record PromptPart(string Kind, string Value);

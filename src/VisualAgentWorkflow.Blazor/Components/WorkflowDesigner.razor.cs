@@ -53,15 +53,20 @@ public partial class WorkflowDesigner
     private bool startPublishedPaused;
     private WorkflowDefinition? downloadedDefinition;
     private string downloadHref = "";
+    private WorkflowDefinition? ViewedDefinition => preview?.Revision.Definition ?? definition;
+    private bool CurrentDraftIsValid => definition is { } current && WorkflowValidator.Validate(current).IsEmpty;
+    private bool CanExportViewedDefinition => ViewedDefinition is { } viewed && WorkflowValidator.Validate(viewed).IsEmpty;
 
     private string DownloadHref
     {
         get
         {
-            var viewed = preview?.Revision.Definition ?? definition;
+            var viewed = ViewedDefinition;
             if (viewed is not null && !ReferenceEquals(viewed, downloadedDefinition))
             {
-                downloadHref = "data:application/json;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(WorkflowJson.Serialize(viewed)));
+                downloadHref = CanExportViewedDefinition
+                    ? "data:application/json;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(WorkflowJson.Serialize(viewed)))
+                    : "";
                 downloadedDefinition = viewed;
             }
             return downloadHref;
@@ -75,12 +80,14 @@ public partial class WorkflowDesigner
     {
         get
         {
-            var viewed = preview?.Revision.Definition ?? definition;
+            var viewed = ViewedDefinition;
             var presentation = preview is not null ? previewLayout ?? WorkflowLayout.Create(preview.Revision.Definition) : layout;
             if (viewed is not null && presentation is not null &&
                 (!ReferenceEquals(viewed, layoutDownloadDefinition) || !ReferenceEquals(presentation, downloadedLayout)))
             {
-                layoutDownloadHref = "data:application/json;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(WorkflowLayoutJson.Serialize(presentation, viewed)));
+                layoutDownloadHref = CanExportViewedDefinition
+                    ? "data:application/json;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(WorkflowLayoutJson.Serialize(presentation, viewed)))
+                    : "";
                 layoutDownloadDefinition = viewed; downloadedLayout = presentation;
             }
             return layoutDownloadHref;
@@ -137,7 +144,7 @@ public partial class WorkflowDesigner
     private void SetDesign(WorkflowDefinition value, WorkflowLayout presentation)
     {
         definition = value; layout = presentation;
-        definitionHash = WorkflowJson.ComputeHash(value);
+        definitionHash = WorkflowJson.ComputeDraftHash(value);
         layoutHash = WorkflowLayoutJson.ComputeHash(presentation, value);
         if (!presentation.Sections.ContainsKey(reusableSectionId)) reusableSectionId = "";
         if (!value.Nodes.TryGetValue(insertAfterNode, out var after) || after.Type == NodeTypes.Output) insertAfterNode = value.EntryNodeId;
@@ -199,7 +206,7 @@ public partial class WorkflowDesigner
 
     private void Changed(WorkflowDefinition next)
     {
-        if (definition is null || layout is null || WorkflowJson.ComputeHash(next) == definitionHash) return;
+        if (definition is null || layout is null || WorkflowJson.ComputeDraftHash(next) == definitionHash) return;
         undo.Push(new(definition, layout)); redo.Clear();
         SetDesign(next, layout.Reconcile(next)); error = null; message = null;
     }
@@ -207,8 +214,7 @@ public partial class WorkflowDesigner
     private void ChangedGraph(WorkflowGraphEdit next)
     {
         if (definition is null || layout is null) return;
-        if (WorkflowJson.ComputeHash(next.Definition) == definitionHash && WorkflowLayoutJson.ComputeHash(next.Layout, next.Definition) == layoutHash) return;
-        WorkflowValidator.ThrowIfInvalid(next.Definition);
+        if (WorkflowJson.ComputeDraftHash(next.Definition) == definitionHash && WorkflowLayoutJson.ComputeHash(next.Layout, next.Definition) == layoutHash) return;
         WorkflowLayoutJson.Validate(next.Layout, next.Definition);
         undo.Push(new(definition, layout)); redo.Clear();
         SetDesign(next.Definition, next.Layout); error = null; message = null;
@@ -326,7 +332,7 @@ public partial class WorkflowDesigner
 
     private void SetRunParameter(string id, ChangeEventArgs args) => runParameters[id] = args.Value?.ToString() ?? "";
 
-    private void Export() { jsonText = WorkflowJson.Serialize(preview?.Revision.Definition ?? definition!); }
+    private void Export() { if (CanExportViewedDefinition) jsonText = WorkflowJson.Serialize(ViewedDefinition!); }
     private void ExportLayout() => jsonText = WorkflowLayoutJson.Serialize(
         preview is not null ? previewLayout ?? WorkflowLayout.Create(preview.Revision.Definition) : layout!, preview?.Revision.Definition ?? definition!);
     private Task ImportLayout() => Perform(_ =>

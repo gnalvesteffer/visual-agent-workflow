@@ -36,6 +36,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         var reasoningEffort = configuration.ReasoningEffortParameterId is { } parameterId && invocation.Parameters is { } values
             ? values.GetValueOrDefault(parameterId) switch
             {
+                "off" => AgentReasoningEffort.Off,
                 "low" => AgentReasoningEffort.Low,
                 "medium" => AgentReasoningEffort.Medium,
                 "high" => AgentReasoningEffort.High,
@@ -59,6 +60,8 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         {
             provider = provider.Descriptor,
             timeoutSeconds = provider.InvocationTimeout.TotalSeconds,
+            maxOutputTokens = configuration.MaxOutputTokens ?? AgentOutputTokenLimits.LegacyDefault,
+            reasoningEffort,
             requestedTools = configuration.Tools.Select((binding, index) => new { functionName = $"tool_{index}", binding.BindingId, binding.ContractHash })
             , skills = assignedSkills.Select(skill => new { skill.Id, skill.Version, skill.ContentHash })
         });
@@ -106,10 +109,11 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             {
                 Instructions = instructions,
                 Tools = functions,
-                MaxOutputTokens = 1024,
+                MaxOutputTokens = configuration.MaxOutputTokens ?? AgentOutputTokenLimits.LegacyDefault,
                 Reasoning = reasoningEffort is { } effort
                     ? new ReasoningOptions { Effort = effort switch
                     {
+                        AgentReasoningEffort.Off => Microsoft.Extensions.AI.ReasoningEffort.None,
                         AgentReasoningEffort.Low => Microsoft.Extensions.AI.ReasoningEffort.Low,
                         AgentReasoningEffort.Medium => Microsoft.Extensions.AI.ReasoningEffort.Medium,
                         AgentReasoningEffort.High => Microsoft.Extensions.AI.ReasoningEffort.High,
@@ -166,6 +170,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                 modelCallId,
                 instructions = options?.Instructions,
                 reasoningEffort = options?.Reasoning?.Effort?.ToString(),
+                maxOutputTokens = options?.MaxOutputTokens,
                 messages = Project(snapshot),
                 tools = options?.Tools?.Select(t => t.Name).ToArray(),
                 toolDeclarations = options?.Tools?.OfType<AIFunctionDeclaration>()

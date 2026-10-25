@@ -3,6 +3,30 @@ namespace VisualAgentWorkflow.Core;
 /// <summary>Validated local edge edits. No topological order is treated as an execution sequence.</summary>
 public static class GraphEditing
 {
+    /// <summary>Reconnects pins in an editable draft. Structural validation remains visible until every issue is fixed.</summary>
+    public static WorkflowDefinition ConnectPins(WorkflowDefinition definition, string sourceId, string sourcePortId, string targetId, string targetPortId)
+    {
+        if (!definition.Nodes.TryGetValue(sourceId, out var source) || !definition.Nodes.TryGetValue(targetId, out var target))
+            throw new ArgumentException("Choose pins on existing nodes.");
+        var output = WorkflowPorts.Outputs(source).SingleOrDefault(port => port.Id == sourcePortId);
+        var input = WorkflowPorts.Inputs(target).SingleOrDefault(port => port.Id == targetPortId);
+        if (output is null || input is null || output.DataType != input.DataType)
+            throw new ArgumentException("Connect an output pin to an input pin with the same data type.");
+        if (sourceId == targetId) throw new ArgumentException("A node cannot connect to itself.");
+
+        var connections = definition.Connections
+            .RemoveRange(definition.Connections.Where(edge => edge.Value.Target.NodeId == targetId && edge.Value.Target.PortId == targetPortId ||
+                edge.Value.Source.NodeId == sourceId && edge.Value.Source.PortId == sourcePortId).Select(edge => edge.Key));
+        var connectionId = "link-" + Guid.NewGuid().ToString("N");
+        return definition with { Connections = connections.Add(connectionId, new(new(sourceId, sourcePortId), new(targetId, targetPortId), "data")) };
+    }
+
+    public static WorkflowDefinition Disconnect(WorkflowDefinition definition, string connectionId)
+    {
+        if (!definition.Connections.ContainsKey(connectionId)) throw new ArgumentException("The connection no longer exists.", nameof(connectionId));
+        return definition with { Connections = definition.Connections.Remove(connectionId) };
+    }
+
     public static WorkflowDefinition InsertConditionalAfter(WorkflowDefinition definition, string sourceId, string portId)
     {
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -14,7 +38,7 @@ public static class GraphEditing
         var connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(branch, "in"), "data"))
             .Add(NewId("link"), Link(branch, "true", merge)).Add(NewId("link"), Link(branch, "false", merge))
             .Add(NewId("link"), new(new(merge, "out"), edge.Value.Target, "data"));
-        return Checked(definition with { SchemaVersion = definition.SchemaVersion is "1.8" or "1.9" ? definition.SchemaVersion : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : "1.4", Nodes = nodes, Connections = connections });
+        return Checked(definition with { SchemaVersion = definition.SchemaVersion is "1.8" or "1.9" or "1.10" ? definition.SchemaVersion : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : "1.4", Nodes = nodes, Connections = connections });
     }
 
     public static WorkflowDefinition InsertNodeAfter(WorkflowDefinition definition, string sourceId, string portId, NodeDefinition node)
@@ -47,7 +71,7 @@ public static class GraphEditing
 
         return Checked(definition with
         {
-            SchemaVersion = "1.9",
+            SchemaVersion = definition.SchemaVersion == "1.10" ? "1.10" : "1.9",
             Nodes = definition.Nodes.SetItem(inputId, input with { InputDataType = "json" }).Add(selectorId, selector),
             Connections = definition.Connections.SetItem(edge.Key, new(new(selectorId, "out"), edge.Value.Target, "data"))
                 .Add(NewId("link"), new(new(inputId, "out"), new(selectorId, "in"), "data"))
@@ -109,7 +133,7 @@ public static class GraphEditing
         var id = NewId("approval");
         return Checked(definition with
         {
-            SchemaVersion = definition.SchemaVersion is "1.8" or "1.9" ? definition.SchemaVersion : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : "1.5",
+            SchemaVersion = definition.SchemaVersion is "1.8" or "1.9" or "1.10" ? definition.SchemaVersion : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : "1.5",
             Nodes = definition.Nodes.Add(id, new(NodeTypes.Approval, "1.0.0") { Approval = new("Review the exact MCP call before allowing it.") }),
             Connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(id, "in"), "data"))
                 .Add(NewId("link"), Link(id, "out", targetId))

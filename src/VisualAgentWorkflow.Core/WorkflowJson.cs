@@ -19,6 +19,45 @@ public static class WorkflowJson
     public static string Serialize(WorkflowDefinition definition)
     {
         WorkflowValidator.ThrowIfInvalid(definition);
+        return SerializeNormalized(definition);
+    }
+
+    /// <summary>Canonical representation for editor working state; never use this to publish or execute.</summary>
+    public static string SerializeDraft(WorkflowDefinition definition)
+    {
+        ValidateDraft(definition);
+        return SerializeNormalized(definition);
+    }
+
+    /// <summary>Reads editable working state while accepting incomplete graph topology. Never use for publish or execution.</summary>
+    public static WorkflowDefinition DeserializeDraft(string json)
+    {
+        ArgumentNullException.ThrowIfNull(json);
+        if (Encoding.UTF8.GetByteCount(json) > 1_048_576)
+            throw new ArgumentException("Definition exceeds the 1 MiB import limit.", nameof(json));
+        using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 32 });
+        JsonDocumentSafety.RejectDuplicateProperties(document.RootElement);
+        var definition = JsonSerializer.Deserialize<WorkflowDefinition>(json, Options)
+            ?? throw new JsonException("A definition is required.");
+        ValidateDraft(definition);
+        return definition;
+    }
+
+    private static void ValidateDraft(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        var issues = WorkflowValidator.Validate(definition);
+        var draftableTopologyIssues = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "pipeline.degree", "graph.unreachable", "graph.cycle"
+        };
+        var blockingIssue = issues.FirstOrDefault(issue => !draftableTopologyIssues.Contains(issue.Code));
+        if (blockingIssue is not null)
+            throw new ArgumentException($"Draft structure is invalid at {blockingIssue.Path}: {blockingIssue.Message}", nameof(definition));
+    }
+
+    private static string SerializeNormalized(WorkflowDefinition definition)
+    {
         var normalized = definition with
         {
             Nodes = definition.Nodes.ToImmutableSortedDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
@@ -45,6 +84,10 @@ public static class WorkflowJson
     // This is our v1 canonical representation, not a general JSON canonicalization standard.
     public static string ComputeHash(WorkflowDefinition definition) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(Serialize(definition))));
+
+    /// <summary>Draft-state hash for editor change tracking; it is not a content identity or publishable hash.</summary>
+    public static string ComputeDraftHash(WorkflowDefinition definition) =>
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(SerializeDraft(definition))));
 
     /// <summary>Accepts the canonical hash and the prior Windows CRLF hash for persisted cross-version evidence.</summary>
     public static bool MatchesHash(WorkflowDefinition definition, string? hash)

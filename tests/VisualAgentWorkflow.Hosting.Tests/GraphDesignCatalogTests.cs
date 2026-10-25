@@ -31,6 +31,21 @@ public sealed class GraphDesignCatalogTests : IDisposable
     }
 
     [Fact]
+    public async Task IncompleteDraftCanBeSavedAndReloadedButCannotBePublished()
+    {
+        var definition = PipelineTemplates.Create("uppercase");
+        var disconnected = GraphEditing.Disconnect(definition, definition.Connections.Keys.First());
+        var store = Open();
+
+        var saved = await store.SaveDesignAsync(disconnected, WorkflowLayout.Create(disconnected), 0);
+        var reopened = (await Open().GetDesignAsync(definition.WorkflowId))!;
+
+        Assert.Equal(saved.Draft.Generation, reopened.Draft.Generation);
+        Assert.Equal(WorkflowJson.ComputeDraftHash(disconnected), WorkflowJson.ComputeDraftHash(reopened.Draft.Definition));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.PublishAsync(definition.WorkflowId, saved.Draft.Generation));
+    }
+
+    [Fact]
     public async Task PublishedLayoutIsImmutableAndRestoreRestoresItsAnnotationsAndRoutes()
     {
         var definition = PipelineTemplates.Create("uppercase");

@@ -113,7 +113,7 @@ public static class PipelineReuse
         order.InsertRange(position + 1, steps.Select(id => ids[id]));
         var definition = PipelineEditing.Reconnect(target with
         {
-            SchemaVersion = target.SchemaVersion == "1.9" || source.SchemaVersion == "1.9" ? "1.9" :
+            SchemaVersion = target.SchemaVersion == "1.10" || source.SchemaVersion == "1.10" ? "1.10" : target.SchemaVersion == "1.9" || source.SchemaVersion == "1.9" ? "1.9" :
                 target.SchemaVersion == "1.8" || source.SchemaVersion == "1.8" ? "1.8" :
                 target.SchemaVersion == "1.7" || source.SchemaVersion == "1.7" ? "1.7" :
                 target.SchemaVersion == "1.6" || parameterMap.Count > 0 ? "1.6" : "1.3",

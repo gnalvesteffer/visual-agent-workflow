@@ -20,6 +20,8 @@ public partial class WorkflowGraphCanvas
     [Parameter] public EventCallback<GraphNodeCreateRequest> NodeCreateRequested { get; set; }
     [Parameter] public EventCallback<string> DeleteNodeRequested { get; set; }
     [Parameter] public EventCallback<string> ConnectionSelected { get; set; }
+    [Parameter] public EventCallback<string> ConnectionDisconnectRequested { get; set; }
+    [Parameter] public EventCallback<(string SourceId, string SourcePort, string TargetId, string TargetPort)> ConnectionRequested { get; set; }
     private GraphContextRequest? contextMenu;
     private string? activeConnection;
     [Parameter] public string InspectorTitle { get; set; } = "Node properties";
@@ -47,6 +49,7 @@ public partial class WorkflowGraphCanvas
     private string sectionLabel = "New section";
     private HashSet<string> members = new(StringComparer.Ordinal);
     private string? error;
+    private string pinHintText = "Drag an output pin to a compatible input pin, or release on empty canvas to create a step.";
     private WorkflowDefinition? orderedDefinition;
     private ImmutableArray<string> Order = [];
     private bool CanEdit => !ReadOnly && !Disabled && LayoutChanged.HasDelegate && !disposed;
@@ -87,7 +90,7 @@ public partial class WorkflowGraphCanvas
         WorkflowLayoutJson.Validate(Layout, Definition);
         if (!ReferenceEquals(orderedDefinition, Definition))
         {
-            Order = WorkflowGraph.OrderedNodes(Definition);
+            Order = WorkflowGraph.DisplayOrder(Definition);
             orderedDefinition = Definition;
         }
         if (SelectedNodeId is not null && Definition.Nodes.ContainsKey(SelectedNodeId)) selectedNode = SelectedNodeId;
@@ -267,6 +270,22 @@ public partial class WorkflowGraphCanvas
         disposed || Disabled || !EnableContextMenu || !double.IsFinite(x) || !double.IsFinite(y) ? Task.CompletedTask :
         NodeCreateRequested.InvokeAsync(new(key, new(Guid.NewGuid().ToString("N"), nodeId is not null && Definition.Nodes.ContainsKey(nodeId) ? nodeId : null,
             connectionId is not null && Definition.Connections.ContainsKey(connectionId) ? connectionId : null, 0, Snap(x, y), 0, 0)));
+
+    [JSInvokable]
+    public async Task ConnectPins(string sourceId, string sourcePort, string targetId, string targetPort)
+    {
+        if (disposed || Disabled || !CanEdit) return;
+        try
+        {
+            await ConnectionRequested.InvokeAsync((sourceId, sourcePort, targetId, targetPort));
+            pinHintText = "Connection updated.";
+        }
+        catch (ArgumentException exception)
+        {
+            pinHintText = exception.Message;
+        }
+        await InvokeAsync(StateHasChanged);
+    }
 
     [JSInvokable]
     public Task DeleteSelection() => !disposed && !Disabled && EnableContextMenu && selectedNode is not null ? DeleteNodeRequested.InvokeAsync(selectedNode) : Task.CompletedTask;

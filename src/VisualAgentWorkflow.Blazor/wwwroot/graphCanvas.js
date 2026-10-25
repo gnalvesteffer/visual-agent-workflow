@@ -321,7 +321,7 @@ function pointerDown(state, event) {
     if (pin && state.root.dataset.contextMenu === 'true' && event.button === 0) {
         const box=pin.getBoundingClientRect(),start=local(state,{clientX:box.left+box.width/2,clientY:box.top+box.height/2});
         state.drag={kind:'pin',pointer:event.pointerId,screenX:event.clientX,screenY:event.clientY,target:state.viewport,
-            id:pin.closest('[data-node-id]').dataset.nodeId,port:pin.dataset.socket,start,moved:false,items:[]};
+            id:pin.closest('[data-node-id]').dataset.nodeId,port:pin.dataset.socket,type:pin.dataset.socketType,start,moved:false,items:[]};
         state.root.querySelector('[data-pin-hint]').hidden=true;
         state.viewport.setPointerCapture(event.pointerId); event.preventDefault(); return;
     }
@@ -375,6 +375,9 @@ function pointerMove(state, event) {
         const preview=state.root.querySelector('[data-pin-preview]');
         preview.removeAttribute('hidden');
         preview.setAttribute('d',curve({position:drag.start,angle:0},{position:local(state,event),angle:0}));
+        state.root.querySelectorAll('.vaw-socket-drop-target').forEach(socket => socket.classList.remove('vaw-socket-drop-target'));
+        const candidate=document.elementFromPoint(event.clientX,event.clientY)?.closest('.vaw-input-ports [data-socket]');
+        if (candidate && candidate.dataset.socketType === drag.type) candidate.classList.add('vaw-socket-drop-target');
     } else if (drag.kind === 'pan') {
         state.viewport.scrollLeft = drag.scrollX - (event.clientX - drag.screenX);
         state.viewport.scrollTop = drag.scrollY - (event.clientY - drag.screenY);
@@ -409,9 +412,12 @@ function pointerEnd(state, event, cancelled) {
     if (drag.target.hasPointerCapture(event.pointerId)) drag.target.releasePointerCapture(event.pointerId);
     if (drag.kind === 'pin') {
         state.root.querySelector('[data-pin-preview]').setAttribute('hidden','');
+        state.root.querySelectorAll('.vaw-socket-drop-target').forEach(socket => socket.classList.remove('vaw-socket-drop-target'));
         if (!cancelled && drag.moved) {
             const target=document.elementFromPoint(event.clientX,event.clientY);
-            if (target?.closest('li[data-node-id]')) state.root.querySelector('[data-pin-hint]').hidden=false;
+            const input=target?.closest('.vaw-input-ports [data-socket]');
+            if (input && input.dataset.socketType === drag.type) invoke(state,'ConnectPins',drag.id,drag.port,input.closest('[data-node-id]').dataset.nodeId,input.dataset.socket);
+            else if (target?.closest('li[data-node-id]')) state.root.querySelector('[data-pin-hint]').hidden=false;
             else {
                 const edge=state.paths.find(path=>path.dataset.source===drag.id&&path.dataset.sourcePort===drag.port);
                 const point=local(state,event);

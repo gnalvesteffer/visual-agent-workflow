@@ -2,6 +2,14 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Rewire compatible pins and preserve incomplete drafts
+
+The canvas connects matching typed pins by dragging an output to a highlighted input, and disconnects a selected wire from its properties or context menu. Incomplete graph topology can be saved and reloaded as a draft, with duplicate-property, size, and non-topology validation still enforced. A visible issue list identifies each failure; publish and activate are disabled, export is gated, and runtime validation remains strict. Canvas display order is deterministic for invalid/cyclic drafts and is never used to schedule execution. Core and hosting tests cover draft round-trip, strict revision rejection, publish rejection, and successful reconnection. The graph browser smoke covers saving while invalid, gating publication/activation, pin rewire, and agent settings. See [graph editor](graph-editor.md), [conditional graphs](conditional-graphs.md), and the [user guide](user-guide.md).
+
+## Per-agent inference limits and reasoning off
+
+Schema 1.10 adds an optional bounded `maxOutputTokens` setting (1–16,384) to agent configuration. Absent values retain the legacy 1,024-token cap, while configured values are passed to Microsoft.Extensions.AI and captured in model request evidence. Providers that advertise reasoning controls now expose explicit **Off**, mapped to `ReasoningEffort.None`, distinct from provider default. Core validation, Agent Framework evidence, and OpenAI-compatible request tests cover bounds and propagation. See [architecture](architecture.md) and the [user guide](user-guide.md).
+
 ## Confirmed conditional block removal
 
 Core can preview and remove an isolated condition region, including both arms, nested decisions and the matching merge, then reconnect the surrounding path. The editor lists affected nodes and requires confirmation; cancellation leaves the draft unchanged. Context-menu and Delete-key entry points use the same flow, and shared undo/redo restores definition and layout. Outside incoming paths cause rejection, preserving unrelated branches. Published revisions and historical runs stay unchanged. Eight focused Core cases cover empty/nested/sequential regions, immutable source definitions and shared-boundary/non-condition rejection. The conditional browser smoke verifies cancellation, confirmation, definition/layout undo/redo, saved removal, unchanged published v1, and framework execution of the reconnected v2. Release build, full .NET suite (246 passed; one opt-in inference test skipped), and documentation link/Mermaid checks passed locally on Linux. See [conditional graphs](conditional-graphs.md).

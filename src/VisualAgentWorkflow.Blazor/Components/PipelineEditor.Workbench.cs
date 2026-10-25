@@ -124,6 +124,12 @@ public partial class PipelineEditor
         await CloseMenu(context);
     }
 
+    private async Task Disconnect(string connectionId, GraphContextRequest context)
+    {
+        await CloseMenu(context);
+        await Edit(() => GraphEditing.Disconnect(Definition, connectionId));
+    }
+
     private WorkflowLayout PlaceAddedNodes(WorkflowDefinition next, WorkflowLayout presentation, string[] added, GraphContextRequest? context, PortReference? insertion)
     {
         if (added.Length == 0) return presentation;

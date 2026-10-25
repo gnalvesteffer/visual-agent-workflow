@@ -15,14 +15,14 @@ public sealed record WorkflowLayout(string SchemaVersion,
     public static WorkflowLayout Create(WorkflowDefinition definition)
     {
         var nodes = ImmutableSortedDictionary.CreateBuilder<string, NodePresentation>(StringComparer.Ordinal);
-        var order = WorkflowGraph.OrderedNodes(definition);
+        var order = WorkflowGraph.DisplayOrder(definition);
         if (WorkflowGraph.HasRouting(definition))
         {
             var columns = new Dictionary<string, int>(StringComparer.Ordinal);
             var rows = new Dictionary<int, int>();
             foreach (var id in order)
             {
-                var parents = definition.Connections.Values.Where(e => e.Target.NodeId == id).Select(e => columns[e.Source.NodeId]);
+                var parents = definition.Connections.Values.Where(e => e.Target.NodeId == id && columns.ContainsKey(e.Source.NodeId)).Select(e => columns[e.Source.NodeId]);
                 var column = parents.DefaultIfEmpty(-1).Max() + 1;
                 columns[id] = column;
                 var row = rows.GetValueOrDefault(column);
@@ -52,7 +52,7 @@ public sealed record WorkflowLayout(string SchemaVersion,
         if (WorkflowGraph.HasControlNodes(definition))
         {
             var occupied = Nodes.Where(p => definition.Nodes.ContainsKey(p.Key)).Select(p => p.Value.Position).ToList();
-            foreach (var id in WorkflowGraph.OrderedNodes(definition).Where(id => !Nodes.ContainsKey(id)))
+            foreach (var id in WorkflowGraph.DisplayOrder(definition).Where(id => !Nodes.ContainsKey(id)))
             {
                 var point = defaults.Nodes[id].Position;
                 while (occupied.Any(p => Math.Abs(p.X - point.X) < 300 && Math.Abs(p.Y - point.Y) < 650))

@@ -14,7 +14,7 @@ internal static class WorkflowEndpoints
         group.MapPut("/workflows/{workflowId}/draft", async (string workflowId, SaveDraftRequest request, IWorkflowCatalog catalog) =>
         {
             if (request.Definition.ValueKind != JsonValueKind.Object) return Results.BadRequest();
-            var definition = WorkflowJson.Deserialize(request.Definition.GetRawText());
+            var definition = WorkflowJson.DeserializeDraft(request.Definition.GetRawText());
             if (!string.Equals(definition.WorkflowId, workflowId, StringComparison.Ordinal)) return Results.BadRequest();
             return Results.Ok(await catalog.SaveDraftAsync(definition, request.ExpectedGeneration));
         });
@@ -25,7 +25,7 @@ internal static class WorkflowEndpoints
         {
             if (catalog is not IWorkflowDesignCatalog designs || request.Definition.ValueKind != JsonValueKind.Object ||
                 request.Layout.ValueKind != JsonValueKind.Object) return Results.BadRequest();
-            var definition = WorkflowJson.Deserialize(request.Definition.GetRawText());
+            var definition = WorkflowJson.DeserializeDraft(request.Definition.GetRawText());
             if (definition.WorkflowId != workflowId) return Results.BadRequest();
             var layout = WorkflowLayoutJson.Deserialize(request.Layout.GetRawText(), definition);
             return Results.Ok(await designs.SaveDesignAsync(definition, layout, request.ExpectedGeneration));

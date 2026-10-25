@@ -83,4 +83,33 @@ public sealed class ConditionalGraphTests
         Assert.Equal(2, nested.Nodes.Values.Count(n => n.Type == NodeTypes.Condition));
         Assert.Throws<ArgumentException>(() => GraphEditing.RemoveNode(graph, branch));
     }
+
+    [Fact]
+    public void DisconnectedDraftCanBeRewiredAndValidationClearsOnlyWhenGraphIsWhole()
+    {
+        var graph = Baseline();
+        var disconnected = GraphEditing.Disconnect(graph, "edge");
+        Assert.NotEmpty(WorkflowValidator.Validate(disconnected));
+        Assert.NotEqual(WorkflowJson.ComputeDraftHash(graph), WorkflowJson.ComputeDraftHash(disconnected));
+        Assert.Throws<ArgumentException>(() => WorkflowJson.ComputeHash(disconnected));
+        Assert.Throws<ArgumentException>(() => WorkflowRevision.Create(disconnected, "test"));
+
+        Assert.Equal(WorkflowJson.ComputeHash(graph), WorkflowJson.ComputeDraftHash(graph));
+
+        var reconnected = GraphEditing.ConnectPins(disconnected, "input", "out", "output", "in");
+
+        Assert.Empty(WorkflowValidator.Validate(reconnected));
+        Assert.Equal("output", reconnected.Connections.Values.Single().Target.NodeId);
+    }
+
+    [Fact]
+    public void DraftJsonRoundTripsIncompleteTopologyButStrictWorkflowCodecRejectsIt()
+    {
+        var disconnected = GraphEditing.Disconnect(Baseline(), "edge");
+        var json = WorkflowJson.SerializeDraft(disconnected);
+
+        Assert.Equal(WorkflowJson.ComputeDraftHash(disconnected), WorkflowJson.ComputeDraftHash(WorkflowJson.DeserializeDraft(json)));
+        Assert.Throws<ArgumentException>(() => WorkflowJson.Serialize(disconnected));
+        Assert.Throws<ArgumentException>(() => WorkflowJson.Deserialize(json));
+    }
 }

@@ -238,6 +238,57 @@ def check(browser, screenshots):
     workbench(designer).get_by_role("button", name="Restore selected to draft", exact=True).click()
     workbench(designer).get_by_text("Version restored to draft. Publish to create a new version; active runs are unchanged.", exact=True).wait_for()
     assert design()["layout"] == pinned
+    # Existing wires can be disconnected, saved as an invalid draft, and rewired to a matching pin.
+    canvas = workbench(designer).locator(".vaw-graph-editor")
+    workbench(designer).locator("details.vaw-layout-inspector").evaluate("e=>e.open=true")
+    workbench(designer).get_by_label("Wire to organize", exact=True).select_option("link-1")
+    workbench(designer).get_by_role("button", name="Disconnect wire", exact=True).click()
+    expect(workbench(designer).get_by_role("alert", name="Workflow validation issues")).to_contain_text("unresolved issue")
+    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
+    workbench(designer).get_by_text("Draft saved.", exact=True).wait_for()
+    expect(workbench(designer).get_by_role("button", name="Publish & activate", exact=True)).to_be_disabled()
+    expect(workbench(designer).get_by_role("button", name="Activate selected version", exact=True)).to_be_disabled()
+    assert "link-1" not in design()["draft"]["definition"]["connections"]
+    source_pin = canvas.locator("li[data-node-id='input'] .vaw-output-ports [data-socket='out']")
+    target_pin = canvas.locator("li[data-node-id='step-1'] .vaw-input-ports [data-socket='in']")
+    source_box, target_box = source_pin.bounding_box(), target_pin.bounding_box()
+    page.mouse.move(source_box["x"] + source_box["width"] / 2, source_box["y"] + source_box["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(target_box["x"] + target_box["width"] / 2, target_box["y"] + target_box["height"] / 2, steps=12)
+    expect(target_pin).to_have_class(re.compile("vaw-socket-drop-target"))
+    page.mouse.up()
+    expect(workbench(designer).get_by_role("alert", name="Workflow validation issues")).to_have_count(0)
+    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
+    workbench(designer).get_by_text("Draft saved.", exact=True).wait_for()
+    expect(workbench(designer).get_by_role("button", name="Publish & activate", exact=True)).to_be_enabled()
+    saved_rewire = design()["draft"]["definition"]["connections"]
+    assert any(edge["source"] == {"nodeId": "input", "portId": "out"} and edge["target"] == {"nodeId": "step-1", "portId": "in"} for edge in saved_rewire.values())
+    # Agent-only controls stay scoped to an agent node and are persisted independently.
+    agent_definition = page.request.get(BASE + "/api/templates/default").json()
+    agent_definition["workflowId"] = "agent-settings-smoke-" + uuid.uuid4().hex
+    agent_definition["schemaVersion"] = "1.10"
+    agent_definition["nodes"]["step-1"]["type"] = "core.agent"
+    agent_definition["nodes"]["step-1"]["agent"] = {
+        "providerId": "demo.scripted",
+        "providerVersion": "1.0.0",
+        "instructions": "Return a deterministic response.",
+        "tools": [],
+    }
+    agent_path = BASE + "/api/workflows/" + agent_definition["workflowId"]
+    response = page.request.put(agent_path + "/draft", data={"definition": agent_definition, "expectedGeneration": 0})
+    assert response.ok, response.text()
+    page.goto(BASE)
+    agent_designer = page.get_by_role("region", name="Workflow designer", exact=True)
+    workbench(agent_designer).get_by_label("Saved workflow", exact=True).select_option(agent_definition["workflowId"])
+    workbench(agent_designer).get_by_label("Node to organize", exact=True).select_option("step-1")
+    token_limit = workbench(agent_designer).get_by_label("Maximum output tokens for step-1", exact=True)
+    token_limit.fill("4096")
+    token_limit.press("Tab")
+    workbench(agent_designer).get_by_role("button", name="Save draft", exact=True).click()
+    workbench(agent_designer).get_by_text("Draft saved.", exact=True).wait_for()
+    configured_agent = page.request.get(agent_path + "/design").json()["draft"]["definition"]
+    assert configured_agent["schemaVersion"] == "1.10"
+    assert configured_agent["nodes"]["step-1"]["agent"]["maxOutputTokens"] == 4096
     # The authoring control creates the typed input/selector pair and saves its RFC 6901 pointer.
     json_definition = page.request.get(BASE + "/api/templates/default").json()
     json_definition["workflowId"] = "json-canvas-smoke-" + uuid.uuid4().hex
@@ -267,7 +318,7 @@ def check(browser, screenshots):
         expect(viewer).to_be_visible()
         viewer.screenshot(path=str(screenshots / "canvas-playback.png"))
     assert not errors, errors
-    print("Edge sockets, cancellation, pointer/keyboard moves, undo/redo, comments, box selection/group moves, free pan/reset, section moves, wire reroutes/angles, zoom, JSON-input authoring, reload, CAS conflicts, publication, version preview/restore, and recorded layout playback passed.")
+    print("Edge sockets, wire disconnect/rewire, invalid draft save and publish/activate gating, per-agent output-token editing, cancellation, pointer/keyboard moves, undo/redo, comments, box selection/group moves, free pan/reset, section moves, wire reroutes/angles, zoom, JSON-input authoring, reload, CAS conflicts, publication, version preview/restore, and recorded layout playback passed.")
     page.close()
 
 
@@ -275,7 +326,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--browser-executable")
     parser.add_argument("--screenshots", type=Path)
+    parser.add_argument("--base-url", default=BASE, help="Studio base URL (defaults to the standard local port)")
     args = parser.parse_args()
+    BASE = args.base_url.rstrip("/")
     if args.screenshots:
         args.screenshots.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as p:

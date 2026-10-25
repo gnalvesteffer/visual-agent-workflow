@@ -17,11 +17,31 @@ public sealed class OpenAIProviderTests
     {
         ProviderId = "openai.fixture", Version = "1.0.0", Model = "fixture-model", InvocationTimeout = timeout ?? TimeSpan.FromSeconds(30)
     };
-    private static WorkflowRevision Revision(ToolBindingRequest? tool = null)
+    private static WorkflowRevision Revision(ToolBindingRequest? tool = null, int? maxOutputTokens = null)
     {
         var graph = PipelineEditing.ReplaceNode(PipelineTemplates.Create("uppercase"), "step-1",
             new(NodeTypes.Agent, "1.0.0", Agent: new("openai.fixture", "1.0.0", "Fixture instructions", tool is null ? [] : [tool])));
+        if (maxOutputTokens is { } limit)
+            graph = graph with { SchemaVersion = "1.10", Nodes = graph.Nodes.SetItem("step-1",
+                graph.Nodes["step-1"] with { Agent = graph.Nodes["step-1"].Agent! with { MaxOutputTokens = limit } }) };
         return WorkflowRevision.Create(graph, "fixture");
+    }
+
+    [Fact]
+    public async Task ConfiguredAgentOutputLimitIsSentToTheCompatibleEndpoint()
+    {
+        var handler = new Handler(async (request, _) =>
+        {
+            using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+            var budget = body.RootElement.TryGetProperty("max_completion_tokens", out var modernBudget) ? modernBudget : body.RootElement.GetProperty("max_tokens");
+            Assert.Equal(4096, budget.GetInt32());
+            return Reply();
+        });
+        var registration = OpenAIProviders.Create(Options(), () => Key, () => handler);
+        var executor = new AgentNodeExecutor([registration], new McpToolBroker([], new ExplicitToolAuthorizationPolicy([])));
+        var events = new List<(string Kind, string? Data)>();
+
+        Assert.Equal("protocol response", await executor.ExecuteAsync(Context(Revision(maxOutputTokens: 4096), events), "hello"));
     }
     private static HttpResponseMessage Reply(string text = "protocol response") => new(HttpStatusCode.OK)
     {

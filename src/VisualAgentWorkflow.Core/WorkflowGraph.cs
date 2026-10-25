@@ -80,6 +80,13 @@ public static class WorkflowGraph
         return TopologicalOrder(definition);
     }
 
+    /// <summary>Safe deterministic canvas order for incomplete drafts. Never use for runtime execution.</summary>
+    public static ImmutableArray<string> DisplayOrder(WorkflowDefinition definition)
+    {
+        var connected = TopologicalOrder(definition);
+        return connected.AddRange(definition.Nodes.Keys.Except(connected, StringComparer.Ordinal).Order(StringComparer.Ordinal));
+    }
+
     internal static ImmutableArray<string> TopologicalOrder(WorkflowDefinition definition)
     {
         var incoming = definition.Nodes.Keys.ToDictionary(id => id, _ => 0, StringComparer.Ordinal);

@@ -26,16 +26,17 @@ public class AgentExecutionTests
         var node = baseline.Nodes["step-1"];
         var definition = baseline with
         {
-            SchemaVersion = "1.8",
+            SchemaVersion = "1.10",
             Skills = ImmutableSortedDictionary<string, WorkflowSkill>.Empty.Add("arithmetic@1", skill),
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
                 .Add("context", new("Context", "default"))
-                .Add("effort", new("Reasoning effort", "default") { Type = "choice", Choices = ["default", "low", "medium", "high"] }),
+                .Add("effort", new("Reasoning effort", "default") { Type = "choice", Choices = ["default", "off", "low", "medium", "high"] }),
             Nodes = baseline.Nodes.SetItem("step-1", node with { Agent = node.Agent! with
             {
                 Skills = [new("arithmetic", "1", skill.ContentHash)],
                 UserMessage = new([new("literal", "Question: "), new("input", ""), new("literal", " / "), new("parameter", "context")]),
-                ReasoningEffortParameterId = "effort"
+                ReasoningEffortParameterId = "effort",
+                MaxOutputTokens = 4096
             } })
         };
         var events = new List<ExecutionEvent>();
@@ -43,11 +44,12 @@ public class AgentExecutionTests
         var fixture = DeterministicDemoChatClient.Registration();
         var executor = new AgentNodeExecutor([fixture with { Descriptor = fixture.Descriptor with { SupportsReasoningEffort = true } }], broker);
         await new PipelineRunner(broker, executor).ExecuteWithParametersAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"),
-            "1+1?", new Dictionary<string, string> { ["context"] = "integer arithmetic", ["effort"] = "high" },
+            "1+1?", new Dictionary<string, string> { ["context"] = "integer arithmetic", ["effort"] = "off" },
             e => { events.Add(e); return ValueTask.CompletedTask; });
         var request = Assert.Single(events, e => e.Kind == ExecutionEventKinds.ModelRequested);
         Assert.Contains("Give one number.", request.Data);
-        Assert.Contains("\"reasoningEffort\":\"High\"", request.Data);
+        Assert.Contains("\"reasoningEffort\":\"None\"", request.Data);
+        Assert.Contains("\"maxOutputTokens\":4096", request.Data);
         using var recorded = JsonDocument.Parse(request.Data!);
         var messageText = recorded.RootElement.GetProperty("messages")[0].GetProperty("content")[0].GetProperty("text").GetString();
         Assert.Equal("Question: 1+1? / integer arithmetic", messageText);

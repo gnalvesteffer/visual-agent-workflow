@@ -6,9 +6,9 @@ Statuses mean **Complete** (implemented and verified), **Active** (currently bei
 
 ## Current product boundary
 
-The development Studio edits and runs validated linear and conditional graphs through Microsoft Agent Framework. Most graph connections carry strings; schema 1.9 adds a bounded JSON entry input and pointer selector that returns text, while schema 1.7 adds deterministic text-template nodes that combine connected input and declared workflow parameters without expression evaluation. It has free node placement, edge sockets, multi-selection/group movement, pan/reset/fit, reroutes/pinned angles, labels/comments, named sections, immutable publications, restore/activation, persisted local audit/run evidence, and recorded playback, plus reusable published pipelines and portable packages. Agent nodes can configure system instructions/provider/model, select node-scoped MCP tools, and set low/medium/high reasoning effort where the adapter advertises support, including from a bounded workflow choice input. Studio has a local Streamable HTTP MCP library with a portable nested argument subset and a text-only versioned skill library; selected skill revisions and structured user-message templates travel in schema 1.7 definitions. Schema 1.6 supports up to 64 string parameters; schema 1.8 adds integer, number, boolean and choice validation and exposes a reasoning-effort input. Mutable variables, general object/collection graph mapping, parallel fan-out/joins, loops and additional agent-configuration pins remain planned. Model providers can be managed in Studio settings. The default agent provider is a deterministic fixture; the opt-in OpenAI SDK adapter is protocol-verified, while credentialed live-service qualification remains outstanding.
+The development Studio edits and runs validated linear and conditional graphs through Microsoft Agent Framework. Most graph connections carry strings; schema 1.9 adds a bounded JSON entry input and pointer selector that returns text, while schema 1.7 adds deterministic text-template nodes that combine connected input and declared workflow parameters without expression evaluation. It has free node placement, compatible pin rewiring, wire disconnect, saved incomplete drafts with validation gates, edge sockets, multi-selection/group movement, pan/reset/fit, reroutes/pinned angles, labels/comments, named sections, immutable publications, restore/activation, persisted local audit/run evidence, and recorded playback, plus reusable published pipelines and portable packages. Agent nodes configure system instructions/provider/model, node-scoped MCP tools, bounded per-agent output tokens, and provider-advertised reasoning controls including explicit off. Studio has a local Streamable HTTP MCP library with a portable nested argument subset and a text-only versioned skill library; selected skill revisions and structured user-message templates travel in schema 1.7 definitions. Schema 1.6 supports up to 64 string parameters; schema 1.8 adds integer, number, boolean and choice validation and exposes a reasoning-effort input. Mutable variables, general object/collection graph mapping, parallel fan-out/joins, loops and additional agent-configuration pins remain planned. Model providers can be managed in Studio settings. The default agent provider is a deterministic fixture; the opt-in OpenAI SDK adapter is protocol-verified, while credentialed live-service qualification remains outstanding.
 
-The backend owns execution. Studio/ordinary queued runs still interrupt after host failure; a separate opt-in host explicitly resumes deterministic saved checkpoints. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Free placement does not imply arbitrary socket rewiring or parallel execution. Conditional routing is an explicit validated operation.
+The backend owns execution. Studio/ordinary queued runs still interrupt after host failure; a separate opt-in host explicitly resumes deterministic saved checkpoints. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Socket rewiring is supported for matching typed pins, while incomplete drafts remain non-executable until validation succeeds. Parallel execution is a separate planned capability; conditional routing is an explicit validated operation.
 
 ## Latest completed milestone: Provider management and Studio theme refinement
 
@@ -16,7 +16,7 @@ The Settings page can list, add, version, and delete locally saved OpenAI-compat
 
 ## Previous completed milestone: canvas-first creation workbench
 
-Blank connected drafts, searchable node library, contextual search/actions, drag placement and output-pin creation use validated insertion paths. Compact cards and a selected properties panel prioritize the canvas. The canvas supports box selection, grouped movement, pan space around the graph, fit/reset controls, keyboard shortcuts, filtering and clearer recorded paths. Browser validation covers these gestures and existing authoring/version/run flows. Arbitrary existing-node rewiring, explicit branch-block removal and broader graph semantics remain planned. See [graph editor](graph-editor.md) and [user guide](user-guide.md).
+Blank connected drafts, searchable node library, contextual search/actions, drag placement, output-pin creation, compatible pin rewiring, and wire disconnection are available. Drafts can be saved while incomplete; visible validation issues block publish and execution. Compact cards and a selected properties panel prioritize the canvas. The canvas supports box selection, grouped movement, pan space around the graph, fit/reset controls, keyboard shortcuts, filtering and clearer recorded paths. Browser validation covers these gestures and existing authoring/version/run flows. Explicit branch-block removal and broader graph semantics remain planned. See [graph editor](graph-editor.md) and [user guide](user-guide.md).
 
 ## Previous completed milestone: read-only interrupted-run reconciliation
 
@@ -40,7 +40,7 @@ Schema 1.5 adds a backend-owned approval immediately before an explicit MCP tool
 
 ## Previous completed milestone: conditional string graphs
 
-Schema 1.4 adds approved ordinal predicates, true/false string ports, exclusive merges and bounded acyclic validation. The adapter uses real Agent Framework conditional edges and records decisions separately from actual deliveries. Designer controls insert conditional blocks, edit predicates/arms and preserve undo/version/package/playback behavior. Existing linear schemas/hashes remain supported; linear-only reuse rejects routing graphs. See [conditional graphs](conditional-graphs.md). Richer port types, arbitrary socket rewiring, loops and parallel joins remain planned.
+Schema 1.4 adds approved ordinal predicates, true/false string ports, exclusive merges and bounded acyclic validation. The adapter uses real Agent Framework conditional edges and records decisions separately from actual deliveries. Designer controls insert conditional blocks, edit predicates/arms and preserve undo/version/package/playback behavior. Existing linear schemas/hashes remain supported; linear-only reuse rejects routing graphs. See [conditional graphs](conditional-graphs.md). Richer port types, loops and parallel joins remain planned.
 
 ## Previous completed milestone: opt-in consumer observation
 
@@ -144,7 +144,11 @@ The milestone is complete when a user can configure an approved MCP server, disc
 
 ### Completed: bounded JSON input and selection
 
-Schema 1.9 provides a focused typed-data foundation: an entry node may validate bounded JSON input and pass its `json` port to an RFC 6901 property/array selector. The selector emits text so existing agent, MCP and deterministic nodes remain unchanged. Core type-checks graph edges, graph edits add/remove the pair atomically, and runtime events record the selected value. Broader JSON/object ports, mapping/validation nodes, arbitrary socket rewiring, parallel fan-out/fan-in, loops and richer error/cancellation semantics remain planned.
+Schema 1.9 provides a focused typed-data foundation: an entry node may validate bounded JSON input and pass its `json` port to an RFC 6901 property/array selector. The selector emits text so existing agent, MCP and deterministic nodes remain unchanged. Core type-checks graph edges, graph edits add/remove the pair atomically, and runtime events record the selected value. Broader JSON/object ports, mapping/validation nodes, parallel fan-out/fan-in, loops and richer error/cancellation semantics remain planned.
+
+### Completed: per-agent inference controls
+
+Schema 1.10 adds a bounded output-token limit to each agent and an explicit reasoning-off preference. Defaults preserve the prior 1,024-token behavior; selected values are stored with the workflow and captured in model-request evidence. The Studio only exposes reasoning controls for providers that advertise support. Endpoint-specific limits or ignored options remain the provider's behavior.
 
 ### Planned: typed mapping and complex graph orchestration
 
@@ -162,7 +166,7 @@ Add workspace identity, backend authorization, authenticated audit actors, paylo
 
 ### Planned: further reusable assets and specialization
 
-Explicit conditional-block removal is implemented for isolated decision regions, with affected-node confirmation and shared definition/layout undo. Shared-boundary removal and arbitrary rewiring remain unsupported. Evolve template copies into nested workflow prefab instances with pinned dependencies, declared inputs/outputs, explicit upgrades/overrides, cycle detection, and readable invocation scopes. Preserve historical playback when sources/providers are absent.
+Explicit conditional-block removal is implemented for isolated decision regions, with affected-node confirmation and shared definition/layout undo. Shared-boundary removal remains unsupported. Evolve template copies into nested workflow prefab instances with pinned dependencies, declared inputs/outputs, explicit upgrades/overrides, cycle detection, and readable invocation scopes. Preserve historical playback when sources/providers are absent.
 
 ### Planned: approved extension workers
 

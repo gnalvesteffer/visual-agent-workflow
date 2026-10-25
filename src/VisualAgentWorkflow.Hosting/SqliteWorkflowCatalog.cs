@@ -70,7 +70,7 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog
 
     private WorkflowDesign SaveDesign(WorkflowDefinition definition, WorkflowLayout? layout, long expectedGeneration)
     {
-        var json = WorkflowJson.Serialize(definition);
+        var json = WorkflowJson.SerializeDraft(definition);
         using var connection = Open();
         using var transaction = connection.BeginTransaction(deferred: false);
         var previous = GetDraft(connection, transaction, definition.WorkflowId);
@@ -87,7 +87,7 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog
             INSERT INTO workflow_layouts(workflow_id,layout_json) VALUES($id,$layout)
             ON CONFLICT(workflow_id) DO UPDATE SET layout_json=$layout;
             """, ("$id", definition.WorkflowId), ("$json", json), ("$layout", layoutJson), ("$generation", generation));
-        Audit(connection, transaction, definition.WorkflowId, "draft.saved", generation, null, WorkflowJson.ComputeHash(definition));
+        Audit(connection, transaction, definition.WorkflowId, "draft.saved", generation, null, WorkflowJson.ComputeDraftHash(definition));
         if (explicitLayout) Audit(connection, transaction, definition.WorkflowId, "layout.saved", generation, null, WorkflowLayoutJson.ComputeHash(layout, definition));
         var draft = GetDraft(connection, transaction, definition.WorkflowId)!;
         transaction.Commit();
@@ -234,7 +234,7 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog
         return reader.Read() ? ReadDraft(reader) : null;
     }
 
-    private static WorkflowDraft ReadDraft(SqliteDataReader reader) => new(WorkflowJson.Deserialize(reader.GetString(0)),
+    private static WorkflowDraft ReadDraft(SqliteDataReader reader) => new(WorkflowJson.DeserializeDraft(reader.GetString(0)),
         reader.GetInt64(1), NullableGuid(reader, 2), NullableGuid(reader, 3));
 
     private static PublishedWorkflowRevision? GetRevision(SqliteConnection connection, SqliteTransaction? transaction, Guid id)

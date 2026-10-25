@@ -67,6 +67,29 @@ public class AgentCapabilityTests
     }
 
     [Fact]
+    public void AgentOutputLimitsAndExplicitReasoningOffAreBoundedSchema110Settings()
+    {
+        var skill = WorkflowSkill.Create("math", "1.0", "Arithmetic", "Return a single number.");
+        var baseline = Definition(skill);
+        var node = baseline.Nodes["step-1"];
+        var configured = baseline with
+        {
+            SchemaVersion = "1.10",
+            Nodes = baseline.Nodes.SetItem("step-1", node with
+            { Agent = node.Agent! with { MaxOutputTokens = 4096, ReasoningEffort = AgentReasoningEffort.Off } })
+        };
+
+        Assert.Empty(WorkflowValidator.Validate(configured));
+        Assert.Contains(WorkflowValidator.Validate(configured with { SchemaVersion = "1.9" }), issue => issue.Code == "agent.outputTokens");
+        Assert.Contains(WorkflowValidator.Validate(configured with { SchemaVersion = "1.9", Nodes = configured.Nodes.SetItem("step-1",
+            configured.Nodes["step-1"] with { Agent = configured.Nodes["step-1"].Agent! with { MaxOutputTokens = null } }) }), issue => issue.Code == "agent.reasoning");
+        foreach (var value in new[] { 0, AgentOutputTokenLimits.Maximum + 1 })
+            Assert.Contains(WorkflowValidator.Validate(configured with { Nodes = configured.Nodes.SetItem("step-1",
+                configured.Nodes["step-1"] with { Agent = configured.Nodes["step-1"].Agent! with { MaxOutputTokens = value } }) }),
+                issue => issue.Code == "agent.outputTokens");
+    }
+
+    [Fact]
     public void PromptTemplateCodecPreservesReferencesAndEscapesLiteralTokens()
     {
         var parameters = new Dictionary<string, WorkflowParameterDefinition>
