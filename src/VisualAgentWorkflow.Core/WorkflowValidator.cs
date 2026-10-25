@@ -14,8 +14,8 @@ public static class WorkflowValidator
         var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
 
-        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17"))
-            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.17.");
+        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18"))
+            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.18.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.Nodes is null || definition.Connections is null)
@@ -23,20 +23,20 @@ public static class WorkflowValidator
             Error("graph.missing", "nodes", "Nodes and connections must be present.");
             return issues.ToImmutable();
         }
-        if (definition.Nodes.Count is < 2 or > 256 || definition.Connections.Count > (definition.SchemaVersion is "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" ? 510 : 255))
-            Error("graph.limit", "nodes", "A graph requires 2–256 nodes and at most 255 connections (510 for schemas 1.4–1.17).");
+        if (definition.Nodes.Count is < 2 or > 256 || definition.Connections.Count > (definition.SchemaVersion is "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" ? 510 : 255))
+            Error("graph.limit", "nodes", "A graph requires 2–256 nodes and at most 255 connections (510 for schemas 1.4–1.18).");
 
         var parameters = definition.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
         if (parameters.Count > 64)
             Error("parameters.limit", "parameters", "A workflow can define at most 64 parameters.");
-        if (definition.Parameters is { Count: > 0 } && definition.SchemaVersion is not ("1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16"))
+        if (definition.Parameters is { Count: > 0 } && definition.SchemaVersion is not ("1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16"))
             Error("parameters.schema", "parameters", "Workflow parameters require schema 1.6 or later.");
         foreach (var (id, parameter) in parameters)
             if (!ValidParameterId(id) || parameter is null || string.IsNullOrWhiteSpace(parameter.DisplayName) ||
                 parameter.DisplayName.Length > 128 || parameter.DefaultValue is null || parameter.DefaultValue.Length > 16_384 ||
                 parameter.Description?.Length > 512 ||
                 parameter.Type is not (null or "string" or "integer" or "number" or "boolean" or "choice") ||
-                parameter.Type is not (null or "string") && definition.SchemaVersion is not ("1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16") ||
+                parameter.Type is not (null or "string") && definition.SchemaVersion is not ("1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16") ||
                 parameter.Type == "choice" && (parameter.Choices is not { Length: > 0 and <= 32 } choices ||
                     choices.Any(choice => string.IsNullOrEmpty(choice) || choice.Length > 128) || choices.Distinct(StringComparer.Ordinal).Count() != choices.Length) ||
                 parameter.Type != "choice" && parameter.Choices is not null)
@@ -49,7 +49,7 @@ public static class WorkflowValidator
         var skills = definition.Skills ?? ImmutableSortedDictionary<string, WorkflowSkill>.Empty;
         if (skills.Count > 32 || skills.Values.Sum(skill => (long)(skill?.Instructions?.Length ?? 0)) > 65_536)
             Error("skills.limit", "skills", "A workflow can include at most 32 skills and 65,536 instruction characters.");
-        if (skills.Count > 0 && definition.SchemaVersion is not ("1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16"))
+        if (skills.Count > 0 && definition.SchemaVersion is not ("1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16"))
             Error("skills.schema", "skills", "Portable skills require schema 1.7.");
         foreach (var (key, skill) in skills)
             if (skill is null || key != skill.Id + "@" + skill.Version || !ValidParameterId(skill.Id) ||
@@ -63,7 +63,7 @@ public static class WorkflowValidator
         if (profiles.Count > 32 || profiles.Values.Sum(profile => (long)(profile?.Instructions?.Length ?? 0) +
             (profile?.Skills ?? []).Sum(skill => (long)(skill?.Instructions?.Length ?? 0))) > 65_536)
             Error("agentProfiles.limit", "agentProfiles", "A workflow can include at most 32 agent profiles and 65,536 instruction characters.");
-        if (profiles.Count > 0 && definition.SchemaVersion is not ("1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16"))
+        if (profiles.Count > 0 && definition.SchemaVersion is not ("1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16"))
             Error("agentProfiles.schema", "agentProfiles", "Embedded agent profiles require schema 1.11 or later.");
         foreach (var (key, profile) in profiles)
         {
@@ -82,7 +82,7 @@ public static class WorkflowValidator
                 profile.Skills is { } profileSkills && (profileSkills.IsDefault || profileSkills.Length > 8 ||
                     profileSkills.Select(skill => skill is null ? "" : skill.Id + "@" + skill.Version).Distinct(StringComparer.Ordinal).Count() != profileSkills.Length ||
                     profileSkills.Any(skill => skill is null || skill.ContentHash != WorkflowSkill.Create(skill.Id, skill.Version, skill.Name, skill.Instructions).ContentHash)) ||
-                profile.Channels is { } channels && (definition.SchemaVersion is not ("1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16") || channels.IsDefault || channels.Length > 8 ||
+                profile.Channels is { } channels && (definition.SchemaVersion is not ("1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16") || channels.IsDefault || channels.Length > 8 ||
                     channels.Distinct(StringComparer.Ordinal).Count() != channels.Length || channels.Any(channel => !ValidChannelId(channel))) ||
                 profile.ReasoningEffort is { } profileEffort && !Enum.IsDefined(profileEffort) ||
                 profile.MaxOutputTokens is { } outputTokens && outputTokens is < AgentOutputTokenLimits.Minimum or > AgentOutputTokenLimits.Maximum ||
@@ -92,29 +92,30 @@ public static class WorkflowValidator
 
         var incoming = definition.Nodes.Keys.ToDictionary(id => id, _ => 0);
         var outgoing = definition.Nodes.Keys.ToDictionary(id => id, _ => new List<string>());
+        var hasTerminationExit = definition.Nodes.Values.Any(n => n?.Type == NodeTypes.Terminate);
         foreach (var (id, node) in definition.Nodes)
         {
             if (string.IsNullOrWhiteSpace(id)) Error("node.id", "nodes", "Node IDs must be nonempty.");
             if (node is null || !NodeTypes.IsSupported(node.Type) || node.TypeVersion != "1.0.0")
                 Error("node.unsupported", $"nodes.{id}", "Unknown node type or implementation version.");
             if (node is null) continue;
-            if (node.Type is NodeTypes.Condition or NodeTypes.Merge && definition.SchemaVersion is not ("1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17"))
+            if (node.Type is NodeTypes.Condition or NodeTypes.Merge && definition.SchemaVersion is not ("1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.18" or "1.17"))
                 Error("node.schema", $"nodes.{id}", "Conditional and merge nodes require schema 1.4.");
             if (node.Type == NodeTypes.WorkflowValue)
             {
-                if (definition.SchemaVersion is not ("1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16")) Error("node.schema", $"nodes.{id}", "Workflow value nodes require schema 1.6 or later.");
+                if (definition.SchemaVersion is not ("1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16")) Error("node.schema", $"nodes.{id}", "Workflow value nodes require schema 1.6 or later.");
                 if (node.ParameterId is not { } parameterId || !parameters.ContainsKey(parameterId))
                     Error("parameter.reference", $"nodes.{id}.parameterId", "Select a parameter defined by this workflow.");
             }
             else if (node.ParameterId is not null)
                 Error("parameter.unexpected", $"nodes.{id}.parameterId", "Only workflow value nodes may reference a parameter.");
-            if (node.InputDataType is not null && (node.Type != NodeTypes.Input || node.InputDataType != "json" || definition.SchemaVersion is not ("1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16")))
+            if (node.InputDataType is not null && (node.Type != NodeTypes.Input || node.InputDataType != "json" || definition.SchemaVersion is not ("1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16")))
                 Error("input.dataType", $"nodes.{id}.inputDataType", "Only schema 1.9 or later input nodes can declare the JSON data type.");
-            if (node.OutputDataType is not null && (node.Type != NodeTypes.Output || node.OutputDataType != "json" || definition.SchemaVersion is not ("1.13" or "1.14" or "1.15" or "1.17" or "1.16")))
+            if (node.OutputDataType is not null && (node.Type != NodeTypes.Output || node.OutputDataType != "json" || definition.SchemaVersion is not ("1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16")))
                 Error("output.dataType", $"nodes.{id}.outputDataType", "Only schema 1.13 or later output nodes can declare the JSON data type.");
             if (node.Type == NodeTypes.JsonSelectString)
             {
-                if (definition.SchemaVersion is not ("1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16")) Error("node.schema", $"nodes.{id}", "JSON selection nodes require schema 1.9 or later.");
+                if (definition.SchemaVersion is not ("1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16")) Error("node.schema", $"nodes.{id}", "JSON selection nodes require schema 1.9 or later.");
                 if (node.JsonPropertySelection is not { } selection || !ValidJsonPointer(selection.Pointer))
                     Error("json.selection", $"nodes.{id}.jsonPropertySelection", "Provide a valid RFC 6901 JSON pointer with at most 16 segments and 1,024 characters.");
             }
@@ -122,25 +123,25 @@ public static class WorkflowValidator
                 Error("json.selection.unexpected", $"nodes.{id}.jsonPropertySelection", "Only JSON selection nodes can declare a JSON property pointer.");
             if (node.Type == NodeTypes.JsonProject)
             {
-                if (definition.SchemaVersion is not ("1.13" or "1.14" or "1.15" or "1.17" or "1.16")) Error("node.schema", $"nodes.{id}", "JSON projection nodes require schema 1.13 or later.");
+                if (definition.SchemaVersion is not ("1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16")) Error("node.schema", $"nodes.{id}", "JSON projection nodes require schema 1.13 or later.");
                 if (!ValidJsonProjection(node.JsonProjection)) Error("json.projection", $"nodes.{id}.jsonProjection", "Map 1–16 unique JSON property names to valid bounded JSON Pointers.");
-                if (node.JsonProjection?.Fields.Any(field => field?.ValueType is not null) == true && definition.SchemaVersion is not ("1.15" or "1.17" or "1.16"))
+                if (node.JsonProjection?.Fields.Any(field => field?.ValueType is not null) == true && definition.SchemaVersion is not ("1.15" or "1.18" or "1.17" or "1.16"))
                     Error("json.projection.schema", $"nodes.{id}.jsonProjection", "Typed JSON projection fields require schema 1.15.");
-                if (node.JsonProjection?.Fields.Any(field => field?.ValueSchema is not null) == true && definition.SchemaVersion is not ("1.16" or "1.17"))
+                if (node.JsonProjection?.Fields.Any(field => field?.ValueSchema is not null) == true && definition.SchemaVersion is not ("1.16" or "1.18" or "1.17"))
                     Error("json.projection.schema", $"nodes.{id}.jsonProjection", "Nested JSON mapping schemas require schema 1.16 or later.");
             }
             else if (node.JsonProjection is not null)
                 Error("json.projection.unexpected", $"nodes.{id}.jsonProjection", "Only JSON projection nodes may declare JSON field mappings.");
-            if (node.Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin && definition.SchemaVersion is not ("1.14" or "1.15" or "1.16" or "1.17"))
+            if (node.Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin && definition.SchemaVersion is not ("1.14" or "1.15" or "1.16" or "1.18" or "1.17"))
                 Error("node.schema", $"nodes.{id}", "Parallel graph nodes require schema 1.14.");
-            if (node.Type == NodeTypes.Loop && (definition.SchemaVersion != "1.17" || node.Loop is not { } loop ||
+            if (node.Type == NodeTypes.Loop && (definition.SchemaVersion is not ("1.17" or "1.18") || node.Loop is not { } loop ||
                 loop.MaximumIterations is < 1 or > WorkflowLoopLimits.MaximumIterations || !ValidStringCondition(loop.ContinueWhile)))
-                Error("loop.configuration", $"nodes.{id}.loop", $"Loops require schema 1.17, an approved continue-while predicate, and 1–{WorkflowLoopLimits.MaximumIterations} maximum iterations.");
+                Error("loop.configuration", $"nodes.{id}.loop", $"Loops require schema 1.17 or later, an approved continue-while predicate, and 1–{WorkflowLoopLimits.MaximumIterations} maximum iterations.");
             if (node.Type != NodeTypes.Loop && node.Loop is not null)
                 Error("loop.unexpected", $"nodes.{id}.loop", "Only loop nodes may declare loop configuration.");
             if (node.Type == NodeTypes.TextTemplate)
             {
-                if (definition.SchemaVersion is not ("1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16")) Error("node.schema", $"nodes.{id}", "Text template nodes require schema 1.7 or later.");
+                if (definition.SchemaVersion is not ("1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16")) Error("node.schema", $"nodes.{id}", "Text template nodes require schema 1.7 or later.");
                 if (!ValidTextTemplate(node.TextTemplate, parameters))
                     Error("text.template", $"nodes.{id}.textTemplate", "Use 1–64 bounded literal, input, or declared-parameter parts.");
             }
@@ -148,7 +149,7 @@ public static class WorkflowValidator
                 Error("text.template.unexpected", $"nodes.{id}.textTemplate", "Only text template nodes may declare a template.");
             if (node.Type == NodeTypes.Approval)
             {
-                if (definition.SchemaVersion is not ("1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16")) Error("node.schema", $"nodes.{id}", "Approval nodes require schema 1.5 or later.");
+                if (definition.SchemaVersion is not ("1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16")) Error("node.schema", $"nodes.{id}", "Approval nodes require schema 1.5 or later.");
                 if (node.Approval is not { } approval || string.IsNullOrWhiteSpace(approval.Prompt) || approval.Prompt.Length > 2000)
                     Error("approval.configuration", $"nodes.{id}.approval", "An approval prompt of 1–2000 characters is required.");
                 var targets = definition.Connections.Values.Where(e => e?.Source?.NodeId == id).ToArray();
@@ -166,7 +167,7 @@ public static class WorkflowValidator
             }
             else if (node.Condition is not null)
                 Error("condition.unexpected", $"nodes.{id}.condition", "Only conditional nodes may declare a predicate.");
-            if (node.Origin is { } origin && (definition.SchemaVersion is not ("1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16") ||
+            if (node.Origin is { } origin && (definition.SchemaVersion is not ("1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16") ||
                 string.IsNullOrWhiteSpace(origin.WorkflowId) || origin.WorkflowId.Length > 256 ||
                 string.IsNullOrWhiteSpace(origin.NodeId) || origin.NodeId.Length > 256 || origin.RevisionId == Guid.Empty ||
                 origin.Version < 1 || !ValidHash(origin.ContentHash)))
@@ -182,7 +183,7 @@ public static class WorkflowValidator
                 Error("tool.unexpected", $"nodes.{id}.tool", "This node type cannot declare an MCP tool.");
             if (node.Type == NodeTypes.Agent)
             {
-                if (definition.SchemaVersion is not ("1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16")) Error("node.schema", $"nodes.{id}", "Agent nodes require schema 1.2 or later.");
+                if (definition.SchemaVersion is not ("1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16")) Error("node.schema", $"nodes.{id}", "Agent nodes require schema 1.2 or later.");
                 if (node.Agent is not { } agent || string.IsNullOrWhiteSpace(agent.ProviderId) || agent.ProviderId.Length > 128 ||
                     string.IsNullOrWhiteSpace(agent.ProviderVersion) || agent.ProviderVersion.Length > 64 ||
                     agent.Instructions is null || agent.Instructions.Length > 8192 || agent.Tools.IsDefault || agent.Tools.Length > 8 ||
@@ -192,7 +193,7 @@ public static class WorkflowValidator
                 {
                     if (configured.UserMessage is { } template)
                     {
-                        if (definition.SchemaVersion is not ("1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16") || template.Parts.IsDefault || template.Parts.Length is < 1 or > 64 ||
+                        if (definition.SchemaVersion is not ("1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16") || template.Parts.IsDefault || template.Parts.Length is < 1 or > 64 ||
                             template.Parts.Any(part => part is null || part.Value is null || part.Value.Length > 8192 ||
                                 part.Kind is not ("literal" or "input" or "parameter") ||
                                 part.Kind == "parameter" && !parameters.ContainsKey(part.Value)))
@@ -200,27 +201,27 @@ public static class WorkflowValidator
                     }
                     if (configured.Skills is { } references)
                     {
-                        if (definition.SchemaVersion is not ("1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16") || references.IsDefault || references.Length > 8 ||
+                        if (definition.SchemaVersion is not ("1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16") || references.IsDefault || references.Length > 8 ||
                             references.Distinct().Count() != references.Length || references.Any(reference => reference is null ||
                                 !skills.TryGetValue(reference.Id + "@" + reference.Version, out var skill) || skill.ContentHash != reference.ContentHash))
                             Error("agent.skills", $"nodes.{id}.agent.skills", "Each assigned skill must match an embedded immutable revision.");
                     }
                     if (configured.ReasoningEffort is not null &&
-                        (definition.SchemaVersion is not ("1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16") || !Enum.IsDefined(configured.ReasoningEffort.Value) ||
-                         configured.ReasoningEffort == AgentReasoningEffort.Off && definition.SchemaVersion is not ("1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16") ||
+                        (definition.SchemaVersion is not ("1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16") || !Enum.IsDefined(configured.ReasoningEffort.Value) ||
+                         configured.ReasoningEffort == AgentReasoningEffort.Off && definition.SchemaVersion is not ("1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16") ||
                          configured.ReasoningEffortParameterId is not null))
                         Error("agent.reasoning", $"nodes.{id}.agent.reasoningEffort", "Reasoning effort requires schema 1.7; explicit off requires schema 1.10.");
                     if (configured.MaxOutputTokens is { } maxOutputTokens &&
-                        (definition.SchemaVersion is not ("1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16") || maxOutputTokens is < AgentOutputTokenLimits.Minimum or > AgentOutputTokenLimits.Maximum))
+                        (definition.SchemaVersion is not ("1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16") || maxOutputTokens is < AgentOutputTokenLimits.Minimum or > AgentOutputTokenLimits.Maximum))
                         Error("agent.outputTokens", $"nodes.{id}.agent.maxOutputTokens", "Maximum output tokens require schema 1.10 and a value from 1 to 16,384.");
                     if (configured.ReasoningEffortParameterId is { } reasoningParameter &&
-                        (definition.SchemaVersion is not ("1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16") || !parameters.TryGetValue(reasoningParameter, out var reasoningDefinition) ||
+                        (definition.SchemaVersion is not ("1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16") || !parameters.TryGetValue(reasoningParameter, out var reasoningDefinition) ||
                          reasoningDefinition.Type != "choice" || reasoningDefinition.Choices is not { } effortChoices ||
                          !effortChoices.Contains("default") || !effortChoices.Contains("low") || !effortChoices.Contains("medium") || !effortChoices.Contains("high") ||
-                         effortChoices.Contains("off") && definition.SchemaVersion is not ("1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16")))
+                         effortChoices.Contains("off") && definition.SchemaVersion is not ("1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16")))
                         Error("agent.reasoning.parameter", $"nodes.{id}.agent.reasoningEffortParameterId", "Use a schema 1.8 choice parameter containing default, low, medium, and high.");
                     if (configured.Delegates is { } delegates &&
-                        (definition.SchemaVersion is not ("1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.17" or "1.16") || delegates.IsDefault || delegates.Length > 4 || delegates.Distinct().Count() != delegates.Length ||
+                        (definition.SchemaVersion is not ("1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.18" or "1.17" or "1.16") || delegates.IsDefault || delegates.Length > 4 || delegates.Distinct().Count() != delegates.Length ||
                          delegates.Any(reference => reference is null || !profiles.TryGetValue(reference.Id + "@" + reference.Version, out var profile) || profile is null ||
                              profile.ContentHash != reference.ContentHash ||
                              (profile.Skills ?? []).Any(profileSkill => !skills.TryGetValue(profileSkill.Id + "@" + profileSkill.Version, out var workflowSkill) || workflowSkill != profileSkill))))
@@ -258,9 +259,11 @@ public static class WorkflowValidator
         foreach (var (id, node) in definition.Nodes)
         {
             if (node is null) continue;
-            if (definition.SchemaVersion is "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17")
+            if (node.Type == NodeTypes.Terminate && definition.SchemaVersion != "1.18")
+                Error("termination.schema", $"nodes.{id}", "Explicit workflow termination requires schema 1.18.");
+            if (definition.SchemaVersion is "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18")
             {
-                var validIncoming = node.Type == NodeTypes.Input ? incoming[id] == 0 : node.Type is NodeTypes.Merge or NodeTypes.Output
+                var validIncoming = node.Type == NodeTypes.Input ? incoming[id] == 0 : node.Type == NodeTypes.Terminate ? incoming[id] == 1 : node.Type == NodeTypes.Output && hasTerminationExit && incoming[id] == 0 ? true : node.Type is NodeTypes.Merge or NodeTypes.Output
                     ? incoming[id] is >= 1 and <= 16 : node.Type == NodeTypes.ParallelJoin ? incoming[id] == 2 : node.Type == NodeTypes.Loop ? incoming[id] == 2 : incoming[id] == 1;
                 var expected = WorkflowPorts.Outputs(node);
                 var edges = definition.Connections.Values.Where(e => e?.Source?.NodeId == id).ToArray();
@@ -273,6 +276,9 @@ public static class WorkflowValidator
             if (incoming[id] != expectedIncoming || outgoing[id].Count != expectedOutgoing)
                 Error("pipeline.degree", $"nodes.{id}", "Only a single input-to-output pipeline is supported; branches and joins are not yet supported.");
         }
+        var terminators = definition.Nodes.Where(n => n.Value?.Type == NodeTypes.Terminate).Select(n => n.Key).ToHashSet(StringComparer.Ordinal);
+        if (definition.Nodes.Values.Count(n => n?.Type == NodeTypes.Terminate) > 16)
+            Error("graph.termination.limit", "nodes", "A workflow may have at most 16 termination exits.");
         if (definition.Nodes.Values.Count(n => n?.Type == NodeTypes.Input) != 1 ||
             definition.Nodes.Values.Count(n => n?.Type == NodeTypes.Output) != 1)
             Error("pipeline.terminals", "nodes", "Exactly one input and one output node are required.");
@@ -291,6 +297,8 @@ public static class WorkflowValidator
             if (!visited.Add(id)) continue;
             foreach (var next in outgoing[id]) pending.Push(next);
         }
+        if (hasTerminationExit && definition.Connections.Values.All(edge => edge.Target.NodeId != definition.Nodes.Single(n => n.Value?.Type == NodeTypes.Output).Key))
+            visited.Add(definition.Nodes.Single(n => n.Value?.Type == NodeTypes.Output).Key);
         if (visited.Count != definition.Nodes.Count)
             Error("graph.unreachable", "nodes", "Every node must be reachable from the entry.");
         return issues.ToImmutable();
@@ -327,10 +335,10 @@ public static class WorkflowValidator
             error("loop.count", "nodes", "A workflow may contain one bounded loop and its single loop-body anchor.");
             return null;
         }
-        if (definition.SchemaVersion != "1.17") error("loop.schema", "nodes", "Bounded loops require schema 1.17.");
+        if (definition.SchemaVersion is not ("1.17" or "1.18")) error("loop.schema", "nodes", "Bounded loops require schema 1.17 or later.");
 
         var unsupportedControls = definition.Nodes.Where(entry => entry.Value?.Type is NodeTypes.Condition or NodeTypes.Merge or
-            NodeTypes.Approval or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin).Select(entry => entry.Key).ToArray();
+            NodeTypes.Approval or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.Terminate).Select(entry => entry.Key).ToArray();
         if (unsupportedControls.Length > 0)
             error("loop.control.nesting", "nodes", "This bounded-loop version supports one linear body; nested conditions, approvals, merges, and parallel blocks are not supported.");
 
@@ -467,7 +475,7 @@ public static class WorkflowValidator
         var joins = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.ParallelJoin).Select(entry => entry.Key).ToArray();
         var branchNodes = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.ParallelBranch).Select(entry => entry.Key).ToHashSet(StringComparer.Ordinal);
         if (forks.Length == 0 && joins.Length == 0 && branchNodes.Count == 0) return;
-        if (definition.SchemaVersion is not ("1.14" or "1.15" or "1.16" or "1.17")) error("parallel.schema", "nodes", "Parallel blocks require schema 1.14.");
+        if (definition.SchemaVersion is not ("1.14" or "1.15" or "1.16" or "1.18" or "1.17")) error("parallel.schema", "nodes", "Parallel blocks require schema 1.14.");
         if (forks.Length != 1 || joins.Length != 1)
         {
             error("parallel.pair", "nodes", "A workflow may contain one matched parallel fork and join block.");

@@ -113,6 +113,44 @@ public sealed class ConditionalExecutionTests
         Assert.Single(events, e => e.NodeId == merge && e.Kind == ExecutionEventKinds.NodeStarted);
     }
 
+    [Fact]
+    public async Task TerminationExitEndsSuccessfullyWithoutReturningOutput()
+    {
+        var baseline = EmptyArmsGraph();
+        var graph = GraphEditing.InsertTerminationAfter(baseline,
+            baseline.Nodes.Single(n => n.Value.Type == NodeTypes.Condition).Key, "false");
+        var runId = Guid.NewGuid();
+        var events = new List<ExecutionEvent>();
+
+        var result = await new PipelineRunner().ExecuteWithOutcomeAsync(runId, WorkflowRevision.Create(graph, "fixture"), "no",
+            null, evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Null(result.Output);
+        Assert.True(result.Terminated);
+        Assert.Equal(ExecutionEventKinds.Terminated, events[^1].Kind);
+        Assert.Equal(graph.Nodes.Single(node => node.Value.Type == NodeTypes.Terminate).Key, events[^1].NodeId);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.Data == "Workflow terminated without returning a value.");
+        Assert.DoesNotContain(events, evt => evt.NodeId == "output");
+
+        var legacyOutput = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "no",
+            _ => ValueTask.CompletedTask);
+        Assert.Equal(string.Empty, legacyOutput);
+    }
+
+    [Fact]
+    public async Task NonTerminatingConditionArmStillReturnsTheWorkflowOutput()
+    {
+        var baseline = EmptyArmsGraph();
+        var condition = baseline.Nodes.Single(n => n.Value.Type == NodeTypes.Condition).Key;
+        var graph = GraphEditing.InsertTerminationAfter(baseline, condition, "false");
+        var result = await new PipelineRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "yes",
+            null, _ => ValueTask.CompletedTask);
+
+        Assert.Equal("yes", result.Output);
+        Assert.False(result.Terminated);
+    }
+
     [Theory]
     [InlineData("say yes", "SAY YES")]
     [InlineData("abc", "cba")]

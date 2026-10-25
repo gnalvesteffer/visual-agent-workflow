@@ -60,6 +60,7 @@ public partial class PipelineEditor
             new("parallel", "Parallel block", "Flow", "Run two visible branch paths concurrently and collect named results", textPath && Definition.Nodes.Count <= 251 && !hasLoop && !Definition.Nodes.Values.Any(node => node.Type == NodeTypes.ParallelFork)),
             new("condition", "Condition", "Flow", "Create true / false paths; merge only when branches rejoin", canInsertCondition),
             new("loop", "Bounded loop", "Flow", "Repeat one linear body while a text condition holds, up to a fixed iteration limit", canInsertLoop),
+            new("terminate", "Terminate workflow", "Flow", "End this path successfully without returning a workflow result", textPath && Definition.Nodes.Values.Count(node => node.Type == NodeTypes.Terminate) < 16),
             new("approval", "Approval", "Flow", "Select an MCP tool to require exact-action review", !hasLoop && textPath && selected is not null && Definition.Nodes.TryGetValue(selected, out var selectedDefinition) && selectedDefinition.Type == NodeTypes.McpTool && !GuardedTool(selected))
         ];
         entries.AddRange(Providers.Select(p => new WorkflowNodeLibraryEntry(ProviderKey(p), p.DisplayName, "Agents", $"{p.ModelId} · {p.Version}", textPath)));
@@ -102,6 +103,8 @@ public partial class PipelineEditor
             await Edit(() => GraphEditing.InsertParallelBlockAfter(Definition, insertion.NodeId, insertion.PortId), context, insertion);
         else if (key == "loop")
             await Edit(() => GraphEditing.InsertBoundedLoopAfter(Definition, insertion.NodeId, insertion.PortId), context, insertion);
+        else if (key == "terminate")
+            await Edit(() => GraphEditing.InsertTerminationAfter(Definition, insertion.NodeId, insertion.PortId), context, insertion);
         else if (key == "json-selector")
             await Edit(() => GraphEditing.InsertJsonSelectorAfterJson(Definition, insertion.NodeId, insertion.PortId), context, insertion);
         else

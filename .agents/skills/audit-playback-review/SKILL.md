@@ -11,6 +11,8 @@ Read [project-guide](../project-guide/SKILL.md). Distinguish execution evidence 
 
 Capture immutable workflow/dependency identities, node and distinct invocation IDs, prefab scope, attempt/iteration, causal/message correlation, event identity, cursor, and timestamps. Node completion does not prove a particular edge transferred a message: instrument the actual transfer.
 
+Keep successful no-result workflow termination distinct from `run.completed` and from failure/cancellation. Its terminal event should contain no workflow payload, remain terminal for storage/control/recovery, and identify the visible terminator. Do not record adapter-only handoffs as graph connections or make a disconnected output node appear completed during playback.
+
 Attribute definition changes, publication, permissions, controls, approvals, and sensitive-detail access to authenticated actors. Use append-only records and explicit retention/deletion policies; corrections do not rewrite prior facts. Do not describe ordinary append-only tables as tamper-proof.
 
 ## Validate replay and reconnection

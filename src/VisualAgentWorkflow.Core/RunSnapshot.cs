@@ -16,11 +16,12 @@ public sealed record RunSnapshot(RunHeader Header, ImmutableArray<ExecutionEvent
     {
         get
         {
-            var terminal = Events.LastOrDefault(e => e.Kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or
+            var terminal = Events.LastOrDefault(e => e.Kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Terminated or ExecutionEventKinds.Failed or
                 ExecutionEventKinds.Cancelled or ExecutionEventKinds.Interrupted);
             if (terminal is not null) return terminal.Kind switch
             {
                 ExecutionEventKinds.Completed => "completed",
+                ExecutionEventKinds.Terminated => "terminated",
                 ExecutionEventKinds.Failed => "failed",
                 ExecutionEventKinds.Cancelled => "cancelled",
                 _ => "interrupted"
@@ -38,7 +39,7 @@ public sealed record RunSnapshot(RunHeader Header, ImmutableArray<ExecutionEvent
         }
     }
 
-    public bool IsTerminal => Status is "completed" or "failed" or "cancelled" or "interrupted";
+    public bool IsTerminal => Status is "completed" or "terminated" or "failed" or "cancelled" or "interrupted";
 }
 
 /// <summary>Host-supplied access to execution. Implementations own authorization and run lifetimes.</summary>

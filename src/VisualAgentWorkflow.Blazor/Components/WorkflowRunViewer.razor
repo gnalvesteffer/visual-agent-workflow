@@ -9,6 +9,7 @@
     {
         <header class="vaw-run-header">
             <div><strong>@(follow ? "Live / latest" : "Recorded playback")</strong> · Latest run status: @Snapshot.Status</div>
+            @if (VisibleStatus == "terminated") { <p class="vaw-help" role="status">The workflow ended successfully without returning a result.</p> }
             <p class="vaw-help">State at recorded position: @VisibleStatus</p>
             <small>Run @Snapshot.Header.RunId · revision @Snapshot.Header.RevisionId</small>
             @if (Snapshot.Header.Parameters is { Count: > 0 } parameters)
@@ -31,7 +32,7 @@
         </div>
             </ToolbarContent>
             <NodeContent Context="nodeId">
-                @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); var label = PendingApproval?.Action.ApprovalNodeId == nodeId ? "Awaiting approval" : PausedBefore(nodeId) && state is null ? "Paused before execution" : StateLabel(state); var activity = ActiveActivity(nodeId); }
+                @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); var label = PendingApproval?.Action.ApprovalNodeId == nodeId ? "Awaiting approval" : PausedBefore(nodeId) && state is null ? "Paused before execution" : node.Type == NodeTypes.Terminate && state?.Kind == ExecutionEventKinds.NodeCompleted ? "Terminated successfully" : StateLabel(state); var activity = ActiveActivity(nodeId); }
                 <button type="button" class="vaw-node-button" aria-label="@($"{nodeId} {node.Type} {label}")" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId ? "true" : "false")">
                     <span>@label</span>
                 </button>

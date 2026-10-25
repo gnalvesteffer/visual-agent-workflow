@@ -33,6 +33,7 @@ public static class ExecutionEventKinds
     public const string ParallelJoinProgress = "parallel.join.progress";
     public const string Transfer = "connection.received";
     public const string Completed = "run.completed";
+    public const string Terminated = "run.terminated";
     public const string Failed = "run.failed";
     public const string Cancelled = "run.cancelled";
     public const string Interrupted = "run.interrupted";

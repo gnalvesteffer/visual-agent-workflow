@@ -25,11 +25,12 @@ public static class WorkflowPorts
         NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Loop or NodeTypes.LoopBody => [new("in", "string")],
         NodeTypes.ParallelJoin => [new("branch_1", "string"), new("branch_2", "string")],
         NodeTypes.Output => [new("in", node.OutputDataType ?? "string")],
+        NodeTypes.Terminate => [new("in", "string")],
         _ => [new("in", "string")]
     };
     public static ImmutableArray<WorkflowPort> Outputs(NodeDefinition node) => node.Type switch
     {
-        NodeTypes.Output => [],
+        NodeTypes.Output or NodeTypes.Terminate => [],
         NodeTypes.Condition => [new("true", "string"), new("false", "string")],
         NodeTypes.Input when node.InputDataType == "json" => [new("out", "json")],
         NodeTypes.JsonProject => [new("out", "json")],
@@ -101,7 +102,7 @@ public static class JsonProjectionLimits
 public static class WorkflowGraph
 {
     public static bool HasRouting(WorkflowDefinition definition) => definition.Nodes.Values.Any(n =>
-        n?.Type is NodeTypes.Condition or NodeTypes.Merge or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.Loop);
+        n?.Type is NodeTypes.Condition or NodeTypes.Merge or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.Loop or NodeTypes.Terminate);
 
     public static bool HasControlNodes(WorkflowDefinition definition) => HasRouting(definition) || definition.Nodes.Values.Any(n => n?.Type == NodeTypes.Approval);
 

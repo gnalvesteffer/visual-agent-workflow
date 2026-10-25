@@ -64,6 +64,6 @@ internal static class RunStoreRecords
         }
     }
 
-    private static bool IsTerminal(string kind) => kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or
+    private static bool IsTerminal(string kind) => kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Terminated or ExecutionEventKinds.Failed or
         ExecutionEventKinds.Cancelled or ExecutionEventKinds.Interrupted;
 }

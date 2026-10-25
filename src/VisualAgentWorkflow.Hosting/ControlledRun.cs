@@ -35,7 +35,7 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
     {
         journal.Append(evt with { Sequence = sequence + 1 });
         sequence++;
-        if (evt.Kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Interrupted)
+        if (evt.Kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Terminated or ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Interrupted)
             terminal = true;
     }
 

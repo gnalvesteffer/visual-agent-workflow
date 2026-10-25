@@ -4,14 +4,21 @@ using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.AgentFramework;
 
+public sealed record WorkflowExecutionResult(string? Output, bool Terminated);
+
 /// <summary>Translates the supported string pipeline into actual Agent Framework executors and edges.</summary>
 public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null)
 {
-    public Task<string> ExecuteAsync(Guid runId, WorkflowRevision revision, string input,
+    public async Task<string> ExecuteAsync(Guid runId, WorkflowRevision revision, string input,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default) =>
-        ExecuteCoreAsync(runId, revision, input, null, record, null, cancellationToken);
+        (await ExecuteCoreAsync(runId, revision, input, null, record, null, cancellationToken)).Output ?? string.Empty;
 
-    public Task<string> ExecuteWithParametersAsync(Guid runId, WorkflowRevision revision, string input,
+    public async Task<string> ExecuteWithParametersAsync(Guid runId, WorkflowRevision revision, string input,
+        IReadOnlyDictionary<string, string>? parameters, Func<ExecutionEvent, ValueTask> record,
+        CancellationToken cancellationToken = default) =>
+        (await ExecuteCoreAsync(runId, revision, input, parameters, record, null, cancellationToken)).Output ?? string.Empty;
+
+    public Task<WorkflowExecutionResult> ExecuteWithOutcomeAsync(Guid runId, WorkflowRevision revision, string input,
         IReadOnlyDictionary<string, string>? parameters, Func<ExecutionEvent, ValueTask> record,
         CancellationToken cancellationToken = default) =>
         ExecuteCoreAsync(runId, revision, input, parameters, record, null, cancellationToken);
@@ -20,7 +27,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         Func<ExecutionEvent, ValueTask> record, IWorkflowExecutionGate gate, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(gate);
-        return ExecuteCoreAsync(runId, revision, input, null, record, gate, cancellationToken);
+        return MapOutput(ExecuteCoreAsync(runId, revision, input, null, record, gate, cancellationToken));
     }
 
     public Task<string> ExecuteControlledWithParametersAsync(Guid runId, WorkflowRevision revision, string input,
@@ -28,10 +35,24 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         IWorkflowExecutionGate gate, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(gate);
+        return MapOutput(ExecuteCoreAsync(runId, revision, input, parameters, record, gate, cancellationToken));
+    }
+
+    public Task<WorkflowExecutionResult> ExecuteControlledWithParametersAndOutcomeAsync(Guid runId, WorkflowRevision revision, string input,
+        IReadOnlyDictionary<string, string>? parameters, Func<ExecutionEvent, ValueTask> record,
+        IWorkflowExecutionGate gate, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(gate);
         return ExecuteCoreAsync(runId, revision, input, parameters, record, gate, cancellationToken);
     }
 
-    private async Task<string> ExecuteCoreAsync(Guid runId, WorkflowRevision revision, string input,
+    private static async Task<string> MapOutput(Task<WorkflowExecutionResult> execution)
+    {
+        var result = await execution;
+        return result.Output ?? string.Empty;
+    }
+
+    private async Task<WorkflowExecutionResult> ExecuteCoreAsync(Guid runId, WorkflowRevision revision, string input,
         IReadOnlyDictionary<string, string>? parameters,
         Func<ExecutionEvent, ValueTask> record, IWorkflowExecutionGate? gate, CancellationToken cancellationToken)
     {
@@ -68,7 +89,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 : InProcessExecution.Default;
             await using var run = await execution.RunStreamingAsync(workflow,
                 new GraphMessage(input, null, null, DataType: inputType), cancellationToken: cancellationToken);
-            string? output = null;
+            GraphMessage? output = null;
             await foreach (var evt in run.WatchStreamAsync(cancellationToken))
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -77,15 +98,20 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 if (evt is ExecutorFailedEvent failed)
                     throw new InvalidOperationException($"Executor {failed.ExecutorId} failed.", failed.Data);
                 if (evt is WorkflowOutputEvent result && result.Data is GraphMessage message)
-                    output = message.Text;
+                    output = message;
             }
             // The framework may finish its event stream normally when the execution token is cancelled.
             cancellationToken.ThrowIfCancellationRequested();
             if (output is null) throw new InvalidOperationException("The workflow produced no output.");
             if (gate is not null) await gate.WaitForBoundaryAsync(null, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
-            await Emit(ExecutionEventKinds.Completed, data: output);
-            return output;
+            if (output.TerminationSignal)
+            {
+                await Emit(ExecutionEventKinds.Terminated, output.SourceNode);
+                return new(null, true);
+            }
+            await Emit(ExecutionEventKinds.Completed, data: output.Text);
+            return new(output.Text, false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -124,12 +150,15 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             builder.AddFanInBarrierEdge(branchSources, (ExecutorBinding)executors[join.Key]);
         }
         var outputId = definition.Nodes.Single(n => n.Value.Type == NodeTypes.Output).Key;
+        foreach (var terminator in definition.Nodes.Where(n => n.Value.Type == NodeTypes.Terminate))
+            builder.AddEdge<GraphMessage>(executors[terminator.Key], executors[outputId], message =>
+                message?.SourceNode == terminator.Key && message.SourcePort == "terminated");
         builder.WithOutputFrom(executors[outputId]);
         return builder.Build();
     }
 
     private sealed record GraphMessage(string Text, string? SourceNode, string? SourcePort,
-        WorkflowApprovalPermit? Approval = null, string DataType = "string", int LoopIteration = 0);
+        WorkflowApprovalPermit? Approval = null, string DataType = "string", int LoopIteration = 0, bool TerminationSignal = false);
 
     private sealed class StringExecutor(
         string id,
@@ -152,13 +181,19 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
 
         public override async ValueTask<GraphMessage> HandleAsync(GraphMessage received, IWorkflowContext context, CancellationToken cancellationToken = default)
         {
-            if (gate is not null) await gate.WaitForBoundaryAsync(Id, cancellationToken);
+            var internalTerminationHandoff = node.Type == NodeTypes.Output && received.TerminationSignal;
+            if (gate is not null && !internalTerminationHandoff) await gate.WaitForBoundaryAsync(Id, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             var message = received.Text;
             var invocation = node.Type == NodeTypes.ParallelJoin ? ParallelJoinInvocation() : received.Approval?.TargetInvocationId ?? Guid.NewGuid();
             // Receiving the downstream message is direct evidence of delivery, not inferred completion.
             string? incomingPort = null;
-            if (received.SourceNode is not null)
+            if (received.SourceNode is not null && received.TerminationSignal)
+            {
+                if (node.Type != NodeTypes.Output || !revision.Definition.Nodes.TryGetValue(received.SourceNode, out var sourceNode) || sourceNode.Type != NodeTypes.Terminate)
+                    throw new InvalidOperationException("Invalid internal workflow termination signal.");
+            }
+            else if (received.SourceNode is not null)
             {
                 var incoming = revision.Definition.Connections.Single(e => e.Value.Source.NodeId == received.SourceNode &&
                     e.Value.Source.PortId == received.SourcePort && e.Value.Target.NodeId == Id);
@@ -192,13 +227,14 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 }
                 finally { parallelJoinExecution.Release(); }
             }
-            await emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, message);
+            if (!internalTerminationHandoff) await emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, message);
             try
             {
                 var result = node.Type switch
                 {
                     NodeTypes.Input when node.InputDataType == "json" => NormalizeJson(message),
                     NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.LoopBody => message,
+                    NodeTypes.Terminate => string.Empty,
                     NodeTypes.JsonSelectString => SelectJsonText(message, node.JsonPropertySelection!.Pointer),
                     NodeTypes.JsonProject => ProjectJson(message, node.JsonProjection!),
                     NodeTypes.ParallelBranch => message,
@@ -258,8 +294,10 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                             JsonSerializer.Serialize(new { reason, iterations = received.LoopIteration, maximumIterations = loop.MaximumIterations }));
                     }
                 }
-                await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null,
-                    node.Type == NodeTypes.Loop ? JsonSerializer.Serialize(new { port, iteration = received.LoopIteration, maximumIterations = node.Loop!.MaximumIterations }) : result);
+                if (!internalTerminationHandoff)
+                    await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null,
+                        node.Type == NodeTypes.Loop ? JsonSerializer.Serialize(new { port, iteration = received.LoopIteration, maximumIterations = node.Loop!.MaximumIterations }) :
+                        node.Type == NodeTypes.Terminate || received.TerminationSignal ? "Workflow terminated without returning a value." : result);
                 if (node.Type == NodeTypes.ParallelFork)
                 {
                     foreach (var edge in revision.Definition.Connections.Values.Where(edge => edge.Source.NodeId == Id))
@@ -268,9 +306,10 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                     }
                     return new(result, Id, "parallel.dispatched", DataType: "string");
                 }
-                var outputType = node.Type == NodeTypes.Output ? received.DataType :
+                var outputType = node.Type == NodeTypes.Terminate ? "string" : node.Type == NodeTypes.Output ? received.DataType :
                     WorkflowPorts.Outputs(node).Single(output => output.Id == port).DataType;
-                return new(result, Id, port, permit, outputType, nextLoopIteration);
+                return new(result, internalTerminationHandoff ? received.SourceNode : Id, node.Type == NodeTypes.Terminate ? "terminated" : port, permit, outputType, nextLoopIteration,
+                    node.Type == NodeTypes.Terminate || received.TerminationSignal);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

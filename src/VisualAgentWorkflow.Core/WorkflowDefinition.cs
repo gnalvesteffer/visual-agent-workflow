@@ -79,9 +79,10 @@ public static class NodeTypes
     public const string ParallelJoin = "core.parallel.join";
     public const string Loop = "core.loop";
     public const string LoopBody = "core.loop.body";
+    public const string Terminate = "core.terminate";
 
     public static bool IsSupported(string? type) =>
-        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin or Loop or LoopBody;
+        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin or Loop or LoopBody or Terminate;
 }
 
 public sealed record LoopConfiguration(StringCondition ContinueWhile, int MaximumIterations);

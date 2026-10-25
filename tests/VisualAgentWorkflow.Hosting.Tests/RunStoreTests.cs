@@ -39,6 +39,26 @@ public sealed class RunStoreTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void SuccessfulTerminationIsTerminalAndHasNoWorkflowResult(bool sqlite)
+    {
+        var store = Store(sqlite);
+        var run = store.Create(Revision(), "input");
+
+        var terminated = store.Append(run.Header.RunId, 0, [
+            Event(run, 1),
+            Event(run, 2, ExecutionEventKinds.Terminated)
+        ]);
+
+        Assert.Equal("terminated", terminated.Status);
+        Assert.True(terminated.IsTerminal);
+        Assert.Equal(ExecutionEventKinds.Terminated, terminated.Events[^1].Kind);
+        Assert.Null(terminated.Events[^1].Data);
+        Assert.Equal("terminated", Store(sqlite).Get(run.Header.RunId)!.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void InvalidPartialBatchesAndStaleWritersPublishNothing(bool sqlite)
     {
         var store = Store(sqlite);
