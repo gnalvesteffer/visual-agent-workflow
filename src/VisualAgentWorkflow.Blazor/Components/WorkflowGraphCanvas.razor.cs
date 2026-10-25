@@ -115,6 +115,7 @@ public partial class WorkflowGraphCanvas
                     return;
                 }
                 browserSession = session;
+                zoom = Math.Clamp(await browserSession.InvokeAsync<double>("fit"), 0.25, 1.5);
                 ready = true;
                 StateHasChanged();
             }

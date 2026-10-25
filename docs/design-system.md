@@ -1,55 +1,32 @@
-# Studio editor theme
+# Studio editor design system
 
-Audience: people authoring and inspecting agent workflows. The graph is the primary working surface; publication and execution evidence stay close to it. The canvas supports free node placement and rerouted wires; execution supports validated linear and exclusive conditional string graphs.
+The Studio is a focused workflow editor for building and inspecting agent graphs. Its visual hierarchy keeps application controls readable and reserves the dark surface for the graph itself.
 
-## Direction and critique
+## Visual direction
 
-The previous design treated the title, forms, nodes, and version controls as a long document. The revised design uses an editor toolbar, a run shelf, and a graph workbench. Edge sockets and curved or orthogonal wires show definition connections on a scrollable workbench. Narrow embeds keep graph scrolling inside the component and provide reflowing coordinate/annotation controls. No decorative metrics or nonfunctional navigation are added.
+The Studio uses a quiet, cool neutral shell: canvas `#eef1f1`, surface `#ffffff`, control `#e6ebeb`, ink `#1d292d`, muted text `#56666a`, and a restrained green-blue action color `#205c55`. Borders separate neighboring work areas. Surfaces are flat, squarely grouped, and lightly rounded; there are no decorative textures, gradient washes, or ambient shadows.
 
-Core palette: cool graphite canvas `#121820`, panel `#1b242e`, control `#25313d`, light text `#e9eff4`, muted steel `#a9b8c5`, and restrained sky accent `#92bdd5`. Teal `#8bd5c2` marks success; amber identifies output boundaries and warnings; failures retain explicit text as well as color. Deep blue primary actions retain light text. Borders distinguish surfaces without wrapping every item in a large rounded card. The standalone Studio applies these tokens through its application shell so embedded Razor consumers retain their own inherited theme.
-
-Typography uses the locally available humanist stack `"Segoe UI", "Helvetica Neue", Arial, sans-serif`; no third-party font request is required. Sizes follow a restrained rem scale: 0.8125 metadata, 0.875 controls, 1 body, 1.125 section headings, and 1.5 title. Alignment is left. Spacing follows the existing quarter-rem scale. Controls remain at least 2.75rem tall and retain visible keyboard focus.
+The graph remains a deep green-gray `#172126` with a fine, low-contrast grid. This is the sole large dark region, so nodes and their edge sockets read as the primary work surface. Grid dots span the viewport and track pan and zoom. Initial attachment and **Fit graph** frame and center the current nodes without changing saved coordinates. Semantic colors remain limited to ports, output boundaries, warnings, and recorded run states; every status also has a text label.
 
 ```
-Product / workflow studio                         Local development
-Designer / Run inspector workspace switcher
-Workflow selection / save / publish / fullscreen
-Node library | Input — transform — output | Selected properties
-Published versions / packages / selected-version run
+Studio navigation
+Workflow / save / publish controls
+Node library | Dark graph canvas | Selected properties
+Annotations and reusable workflow controls
 ```
 
-The distinctive treatment belongs to the graph: typed node headers, port markers, connecting lines, and a quiet dot grid. Panels and typography stay restrained. Node types describe definition roles; completed/failed colors in playback reflect recorded events only. Editor arrows indicate definition order, not recorded execution.
+Typography uses the local system sans-serif stack. Headings and controls use sentence case, left alignment, and a small consistent scale. Controls keep their existing keyboard focus outline and minimum target size. Reduced-motion and forced-colors preferences remain supported.
 
-## Embedding and states
+## Layout and embedding
 
-Public `--vaw-color-*`, `--vaw-font-family`, and `--vaw-color-scheme` overrides continue to inherit through nested components. New public `--vaw-radius-panel`, `--vaw-radius-control`, and `--vaw-font-mono` tune shape and payload text. Library selectors remain scoped. The standalone page background belongs to Studio.
+The graph is bounded by its viewport; the graph world can extend beyond that viewport for pan and zoom. The background grid belongs to the viewport so it continues across the full available width even when the logical graph world is narrower. The grid position follows the world camera. Initial fit uses transient camera offsets and does not rewrite workflow layout coordinates.
 
-Buttons have default, hover, focus, pressed, and disabled treatments. Primary actions are explicit, not selected by button position. Save/error statuses remain visible text. Motion is limited to short user-triggered control feedback and disabled under reduced motion. Forced colors removes the dot grid. Graph coordinates are independent of viewport width. The labeled, keyboard-focusable graph viewport scrolls and zooms while the page and inspector reflow. Named section frames organize explicit members, and comments remain readable text.
+The library, graph, and properties panel use one workbench grid. On narrower component containers the panels reflow and graph scrolling stays inside the canvas. The standalone Studio supplies a light host theme; embedded Razor components inherit their host's `--vaw-color-*`, `--vaw-font-family`, and radius tokens. Embedders can customize the graph independently with `--vaw-graph-color-canvas`, `--vaw-graph-color-surface`, `--vaw-graph-color-control`, `--vaw-graph-color-text`, `--vaw-graph-color-muted`, `--vaw-graph-color-border`, `--vaw-graph-color-control-border`, `--vaw-graph-color-focus`, `--vaw-graph-color-accent`, `--vaw-graph-color-success`, `--vaw-graph-color-error`, `--vaw-graph-color-warning`, and `--vaw-graph-color-grid`. These tokens are scoped to the graph viewport; host styles outside the component remain unaffected.
 
-Validation uses the existing browser authoring/execution smoke check and `graph_canvas_smoke.py`, plus `ui_skill_review.py` for theme inheritance, sampled contrast, focus, reduced motion, form embedding, and reflow. Screenshots support visual critique; they do not substitute for behavior checks or a full accessibility audit.
+## Components and states
 
-## Canvas-first workbench
+The graph is the visual focus. Node headers are drag handles, sockets sit on node edges, and wires represent definition connections. Labels, comments, and named sections are supporting organization tools. Selection and focus use a clear outline rather than decorative elevation.
 
-Use compact 224px cards with edge sockets, friendly names and short summaries. Keep configuration in the adjacent selected-node panel, with full stable identity available there. The library occupies the left panel; contextual search appears beside the gesture. Show the insertion source/port before an action, and preserve valid connected graphs through validated insertion. Fullscreen retains all graph controls and supports keyboard exit; narrow containers reflow panels without widening the host page. Run inspection uses the same canvas and a payload panel. Dashed teal delivered paths and textual statuses convey recorded evidence independently of authoring colors.
+Buttons expose default, hover, focus, pressed, and disabled states. Save and error feedback remains visible text. Node types describe workflow definition; only recorded run events drive completed, failed, or delivered states. Playback controls do not imply execution or issue model calls.
 
-## Generated material textures
-
-The chrome uses two original generated graphite materials, created with the image-generation tool for this project on 2026-10-24. `graphite-brushed.webp` is fine brushed matte graphite for the workspace and node headers; `graphite-matte.webp` is a fine dimpled graphite surface for the toolbar/library/properties. Both prompts requested seamless square orthographic materials, uniform dark illumination, low contrast, and no text, symbols, logos, UI, borders or perspective. They are decorative material assets, not third-party artwork or execution indicators.
-
-The checked-in [brushed texture](../src/VisualAgentWorkflow.Blazor/wwwroot/textures/graphite-brushed.webp) and [matte texture](../src/VisualAgentWorkflow.Blazor/wwwroot/textures/graphite-matte.webp) are WebP encodings of the generated PNGs, with metadata stripped and quality 82 (about 425 KiB combined). They retain the generated dimensions; no image-processing runtime or remote image/font service is required. Solid host-colored overlays keep texture contribution at 8% on the workspace and 6% on panels/headers. Forms, payloads, node bodies and the dot grid remain plain. Missing assets leave a usable solid-color surface.
-
-Set inherited `--vaw-workspace-texture: none` and `--vaw-panel-texture: none` to disable the images or supply host-local `url(...)` values. Forced-colors mode removes both textures and decorative shadows. Browser review verifies local asset responses, override inheritance, sampled text contrast, forced colors, focus, 200% text and narrow embeds. Generated textures can vary spatially; sampled computed-color checks do not constitute a complete pixel-by-pixel accessibility audit.
-
-## Subtle gradient lighting
-
-Workspace chrome, panels, toolbars, library actions and node headers use a restrained vertical highlight-to-shade gradient (about 3% white to 6% black). Primary buttons receive the same lighting. Gradients layer above the existing material overlays; node bodies, text inputs, payloads and the graph grid stay plain. They convey surface depth, never execution state. Hosts can set inherited `--vaw-chrome-gradient: none` for flat lighting independently of the texture opt-outs. Forced-colors mode removes decorative gradients as well as textures. This is a CSS-only presentation change with no architecture, execution or serialization changes.
-
-## Surface elevation
-
-Soft layered shadows lift nodes above the recessed graph, separate editor panels, and give contextual menus stronger elevation. Toolbars, library actions and primary buttons use a small contact shadow and inset highlight. Controls do not move on hover, and focus outlines remain explicit. Inherited `--vaw-shadow-node`, `--vaw-shadow-panel`, `--vaw-shadow-floating`, `--vaw-shadow-inset` and `--vaw-shadow-control` accept host overrides or `none`. Forced-colors mode suppresses every decorative shadow, including hover states. This presentation-only change affects no runtime or architecture contracts.
-
-## Studio administration surfaces
-
-Settings use the same cool graphite and steel-blue tokens as the editor, with a full-viewport navigation bar, wider readable content measure, clear page/navigation hierarchy, compact configuration rows, and grouped form fields. The action language names each operation: **Add provider**, **Edit as new version**, and **Delete version**. Editing creates an immutable registration version; deletion requires a second explicit action and explains its effect on pinned workflows. Status and errors remain text and are separate from endpoint-connection health, which is not currently probed by the settings page.
-
-This restrained surface hierarchy follows the token, semantic-color, and accessibility principles documented by [Microsoft Fluent 2 design tokens](https://fluent2.microsoft.design/design-tokens) and [IBM Carbon color usage](https://carbondesignsystem.com/guidelines/color/usage/). The standalone Studio adds local shell styling; component/library selectors stay scoped and embeddable. Focus remains visible, controls reflow below 44rem, and forced-colors mode removes decorative lighting. External reference pages were not retrievable in the implementation environment, so these links identify the published design references rather than locally verified page content.
+The local Playwright checks cover graph centering, full-width grid, keyboard focus, reduced motion, forced colors, contrast samples, narrow embeds, fullscreen, and graph authoring interactions. Screenshots are used for visual critique; they are not a complete accessibility audit.

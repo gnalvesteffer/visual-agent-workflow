@@ -4,7 +4,7 @@ Requires a running development Studio and Playwright/Chromium. Creates disposabl
 local workflows and runs; never uses external model providers or side effects.
 """
 
-from workbench_browser import workbench, inspect_control
+from workbench_browser import workbench, inspect_control, show_runs
 import argparse
 import uuid
 import re
@@ -57,22 +57,25 @@ def check(browser, screenshots):
     before_x = original["layout"]["nodes"]["step-1"]["position"]["x"]
     before_y = original["layout"]["nodes"]["step-1"]["position"]["y"]
     handle = inspect_control(designer, "Move node step-1").get_by_role("button", name="Move node step-1", exact=True)
+    zoom = canvas.locator(".vaw-canvas-world").evaluate("e=>new DOMMatrixReadOnly(getComputedStyle(e).transform).a")
+    logical_delta = lambda screen_delta: round((screen_delta / zoom) / 8) * 8
     drag(page, handle, 64, 96)
     expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Unsaved changes")
-    expect(step).to_have_css("left", f"{before_x + 64}px")
-    expect(step).to_have_css("top", f"{before_y + 96}px")
+    expect(step).to_have_css("left", f"{before_x + logical_delta(64)}px")
+    expect(step).to_have_css("top", f"{before_y + logical_delta(96)}px")
     workbench(designer).get_by_role("button", name="Undo edit", exact=True).click()
     expect(step).to_have_css("left", f"{before_x}px")
     workbench(designer).get_by_role("button", name="Redo edit", exact=True).click()
-    expect(step).to_have_css("left", f"{before_x + 64}px")
+    expect(step).to_have_css("left", f"{before_x + logical_delta(64)}px")
 
     # Arrow keys provide an alternative to dragging and produce the same undoable edit.
     handle.focus()
     handle.press("ArrowRight")
-    expect(step).to_have_css("left", f"{before_x + 72}px")
+    moved_x = before_x + logical_delta(64) + 8
+    expect(step).to_have_css("left", f"{moved_x}px")
     workbench(designer).get_by_text("Labels, comments, sections, and wire routing", exact=True).click()
     workbench(designer).get_by_label("Node to organize", exact=True).select_option("step-1")
-    expect(workbench(designer).get_by_role("spinbutton", name="Node X", exact=True)).to_have_value(str(before_x + 72))
+    expect(workbench(designer).get_by_role("spinbutton", name="Node X", exact=True)).to_have_value(str(moved_x))
     workbench(designer).get_by_label("Node label", exact=True).fill("Normalize input")
     workbench(designer).get_by_label("Node comment", exact=True).fill("Convert the incoming text before forwarding it.")
     workbench(designer).get_by_label("Node comment", exact=True).press("Tab")
@@ -89,12 +92,13 @@ def check(browser, screenshots):
     output = nodes.filter(has=page.get_by_role("button", name="Move node output", exact=True))
     output_position = output.evaluate("e => [e.style.left,e.style.top]")
     drag(page, section_handle, 40, 32)
-    expect(step).to_have_css("left", f"{before_x + 112}px")
+    section_move_x = moved_x + logical_delta(40)
+    expect(step).to_have_css("left", f"{section_move_x}px")
     assert output.evaluate("e => [e.style.left,e.style.top]") == output_position
     workbench(designer).get_by_role("button", name="Undo edit", exact=True).click()
-    expect(step).to_have_css("left", f"{before_x + 72}px")
+    expect(step).to_have_css("left", f"{moved_x}px")
     workbench(designer).get_by_role("button", name="Redo edit", exact=True).click()
-    expect(step).to_have_css("left", f"{before_x + 112}px")
+    expect(step).to_have_css("left", f"{section_move_x}px")
 
     # Socket centers sit on node edges, and the wire endpoints match those actual centers.
     measurements = nodes.filter(has=page.get_by_role("button", name="Move node step-1", exact=True)).evaluate("""node => {
@@ -118,8 +122,9 @@ def check(browser, screenshots):
     workbench(designer).get_by_label("Pinned angle for waypoint 1", exact=True).select_option("90")
     expect(wire).to_have_attribute("data-points", re.compile('"angle":90'))
     initial_reroute = reroute.evaluate("e=>({x:parseFloat(e.style.left),y:parseFloat(e.style.top)})")
+    zoom = canvas.locator(".vaw-canvas-world").evaluate("e=>new DOMMatrixReadOnly(getComputedStyle(e).transform).a")
     drag(page, reroute, 32, 48)
-    expect(reroute).to_have_css("left", str(initial_reroute["x"] + 32) + "px")
+    expect(reroute).to_have_css("left", str(initial_reroute["x"] + round((32 / zoom) / 8) * 8) + "px")
     workbench(designer).get_by_label("Wire style", exact=True).select_option("orthogonal")
     workbench(designer).get_by_label("Pinned angle for waypoint 1", exact=True).select_option("90")
     expect(wire).to_have_attribute("d", re.compile(" L "))
@@ -135,8 +140,9 @@ def check(browser, screenshots):
     # A zoomed drag must convert screen motion back into graph coordinates.
     workbench(designer).get_by_role("button", name="Zoom out graph", exact=True).click()
     old = step.evaluate("e=>parseFloat(e.style.left)")
-    drag(page, handle, 72, 0)  # 72 screen pixels at 90% = 80 logical units.
-    expect(step).to_have_css("left", f"{old + 80}px")
+    zoom = canvas.locator(".vaw-canvas-world").evaluate("e=>new DOMMatrixReadOnly(getComputedStyle(e).transform).a")
+    drag(page, handle, 72, 0)
+    expect(step).to_have_css("left", f"{old + round((72 / zoom) / 8) * 8}px")
     workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
     workbench(designer).get_by_text("Draft saved.", exact=True).wait_for()
     saved = design()
@@ -200,6 +206,8 @@ def check(browser, screenshots):
     if screenshots:
         workbench(designer).scroll_into_view_if_needed()
         page.screenshot(path=str(screenshots / "canvas-app.png"), full_page=True)
+        show_runs(page)
+        expect(viewer).to_be_visible()
         viewer.screenshot(path=str(screenshots / "canvas-playback.png"))
     assert not errors, errors
     print("Edge sockets, cancellation, pointer/keyboard moves, undo/redo, comments, section moves, wire reroutes/angles, zoom, reload, CAS conflicts, publication, version preview/restore, and recorded layout playback passed.")

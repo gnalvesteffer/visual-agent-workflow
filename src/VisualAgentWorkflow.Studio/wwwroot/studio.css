@@ -1,23 +1,24 @@
 /* Standalone shell and settings page. Embeddable library styles remain in workflow.css. */
 .vaw-app {
-    --vaw-color-canvas: #121820;
-    --vaw-color-surface: #1b242e;
-    --vaw-color-control: #25313d;
-    --vaw-color-text: #e9eff4;
-    --vaw-color-muted: #a9b8c5;
-    --vaw-color-border: #354554;
-    --vaw-color-control-border: #526678;
-    --vaw-color-focus: #9bd3f0;
-    --vaw-color-accent: #92bdd5;
-    --vaw-color-primary: #315a70;
-    --vaw-color-success: #8bd5c2;
-    --vaw-color-error: #ffb8b8;
-    --vaw-color-warning: #efc984;
+    --vaw-color-scheme: light;
+    --vaw-color-canvas: #eef1f1;
+    --vaw-color-surface: #ffffff;
+    --vaw-color-control: #e6ebeb;
+    --vaw-color-text: #1d292d;
+    --vaw-color-muted: #56666a;
+    --vaw-color-border: #d0d9d9;
+    --vaw-color-control-border: #9ba9a9;
+    --vaw-color-focus: #166b63;
+    --vaw-color-accent: #28786f;
+    --vaw-color-primary: #205c55;
+    --vaw-color-success: #267553;
+    --vaw-color-error: #a43e43;
+    --vaw-color-warning: #8b5c1a;
     --vaw-font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
     margin: 0;
     min-block-size: 100vh;
     background-color: var(--vaw-color-canvas);
-    background-image: radial-gradient(ellipse at 50% -28rem, #41647b30, transparent 70%);
+    background-image: none;
     color: var(--vaw-color-text);
     font-family: var(--vaw-font-family);
 }
@@ -30,7 +31,7 @@
     margin-inline: 0;
     padding: .9rem 1.5rem;
     border-block-end: 1px solid var(--vaw-color-border);
-    background: linear-gradient(180deg, #202a34f2, #1b242ef2);
+    background: #f7f9f9;
     font-size: .875rem;
 }
 .vaw-studio-navigation a { color: var(--vaw-color-text); text-decoration: none; }
@@ -48,7 +49,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-block-size: 2.65rem;
+    min-block-size: 2.75rem;
     border: 1px solid var(--vaw-color-control-border);
     border-radius: .4rem;
     padding: .55rem .9rem;
@@ -60,21 +61,22 @@
     cursor: pointer;
     transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
 }
-.vaw-primary { border-color: #5d8298; background: linear-gradient(180deg, #3b687f, #2e5368); box-shadow: inset 0 1px #ffffff14, 0 2px 5px #0003; }
-.vaw-primary:hover { border-color: var(--vaw-color-focus); background: linear-gradient(180deg, #467790, #365f75); }
-.vaw-secondary { background: #28343f; }
-.vaw-secondary:hover { border-color: #7899ad; background: #303e4a; }
-.vaw-secondary.vaw-selected { border-color: #7094aa; background: #314856; color: #e7f4fa; }
-.vaw-danger { border-color: #9b5f62; background: #63363a; }
-.vaw-danger-quiet { border-color: transparent; background: transparent; color: #e7a4a5; }
-.vaw-danger-quiet:hover { border-color: #805054; background: #42292d; }
+.vaw-primary { border-color: #205c55; background: #205c55; color: #fff; }
+.vaw-studio .vaw-primary { color: #fff; }
+.vaw-primary:hover { border-color: #174b45; background: #174b45; }
+.vaw-secondary { background: #fff; color: var(--vaw-color-text); }
+.vaw-secondary:hover { border-color: #718381; background: #f2f5f4; }
+.vaw-secondary.vaw-selected { border-color: #6d9991; background: #e6f0ed; color: #174b45; }
+.vaw-danger { border-color: #a43e43; background: #a43e43; color: #fff; }
+.vaw-danger-quiet { border-color: transparent; background: transparent; color: #92383d; }
+.vaw-danger-quiet:hover { border-color: #d7b6b8; background: #f8eeee; }
 .vaw-primary:focus-visible, .vaw-secondary:focus-visible, .vaw-danger:focus-visible, .vaw-danger-quiet:focus-visible, .vaw-studio-navigation a:focus-visible, .vaw-provider-empty a:focus-visible {
     outline: 3px solid var(--vaw-color-focus);
     outline-offset: 3px;
 }
 .vaw-primary:disabled, .vaw-danger:disabled { opacity: .6; cursor: progress; }
 
-.vaw-settings-section { margin-block: 1.5rem; border: 1px solid var(--vaw-color-border); border-radius: .65rem; background: linear-gradient(180deg, #202b35, #1a232c); box-shadow: inset 0 1px #ffffff08, 0 10px 24px #0002; }
+.vaw-settings-section { margin-block: 1.5rem; border: 1px solid var(--vaw-color-border); border-radius: .45rem; background: var(--vaw-color-surface); }
 .vaw-settings-section-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; padding: 1.35rem 1.5rem; border-block-end: 1px solid var(--vaw-color-border); }
 .vaw-settings-section-heading h2 { margin: 0; font-size: 1.08rem; font-weight: 620; }
 .vaw-settings-section-heading p { margin: .4rem 0 0; color: var(--vaw-color-muted); font-size: .875rem; line-height: 1.5; }
@@ -85,17 +87,17 @@
 .vaw-provider-card-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
 .vaw-provider-card h3 { margin: 0; font-size: 1rem; font-weight: 620; }
 .vaw-provider-identity { display: flex; flex-wrap: wrap; gap: .45rem .85rem; align-items: center; margin: .35rem 0 0; color: var(--vaw-color-muted); font-size: .8125rem; }
-.vaw-provider-identity code { color: #c2d1dc; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: .8rem; }
+.vaw-provider-identity code { color: #435559; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: .8rem; }
 .vaw-provider-state { display: inline-flex; align-items: center; gap: .45rem; color: var(--vaw-color-success); font-size: .8rem; white-space: nowrap; }
-.vaw-provider-state span { inline-size: .45rem; block-size: .45rem; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px #8bd5c21a; }
+.vaw-provider-state span { inline-size: .45rem; block-size: .45rem; border-radius: 50%; background: currentColor; }
 .vaw-provider-card dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem 1.5rem; margin: 1.15rem 0; }
 .vaw-provider-card dl > div { min-inline-size: 0; }
 .vaw-provider-card dt { margin-block-end: .3rem; color: var(--vaw-color-muted); font-size: .75rem; }
 .vaw-provider-card dd { margin: 0; color: var(--vaw-color-text); font-size: .875rem; overflow-wrap: anywhere; }
 .vaw-provider-actions, .vaw-provider-form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
 .vaw-provider-actions button { min-block-size: 2.35rem; font-size: .8125rem; }
-.vaw-provider-delete-confirmation { margin-block-start: 1rem; border: 1px solid #86565a; border-radius: .45rem; padding: 1rem; background: #302428; }
-.vaw-provider-delete-confirmation p { margin: 0 0 .8rem; color: #e7cfd0; font-size: .875rem; line-height: 1.5; }
+.vaw-provider-delete-confirmation { margin-block-start: 1rem; border: 1px solid #d8b7b8; border-radius: .35rem; padding: 1rem; background: #fbf1f1; }
+.vaw-provider-delete-confirmation p { margin: 0 0 .8rem; color: #633638; font-size: .875rem; line-height: 1.5; }
 .vaw-provider-empty { padding: 2rem 1.5rem; }
 .vaw-provider-empty h3 { margin: 0; font-size: 1rem; }
 .vaw-provider-empty p { max-inline-size: 40rem; color: var(--vaw-color-muted); font-size: .9rem; line-height: 1.55; }
@@ -105,13 +107,13 @@
 
 .vaw-provider-form-section { margin-block-start: 2rem; }
 .vaw-provider-presets { display: flex; flex-wrap: wrap; gap: .65rem; padding: 1.25rem 1.5rem 0; }
-.vaw-provider-tip { display: grid; gap: .25rem; margin: 1rem 1.5rem 0; border-inline-start: 3px solid var(--vaw-color-accent); padding: .75rem 1rem; background: #263641; }
+.vaw-provider-tip { display: grid; gap: .25rem; margin: 1rem 1.5rem 0; border-inline-start: 3px solid var(--vaw-color-accent); padding: .75rem 1rem; background: #eff5f4; }
 .vaw-provider-tip strong { font-size: .875rem; font-weight: 620; }
-.vaw-provider-tip span { color: #c4d1da; font-size: .8125rem; line-height: 1.5; }
+.vaw-provider-tip span { color: #4a5e5d; font-size: .8125rem; line-height: 1.5; }
 .vaw-provider-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.15rem 1.25rem; padding: 1.35rem 1.5rem 1.5rem; }
 .vaw-provider-form label { display: block; min-inline-size: 0; color: var(--vaw-color-text); font-size: .875rem; font-weight: 550; }
-.vaw-provider-form input:not([type="checkbox"]) { display: block; inline-size: 100%; min-block-size: 2.8rem; margin-block-start: .4rem; border: 1px solid #526678; border-radius: .38rem; padding: .55rem .75rem; background: #151d25; color: var(--vaw-color-text); font: inherit; font-weight: 400; }
-.vaw-provider-form input::placeholder { color: #8595a2; }
+.vaw-provider-form input:not([type="checkbox"]) { display: block; inline-size: 100%; min-block-size: 2.8rem; margin-block-start: .4rem; border: 1px solid var(--vaw-color-control-border); border-radius: .3rem; padding: .55rem .75rem; background: #fff; color: var(--vaw-color-text); font: inherit; font-weight: 400; }
+.vaw-provider-form input::placeholder { color: #647477; }
 .vaw-provider-form input:focus-visible { border-color: var(--vaw-color-focus); outline: 2px solid var(--vaw-color-focus); outline-offset: 1px; }
 .vaw-provider-form label small { display: block; margin-block-start: .35rem; color: var(--vaw-color-muted); font-size: .77rem; font-weight: 400; line-height: 1.45; }
 .vaw-provider-form-wide { grid-column: 1 / -1; }

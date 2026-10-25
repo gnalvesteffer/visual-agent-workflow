@@ -109,7 +109,7 @@
 :where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) :where(a) { color: var(--vaw-focus); }
 :where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) :where(button, input, select, textarea, a, summary):focus-visible { outline: 3px solid var(--vaw-focus); outline-offset: 3px; }
 .vaw-primary { background-color: var(--vaw-primary); border-color: var(--vaw-accent); }
-:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) :where(button):not(:disabled):hover { border-color: var(--vaw-focus); box-shadow: inset 0 0 0 1px var(--vaw-focus); }
+:where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) :where(button):not(:disabled):hover { border-color: var(--vaw-focus); }
 :where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-pipeline-editor, .vaw-graph-editor) :where(summary) { cursor: pointer; color: var(--vaw-muted); font-size: 0.875rem; padding-block: var(--vaw-space-2); }
 .vaw-controls { display: flex; align-items: center; flex-wrap: wrap; gap: var(--vaw-space-3); margin-block: var(--vaw-space-4); }
 .vaw-controls :where(label) { display: flex; align-items: center; flex: 1 1 12rem; flex-wrap: wrap; gap: var(--vaw-space-2); min-inline-size: 0; max-inline-size: 100%; margin: 0; }
@@ -227,6 +227,7 @@
 .vaw-section-settings, .vaw-waypoint-settings { border-block-start: 1px solid var(--vaw-border); margin-block-start: var(--vaw-space-4); padding-block-start: var(--vaw-space-3); }
 @media (forced-colors: active) {
     .vaw-canvas-world { background-image: none; }
+    .vaw-canvas-viewport { background-image: none; }
     .vaw-wire { stroke: CanvasText; }
     .vaw-socket, .vaw-reroute-dot { border-color: CanvasText; }
 }
@@ -332,7 +333,7 @@
 .vaw-library-entry strong { font-size: .875rem; }
 .vaw-library-entry small { color: var(--vaw-muted); margin-block-start: var(--vaw-space-1); font-size: .75rem; }
 .vaw-insertion-hint { color: var(--vaw-accent); font-size: .8125rem; overflow-wrap: anywhere; }
-.vaw-context-menu { position: fixed; inset: auto; margin: 0; inline-size: 19rem; max-inline-size: calc(100vw - 16px); max-block-size: min(30rem,calc(100dvh - 16px)); overflow: auto; padding: var(--vaw-space-3); color: var(--vaw-text); background: var(--vaw-surface); border: 1px solid var(--vaw-control-border); border-radius: var(--vaw-panel-radius); box-shadow: var(--vaw-shadow-floating, 0 4px 12px #0006, 0 20px 48px #0006); }
+.vaw-context-menu { position: fixed; inset: auto; margin: 0; inline-size: 19rem; max-inline-size: calc(100vw - 16px); max-block-size: min(30rem,calc(100dvh - 16px)); overflow: auto; padding: var(--vaw-space-3); color: var(--vaw-text); background: var(--vaw-surface); border: 1px solid var(--vaw-control-border); border-radius: var(--vaw-panel-radius); box-shadow: none; }
 .vaw-context-actions { display: grid; gap: var(--vaw-space-2); border-block-start: 1px solid var(--vaw-border); padding-block-start: var(--vaw-space-3); }
 .vaw-canvas-viewport[data-node-drop="true"] { outline: 2px solid var(--vaw-accent); outline-offset: -3px; }
 .vaw-with-library.vaw-with-properties { grid-template-columns: 14rem minmax(0, 1fr) var(--vaw-inspector-width, 19rem); }
@@ -362,49 +363,62 @@
 .vaw-wires-preview path { fill: none; stroke: var(--vaw-focus); stroke-width: 3; stroke-dasharray: 6 6; }
 .vaw-graph-editor[data-context-menu="true"] .vaw-output-ports .vaw-socket { cursor: crosshair; }
 
-/* Quiet tactile chrome; executable content stays on untextured surfaces. */
+/* Quiet component chrome; the graph is the single dark working surface. */
 .vaw-studio {
     max-inline-size: none;
     padding: var(--vaw-space-4);
-    background-image: var(--vaw-chrome-gradient, linear-gradient(180deg, #ffffff08 0%, #ffffff00 45%, #00000010 100%)), linear-gradient(color-mix(in srgb, var(--vaw-canvas) 92%, transparent), color-mix(in srgb, var(--vaw-canvas) 92%, transparent)), var(--vaw-workspace-texture, url("textures/graphite-brushed.webp"));
-    background-size: auto, auto, 40rem;
+    background-image: none;
 }
 .vaw-studio-header { padding-block-end: var(--vaw-space-3); }
 .vaw-studio-description { margin-block: var(--vaw-space-2) var(--vaw-space-3); }
 .vaw-workspace-views { padding-block-end: var(--vaw-space-2); margin-block-end: var(--vaw-space-2); }
-.vaw-designer, .vaw-viewer, .vaw-sidebar { border-radius: var(--vaw-panel-radius); box-shadow: var(--vaw-shadow-panel, inset 0 1px 0 #ffffff06, 0 3px 8px #0002, 0 12px 28px #0002); }
+.vaw-designer, .vaw-viewer, .vaw-sidebar { border-radius: var(--vaw-panel-radius); box-shadow: none; }
 .vaw-designer { padding: var(--vaw-space-3); }
 .vaw-library-panel, .vaw-properties, .vaw-canvas-toolbar {
     background-color: var(--vaw-surface);
-    background-image: var(--vaw-chrome-gradient, linear-gradient(180deg, #ffffff08 0%, #ffffff00 45%, #00000010 100%)), linear-gradient(color-mix(in srgb, var(--vaw-surface) 94%, transparent), color-mix(in srgb, var(--vaw-surface) 94%, transparent)), var(--vaw-panel-texture, url("textures/graphite-matte.webp"));
-    background-size: auto, auto, 32rem;
+    background-image: none;
 }
 .vaw-canvas-toolbar { padding: var(--vaw-space-3); gap: var(--vaw-space-2); }
 .vaw-library-panel { padding: var(--vaw-space-3); }
 .vaw-node-library h4 { text-transform: none; letter-spacing: normal; font-weight: 600; font-size: .8125rem; }
 .vaw-node-library .vaw-library-entry { border-color: var(--vaw-border); border-inline-start: 2px solid var(--vaw-control-border); padding: var(--vaw-space-2) var(--vaw-space-3); border-radius: .25rem; }
 .vaw-library-entry:not(:disabled):hover { border-inline-start-color: var(--vaw-accent); }
-.vaw-graph-editor .vaw-node-drag {
-    background-image: var(--vaw-chrome-gradient, linear-gradient(180deg, #ffffff08 0%, #ffffff00 45%, #00000010 100%)), linear-gradient(color-mix(in srgb, var(--vaw-control) 94%, transparent), color-mix(in srgb, var(--vaw-control) 94%, transparent)), var(--vaw-workspace-texture, url("textures/graphite-brushed.webp"));
-    background-size: auto, auto, 40rem;
-}
-.vaw-free-graph .vaw-edit-node article { box-shadow: var(--vaw-shadow-node, 0 2px 4px #0007, 0 10px 22px #0004); }
-.vaw-node-drag[aria-pressed="true"] { outline-width: 1px; outline-offset: 1px; box-shadow: inset 0 0 0 1px var(--vaw-accent); }
+.vaw-graph-editor .vaw-node-drag { background-image: none; }
+.vaw-free-graph .vaw-edit-node article { box-shadow: none; }
+.vaw-node-drag[aria-pressed="true"] { outline-width: 1px; outline-offset: 1px; outline-color: var(--vaw-accent); }
 .vaw-properties > h3 { padding-block-end: var(--vaw-space-2); border-block-end: 1px solid var(--vaw-border); }
 .vaw-properties > .vaw-help { font-family: var(--vaw-mono); font-size: .75rem; }
 .vaw-insertion-options { border-block-start: 1px solid var(--vaw-border); padding-block-start: var(--vaw-space-3); }
 .vaw-insertion-options button { margin-block-start: var(--vaw-space-2); }
-.vaw-canvas-viewport { border-radius: 0; box-shadow: var(--vaw-shadow-inset, inset 0 2px 8px #0004); }
+.vaw-canvas-viewport {
+    --vaw-canvas: var(--vaw-graph-color-canvas, #172126);
+    --vaw-surface: var(--vaw-graph-color-surface, #202c31);
+    --vaw-control: var(--vaw-graph-color-control, #2b393e);
+    --vaw-text: var(--vaw-graph-color-text, #edf2ef);
+    --vaw-muted: var(--vaw-graph-color-muted, #b3c0bc);
+    --vaw-border: var(--vaw-graph-color-border, #34464a);
+    --vaw-control-border: var(--vaw-graph-color-control-border, #637775);
+    --vaw-focus: var(--vaw-graph-color-focus, #b9dfd2);
+    --vaw-accent: var(--vaw-graph-color-accent, #91c5b4);
+    --vaw-primary: var(--vaw-graph-color-primary, #28685c);
+    --vaw-success: var(--vaw-graph-color-success, #8bd0ac);
+    --vaw-error: var(--vaw-graph-color-error, #f0a6a6);
+    --vaw-warning: var(--vaw-graph-color-warning, #e6be7d);
+    border-color: #405156;
+    border-radius: 0 0 .35rem .35rem;
+    background-color: var(--vaw-canvas);
+    color: var(--vaw-text);
+    background-image: radial-gradient(var(--vaw-graph-color-grid, #a8c1bb26) 1px, transparent 1px);
+    background-size: 16px 16px;
+    box-shadow: none;
+}
+.vaw-canvas-world { background-image: none; }
 .vaw-workspace-views button { background: transparent; border-color: transparent; border-radius: .25rem; }
 .vaw-workspace-views button[aria-pressed="true"] { background: var(--vaw-control); border-color: var(--vaw-border); border-block-end: 2px solid var(--vaw-accent); }
 .vaw-node-library .vaw-library-entry, :where(.vaw-studio, .vaw-designer, .vaw-viewer) .vaw-primary {
-    background-image: var(--vaw-chrome-gradient, linear-gradient(180deg, #ffffff08 0%, #ffffff00 45%, #00000010 100%));
+    background-image: none;
 }
-/* Elevation follows surface role, without moving controls on hover. */
-.vaw-canvas-toolbar { box-shadow: var(--vaw-shadow-control, inset 0 1px 0 #ffffff08, 0 1px 3px #0003); }
-.vaw-node-library .vaw-library-entry, :where(.vaw-studio, .vaw-designer, .vaw-viewer) .vaw-primary {
-    box-shadow: var(--vaw-shadow-control, inset 0 1px 0 #ffffff08, 0 1px 3px #0003);
-}
+.vaw-canvas-toolbar { box-shadow: none; }
 @media (forced-colors: active) {
     :where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-graph-editor),
     :where(.vaw-studio, .vaw-designer, .vaw-viewer, .vaw-graph-editor) :where(*) { box-shadow: none !important; }

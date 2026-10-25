@@ -2,7 +2,7 @@
 
 The Studio creates and runs linear and conditional string-processing workflows. It supports deterministic transforms, workflow-owned string parameters, host-approved MCP text tools, a deterministic demonstration agent, and opt-in host-configured external model providers. Free placement and wire routing organize the graph; they do not change execution semantics. Branches are authored through explicit conditional nodes.
 
-The default theme uses subtle graphite textures, gradient lighting and layered shadows on editor chrome, with plain node contents and payload surfaces. Embedded hosts can opt out through the [theme properties](design-system.md).
+The Studio uses a flat, light neutral shell around a dark graph canvas. The grid fills the viewport while tracking pan and zoom, and the graph is fitted and centered when the editor attaches. Embedded hosts can customize inherited theme tokens; see the [editor design system](design-system.md).
 
 Use disposable text in the local development app. It records inputs, outputs, and comments in local storage without workspace authentication or payload encryption.
 
@@ -55,7 +55,7 @@ flowchart LR
 
 ## Organize the canvas
 
-Drag a node header to place its card. Arrow keys move it by 8 logical units; Shift increases the step to 40. Drag empty background or use scrollbars to pan. Zoom changes the view, not the saved graph coordinates. **Fit graph** frames the nodes without saving an edit. **Arrange nodes** restores generated positions, retains annotations and sections, and clears reroute points so old routes do not cut across the new arrangement. Undo restores the previous positions and routes.
+Drag a node header to place its card. Arrow keys move it by 8 logical units; Shift increases the step to 40. Drag empty background or use scrollbars to pan. Zoom changes the view, not the saved graph coordinates. The editor initially fits and centers the current nodes; **Fit graph** repeats this without saving an edit. **Arrange nodes** restores generated positions, retains annotations and sections, and clears reroute points so old routes do not cut across the new arrangement. Undo restores the previous positions and routes.
 
 Select a card to inspect its properties; compact cards show summaries instead of editing forms. Use **Label, comment and position** in that panel for annotations. Open **Labels, comments, sections, and wire routing** below the canvas for grouping and wire controls. Select **Node to organize** to edit a label, comment, or X/Y coordinates. Labels never replace stable node IDs, and comments are text rather than executable agent instructions.
 

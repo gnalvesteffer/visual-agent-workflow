@@ -2,6 +2,10 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Flat Studio theme and fitted graph viewport
+
+The standalone Studio now uses a flat, light neutral shell with a single dark graph canvas. Its subdued grid fills the whole viewport and tracks camera pan and zoom rather than ending at the logical world's edge. Initial attachment and **Fit graph** center visible nodes using transient camera offsets; workflow layout coordinates remain unchanged. Browser review covers full-width grid, initial centering, fit, graph gestures, theme contrast, forced colors, reduced motion, and narrow embeds.
+
 ## Windows history compatibility and read-only browser smoke
 
 Portable LF hashes now verify historical Windows CRLF hashes for run records, published revisions and shared packages without rewriting their evidence. New definitions and layouts use portable line endings. A Linux browser smoke assertion now checks that insertion controls are absent in read-only revision view without opening an authoring-only disclosure. Tests cover legacy hash rehydration, file-journal listing and package import; the real Chromium Studio smoke passes locally.

@@ -7,10 +7,11 @@ const position = node => ({ x: number(node.style.left), y: number(node.style.top
 
 export function attach(root, callback) {
     if (canvases.has(root)) return canvases.get(root).handle;
-    const state = { root, callback, frame: 0, drag: null, nodes: new Map(), paths: [], sections: [], active: true };
+    const state = { root, callback, frame: 0, drag: null, nodes: new Map(), paths: [], sections: [], camera: { x: 0, y: 0 }, active: true };
     state.viewport = root.querySelector('.vaw-canvas-viewport');
     state.world = root.querySelector('.vaw-canvas-world');
     state.observer = new ResizeObserver(() => schedule(state));
+    state.scroll = () => updateGrid(state);
     state.down = event => pointerDown(state, event);
     state.move = event => pointerMove(state, event);
     state.up = event => pointerEnd(state, event, false);
@@ -120,6 +121,7 @@ export function attach(root, callback) {
     root.addEventListener('dblclick', state.double);
     root.addEventListener('click', state.click);
     root.addEventListener('keydown', state.key);
+    state.viewport.addEventListener('scroll', state.scroll, { passive: true });
     state.fullscreenChanged = () => {
         const active = document.fullscreenElement === root;
         root.dataset.fullscreen = String(active);
@@ -168,7 +170,9 @@ export function sync(root) {
     }
     draw(state);
     if (state.pendingFit) {
-        state.viewport.scrollTo(state.pendingFit.x * scale(state) - 32, state.pendingFit.y * scale(state) - 48);
+        state.viewport.scrollTo(
+            state.pendingFit.x * scale(state) - state.viewport.clientWidth / 2,
+            state.pendingFit.y * scale(state) - state.viewport.clientHeight / 2);
         state.pendingFit = null;
     }
 }
@@ -186,11 +190,19 @@ function fit(state) {
     const nodes = [...state.nodes.values()];
     if (!nodes.length) return scale(state);
     const left = Math.max(0, Math.min(...nodes.map(node => position(node).x)) - 24);
-    const top = Math.max(0, Math.min(...nodes.map(node => position(node).y)) - 64);
+    const top = Math.max(0, Math.min(...nodes.map(node => position(node).y)) - 24);
     const right = Math.max(...nodes.map(node => position(node).x + node.offsetWidth)) + 24;
     const bottom = Math.max(...nodes.map(node => position(node).y + node.offsetHeight)) + 24;
-    state.pendingFit = { x: left, y: top };
-    return Math.max(.25, Math.min(1.5, (state.viewport.clientWidth - 64) / (right - left), (state.viewport.clientHeight - 96) / (bottom - top)));
+    const zoom = Math.max(.25, Math.min(1.5,
+        (state.viewport.clientWidth - 64) / (right - left),
+        (state.viewport.clientHeight - 96) / (bottom - top)));
+    const centerX = (left + right) / 2, centerY = (top + bottom) / 2;
+    state.camera = {
+        x: Math.max(0, state.viewport.clientWidth / zoom / 2 - centerX),
+        y: Math.max(0, state.viewport.clientHeight / zoom / 2 - centerY)
+    };
+    state.pendingFit = { x: state.camera.x + centerX, y: state.camera.y + centerY };
+    return zoom;
 }
 
 function schedule(state) {
@@ -199,6 +211,12 @@ function schedule(state) {
 }
 
 function scale(state) { return new DOMMatrixReadOnly(getComputedStyle(state.world).transform).a || 1; }
+function updateGrid(state) {
+    const zoom = scale(state), spacing = 16 * zoom;
+    const modulo = value => ((value % spacing) + spacing) % spacing;
+    state.viewport.style.backgroundSize = `${spacing}px ${spacing}px`;
+    state.viewport.style.backgroundPosition = `${modulo(state.camera.x * zoom - state.viewport.scrollLeft)}px ${modulo(state.camera.y * zoom - state.viewport.scrollTop)}px`;
+}
 function local(state, event) {
     const rect = state.world.getBoundingClientRect(), zoom = scale(state);
     return { x: (event.clientX - rect.left) / zoom, y: (event.clientY - rect.top) / zoom };
@@ -206,7 +224,10 @@ function local(state, event) {
 
 function draw(state) {
     if (!state.active || !state.world.isConnected || state.viewport.clientWidth === 0) return;
-    const zoom = scale(state), world = state.world.getBoundingClientRect();
+    const zoom = scale(state);
+    state.world.style.transform = `scale(${zoom}) translate(${state.camera.x}px, ${state.camera.y}px)`;
+    updateGrid(state);
+    const world = state.world.getBoundingClientRect();
     const rects = new Map();
     for (const [id, node] of state.nodes) {
         const rect = node.getBoundingClientRect();
@@ -253,7 +274,8 @@ function draw(state) {
     const width = Math.max(right, maxPointX), height = Math.max(bottom, maxPointY);
     state.world.style.width = `${width}px`; state.world.style.height = `${height}px`;
     const extent = state.world.parentElement;
-    extent.style.width = `${width * zoom}px`; extent.style.height = `${height * zoom}px`;
+    extent.style.width = `${(width + state.camera.x) * zoom}px`;
+    extent.style.height = `${(height + state.camera.y) * zoom}px`;
 }
 
 function tangent(anchor, previous, next) {
@@ -403,6 +425,7 @@ export function detach(root) {
     document.removeEventListener('fullscreenchange', state.fullscreenChanged);
     if (document.fullscreenElement === root) document.exitFullscreen().catch(() => {});
     state.observer.disconnect(); cancelAnimationFrame(state.frame);
+    state.viewport.removeEventListener('scroll', state.scroll);
     for (const [name, handler] of [['pointerdown', state.down], ['pointermove', state.move], ['pointerup', state.up],
         ['pointercancel', state.cancel], ['lostpointercapture', state.cancel], ['dblclick', state.double], ['click', state.click], ['keydown', state.key]])
         root.removeEventListener(name, handler);

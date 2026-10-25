@@ -41,27 +41,15 @@ def check(browser, screenshots):
         assert page.locator(".vaw-studio button:not([type='button'])").count() == 0, "Embedded controls must not submit host forms"
         assert page.locator("head style").count() == 0, "Host styles belong in an external stylesheet"
 
-        # Decorative generated assets are local, optional, and never required to use the editor.
-        for name in ("graphite-brushed.webp", "graphite-matte.webp"):
-            response=page.request.get(BASE + "/_content/VisualAgentWorkflow.Blazor/textures/" + name)
-            assert response.ok, response.status
-            assert response.headers["content-type"].startswith("image/webp")
         chrome=designer.locator(".vaw-canvas-toolbar")
-        assert "graphite-matte.webp" in chrome.evaluate("element=>getComputedStyle(element).backgroundImage")
-        page.locator(".vaw-studio").evaluate("element=>element.style.setProperty('--vaw-panel-texture','none')")
-        assert "url(" not in chrome.evaluate("element=>getComputedStyle(element).backgroundImage")
-        page.locator(".vaw-studio").evaluate("element=>element.style.removeProperty('--vaw-panel-texture')")
-
-        # Gradient lighting is independent of the optional image textures.
-        page.locator(".vaw-studio").evaluate("element=>{element.style.setProperty('--vaw-panel-texture','none');element.style.setProperty('--vaw-chrome-gradient','none');}")
-        assert "linear-gradient" not in designer.locator(".vaw-library-entry").first.evaluate("element=>getComputedStyle(element).backgroundImage")
-        page.locator(".vaw-studio").evaluate("element=>{element.style.removeProperty('--vaw-panel-texture');element.style.removeProperty('--vaw-chrome-gradient');}")
+        viewport=designer.locator(".vaw-canvas-viewport")
+        assert "radial-gradient" in viewport.evaluate("element=>getComputedStyle(element).backgroundImage")
+        assert viewport.evaluate("element=>getComputedStyle(element).backgroundColor") == "rgb(23, 33, 38)"
+        assert designer.locator(".vaw-canvas-world").evaluate("element=>getComputedStyle(element).backgroundImage") == "none"
+        assert "none" == page.locator(".vaw-studio").evaluate("element=>getComputedStyle(element).backgroundImage")
 
         node_surface=designer.locator(".vaw-edit-node article").first
-        assert node_surface.evaluate("element=>getComputedStyle(element).boxShadow") != "none"
-        page.locator(".vaw-studio").evaluate("element=>element.style.setProperty('--vaw-shadow-node','none')")
         assert node_surface.evaluate("element=>getComputedStyle(element).boxShadow") == "none"
-        page.locator(".vaw-studio").evaluate("element=>element.style.removeProperty('--vaw-shadow-node')")
 
         # Compare an unrelated host control with/without the library stylesheet.
         untouched = page.evaluate("""() => {
@@ -85,17 +73,21 @@ def check(browser, screenshots):
             const studio = document.querySelector('.vaw-studio');
             studio.style.setProperty('--vaw-color-surface', 'rgb(32,52,71)');
             studio.style.setProperty('--vaw-font-family', 'Georgia, serif');
+            studio.style.setProperty('--vaw-graph-color-canvas', 'rgb(24,42,48)');
             const result = {
                 sidebar: getComputedStyle(document.querySelector('.vaw-sidebar')).backgroundColor,
                 nested: getComputedStyle(document.querySelector('.vaw-designer')).backgroundColor,
-                font: getComputedStyle(document.querySelector('.vaw-designer')).fontFamily
+                font: getComputedStyle(document.querySelector('.vaw-designer')).fontFamily,
+                graph: getComputedStyle(document.querySelector('.vaw-canvas-viewport')).backgroundColor
             };
             studio.style.removeProperty('--vaw-color-surface');
             studio.style.removeProperty('--vaw-font-family');
+            studio.style.removeProperty('--vaw-graph-color-canvas');
             return result;
         }""")
         assert themed["sidebar"] == themed["nested"] == "rgb(32, 52, 71)"
         assert "Georgia" in themed["font"], "Host tokens must inherit through nested components"
+        assert themed["graph"] == "rgb(24, 42, 48)", "Graph-specific host tokens must reach the canvas"
 
         samples = page.evaluate("""() => {
             const rgb = value => value.match(/[0-9.]+/g).slice(0,3).map(Number);
@@ -104,6 +96,7 @@ def check(browser, screenshots):
             return {
                 text: pair('.vaw-studio', '.vaw-studio'),
                 primary: pair('.vaw-primary', '.vaw-primary'),
+                graphText: pair('.vaw-node-drag', '.vaw-node-drag'),
                 input: pair('.vaw-sidebar textarea', '.vaw-sidebar textarea'),
                 notice: pair('.vaw-notice', '.vaw-studio')
             };
@@ -119,6 +112,18 @@ def check(browser, screenshots):
         graph = workbench(designer).get_by_role("list", name="Editable pipeline nodes", exact=True)
         canvas = workbench(designer).get_by_label("Workflow graph canvas. Scroll or drag the background to pan.", exact=True)
         expect(workbench(designer).locator('.vaw-graph-editor')).to_have_attribute("data-ready", "true")
+        page.wait_for_function("""() => {
+            const viewport=document.querySelector('.vaw-canvas-viewport');
+            const nodes=[...document.querySelectorAll('.vaw-canvas-viewport li[data-node-id]')];
+            if (!viewport || !nodes.length) return false;
+            const bounds=nodes.map(node=>node.getBoundingClientRect());
+            const left=Math.min(...bounds.map(rect=>rect.left)), right=Math.max(...bounds.map(rect=>rect.right));
+            const top=Math.min(...bounds.map(rect=>rect.top)), bottom=Math.max(...bounds.map(rect=>rect.bottom));
+            const canvas=viewport.getBoundingClientRect();
+            return Math.abs((left+right)/2-(canvas.left+canvas.right)/2)<3 &&
+                Math.abs((top+bottom)/2-(canvas.top+canvas.bottom)/2)<3;
+        }""")
+        assert "radial-gradient" in canvas.evaluate("element=>getComputedStyle(element).backgroundImage"), "The graph grid must fill the whole viewport"
         assert graph.locator('li').first.evaluate("element => getComputedStyle(element).position") == "absolute", "Canvas nodes must be freely positioned"
         canvas.focus()
         assert canvas.evaluate("element => element === document.activeElement"), "Scrollable graph must be keyboard focusable"
