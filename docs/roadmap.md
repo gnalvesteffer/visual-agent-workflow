@@ -106,7 +106,7 @@ flowchart TD
     ProjectionTypes --> TypedMapping["Complete: recursive object and collection mapping"]
     TypedMapping --> Loops["Complete: bounded loop"]
     Loops --> Exit["Complete: explicit workflow return and termination"] --> Calls["Complete: typed pinned calls, parameter mapping, and revision upgrades"]
-    Calls --> Assets["Next: child graph drill-in and scoped nested approvals"]
+    Calls --> Assets["Complete: child graph drill-in"] --> NestedApproval["Next: scoped nested approvals"]
     Orchestration --> Durable["Later: host-attributed reconciliation decisions"]
     Assets --> Extensions["Approved extensions in isolated workers"]
     Durable --> Collaboration["Workspace sharing and collaboration"]
@@ -146,9 +146,13 @@ Schema 1.18 adds the visible `core.terminate` node for successful exits with no 
 
 Schema 1.19 call nodes embed the exact child definition, revision/version, and content hash. Child execution stays in the parent run’s ordered audit stream under scoped event paths, and playback does not re-execute dependencies. Call pins inherit the child Input and Output types (`string` or `json`); parent parameters can map into compatible child parameters while unmapped child values use their defaults. The Studio lists dependencies from the pinned snapshot and compares another published revision across child nodes, connections, parameters, skills, profiles, and package requirements. Applying an accepted upgrade changes only the parent draft, preserves compatible mappings, reports removed mappings, and adds one undo step. The old snapshot remains active until the parent draft is saved and published. Validation limits nesting to three levels and 1,024 expanded nodes, rejects call-path cycles and invalid hashes, and requires host authorization for child capabilities. An embedded child-graph view, additional graph data types, and nested approvals remain future work. Core contract/editing and Agent Framework execution tests cover the changes. See [nested workflow calls](nested-workflows.md).
 
-### Next: child graph drill-in and scoped nested approvals
+### Complete: child graph drill-in
 
-Let authors inspect and navigate the embedded child graph from its call node while preserving parent context and scoped replay. Nested approval actions need a root-run and child-graph authorization contract before they can be enabled; root-level grants must not silently authorize child calls.
+The Studio can inspect the exact child definition embedded in a selected call and inspect a candidate graph during revision review without leaving the parent design. It uses the stored child layout when the catalog provides one and otherwise generates a temporary read-only layout. Inspection does not edit, execute, or authorize the child. Core execution remains bound to the embedded definition and scoped replay events.
+
+### Next: scoped nested approvals
+
+Nested approval actions need a root-run and child-graph authorization contract before they can be enabled; root-level grants must not silently authorize child calls. Bind requests and decisions to the root run plus the exact nested revision, call path, node identity, and action hash, while preserving one ordered audit stream. Keep approval identity separate from tool grants, and prove stale, duplicate, cancellation, pause/resume, persistence, and replay behavior before exposing the control in Studio.
 
 ## Latest completed milestone: bounded parallel graph block
 

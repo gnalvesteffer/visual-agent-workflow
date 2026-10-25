@@ -23,6 +23,8 @@ public partial class WorkflowDesigner
     private string upgradeCallNodeId = "";
     private Guid? upgradeRevisionId;
     private IReadOnlyList<PublishedWorkflowRevision> upgradeVersions = [];
+    private WorkflowLayout? upgradeChildLayout;
+    private bool upgradeChildLayoutIsDerived;
     private ImmutableArray<WorkflowChange> upgradeChanges = [];
     private ImmutableArray<string> upgradeRequirementChanges = [];
     private ImmutableArray<WorkflowCallParameterMapping> droppedUpgradeMappings = [];
@@ -63,6 +65,7 @@ public partial class WorkflowDesigner
     private void ResetCallUpgrade()
     {
         upgradeCallNodeId = ""; upgradeRevisionId = null; upgradeVersions = [];
+        upgradeChildLayout = null; upgradeChildLayoutIsDerived = false;
         upgradeChanges = []; upgradeRequirementChanges = []; droppedUpgradeMappings = [];
         upgradeReviewError = null; upgradeReviewBaseHash = ""; upgradeReviewOpen = false; upgradeReviewValid = false;
     }
@@ -70,12 +73,17 @@ public partial class WorkflowDesigner
     private Task SelectWorkflowCallForUpgrade(ChangeEventArgs args) => Perform(async current =>
     {
         upgradeCallNodeId = args.Value?.ToString() ?? "";
-        upgradeRevisionId = null; upgradeVersions = []; ClearUpgradeReview();
+        upgradeRevisionId = null; upgradeVersions = []; upgradeChildLayout = null; upgradeChildLayoutIsDerived = false; ClearUpgradeReview();
         var call = SelectedCallForUpgrade;
         if (call is null) return;
         var available = await current.Catalog.ListRevisionsAsync(call.WorkflowId).WaitAsync(current.Token);
+        var storedLayout = current.Catalog is IWorkflowDesignCatalog designs
+            ? await designs.GetRevisionLayoutAsync(call.RevisionId).WaitAsync(current.Token)
+            : null;
         if (!Current(current) || SelectedCallForUpgrade?.RevisionId != call.RevisionId) return;
         upgradeVersions = available.OrderByDescending(item => item.Version).ToArray();
+        upgradeChildLayout = storedLayout ?? WorkflowLayout.Create(call.Definition);
+        upgradeChildLayoutIsDerived = storedLayout is null;
         upgradeRevisionId = upgradeVersions.FirstOrDefault(item => item.Revision.RevisionId != call.RevisionId)?.Revision.RevisionId;
     });
 
@@ -129,6 +137,8 @@ public partial class WorkflowDesigner
         {
             var result = WorkflowCallEditing.Upgrade(definition, upgradeCallNodeId, target);
             ApplyComposition(new(result.Definition, layout));
+            upgradeChildLayout = WorkflowLayout.Create(target.Revision.Definition);
+            upgradeChildLayoutIsDerived = true;
             message = result.DroppedParameterMappings.IsEmpty
                 ? $"Updated the call to '{target.Revision.Definition.WorkflowId}' version {target.Version}. Undo edit restores its previous pin. Save and publish the draft to make the change active."
                 : $"Updated the call to version {target.Version}. {result.DroppedParameterMappings.Length} incompatible parameter mapping(s) were removed; those child parameters now use their defaults. Undo edit restores the previous pin and mappings.";
@@ -248,7 +258,7 @@ public partial class WorkflowDesigner
         if (output is null) throw new ArgumentException("Choose a node with an available output pin.");
         var next = GraphEditing.InsertNodeAfter(definition, after, output, call);
         if (!Current(current)) return;
-        ApplyComposition(new(next, layout));
+        ApplyComposition(new(next, layout.Reconcile(next)));
         message = $"Added a call to '{source.Revision.Definition.WorkflowId}' version {sourceVersion.Version}. This child revision is embedded and pinned in this workflow.";
     });
 

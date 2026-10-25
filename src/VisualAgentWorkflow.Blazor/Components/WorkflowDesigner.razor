@@ -113,6 +113,12 @@
                         @foreach (var requirement in WorkflowPackageJson.Requirements(pinnedCall.Definition))
                         { <li @key="requirement">@requirement.Kind · @requirement.Id @requirement.Version · @RequirementAvailability(requirement)</li> }
                     </ul>
+                    <details class="vaw-child-graph" open>
+                        <summary>Inspect pinned child graph (@pinnedCall.Definition.Nodes.Count nodes)</summary>
+                        @if (upgradeChildLayoutIsDerived)
+                        { <p class="vaw-help">This call embeds the child definition but not its editor layout, so the graph is arranged for inspection.</p> }
+                        <WorkflowGraphSnapshot @key="pinnedCall.RevisionId" Definition="pinnedCall.Definition" Layout="upgradeChildLayout" AccessibleLabel="@($"Pinned child workflow {pinnedCall.WorkflowId} version {pinnedCall.Version}")" />
+                    </details>
                     <label>Published revision to compare
                         <select aria-label="Published revision to upgrade the workflow call to" value="@upgradeRevisionId" @onchange="SelectUpgradeRevision" disabled="@(preview is not null || busy || upgradeVersions.All(item => item.Revision.RevisionId == pinnedCall.RevisionId))">
                             @foreach (var candidate in upgradeVersions.Where(item => item.Revision.RevisionId != pinnedCall.RevisionId))
@@ -146,6 +152,11 @@
                                     </ul>
                                 </details>
                             }
+                            <details class="vaw-child-graph" open>
+                                <summary>Inspect target child graph (@target.Revision.Definition.Nodes.Count nodes)</summary>
+                                <p class="vaw-help">This is a read-only view of the candidate revision. Applying the upgrade leaves the parent graph and its context intact.</p>
+                                <WorkflowGraphSnapshot @key="target.Revision.RevisionId" Definition="target.Revision.Definition" AccessibleLabel="@($"Candidate child workflow {target.Revision.Definition.WorkflowId} version {target.Version}")" />
+                            </details>
                             <details>
                                 <summary>Dependency changes (@upgradeRequirementChanges.Length)</summary>
                                 @if (upgradeRequirementChanges.IsEmpty) { <p>No dependency requirements changed.</p> }

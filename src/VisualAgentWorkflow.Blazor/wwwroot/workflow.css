@@ -208,6 +208,10 @@
 
 /* Blueprint-style canvas: logical graph coordinates live inside a bounded scroll viewport. */
 .vaw-graph-editor { min-inline-size: 0; background-color: var(--vaw-surface); }
+.vaw-graph-editor-compact .vaw-canvas-viewport { block-size: min(34rem, 55vh); max-block-size: none; min-block-size: 18rem; border-radius: var(--vaw-panel-radius); }
+.vaw-snapshot-node-summary { display: grid; gap: var(--vaw-space-2); padding: var(--vaw-space-2); color: var(--vaw-muted); font-size: 0.8125rem; overflow-wrap: anywhere; }
+.vaw-snapshot-node-summary strong { color: var(--vaw-text); }
+.vaw-snapshot-node-summary code { font-size: 0.75rem; }
 .vaw-canvas-toolbar { border: 1px solid var(--vaw-border); border-block-end: 0; border-radius: var(--vaw-panel-radius) var(--vaw-panel-radius) 0 0; margin-block: 0; padding: var(--vaw-space-2); }
 .vaw-canvas-toolbar strong { font-size: 0.875rem; margin-inline-end: var(--vaw-space-2); }
 .vaw-canvas-viewport { position: relative; block-size: 40rem; max-block-size: 75vh; min-block-size: 20rem; inline-size: 100%; overflow: auto; overscroll-behavior: contain; border: 1px solid var(--vaw-control-border); border-radius: 0 0 var(--vaw-panel-radius) var(--vaw-panel-radius); background-color: var(--vaw-canvas); touch-action: none; }
@@ -265,6 +269,8 @@
 .vaw-call-upgrade { border-block-start: 1px solid var(--vaw-border); margin-block-start: var(--vaw-space-5); padding-block-start: var(--vaw-space-4); }
 .vaw-call-upgrade > label { display: block; max-inline-size: 42rem; margin-block: var(--vaw-space-3); }
 .vaw-call-upgrade select { display: block; inline-size: 100%; min-inline-size: 0; min-block-size: 2.75rem; margin-block-start: var(--vaw-space-2); }
+.vaw-child-graph { margin-block: var(--vaw-space-4); padding: var(--vaw-space-3); border: 1px solid var(--vaw-border); border-radius: var(--vaw-control-radius); background: var(--vaw-surface); }
+.vaw-child-graph > summary { font-weight: 600; }
 .vaw-upgrade-review { max-inline-size: 64rem; margin-block: var(--vaw-space-4); padding: var(--vaw-space-4); border: 1px solid var(--vaw-border); border-inline-start: 3px solid var(--vaw-accent); border-radius: var(--vaw-control-radius); background: var(--vaw-surface-raised); }
 .vaw-upgrade-review pre { max-block-size: 16rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: var(--vaw-space-3); border-radius: var(--vaw-control-radius); background: var(--vaw-canvas); }
 .vaw-node-origin { color: var(--vaw-muted); font-size: 0.8125rem; border-block-start: 1px solid var(--vaw-border); padding-block-start: var(--vaw-space-2); }

@@ -8,11 +8,12 @@ from workbench_browser import workbench, inspect_control, new_workflow_fixture, 
 import argparse
 import copy
 import json
+import os
 from pathlib import Path
 import uuid
 from playwright.sync_api import sync_playwright, expect
 
-BASE = "http://127.0.0.1:5099"
+BASE = os.environ.get("VAW_STUDIO_BASE_URL", "http://127.0.0.1:5099")
 
 
 def check(browser, screenshots):
@@ -81,6 +82,20 @@ def check(browser, screenshots):
     workbench(designer).get_by_role("button",name="Undo edit",exact=True).click()
     expect(nodes).to_have_count(4)
     workbench(designer).get_by_role("button",name="Redo edit",exact=True).click()
+    expect(nodes).to_have_count(6)
+    call_button = workbench(designer).get_by_role("button",name="Call pinned workflow version",exact=True)
+    expect(call_button).to_be_enabled()
+    call_button.click()
+    expect(workbench(designer).get_by_role("status").filter(has_text="Added a call to")).to_be_visible()
+    expect(nodes).to_have_count(7)
+    call_picker = workbench(designer).get_by_label("Pinned workflow call to inspect",exact=True)
+    call_picker.select_option(index=1)
+    child_graph = workbench(designer).locator(".vaw-graph-editor-compact")
+    expect(child_graph).to_have_count(1)
+    expect(child_graph.locator("ol[aria-label^='Pinned child workflow'] > li")).to_have_count(4)
+    assert "Inspect pinned child graph (4 nodes)" in workbench(designer).locator(".vaw-child-graph").first.inner_text()
+    expect(nodes).to_have_count(7)  # Inspecting the child preserves the parent graph in its context.
+    workbench(designer).get_by_role("button",name="Undo edit",exact=True).click()
     expect(nodes).to_have_count(6)
     save()
     consumer = get("/api/workflows/"+target_id+"/design")
@@ -166,7 +181,7 @@ def check(browser, screenshots):
     assert any(event["kind"]=="tool.denied" for event in evidence["events"])
     assert not any(event["kind"] in ["tool.authorized","tool.completed"] for event in evidence["events"])
     assert not errors, errors
-    print("Published-version insertion, fresh identities, undo/redo, exact output, large package transport/sharing/tamper rejection, section extraction, selector identity, and missing-tool denial passed.")
+    print("Published-version insertion, pinned-call insertion, read-only child graph inspection with parent context, undo/redo, exact output, large package transport/sharing/tamper rejection, section extraction, selector identity, and missing-tool denial passed.")
     page.close()
 
 

@@ -1,0 +1,30 @@
+@namespace VisualAgentWorkflow.Blazor.Components
+
+<WorkflowGraphCanvas @key="Definition" Definition="Definition" Layout="Presentation" ReadOnly="true" CompactReadOnly="true" ShowNodeLibrary="false" NodesLabel="@AccessibleLabel">
+    <NodeContent Context="nodeId">
+        <div class="vaw-snapshot-node-summary">
+            <strong>@WorkflowGraphCanvas.FriendlyName(Definition.Nodes[nodeId])</strong>
+            <code>@nodeId</code>
+        </div>
+    </NodeContent>
+</WorkflowGraphCanvas>
+
+@code {
+    [Parameter, EditorRequired] public WorkflowDefinition Definition { get; set; } = default!;
+    [Parameter] public WorkflowLayout? Layout { get; set; }
+    [Parameter] public string AccessibleLabel { get; set; } = "Read-only child workflow graph";
+
+    private WorkflowDefinition? presentedDefinition;
+    private WorkflowLayout Presentation = default!;
+
+    protected override void OnParametersSet()
+    {
+        WorkflowValidator.ThrowIfInvalid(Definition);
+        if (!ReferenceEquals(presentedDefinition, Definition) || Layout is not null)
+        {
+            Presentation = Layout ?? WorkflowLayout.Create(Definition);
+            WorkflowLayoutJson.Validate(Presentation, Definition);
+            presentedDefinition = Definition;
+        }
+    }
+}

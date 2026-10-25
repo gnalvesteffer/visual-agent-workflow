@@ -6,12 +6,13 @@ local workflows and runs; never uses external model providers or side effects.
 
 from workbench_browser import workbench, inspect_control, show_runs
 import argparse
+import os
 import uuid
 import re
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 
-BASE = "http://127.0.0.1:5099"
+BASE = os.environ.get("VAW_STUDIO_BASE_URL", "http://127.0.0.1:5099")
 
 
 def drag(page, locator, dx, dy):

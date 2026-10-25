@@ -31,6 +31,7 @@ public partial class WorkflowGraphCanvas
     [Parameter] public EventCallback<string> SelectedNodeIdChanged { get; set; }
     [Parameter] public EventCallback<WorkflowLayout> LayoutChanged { get; set; }
     [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public bool CompactReadOnly { get; set; }
     [Parameter] public bool Disabled { get; set; }
     [Parameter] public string NodesLabel { get; set; } = "Editable pipeline nodes";
     [Parameter] public Func<string, string>? NodeClass { get; set; }

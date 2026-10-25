@@ -1,6 +1,8 @@
 @implements IAsyncDisposable
 
-<section class="vaw-graph-editor" tabindex="-1" @ref="root" data-context-menu="@(ContextMenu is not null && EnableContextMenu && !Disabled ? "true" : "false")" data-disabled="@(!CanEdit ? "true" : "false")" data-ready="@(ready ? "true" : "false")">
+<section class="vaw-graph-editor @(CompactReadOnly && ReadOnly ? "vaw-graph-editor-compact" : "")" tabindex="-1" @ref="root" data-context-menu="@(ContextMenu is not null && EnableContextMenu && !Disabled ? "true" : "false")" data-disabled="@(!CanEdit ? "true" : "false")" data-ready="@(ready ? "true" : "false")">
+    @if (!CompactReadOnly || !ReadOnly)
+    {
     <div class="vaw-controls vaw-canvas-toolbar">
         <strong>Graph canvas</strong>
         @ToolbarContent
@@ -13,6 +15,7 @@
         <button type="button" @onclick="AutoLayout" disabled="@(!CanEdit)">Arrange nodes</button>
         <span class="vaw-help">@(ReadOnly ? "Recorded layout. Drag the background to pan; use the playback controls to inspect evidence." : "Drag empty space to select nodes; hold Ctrl or Shift to add or remove nodes. Middle-drag to pan. Drag a selected node to move the group.")</span>
     </div>
+    }
     <p class="vaw-help" role="status" data-pin-hint hidden>@pinHintText</p>
     <p class="vaw-error" role="status" data-fullscreen-error hidden>Fullscreen is unavailable in this host. Embedded apps must allow fullscreen for this frame.</p>
     <div class="vaw-canvas-workspace @(NodeInspector is not null ? "vaw-with-properties" : "") @(NodeLibrary is not null && ShowNodeLibrary ? "vaw-with-library" : "")">
@@ -114,6 +117,8 @@
         </aside>
     }
     </div>
+    @if (!CompactReadOnly || !ReadOnly)
+    {
     <details class="vaw-layout-inspector">
         <summary>Labels, comments, sections, and wire routing</summary>
         <fieldset disabled="@(!CanEdit)">
@@ -200,6 +205,7 @@
             </div>
         </fieldset>
     </details>
+    }
     @if (contextMenu is { } menu && ContextMenu is not null)
     {
         <div @key="menu.Id" class="vaw-context-menu" role="dialog" aria-label="Graph actions" popover="auto" data-context-id="@menu.Id"
