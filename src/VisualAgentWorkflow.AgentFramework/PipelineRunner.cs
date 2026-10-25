@@ -181,7 +181,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         WorkflowApprovalPermit? Approval = null, string DataType = "string", int LoopIteration = 0,
         bool TerminationSignal = false, bool FailureSignal = false);
 
-    private sealed record EvaluatedDataValue(string NodeId, string PortId, string Value);
+    private sealed record EvaluatedDataValue(string NodeId, string PortId, string Value, string? ConnectionId);
     private sealed record DataInputEvaluation(string Value, ImmutableArray<EvaluatedDataValue> Evaluations);
 
     /// <summary>Evaluates only the bounded, pure schema-1.23 value nodes in one activation context.</summary>
@@ -189,21 +189,26 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
     {
         public DataInputEvaluation ResolveInput(string nodeId, string inputPort)
         {
-            var edge = definition.Connections.Values.Single(connection => connection.Target.NodeId == nodeId && connection.Target.PortId == inputPort);
+            var edge = definition.Connections.Single(connection => connection.Value.Target.NodeId == nodeId && connection.Value.Target.PortId == inputPort);
             var evaluated = ImmutableArray.CreateBuilder<EvaluatedDataValue>();
             var cache = new Dictionary<(string NodeId, string PortId), string>();
             var active = new HashSet<(string NodeId, string PortId)>();
-            var value = ResolveOutput(edge.Source.NodeId, edge.Source.PortId, evaluated, cache, active);
+            var value = ResolveOutput(edge.Value.Source.NodeId, edge.Value.Source.PortId, edge.Key, evaluated, cache, active);
             return new(value, evaluated.ToImmutable());
         }
 
         private string ResolveOutput(string nodeId, string outputPort,
+            string? connectionId,
             ImmutableArray<EvaluatedDataValue>.Builder evaluated,
             Dictionary<(string NodeId, string PortId), string> cache,
             HashSet<(string NodeId, string PortId)> active)
         {
             var key = (nodeId, outputPort);
-            if (cache.TryGetValue(key, out var cached)) return cached;
+            if (cache.TryGetValue(key, out var cached))
+            {
+                evaluated.Add(new(nodeId, outputPort, cached, connectionId));
+                return cached;
+            }
             if (!active.Add(key)) throw new InvalidOperationException("Pure data evaluation encountered a cycle.");
             try
             {
@@ -218,7 +223,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 };
                 if (value.Length > 16_384) throw new InvalidOperationException("Pure data output exceeds 16,384 characters.");
                 cache.Add(key, value);
-                evaluated.Add(new(nodeId, outputPort, value));
+                evaluated.Add(new(nodeId, outputPort, value, connectionId));
                 return value;
             }
             finally
@@ -244,8 +249,8 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             Dictionary<(string NodeId, string PortId), string> cache,
             HashSet<(string NodeId, string PortId)> active)
         {
-            var edge = definition.Connections.Values.Single(connection => connection.Target.NodeId == nodeId && connection.Target.PortId == inputPort);
-            return ResolveOutput(edge.Source.NodeId, edge.Source.PortId, evaluated, cache, active);
+            var edge = definition.Connections.Single(connection => connection.Value.Target.NodeId == nodeId && connection.Value.Target.PortId == inputPort);
+            return ResolveOutput(edge.Value.Source.NodeId, edge.Value.Source.PortId, edge.Key, evaluated, cache, active);
         }
     }
 
@@ -295,7 +300,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 {
                     var incoming = revision.Definition.ExecutionConnections!.Single(edge => edge.Value.Source.NodeId == received.SourceNode &&
                         edge.Value.Source.PortId == received.SourcePort && edge.Value.Target.NodeId == Id);
-                    await Emit(ExecutionEventKinds.ExecutionActivated, Id, invocation, incoming.Key);
+                    await Emit(ExecutionEventKinds.ExecutionActivated, Id, invocation, $"execution:{incoming.Key}");
                     incomingPort = incoming.Value.Target.PortId;
                 }
                 else
@@ -313,7 +318,8 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 var evaluation = dataEvaluator!.ResolveInput(Id, "in");
                 message = evaluation.Value;
                 foreach (var value in evaluation.Evaluations)
-                    await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation, null, JsonSerializer.Serialize(new
+                    await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
+                        value.ConnectionId is null ? null : $"data:{value.ConnectionId}", JsonSerializer.Serialize(new
                     {
                         activatedByNodeId = Id,
                         port = value.PortId,

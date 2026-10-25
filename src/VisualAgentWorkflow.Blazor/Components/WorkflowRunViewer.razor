@@ -33,7 +33,7 @@
         </div>
             </ToolbarContent>
             <NodeContent Context="nodeId">
-                @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); var pendingNode = PendingRootNodeId; var label = pendingNode == nodeId ? PendingApproval?.Action.ScopeId is null ? "Awaiting approval" : "Child awaiting approval" : PausedBefore(nodeId) && state is null ? "Paused before execution" : node.Type == NodeTypes.Terminate && state?.Kind == ExecutionEventKinds.NodeCompleted ? "Terminated successfully" : StateLabel(state); var activity = ActiveActivity(nodeId); }
+                @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); var evaluation = DataEvaluation(nodeId); var pendingNode = PendingRootNodeId; var label = pendingNode == nodeId ? PendingApproval?.Action.ScopeId is null ? "Awaiting approval" : "Child awaiting approval" : PausedBefore(nodeId) && state is null ? "Paused before execution" : node.Type == NodeTypes.Terminate && state?.Kind == ExecutionEventKinds.NodeCompleted ? "Terminated successfully" : evaluation is not null ? "Evaluated" : StateLabel(state); var activity = ActiveActivity(nodeId); }
                 <button type="button" class="vaw-node-button" aria-label="@($"{nodeId} {node.Type} {label}")" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId ? "true" : "false")">
                     <span>@label</span>
                 </button>
@@ -45,12 +45,22 @@
             var started = RootEvents.LastOrDefault(e => e.NodeId == selectedNode && e.Kind == ExecutionEventKinds.NodeStarted);
             var completed = RootEvents.LastOrDefault(e => e.NodeId == selectedNode && e.Kind == ExecutionEventKinds.NodeCompleted);
             var failure = RootEvents.LastOrDefault(e => e.NodeId == selectedNode && e.Kind is ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
+            var node = Snapshot.Header.Definition.Nodes[selectedNode];
+            var dataEvaluation = DataEvaluation(selectedNode);
             var childEvents = VisibleEvents.Where(e => e.ScopeId == selectedNode || e.ScopeId?.StartsWith(selectedNode + "/", StringComparison.Ordinal) == true).ToArray(); }
             <section class="vaw-inspector" aria-label="Selected node payloads">
                 <h3>@(string.IsNullOrWhiteSpace(Presentation.Nodes[inspected].Label) ? WorkflowGraphCanvas.FriendlyName(Snapshot.Header.Definition.Nodes[inspected]) : Presentation.Nodes[inspected].Label)</h3>
                 <p>Invocation: @(started?.InvocationId?.ToString() ?? "Not recorded at this position")</p>
-                <h4>Input</h4><pre>@(started?.Data ?? "Not recorded at this position")</pre>
-                <h4>Output</h4><pre>@(completed?.Data ?? "Not recorded at this position")</pre>
+                @if (node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat)
+                {
+                    <h4>Evaluated value</h4><pre>@(dataEvaluation is null ? "Not evaluated at this position" : EvaluatedValue(dataEvaluation))</pre>
+                    @if (dataEvaluation?.ConnectionId is { } dataConnection) { <p>Delivered on @dataConnection</p> }
+                }
+                else
+                {
+                    <h4>Input</h4><pre>@(started?.Data ?? "Not recorded at this position")</pre>
+                    <h4>Output</h4><pre>@(completed?.Data ?? "Not recorded at this position")</pre>
+                }
                 @if (failure is not null) { <h4>@StateLabel(failure)</h4><pre>@failure.Data</pre> }
                 @if (Snapshot.Header.Definition.Nodes[inspected].Type == NodeTypes.WorkflowCall)
                 {
@@ -90,6 +100,16 @@
     private WorkflowLayout Presentation = default!;
     private IEnumerable<ExecutionEvent> RootEvents => VisibleEvents.Where(e => e.ScopeId is null);
     private ExecutionEvent? State(string id) => RootEvents.LastOrDefault(e => e.NodeId == id && e.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
+    private ExecutionEvent? DataEvaluation(string id) => RootEvents.LastOrDefault(e => e.NodeId == id && e.Kind == ExecutionEventKinds.DataEvaluated);
+    private static string EvaluatedValue(ExecutionEvent evt)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(evt.Data!);
+            return document.RootElement.GetProperty("value").GetString() ?? "";
+        }
+        catch (JsonException) { return evt.Data ?? ""; }
+    }
     private string? ActiveActivity(string id)
     {
         if (State(id)?.Kind != ExecutionEventKinds.NodeStarted) return null;
@@ -244,13 +264,13 @@
     private string? PendingRootNodeId => PendingApproval?.Action.ScopeId is { } scope
         ? scope.Split('/', 2, StringSplitOptions.None)[0]
         : PendingApproval?.Action.ApprovalNodeId;
-    private string NodeStateClass(string id) => PendingRootNodeId == id ? "vaw-waiting-approval" : State(id)?.Kind switch
+    private string NodeStateClass(string id) => PendingRootNodeId == id ? "vaw-waiting-approval" : DataEvaluation(id) is not null ? "vaw-complete" : State(id)?.Kind switch
     {
         ExecutionEventKinds.NodeCompleted => "vaw-complete",
         ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled => "vaw-failed",
         _ => PausedBefore(id) ? "vaw-paused-boundary" : ""
     };
-    private IReadOnlySet<string> Delivered => VisibleEvents.Where(e => e.Kind == ExecutionEventKinds.Transfer && e.ConnectionId is not null).Select(e => e.ConnectionId!).ToHashSet(StringComparer.Ordinal);
+    private IReadOnlySet<string> Delivered => VisibleEvents.Where(e => e.Kind is ExecutionEventKinds.Transfer or ExecutionEventKinds.ExecutionActivated or ExecutionEventKinds.DataEvaluated && e.ConnectionId is not null).Select(e => e.ConnectionId!).ToHashSet(StringComparer.Ordinal);
     private Guid? currentRun;
     private bool follow = true;
     private int cursor;

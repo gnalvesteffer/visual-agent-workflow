@@ -69,7 +69,10 @@ public sealed record WorkflowLayout(string SchemaVersion,
         return this with
         {
             Nodes = reconciled,
-            Wires = Wires.Where(p => definition.Connections.ContainsKey(p.Key)).ToImmutableSortedDictionary(StringComparer.Ordinal),
+            Wires = Wires.Where(p => definition.SchemaVersion == "1.23"
+                ? p.Key.StartsWith("data:", StringComparison.Ordinal) && definition.Connections.ContainsKey(p.Key["data:".Length..]) ||
+                    p.Key.StartsWith("execution:", StringComparison.Ordinal) && definition.ExecutionConnections?.ContainsKey(p.Key["execution:".Length..]) == true
+                : definition.Connections.ContainsKey(p.Key)).ToImmutableSortedDictionary(StringComparer.Ordinal),
             Sections = Sections.Select(p => KeyValuePair.Create(p.Key, p.Value with
                 { NodeIds = p.Value.NodeIds.Where(definition.Nodes.ContainsKey).ToImmutableArray() }))
                 .Where(p => p.Value.NodeIds.Length > 0).ToImmutableSortedDictionary(StringComparer.Ordinal)
@@ -108,7 +111,7 @@ public static class WorkflowLayoutJson
         if (layout.SchemaVersion != "1.0" || layout.Nodes is null || layout.Wires is null || layout.Sections is null)
             throw new ArgumentException("Unsupported or incomplete graph layout.");
         if (layout.Nodes.Count != definition.Nodes.Count || layout.Nodes.Keys.Except(definition.Nodes.Keys).Any() ||
-            layout.Wires.Count > definition.Connections.Count || layout.Sections.Count > 64)
+            layout.Wires.Count > (definition.SchemaVersion == "1.23" ? definition.Connections.Count + (definition.ExecutionConnections?.Count ?? 0) : definition.Connections.Count) || layout.Sections.Count > 64)
             throw new ArgumentException("Layout must reference only the current definition and at most 64 sections.");
         foreach (var node in layout.Nodes.Values)
         {
@@ -118,7 +121,11 @@ public static class WorkflowLayoutJson
         }
         foreach (var (id, wire) in layout.Wires)
         {
-            if (!definition.Connections.ContainsKey(id) || wire is null || wire.Style is not ("curve" or "orthogonal") ||
+            var knownConnection = definition.SchemaVersion == "1.23"
+                ? id.StartsWith("data:", StringComparison.Ordinal) && definition.Connections.ContainsKey(id["data:".Length..]) ||
+                    id.StartsWith("execution:", StringComparison.Ordinal) && definition.ExecutionConnections?.ContainsKey(id["execution:".Length..]) == true
+                : definition.Connections.ContainsKey(id);
+            if (!knownConnection || wire is null || wire.Style is not ("curve" or "orthogonal") ||
                 wire.Points.IsDefault || wire.Points.Length > 32)
                 throw new ArgumentException("Invalid wire route; at most 32 waypoints are supported.");
             foreach (var point in wire.Points)

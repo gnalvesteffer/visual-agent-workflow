@@ -41,7 +41,7 @@ public sealed class ExplicitGraphExecutionTests
 
         Assert.Equal("Hello!", result.Output);
         Assert.False(result.Terminated);
-        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated && evt.ConnectionId == "activate-output");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated && evt.ConnectionId == "execution:activate-output");
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Transfer);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId is "constant" or "concat");
         Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.DataEvaluated));
@@ -52,5 +52,9 @@ public sealed class ExplicitGraphExecutionTests
             .Select(evt => JsonDocument.Parse(evt.Data!).RootElement.GetProperty("value").GetString())
             .ToArray();
         Assert.Equal(new[] { "Hello", "!", "Hello!" }, values.Select(value => value!));
+        Assert.Equal(new[] { "data:input-value", "data:result", "data:suffix" }, events
+            .Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated)
+            .Select(evt => evt.ConnectionId)
+            .Order(StringComparer.Ordinal));
     }
 }

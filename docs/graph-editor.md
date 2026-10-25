@@ -8,7 +8,7 @@ Epic's current documentation pages (Connecting Nodes, Nodes, and the Blueprint E
 - [Unreal SGraphPin reference](https://github.com/folgerwang/UnrealEngine/blob/release/Engine/Source/Editor/GraphEditor/Private/SGraphPin.cpp): input pin before its label on the left; output pin after its label on the right; connected/unconnected and type-specific pin styling.
 - [Unreal reroute-knot contract](https://github.com/folgerwang/UnrealEngine/blob/release/Engine/Source/Editor/BlueprintGraph/Classes/K2Node_Knot.h): pass-through control points used to organize wires, not compiler-relevant executable work.
 
-These inform interaction conventions. No Unreal source code or artwork is incorporated into this project. Our string graphs have data links only. Schema 1.4 conditions expose explicit true/false string outputs; the UI must not invent separate execution pulses or imply support for arbitrary fan-out.
+These inform interaction conventions. No Unreal source code or artwork is incorporated into this project. Legacy workflow schemas use data links to carry values and activate downstream processing. The opt-in schema 1.23 preview displays separate typed data and execution wires, but supports only a direct Input-to-Output execution route plus pure constant/concatenation data nodes; it does not yet support branch nodes. Schema 1.4 conditions in legacy graphs expose true/false string outputs. Do not imply that legacy and explicit execution semantics can be mixed or that arbitrary fan-out is supported.
 
 ## Portable presentation model
 
@@ -41,7 +41,7 @@ flowchart LR
 
 ## Canvas controls
 
-The reusable `WorkflowGraphCanvas` renders left-edge input sockets and right-edge output sockets, measured from the actual rendered nodes. Wires use SVG geometry and keep following the pins when cards change size. The supported string links are data pins; conditions expose distinct true/false sockets backed by real exclusive routing. There are no decorative execution pins.
+The reusable `WorkflowGraphCanvas` renders left-edge input sockets and right-edge output sockets, measured from the actual rendered nodes. Wires use SVG geometry and keep following the pins when cards change size. Legacy graph links are string data pins; legacy conditions expose distinct true/false sockets backed by real exclusive routing. In the schema 1.23 preview, execution and data pins are separately typed and visibly styled. Only the Input-to-Output activation route, pure text constants, and concatenation are currently supported there; do not connect legacy condition semantics into that schema.
 
 - Drag a node header to place it freely. Arrow keys move by 8 units; Shift moves by 40. Numeric X/Y fields provide an alternative. Placing nodes does not change the connected execution order; the existing move-up/down operations still reorder execution.
 - Scroll or drag empty graph background to pan. Zoom controls change the view, not stored coordinates. Coordinate conversion accounts for zoom and scroll. Pointer cancellation restores the preview rather than saving an accidental move.
@@ -51,7 +51,7 @@ The reusable `WorkflowGraphCanvas` renders left-edge input sockets and right-edg
 
 **Fit graph** changes only zoom/scroll. **Fullscreen graph** uses native browser fullscreen and includes the library, selected properties and toolbar (save/publish/undo or playback). Escape exits and restores focus; denied requests show an inline explanation. An embedding iframe must permit fullscreen. Fullscreen Tab navigation stays inside the expanded graph. Disposal removes browser listeners without canceling backend execution.
 
-Node positions, annotations, groups, and routes share the designer’s undo/redo history with semantic edits. Saves are explicit. A completed drag creates one edit; transient browser pointer previews do not stream commands to the backend. Publish and restore preserve layout with its revision. Preview and run playback are read-only. The Studio fetches the recorded revision's layout for playback; template/ad-hoc runs and pre-layout revisions use default positions. Wire completion color still comes only from recorded transfer events, not geometry.
+Node positions, annotations, groups, and routes share the designer’s undo/redo history with semantic edits. Saves are explicit. A completed drag creates one edit; transient browser pointer previews do not stream commands to the backend. Publish and restore preserve layout with its revision. Preview and run playback are read-only. The Studio fetches the recorded revision's layout for playback; template/ad-hoc runs and pre-layout revisions use default positions. Legacy wire completion uses recorded transfers; schema 1.23 data wires use recorded `data.evaluated` events with connection IDs, never geometry or reevaluation during playback.
 
 JSON definition export remains compatible. Separate layout export/import controls share the JSON editor and provide `workflow.layout.json`; importing validates IDs against the current definition and does not publish or execute anything. Consuming hosts implement `IWorkflowDesignCatalog` for persistence; hosts implementing only the older catalog retain semantic editing with presentation editing disabled.
 

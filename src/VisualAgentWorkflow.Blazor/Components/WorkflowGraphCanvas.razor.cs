@@ -8,6 +8,8 @@ using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Blazor.Components;
 
+internal sealed record CanvasConnection(string Id, ConnectionDefinition Definition, string Kind);
+
 public partial class WorkflowGraphCanvas
 {
     [Parameter, EditorRequired] public WorkflowDefinition Definition { get; set; } = default!;
@@ -70,6 +72,16 @@ public partial class WorkflowGraphCanvas
     }
     private static string PointsJson(WirePresentation route) => JsonSerializer.Serialize(route.Points, JsonOptions);
     private WirePresentation Route(string id) => Layout.Wires.GetValueOrDefault(id) ?? new("curve", []);
+    private IEnumerable<CanvasConnection> CanvasConnections => Definition.SchemaVersion == "1.23"
+        ? Definition.Connections.Select(edge => new CanvasConnection($"data:{edge.Key}", edge.Value, "data"))
+            .Concat((Definition.ExecutionConnections ?? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
+                .Select(edge => new CanvasConnection($"execution:{edge.Key}", edge.Value, "execution")))
+        : Definition.Connections.Select(edge => new CanvasConnection(edge.Key, edge.Value, "data"));
+    private CanvasConnection? FindConnection(string? id) => id is null ? null : CanvasConnections.FirstOrDefault(edge => edge.Id == id);
+    private ImmutableArray<WorkflowPortDescriptor> Ports(NodeDefinition node) => Definition.SchemaVersion == "1.23"
+        ? WorkflowPorts.Explicit(node)
+        : [.. WorkflowPorts.Inputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType)),
+           .. WorkflowPorts.Outputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType))];
     private string Title(string id) => string.IsNullOrWhiteSpace(Layout.Nodes[id].Label) ? FriendlyName(Definition.Nodes[id]) : Layout.Nodes[id].Label;
     internal static string FriendlyName(NodeDefinition node) => node.Type switch
     {
@@ -79,6 +91,7 @@ public partial class WorkflowGraphCanvas
         NodeTypes.ParallelFork => "Parallel fork", NodeTypes.ParallelBranch => "Parallel branch", NodeTypes.ParallelJoin => "Parallel join",
         NodeTypes.Loop => "Bounded loop", NodeTypes.LoopBody => "Loop body", NodeTypes.Terminate => "Terminate workflow",
         NodeTypes.WorkflowCall => $"Workflow · {node.WorkflowCall?.WorkflowId} v{node.WorkflowCall?.Version}",
+        NodeTypes.StringConstant => "String constant", NodeTypes.TextConcat => "Text concatenation",
         NodeTypes.Agent => "Agent", _ => "MCP tool"
     };
     private async Task SelectNode(string id)
@@ -92,7 +105,7 @@ public partial class WorkflowGraphCanvas
         node.Type == NodeTypes.Approval ? "Approval" : node.Type == NodeTypes.Condition ? "Condition" : node.Type == NodeTypes.Merge ? "Exclusive merge" :
         node.Type == NodeTypes.ParallelFork ? "Fork" : node.Type == NodeTypes.ParallelBranch ? "Branch" : node.Type == NodeTypes.ParallelJoin ? "Barrier join" :
         node.Type == NodeTypes.Loop ? "Bounded loop" : node.Type == NodeTypes.LoopBody ? "Loop body" : node.Type == NodeTypes.Terminate ? "Successful exit · no result" :
-        node.Type == NodeTypes.WorkflowCall ? "Pinned workflow call" :
+        node.Type == NodeTypes.WorkflowCall ? "Pinned workflow call" : node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat ? "Pure value" :
         node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform";
 
     protected override void OnParametersSet()
@@ -105,9 +118,9 @@ public partial class WorkflowGraphCanvas
         }
         if (SelectedNodeId is not null && Definition.Nodes.ContainsKey(SelectedNodeId)) selectedNode = SelectedNodeId;
         if (selectedNode is null || !Definition.Nodes.ContainsKey(selectedNode)) selectedNode = Order[0];
-        if (selectedWire is null || !Definition.Connections.ContainsKey(selectedWire)) selectedWire = Definition.Connections.Keys.FirstOrDefault();
+        if (FindConnection(selectedWire) is null) selectedWire = CanvasConnections.Select(edge => edge.Id).FirstOrDefault();
         if (contextMenu is { } context && (context.NodeId is not null && !Definition.Nodes.ContainsKey(context.NodeId) ||
-            context.ConnectionId is not null && !Definition.Connections.ContainsKey(context.ConnectionId))) contextMenu = null;
+            context.ConnectionId is not null && FindConnection(context.ConnectionId) is null)) contextMenu = null;
         members.RemoveWhere(id => !Definition.Nodes.ContainsKey(id));
     }
 
@@ -228,7 +241,7 @@ public partial class WorkflowGraphCanvas
     [JSInvokable]
     public Task AddWaypoint(string id, int index, double x, double y)
     {
-        if (!CanEdit || !Definition.Connections.ContainsKey(id)) return Task.CompletedTask;
+        if (!CanEdit || FindConnection(id) is null) return Task.CompletedTask;
         var route = Route(id);
         if (index < 0 || index > route.Points.Length || route.Points.Length >= 32) return Task.CompletedTask;
         selectedWire = id;
@@ -248,9 +261,9 @@ public partial class WorkflowGraphCanvas
     public async Task SelectWire(string? id)
     {
         if (disposed) return;
-        if (id is not null && Definition.Connections.TryGetValue(id, out var edge))
+        if (FindConnection(id) is { } connection)
         {
-            selectedWire = id; activeConnection = id; selectedNode = edge.Source.NodeId;
+            selectedWire = id; activeConnection = id; selectedNode = connection.Definition.Source.NodeId;
             await ConnectionSelected.InvokeAsync(id);
         }
         await InvokeAsync(StateHasChanged);
@@ -261,7 +274,7 @@ public partial class WorkflowGraphCanvas
     {
         if (disposed || Disabled || !EnableContextMenu || ContextMenu is null || !double.IsFinite(x) || !double.IsFinite(y)) return;
         nodeId = nodeId is not null && Definition.Nodes.ContainsKey(nodeId) ? nodeId : null;
-        connectionId = connectionId is not null && Definition.Connections.ContainsKey(connectionId) ? connectionId : null;
+        connectionId = FindConnection(connectionId) is not null ? connectionId : null;
         if (connectionId is not null) await SelectWire(connectionId);
         else if (nodeId is not null) await SelectNode(nodeId);
         contextMenu = new(Guid.NewGuid().ToString("N"), nodeId, connectionId, segment, Snap(x, y), clientX, clientY);
@@ -279,7 +292,7 @@ public partial class WorkflowGraphCanvas
     public Task CreateDroppedNode(string key, string? nodeId, string? connectionId, double x, double y) =>
         disposed || Disabled || !EnableContextMenu || !double.IsFinite(x) || !double.IsFinite(y) ? Task.CompletedTask :
         NodeCreateRequested.InvokeAsync(new(key, new(Guid.NewGuid().ToString("N"), nodeId is not null && Definition.Nodes.ContainsKey(nodeId) ? nodeId : null,
-            connectionId is not null && Definition.Connections.ContainsKey(connectionId) ? connectionId : null, 0, Snap(x, y), 0, 0)));
+            FindConnection(connectionId) is not null ? connectionId : null, 0, Snap(x, y), 0, 0)));
 
     [JSInvokable]
     public async Task ConnectPins(string sourceId, string sourcePort, string targetId, string targetPort)
@@ -338,7 +351,8 @@ public partial class WorkflowGraphCanvas
         Route(id) with { Style = args.Value?.ToString() ?? "curve", Points = Route(id).Points.Select(p => p with { Angle = null }).ToImmutableArray() }) });
     private Task AddMidpoint(string id)
     {
-        var edge = Definition.Connections[id];
+        if (FindConnection(id) is not { } connection) return Task.CompletedTask;
+        var edge = connection.Definition;
         var from = Layout.Nodes[edge.Source.NodeId].Position;
         var to = Layout.Nodes[edge.Target.NodeId].Position;
         var count = Route(id).Points.Length;

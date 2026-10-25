@@ -39,6 +39,14 @@
     <WorkflowGraphCanvas @ref="canvas" @key="Definition.WorkflowId" Definition="Definition" Layout="EffectiveLayout" LayoutChanged="LayoutEdited" ReadOnly="@(ReadOnly || LayoutReadOnly)" Disabled="Disabled" SelectedNodeId="@selectedNode" SelectedNodeIdChanged="SelectNode" ConnectionSelected="ConnectionSelected" ConnectionDisconnectRequested="id => Edit(() => GraphEditing.Disconnect(Definition, id))" ConnectionRequested="pins => Edit(() => GraphEditing.ConnectPins(Definition, pins.SourceId, pins.SourcePort, pins.TargetId, pins.TargetPort))" ShowNodeLibrary="@(!ReadOnly)" EnableContextMenu="@(!ReadOnly && !Disabled)" NodeCreateRequested="request => AddLibraryNode(request.Key, request.Context)" DeleteNodeRequested="id => RemoveSelected(id)">
     <ToolbarContent>@EditorActions</ToolbarContent>
     <NodeLibrary>
+        @if (CanUpgradeBlankGraph)
+        {
+            <section class="vaw-library-note" aria-label="Typed graph preview">
+                <strong>Typed graph preview</strong>
+                <p class="vaw-help">Start a draft with separate execution and value wires. This preview currently supports text constants and concatenation.</p>
+                <button type="button" @onclick="EnableExplicitPreview" disabled="@Disabled">Start typed graph preview</button>
+            </section>
+        }
         <WorkflowNodeLibrary Entries="LibraryEntries()" Disabled="Disabled" OnSelected="key => AddLibraryNode(key)" />
         <p class="vaw-help">Click to add an unconnected node. Connect its pins when ready; use a wire menu to explicitly insert into a path.</p>
         <p class="vaw-insertion-hint">@InsertionDescription(null)</p>
@@ -81,7 +89,11 @@
             {
             var index = Order.IndexOf(id);
             var terminal = node.Type is NodeTypes.Input or NodeTypes.Output;
-                    @if (node.Type == NodeTypes.Input && !ReadOnly)
+                    @if (node.Type == NodeTypes.Input && Definition.SchemaVersion == "1.23")
+                    {
+                        <p>The <strong>then</strong> pin activates the workflow path. The <strong>out</strong> pin is a value dependency and does not activate nodes.</p>
+                    }
+                    else if (node.Type == NodeTypes.Input && !ReadOnly)
                     {
                         <p>The workflow input is text by default.</p>
                         @if (node.InputDataType == "json")
@@ -131,6 +143,17 @@
                             <p class="vaw-help">Build deterministic text from the incoming value and declared workflow parameters. References are tokens, not expressions.</p>
                             <PromptTemplateEditor EditorLabel="Template text" Value="node.TextTemplate!" Parameters="ParameterDefinitions" ValueChanged="template => SetTextTemplate(id, template)" Disabled="Disabled" />
                         </fieldset>
+                    }
+                    else if (node.Type == NodeTypes.StringConstant)
+                    {
+                        <label>Constant value
+                            <textarea aria-label="String constant value for @id" rows="3" maxlength="16384" value="@node.StringConstant?.Value" @onchange="args => ChangeStringConstant(id, args)" disabled="@Disabled"></textarea>
+                        </label>
+                        <p class="vaw-help">Pure value node. It is evaluated only when a connected data input needs it.</p>
+                    }
+                    else if (node.Type == NodeTypes.TextConcat)
+                    {
+                        <p>Concatenates the <strong>left</strong> and <strong>right</strong> string inputs when a downstream data input requests its output. It does not activate through execution wires.</p>
                     }
                     else if (node.Type == NodeTypes.WorkflowCall)
                     {
@@ -505,7 +528,9 @@
     private string? error;
     private string? selectedNode;
     private string selectedPort = "out";
-    private Task SelectNode(string id) { insertionConnection = null; if (selectedNode != id) selectedPort = WorkflowPorts.Outputs(Definition.Nodes[id]).FirstOrDefault()?.Id ?? "out"; selectedNode = id; return Task.CompletedTask; }
+    private Task SelectNode(string id) { insertionConnection = null; if (selectedNode != id) selectedPort = Definition.SchemaVersion == "1.23"
+        ? WorkflowPorts.Explicit(Definition.Nodes[id]).FirstOrDefault(port => port.Direction == WorkflowPortDirection.Output)?.Id ?? "out"
+        : WorkflowPorts.Outputs(Definition.Nodes[id]).FirstOrDefault()?.Id ?? "out"; selectedNode = id; return Task.CompletedTask; }
     private string Summary(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input => "Workflow input",
@@ -515,6 +540,8 @@
         NodeTypes.JsonSelectString => $"JSON pointer · {node.JsonPropertySelection?.Pointer}",
         NodeTypes.JsonProject => $"JSON object · {string.Join(", ", node.JsonProjection?.Fields.Select(field => $"{field.Name}: {field.ValueSchema?.Type ?? field.ValueType ?? "any"}") ?? [])}",
         NodeTypes.TextTemplate => $"Template · {PromptTemplateCodec.Format(node.TextTemplate)}",
+        NodeTypes.StringConstant => node.StringConstant?.Value ?? "Empty text constant",
+        NodeTypes.TextConcat => "Join left + right",
         NodeTypes.WorkflowValue => node.ParameterId is { } parameterId && ParameterDefinitions.TryGetValue(parameterId, out var parameter)
             ? $"Workflow value · {parameter.DisplayName}" : "Workflow value",
         NodeTypes.Condition => $"{node.Condition!.Operator} · {node.Condition.Operand}",
@@ -719,6 +746,9 @@
     private static string ToolInputSummary(ToolBindingDescriptor binding) => binding.InputSummary;
     private NodeDefinition FromSelection(string value, NodeDefinition? existing = null)
     {
+        if (value == NodeTypes.StringConstant)
+            return new(NodeTypes.StringConstant, "1.0.0") { StringConstant = existing?.StringConstant ?? new("") };
+        if (value == NodeTypes.TextConcat) return new(NodeTypes.TextConcat, "1.0.0");
         if (value == NodeTypes.JsonSelectString)
             return new(NodeTypes.JsonSelectString, "1.0.0") { JsonPropertySelection = existing?.JsonPropertySelection ?? new("/name") };
         if (value == NodeTypes.JsonProject)
@@ -734,6 +764,9 @@
         return binding is null ? new(value, "1.0.0") : new(NodeTypes.McpTool, "1.0.0", new(binding.BindingId, binding.ContractHash)
         { DescriptionHash = binding.DescriptionHash });
     }
+
+    private Task ChangeStringConstant(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
+        Definition.Nodes[id] with { StringConstant = new(args.Value?.ToString() ?? "") }));
 
     private Task Instructions(string id, ChangeEventArgs args) => Edit(() => ReplaceProcessing(id,
         Definition.Nodes[id] with { Agent = Definition.Nodes[id].Agent! with { Instructions = args.Value?.ToString() ?? "" } }));

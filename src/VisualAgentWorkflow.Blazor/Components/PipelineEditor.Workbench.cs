@@ -7,13 +7,27 @@ namespace VisualAgentWorkflow.Blazor.Components;
 public partial class PipelineEditor
 {
     private string? insertionConnection;
-    private bool UseGraphRemoval => UsesGraphEditing || WorkflowValidator.Validate(Definition).Any(issue =>
+    private bool UseGraphRemoval => Definition.SchemaVersion == "1.23" || UsesGraphEditing || WorkflowValidator.Validate(Definition).Any(issue =>
         issue.Code is "graph.degree" or "pipeline.degree" or "graph.unreachable" or "graph.cycle" or "pipeline.terminals");
-    private ImmutableArray<WorkflowPort> SelectedOutputs => selectedNode is { } id && Definition.Nodes.TryGetValue(id, out var node) ? WorkflowPorts.Outputs(node) : [];
+    private ImmutableArray<WorkflowPort> SelectedOutputs => selectedNode is { } id && Definition.Nodes.TryGetValue(id, out var node)
+        ? Definition.SchemaVersion == "1.23"
+            ? [.. WorkflowPorts.Explicit(node).Where(port => port.Direction == WorkflowPortDirection.Output)
+                .Select(port => new WorkflowPort(port.Id, port.DataType ?? "execution"))]
+            : WorkflowPorts.Outputs(node)
+        : [];
     private Task ConnectionSelected(string id)
     {
-        if (Definition.Connections.TryGetValue(id, out var edge))
-        { insertionConnection = id; selectedNode = edge.Source.NodeId; selectedPort = edge.Source.PortId; }
+        var connectionId = id.StartsWith("execution:", StringComparison.Ordinal) ? id["execution:".Length..] :
+            id.StartsWith("data:", StringComparison.Ordinal) ? id["data:".Length..] : id;
+        var edge = id.StartsWith("execution:", StringComparison.Ordinal)
+            ? Definition.ExecutionConnections?.GetValueOrDefault(connectionId)
+            : Definition.Connections.GetValueOrDefault(connectionId);
+        if (edge is not null)
+        {
+            insertionConnection = Definition.SchemaVersion == "1.23" ? null : id;
+            selectedNode = edge.Source.NodeId;
+            selectedPort = edge.Source.PortId;
+        }
         return Task.CompletedTask;
     }
 
@@ -21,7 +35,7 @@ public partial class PipelineEditor
     {
         // Only a command opened directly on a wire is an explicit insert operation.
         // A selected node or previously selected wire must never make a library click auto-connect.
-        var connection = context?.ConnectionId;
+        var connection = Definition.SchemaVersion == "1.23" ? null : context?.ConnectionId;
         if (connection is not null && Definition.Connections.TryGetValue(connection, out var edge)) return edge.Source;
         return null;
     }
@@ -30,8 +44,22 @@ public partial class PipelineEditor
         ? $"Insert after {(string.IsNullOrWhiteSpace(EffectiveLayout.Nodes[source.NodeId].Label) ? WorkflowGraphCanvas.FriendlyName(Definition.Nodes[source.NodeId]) : EffectiveLayout.Nodes[source.NodeId].Label)} · {source.PortId}"
         : "Select an insertion path.";
 
+    private bool CanUpgradeBlankGraph => !ReadOnly && !Disabled && Definition.SchemaVersion != "1.23" &&
+        Definition.Nodes.Count == 2 && Definition.Nodes.TryGetValue(Definition.EntryNodeId, out var entry) && entry.Type == NodeTypes.Input &&
+        Definition.Nodes.Values.Count(node => node.Type == NodeTypes.Output) == 1 && Definition.Connections.Count == 1 &&
+        Definition.Connections.Values.Any(edge => edge.Source.NodeId == Definition.EntryNodeId && edge.Source.PortId == "out" &&
+            Definition.Nodes.TryGetValue(edge.Target.NodeId, out var target) && target.Type == NodeTypes.Output && edge.Target.PortId == "in");
+
+    private Task EnableExplicitPreview() => Edit(() => GraphEditing.EnableExplicitGraph(Definition));
+
     private IReadOnlyList<WorkflowNodeLibraryEntry> LibraryEntries(GraphContextRequest? context = null)
     {
+        if (Definition.SchemaVersion == "1.23")
+            return
+            [
+                new(NodeTypes.StringConstant, "String constant", "Values", "A literal text value; evaluated only when a data input needs it", !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
+                new(NodeTypes.TextConcat, "Concatenate text", "Values", "Join two text inputs without activating a node", !ReadOnly && !Disabled && Definition.Nodes.Count < 256)
+            ];
         var insertion = Insertion(context);
         var sourceType = insertion is { } source
             ? WorkflowPorts.Outputs(Definition.Nodes[source.NodeId]).Single(port => port.Id == source.PortId).DataType

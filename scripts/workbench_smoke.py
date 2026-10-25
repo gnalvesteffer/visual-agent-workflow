@@ -144,6 +144,69 @@ def typed_json_projection_check(page, designer):
             "type": "object", "properties": [{"name": "itemId", "pointer": "/id", "schema": {"type": "integer"}}]}}}]
 
 
+def explicit_graph_preview_check(page, designer):
+    """Exercise opt-in explicit pin authoring, draft save, execution and read-only playback."""
+    designer.get_by_role("button", name="New workflow", exact=True).click()
+    designer.get_by_text("New workflow created locally. Save its draft before publishing.", exact=True).wait_for()
+    workflow_id = designer.get_by_label("Saved workflow", exact=True).input_value()
+    designer.get_by_role("button", name="Start typed graph preview", exact=True).click()
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    designer.get_by_text("Draft saved.", exact=True).wait_for()
+    saved = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()["draft"]["definition"]
+    assert saved["schemaVersion"] == "1.23"
+
+    definition = page.request.get(BASE + "/api/templates/default").json()
+    definition.update({"schemaVersion": "1.23", "workflowId": workflow_id, "entryNodeId": "input"})
+    definition["nodes"] = {
+        "input": {"type": "core.input", "typeVersion": "1.0.0"},
+        "constant": {"type": "core.constant.string", "typeVersion": "1.0.0", "stringConstant": {"value": "!"}},
+        "concat": {"type": "core.text.concat", "typeVersion": "1.0.0"},
+        "output": {"type": "core.output", "typeVersion": "1.0.0"}}
+    definition["connections"] = {
+        "input-value": {"source": {"nodeId": "input", "portId": "out"}, "target": {"nodeId": "concat", "portId": "left"}, "kind": "data"},
+        "suffix": {"source": {"nodeId": "constant", "portId": "out"}, "target": {"nodeId": "concat", "portId": "right"}, "kind": "data"},
+        "result": {"source": {"nodeId": "concat", "portId": "out"}, "target": {"nodeId": "output", "portId": "in"}, "kind": "data"}}
+    definition["executionConnections"] = {
+        "activate-output": {"source": {"nodeId": "input", "portId": "then"}, "target": {"nodeId": "output", "portId": "execute"}, "kind": "execution"}}
+    details = designer.get_by_text("Import / export definition", exact=True).locator("..")
+    if not details.evaluate("element => element.open"):
+        details.locator("summary").click()
+    designer.get_by_label("Workflow JSON", exact=True).fill(json.dumps(definition))
+    designer.get_by_role("button", name="Import JSON into draft", exact=True).click()
+    designer.get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for()
+    canvas = designer.locator(".vaw-graph-editor")
+    expect(canvas.locator("path[data-kind='execution']")).to_have_count(1)
+    expect(canvas.locator("path[data-kind='data']")).to_have_count(3)
+    designer.get_by_label("Node to organize", exact=True).select_option("constant")
+    designer.get_by_label("String constant value for constant", exact=True).fill("?")
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    designer.get_by_text("Draft saved.", exact=True).wait_for()
+    definition["nodes"]["constant"]["stringConstant"]["value"] = "?"
+    response = page.request.post(BASE + "/api/runs", data={"input": "Hello", "definition": definition})
+    assert response.ok, response.text()
+    run_id = response.json()["header"]["runId"]
+    page.wait_for_function("""async id => (await (await fetch('/api/runs/'+id)).json()).status==='completed'""", arg=run_id)
+    run = page.request.get(BASE + f"/api/runs/{run_id}").json()
+    values = [event for event in run["events"] if event["kind"] == "data.evaluated"]
+    data_connections = sorted(event.get("connectionId") for event in values)
+    assert data_connections == ["data:input-value", "data:result", "data:suffix"], data_connections
+    assert [json.loads(event["data"])["value"] for event in values] == ["Hello", "?", "Hello?"]
+
+    show_runs(page)
+    viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
+    page.get_by_role("button", name="Refresh history", exact=True).click()
+    page.get_by_label("Filter recorded runs", exact=True).fill(workflow_id)
+    expect(page.locator(".vaw-history button")).to_have_count(1)
+    page.locator(".vaw-history button").click()
+    run_canvas = viewer.locator(".vaw-graph-editor")
+    expect(run_canvas.locator("path.vaw-wire-delivered[data-kind='data']")).to_have_count(3)
+    run_canvas.get_by_role("button", name="concat core.text.concat Evaluated", exact=True).click()
+    expect(viewer.get_by_role("region", name="Selected node payloads")).to_contain_text("Hello?")
+    slider = viewer.get_by_label("Recorded position", exact=True)
+    slider.evaluate("e => { e.value=0; e.dispatchEvent(new Event('input',{bubbles:true})); }")
+    expect(run_canvas.locator("path.vaw-wire-delivered[data-kind='data']")).to_have_count(0)
+
+
 def check(browser, screenshots):
     page = browser.new_page(viewport={"width":1920,"height":1080})
     errors = []
@@ -210,10 +273,11 @@ def check(browser, screenshots):
     viewport.focus();page.keyboard.press("Control+z")
     expect(canvas.locator("li[data-node-id]")).to_have_count(3)
     # An output-pin gesture opens creation for that exact existing path.
+    canvas.get_by_role("button",name="Fit graph",exact=True).click()
     pin=canvas.locator(f"li[data-node-id='{step}'] .vaw-output-ports [data-socket]")
     pin.scroll_into_view_if_needed(); box=pin.bounding_box();bounds=viewport.bounding_box()
     page.mouse.move(box["x"]+box["width"]/2,box["y"]+box["height"]/2)
-    page.mouse.down();page.mouse.move(bounds["x"]+bounds["width"]*.5,bounds["y"]+520,steps=8);page.mouse.up()
+    page.mouse.down();page.mouse.move(bounds["x"]+bounds["width"]*.5,bounds["y"]+bounds["height"]-24,steps=8);page.mouse.up()
     expect(menu).to_be_visible()
     if screenshots:
         screenshots.mkdir(parents=True,exist_ok=True)
@@ -356,9 +420,10 @@ def check(browser, screenshots):
     prompt_template_check(page, designer)
     text_template_node_check(page, designer)
     typed_json_projection_check(page, designer)
+    explicit_graph_preview_check(page, designer)
     assert not errors,errors
     page.close()
-    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring/replay, recursive JSON projection authoring, and MCP tool detail review passed.")
+    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring/replay, recursive JSON projection authoring, explicit typed-graph authoring/execution/replay, and MCP tool detail review passed.")
 
 
 if __name__=="__main__":

@@ -98,6 +98,66 @@ public class WorkflowTests
     }
 
     [Fact]
+    public void Explicit_graph_edits_preserve_channels_and_allow_incomplete_drafts()
+    {
+        var definition = ExplicitDataAndExecutionGraph();
+        var withConstant = GraphEditing.AddUnconnectedNode(definition,
+            new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new(" deterministic") });
+        var constantId = withConstant.Nodes.Keys.Single(id => id.StartsWith("constant-", StringComparison.Ordinal));
+
+        Assert.Equal("1.23", withConstant.SchemaVersion);
+        Assert.NotEmpty(WorkflowValidator.Validate(withConstant));
+
+        var connected = GraphEditing.ConnectPins(withConstant, constantId, "out", "concat", "left");
+        Assert.Contains(connected.Connections.Values, edge => edge.Source == new PortReference(constantId, "out") &&
+            edge.Target == new PortReference("concat", "left"));
+        Assert.Single(connected.ExecutionConnections!);
+
+        var disconnected = GraphEditing.Disconnect(connected,
+            connected.Connections.Single(edge => edge.Value.Source.NodeId == constantId).Key);
+        Assert.DoesNotContain(disconnected.Connections.Values, edge => edge.Source.NodeId == constantId);
+        Assert.Single(disconnected.ExecutionConnections!);
+        Assert.NotEmpty(WorkflowValidator.Validate(disconnected));
+    }
+
+    [Fact]
+    public void Explicit_connection_edits_keep_execution_and_data_edges_separate()
+    {
+        var definition = ExplicitDataAndExecutionGraph();
+        var disconnected = GraphEditing.Disconnect(definition, "activate-output");
+        Assert.Empty(disconnected.ExecutionConnections!);
+        Assert.Equal(definition.Connections, disconnected.Connections);
+
+        var reconnected = GraphEditing.ConnectPins(disconnected, "input", "then", "output", "execute");
+        Assert.Single(reconnected.ExecutionConnections!);
+        Assert.Equal(definition.Connections, reconnected.Connections);
+        Assert.Empty(WorkflowValidator.Validate(reconnected));
+    }
+
+    [Fact]
+    public void Blank_pipeline_can_be_upgraded_to_the_explicit_graph_preview()
+    {
+        var blank = new WorkflowDefinition("1.0", "blank", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["initial"] = new(new("input", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal));
+
+        var explicitGraph = GraphEditing.EnableExplicitGraph(blank);
+
+        Assert.Equal("1.23", explicitGraph.SchemaVersion);
+        Assert.Single(explicitGraph.Connections);
+        Assert.Single(explicitGraph.ExecutionConnections!);
+        Assert.Empty(WorkflowValidator.Validate(explicitGraph));
+        Assert.Throws<ArgumentException>(() => GraphEditing.EnableExplicitGraph(Pipeline()));
+    }
+
+    [Fact]
     public void CanonicalSerializationIgnoresCallerDictionaryOrdering()
     {
         var definition = Pipeline();

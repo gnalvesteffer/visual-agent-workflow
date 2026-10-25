@@ -1,8 +1,35 @@
+using System.Collections.Immutable;
+
 namespace VisualAgentWorkflow.Core;
 
 /// <summary>Validated local edge edits. No topological order is treated as an execution sequence.</summary>
 public static class GraphEditing
 {
+    /// <summary>Upgrades the blank input-to-output graph to the first explicit execution/data schema.</summary>
+    public static WorkflowDefinition EnableExplicitGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == "1.23" && definition.ExecutionConnections is not null) return definition;
+        var onlyProcessingNodes = definition.Nodes.Count == 2 &&
+            definition.Nodes.TryGetValue(definition.EntryNodeId, out var input) && input.Type == NodeTypes.Input &&
+            definition.Nodes.Values.Count(node => node.Type == NodeTypes.Output) == 1;
+        var output = definition.Nodes.SingleOrDefault(entry => entry.Value.Type == NodeTypes.Output);
+        if (!onlyProcessingNodes || output.Value is null || definition.Connections.Count != 1 ||
+            !definition.Connections.Values.Any(edge => edge.Source.NodeId == definition.EntryNodeId && edge.Source.PortId == "out" &&
+                edge.Target.NodeId == output.Key && edge.Target.PortId == "in"))
+            throw new ArgumentException("Only a blank Input-to-Output workflow can be upgraded to this explicit graph preview.", nameof(definition));
+
+        var executionId = NewId("activate");
+        var upgraded = definition with
+        {
+            SchemaVersion = "1.23",
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add(executionId, new(new(definition.EntryNodeId, "then"), new(output.Key, "execute"), "execution"))
+        };
+        WorkflowValidator.ThrowIfInvalid(upgraded);
+        return upgraded;
+    }
+
     /// <summary>Adds a configured node without connecting it. Incomplete topology remains an editable draft.</summary>
     public static WorkflowDefinition AddUnconnectedNode(WorkflowDefinition definition, NodeDefinition node)
     {
@@ -12,7 +39,7 @@ public static class GraphEditing
         var prefix = node.Type switch
         {
             NodeTypes.Condition => "condition", NodeTypes.Terminate => "terminate", NodeTypes.Merge => "merge",
-            NodeTypes.Agent => "agent", NodeTypes.McpTool => "mcp", _ => node.Type
+            NodeTypes.Agent => "agent", NodeTypes.McpTool => "mcp", NodeTypes.StringConstant => "constant", NodeTypes.TextConcat => "concat", _ => node.Type
         };
         var id = NewId(prefix);
         return definition with
@@ -25,6 +52,9 @@ public static class GraphEditing
     /// <summary>Reconnects pins in an editable draft. Structural validation remains visible until every issue is fixed.</summary>
     public static WorkflowDefinition ConnectPins(WorkflowDefinition definition, string sourceId, string sourcePortId, string targetId, string targetPortId)
     {
+        if (definition.SchemaVersion == "1.23")
+            return ConnectExplicitPins(definition, sourceId, sourcePortId, targetId, targetPortId);
+
         if (!definition.Nodes.TryGetValue(sourceId, out var source) || !definition.Nodes.TryGetValue(targetId, out var target))
             throw new ArgumentException("Choose pins on existing nodes.");
         var output = WorkflowPorts.Outputs(source).SingleOrDefault(port => port.Id == sourcePortId);
@@ -51,8 +81,50 @@ public static class GraphEditing
 
     public static WorkflowDefinition Disconnect(WorkflowDefinition definition, string connectionId)
     {
+        if (connectionId.StartsWith("execution:", StringComparison.Ordinal))
+        {
+            var executionId = connectionId["execution:".Length..];
+            if (definition.ExecutionConnections?.ContainsKey(executionId) != true) throw new ArgumentException("The execution connection no longer exists.", nameof(connectionId));
+            return definition with { ExecutionConnections = definition.ExecutionConnections.Remove(executionId) };
+        }
+        else if (connectionId.StartsWith("data:", StringComparison.Ordinal))
+        {
+            var dataId = connectionId["data:".Length..];
+            if (!definition.Connections.ContainsKey(dataId)) throw new ArgumentException("The data connection no longer exists.", nameof(connectionId));
+            return definition with { Connections = definition.Connections.Remove(dataId) };
+        }
+        if (definition.ExecutionConnections?.ContainsKey(connectionId) == true)
+            return definition with { ExecutionConnections = definition.ExecutionConnections.Remove(connectionId) };
         if (!definition.Connections.ContainsKey(connectionId)) throw new ArgumentException("The connection no longer exists.", nameof(connectionId));
         return definition with { Connections = definition.Connections.Remove(connectionId) };
+    }
+
+    private static WorkflowDefinition ConnectExplicitPins(WorkflowDefinition definition, string sourceId, string sourcePortId, string targetId, string targetPortId)
+    {
+        if (!definition.Nodes.TryGetValue(sourceId, out var source) || !definition.Nodes.TryGetValue(targetId, out var target))
+            throw new ArgumentException("Choose pins on existing nodes.");
+        var sourcePort = WorkflowPorts.Explicit(source).SingleOrDefault(port => port.Direction == WorkflowPortDirection.Output && port.Id == sourcePortId);
+        var targetPort = WorkflowPorts.Explicit(target).SingleOrDefault(port => port.Direction == WorkflowPortDirection.Input && port.Id == targetPortId);
+        if (sourcePort is null || targetPort is null || sourcePort.Kind != targetPort.Kind || sourcePort.DataType != targetPort.DataType)
+            throw new ArgumentException("Connect pins with the same kind and compatible data type.");
+
+        var connectionId = NewId("link");
+        var connection = new ConnectionDefinition(new(sourceId, sourcePortId), new(targetId, targetPortId),
+            sourcePort.Kind == WorkflowPortKind.Execution ? "execution" : "data");
+        if (sourcePort.Kind == WorkflowPortKind.Execution)
+        {
+            var edges = definition.ExecutionConnections ?? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal);
+            // Execution pins have a single route in this first explicit-graph slice. Connecting
+            // a different route replaces the prior edge so authors can rewire an incomplete draft.
+            edges = edges.RemoveRange(edges.Where(edge => edge.Value.Target.NodeId == targetId && edge.Value.Target.PortId == targetPortId ||
+                edge.Value.Source.NodeId == sourceId && edge.Value.Source.PortId == sourcePortId).Select(edge => edge.Key));
+            return definition with { ExecutionConnections = edges.Add(connectionId, connection) };
+        }
+
+        var data = definition.Connections.RemoveRange(definition.Connections
+            .Where(edge => edge.Value.Target.NodeId == targetId && edge.Value.Target.PortId == targetPortId)
+            .Select(edge => edge.Key));
+        return definition with { Connections = data.Add(connectionId, connection) };
     }
 
     public static WorkflowDefinition InsertConditionalAfter(WorkflowDefinition definition, string sourceId, string portId)
@@ -241,6 +313,21 @@ public static class GraphEditing
     public static WorkflowDefinition RemoveNode(WorkflowDefinition definition, string id)
     {
         if (!definition.Nodes.TryGetValue(id, out var requestedNode)) throw new ArgumentException("Unknown node.", nameof(id));
+        if (definition.SchemaVersion == "1.23")
+        {
+            if (requestedNode.Type is NodeTypes.Input or NodeTypes.Output)
+                throw new ArgumentException("Input and output boundary nodes cannot be removed independently.", nameof(id));
+            return definition with
+            {
+                Nodes = definition.Nodes.Remove(id),
+                Connections = definition.Connections.RemoveRange(definition.Connections
+                    .Where(edge => edge.Value.Source.NodeId == id || edge.Value.Target.NodeId == id)
+                    .Select(edge => edge.Key)),
+                ExecutionConnections = definition.ExecutionConnections?.RemoveRange(definition.ExecutionConnections
+                    .Where(edge => edge.Value.Source.NodeId == id || edge.Value.Target.NodeId == id)
+                    .Select(edge => edge.Key))
+            };
+        }
         if (!WorkflowValidator.Validate(definition).IsEmpty)
         {
             if (requestedNode.Type is NodeTypes.Input or NodeTypes.Output or NodeTypes.LoopBody)

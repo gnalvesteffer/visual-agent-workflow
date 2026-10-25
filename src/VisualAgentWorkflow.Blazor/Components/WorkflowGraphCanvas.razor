@@ -32,12 +32,14 @@
                     </div>
                 }
                 <svg class="vaw-wires" aria-hidden="true">
-                    @foreach (var (id, connection) in Definition.Connections)
+                    @foreach (var connection in CanvasConnections)
                     {
+                        var id = connection.Id;
+                        var edge = connection.Definition;
                         var route = Route(id);
                         @for (var segment = 0; segment <= route.Points.Length; segment++)
                         {
-                            <path @key="(id, segment)" class="vaw-wire @(activeConnection == id ? "vaw-wire-selected" : "") @(DeliveredConnections?.Contains(id) == true ? "vaw-wire-delivered" : "")" data-wire="@id" data-segment="@segment" data-source="@connection.Source.NodeId" data-target="@connection.Target.NodeId" data-source-port="@connection.Source.PortId" data-target-port="@connection.Target.PortId" data-style="@route.Style" data-points="@PointsJson(route)" />
+                            <path @key="(id, segment)" class="vaw-wire @(connection.Kind == "execution" ? "vaw-wire-execution" : "") @(activeConnection == id ? "vaw-wire-selected" : "") @(DeliveredConnections?.Contains(id) == true ? "vaw-wire-delivered" : "")" data-wire="@id" data-segment="@segment" data-source="@edge.Source.NodeId" data-target="@edge.Target.NodeId" data-source-port="@edge.Source.PortId" data-target-port="@edge.Target.PortId" data-kind="@connection.Kind" data-style="@route.Style" data-points="@PointsJson(route)" />
                         }
                     }
                 </svg>
@@ -47,6 +49,7 @@
                     {
                         var node = Definition.Nodes[id];
                         var presentation = Layout.Nodes[id];
+                        var ports = Ports(node);
                         <li @key="id" class="vaw-node vaw-edit-node @(NodeClass?.Invoke(id))" data-node-id="@id" data-node-type="@node.Type" data-x="@Number(presentation.Position.X)" data-y="@Number(presentation.Position.Y)" style="@PositionStyle(presentation.Position)">
                             <article>
                                 <button type="button" class="vaw-node-drag" data-drag-node="@id" title="Drag to move, or use arrow keys. Hold Shift for larger steps." aria-label="@(ReadOnly ? $"Inspect node {id}" : $"Move node {id}")" @onclick="() => SelectNode(id)" aria-pressed="@(selectedNode == id ? "true" : "false")" @onkeydown="args => NodeKey(id, args)">
@@ -54,12 +57,12 @@
                                 </button>
                                 <div class="vaw-socket-row">
                                     <div class="vaw-input-ports">
-                                        @foreach (var port in WorkflowPorts.Inputs(node))
-                                        { <span class="vaw-socket-label vaw-socket-input"><span class="vaw-socket" data-socket="@port.Id" data-socket-type="@port.DataType" title="@($"{port.Id} · {port.DataType} input")" aria-hidden="true"></span>@port.Id · @port.DataType</span> }
+                                @foreach (var port in ports.Where(port => port.Direction == WorkflowPortDirection.Input))
+                                { <span class="vaw-socket-label vaw-socket-input"><span class="vaw-socket @(port.Kind == WorkflowPortKind.Execution ? "vaw-socket-execution" : "")" data-socket="@port.Id" data-socket-kind="@port.Kind.ToString().ToLowerInvariant()" data-socket-type="@(port.DataType ?? "execution")" title="@($"{port.Id} · {port.DataType ?? "execution"} input")" aria-hidden="true"></span>@port.Id · @(port.DataType ?? "execution")</span> }
                                     </div>
                                     <div class="vaw-output-ports">
-                                        @foreach (var port in WorkflowPorts.Outputs(node))
-                                        { <span class="vaw-socket-label vaw-socket-output">@port.Id · @port.DataType<span class="vaw-socket" data-socket="@port.Id" data-socket-type="@port.DataType" title="@($"{port.Id} · {port.DataType} output")" aria-hidden="true"></span></span> }
+                                @foreach (var port in ports.Where(port => port.Direction == WorkflowPortDirection.Output))
+                                { <span class="vaw-socket-label vaw-socket-output">@port.Id · @(port.DataType ?? "execution")<span class="vaw-socket @(port.Kind == WorkflowPortKind.Execution ? "vaw-socket-execution" : "")" data-socket="@port.Id" data-socket-kind="@port.Kind.ToString().ToLowerInvariant()" data-socket-type="@(port.DataType ?? "execution")" title="@($"{port.Id} · {port.DataType ?? "execution"} output")" aria-hidden="true"></span></span> }
                                     </div>
                                 </div>
                                 @if (!string.IsNullOrWhiteSpace(presentation.Comment))
@@ -164,7 +167,7 @@
                     <h3>Wire routing</h3>
                     <label>Wire
                         <select aria-label="Wire to organize" value="@selectedWire" @onchange="args => SelectWire(args.Value?.ToString())">
-                            @foreach (var (id, wire) in Definition.Connections) { <option @key="id" value="@id">@wire.Source.NodeId → @wire.Target.NodeId</option> }
+                            @foreach (var wire in CanvasConnections) { <option @key="wire.Id" value="@wire.Id">@wire.Kind · @wire.Definition.Source.NodeId → @wire.Definition.Target.NodeId</option> }
                         </select>
                     </label>
                     @if (selectedWire is { } wireId)

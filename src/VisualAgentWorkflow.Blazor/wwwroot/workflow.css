@@ -225,6 +225,7 @@
 .vaw-selection-box { position: absolute; z-index: 10; border: 1px solid var(--vaw-focus); background: color-mix(in srgb, var(--vaw-focus) 14%, transparent); pointer-events: none; }
 .vaw-wires { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; overflow: visible; pointer-events: none; z-index: 1; }
 .vaw-wire { fill: none; stroke: var(--vaw-accent); stroke-width: 3; pointer-events: stroke; cursor: pointer; stroke-linejoin: round; }
+.vaw-wire-execution { stroke-width: 4; stroke-dasharray: 9 5; }
 .vaw-wire:hover, .vaw-wire-selected { stroke: var(--vaw-focus); stroke-width: 5; }
 .vaw-wire-delivered { stroke: var(--vaw-success); }
 .vaw-graph-editor .vaw-free-graph { display: block; position: absolute; inset: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; pointer-events: none; overflow: visible; z-index: 2; }
@@ -239,6 +240,7 @@
 .vaw-socket-label { color: var(--vaw-muted); font-size: 0.8125rem; }
 .vaw-socket-output { margin-inline-start: auto; }
 .vaw-socket { position: absolute; top: calc(50% - 8px); inline-size: 16px; block-size: 16px; border: 3px solid var(--vaw-accent); border-radius: 50%; background-color: var(--vaw-canvas); }
+.vaw-socket-execution { border-radius: 2px; transform: rotate(45deg); }
 .vaw-socket-input .vaw-socket { left: -9px; }
 .vaw-socket-output .vaw-socket { right: -9px; }
 .vaw-socket-drop-target { border-color: var(--vaw-success, var(--vaw-accent)) !important; box-shadow: 0 0 0 5px color-mix(in srgb, var(--vaw-accent) 24%, transparent); transform: scale(1.25); }
