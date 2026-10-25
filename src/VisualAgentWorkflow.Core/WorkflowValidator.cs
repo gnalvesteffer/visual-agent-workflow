@@ -30,8 +30,6 @@ public static class WorkflowValidator
             if (call is null) continue;
             if (call.Definition?.Nodes is not { } childNodes) continue;
             var callPath = $"{path}nodes.{nodeId}.workflowCall";
-            if (childNodes.Values.Any(child => child?.Type == NodeTypes.Approval))
-                issues.Add(new("workflowCall.approval", callPath, "Nested approval nodes are not supported; approvals must be authored in the root workflow until scoped approval evidence is available."));
             if (depth >= WorkflowCallLimits.MaximumDepth)
             {
                 issues.Add(new("workflowCall.depth", callPath, $"Nested workflow calls are limited to {WorkflowCallLimits.MaximumDepth - 1} levels."));
@@ -587,6 +585,7 @@ public static class WorkflowValidator
         var joinId = joins[0];
         var usedBranches = new HashSet<string>(StringComparer.Ordinal);
         var connections = definition.Connections.Values.ToArray();
+        var approvalBearingBranches = 0;
         foreach (var branchPort in new[] { "branch_1", "branch_2" })
         {
             var firstEdges = connections.Where(edge => edge.Source.NodeId == forkId && edge.Source.PortId == branchPort).ToArray();
@@ -599,6 +598,7 @@ public static class WorkflowValidator
             var current = firstEdges[0].Target.NodeId;
             var pathNodes = new HashSet<string>(StringComparer.Ordinal);
             var reachedJoin = false;
+            var branchContainsNestedApproval = false;
             while (pathNodes.Add(current) && pathNodes.Count <= definition.Nodes.Count)
             {
                 usedBranches.Add(current);
@@ -629,12 +629,23 @@ public static class WorkflowValidator
                     error("parallel.branch.node", $"nodes.{edge.Target.NodeId}", "Parallel paths may contain only ordinary string-processing nodes.");
                     break;
                 }
+                branchContainsNestedApproval |= target.Type == NodeTypes.WorkflowCall && ContainsNestedApproval(target.WorkflowCall?.Definition, 0);
                 current = edge.Target.NodeId;
             }
+            if (branchContainsNestedApproval) approvalBearingBranches++;
             if (!reachedJoin) error("parallel.branch.incomplete", $"nodes.{forkId}.{branchPort}", "Every parallel branch must reach the matching join input.");
         }
+        if (approvalBearingBranches > 1)
+            error("parallel.approval.concurrent", $"nodes.{forkId}", "Both parallel branches cannot contain nested approvals because this run can suspend at only one approval request at a time.");
         if (branchNodes.Except(usedBranches, StringComparer.Ordinal).Any())
             error("parallel.branch.orphan", "nodes", "Every parallel branch node must belong to the workflow's fork-to-join block.");
+    }
+
+    private static bool ContainsNestedApproval(WorkflowDefinition? definition, int depth)
+    {
+        if (definition is null || depth >= WorkflowCallLimits.MaximumDepth) return false;
+        return definition.Nodes.Values.Any(node => node?.Type == NodeTypes.Approval ||
+            node?.WorkflowCall?.Definition is { } child && ContainsNestedApproval(child, depth + 1));
     }
 
     private static bool ValidHash(string? hash) => hash is { Length: 64 } && hash.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');

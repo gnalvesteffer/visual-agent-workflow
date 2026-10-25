@@ -18,7 +18,7 @@ flowchart LR
 
 Definition schema `1.3` permits optional node `origin` metadata: source workflow, revision, version, definition hash, and source node ID. The existing node constructor and schemas 1.0–1.2 remain supported; absent origin is omitted so older canonical hashes remain unchanged. Provenance records where a copy came from, not an authenticated endorsement or a promise that subsequent local edits match the original. It never resolves code or grants permissions. Changing or removing a source publication cannot rewrite the consumer's expanded nodes. Inserting a workflow's own old publication is a finite copy, not recursion.
 
-Runtime calls embed the exact child definition and revision hash. Calls are bounded to three nested levels and 1,024 expanded nodes; typed ports, explicit input/parameter mappings, upgrades/rebase, and nested approvals remain future work. Copy insertion is still explicit versioned template expansion within the 256-node workflow and 64-section layout limits.
+Runtime calls embed the exact child definition and revision hash. Calls are bounded to three nested levels and 1,024 expanded nodes; typed ports, explicit input/parameter mappings, and revision upgrades/review are described in [nested workflow calls](nested-workflows.md). Nested approvals are supported with exact root-run and call-path binding, subject to the single-pending-approval constraint. Copy insertion is still explicit versioned template expansion within the 256-node workflow and 64-section layout limits.
 
 ## Package format
 

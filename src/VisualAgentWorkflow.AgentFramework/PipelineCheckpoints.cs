@@ -34,7 +34,7 @@ public sealed partial class PipelineRunner
         long sequence = 0;
         ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null, string? data = null) =>
             record(new(runId, revision.RevisionId, Interlocked.Increment(ref sequence), DateTimeOffset.UtcNow, kind, node, invocation, connection, data));
-        var workflow = BuildWorkflow(runId, revision, null, Emit, null);
+        var workflow = BuildWorkflow(runId, revision, null, Emit, null, revision, []);
         await Emit(checkpoints.RestoredCheckpoint is null ? ExecutionEventKinds.Started : ExecutionEventKinds.Recovered);
         try
         {

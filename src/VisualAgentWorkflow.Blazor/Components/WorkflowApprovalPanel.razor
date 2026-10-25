@@ -5,6 +5,11 @@
     <section class="vaw-viewer vaw-approval" aria-label="Recorded action approval">
         <h3>Approval required</h3>
         <p>@pending.Prompt</p>
+        @if (pending.Action.ScopeId is { } scope)
+        {
+            <p>Nested workflow path: <code>@scope</code></p>
+            <p>Executing child revision: <code>@(pending.Action.ExecutingRevisionId?.ToString() ?? pending.Action.RevisionId.ToString())</code></p>
+        }
         <p>Tool: @pending.Action.Tool.BindingId · target node @pending.Action.TargetNodeId</p>
         <p>Contract: @pending.Action.Tool.ContractHash</p>
         <p>Action fingerprint: @pending.ActionHash</p>

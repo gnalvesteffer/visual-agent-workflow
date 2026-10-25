@@ -126,7 +126,7 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
             ValidateAction(action, prompt);
             if (pendingApproval is not null) throw new InvalidOperationException("An approval is already pending.");
             request = new(Guid.NewGuid(), action, action.ComputeHash(), prompt, DateTimeOffset.UtcNow);
-            RecordApproval(ExecutionEventKinds.ApprovalRequested, request, action.ApprovalNodeId, action.ApprovalInvocationId);
+            RecordApproval(ExecutionEventKinds.ApprovalRequested, request, action.ApprovalNodeId, action.ApprovalInvocationId, action.ScopeId);
             pendingApproval = request;
             approvalSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
             approvalDecision = null;
@@ -144,7 +144,7 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
             {
                 if (approvalDecision is null)
                     RecordApproval(ExecutionEventKinds.ApprovalCancelled, new { request.RequestId, request.ActionHash, reason = "Run cancelled or owner stopped." },
-                        action.ApprovalNodeId, action.ApprovalInvocationId);
+                        action.ApprovalNodeId, action.ApprovalInvocationId, action.ScopeId);
             }
             throw;
         }
@@ -179,7 +179,7 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
             }
             var decision = new WorkflowApprovalDecision(requestId, actionHash, approve, actor);
             RecordApproval(approve ? ExecutionEventKinds.ApprovalApproved : ExecutionEventKinds.ApprovalRejected, decision,
-                request.Action.ApprovalNodeId, request.Action.ApprovalInvocationId);
+                request.Action.ApprovalNodeId, request.Action.ApprovalInvocationId, request.Action.ScopeId);
             approvalDecision = decision;
             signal = approvalSignal!;
         }
@@ -188,18 +188,13 @@ internal sealed class ControlledRun(IWorkflowRunStore journal, RunHeader header,
 
     private void ValidateAction(WorkflowApprovalAction action, string prompt)
     {
-        var definition = header.Definition;
-        if (action.RunId != header.RunId || action.RevisionId != header.RevisionId || action.WorkflowHash != header.ContentHash ||
-            action.ApprovalInvocationId == Guid.Empty || action.TargetInvocationId == Guid.Empty || action.Input.Length > 16_384 ||
-            action.InputHash != WorkflowApprovalAction.HashInput(action.Input) ||
-            !definition.Nodes.TryGetValue(action.ApprovalNodeId, out var node) || node.Type != NodeTypes.Approval || node.Approval?.Prompt != prompt ||
-            !definition.Nodes.TryGetValue(action.TargetNodeId, out var target) || target.Type != NodeTypes.McpTool || target.Tool != action.Tool ||
-            !definition.Connections.Values.Any(e => e.Source.NodeId == action.ApprovalNodeId && e.Target.NodeId == action.TargetNodeId))
+        if (!WorkflowApprovalEvidence.MatchesDefinition(header.Definition, header.RunId, header.RevisionId,
+            header.ContentHash, action, prompt))
             throw new InvalidOperationException("Approval action does not match the captured workflow.");
     }
 
-    private void RecordApproval<T>(string kind, T data, string nodeId, Guid invocationId) => Append(new(header.RunId, header.RevisionId, 0,
-        DateTimeOffset.UtcNow, kind, nodeId, invocationId, Data: JsonSerializer.Serialize(data, JsonSerializerOptions.Web)));
+    private void RecordApproval<T>(string kind, T data, string nodeId, Guid invocationId, string? scopeId = null) => Append(new(header.RunId, header.RevisionId, 0,
+        DateTimeOffset.UtcNow, kind, nodeId, invocationId, Data: JsonSerializer.Serialize(data, JsonSerializerOptions.Web)) { ScopeId = scopeId });
 
     private void AcknowledgePause(string? nextNodeId)
     {

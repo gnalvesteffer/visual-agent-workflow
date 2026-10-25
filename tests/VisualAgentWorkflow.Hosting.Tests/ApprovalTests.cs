@@ -63,6 +63,46 @@ public sealed class ApprovalTests : IDisposable
     }
 
     [Fact]
+    public async Task NestedApprovalBindsRootRunChildRevisionAndScopedToolAction()
+    {
+        var broker = new CountingBroker();
+        var childDefinition = Definition() with { WorkflowId = "approval-child" };
+        var child = WorkflowRevision.Create(childDefinition, "fixture");
+        var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
+        };
+        var parent = GraphEditing.InsertNodeAfter(PipelineTemplates.Create("uppercase") with { WorkflowId = "approval-parent" },
+            "input", "out", call);
+        var callNodeId = parent.Nodes.Single(entry => entry.Value.Type == NodeTypes.WorkflowCall).Key;
+        using var runtime = Runtime(broker);
+        await runtime.StartAsync(CancellationToken.None);
+        try
+        {
+            var started = await runtime.StartRunAsync(parent, "abc");
+            var waiting = await WaitFor(runtime, started.Header.RunId, run => run.Status == "waiting-approval");
+            var request = WorkflowApprovalEvidence.Pending(waiting)!;
+            Assert.Equal(0, broker.Calls);
+            Assert.Equal(started.Header.RevisionId, request.Action.RevisionId);
+            Assert.Equal(started.Header.ContentHash, request.Action.WorkflowHash);
+            Assert.Equal(child.RevisionId, request.Action.ExecutingRevisionId);
+            Assert.Equal(callNodeId, request.Action.ScopeId);
+            Assert.Equal(callNodeId, waiting.Events[^1].ScopeId);
+            Assert.Equal("step-1", request.Action.TargetNodeId);
+
+            await runtime.DecideApprovalAsync(started.Header.RunId, request.RequestId, request.ActionHash, true);
+            var finished = await WaitFor(runtime, started.Header.RunId, run => run.IsTerminal);
+            var approvalEvent = Assert.Single(finished.Events, executionEvent => executionEvent.Kind == ExecutionEventKinds.ApprovalApproved);
+            Assert.Equal(started.Header.RevisionId, approvalEvent.RevisionId);
+            Assert.Equal(callNodeId, approvalEvent.ScopeId);
+            Assert.Equal("completed", finished.Status);
+            Assert.Equal("ABC", finished.Events[^1].Data);
+            Assert.Equal(1, broker.Calls);
+        }
+        finally { await runtime.StopAsync(CancellationToken.None); }
+    }
+
+    [Fact]
     public async Task StaleOrCrossRunDecisionsCannotReleaseARecordedAction()
     {
         var broker = new CountingBroker();

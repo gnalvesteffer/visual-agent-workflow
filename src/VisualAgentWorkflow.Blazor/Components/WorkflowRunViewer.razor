@@ -32,7 +32,7 @@
         </div>
             </ToolbarContent>
             <NodeContent Context="nodeId">
-                @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); var label = PendingApproval?.Action.ApprovalNodeId == nodeId ? "Awaiting approval" : PausedBefore(nodeId) && state is null ? "Paused before execution" : node.Type == NodeTypes.Terminate && state?.Kind == ExecutionEventKinds.NodeCompleted ? "Terminated successfully" : StateLabel(state); var activity = ActiveActivity(nodeId); }
+                @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); var pendingNode = PendingRootNodeId; var label = pendingNode == nodeId ? PendingApproval?.Action.ScopeId is null ? "Awaiting approval" : "Child awaiting approval" : PausedBefore(nodeId) && state is null ? "Paused before execution" : node.Type == NodeTypes.Terminate && state?.Kind == ExecutionEventKinds.NodeCompleted ? "Terminated successfully" : StateLabel(state); var activity = ActiveActivity(nodeId); }
                 <button type="button" class="vaw-node-button" aria-label="@($"{nodeId} {node.Type} {label}")" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId ? "true" : "false")">
                     <span>@label</span>
                 </button>
@@ -240,7 +240,10 @@
     }
     private bool PausedBefore(string id) => VisibleStatus == "paused" &&
         RootEvents.LastOrDefault(e => e.Kind == ExecutionEventKinds.Paused)?.NodeId == id;
-    private string NodeStateClass(string id) => PendingApproval?.Action.ApprovalNodeId == id ? "vaw-waiting-approval" : State(id)?.Kind switch
+    private string? PendingRootNodeId => PendingApproval?.Action.ScopeId is { } scope
+        ? scope.Split('/', 2, StringSplitOptions.None)[0]
+        : PendingApproval?.Action.ApprovalNodeId;
+    private string NodeStateClass(string id) => PendingRootNodeId == id ? "vaw-waiting-approval" : State(id)?.Kind switch
     {
         ExecutionEventKinds.NodeCompleted => "vaw-complete",
         ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled => "vaw-failed",

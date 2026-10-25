@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Microsoft.Agents.AI.Workflows;
 using System.Text.Json;
 using VisualAgentWorkflow.Core;
@@ -54,7 +55,8 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
 
     private async Task<WorkflowExecutionResult> ExecuteCoreAsync(Guid runId, WorkflowRevision revision, string input,
         IReadOnlyDictionary<string, string>? parameters,
-        Func<ExecutionEvent, ValueTask> record, IWorkflowExecutionGate? gate, CancellationToken cancellationToken)
+        Func<ExecutionEvent, ValueTask> record, IWorkflowExecutionGate? gate, CancellationToken cancellationToken,
+        WorkflowRevision? rootRevision = null, ImmutableArray<WorkflowApprovalScope> workflowPath = default)
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(input);
@@ -63,6 +65,8 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         if (input.Length > 16_384) throw new ArgumentException("Input exceeds 16,384 characters.", nameof(input));
         WorkflowValidator.ThrowIfInvalid(revision.Definition);
         var resolvedParameters = WorkflowParameters.Resolve(revision.Definition, parameters);
+        rootRevision ??= revision;
+        workflowPath = workflowPath.IsDefault ? [] : workflowPath;
         using var recordGate = new SemaphoreSlim(1, 1);
         long sequence = 0;
         async ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null, string? data = null, string? scopeId = null)
@@ -77,7 +81,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             finally { recordGate.Release(); }
         }
 
-        var workflow = BuildWorkflow(runId, revision, resolvedParameters, Emit, gate);
+        var workflow = BuildWorkflow(runId, revision, resolvedParameters, Emit, gate, rootRevision, workflowPath);
 
         await Emit(ExecutionEventKinds.Started);
         try
@@ -128,17 +132,19 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
 
     private Workflow BuildWorkflow(Guid runId, WorkflowRevision revision,
         IReadOnlyDictionary<string, string>? parameters,
-        Func<string, string?, Guid?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate) =>
-        BuildWorkflow(runId, revision, parameters, (kind, node, invocation, connection, data, _) => emit(kind, node, invocation, connection, data), gate);
+        Func<string, string?, Guid?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate,
+        WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath) =>
+        BuildWorkflow(runId, revision, parameters, (kind, node, invocation, connection, data, _) => emit(kind, node, invocation, connection, data), gate, rootRevision, workflowPath);
 
     private Workflow BuildWorkflow(Guid runId, WorkflowRevision revision,
         IReadOnlyDictionary<string, string>? parameters,
-        Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate)
+        Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate,
+        WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath)
     {
         var definition = revision.Definition;
         var executors = definition.Nodes.ToDictionary(
             n => n.Key,
-            n => new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, emit, gate, null));
+            n => new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, emit, gate, null, rootRevision, workflowPath));
         var builder = new WorkflowBuilder(executors[definition.EntryNodeId]);
         foreach (var edge in definition.Connections.Values)
         {
@@ -174,7 +180,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         INodeToolBroker? tools,
         IAgentNodeExecutor? agents,
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> record, IWorkflowExecutionGate? gate,
-        string? scopeId)
+        string? scopeId, WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -275,8 +281,13 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                     if (gate is not IWorkflowApprovalGate approvals) throw new InvalidOperationException("No approval coordinator is configured.");
                     var targetId = revision.Definition.Connections.Values.Single(e => e.Source.NodeId == Id).Target.NodeId;
                     var target = revision.Definition.Nodes[targetId];
-                    var action = new WorkflowApprovalAction(runId, revision.RevisionId, revision.ContentHash, Id, invocation,
-                        targetId, Guid.NewGuid(), target.Tool!, message, WorkflowApprovalAction.HashInput(message));
+                    var action = new WorkflowApprovalAction(runId, rootRevision.RevisionId, rootRevision.ContentHash, Id, invocation,
+                        targetId, Guid.NewGuid(), target.Tool!, message, WorkflowApprovalAction.HashInput(message))
+                    {
+                        ExecutingRevisionId = revision.RevisionId == rootRevision.RevisionId ? null : revision.RevisionId,
+                        ExecutingWorkflowHash = revision.ContentHash == rootRevision.ContentHash ? null : revision.ContentHash,
+                        WorkflowPath = workflowPath.IsEmpty ? null : workflowPath
+                    };
                     permit = await approvals.WaitForApprovalAsync(action, node.Approval!.Prompt, cancellationToken);
                     if (permit.TargetInvocationId != action.TargetInvocationId || permit.ActionHash != action.ComputeHash() || permit.RequestId == Guid.Empty)
                         throw new InvalidOperationException("The approval permit does not match the recorded action.");
@@ -372,12 +383,13 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             }
 
             var runner = new PipelineRunner(tools, agents);
+            var childWorkflowPath = workflowPath.Add(new WorkflowApprovalScope(Id, child.RevisionId, child.ContentHash));
             IReadOnlyDictionary<string, string>? childParameters = call.ParameterMappings is { Length: > 0 } mappings
                 ? mappings.ToDictionary(mapping => mapping.ChildParameterId, mapping => parameters![mapping.ParentParameterId], StringComparer.Ordinal)
                 : null;
             return gate is null
-                ? await runner.ExecuteWithOutcomeAsync(runId, child, input, childParameters, RecordChild, cancellationToken)
-                : await runner.ExecuteControlledWithParametersAndOutcomeAsync(runId, child, input, childParameters, RecordChild, gate, cancellationToken);
+                ? await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, null, cancellationToken, rootRevision, childWorkflowPath)
+                : await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, gate, cancellationToken, rootRevision, childWorkflowPath);
         }
 
         private (bool Started, bool Complete, string? Result, int ReceivedCount) CollectParallelJoinInput(string inputPort, string input)

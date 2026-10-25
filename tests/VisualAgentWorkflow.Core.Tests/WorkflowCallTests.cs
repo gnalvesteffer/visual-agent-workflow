@@ -151,6 +151,42 @@ public sealed class WorkflowCallTests
         Assert.Equal(originalChild.RevisionId, parent.Nodes[callNodeId].WorkflowCall!.RevisionId);
     }
 
+    [Fact]
+    public void NestedApprovalsBindToRootAndExactCallPathWhileValidatingChildOperations()
+    {
+        var childDefinition = GraphEditing.InsertApprovalBefore(
+            Baseline("approved-child", "1.1") with
+            {
+                Nodes = Baseline("approved-child", "1.1").Nodes
+                    .SetItem("tool", new(NodeTypes.McpTool, "1.0.0", new("fixture.tool", new string('0', 64)))),
+                Connections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                    .Add("input-tool", new(new("input", "out"), new("tool", "in"), "data"))
+                    .Add("tool-output", new(new("tool", "out"), new("output", "in"), "data"))
+            }, "tool");
+        var child = WorkflowRevision.Create(childDefinition, "test");
+        var parent = GraphEditing.InsertNodeAfter(Baseline("approval-parent"), "input", "out", Call(child));
+        var callNodeId = parent.Nodes.Single(entry => entry.Value.Type == NodeTypes.WorkflowCall).Key;
+        var rootRevision = WorkflowRevision.Create(parent, "test");
+        var childApprovalId = child.Definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.Approval).Key;
+        var childTool = child.Definition.Nodes["tool"].Tool!;
+        var runId = Guid.NewGuid();
+        var action = new WorkflowApprovalAction(runId, rootRevision.RevisionId, rootRevision.ContentHash,
+            childApprovalId, Guid.NewGuid(), "tool", Guid.NewGuid(), childTool, "payload", WorkflowApprovalAction.HashInput("payload"))
+        {
+            ExecutingRevisionId = child.RevisionId,
+            ExecutingWorkflowHash = child.ContentHash,
+            WorkflowPath = [new(callNodeId, child.RevisionId, child.ContentHash)]
+        };
+
+        Assert.Empty(WorkflowValidator.Validate(parent));
+        Assert.Equal(callNodeId, action.ScopeId);
+        Assert.True(WorkflowApprovalEvidence.MatchesDefinition(parent, runId, rootRevision.RevisionId,
+            rootRevision.ContentHash, action, child.Definition.Nodes[childApprovalId].Approval!.Prompt));
+        Assert.False(WorkflowApprovalEvidence.MatchesDefinition(parent, runId, rootRevision.RevisionId,
+            rootRevision.ContentHash, action with { WorkflowPath = [new(callNodeId, Guid.NewGuid(), child.ContentHash)] },
+            child.Definition.Nodes[childApprovalId].Approval!.Prompt));
+    }
+
     private static WorkflowDefinition JsonBoundary(WorkflowDefinition definition) => definition with
     {
         SchemaVersion = "1.19",
@@ -188,16 +224,43 @@ public sealed class WorkflowCallTests
     }
 
     [Fact]
-    public void NestedWorkflowApprovalIsRejectedUntilItHasAChildScopedAuthorizationContract()
+    public void NestedWorkflowApprovalIsAcceptedInsideItsExactPinnedChildDefinition()
     {
         var childGraph = GraphEditing.InsertNodeAfter(Baseline("child"), "input", "out",
             new(NodeTypes.McpTool, "1.0.0", new("test.tool", new string('a', 64))));
         var toolNodeId = childGraph.Nodes.Single(entry => entry.Value.Type == NodeTypes.McpTool).Key;
         childGraph = GraphEditing.InsertApprovalBefore(childGraph, toolNodeId);
         var child = WorkflowRevision.Create(childGraph, "test");
-        var error = Assert.Throws<ArgumentException>(() =>
-            GraphEditing.InsertNodeAfter(Baseline("parent"), "input", "out", Call(child)));
+        var parent = GraphEditing.InsertNodeAfter(Baseline("parent"), "input", "out", Call(child));
 
-        Assert.Contains("workflowCall.approval", error.Message);
+        Assert.Empty(WorkflowValidator.Validate(parent));
+    }
+
+    [Fact]
+    public void ParallelBranchesCannotWaitForNestedApprovalsAtTheSameTime()
+    {
+        var childGraph = GraphEditing.InsertNodeAfter(Baseline("approved-child"), "input", "out",
+            new(NodeTypes.McpTool, "1.0.0", new("test.tool", new string('a', 64))));
+        var toolNodeId = childGraph.Nodes.Single(entry => entry.Value.Type == NodeTypes.McpTool).Key;
+        childGraph = GraphEditing.InsertApprovalBefore(childGraph, toolNodeId);
+        var child = WorkflowRevision.Create(childGraph, "test");
+        var graph = GraphEditing.InsertParallelBlockAfter(Baseline("parallel-parent"), "input", "out");
+        var forkId = graph.Nodes.Single(entry => entry.Value.Type == NodeTypes.ParallelFork).Key;
+        var firstAnchor = graph.Connections.Values.Single(edge => edge.Source == new PortReference(forkId, "branch_1")).Target.NodeId;
+        var secondAnchor = graph.Connections.Values.Single(edge => edge.Source == new PortReference(forkId, "branch_2")).Target.NodeId;
+
+        var oneApprovalBranch = GraphEditing.InsertNodeAfter(graph, firstAnchor, "out", Call(child));
+        var branchEdge = oneApprovalBranch.Connections.Single(entry => entry.Value.Source.NodeId == secondAnchor);
+        var secondCallId = "second-call";
+        var twoApprovalBranches = oneApprovalBranch with
+        {
+            Nodes = oneApprovalBranch.Nodes.Add(secondCallId, Call(child)),
+            Connections = oneApprovalBranch.Connections.Remove(branchEdge.Key)
+                .Add("second-call-in", new(new(secondAnchor, "out"), new(secondCallId, "in"), "data"))
+                .Add("second-call-out", new(new(secondCallId, "out"), branchEdge.Value.Target, "data"))
+        };
+
+        Assert.Empty(WorkflowValidator.Validate(oneApprovalBranch));
+        Assert.Contains(WorkflowValidator.Validate(twoApprovalBranches), issue => issue.Code == "parallel.approval.concurrent");
     }
 }

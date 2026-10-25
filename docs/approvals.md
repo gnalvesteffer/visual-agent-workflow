@@ -5,12 +5,15 @@ Schema 1.5 adds `core.approval` version `1.0.0`. An approval node immediately pr
 ```mermaid
 sequenceDiagram
     participant Agent as Agent and condition
+    participant Child as Pinned child workflow
     participant Gate as Approval executor
     participant Journal as Run journal
     participant Reviewer as Authorized host control
     participant Tool as MCP broker
     Agent->>Gate: Selected string value
-    Gate->>Journal: Exact action and approval request
+    Agent->>Child: Enter immutable child revision
+    Child->>Gate: Exact nested approval and selected value
+    Gate->>Journal: Root identity + scoped path + exact action
     Note over Gate: Release execution permit while waiting
     Reviewer->>Journal: Read captured request
     Reviewer->>Gate: Request ID, action fingerprint, decision
@@ -29,6 +32,8 @@ sequenceDiagram
 The request binds the run ID, immutable revision ID/content hash, approval node/invocation, target MCP node, reserved target invocation ID, logical tool binding, contract hash, exact string input and input SHA-256. Its action fingerprint is SHA-256 over the platform's JSON serialization of that captured action. The request has its own fresh ID and timestamp. The configured prompt is part of the pinned workflow definition; it does not specify tool arguments or grant capabilities.
 
 After approval, the next MCP invocation uses the reserved invocation ID and unchanged input. This correlates `approval.requested` with actual `node.started` and `tool.*` evidence. There is no intermediate transformation between approval and the target tool. The broker still checks node-local requirements, host policy, budgets and contract identity. An approved action can be denied or fail at the broker; approval cannot broaden permissions or guarantee an external outcome.
+
+Approvals inside pinned child workflows use the same control path. Their action still names the root run/revision/hash, and additionally includes each call-node ID and pinned child revision/hash from root to the executing child, plus the executing definition identity. The request event's `ScopeId` must match that path. The controller revalidates every embedded child snapshot and the final approval-to-MCP edge before accepting a decision. An altered revision, path, scope, node, tool contract, input, or action hash is rejected. This establishes identity only; the host must still authorize each child MCP node independently.
 
 This milestone guards explicit `core.mcp-tool` nodes. It does not intercept tool calls made inside an agent loop, approve arbitrary provider-selected calls, approve all future actions in a run, or impose mandatory host approval on workflows that have no approval node. Hosts still own deployment review and authorization over definitions and run controls. The local MCP fixtures remain read-only; no live external write or live LLM is validated here.
 
@@ -71,7 +76,7 @@ Unknown runs return 404. Invalid/missing fields return 400; extra JSON fields, i
 
 The same sequenced writer records `approval.requested`, `approval.approved`, `approval.rejected` and `approval.cancelled` alongside node/model/tool events. Requests include exact action metadata; decisions include request ID, action fingerprint, outcome and host actor. A rejection is distinct from a tool failure. An approval record is not proof the action dispatched or completed; inspect the matching target invocation's evidence.
 
-The recorded viewer shows pending details at the selected event prefix. Controls appear only at the latest live position when a control-enabled client is supplied. Scrubbing over a historical request cannot submit a decision. `WorkflowApprovalPanel` is also independently embeddable. The read-only [consumer observation API](observation.md), HTTP observer and observation panel do not expose approval commands; readers may inspect the captured request without receiving control authority.
+The recorded viewer shows pending details at the selected event prefix. For nested requests it highlights the parent workflow-call node and shows the call path and executing child revision alongside the target action. Controls appear only at the latest live position when a control-enabled client is supplied. Scrubbing over a historical request cannot submit a decision. `WorkflowApprovalPanel` is also independently embeddable. The read-only [consumer observation API](observation.md), HTTP observer and observation panel do not expose approval commands; readers may inspect the captured request without receiving control authority.
 
 ## Persistence and failure boundary
 
@@ -81,4 +86,4 @@ Layout schema 1.0, package format 1.0 and database schema 2 are unchanged. Old s
 
 ## Evidence
 
-Backend tests verify exact input/tool/invocation binding, duplicate/concurrent decisions, stale/cross-run denial, pause independence, broker denial after approval, cancellation and restart/crash snapshots. Adapter tests prove a missing coordinator cannot auto-approve. `python3 scripts/approval_smoke.py` authors the real scripted Agent → Condition → Approval → MCP → Output path, checks reload and other-run progress, approves/rejects/cancels exact requests, rejects actor/origin forgery, verifies actual tool invocation correlation and confirms playback is read-only. The agent is the deterministic fixture, not an LLM.
+Backend tests verify exact input/tool/invocation binding, duplicate/concurrent decisions, stale/cross-run denial, pause independence, broker denial after approval, cancellation and restart/crash snapshots. Nested-call tests verify root and child revision binding, event scope matching, invalid child revision rejection, parallel approval validation, and read-only playback highlighting. Adapter tests prove a missing coordinator cannot auto-approve. `python3 scripts/approval_smoke.py` authors the real scripted Agent → Condition → Approval → MCP → Output path, checks reload and other-run progress, approves/rejects/cancels exact requests, rejects actor/origin forgery, verifies actual tool invocation correlation and confirms playback is read-only. The agent is the deterministic fixture, not an LLM.
