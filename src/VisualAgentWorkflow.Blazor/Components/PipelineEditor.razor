@@ -282,12 +282,12 @@
                                 @if (SkillLibrary is not null) { <a href="/skills">Manage skill library</a> }
                             </fieldset>
                             <fieldset disabled="@Disabled"><legend>Subagents</legend>
-                                <p class="vaw-help">Selected profiles appear as delegate tools. The parent chooses when to call one specialist. With two or more profiles, it also gets a parallel team tool that sends the same task to every selected profile and returns named results. Each child gets only its own profile tools within host authorization. Teams run up to four members concurrently, one level deep, with a four-child-call limit per parent-agent invocation.</p>
+                                <p class="vaw-help">Selected profiles appear as delegate tools. With two or more profiles, the parent also gets a parallel team tool. Team members can exchange bounded messages only on channels they share in Agent Designer; membership is pinned with each profile revision. Each child gets only its own profile tools within host authorization. Teams run up to four members concurrently, one level deep, with a four-child-call limit per parent-agent invocation.</p>
                                 @foreach (var item in AgentProfileLibrary?.List() ?? [])
                                 {
                                     var profile = item.Profile;
                                     var assigned = (agent.Delegates ?? []).Any(reference => reference.Id == profile.Id && reference.Version == profile.Version);
-                                    <label @key="profile.Id + profile.Version"><input type="checkbox" checked="@assigned" @onchange="args => AssignProfile(id, profile, args)" disabled="@(!assigned && (agent.Delegates?.Length ?? 0) >= 4)" />@profile.Name · @profile.Version @(string.IsNullOrEmpty(item.Folder) ? "" : "· " + item.Folder)</label>
+                                    <label @key="profile.Id + profile.Version"><input type="checkbox" checked="@assigned" @onchange="args => AssignProfile(id, profile, args)" disabled="@(!assigned && (agent.Delegates?.Length ?? 0) >= 4)" />@profile.Name · @profile.Version @(string.IsNullOrEmpty(item.Folder) ? "" : "· " + item.Folder) @if (profile.Channels is { Length: > 0 }) { <small>Channels: @string.Join(", ", profile.Channels)</small> }</label>
                                 }
                                 @foreach (var reference in agent.Delegates ?? [])
                                 {
@@ -356,7 +356,7 @@
     private string newParameterDescription = "";
     private System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition> ParameterDefinitions =>
         Definition.Parameters ?? System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
-    private string CapabilitySchema => Definition.SchemaVersion is "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
+    private string CapabilitySchema => Definition.SchemaVersion is "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
     private string? error;
     private string? selectedNode;
     private string selectedPort = "out";
@@ -500,7 +500,7 @@
         var parameterId = value?.StartsWith("parameter:", StringComparison.Ordinal) == true ? value[10..] : null;
         var node = Definition.Nodes[id];
         var parameterIncludesOff = parameterId is not null && ParameterDefinitions.TryGetValue(parameterId, out var parameter) && parameter.Choices?.Contains("off") == true;
-        var schema = effort == AgentReasoningEffort.Off || parameterIncludesOff ? Definition.SchemaVersion == "1.11" ? "1.11" : "1.10" : parameterId is not null ? Definition.SchemaVersion is "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : "1.8" : CapabilitySchema;
+        var schema = effort == AgentReasoningEffort.Off || parameterIncludesOff ? Definition.SchemaVersion is "1.12" or "1.11" ? Definition.SchemaVersion : "1.10" : parameterId is not null ? Definition.SchemaVersion is "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : "1.8" : CapabilitySchema;
         var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { ReasoningEffort = parameterId is null ? effort : null, ReasoningEffortParameterId = parameterId } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -512,7 +512,7 @@
         if (!int.TryParse(args.Value?.ToString(), out var limit) || limit is < AgentOutputTokenLimits.Minimum or > AgentOutputTokenLimits.Maximum)
             throw new ArgumentException($"Choose an output limit from {AgentOutputTokenLimits.Minimum} to {AgentOutputTokenLimits.Maximum} tokens.");
         var node = Definition.Nodes[id];
-        var schema = Definition.SchemaVersion == "1.11" ? "1.11" : "1.10";
+        var schema = Definition.SchemaVersion is "1.12" or "1.11" ? Definition.SchemaVersion : "1.10";
         var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { MaxOutputTokens = limit } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -569,7 +569,7 @@
         var stillUsed = nodes.Values.Where(item => item.Agent is not null).SelectMany(item => item.Agent!.Delegates ?? [])
             .Any(reference => reference.Id == profile.Id && reference.Version == profile.Version);
         if (!stillUsed) profiles = profiles.Remove(profile.Id + "@" + profile.Version);
-        var definition = Definition with { SchemaVersion = "1.11", AgentProfiles = profiles.Count == 0 ? null : profiles,
+        var definition = Definition with { SchemaVersion = profile.Channels is not null ? "1.12" : Definition.SchemaVersion is "1.12" or "1.11" ? Definition.SchemaVersion : "1.11", AgentProfiles = profiles.Count == 0 ? null : profiles,
             Skills = skills.Count == 0 ? null : skills, Nodes = nodes };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;

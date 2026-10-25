@@ -47,6 +47,8 @@ public static class ExecutionEventKinds
     public const string AgentTeamStarted = "agent.team.started";
     public const string AgentTeamCompleted = "agent.team.completed";
     public const string AgentTeamFailed = "agent.team.failed";
+    public const string AgentChannelMessageSent = "agent.channel.message.sent";
+    public const string AgentChannelMessagesRead = "agent.channel.messages.read";
     public const string ModelRequested = "model.requested";
     public const string ModelResponded = "model.responded";
 }

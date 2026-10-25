@@ -73,7 +73,7 @@ public sealed class StudioAgentProfileLibrary : IAgentProfileLibrary
     private static bool IsIntact(AgentProfile? profile) => profile is not null &&
         profile.ContentHash == AgentProfile.Create(profile.Id, profile.Version, profile.Name, profile.Description,
             profile.ProviderId, profile.ProviderVersion, profile.Instructions, profile.Tools, profile.Skills,
-            profile.ReasoningEffort, profile.MaxOutputTokens).ContentHash;
+            profile.ReasoningEffort, profile.MaxOutputTokens, profile.Channels).ContentHash;
 
     private static void Validate(AgentProfile profile, string folder)
     {
@@ -85,14 +85,19 @@ public sealed class StudioAgentProfileLibrary : IAgentProfileLibrary
             string.IsNullOrWhiteSpace(profile.ProviderVersion) || profile.ProviderVersion.Length > 64 ||
             string.IsNullOrWhiteSpace(profile.Instructions) || profile.Instructions.Length > 8192 ||
             profile.Tools.IsDefault || profile.Tools.Length > 8 || profile.Skills is { Length: > 8 } ||
+            profile.Channels is { } channels && (channels.IsDefault || channels.Length > 8 ||
+                channels.Distinct(StringComparer.Ordinal).Count() != channels.Length || channels.Any(channel => !ValidChannel(channel))) ||
             profile.MaxOutputTokens is < AgentOutputTokenLimits.Minimum or > AgentOutputTokenLimits.Maximum ||
             profile.Id.Any(character => !char.IsAsciiLetterOrDigit(character) && character is not '-' and not '_' and not '.') ||
             profile.Tools.Any(tool => tool is null || !ValidBinding(tool)) ||
             profile.Tools.Select(tool => tool.BindingId).Distinct(StringComparer.Ordinal).Count() != profile.Tools.Length ||
             profile.Skills?.Any(skill => skill is null || skill != WorkflowSkill.Create(skill.Id, skill.Version, skill.Name, skill.Instructions)) == true)
-            throw new ArgumentException("Enter a valid profile with bounded instructions and up to eight unique tools and skills.");
+            throw new ArgumentException("Enter a valid profile with bounded instructions, up to eight unique tools and skills, and up to eight valid team-channel IDs.");
         ValidateFolder(folder);
     }
+
+    private static bool ValidChannel(string channel) => channel.Length is > 0 and <= 64 && channel[0] is >= 'a' and <= 'z' &&
+        channel.All(character => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '_' or '-' or '.');
 
     private static bool ValidBinding(ToolBindingRequest binding) => !string.IsNullOrWhiteSpace(binding.BindingId) &&
         binding.BindingId.Length <= 256 && binding.ContractHash.Length == 64 && binding.ContractHash.All(Uri.IsHexDigit);

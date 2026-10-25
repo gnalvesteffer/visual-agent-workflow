@@ -22,14 +22,16 @@ public sealed record AgentProfile(string Id, string Version, string Name, string
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<WorkflowSkill>? Skills { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public AgentReasoningEffort? ReasoningEffort { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? MaxOutputTokens { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<string>? Channels { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ContentHash { get; init; }
 
     public static AgentProfile Create(string id, string version, string name, string description, string providerId,
         string providerVersion, string instructions, ImmutableArray<ToolBindingRequest> tools,
-        ImmutableArray<WorkflowSkill>? skills = null, AgentReasoningEffort? reasoningEffort = null, int? maxOutputTokens = null)
+        ImmutableArray<WorkflowSkill>? skills = null, AgentReasoningEffort? reasoningEffort = null, int? maxOutputTokens = null,
+        ImmutableArray<string>? channels = null)
     {
         var profile = new AgentProfile(id, version, name, description, providerId, providerVersion, instructions, tools)
-        { Skills = skills, ReasoningEffort = reasoningEffort, MaxOutputTokens = maxOutputTokens };
+        { Skills = skills, ReasoningEffort = reasoningEffort, MaxOutputTokens = maxOutputTokens, Channels = channels };
         var content = System.Text.Json.JsonSerializer.Serialize(profile with { ContentHash = null });
         return profile with { ContentHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(content))) };
     }

@@ -150,12 +150,12 @@ public class AgentCapabilityTests
         var skill = WorkflowSkill.Create("math", "1.0", "Arithmetic", "Return a single number.");
         var definition = Definition(skill);
         var profile = AgentProfile.Create("calculator", "2.0", "Calculator", "Performs arithmetic.",
-            "demo.scripted", "1.0.0", "Use the assigned skill.", [], [skill], AgentReasoningEffort.Off, 512);
+            "demo.scripted", "1.0.0", "Use the assigned skill.", [], [skill], AgentReasoningEffort.Off, 512, ["research", "review"]);
         var agent = definition.Nodes["step-1"].Agent! with
         { Delegates = [new(profile.Id, profile.Version, profile.ContentHash!)] };
         definition = definition with
         {
-            SchemaVersion = "1.11",
+            SchemaVersion = "1.12",
             AgentProfiles = ImmutableSortedDictionary<string, AgentProfile>.Empty.Add("calculator@2.0", profile),
             Nodes = definition.Nodes.SetItem("step-1", definition.Nodes["step-1"] with { Agent = agent })
         };
@@ -163,6 +163,7 @@ public class AgentCapabilityTests
         Assert.Empty(WorkflowValidator.Validate(definition));
         var package = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(definition, WorkflowLayout.Create(definition)));
         Assert.Equal(profile.ContentHash, package.Definition.AgentProfiles!["calculator@2.0"].ContentHash);
+        Assert.Equal(profile.Channels, package.Definition.AgentProfiles["calculator@2.0"].Channels);
         Assert.Contains(package.Requirements, requirement => requirement.Kind == "agent-profile" && requirement.ContractHash == profile.ContentHash);
         Assert.Contains(package.Requirements, requirement => requirement.Kind == "skill" && requirement.ContractHash == skill.ContentHash);
         Assert.Contains(package.Requirements, requirement => requirement.Kind == "agent-provider" && requirement.Id == "demo.scripted");
@@ -171,6 +172,11 @@ public class AgentCapabilityTests
         Assert.Contains(WorkflowValidator.Validate(missingSkill), issue => issue.Code == "agent.delegates");
         var tampered = definition with { AgentProfiles = definition.AgentProfiles!.SetItem("calculator@2.0", profile with { Instructions = "Changed." }) };
         Assert.Contains(WorkflowValidator.Validate(tampered), issue => issue.Code is "agentProfile.definition" or "agent.delegates");
+        var channelsOnOldSchema = definition with { SchemaVersion = "1.11" };
+        Assert.Contains(WorkflowValidator.Validate(channelsOnOldSchema), issue => issue.Code == "agentProfile.definition");
+        var invalidChannel = profile with { Channels = ["Research Channel"] };
+        var invalidDefinition = definition with { AgentProfiles = definition.AgentProfiles!.SetItem("calculator@2.0", invalidChannel) };
+        Assert.Contains(WorkflowValidator.Validate(invalidDefinition), issue => issue.Code == "agentProfile.definition");
     }
 
     [Fact]

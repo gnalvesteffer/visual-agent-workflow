@@ -88,7 +88,7 @@
             (e.InvocationId == invocation || IsDelegatedInvocation(e, invocation))).ToArray();
         var terminalIndex = Array.FindLastIndex(events, e => e.Kind is ExecutionEventKinds.NodeCompleted or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
         if (terminalIndex >= 0) return null;
-        var current = events.LastOrDefault(e => e.Kind is ExecutionEventKinds.AgentTeamStarted or ExecutionEventKinds.AgentTeamCompleted or ExecutionEventKinds.AgentTeamFailed or ExecutionEventKinds.AgentStarted or ExecutionEventKinds.AgentCompleted or ExecutionEventKinds.AgentFailed or ExecutionEventKinds.ModelRequested or ExecutionEventKinds.ModelResponded or ExecutionEventKinds.ToolRequested or ExecutionEventKinds.ToolAuthorized or ExecutionEventKinds.ToolCompleted or ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ApprovalRequested);
+        var current = events.LastOrDefault(e => e.Kind is ExecutionEventKinds.AgentTeamStarted or ExecutionEventKinds.AgentTeamCompleted or ExecutionEventKinds.AgentTeamFailed or ExecutionEventKinds.AgentChannelMessageSent or ExecutionEventKinds.AgentChannelMessagesRead or ExecutionEventKinds.AgentStarted or ExecutionEventKinds.AgentCompleted or ExecutionEventKinds.AgentFailed or ExecutionEventKinds.ModelRequested or ExecutionEventKinds.ModelResponded or ExecutionEventKinds.ToolRequested or ExecutionEventKinds.ToolAuthorized or ExecutionEventKinds.ToolCompleted or ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ApprovalRequested);
         if (current is null) return "Preparing node";
         var delegatedPrefix = DelegatedProfileLabel(current);
         if (delegatedPrefix is not null)
@@ -104,6 +104,8 @@
                 ExecutionEventKinds.ToolAuthorized => ToolActivity(current, "MCP tool authorized"),
                 ExecutionEventKinds.ToolCompleted => ToolActivity(current, "MCP tool completed"),
                 ExecutionEventKinds.ToolFailed => ToolActivity(current, "MCP tool failed"),
+                ExecutionEventKinds.AgentChannelMessageSent => "sending team message",
+                ExecutionEventKinds.AgentChannelMessagesRead => "reading team channel",
                 _ => "running"
             };
             return $"Subagent {delegatedPrefix} · {childActivity}";
@@ -113,6 +115,8 @@
             ExecutionEventKinds.AgentTeamStarted => "Running parallel agent team",
             ExecutionEventKinds.AgentTeamCompleted => "Joining named team results",
             ExecutionEventKinds.AgentTeamFailed => "Agent team failed",
+            ExecutionEventKinds.AgentChannelMessageSent => "Sending team message",
+            ExecutionEventKinds.AgentChannelMessagesRead => "Reading team channel",
             ExecutionEventKinds.AgentStarted => "Preparing agent",
             ExecutionEventKinds.ModelRequested => "Waiting for model response",
             ExecutionEventKinds.ModelResponded => "Processing model response",

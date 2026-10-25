@@ -274,6 +274,166 @@ public class AgentExecutionTests
     }
 
     [Fact]
+    public async Task TeamChannelsShareMessagesBetweenMembersAndAreIsolatedPerRun()
+    {
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var baseDefinition = Revision().Definition;
+        var profiles = new[]
+        {
+            AgentProfile.Create("analyst", "1", "Writer", "Posts a finding.", "demo.scripted", "1.0.0", "Writer instructions.", [], channels: ["research"]),
+            AgentProfile.Create("analyst", "2", "Reader", "Reads a finding.", "demo.scripted", "1.0.0", "Reader instructions.", [], channels: ["research"])
+        };
+        var agent = baseDefinition.Nodes["step-1"].Agent! with
+        {
+            Instructions = "Parent instructions.",
+            Delegates = [.. profiles.Select(profile => new AgentProfileReference(profile.Id, profile.Version, profile.ContentHash!))]
+        };
+        var definition = baseDefinition with
+        {
+            SchemaVersion = "1.12",
+            AgentProfiles = profiles.ToImmutableSortedDictionary(profile => profile.Id + "@" + profile.Version, profile => profile, StringComparer.Ordinal),
+            Nodes = baseDefinition.Nodes.SetItem("step-1", baseDefinition.Nodes["step-1"] with { Agent = agent })
+        };
+        var rounds = new System.Collections.Concurrent.ConcurrentDictionary<string, int>(StringComparer.Ordinal);
+        var writerPosted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registration = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient(async (messages, options, cancellationToken) =>
+            {
+                var role = options?.Instructions switch
+                {
+                    "Parent instructions." => "parent",
+                    "Writer instructions." => "writer",
+                    "Reader instructions." => "reader",
+                    _ => throw new InvalidOperationException("Unexpected team member.")
+                };
+                var task = messages.First(message => message.Role == ChatRole.User).Text;
+                var round = rounds.AddOrUpdate(role + "|" + task, 1, (_, current) => current + 1);
+                if (role == "parent")
+                    return round == 1
+                        ? new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                            [new FunctionCallContent("team-call", "team_0", new Dictionary<string, object?> { ["task"] = task })]))
+                          { FinishReason = ChatFinishReason.ToolCalls }
+                        : new ChatResponse(new ChatMessage(ChatRole.Assistant, "Team completed.")) { FinishReason = ChatFinishReason.Stop };
+                if (role == "writer")
+                {
+                    if (round == 1)
+                        return new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                            [new FunctionCallContent("send-call", "channel_send", new Dictionary<string, object?>
+                            { ["channel"] = "research", ["message"] = "finding-" + task })]))
+                        { FinishReason = ChatFinishReason.ToolCalls };
+                    writerPosted.TrySetResult();
+                    return new ChatResponse(new ChatMessage(ChatRole.Assistant, "Finding posted.")) { FinishReason = ChatFinishReason.Stop };
+                }
+                if (round == 1)
+                {
+                    await writerPosted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+                    return new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                        [new FunctionCallContent("read-call", "channel_read", new Dictionary<string, object?> { ["channel"] = "research" })]))
+                    { FinishReason = ChatFinishReason.ToolCalls };
+                }
+                return new ChatResponse(new ChatMessage(ChatRole.Assistant, "Finding reviewed.")) { FinishReason = ChatFinishReason.Stop };
+            })
+        };
+        var executor = new PipelineRunner(broker, new AgentNodeExecutor([registration], broker));
+        var definitionRevision = WorkflowRevision.Create(definition, "test");
+
+        async Task<List<ExecutionEvent>> ExecuteRun(string task)
+        {
+            writerPosted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            var events = new List<ExecutionEvent>();
+            var output = await executor.ExecuteAsync(Guid.NewGuid(), definitionRevision, task,
+                evt => { events.Add(evt); return ValueTask.CompletedTask; });
+            Assert.Equal("Team completed.", output);
+            return events;
+        }
+
+        var firstRun = await ExecuteRun("first");
+        var secondRun = await ExecuteRun("second");
+
+        foreach (var (events, expectedMessage) in new[] { (firstRun, "finding-first"), (secondRun, "finding-second") })
+        {
+            var written = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentChannelMessageSent);
+            var read = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentChannelMessagesRead);
+            using var sentData = JsonDocument.Parse(written.Data!);
+            using var sentEventData = JsonDocument.Parse(sentData.RootElement.GetProperty("eventData").GetString()!);
+            Assert.Equal(expectedMessage, sentEventData.RootElement.GetProperty("message").GetProperty("Content").GetString());
+            using var readData = JsonDocument.Parse(read.Data!);
+            using var readEventData = JsonDocument.Parse(readData.RootElement.GetProperty("eventData").GetString()!);
+            var messages = readEventData.RootElement.GetProperty("messages");
+            Assert.Equal(1, messages.GetArrayLength());
+            Assert.Equal(expectedMessage, messages[0].GetProperty("Content").GetString());
+            Assert.NotEqual(written.InvocationId, read.InvocationId);
+            Assert.Equal(written.RunId, read.RunId);
+            Assert.Equal(written.RevisionId, read.RevisionId);
+            Assert.Equal(events.OrderBy(evt => evt.Sequence).ToArray(), events.ToArray());
+            Assert.Equal(sentEventData.RootElement.GetProperty("teamInvocationId").GetGuid(),
+                readEventData.RootElement.GetProperty("teamInvocationId").GetGuid());
+        }
+
+        Assert.NotEqual(firstRun[0].RunId, secondRun[0].RunId);
+        Assert.Contains(firstRun, evt => evt.Kind == ExecutionEventKinds.ModelRequested && evt.Data!.Contains("channel_send", StringComparison.Ordinal));
+        Assert.Contains(firstRun, evt => evt.Kind == ExecutionEventKinds.ModelRequested && evt.Data!.Contains("channel_read", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task TeamMemberCannotReadChannelOutsideItsPinnedMembership()
+    {
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var baseDefinition = Revision().Definition;
+        var profiles = new[]
+        {
+            AgentProfile.Create("sender", "1", "Sender", "Uses research.", "demo.scripted", "1.0.0", "Sender instructions.", [], channels: ["research"]),
+            AgentProfile.Create("reviewer", "1", "Reviewer", "Uses review.", "demo.scripted", "1.0.0", "Reviewer instructions.", [], channels: ["review"])
+        };
+        var agent = baseDefinition.Nodes["step-1"].Agent! with
+        {
+            Instructions = "Parent instructions.",
+            Delegates = [.. profiles.Select(profile => new AgentProfileReference(profile.Id, profile.Version, profile.ContentHash!))]
+        };
+        var definition = baseDefinition with
+        {
+            SchemaVersion = "1.12",
+            AgentProfiles = profiles.ToImmutableSortedDictionary(profile => profile.Id + "@" + profile.Version, profile => profile, StringComparer.Ordinal),
+            Nodes = baseDefinition.Nodes.SetItem("step-1", baseDefinition.Nodes["step-1"] with { Agent = agent })
+        };
+        var parentCalls = 0;
+        string? readerChannelSchema = null;
+        var registration = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient((messages, options, _) =>
+            {
+                var instructions = options?.Instructions;
+                if (instructions == "Parent instructions.")
+                    return Task.FromResult(Interlocked.Increment(ref parentCalls) == 1
+                        ? new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                            [new FunctionCallContent("team-call", "team_0", new Dictionary<string, object?> { ["task"] = "Review." })]))
+                          { FinishReason = ChatFinishReason.ToolCalls }
+                        : new ChatResponse(new ChatMessage(ChatRole.Assistant, "Team access check complete.")) { FinishReason = ChatFinishReason.Stop });
+                if (instructions == "Reviewer instructions.")
+                {
+                    readerChannelSchema = options!.Tools!.OfType<AIFunctionDeclaration>().Single(tool => tool.Name == "channel_read").JsonSchema.GetRawText();
+                    return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                        [new FunctionCallContent("unauthorized-read", "channel_read", new Dictionary<string, object?> { ["channel"] = "research" })]))
+                    { FinishReason = ChatFinishReason.ToolCalls });
+                }
+                return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "No channel action.")) { FinishReason = ChatFinishReason.Stop });
+            })
+        };
+        var events = new List<ExecutionEvent>();
+
+        var result = await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "Review this.",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("Team access check complete.", result);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentTeamFailed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.AgentChannelMessagesRead);
+        Assert.Contains("review", readerChannelSchema, StringComparison.Ordinal);
+        Assert.DoesNotContain("research", readerChannelSchema, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task FrameworkAgentCallsOnlyItsAssignedMcpToolAndRecordsModelRounds()
     {
         var broker = BrokerTests.CreateBroker(policy: new DemoToolPolicy());

@@ -24,6 +24,26 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
 
     private static string Key(string providerId, string version) => $"{providerId}\0{version}";
 
+    private static JsonDocument ChannelSchema(ImmutableArray<string> channels, bool includeMessage)
+    {
+        var properties = new Dictionary<string, object>
+        {
+            ["channel"] = new { type = "string", @enum = channels }
+        };
+        var required = new List<string> { "channel" };
+        if (includeMessage)
+        {
+            properties["message"] = new { type = "string", minLength = 1, maxLength = AgentTeamChannelBoard.MaximumMessageCharacters };
+            required.Add("message");
+        }
+        return JsonDocument.Parse(JsonSerializer.Serialize(new { type = "object", properties, required, additionalProperties = false }));
+    }
+
+    private static string RequiredString(AIFunctionArguments arguments, string name) =>
+        arguments.TryGetValue(name, out var value) && value is string text
+            ? text
+            : throw new InvalidOperationException($"A channel {name} is required.");
+
     public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
         Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(Volatile.Read(ref registrations).Values.Select(r => r.Descriptor).ToArray());
 
@@ -36,7 +56,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
     }
 
     private async Task<string> ExecuteConfigurationAsync(NodeInvocationContext invocation, AgentConfiguration configuration,
-        string input, bool allowDelegation, CancellationToken cancellationToken)
+        string input, bool allowDelegation, CancellationToken cancellationToken, AgentTeamChannelAccess? channelAccess = null)
     {
         if (!Volatile.Read(ref registrations).TryGetValue(Key(configuration.ProviderId, configuration.ProviderVersion), out var provider))
             throw new InvalidOperationException("The pinned agent provider is unavailable.");
@@ -69,8 +89,8 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             timeoutSeconds = provider.InvocationTimeout.TotalSeconds,
             maxOutputTokens = configuration.MaxOutputTokens ?? AgentOutputTokenLimits.LegacyDefault,
             reasoningEffort,
-            requestedTools = configuration.Tools.Select((binding, index) => new { functionName = $"tool_{index}", binding.BindingId, binding.ContractHash })
-            , skills = assignedSkills.Select(skill => new { skill.Id, skill.Version, skill.ContentHash })
+            requestedTools = configuration.Tools.Select((binding, index) => new { functionName = $"tool_{index}", binding.BindingId, binding.ContractHash }),
+            skills = assignedSkills.Select(skill => new { skill.Id, skill.Version, skill.ContentHash })
         });
         try
         {
@@ -101,6 +121,30 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                         return result;
                     }));
             }
+            if (channelAccess is { } channels)
+            {
+                var channelIds = channels.Board.ChannelsFor(channels.Profile);
+                if (!channelIds.IsEmpty)
+                {
+                    using var sendSchema = ChannelSchema(channelIds, includeMessage: true);
+                    functions.Add(new BoundMcpFunction("channel_send",
+                        "Append a message to one of your assigned team channels. Other profiles assigned to that channel can read it.",
+                        sendSchema.RootElement.Clone(), async (arguments, token) =>
+                        {
+                            var channel = RequiredString(arguments, "channel");
+                            var message = RequiredString(arguments, "message");
+                            return await channels.Board.SendAsync(invocation, channels.Profile, channel, message, token);
+                        }));
+                    using var readSchema = ChannelSchema(channelIds, includeMessage: false);
+                    functions.Add(new BoundMcpFunction("channel_read",
+                        "Read the append-only messages currently recorded in one of your assigned team channels.",
+                        readSchema.RootElement.Clone(), async (arguments, token) =>
+                        {
+                            var channel = RequiredString(arguments, "channel");
+                            return await channels.Board.ReadAsync(invocation, channels.Profile, channel, token);
+                        }));
+                }
+            }
             if (allowDelegation && configuration.Delegates is { } delegates)
             {
                 var profiles = invocation.Revision.Definition.AgentProfiles
@@ -113,7 +157,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                 }).ToArray();
                 var delegatedCalls = 0;
                 async Task<string> InvokeProfileAsync(AgentProfile profile, string task, CancellationToken token,
-                    Guid? teamInvocationId = null, bool callReserved = false)
+                    Guid? teamInvocationId = null, bool callReserved = false, AgentTeamChannelBoard? teamChannels = null)
                 {
                     if (!callReserved && Interlocked.Increment(ref delegatedCalls) > 4)
                     {
@@ -154,7 +198,8 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                     }));
                     try
                     {
-                        var result = await ExecuteConfigurationAsync(childContext, childConfiguration, task, false, token);
+                        var result = await ExecuteConfigurationAsync(childContext, childConfiguration, task, false, token,
+                            teamChannels is null ? null : new(teamChannels, profile));
                         await childContext.RecordEventAsync(ExecutionEventKinds.AgentCompleted, JsonSerializer.Serialize(new
                         {
                             delegatedProfileId = profile.Id,
@@ -208,6 +253,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                                 throw new InvalidOperationException("The team would exceed the four-call delegation limit.");
                             }
                             var teamInvocationId = Guid.NewGuid();
+                            var teamChannels = new AgentTeamChannelBoard(teamInvocationId, assignedProfiles);
                             await invocation.RecordEventAsync(ExecutionEventKinds.AgentTeamStarted, JsonSerializer.Serialize(new
                             {
                                 teamInvocationId,
@@ -227,7 +273,8 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                                             profile.Id,
                                             profile.Version,
                                             profile.Name,
-                                            output = await InvokeProfileAsync(profile, task, teamCancellation.Token, teamInvocationId, callReserved: true)
+                                            output = await InvokeProfileAsync(profile, task, teamCancellation.Token, teamInvocationId,
+                                                callReserved: true, teamChannels: teamChannels)
                                         };
                                     }
                                     catch
