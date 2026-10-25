@@ -91,6 +91,64 @@ public sealed class ExplicitGraphExecutionTests
         Assert.Equal(value, data.RootElement.GetProperty("value").GetBoolean());
     }
 
+    [Theory]
+    [InlineData(false, false, "failure", true, null, 1)]
+    [InlineData(true, false, "success", true, null, 2)]
+    [InlineData(true, true, "output", false, "Hello", 2)]
+    public async Task Nested_boolean_routes_execute_only_the_selected_path(
+        bool rootChoice, bool nestedChoice, string terminalNode, bool terminated, string? output, int reachedBranches)
+    {
+        var definition = BooleanTopologyDefinition(rootChoice, nestedChoice);
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var events = new List<ExecutionEvent>();
+
+        var result = await new PipelineRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "test"), "Hello", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal(output, result.Output);
+        Assert.Equal(terminated, result.Terminated);
+        Assert.Equal(terminalNode == "failure", result.Failed);
+        Assert.Equal(reachedBranches, events.Count(evt => evt.Kind == ExecutionEventKinds.BranchSelected));
+        Assert.Equal(reachedBranches, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId is "root" or "nested"));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == terminalNode ||
+            terminalNode == "output" && evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "output");
+        Assert.Equal(output is not null, events.Any(evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+            evt.Data!.Contains("\"activatedByNodeId\":\"output\"", StringComparison.Ordinal)));
+        var activatedEdges = events.Where(evt => evt.Kind == ExecutionEventKinds.ExecutionActivated)
+            .Select(evt => evt.ConnectionId).ToArray();
+        Assert.Contains("execution:activate-root", activatedEdges);
+        Assert.Contains(rootChoice ? "execution:root-true" : "execution:root-false", activatedEdges);
+        if (rootChoice) Assert.Contains(nestedChoice ? "execution:nested-true" : "execution:nested-false", activatedEdges);
+        else Assert.DoesNotContain(activatedEdges, edge => edge is "execution:nested-true" or "execution:nested-false");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == (terminalNode == "output" ? "success" : "output"));
+    }
+
+    [Fact]
+    public async Task Mutually_exclusive_routes_can_reconverge_without_activating_a_shared_branch_twice()
+    {
+        var baseDefinition = BooleanTopologyDefinition(rootChoice: false, nestedChoice: true);
+        var definition = baseDefinition with
+        {
+            Nodes = baseDefinition.Nodes.Remove("failure"),
+            ExecutionConnections = baseDefinition.ExecutionConnections!
+                .Remove("root-false")
+                .Add("root-false-to-nested", new(new("root", "false"), new("nested", "execute"), "execution"))
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var events = new List<ExecutionEvent>();
+
+        var result = await new PipelineRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "test"), "Hello", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("Hello", result.Output);
+        Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "nested"));
+        Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.BranchSelected && evt.NodeId == "nested"));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated && evt.ConnectionId == "execution:root-false-to-nested");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated && evt.ConnectionId == "execution:nested-true");
+    }
+
     [Fact]
     public async Task Data_wires_evaluate_pure_values_without_activating_them()
     {
@@ -218,6 +276,36 @@ public sealed class ExplicitGraphExecutionTests
             ["activate-branch"] = new(new("input", "then"), new("branch", "execute"), "execution"),
             ["true-route"] = new(new("branch", "true"), new("output", "execute"), "execution"),
             ["false-route"] = new(new("branch", "false"), new("terminate", "execute"), "execution")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+    };
+
+    private static WorkflowDefinition BooleanTopologyDefinition(bool rootChoice, bool nestedChoice) => new WorkflowDefinition(
+        "1.26", "boolean-topology", "input",
+        new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["root-value"] = new(NodeTypes.BooleanConstant, "1.0.0") { BooleanConstant = new(rootChoice) },
+            ["nested-value"] = new(NodeTypes.BooleanConstant, "1.0.0") { BooleanConstant = new(nestedChoice) },
+            ["root"] = new(NodeTypes.BooleanBranch, "1.0.0"),
+            ["nested"] = new(NodeTypes.BooleanBranch, "1.0.0"),
+            ["output"] = new(NodeTypes.Output, "1.0.0"),
+            ["failure"] = new(NodeTypes.Terminate, "1.0.0") { Termination = new(WorkflowTerminationOutcomes.Failure) },
+            ["success"] = new(NodeTypes.Terminate, "1.0.0") { Termination = new(WorkflowTerminationOutcomes.Success) }
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+        new Dictionary<string, ConnectionDefinition>
+        {
+            ["root-condition"] = new(new("root-value", "out"), new("root", "condition"), "data"),
+            ["nested-condition"] = new(new("nested-value", "out"), new("nested", "condition"), "data"),
+            ["output-value"] = new(new("input", "out"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+    {
+        ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+        {
+            ["activate-root"] = new(new("input", "then"), new("root", "execute"), "execution"),
+            ["root-true"] = new(new("root", "true"), new("nested", "execute"), "execution"),
+            ["root-false"] = new(new("root", "false"), new("failure", "execute"), "execution"),
+            ["nested-true"] = new(new("nested", "true"), new("output", "execute"), "execution"),
+            ["nested-false"] = new(new("nested", "false"), new("success", "execute"), "execution")
         }.ToImmutableSortedDictionary(StringComparer.Ordinal)
     };
 }

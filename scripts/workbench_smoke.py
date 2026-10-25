@@ -284,6 +284,39 @@ def explicit_graph_preview_check(page, designer):
     assert {node["type"] for node in saved_boolean["nodes"].values()} >= {
         "core.constant.boolean", "core.boolean.not", "core.branch.boolean"}
 
+    topology_definition = page.request.get(BASE + "/api/templates/default").json()
+    topology_definition.update({"schemaVersion": "1.25", "workflowId": branch_workflow_id, "entryNodeId": "input"})
+    topology_definition["nodes"] = {
+        "input": {"type": "core.input", "typeVersion": "1.0.0"},
+        "constant": {"type": "core.constant.boolean", "typeVersion": "1.0.0", "booleanConstant": {"value": True}},
+        "not": {"type": "core.boolean.not", "typeVersion": "1.0.0"},
+        "branch": {"type": "core.branch.boolean", "typeVersion": "1.0.0"},
+        "output": {"type": "core.output", "typeVersion": "1.0.0"},
+        "terminate": {"type": "core.terminate", "typeVersion": "1.0.0", "termination": {"outcome": "failure"}}}
+    topology_definition["connections"] = {
+        "constant-not": {"source": {"nodeId": "constant", "portId": "out"}, "target": {"nodeId": "not", "portId": "value"}, "kind": "data"},
+        "not-branch": {"source": {"nodeId": "not", "portId": "out"}, "target": {"nodeId": "branch", "portId": "condition"}, "kind": "data"},
+        "output-value": {"source": {"nodeId": "input", "portId": "out"}, "target": {"nodeId": "output", "portId": "in"}, "kind": "data"}}
+    topology_definition["executionConnections"] = {
+        "activate-branch": {"source": {"nodeId": "input", "portId": "then"}, "target": {"nodeId": "branch", "portId": "execute"}, "kind": "execution"},
+        "true-route": {"source": {"nodeId": "branch", "portId": "true"}, "target": {"nodeId": "output", "portId": "execute"}, "kind": "execution"},
+        "false-route": {"source": {"nodeId": "branch", "portId": "false"}, "target": {"nodeId": "terminate", "portId": "execute"}, "kind": "execution"}}
+    details = designer.get_by_text("Import / export definition", exact=True).locator("..")
+    if not details.evaluate("element => element.open"):
+        details.locator("summary").click()
+    designer.get_by_label("Workflow JSON", exact=True).fill(json.dumps(topology_definition))
+    designer.get_by_role("button", name="Import JSON into draft", exact=True).click()
+    designer.get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for()
+    designer.get_by_role("button", name="Enable branch topologies", exact=True).click()
+    library.get_by_role("button", name="Add Boolean Branch", exact=True).click()
+    library.get_by_role("button", name="Add Terminate workflow", exact=True).click()
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    designer.get_by_text("Draft saved.", exact=True).wait_for()
+    saved_topology = page.request.get(BASE + f"/api/workflows/{branch_workflow_id}/design").json()["draft"]["definition"]
+    assert saved_topology["schemaVersion"] == "1.26"
+    assert sum(node["type"] == "core.branch.boolean" for node in saved_topology["nodes"].values()) == 2
+    assert sum(node["type"] == "core.terminate" for node in saved_topology["nodes"].values()) == 2
+
 
 def check(browser, screenshots):
     page = browser.new_page(viewport={"width":1920,"height":1080})
@@ -501,7 +534,7 @@ def check(browser, screenshots):
     explicit_graph_preview_check(page, designer)
     assert not errors,errors
     page.close()
-    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring/replay, recursive JSON projection authoring, explicit typed-graph authoring/execution/replay, Boolean branch authoring, typed Boolean primitive upgrade/configuration, draft save, and MCP tool detail review passed.")
+    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring/replay, recursive JSON projection authoring, explicit typed-graph authoring/execution/replay, Boolean branch authoring, typed Boolean primitive upgrade/configuration, bounded branch topology upgrade and node authoring, draft save, and MCP tool detail review passed.")
 
 
 if __name__=="__main__":

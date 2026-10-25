@@ -63,6 +63,14 @@
                 <button type="button" @onclick="EnableTypedBooleanPreview" disabled="@Disabled">Enable Boolean primitives</button>
             </section>
         }
+        @if (CanUpgradeBooleanTopology)
+        {
+            <section class="vaw-library-note" aria-label="Boolean branch topology">
+                <strong>Boolean branch topology</strong>
+                <p class="vaw-help">Allow up to eight Boolean Branch nodes and sixteen success/failure exits. Each reached Branch takes one wired route; a structurally connected Output may still be unreachable for particular values.</p>
+                <button type="button" @onclick="EnableBooleanTopologyPreview" disabled="@Disabled">Enable branch topologies</button>
+            </section>
+        }
         <WorkflowNodeLibrary Entries="LibraryEntries()" Disabled="Disabled" OnSelected="key => AddLibraryNode(key)" />
         <p class="vaw-help">Click to add an unconnected node. Connect its pins when ready; use a wire menu to explicitly insert into a path.</p>
         <p class="vaw-insertion-hint">@InsertionDescription(null)</p>

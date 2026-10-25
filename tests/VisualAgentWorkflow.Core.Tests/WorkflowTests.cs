@@ -101,6 +101,36 @@ public class WorkflowTests
         }.ToImmutableSortedDictionary(StringComparer.Ordinal)
     };
 
+    private static WorkflowDefinition ExplicitBooleanTopologyGraph(bool rootChoice, bool nestedChoice) => new WorkflowDefinition(
+        "1.26", "boolean-topology", "input",
+        new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["root-value"] = new(NodeTypes.BooleanConstant, "1.0.0") { BooleanConstant = new(rootChoice) },
+            ["nested-value"] = new(NodeTypes.BooleanConstant, "1.0.0") { BooleanConstant = new(nestedChoice) },
+            ["root"] = new(NodeTypes.BooleanBranch, "1.0.0"),
+            ["nested"] = new(NodeTypes.BooleanBranch, "1.0.0"),
+            ["output"] = new(NodeTypes.Output, "1.0.0"),
+            ["failure"] = new(NodeTypes.Terminate, "1.0.0") { Termination = new(WorkflowTerminationOutcomes.Failure) },
+            ["success"] = new(NodeTypes.Terminate, "1.0.0") { Termination = new(WorkflowTerminationOutcomes.Success) }
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+        new Dictionary<string, ConnectionDefinition>
+        {
+            ["root-condition"] = new(new("root-value", "out"), new("root", "condition"), "data"),
+            ["nested-condition"] = new(new("nested-value", "out"), new("nested", "condition"), "data"),
+            ["output-value"] = new(new("input", "out"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+    {
+        ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+        {
+            ["activate-root"] = new(new("input", "then"), new("root", "execute"), "execution"),
+            ["root-true"] = new(new("root", "true"), new("nested", "execute"), "execution"),
+            ["root-false"] = new(new("root", "false"), new("failure", "execute"), "execution"),
+            ["nested-true"] = new(new("nested", "true"), new("output", "execute"), "execution"),
+            ["nested-false"] = new(new("nested", "false"), new("success", "execute"), "execution")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+    };
+
     [Fact]
     public void ValidPipelineRoundTripsWithStableHash()
     {
@@ -209,6 +239,85 @@ public class WorkflowTests
 
         var oldSchema = definition with { SchemaVersion = "1.24" };
         Assert.Contains(WorkflowValidator.Validate(oldSchema), issue => issue.Code == "node.schema");
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void Schema_126_accepts_bounded_nested_boolean_routes(bool rootChoice, bool nestedChoice)
+    {
+        var definition = ExplicitBooleanTopologyGraph(rootChoice, nestedChoice);
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        Assert.Equal(WorkflowJson.Serialize(definition), WorkflowJson.Serialize(WorkflowJson.Deserialize(WorkflowJson.Serialize(definition))));
+        var upgraded = GraphEditing.EnableBooleanTopologyGraph(ExplicitTypedBooleanBranchGraph());
+        Assert.Equal("1.26", upgraded.SchemaVersion);
+        Assert.Equal(ExplicitTypedBooleanBranchGraph().Connections, upgraded.Connections);
+        Assert.Equal(ExplicitTypedBooleanBranchGraph().ExecutionConnections, upgraded.ExecutionConnections);
+    }
+
+    [Fact]
+    public void Schema_126_allows_both_routes_to_return_without_a_termination_node()
+    {
+        var definition = ExplicitBooleanTopologyGraph(rootChoice: false, nestedChoice: false) with
+        {
+            Nodes = ExplicitBooleanTopologyGraph(false, false).Nodes.Remove("nested").Remove("nested-value").Remove("failure").Remove("success"),
+            Connections = ExplicitBooleanTopologyGraph(false, false).Connections.Remove("nested-condition"),
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["activate-root"] = new(new("input", "then"), new("root", "execute"), "execution"),
+                ["root-true"] = new(new("root", "true"), new("output", "execute"), "execution"),
+                ["root-false"] = new(new("root", "false"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+        };
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+    }
+
+    [Fact]
+    public void Schema_126_rejects_branch_and_terminal_counts_over_their_limits()
+    {
+        var definition = ExplicitBooleanTopologyGraph(true, true);
+        var tooManyBranches = definition with
+        {
+            Nodes = Enumerable.Range(0, 7).Aggregate(definition.Nodes, (nodes, index) =>
+                nodes.Add($"extra-branch-{index}", new(NodeTypes.BooleanBranch, "1.0.0")))
+        };
+        var tooManyTerminations = definition with
+        {
+            Nodes = Enumerable.Range(0, 15).Aggregate(definition.Nodes, (nodes, index) =>
+                nodes.Add($"extra-termination-{index}", new(NodeTypes.Terminate, "1.0.0")))
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(tooManyBranches), issue => issue.Code == "graph.limit" && issue.Path == "nodes");
+        Assert.Contains(WorkflowValidator.Validate(tooManyTerminations), issue => issue.Code == "graph.limit" && issue.Path == "nodes");
+    }
+
+    [Fact]
+    public void Schema_126_requires_a_structurally_reachable_output_route()
+    {
+        var definition = ExplicitBooleanTopologyGraph(false, false) with
+        {
+            ExecutionConnections = ExplicitBooleanTopologyGraph(false, false).ExecutionConnections!
+                .SetItem("nested-true", new(new("nested", "true"), new("success", "execute"), "execution"))
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "graph.unreachable" && issue.Path == "executionConnections");
+    }
+
+    [Fact]
+    public void Schema_126_graph_editing_preserves_alternative_incoming_execution_edges()
+    {
+        var definition = ExplicitBooleanTopologyGraph(false, false);
+
+        var edited = GraphEditing.ConnectPins(definition, "root", "false", "nested", "execute");
+
+        Assert.Contains(edited.ExecutionConnections!, edge => edge.Value.Source == new PortReference("root", "true") &&
+            edge.Value.Target == new PortReference("nested", "execute"));
+        Assert.Contains(edited.ExecutionConnections!, edge => edge.Value.Source == new PortReference("root", "false") &&
+            edge.Value.Target == new PortReference("nested", "execute"));
+        Assert.Equal(2, edited.ExecutionConnections!.Count(edge => edge.Value.Target == new PortReference("nested", "execute")));
     }
 
     [Fact]

@@ -1,6 +1,6 @@
 # Deterministic visual programming and reusable graph functions
 
-This is an active product capability, not a claim that the full Blueprint-style language exists. The graph engine supports string and bounded JSON values, deterministic text/JSON nodes, conditions, bounded loops, parallel blocks, and versioned workflow parameters. Schema 1.23 separates execution edges from pure data dependencies. Schema 1.24 adds ordinal, case-sensitive string equality and a Boolean Branch. Schema 1.25 adds an explicit Boolean constant and Boolean NOT. These pure nodes produce typed Boolean data and are evaluated only when a downstream branch or output requests the value. In Studio, authors can upgrade a valid 1.24 graph to 1.25, then place and configure these nodes without auto-wiring. Branch selection and evaluated values are recorded with their connection IDs, and playback displays only recorded evidence without reevaluation. The bounded topology still permits one Branch with true routed to Output and false to failure termination; arbitrary branch topologies, reconvergence, general operators, and migration of legacy node families remain unsupported. Legacy serialized `data` connections still activate downstream nodes under their original schemas, so they are not reinterpreted as pure value wires. The toolbox should grow into a safe visual programming language for deterministic work, with reusable, packaged functions that feel like small integrated circuits.
+This is an active product capability, not a claim that the full Blueprint-style language exists. The graph engine supports string and bounded JSON values, deterministic text/JSON nodes, conditions, bounded loops, parallel blocks, and versioned workflow parameters. Schema 1.23 separates execution edges from pure data dependencies. Schema 1.24 adds ordinal, case-sensitive string equality and a Boolean Branch. Schema 1.25 adds an explicit Boolean constant and Boolean NOT. Schema 1.26 allows bounded branching and reconvergence with 1–8 Branch nodes and up to 16 Terminate nodes. Branch arms may target another Branch, Output, or Terminate; shared targets accept alternative incoming routes and execute once when reached. Acyclicity, static reachability, and a structural Input-to-Output path are required. Static reachability is not predicate analysis, so a valid graph can still have no Output on a particular run if its Boolean values do not select that path. Pure Boolean nodes produce typed values and are evaluated only when a downstream Branch or Output requests them. Branch selection, evaluated values, and activated edge identities are audited and playback does not reevaluate them. Studio can upgrade valid 1.25 graphs, then users add nodes unconnected and wire the topology themselves. Legacy serialized `data` connections still activate downstream nodes under their original schemas, so they are not reinterpreted as pure value wires. General operators and migration of legacy node families remain unsupported. The toolbox should grow into a safe visual programming language for deterministic work, with reusable, packaged functions that feel like small integrated circuits.
 
 ```mermaid
 flowchart LR
@@ -10,8 +10,10 @@ flowchart LR
     Not -->|data: Boolean| Branch[Boolean Branch]
     Input -.->|execution: then| Branch
     Input -->|data: string| Output[Output]
-    Branch -->|execution: true| Output
+    Branch -->|execution: true| Next[Optional nested Branch]
     Branch -->|execution: false| Failure[Terminate: failure]
+    Next -->|execution: true| Output
+    Next -->|execution: false| Success[Terminate: success]
 ```
 
 Data wires supply typed values; execution wires activate nodes. The input can feed both pure comparison and output data without activating either data dependency. Branch chooses one recorded execution route, and the false path does not evaluate Output.

@@ -50,6 +50,16 @@ public static class GraphEditing
         return definition with { SchemaVersion = WorkflowSchemaVersions.TypedBooleanGraph };
     }
 
+    /// <summary>Upgrades a valid typed-Boolean proof to the bounded schema 1.26 branch topology.</summary>
+    public static WorkflowDefinition EnableBooleanTopologyGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.TypedBooleanGraph || definition.ExecutionConnections is null)
+            throw new ArgumentException("Enable Boolean primitives before expanding the branch topology.", nameof(definition));
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition with { SchemaVersion = WorkflowSchemaVersions.BooleanTopologyGraph };
+    }
+
     /// <summary>Adds a configured node without connecting it. Incomplete topology remains an editable draft.</summary>
     public static WorkflowDefinition AddUnconnectedNode(WorkflowDefinition definition, NodeDefinition node)
     {
@@ -136,9 +146,11 @@ public static class GraphEditing
         if (sourcePort.Kind == WorkflowPortKind.Execution)
         {
             var edges = definition.ExecutionConnections ?? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal);
-            // Execution pins have a single route in this first explicit-graph slice. Connecting
-            // a different route replaces the prior edge so authors can rewire an incomplete draft.
-            edges = edges.RemoveRange(edges.Where(edge => edge.Value.Target.NodeId == targetId && edge.Value.Target.PortId == targetPortId ||
+            var allowsAlternativeInput = definition.SchemaVersion == WorkflowSchemaVersions.BooleanTopologyGraph &&
+                target.Type is NodeTypes.BooleanBranch or NodeTypes.Output or NodeTypes.Terminate;
+            // Schema 1.26 treats incoming execution edges as mutually exclusive alternatives.
+            // Each source pin still chooses only one destination; earlier schemas keep one edge per input.
+            edges = edges.RemoveRange(edges.Where(edge => !allowsAlternativeInput && edge.Value.Target.NodeId == targetId && edge.Value.Target.PortId == targetPortId ||
                 edge.Value.Source.NodeId == sourceId && edge.Value.Source.PortId == sourcePortId).Select(edge => edge.Key));
             return definition with { ExecutionConnections = edges.Add(connectionId, connection) };
         }

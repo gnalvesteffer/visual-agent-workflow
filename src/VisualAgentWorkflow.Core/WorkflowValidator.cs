@@ -60,8 +60,8 @@ public static class WorkflowValidator
         var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
 
-        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" or "1.25"))
-            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.25.");
+        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" or "1.25" or "1.26"))
+            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.26.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.DisplayName is { } displayName &&
@@ -73,7 +73,7 @@ public static class WorkflowValidator
             Error("graph.missing", "nodes", "Nodes and connections must be present.");
             return issues.ToImmutable();
         }
-        if (definition.Nodes.Count is < 2 or > 256 || definition.Connections.Count > (definition.SchemaVersion is "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" or "1.25" ? 510 : 255))
+        if (definition.Nodes.Count is < 2 or > 256 || definition.Connections.Count > (definition.SchemaVersion is "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" or "1.25" or "1.26" ? 510 : 255))
             Error("graph.limit", "nodes", "A graph requires 2–256 nodes and at most 255 connections (510 for routed and explicit-graph schemas).");
 
         var parameters = definition.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
@@ -266,17 +266,17 @@ public static class WorkflowValidator
                 Error("constant.unexpected", $"nodes.{id}.stringConstant", "Only string constant nodes may declare a constant value.");
             if (node.Type == NodeTypes.BooleanConstant)
             {
-                if (definition.SchemaVersion != WorkflowSchemaVersions.TypedBooleanGraph || node.BooleanConstant is null)
-                    Error("constant.configuration", $"nodes.{id}.booleanConstant", "Boolean constants require schema 1.25 and an explicit Boolean value.");
+                if (definition.SchemaVersion is not (WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph) || node.BooleanConstant is null)
+                    Error("constant.configuration", $"nodes.{id}.booleanConstant", "Boolean constants require schema 1.25 or later and an explicit Boolean value.");
             }
             else if (node.BooleanConstant is not null)
                 Error("constant.unexpected", $"nodes.{id}.booleanConstant", "Only Boolean constant nodes may declare a Boolean value.");
             if (node.Type == NodeTypes.TextConcat && !WorkflowSchemaVersions.UsesExplicitGraph(definition.SchemaVersion))
                 Error("node.schema", $"nodes.{id}", "Pure text concatenation requires an explicit graph schema.");
-            if (node.Type is NodeTypes.StringEquals or NodeTypes.BooleanBranch && definition.SchemaVersion is not (WorkflowSchemaVersions.ExplicitBranchGraph or WorkflowSchemaVersions.TypedBooleanGraph))
+            if (node.Type is NodeTypes.StringEquals or NodeTypes.BooleanBranch && definition.SchemaVersion is not (WorkflowSchemaVersions.ExplicitBranchGraph or WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph))
                 Error("node.schema", $"nodes.{id}", "Pure string equality and Boolean Branch nodes require schema 1.24.");
-            if (node.Type is NodeTypes.BooleanNot or NodeTypes.BooleanConstant && definition.SchemaVersion != WorkflowSchemaVersions.TypedBooleanGraph)
-                Error("node.schema", $"nodes.{id}", "Boolean constants and NOT require schema 1.25.");
+            if (node.Type is NodeTypes.BooleanNot or NodeTypes.BooleanConstant && definition.SchemaVersion is not (WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph))
+                Error("node.schema", $"nodes.{id}", "Boolean constants and NOT require schema 1.25 or later.");
             if (node.Origin is { } origin && (definition.SchemaVersion is not ("1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16") ||
                 string.IsNullOrWhiteSpace(origin.WorkflowId) || origin.WorkflowId.Length > 256 ||
                 string.IsNullOrWhiteSpace(origin.NodeId) || origin.NodeId.Length > 256 || origin.RevisionId == Guid.Empty ||
@@ -362,6 +362,8 @@ public static class WorkflowValidator
         {
             if (definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph)
                 ValidateExplicitGraph(definition, Error);
+            else if (definition.SchemaVersion == WorkflowSchemaVersions.BooleanTopologyGraph)
+                ValidateExplicitBranchGraph(definition, Error, allowBooleanTopology: true);
             else
                 ValidateExplicitBranchGraph(definition, Error);
             return issues.ToImmutable();
@@ -558,7 +560,7 @@ public static class WorkflowValidator
         }
     }
 
-    private static void ValidateExplicitBranchGraph(WorkflowDefinition definition, Action<string, string, string> error)
+    private static void ValidateExplicitBranchGraph(WorkflowDefinition definition, Action<string, string, string> error, bool allowBooleanTopology = false)
     {
         if (definition.ExecutionConnections is null)
         {
@@ -573,15 +575,15 @@ public static class WorkflowValidator
             NodeTypes.Input, NodeTypes.Output, NodeTypes.StringConstant, NodeTypes.TextConcat,
             NodeTypes.StringEquals, NodeTypes.BooleanBranch, NodeTypes.Terminate
         };
-        if (definition.SchemaVersion == WorkflowSchemaVersions.TypedBooleanGraph)
+        if (definition.SchemaVersion is WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph)
         {
             supportedTypes.Add(NodeTypes.BooleanConstant);
             supportedTypes.Add(NodeTypes.BooleanNot);
         }
         foreach (var (id, node) in definition.Nodes)
             if (node is null || !supportedTypes.Contains(node.Type))
-                error("execution.node.unsupported", $"nodes.{id}", definition.SchemaVersion == WorkflowSchemaVersions.TypedBooleanGraph
-                    ? "Schema 1.25 supports the schema 1.24 branch nodes plus Boolean constants and Boolean NOT."
+                error("execution.node.unsupported", $"nodes.{id}", definition.SchemaVersion is WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph
+                    ? "This schema supports the schema 1.24 branch nodes plus Boolean constants and Boolean NOT."
                     : "Schema 1.24 supports input, output, string constants, text concatenation, string equality, Boolean Branch, and termination nodes.");
 
         var inputs = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Input).Select(pair => pair.Key).ToArray();
@@ -590,7 +592,14 @@ public static class WorkflowValidator
         var terminators = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Terminate).Select(pair => pair.Key).ToArray();
         if (inputs.Length != 1 || outputs.Length != 1 || inputs.FirstOrDefault() != definition.EntryNodeId)
             error("pipeline.terminals", "nodes", "An explicit graph requires one configured input entry and one output node.");
-        if (branches.Length != 1 || terminators.Length != 1)
+        if (allowBooleanTopology)
+        {
+            if (branches.Length is < 1 or > 8)
+                error("graph.limit", "nodes", "Schema 1.26 requires 1–8 Boolean Branch nodes.");
+            if (terminators.Length > 16)
+                error("graph.limit", "nodes", "Schema 1.26 supports up to 16 termination nodes.");
+        }
+        else if (branches.Length != 1 || terminators.Length != 1)
             error("graph.degree", "nodes", "The schema 1.24 proof graph requires one Boolean Branch and one termination node.");
 
         var seen = new HashSet<(string Kind, string Source, string SourcePort, string Target, string TargetPort)>();
@@ -634,6 +643,9 @@ public static class WorkflowValidator
             var targetPorts = WorkflowPorts.ExplicitExecutionInputs(targetNode);
             if (edge.Kind != "execution" || !sourcePorts.Contains(edge.Source.PortId) || !targetPorts.Contains(edge.Target.PortId))
                 error("execution.port", path, "Execution edges must connect declared execution ports and cannot carry data.");
+            if (allowBooleanTopology && (sourceNode.Type == NodeTypes.Input && targetNode.Type != NodeTypes.BooleanBranch ||
+                sourceNode.Type == NodeTypes.BooleanBranch && targetNode.Type is not (NodeTypes.BooleanBranch or NodeTypes.Output or NodeTypes.Terminate)))
+                error("execution.target", path, "Schema 1.26 routes Input to a Boolean Branch and each Branch arm to a Branch, Output, or Terminate node.");
             if (!seen.Add(("execution", source, edge.Source.PortId, target, edge.Target.PortId)))
                 error("execution.duplicate", path, "Duplicate execution edge.");
             executionIncoming[(target, edge.Target.PortId)] = executionIncoming.GetValueOrDefault((target, edge.Target.PortId)) + 1;
@@ -648,10 +660,19 @@ public static class WorkflowValidator
             foreach (var port in WorkflowPorts.ExplicitDataInputs(node))
                 if (dataIncoming.GetValueOrDefault((id, port.Id)) != 1)
                     error("data.degree", $"nodes.{id}.inputs.{port.Id}", "Every required data input must have exactly one compatible data edge.");
-            var expectedExecutionInput = node.Type == NodeTypes.Input ? 0 : node.Type is NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate ? 1 : 0;
             var actualExecutionInput = WorkflowPorts.ExplicitExecutionInputs(node).Sum(port => executionIncoming.GetValueOrDefault((id, port)));
-            if (actualExecutionInput != expectedExecutionInput)
-                error("graph.degree", $"nodes.{id}", "Input has no execution input; output, Branch, and termination require one activation.");
+            if (allowBooleanTopology)
+            {
+                if (node.Type == NodeTypes.Input && actualExecutionInput != 0 ||
+                    node.Type is NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate && actualExecutionInput is < 1 or > 16)
+                    error("graph.degree", $"nodes.{id}", "Input has no execution input; Output, Branch, and Terminate require 1–16 alternative activations.");
+            }
+            else
+            {
+                var expectedExecutionInput = node.Type == NodeTypes.Input ? 0 : node.Type is NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate ? 1 : 0;
+                if (actualExecutionInput != expectedExecutionInput)
+                    error("graph.degree", $"nodes.{id}", "Input has no execution input; output, Branch, and termination require one activation.");
+            }
             foreach (var port in WorkflowPorts.ExplicitExecutionOutputs(node))
                 if (executionOutgoing.GetValueOrDefault((id, port)) != 1)
                     error("graph.degree", $"nodes.{id}.outputs.{port}", "Every execution output pin must connect exactly once.");
@@ -662,7 +683,7 @@ public static class WorkflowValidator
                 error("termination.outcome", $"nodes.{id}.termination.outcome", "Termination outcome must be success or failure.");
         }
 
-        if (branches.Length == 1 && inputs.Length == 1 && outputs.Length == 1 && terminators.Length == 1)
+        if (!allowBooleanTopology && branches.Length == 1 && inputs.Length == 1 && outputs.Length == 1 && terminators.Length == 1)
         {
             var inputId = inputs[0];
             var outputId = outputs[0];

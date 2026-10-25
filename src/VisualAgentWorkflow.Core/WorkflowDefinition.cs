@@ -111,8 +111,9 @@ public static class WorkflowSchemaVersions
     public const string ExplicitGraph = "1.23";
     public const string ExplicitBranchGraph = "1.24";
     public const string TypedBooleanGraph = "1.25";
+    public const string BooleanTopologyGraph = "1.26";
 
-    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph;
+    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph;
 }
 
 public sealed record StringConstantConfiguration(string Value);
