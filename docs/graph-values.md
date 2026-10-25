@@ -1,12 +1,13 @@
 # Deterministic visual programming and reusable graph functions
 
-This is an active product capability, not a claim that the full Blueprint-style language exists. The graph engine supports string and bounded JSON values, deterministic text/JSON nodes, conditions, bounded loops, parallel blocks, and versioned workflow parameters. Schema 1.23 separates execution edges from pure data dependencies. Schema 1.24 adds a narrow mixed-graph proof: ordinal, case-sensitive string equality produces an actual Boolean value; a Boolean Branch consumes that typed value and activates exactly one of its `true` or `false` execution outputs. In Studio, the opt-in preview can route `true` to Output and `false` to a failure termination. Branch selection and evaluated values are recorded with their connection IDs, and playback displays only recorded evidence without reevaluation. This bounded schema does not yet allow arbitrary branch topology, reconvergence, general operators, or migration of legacy node families. Legacy serialized `data` connections still activate downstream nodes under their original schemas, so they are not reinterpreted as pure value wires. The toolbox should grow into a safe visual programming language for deterministic work, with reusable, packaged functions that feel like small integrated circuits.
+This is an active product capability, not a claim that the full Blueprint-style language exists. The graph engine supports string and bounded JSON values, deterministic text/JSON nodes, conditions, bounded loops, parallel blocks, and versioned workflow parameters. Schema 1.23 separates execution edges from pure data dependencies. Schema 1.24 adds ordinal, case-sensitive string equality and a Boolean Branch. Schema 1.25 adds an explicit Boolean constant and Boolean NOT. These pure nodes produce typed Boolean data and are evaluated only when a downstream branch or output requests the value. In Studio, authors can upgrade a valid 1.24 graph to 1.25, then place and configure these nodes without auto-wiring. Branch selection and evaluated values are recorded with their connection IDs, and playback displays only recorded evidence without reevaluation. The bounded topology still permits one Branch with true routed to Output and false to failure termination; arbitrary branch topologies, reconvergence, general operators, and migration of legacy node families remain unsupported. Legacy serialized `data` connections still activate downstream nodes under their original schemas, so they are not reinterpreted as pure value wires. The toolbox should grow into a safe visual programming language for deterministic work, with reusable, packaged functions that feel like small integrated circuits.
 
 ```mermaid
 flowchart LR
     Input[Input] -->|data: string| Compare[Compare strings]
     Expected[String constant] -->|data: string| Compare
-    Compare -->|data: Boolean| Branch[Boolean Branch]
+    Compare -->|data: Boolean| Not[Boolean NOT]
+    Not -->|data: Boolean| Branch[Boolean Branch]
     Input -.->|execution: then| Branch
     Input -->|data: string| Output[Output]
     Branch -->|execution: true| Output

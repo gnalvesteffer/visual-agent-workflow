@@ -55,6 +55,14 @@
                 <button type="button" @onclick="EnableBranchPreview" disabled="@Disabled">Enable Boolean Branch preview</button>
             </section>
         }
+        @if (CanUpgradeTypedBooleanGraph)
+        {
+            <section class="vaw-library-note" aria-label="Typed Boolean primitives">
+                <strong>Typed Boolean primitives</strong>
+                <p class="vaw-help">Add explicit true/false constants and Boolean NOT. These pure nodes only compute when a downstream data input requests their value.</p>
+                <button type="button" @onclick="EnableTypedBooleanPreview" disabled="@Disabled">Enable Boolean primitives</button>
+            </section>
+        }
         <WorkflowNodeLibrary Entries="LibraryEntries()" Disabled="Disabled" OnSelected="key => AddLibraryNode(key)" />
         <p class="vaw-help">Click to add an unconnected node. Connect its pins when ready; use a wire menu to explicitly insert into a path.</p>
         <p class="vaw-insertion-hint">@InsertionDescription(null)</p>
@@ -170,6 +178,20 @@
                     else if (node.Type == NodeTypes.BooleanBranch)
                     {
                         <p>Reads a Boolean data value and activates exactly one execution output: <strong>true</strong> or <strong>false</strong>. It never converts text to a Boolean.</p>
+                    }
+                    else if (node.Type == NodeTypes.BooleanConstant)
+                    {
+                        <label>Boolean value
+                            <select aria-label="Boolean constant value for @id" value="@(node.BooleanConstant?.Value == true ? "true" : "false")" @onchange="args => ChangeBooleanConstant(id, args)" disabled="@Disabled">
+                                <option value="true">True</option>
+                                <option value="false">False</option>
+                            </select>
+                        </label>
+                        <p class="vaw-help">Pure value node. It does not activate through an execution wire.</p>
+                    }
+                    else if (node.Type == NodeTypes.BooleanNot)
+                    {
+                        <p>Outputs the opposite of its Boolean <strong>value</strong> input. It never accepts or produces text.</p>
                     }
                     else if (node.Type == NodeTypes.WorkflowCall)
                     {
@@ -560,6 +582,8 @@
         NodeTypes.TextConcat => "Join left + right",
         NodeTypes.StringEquals => "Ordinal string equality",
         NodeTypes.BooleanBranch => "Route by Boolean value",
+        NodeTypes.BooleanConstant => node.BooleanConstant?.Value == true ? "True" : "False",
+        NodeTypes.BooleanNot => "Invert Boolean value",
         NodeTypes.WorkflowValue => node.ParameterId is { } parameterId && ParameterDefinitions.TryGetValue(parameterId, out var parameter)
             ? $"Workflow value · {parameter.DisplayName}" : "Workflow value",
         NodeTypes.Condition => $"{node.Condition!.Operator} · {node.Condition.Operand}",
@@ -769,6 +793,9 @@
         if (value == NodeTypes.TextConcat) return new(NodeTypes.TextConcat, "1.0.0");
         if (value == NodeTypes.StringEquals) return new(NodeTypes.StringEquals, "1.0.0");
         if (value == NodeTypes.BooleanBranch) return new(NodeTypes.BooleanBranch, "1.0.0");
+        if (value == NodeTypes.BooleanConstant)
+            return new(NodeTypes.BooleanConstant, "1.0.0") { BooleanConstant = existing?.BooleanConstant ?? new(false) };
+        if (value == NodeTypes.BooleanNot) return new(NodeTypes.BooleanNot, "1.0.0");
         if (value == NodeTypes.JsonSelectString)
             return new(NodeTypes.JsonSelectString, "1.0.0") { JsonPropertySelection = existing?.JsonPropertySelection ?? new("/name") };
         if (value == NodeTypes.JsonProject)
@@ -787,6 +814,9 @@
 
     private Task ChangeStringConstant(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
         Definition.Nodes[id] with { StringConstant = new(args.Value?.ToString() ?? "") }));
+
+    private Task ChangeBooleanConstant(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
+        Definition.Nodes[id] with { BooleanConstant = new(bool.TryParse(args.Value?.ToString(), out var value) && value) }));
 
     private Task Instructions(string id, ChangeEventArgs args) => Edit(() => ReplaceProcessing(id,
         Definition.Nodes[id] with { Agent = Definition.Nodes[id].Agent! with { Instructions = args.Value?.ToString() ?? "" } }));

@@ -33,13 +33,14 @@ public static class WorkflowPorts
         NodeTypes.TextConcat => [new("left", "string"), new("right", "string")],
         NodeTypes.StringEquals => [new("left", "string"), new("right", "string")],
         NodeTypes.BooleanBranch => [new("condition", "boolean")],
+        NodeTypes.BooleanNot => [new("value", "boolean")],
         _ => []
     };
 
     public static ImmutableArray<WorkflowPort> ExplicitDataOutputs(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input or NodeTypes.StringConstant or NodeTypes.TextConcat => [new("out", "string")],
-        NodeTypes.StringEquals => [new("out", "boolean")],
+        NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", "boolean")],
         _ => []
     };
 

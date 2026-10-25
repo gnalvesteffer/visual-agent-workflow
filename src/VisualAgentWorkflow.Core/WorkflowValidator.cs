@@ -60,8 +60,8 @@ public static class WorkflowValidator
         var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
 
-        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24"))
-            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.24.");
+        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" or "1.25"))
+            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.25.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.DisplayName is { } displayName &&
@@ -73,7 +73,7 @@ public static class WorkflowValidator
             Error("graph.missing", "nodes", "Nodes and connections must be present.");
             return issues.ToImmutable();
         }
-        if (definition.Nodes.Count is < 2 or > 256 || definition.Connections.Count > (definition.SchemaVersion is "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" ? 510 : 255))
+        if (definition.Nodes.Count is < 2 or > 256 || definition.Connections.Count > (definition.SchemaVersion is "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" or "1.25" ? 510 : 255))
             Error("graph.limit", "nodes", "A graph requires 2–256 nodes and at most 255 connections (510 for routed and explicit-graph schemas).");
 
         var parameters = definition.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
@@ -264,10 +264,19 @@ public static class WorkflowValidator
             }
             else if (node.StringConstant is not null)
                 Error("constant.unexpected", $"nodes.{id}.stringConstant", "Only string constant nodes may declare a constant value.");
+            if (node.Type == NodeTypes.BooleanConstant)
+            {
+                if (definition.SchemaVersion != WorkflowSchemaVersions.TypedBooleanGraph || node.BooleanConstant is null)
+                    Error("constant.configuration", $"nodes.{id}.booleanConstant", "Boolean constants require schema 1.25 and an explicit Boolean value.");
+            }
+            else if (node.BooleanConstant is not null)
+                Error("constant.unexpected", $"nodes.{id}.booleanConstant", "Only Boolean constant nodes may declare a Boolean value.");
             if (node.Type == NodeTypes.TextConcat && !WorkflowSchemaVersions.UsesExplicitGraph(definition.SchemaVersion))
                 Error("node.schema", $"nodes.{id}", "Pure text concatenation requires an explicit graph schema.");
-            if (node.Type is NodeTypes.StringEquals or NodeTypes.BooleanBranch && definition.SchemaVersion != WorkflowSchemaVersions.ExplicitBranchGraph)
+            if (node.Type is NodeTypes.StringEquals or NodeTypes.BooleanBranch && definition.SchemaVersion is not (WorkflowSchemaVersions.ExplicitBranchGraph or WorkflowSchemaVersions.TypedBooleanGraph))
                 Error("node.schema", $"nodes.{id}", "Pure string equality and Boolean Branch nodes require schema 1.24.");
+            if (node.Type is NodeTypes.BooleanNot or NodeTypes.BooleanConstant && definition.SchemaVersion != WorkflowSchemaVersions.TypedBooleanGraph)
+                Error("node.schema", $"nodes.{id}", "Boolean constants and NOT require schema 1.25.");
             if (node.Origin is { } origin && (definition.SchemaVersion is not ("1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16") ||
                 string.IsNullOrWhiteSpace(origin.WorkflowId) || origin.WorkflowId.Length > 256 ||
                 string.IsNullOrWhiteSpace(origin.NodeId) || origin.NodeId.Length > 256 || origin.RevisionId == Guid.Empty ||
@@ -564,9 +573,16 @@ public static class WorkflowValidator
             NodeTypes.Input, NodeTypes.Output, NodeTypes.StringConstant, NodeTypes.TextConcat,
             NodeTypes.StringEquals, NodeTypes.BooleanBranch, NodeTypes.Terminate
         };
+        if (definition.SchemaVersion == WorkflowSchemaVersions.TypedBooleanGraph)
+        {
+            supportedTypes.Add(NodeTypes.BooleanConstant);
+            supportedTypes.Add(NodeTypes.BooleanNot);
+        }
         foreach (var (id, node) in definition.Nodes)
             if (node is null || !supportedTypes.Contains(node.Type))
-                error("execution.node.unsupported", $"nodes.{id}", "Schema 1.24 supports input, output, string constants, text concatenation, string equality, Boolean Branch, and termination nodes.");
+                error("execution.node.unsupported", $"nodes.{id}", definition.SchemaVersion == WorkflowSchemaVersions.TypedBooleanGraph
+                    ? "Schema 1.25 supports the schema 1.24 branch nodes plus Boolean constants and Boolean NOT."
+                    : "Schema 1.24 supports input, output, string constants, text concatenation, string equality, Boolean Branch, and termination nodes.");
 
         var inputs = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Input).Select(pair => pair.Key).ToArray();
         var outputs = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Output).Select(pair => pair.Key).ToArray();
@@ -639,7 +655,7 @@ public static class WorkflowValidator
             foreach (var port in WorkflowPorts.ExplicitExecutionOutputs(node))
                 if (executionOutgoing.GetValueOrDefault((id, port)) != 1)
                     error("graph.degree", $"nodes.{id}.outputs.{port}", "Every execution output pin must connect exactly once.");
-            if (node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals &&
+            if (node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot &&
                 WorkflowPorts.ExplicitDataOutputs(node).Length > 0 && !definition.Connections.Values.Any(edge => edge.Source.NodeId == id))
                 error("data.unused", $"nodes.{id}", "Every pure data node must contribute to a Branch condition or Output value.");
             if (node.Type == NodeTypes.Terminate && node.Termination is { Outcome: not (WorkflowTerminationOutcomes.Success or WorkflowTerminationOutcomes.Failure) })
@@ -692,7 +708,7 @@ public static class WorkflowValidator
             foreach (var dependency in dataDependencies.GetValueOrDefault(current) ?? []) pendingData.Push(dependency);
         }
         foreach (var (id, node) in definition.Nodes)
-            if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals && !reachedData.Contains(id))
+            if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot && !reachedData.Contains(id))
                 error("graph.unreachable", $"nodes.{id}", "Every pure data node must contribute to a Branch condition or Output value.");
     }
 

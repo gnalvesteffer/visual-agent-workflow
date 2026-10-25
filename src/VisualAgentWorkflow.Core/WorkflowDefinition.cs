@@ -58,6 +58,8 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public StringConstantConfiguration? StringConstant { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public BooleanConstantConfiguration? BooleanConstant { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public PromptTemplate? TextTemplate { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public LoopConfiguration? Loop { get; init; }
@@ -97,20 +99,24 @@ public static class NodeTypes
     public const string TextConcat = "core.text.concat";
     public const string StringEquals = "core.text.equals";
     public const string BooleanBranch = "core.branch.boolean";
+    public const string BooleanConstant = "core.constant.boolean";
+    public const string BooleanNot = "core.boolean.not";
 
     public static bool IsSupported(string? type) =>
-        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin or Loop or LoopBody or Terminate or WorkflowCall or StringConstant or TextConcat or StringEquals or BooleanBranch;
+        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin or Loop or LoopBody or Terminate or WorkflowCall or StringConstant or TextConcat or StringEquals or BooleanBranch or BooleanConstant or BooleanNot;
 }
 
 public static class WorkflowSchemaVersions
 {
     public const string ExplicitGraph = "1.23";
     public const string ExplicitBranchGraph = "1.24";
+    public const string TypedBooleanGraph = "1.25";
 
-    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph;
+    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph;
 }
 
 public sealed record StringConstantConfiguration(string Value);
+public sealed record BooleanConstantConfiguration(bool Value);
 
 public sealed record LoopConfiguration(StringCondition ContinueWhile, int MaximumIterations);
 public sealed record TerminationConfiguration(string Outcome);

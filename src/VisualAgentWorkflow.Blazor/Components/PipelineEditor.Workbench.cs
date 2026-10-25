@@ -54,6 +54,9 @@ public partial class PipelineEditor
     private bool CanUpgradeBranchGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph &&
         WorkflowValidator.Validate(Definition).IsEmpty;
     private Task EnableBranchPreview() => Edit(() => GraphEditing.EnableExplicitBranchGraph(Definition));
+    private bool CanUpgradeTypedBooleanGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.ExplicitBranchGraph &&
+        WorkflowValidator.Validate(Definition).IsEmpty;
+    private Task EnableTypedBooleanPreview() => Edit(() => GraphEditing.EnableTypedBooleanGraph(Definition));
 
     private IReadOnlyList<WorkflowNodeLibraryEntry> LibraryEntries(GraphContextRequest? context = null)
     {
@@ -63,15 +66,23 @@ public partial class PipelineEditor
                 new(NodeTypes.StringConstant, "String constant", "Values", "A literal text value; evaluated only when a data input needs it", !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
                 new(NodeTypes.TextConcat, "Concatenate text", "Values", "Join two text inputs without activating a node", !ReadOnly && !Disabled && Definition.Nodes.Count < 256)
             ];
-        if (Definition.SchemaVersion == WorkflowSchemaVersions.ExplicitBranchGraph)
-            return
-            [
+        if (Definition.SchemaVersion is WorkflowSchemaVersions.ExplicitBranchGraph or WorkflowSchemaVersions.TypedBooleanGraph)
+        {
+            var explicitEntries = new List<WorkflowNodeLibraryEntry>
+            {
                 new(NodeTypes.StringConstant, "String constant", "Values", "A literal text value, evaluated only when requested", !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
                 new(NodeTypes.TextConcat, "Concatenate text", "Values", "Join two string inputs deterministically", !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
                 new(NodeTypes.StringEquals, "Compare strings", "Values", "Compare strings using ordinal, case-sensitive equality", !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
                 new(NodeTypes.BooleanBranch, "Boolean Branch", "Flow", "Choose exactly one execution route from a Boolean data input", !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
                 new("terminate", "Terminate workflow", "Flow", "End this route with a successful or failed result", !ReadOnly && !Disabled && Definition.Nodes.Count < 256)
-            ];
+            };
+            if (Definition.SchemaVersion == WorkflowSchemaVersions.TypedBooleanGraph)
+            {
+                explicitEntries.Insert(0, new(NodeTypes.BooleanConstant, "Boolean constant", "Values", "Provide a literal true or false value", !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
+                explicitEntries.Insert(1, new(NodeTypes.BooleanNot, "Boolean NOT", "Values", "Invert a Boolean value without converting its type", !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
+            }
+            return explicitEntries;
+        }
         var insertion = Insertion(context);
         var sourceType = insertion is { } source
             ? WorkflowPorts.Outputs(Definition.Nodes[source.NodeId]).Single(port => port.Id == source.PortId).DataType

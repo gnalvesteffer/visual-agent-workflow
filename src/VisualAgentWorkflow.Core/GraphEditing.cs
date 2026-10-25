@@ -40,6 +40,16 @@ public static class GraphEditing
         return definition with { SchemaVersion = WorkflowSchemaVersions.ExplicitBranchGraph };
     }
 
+    /// <summary>Upgrades a valid schema 1.24 branch preview to the bounded Boolean primitive subset.</summary>
+    public static WorkflowDefinition EnableTypedBooleanGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.ExplicitBranchGraph || definition.ExecutionConnections is null)
+            throw new ArgumentException("Start the Boolean Branch preview before enabling Boolean constants and NOT.", nameof(definition));
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition with { SchemaVersion = WorkflowSchemaVersions.TypedBooleanGraph };
+    }
+
     /// <summary>Adds a configured node without connecting it. Incomplete topology remains an editable draft.</summary>
     public static WorkflowDefinition AddUnconnectedNode(WorkflowDefinition definition, NodeDefinition node)
     {
@@ -50,7 +60,8 @@ public static class GraphEditing
         {
             NodeTypes.Condition => "condition", NodeTypes.Terminate => "terminate", NodeTypes.Merge => "merge",
             NodeTypes.Agent => "agent", NodeTypes.McpTool => "mcp", NodeTypes.StringConstant => "constant", NodeTypes.TextConcat => "concat",
-            NodeTypes.StringEquals => "equals", NodeTypes.BooleanBranch => "branch", _ => node.Type
+            NodeTypes.StringEquals => "equals", NodeTypes.BooleanBranch => "branch",
+            NodeTypes.BooleanConstant => "boolean", NodeTypes.BooleanNot => "not", _ => node.Type
         };
         var id = NewId(prefix);
         return definition with
@@ -313,7 +324,7 @@ public static class GraphEditing
     {
         if (!WorkflowDraftEditing.HasOnlyIncompleteTopologyIssues(definition)) WorkflowValidator.ThrowIfInvalid(definition);
         if (!definition.Nodes.TryGetValue(id, out var existing)) throw new ArgumentException("Unknown node.");
-        if (existing.Type == node.Type && existing.Type is NodeTypes.Condition or NodeTypes.Approval or NodeTypes.Loop)
+        if (existing.Type == node.Type && existing.Type is NodeTypes.Condition or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.StringConstant or NodeTypes.BooleanConstant)
             return WorkflowDraftEditing.ValidateEdit(definition, definition with { Nodes = definition.Nodes.SetItem(id, node) });
         RequireProcessing(existing.Type);
         RequireProcessing(node.Type);

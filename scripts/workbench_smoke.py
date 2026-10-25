@@ -185,8 +185,14 @@ def explicit_graph_preview_check(page, designer):
     response = page.request.post(BASE + "/api/runs", data={"input": "Hello", "definition": definition})
     assert response.ok, response.text()
     run_id = response.json()["header"]["runId"]
-    page.wait_for_function("""async id => (await (await fetch('/api/runs/'+id)).json()).status==='completed'""", arg=run_id)
-    run = page.request.get(BASE + f"/api/runs/{run_id}").json()
+    run = page.evaluate("""async id => {
+        for (let attempt = 0; attempt < 100; attempt++) {
+            const run = await (await fetch('/api/runs/'+id)).json();
+            if (run.status === 'completed' && run.events.filter(event => event.kind === 'data.evaluated').length === 3) return run;
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        return await (await fetch('/api/runs/'+id)).json();
+    }""", run_id)
     values = [event for event in run["events"] if event["kind"] == "data.evaluated"]
     data_connections = sorted(event.get("connectionId") for event in values)
     assert data_connections == ["data:input-value", "data:result", "data:suffix"], data_connections
@@ -230,6 +236,53 @@ def explicit_graph_preview_check(page, designer):
     assert saved_branch["schemaVersion"] == "1.24"
     assert {node["type"] for node in saved_branch["nodes"].values()} >= {
         "core.text.equals", "core.branch.boolean", "core.terminate"}
+
+    # The guarded schema upgrade is shown only for a valid proof graph. Import a
+    # complete 1.24 graph so the smoke verifies that workflow path, not a bypass.
+    branch_definition = page.request.get(BASE + "/api/templates/default").json()
+    branch_definition.update({"schemaVersion": "1.24", "workflowId": branch_workflow_id, "entryNodeId": "input"})
+    branch_definition["nodes"] = {
+        "input": {"type": "core.input", "typeVersion": "1.0.0"},
+        "expected": {"type": "core.constant.string", "typeVersion": "1.0.0", "stringConstant": {"value": "yes"}},
+        "equals": {"type": "core.text.equals", "typeVersion": "1.0.0"},
+        "branch": {"type": "core.branch.boolean", "typeVersion": "1.0.0"},
+        "output": {"type": "core.output", "typeVersion": "1.0.0"},
+        "terminate": {"type": "core.terminate", "typeVersion": "1.0.0", "termination": {"outcome": "failure"}}}
+    branch_definition["connections"] = {
+        "input-left": {"source": {"nodeId": "input", "portId": "out"}, "target": {"nodeId": "equals", "portId": "left"}, "kind": "data"},
+        "expected-right": {"source": {"nodeId": "expected", "portId": "out"}, "target": {"nodeId": "equals", "portId": "right"}, "kind": "data"},
+        "comparison": {"source": {"nodeId": "equals", "portId": "out"}, "target": {"nodeId": "branch", "portId": "condition"}, "kind": "data"},
+        "output-value": {"source": {"nodeId": "input", "portId": "out"}, "target": {"nodeId": "output", "portId": "in"}, "kind": "data"}}
+    branch_definition["executionConnections"] = {
+        "activate-branch": {"source": {"nodeId": "input", "portId": "then"}, "target": {"nodeId": "branch", "portId": "execute"}, "kind": "execution"},
+        "true-route": {"source": {"nodeId": "branch", "portId": "true"}, "target": {"nodeId": "output", "portId": "execute"}, "kind": "execution"},
+        "false-route": {"source": {"nodeId": "branch", "portId": "false"}, "target": {"nodeId": "terminate", "portId": "execute"}, "kind": "execution"}}
+    details = designer.get_by_text("Import / export definition", exact=True).locator("..")
+    if not details.evaluate("element => element.open"):
+        details.locator("summary").click()
+    designer.get_by_label("Workflow JSON", exact=True).fill(json.dumps(branch_definition))
+    designer.get_by_role("button", name="Import JSON into draft", exact=True).click()
+    designer.get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for()
+
+    designer.get_by_role("button", name="Enable Boolean primitives", exact=True).click()
+    library.get_by_role("button", name="Add Boolean constant", exact=True).click()
+    library.get_by_role("button", name="Add Boolean NOT", exact=True).click()
+    boolean_constant = designer.locator("li[data-node-type='core.constant.boolean']")
+    boolean_not = designer.locator("li[data-node-type='core.boolean.not']")
+    expect(boolean_constant).to_have_count(1)
+    expect(boolean_constant.locator("[data-socket='out'][data-socket-kind='data'][data-socket-type='boolean']")).to_have_count(1)
+    expect(boolean_not.locator("[data-socket='value'][data-socket-kind='data'][data-socket-type='boolean']")).to_have_count(1)
+    expect(boolean_not.locator("[data-socket='out'][data-socket-kind='data'][data-socket-type='boolean']")).to_have_count(1)
+    constant_id = boolean_constant.get_attribute("data-node-id")
+    boolean_constant.get_by_role("button", name=f"Move node {constant_id}").click()
+    designer.get_by_label(f"Boolean constant value for {constant_id}", exact=True).select_option("true")
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    designer.get_by_text("Draft saved.", exact=True).wait_for()
+    saved_boolean = page.request.get(BASE + f"/api/workflows/{branch_workflow_id}/design").json()["draft"]["definition"]
+    assert saved_boolean["schemaVersion"] == "1.25"
+    assert saved_boolean["nodes"][constant_id]["booleanConstant"]["value"] is True
+    assert {node["type"] for node in saved_boolean["nodes"].values()} >= {
+        "core.constant.boolean", "core.boolean.not", "core.branch.boolean"}
 
 
 def check(browser, screenshots):
@@ -448,7 +501,7 @@ def check(browser, screenshots):
     explicit_graph_preview_check(page, designer)
     assert not errors,errors
     page.close()
-    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring/replay, recursive JSON projection authoring, explicit typed-graph authoring/execution/replay, Boolean branch node authoring/draft save, and MCP tool detail review passed.")
+    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring/replay, recursive JSON projection authoring, explicit typed-graph authoring/execution/replay, Boolean branch authoring, typed Boolean primitive upgrade/configuration, draft save, and MCP tool detail review passed.")
 
 
 if __name__=="__main__":

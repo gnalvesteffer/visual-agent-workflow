@@ -2,13 +2,17 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Typed Boolean primitives
+
+Schema 1.25 adds an explicitly configured Boolean constant and pure Boolean NOT to the schema 1.24 typed branch proof. The Studio offers a guarded upgrade from a valid 1.24 draft and exposes both nodes as unconnected library items. Boolean data pins are type-checked, constants preserve explicit false values through JSON round trips, and both operators evaluate only when reached through a data dependency. Framework tests cover true/false constants, NOT inversion, selected branch routes, terminal outcomes, and typed audit evidence. The browser smoke verifies the upgrade, socket types, constant editing, and persistence. This leaves the proof topology unchanged; broader branch and terminal arrangements remain roadmap work.
+
 ## Typed Boolean branch proof
 
 Schema 1.24 extends the explicit execution/data graph with ordinal string equality and a Boolean Branch that chooses exactly one route. Its bounded proof graph routes true to Output and false to a failure Terminate; the failure handoff does not activate Output or evaluate Output data. Run evidence records typed data values with data-connection IDs, the selected branch output, and the delivered execution route. Studio can upgrade a valid schema 1.23 draft and exposes the new nodes in the library without auto-wiring them; incomplete topology remains saveable as a draft while publish/run validation stays strict. Regression tests cover both outcomes, typed-port rejection, branch audit evidence, output evaluation boundaries, and draft preservation; the full suite passed 359 tests with two optional tests skipped. The Studio browser smoke and all 38 local Mermaid diagrams also passed. This is a small mixed-graph proof, not general branching or a complete Blueprint toolbox.
 
 ## Explicit execution and data graph authoring preview
 
-Schema 1.23 introduced a deliberately opt-in Studio preview for blank Input-to-Output graphs with separate execution and data pins, editable string constants, and pure text concatenation. See [typed Boolean branch proof](#typed-boolean-branch-proof) for the schema 1.24 extension. This is not the complete visual-programming milestone: general branch topologies, reconvergence, migration of legacy node families, and the wider toolbox remain open. See [graph values](graph-values.md), [graph editor](graph-editor.md), and [roadmap](roadmap.md).
+Schema 1.23 introduced a deliberately opt-in Studio preview for blank Input-to-Output graphs with separate execution and data pins, editable string constants, and pure text concatenation. See [typed Boolean branch proof](#typed-boolean-branch-proof) for the schema 1.24 extension and [typed Boolean primitives](#typed-boolean-primitives) for schema 1.25. This is not the complete visual-programming milestone: general branch topologies, reconvergence, migration of legacy node families, and the wider toolbox remain open. See [graph values](graph-values.md), [graph editor](graph-editor.md), and [roadmap](roadmap.md).
 
 ## Bounded agent outcomes and resource budgets
 

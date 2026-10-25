@@ -72,6 +72,35 @@ public class WorkflowTests
         }.ToImmutableSortedDictionary(StringComparer.Ordinal)
     };
 
+    private static WorkflowDefinition ExplicitTypedBooleanBranchGraph() => new WorkflowDefinition(
+        "1.25", "explicit-typed-boolean", "input",
+        new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["expected"] = new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("yes") },
+            ["equals"] = new(NodeTypes.StringEquals, "1.0.0"),
+            ["invert"] = new(NodeTypes.BooleanNot, "1.0.0"),
+            ["branch"] = new(NodeTypes.BooleanBranch, "1.0.0"),
+            ["output"] = new(NodeTypes.Output, "1.0.0"),
+            ["terminate"] = new(NodeTypes.Terminate, "1.0.0") { Termination = new(WorkflowTerminationOutcomes.Failure) }
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+        new Dictionary<string, ConnectionDefinition>
+        {
+            ["input-left"] = new(new("input", "out"), new("equals", "left"), "data"),
+            ["expected-right"] = new(new("expected", "out"), new("equals", "right"), "data"),
+            ["equals-invert"] = new(new("equals", "out"), new("invert", "value"), "data"),
+            ["invert-branch"] = new(new("invert", "out"), new("branch", "condition"), "data"),
+            ["output-value"] = new(new("input", "out"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+    {
+        ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+        {
+            ["activate-branch"] = new(new("input", "then"), new("branch", "execute"), "execution"),
+            ["true-route"] = new(new("branch", "true"), new("output", "execute"), "execution"),
+            ["false-route"] = new(new("branch", "false"), new("terminate", "execute"), "execution")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+    };
+
     [Fact]
     public void ValidPipelineRoundTripsWithStableHash()
     {
@@ -130,6 +159,56 @@ public class WorkflowTests
 
         var outcome = WorkflowTerminationEditing.SetOutcome(definition, "terminate", WorkflowTerminationOutcomes.Failure);
         Assert.Equal("1.24", outcome.SchemaVersion);
+    }
+
+    [Fact]
+    public void Boolean_not_graph_is_valid_only_with_a_boolean_data_input()
+    {
+        var definition = ExplicitTypedBooleanBranchGraph();
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        Assert.Equal(WorkflowJson.Serialize(definition), WorkflowJson.Serialize(WorkflowJson.Deserialize(WorkflowJson.Serialize(definition))));
+        Assert.Equal("boolean", Assert.Single(WorkflowPorts.ExplicitDataOutputs(definition.Nodes["invert"])).DataType);
+        Assert.Equal("boolean", Assert.Single(WorkflowPorts.ExplicitDataInputs(definition.Nodes["invert"])).DataType);
+
+        var invalidInput = definition with
+        {
+            Connections = definition.Connections.SetItem("equals-invert",
+                new(new("input", "out"), new("invert", "value"), "data"))
+        };
+        Assert.Contains(WorkflowValidator.Validate(invalidInput), issue => issue.Code == "connection.port");
+    }
+
+    [Fact]
+    public void Boolean_constant_requires_an_explicit_value_and_schema_125()
+    {
+        var definition = ExplicitTypedBooleanBranchGraph() with
+        {
+            Nodes = ExplicitTypedBooleanBranchGraph().Nodes
+                .Remove("expected").Remove("equals").Remove("invert")
+                .Add("constant", new(NodeTypes.BooleanConstant, "1.0.0") { BooleanConstant = new(false) }),
+            Connections = ExplicitTypedBooleanBranchGraph().Connections
+                .Remove("input-left").Remove("expected-right").Remove("equals-invert").Remove("invert-branch")
+                .Add("constant-branch", new(new("constant", "out"), new("branch", "condition"), "data"))
+        };
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        var restored = WorkflowJson.Deserialize(WorkflowJson.Serialize(definition));
+        Assert.False(restored.Nodes["constant"].BooleanConstant!.Value);
+
+        var edited = GraphEditing.ReplaceNode(definition, "constant",
+            definition.Nodes["constant"] with { BooleanConstant = new(true) });
+        Assert.True(edited.Nodes["constant"].BooleanConstant!.Value);
+        Assert.Empty(WorkflowValidator.Validate(edited));
+
+        var missingValue = definition with
+        {
+            Nodes = definition.Nodes.SetItem("constant", definition.Nodes["constant"] with { BooleanConstant = null })
+        };
+        Assert.Contains(WorkflowValidator.Validate(missingValue), issue => issue.Code == "constant.configuration");
+
+        var oldSchema = definition with { SchemaVersion = "1.24" };
+        Assert.Contains(WorkflowValidator.Validate(oldSchema), issue => issue.Code == "node.schema");
     }
 
     [Fact]

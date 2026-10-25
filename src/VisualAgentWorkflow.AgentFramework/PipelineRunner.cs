@@ -223,6 +223,10 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.StringEquals when outputPort == "out" => new ExplicitGraphValue("boolean",
                         string.Equals(ResolveStringInput(nodeId, "left", evaluated, cache, active),
                             ResolveStringInput(nodeId, "right", evaluated, cache, active), StringComparison.Ordinal)),
+                    NodeTypes.BooleanConstant when outputPort == "out" => new ExplicitGraphValue("boolean",
+                        node.BooleanConstant?.Value ?? throw new InvalidOperationException("The Boolean constant is not configured.")),
+                    NodeTypes.BooleanNot when outputPort == "out" => new ExplicitGraphValue("boolean",
+                        !ResolveBooleanInput(nodeId, "value", evaluated, cache, active)),
                     _ => throw new InvalidOperationException("The data source is not a supported pure value node.")
                 };
                 if (result.DataType == "string" && ((string)result.Value).Length > 16_384)
@@ -259,6 +263,18 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             if (value.DataType != "string" || value.Value is not string text)
                 throw new InvalidOperationException("The pure data input requires a string value.");
             return text;
+        }
+
+        private bool ResolveBooleanInput(string nodeId, string inputPort,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            var edge = definition.Connections.Single(connection => connection.Value.Target.NodeId == nodeId && connection.Value.Target.PortId == inputPort);
+            var value = ResolveOutput(edge.Value.Source.NodeId, edge.Value.Source.PortId, edge.Key, evaluated, cache, active);
+            if (value.DataType != "boolean" || value.Value is not bool result)
+                throw new InvalidOperationException("The pure data input requires a Boolean value.");
+            return result;
         }
 
         public DataInputEvaluation ResolveBranchCondition(string nodeId)
