@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using VisualAgentWorkflow.Blazor;
 using VisualAgentWorkflow.Core;
 using Xunit;
@@ -38,7 +39,7 @@ public class BrokerTests
     {
         var broker = CreateBroker(policy: new DemoToolPolicy());
         var bindings = await broker.ListBindingsAsync();
-        Assert.Equal(3, bindings.Count);
+        Assert.Equal(4, bindings.Count);
         var reverse = bindings.Single(b => b.BindingId == "demo.reverse");
         var events = new List<string>();
         await using var scope = broker.OpenScope(Invocation(Revision(reverse), events));
@@ -50,6 +51,27 @@ public class BrokerTests
         await using var answerScope = broker.OpenScope(Invocation(Revision(submitAnswer), []));
         Assert.Equal("2", await answerScope.InvokeAsync(submitAnswer.BindingId, "2"));
         await Assert.ThrowsAsync<ToolInvocationException>(() => answerScope.InvokeAsync(submitAnswer.BindingId, "1 + 1 = 2"));
+    }
+
+    [Fact]
+    public async Task TypedScalarArgumentsAreValidatedAndPassedToMcp()
+    {
+        var broker = CreateBroker(policy: new DemoToolPolicy());
+        var add = (await broker.ListBindingsAsync()).Single(binding => binding.BindingId == "demo.add-integers");
+        using var schema = JsonDocument.Parse(add.InputSchemaJson);
+        Assert.Equal("integer", schema.RootElement.GetProperty("properties").GetProperty("left").GetProperty("type").GetString());
+        var events = new List<string>();
+        await using var scope = broker.OpenScope(Invocation(Revision(add), events));
+
+        using var arguments = JsonDocument.Parse("{\"left\": 4, \"right\": 5}");
+        Assert.Equal("9", await scope.InvokeJsonAsync(add.BindingId, arguments.RootElement));
+
+        using var missing = JsonDocument.Parse("{\"left\": 4}");
+        await Assert.ThrowsAsync<ToolInvocationException>(() => scope.InvokeJsonAsync(add.BindingId, missing.RootElement));
+        using var unknown = JsonDocument.Parse("{\"left\": 4, \"right\": 5, \"extra\": true}");
+        await Assert.ThrowsAsync<ToolInvocationException>(() => scope.InvokeJsonAsync(add.BindingId, unknown.RootElement));
+        Assert.Equal(1, events.Count(kind => kind == ExecutionEventKinds.ToolAuthorized));
+        Assert.Equal(2, events.Count(kind => kind == ExecutionEventKinds.ToolFailed));
     }
 
     [Fact]

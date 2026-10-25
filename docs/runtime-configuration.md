@@ -8,9 +8,9 @@ The Studio remains a local development host. These registration points are for t
 
 `ExplicitToolAuthorizationPolicy` accepts grants by workflow ID, node ID, and binding ID. A definition's tool requirements are checked independently and never grant authority. A production host still needs authenticated workspace/principal policy and trusted invocation identity; these local grant records are not an authentication system.
 
-The built-in Studio launches its own known fixture entry point over stdio and registers three pure text tools. `--mcp-demo-server` is an internal stdio entry point, not a public HTTP endpoint or a mechanism for workflow-selected executables. Child environment inheritance is disabled. This protects against accidental credential propagation, but does not sandbox the trusted child process or an arbitrary replacement server.
+The built-in Studio launches its own known fixture entry point over stdio and registers four deterministic tools, including one with two integer inputs. `--mcp-demo-server` is an internal stdio entry point, not a public HTTP endpoint or a mechanism for workflow-selected executables. Child environment inheritance is disabled. This protects against accidental credential propagation, but does not sandbox the trusted child process or an arbitrary replacement server.
 
-Tool contracts currently have one string `text` input and text-only output. Definitions pin the actual tool name/input/output schema fingerprint returned during discovery. Schema fingerprints detect contract drift; they cannot freeze a remote implementation's behavior.
+Agent MCP tool contracts support flat object inputs containing up to 32 required or optional `string`, `integer`, `number`, or `boolean` fields. Nested objects, arrays, enums, constrained fields, and non-text results are unsupported. Ordinary input to a direct MCP graph node maps to the conventional string `text` argument; a JSON object string can provide typed fields. Definitions pin the actual tool name/input/output schema fingerprint returned during discovery. Schema fingerprints detect contract drift; they cannot freeze a remote implementation's behavior.
 
 ## Agent providers
 

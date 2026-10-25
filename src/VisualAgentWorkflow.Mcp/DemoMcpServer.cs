@@ -43,7 +43,8 @@ public static class DemoMcpServer
         [
             new("demo.uppercase", "MCP · uppercase", "demo-text", "uppercase", Connect, ReadOnly: true),
             new("demo.reverse", "MCP · reverse", "demo-text", "reverse", Connect, ReadOnly: true),
-            new("demo.submit-answer", "MCP · submit answer", "demo-text", "submit_answer", Connect, ReadOnly: true)
+            new("demo.submit-answer", "MCP · submit answer", "demo-text", "submit_answer", Connect, ReadOnly: true),
+            new("demo.add-integers", "MCP · add integers", "demo-text", "add_integers", Connect, ReadOnly: true)
         ];
     }
 
@@ -68,6 +69,9 @@ public static class DemoMcpServer
             CultureInfo.InvariantCulture, out var answer)
                 ? answer.ToString(CultureInfo.InvariantCulture)
                 : throw new ArgumentException("Submit only a base-10 integer answer.", nameof(text));
+
+        [McpServerTool(Name = "add_integers", ReadOnly = true, Destructive = false), Description("Adds two base-10 integers and returns the sum.")]
+        public static int AddIntegers(int left, int right) => checked(left + right);
     }
 }
 
@@ -75,5 +79,5 @@ public static class DemoMcpServer
 public sealed class DemoToolPolicy : IToolAuthorizationPolicy
 {
     public bool IsAllowed(WorkflowRevision revision, string nodeId, string bindingId) =>
-        bindingId is "demo.uppercase" or "demo.reverse" or "demo.submit-answer";
+        bindingId is "demo.uppercase" or "demo.reverse" or "demo.submit-answer" or "demo.add-integers";
 }

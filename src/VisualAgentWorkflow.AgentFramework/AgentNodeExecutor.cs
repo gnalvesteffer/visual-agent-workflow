@@ -76,9 +76,14 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             foreach (var binding in allowed)
             {
                 var name = $"tool_{functions.Count}";
-                functions.Add(AIFunctionFactory.Create(async (string text, CancellationToken token) =>
-                    await scope.InvokeAsync(binding.BindingId, text, token), name,
-                    description: $"Approved text operation: {binding.DisplayName}. Binding: {binding.BindingId}."));
+                using var schema = JsonDocument.Parse(binding.InputSchemaJson);
+                functions.Add(new BoundMcpFunction(name,
+                    $"Approved MCP operation: {binding.DisplayName}. Binding: {binding.BindingId}.",
+                    schema.RootElement.Clone(), async (arguments, token) =>
+                    {
+                        var json = JsonSerializer.SerializeToElement(arguments.ToDictionary(pair => pair.Key, pair => pair.Value));
+                        return await scope.InvokeJsonAsync(binding.BindingId, json, token);
+                    }));
             }
             using var client = new FunctionInvokingChatClient(new RecordingClient(provider.Create(), invocation))
             {
@@ -179,5 +184,16 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                 _ => new { kind = "unsupported-content" }
             }).ToArray()
         }).ToArray();
+    }
+
+    private sealed class BoundMcpFunction(string name, string description, JsonElement schema,
+        Func<AIFunctionArguments, CancellationToken, ValueTask<string>> invoke) : AIFunction
+    {
+        public override string Name => name;
+        public override string Description => description;
+        public override JsonElement JsonSchema => schema;
+
+        protected override async ValueTask<object?> InvokeCoreAsync(AIFunctionArguments arguments, CancellationToken cancellationToken) =>
+            await invoke(arguments, cancellationToken);
     }
 }

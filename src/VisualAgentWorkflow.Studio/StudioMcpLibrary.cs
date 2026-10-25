@@ -10,7 +10,7 @@ public sealed record StudioMcpServer(string Id, string Name, string Folder, stri
     string ProtectedBearerToken, IReadOnlyList<string> EnabledTools);
 public sealed record StudioMcpServerView(string Id, string Name, string Folder, string Endpoint, bool HasToken,
     IReadOnlyList<string> EnabledTools);
-public sealed record StudioMcpToolView(string Name, string BindingId, string ContractHash);
+public sealed record StudioMcpToolView(string Name, string BindingId, string ContractHash, string InputSummary);
 
 /// <summary>Operator-owned Studio connections. Only logical tool identities enter workflow definitions.</summary>
 public sealed class StudioMcpLibrary
@@ -60,8 +60,8 @@ public sealed class StudioMcpLibrary
         deadline.CancelAfter(TimeSpan.FromSeconds(10));
         await using var client = await Connect(endpoint, bearerToken, serverId, deadline.Token);
         var tools = await client.ListToolsAsync(cancellationToken: deadline.Token);
-        return tools.Where(tool => IsSupported(tool.JsonSchema)).Select(tool =>
-            new StudioMcpToolView(tool.Name, serverId + "." + tool.Name, ToolContractHash.Compute(tool))).ToArray();
+        return tools.Where(tool => McpToolInputSchemas.IsSupported(tool.JsonSchema)).Select(tool =>
+            new StudioMcpToolView(tool.Name, serverId + "." + tool.Name, ToolContractHash.Compute(tool), Summarize(tool.JsonSchema))).ToArray();
     }
 
     public void Save(string id, string name, string folder, string endpoint, string bearerToken, IReadOnlyList<string> enabledTools)
@@ -121,9 +121,14 @@ public sealed class StudioMcpLibrary
             new McpClientOptions { ProtocolVersion = "2025-11-25" }, cancellationToken: cancellationToken);
     }
 
-    private static bool IsSupported(JsonElement schema) =>
-        schema.TryGetProperty("properties", out var properties) && properties.EnumerateObject().Count() == 1 &&
-        properties.TryGetProperty("text", out var text) && text.TryGetProperty("type", out var type) && type.GetString() == "string";
+    private static string Summarize(JsonElement schema)
+    {
+        var required = schema.TryGetProperty("required", out var fields)
+            ? fields.EnumerateArray().Select(field => field.GetString()).ToHashSet(StringComparer.Ordinal)
+            : new HashSet<string?>(StringComparer.Ordinal);
+        return string.Join(", ", schema.GetProperty("properties").EnumerateObject().Select(property =>
+            $"{property.Name}: {property.Value.GetProperty("type").GetString()}{(required.Contains(property.Name) ? " (required)" : " (optional)")}"));
+    }
 
     private static void Validate(string id, string name, string folder, string endpoint)
     {

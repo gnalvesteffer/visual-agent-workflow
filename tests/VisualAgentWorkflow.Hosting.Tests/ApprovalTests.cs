@@ -254,6 +254,8 @@ public sealed class ApprovalTests : IDisposable
                 await invocation.Record(ExecutionEventKinds.ToolCompleted, output);
                 return output;
             }
+            public Task<string> InvokeJsonAsync(string bindingId, System.Text.Json.JsonElement arguments, CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException();
             public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         }
     }

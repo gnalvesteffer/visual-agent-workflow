@@ -6,7 +6,7 @@
 <main class="vaw-provider-settings">
     <nav class="vaw-studio-navigation" aria-label="MCP library navigation"><a href="/">← Workflow designer</a><span>MCP library</span><StudioThemePicker /></nav>
     <header class="vaw-settings-heading"><div><p class="vaw-settings-kicker">WORKFLOW STUDIO</p><h1>MCP library</h1>
-        <p class="vaw-settings-intro">Connect an operator-approved MCP endpoint, discover its text tools, and choose which are available for assignment to agents. Workflow files contain only logical tool IDs and pinned contracts.</p></div></header>
+        <p class="vaw-settings-intro">Connect an operator-approved MCP endpoint, review supported input fields, and choose which tools are available for assignment to agents. Workflow files contain only logical tool IDs and pinned contracts.</p></div></header>
     <section class="vaw-settings-section" aria-label="Configured MCP servers">
         <h2>Configured servers</h2>
         @if (Library.List().Count == 0) { <p>No servers configured yet. The built-in demo tools remain available.</p> }
@@ -30,13 +30,13 @@
             <label>Folder <input @bind="folder" maxlength="256" placeholder="Research/Search" /></label>
             <label class="vaw-provider-form-wide">MCP endpoint <input @bind="endpoint" type="url" placeholder="http://127.0.0.1:3000/mcp" /></label>
             <label class="vaw-provider-form-wide">Bearer token <input @bind="token" type="password" autocomplete="new-password" placeholder="Optional; blank keeps the saved token when editing" /></label>
-            <button type="button" @onclick="Discover" disabled="@busy">@(busy ? "Discovering…" : "Discover text tools")</button>
+            <button type="button" @onclick="Discover" disabled="@busy">@(busy ? "Discovering…" : "Discover tools")</button>
             @if (discovered.Count > 0)
             {
                 <fieldset class="vaw-provider-form-wide"><legend>Enable tools for this Studio</legend>
                     <p>Review each server tool before enabling it. Agents must separately request it in their node settings.</p>
                     @foreach (var tool in discovered)
-                    { <label><input type="checkbox" checked="@selected.Contains(tool.Name)" @onchange="args => Select(tool.Name, args)" />@tool.Name · @tool.ContractHash[..8]</label> }
+                    { <label><input type="checkbox" checked="@selected.Contains(tool.Name)" @onchange="args => Select(tool.Name, args)" />@tool.Name · @tool.InputSummary · contract @tool.ContractHash[..8]</label> }
                 </fieldset>
             }
             <button type="button" class="vaw-primary" @onclick="Save" disabled="@(busy || discovered.Count == 0)">Save server and selected tools</button>
@@ -67,7 +67,7 @@
         {
             discovered = await Library.DiscoverAsync(endpoint.Trim(), token, id.Trim());
             selected.IntersectWith(discovered.Select(tool => tool.Name));
-            message = $"Found {discovered.Count} supported text tools. Select the tools this Studio may offer.";
+            message = $"Found {discovered.Count} supported tools. Select the tools this Studio may offer.";
         }
         catch (ArgumentException exception) { error = exception.Message; discovered = []; }
         catch (Exception) { error = "Could not connect or discover supported tools. Check the endpoint, token and server logs."; discovered = []; }

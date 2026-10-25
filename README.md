@@ -10,7 +10,7 @@ See [the design document](docs/design.md) for the agreed direction, architecture
 
 Contributors and coding assistants should read [AGENTS.md](AGENTS.md) and the [agent skill catalog](docs/agent-skills.md) before working on the project.
 
-**Status:** early implementation. The local Blazor studio visually edits linear/conditional string workflows with approved MCP text tools and deterministic demo agents, persists drafts/published versions, executes through Microsoft Agent Framework, and records model/tool evidence for playback. The editor and run viewer are reusable Razor components, with freely positioned nodes, edge sockets, reroutable wires, labels/comments, and named sections. Published pipelines can be reused with fresh node identities; complete designs can be exported/imported as validated packages. See [roadmap and current scope](docs/roadmap.md) for verified scope and limitations, and the [editor design system](docs/design-system.md) for visual conventions.
+**Status:** early implementation. The local Blazor studio visually edits linear/conditional string workflows with host-approved MCP tools (flat scalar argument schemas) and deterministic demo agents, persists drafts/published versions, executes through Microsoft Agent Framework, and records model/tool evidence for playback. The editor and run viewer are reusable Razor components, with freely positioned nodes, edge sockets, reroutable wires, labels/comments, and named sections. Published pipelines can be reused with fresh node identities; complete designs can be exported/imported as validated packages. See [roadmap and current scope](docs/roadmap.md) for verified scope and limitations, and the [editor design system](docs/design-system.md) for visual conventions.
 
 ## Development
 

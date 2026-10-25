@@ -75,6 +75,25 @@ public class AgentExecutionTests
     }
 
     [Fact]
+    public async Task AgentFunctionDeclarationUsesPinnedTypedMcpSchema()
+    {
+        var broker = BrokerTests.CreateBroker(policy: new DemoToolPolicy());
+        var addition = (await broker.ListBindingsAsync()).Single(binding => binding.BindingId == "demo.add-integers");
+        var events = new List<ExecutionEvent>();
+        var executor = new AgentNodeExecutor([DeterministicDemoChatClient.Registration()], broker);
+        var output = await new PipelineRunner(broker, executor).ExecuteAsync(Guid.NewGuid(),
+            Revision(new ToolBindingRequest(addition.BindingId, addition.ContractHash)), "2+2",
+            e => { events.Add(e); return ValueTask.CompletedTask; });
+
+        Assert.Equal("2", output);
+        var authorized = Assert.Single(events, e => e.Kind == ExecutionEventKinds.ToolAuthorized);
+        Assert.Contains("\"left\":1", authorized.Data);
+        Assert.Contains("\"right\":1", authorized.Data);
+        var modelRequest = events.First(e => e.Kind == ExecutionEventKinds.ModelRequested);
+        Assert.Contains("tool_0", modelRequest.Data);
+    }
+
+    [Fact]
     public async Task AgentWithNoToolsDoesNotDiscoverOrExposeConnectedServers()
     {
         var connections = 0;

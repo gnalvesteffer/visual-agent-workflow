@@ -1,6 +1,6 @@
-# Agent capability libraries and prompt composition (proposed)
+# Agent capability libraries and prompt composition
 
-This page defines the next authoring milestone. It describes a target contract, not a shipped Studio feature. The [roadmap](roadmap.md) tracks delivery; the [architecture guide](architecture.md) describes current behavior.
+This page records the current implementation boundary and the remaining authoring direction. The [roadmap](roadmap.md) tracks delivery; the [architecture guide](architecture.md) describes current behavior.
 
 ## What comparable builders do
 
@@ -14,13 +14,13 @@ These observations come from the checked-out source documentation at [Dify docs 
 
 ## Implemented first slice and remaining design
 
-Schema 1.7 currently supports embedded text-only skill revisions, per-agent selection, and ordered literal/input/parameter parts for user messages. Studio offers local skill and Streamable HTTP MCP pages with folder metadata, connection discovery, and explicit tool enablement. MCP endpoints and bearer tokens remain outside exports. The runtime records assigned skill identities and the resolved model request; consumers must configure their own matching MCP registrations and policy. The sections below describe the broader target where they exceed those capabilities; in particular stdio connection authoring, resource-bearing skills, typed parameters, reasoning controls, insertable chips, and a text-template node are still planned.
+Schema 1.7 supports embedded text-only skill revisions, per-agent selection, and ordered literal/input/parameter parts for user messages. Schema 1.8 adds typed scalar workflow parameters and agent reasoning configuration. Studio offers local skill and Streamable HTTP MCP pages with folder metadata, tool discovery, input summaries, and explicit tool enablement. Agent tools accept flat object schemas with up to 32 required or optional `string`, `integer`, `number`, and `boolean` properties. The pinned schema is sent to the model adapter and checked again by the broker before dispatch. MCP endpoints and bearer tokens remain outside exports; consumers configure their own matching MCP registrations and host policy. The sections below describe broader targets that exceed this implementation, including stdio authoring, resource-bearing skills, nested/collection tool inputs, richer parameter schemas, keyboard prompt chips, and a dedicated text-template node.
 
 ## Studio authoring flow
 
 The left navigation gains **MCP library** and **Skill library**. Both support nested folders, search, tags, and recent items. Folders organize assets; they do not confer access or form part of a runtime identity. Moving or renaming a folder cannot change a published binding.
 
-1. An operator adds an MCP server under **MCP library**, choosing a reviewed transport and host connection profile. The server card shows connection state, last discovery time, protocol identity, tools, schema summaries, and diagnostics. A refresh produces a diff; it does not silently replace a contract pinned by a workflow.
+1. An operator adds a Streamable HTTP MCP server under **MCP library**. Discovery shows each supported tool's flat scalar inputs, required/optional status, and contract hash. A refresh does not silently replace a contract pinned by a workflow. Richer health, protocol identity, schema diff, and compatibility diagnostics remain future work.
 2. An author opens an agent node and selects **Tools** from the library. The picker groups tools by folder and server, searches names/descriptions, displays schema and risk/policy status, and distinguishes *available*, *assigned*, *authorized by this host*, and *unavailable*. Assigning a tool updates only that agent node's requested set.
 3. An author creates or imports a skill as a reviewable draft in **Skill library**, organizes it in a folder, then publishes an immutable revision. The agent's **Skills** picker attaches exact revisions. The inspector shows the skill's instructions, resource manifest, and which requested tools it mentions; a mention never adds a grant.
 4. The agent inspector has distinct **System instructions** and **User message** editors. System instructions define stable role and behavior. The user message describes this invocation's task and defaults to the incoming graph value. The editors provide **Insert value** and a searchable picker, accessible by keyboard and by typing `{{`; inserted values appear as labeled chips. A preview shows resolved text using sample inputs, highlights missing values, and marks any redacted values. It makes no model or tool calls.
@@ -59,6 +59,6 @@ Capture the exact template/skill revision identities and bounded resolved-messag
 
 ## Validation and release slice
 
-Before implementation, prove the pinned MCP SDK's stdio and Streamable HTTP discovery, cancellation, authentication hooks, and limits with local protocol fixtures. The first executable slice should connect one approved server in Settings, inspect its tool, assign it to only one of two agents, attach one published text-only skill, and render distinct system/user messages using an incoming value and one workflow parameter. Save, publish, export/import, run in a consumer service, and replay the exact resolved identities and messages.
+Future work should prove stdio and additional Streamable HTTP compatibility through local protocol fixtures before expanding the accepted MCP schema or transport set. The current executable slice connects a server, discovers supported flat scalar inputs, assigns a pinned tool to an agent, attaches a published text-only skill, and renders distinct system/user messages using incoming data and workflow parameters. Save, publish, export/import, run in a consumer service, and replay the exact resolved identities and messages.
 
 Tests must reject unassigned tool calls, host-denied tools, drifted schemas, missing skill revisions, missing/unreachable template references, oversized rendered prompts, and untrusted input in a system template. UI checks should cover folder moves without binding changes, keyboard insertion and editing of chips, previews, navigation, and clear recovery messages. Production use still requires the planned identity, credential, storage, and recovery foundations.

@@ -58,16 +58,13 @@ public sealed class McpToolBroker : INodeToolBroker
         var tools = await client.ListToolsAsync(cancellationToken: cancellationToken);
         var tool = tools.SingleOrDefault(t => t.Name == registration.ToolName)
             ?? throw new ToolInvocationException("The registered tool is unavailable.");
-        // Initial adapter supports one required string argument and text-only results.
-        var schema = tool.JsonSchema;
-        if (!schema.TryGetProperty("properties", out var properties) || properties.EnumerateObject().Count() != 1 ||
-            !properties.TryGetProperty("text", out var text) || !text.TryGetProperty("type", out var type) || type.GetString() != "string")
-            throw new ToolInvocationException("Only tools with one string 'text' input are supported.");
+        McpInputSchema.Validate(tool.JsonSchema);
         return tool;
     }
 
     private static ToolBindingDescriptor Describe(McpToolRegistration registration, McpClientTool tool) =>
-        new(registration.BindingId, registration.DisplayName, registration.ServerId, registration.ToolName, ToolContractHash.Compute(tool));
+        new(registration.BindingId, registration.DisplayName, registration.ServerId, registration.ToolName, ToolContractHash.Compute(tool))
+        { InputSchemaJson = McpInputSchema.Normalize(tool.JsonSchema).GetRawText() };
 
     private sealed class Scope(McpToolBroker owner, NodeInvocationContext invocation, IReadOnlyList<ToolBindingRequest> requested) : INodeToolScope
     {
@@ -99,8 +96,24 @@ public sealed class McpToolBroker : INodeToolBroker
 
         public async Task<string> InvokeAsync(string bindingId, string input, CancellationToken cancellationToken = default)
         {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
             ArgumentNullException.ThrowIfNull(input);
+            JsonElement? typedArguments = null;
+            try
+            {
+                using var parsed = JsonDocument.Parse(input);
+                if (parsed.RootElement.ValueKind == JsonValueKind.Object)
+                    typedArguments = parsed.RootElement.Clone();
+            }
+            catch (JsonException) { }
+            if (typedArguments is { } objectArguments)
+                return await InvokeJsonAsync(bindingId, objectArguments, cancellationToken);
+            using var arguments = JsonDocument.Parse(JsonSerializer.Serialize(new Dictionary<string, string> { ["text"] = input }));
+            return await InvokeJsonAsync(bindingId, arguments.RootElement, cancellationToken);
+        }
+
+        public async Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments, CancellationToken cancellationToken = default)
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
             var toolCallId = Guid.NewGuid();
             await Record(ExecutionEventKinds.ToolRequested, new { toolCallId, bindingId });
             if (!Allowed(bindingId))
@@ -108,7 +121,7 @@ public sealed class McpToolBroker : INodeToolBroker
                 await Record(ExecutionEventKinds.ToolDenied, new { toolCallId, bindingId, reason = "No effective node grant." });
                 throw new ToolAccessDeniedException();
             }
-            if (Interlocked.Increment(ref calls) > 8 || input.Length > 16_384)
+            if (Interlocked.Increment(ref calls) > 8 || arguments.ValueKind != JsonValueKind.Object || arguments.GetRawText().Length > 16_384)
             {
                 await Record(ExecutionEventKinds.ToolDenied, new { toolCallId, bindingId, reason = "Invocation budget exceeded." });
                 throw new ToolInvocationException("Tool invocation budget exceeded.");
@@ -124,12 +137,13 @@ public sealed class McpToolBroker : INodeToolBroker
                 await using var client = await registration.Connect(deadline.Token);
                 var tool = await FindTool(client, registration, deadline.Token);
                 if (ToolContractHash.Compute(tool) != requirement.ContractHash) throw new ToolContractMismatchException();
+                var schema = McpInputSchema.Validate(tool.JsonSchema);
+                var callArguments = schema.ToCallArguments(arguments);
                 if (!Allowed(bindingId)) throw new ToolAccessDeniedException();
                 await Record(ExecutionEventKinds.ToolAuthorized, new
-                { toolCallId, bindingId, registration.ServerId, registration.ToolName, requirement.ContractHash, input });
+                { toolCallId, bindingId, registration.ServerId, registration.ToolName, requirement.ContractHash, input = arguments });
                 dispatched = true;
-                var result = await client.CallToolAsync(registration.ToolName,
-                    new Dictionary<string, object?> { ["text"] = input }, cancellationToken: deadline.Token);
+                var result = await client.CallToolAsync(registration.ToolName, callArguments, cancellationToken: deadline.Token);
                 if (result.IsError == true) throw new ToolInvocationException("The MCP server reported a tool failure.");
                 if (result.Content.Any(c => c is not TextContentBlock)) throw new ToolInvocationException("The tool returned unsupported non-text content.");
                 var output = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(c => c.Text));
