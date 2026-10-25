@@ -91,4 +91,28 @@ public sealed class NestedWorkflowExecutionTests
 
         Assert.Equal("mapped value", output);
     }
+
+    [Fact]
+    public async Task WorkflowCallPassesJsonBetweenMatchingTypedChildBoundaries()
+    {
+        static WorkflowDefinition JsonBoundary(WorkflowDefinition definition) => definition with
+        {
+            SchemaVersion = "1.19",
+            Nodes = definition.Nodes
+                .SetItem("input", definition.Nodes["input"] with { InputDataType = "json" })
+                .SetItem("output", definition.Nodes["output"] with { OutputDataType = "json" })
+        };
+
+        var child = WorkflowRevision.Create(JsonBoundary(Baseline("json-child")), "test");
+        var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
+        };
+        var parent = GraphEditing.InsertNodeAfter(JsonBoundary(Baseline("json-parent")), "input", "out", call);
+
+        var output = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(parent, "test"),
+            "{ \"answer\": 42 }", _ => ValueTask.CompletedTask);
+
+        Assert.Equal("{\"answer\":42}", output);
+    }
 }

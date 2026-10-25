@@ -158,8 +158,8 @@ public static class WorkflowValidator
                 }
                 if (definition.SchemaVersion != "1.19" || call is null || string.IsNullOrWhiteSpace(call.WorkflowId) ||
                     call.WorkflowId.Length > 256 || call.WorkflowId != call.Definition?.WorkflowId || call.RevisionId == Guid.Empty ||
-                    call.Version < 1 || !ValidHash(call.ContentHash) || !hashMatches || call.Definition is { } childDefinition && !IsStringWorkflow(childDefinition))
-                    Error("workflowCall.configuration", $"nodes.{id}.workflowCall", "Workflow call nodes require schema 1.19 and an embedded, hash-matching string-to-string workflow revision.");
+                    call.Version < 1 || !ValidHash(call.ContentHash) || !hashMatches || call.Definition is { } childDefinition && !HasSupportedWorkflowCallContract(childDefinition))
+                    Error("workflowCall.configuration", $"nodes.{id}.workflowCall", "Workflow call nodes require schema 1.19 and an embedded, hash-matching workflow with string or JSON input and output contracts.");
                 if (call?.ParameterMappings is { } mappings)
                 {
                     var childParameters = call.Definition?.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
@@ -403,12 +403,18 @@ public static class WorkflowValidator
         !string.IsNullOrWhiteSpace(tool.BindingId) && tool.BindingId.Length <= 128 &&
         ValidHash(tool.ContractHash) && (tool.DescriptionHash is null || ValidHash(tool.DescriptionHash));
 
-    private static bool IsStringWorkflow(WorkflowDefinition definition) =>
-        definition.Nodes is not null &&
-        definition.Nodes.TryGetValue(definition.EntryNodeId, out var input) && input?.Type == NodeTypes.Input &&
-        WorkflowPorts.Outputs(input).SingleOrDefault()?.DataType == "string" &&
-        definition.Nodes.Values.Count(node => node?.Type == NodeTypes.Output) == 1 &&
-        WorkflowPorts.Inputs(definition.Nodes.Values.Single(node => node?.Type == NodeTypes.Output)!).SingleOrDefault()?.DataType == "string";
+    private static bool HasSupportedWorkflowCallContract(WorkflowDefinition definition)
+    {
+        if (definition.Nodes is null ||
+            !definition.Nodes.TryGetValue(definition.EntryNodeId, out var input) || input?.Type != NodeTypes.Input ||
+            definition.Nodes.Values.Count(node => node?.Type == NodeTypes.Output) != 1)
+            return false;
+
+        var output = definition.Nodes.Values.Single(node => node?.Type == NodeTypes.Output)!;
+        var inputType = WorkflowPorts.Outputs(input).SingleOrDefault()?.DataType;
+        var outputType = WorkflowPorts.Inputs(output).SingleOrDefault()?.DataType;
+        return (inputType is "string" or "json") && (outputType is "string" or "json");
+    }
 
     private static bool ValidStringCondition(StringCondition? condition) => condition is not null &&
         (condition.Operator is "equals" or "contains" or "starts-with" or "is-empty") && condition.Operand is not null &&

@@ -93,6 +93,32 @@ public sealed class WorkflowCallTests
         Assert.Empty(WorkflowValidator.Validate(roundTrip));
     }
 
+    [Fact]
+    public void WorkflowCallPinsJsonInputAndOutputPinTypesFromItsChild()
+    {
+        var child = WorkflowRevision.Create(JsonBoundary(Baseline("child")), "test");
+        var call = Call(child);
+        var parent = JsonBoundary(Baseline("parent"));
+        var definition = GraphEditing.InsertNodeAfter(parent, "input", "out", call);
+
+        Assert.Equal("json", WorkflowPorts.Inputs(call).Single().DataType);
+        Assert.Equal("json", WorkflowPorts.Outputs(call).Single().DataType);
+        Assert.Equal("json", WorkflowPorts.Inputs(definition.Nodes["output"]).Single().DataType);
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        var roundTrip = WorkflowJson.Deserialize(WorkflowJson.Serialize(definition));
+        var roundTripCall = roundTrip.Nodes.Single(entry => entry.Value.Type == NodeTypes.WorkflowCall).Value;
+        Assert.Equal("json", WorkflowPorts.Inputs(roundTripCall).Single().DataType);
+        Assert.Throws<ArgumentException>(() => GraphEditing.InsertNodeAfter(Baseline("string-parent"), "input", "out", call));
+    }
+
+    private static WorkflowDefinition JsonBoundary(WorkflowDefinition definition) => definition with
+    {
+        SchemaVersion = "1.19",
+        Nodes = definition.Nodes
+            .SetItem("input", definition.Nodes["input"] with { InputDataType = "json" })
+            .SetItem("output", definition.Nodes["output"] with { OutputDataType = "json" })
+    };
+
     private static string RequirementKey(PackageRequirement requirement) =>
         $"{requirement.Kind}|{requirement.Id}|{requirement.Version}|{requirement.ContractHash}|{requirement.DescriptionHash}";
 

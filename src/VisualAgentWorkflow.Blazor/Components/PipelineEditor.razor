@@ -134,10 +134,10 @@
                     }
                     else if (node.Type == NodeTypes.WorkflowCall)
                     {
-                        <p>This node executes the embedded workflow revision and returns its string result. The workflow ID, revision, version, and content hash are pinned in this node. Its tools, model providers, and skills remain subject to the host’s configured catalogs and grants.</p>
+                        <p>This node executes the embedded workflow revision. Its input and output pins inherit the child workflow’s declared string or JSON types. The workflow ID, revision, version, and content hash are pinned in this node. Its tools, model providers, and skills remain subject to the host’s configured catalogs and grants.</p>
                         @if (node.WorkflowCall is { } child)
                         {
-                            <dl><dt>Workflow</dt><dd>@child.WorkflowId</dd><dt>Version</dt><dd>@child.Version</dd><dt>Revision</dt><dd><code>@child.RevisionId</code></dd><dt>Content hash</dt><dd><code>@child.ContentHash</code></dd></dl>
+                            <dl><dt>Workflow</dt><dd>@child.WorkflowId</dd><dt>Version</dt><dd>@child.Version</dd><dt>Input type</dt><dd>@WorkflowCallInputType(child.Definition)</dd><dt>Output type</dt><dd>@WorkflowCallOutputType(child.Definition)</dd><dt>Revision</dt><dd><code>@child.RevisionId</code></dd><dt>Content hash</dt><dd><code>@child.ContentHash</code></dd></dl>
                             var childParameters = child.Definition.Parameters ?? System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
                             @if (childParameters.Count > 0)
                             {
@@ -522,6 +522,14 @@
         (parent.Type ?? "string") == (child.Type ?? "string") && (parent.Type != "choice" ||
             parent.Choices is { } parentChoices && child.Choices is { } childChoices &&
             parentChoices.All(choice => childChoices.Contains(choice, StringComparer.Ordinal)));
+    private static string WorkflowCallInputType(WorkflowDefinition child) =>
+        child.Nodes is { } nodes && nodes.TryGetValue(child.EntryNodeId, out var input) && input is not null
+            ? WorkflowPorts.Outputs(input).SingleOrDefault()?.DataType ?? "unavailable"
+            : "unavailable";
+    private static string WorkflowCallOutputType(WorkflowDefinition child) =>
+        child.Nodes is { } nodes && nodes.Values.FirstOrDefault(candidate => candidate?.Type == NodeTypes.Output) is { } output
+            ? WorkflowPorts.Inputs(output).SingleOrDefault()?.DataType ?? "unavailable"
+            : "unavailable";
     private Task MapChildParameter(string nodeId, string childParameterId, ChangeEventArgs args) => Edit(() =>
     {
         var node = Definition.Nodes[nodeId];

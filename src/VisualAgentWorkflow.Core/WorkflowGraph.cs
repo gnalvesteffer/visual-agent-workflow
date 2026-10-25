@@ -25,12 +25,14 @@ public static class WorkflowPorts
         NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Loop or NodeTypes.LoopBody => [new("in", "string")],
         NodeTypes.ParallelJoin => [new("branch_1", "string"), new("branch_2", "string")],
         NodeTypes.Output => [new("in", node.OutputDataType ?? "string")],
+        NodeTypes.WorkflowCall => [new("in", WorkflowCallInputType(node))],
         NodeTypes.Terminate => [new("in", "string")],
         _ => [new("in", "string")]
     };
     public static ImmutableArray<WorkflowPort> Outputs(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Output or NodeTypes.Terminate => [],
+        NodeTypes.WorkflowCall => [new("out", WorkflowCallOutputType(node))],
         NodeTypes.Condition => [new("true", "string"), new("false", "string")],
         NodeTypes.Input when node.InputDataType == "json" => [new("out", "json")],
         NodeTypes.JsonProject => [new("out", "json")],
@@ -39,6 +41,16 @@ public static class WorkflowPorts
         NodeTypes.Loop => [new("body", "string"), new("done", "string")],
         _ => [new("out", "string")]
     };
+
+    private static string WorkflowCallInputType(NodeDefinition node) =>
+        node.WorkflowCall?.Definition is { Nodes: { } nodes } definition && nodes.TryGetValue(definition.EntryNodeId, out var entry) && entry is not null
+            ? Outputs(entry).SingleOrDefault()?.DataType ?? "string"
+            : "string";
+
+    private static string WorkflowCallOutputType(NodeDefinition node) =>
+        node.WorkflowCall?.Definition?.Nodes is { } nodes && nodes.Values.FirstOrDefault(candidate => candidate?.Type == NodeTypes.Output) is { } output
+            ? Inputs(output).SingleOrDefault()?.DataType ?? "string"
+            : "string";
 }
 
 public static class ParallelGraphLimits
