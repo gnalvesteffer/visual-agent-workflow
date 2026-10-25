@@ -4,7 +4,7 @@ Delivered milestones are listed in reverse chronological order. This page record
 
 ## Persistent Studio theme selector
 
-The Studio navigation now offers Dark Modern, Light Modern, and High Contrast themes. A small synchronous bootstrap applies the browser's saved choice before the stylesheet paints; the interactive selector updates and persists it. Theme tokens adapt the standalone shell and graph together, while embedded components continue to inherit their host's own theme.
+The Studio navigation now offers Dark Modern, Light Modern, VS Code Dark+, Solarized Dark, Nord, Monokai, and High Contrast themes. A small synchronous bootstrap applies the browser's saved choice before the stylesheet paints; the interactive selector updates and persists it. Theme tokens adapt the standalone shell and graph together, while embedded components continue to inherit their host's own theme.
 
 ## Flat Studio theme and fitted graph viewport
 

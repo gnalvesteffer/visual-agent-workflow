@@ -13,6 +13,7 @@ from pathlib import Path
 from playwright.sync_api import expect, sync_playwright
 
 BASE = "http://127.0.0.1:5099"
+THEMES = ("dark", "light", "vs-code-dark-plus", "solarized-dark", "nord", "monokai", "high-contrast")
 
 
 def luminance(rgb):
@@ -33,6 +34,7 @@ def check(browser, screenshots):
     try:
         page.goto(BASE)
         theme_picker = page.get_by_label("Color theme", exact=True)
+        expect(theme_picker.locator("option")).to_have_count(len(THEMES))
         expect(theme_picker).to_be_enabled()
         expect(theme_picker).to_have_value("dark")
         theme_picker.select_option("light")
@@ -46,7 +48,7 @@ def check(browser, screenshots):
         assert page.locator("body").evaluate("element=>getComputedStyle(element).backgroundColor") == "rgb(0, 0, 0)"
         theme_picker.select_option("dark")
         page.wait_for_function("document.documentElement.dataset.vawTheme === 'dark'")
-        for theme in ("dark", "light", "high-contrast"):
+        for theme in THEMES:
             theme_picker.select_option(theme)
             page.wait_for_function("theme => document.documentElement.dataset.vawTheme === theme", arg=theme)
             if screenshots:
@@ -79,7 +81,8 @@ def check(browser, screenshots):
         chrome=designer.locator(".vaw-canvas-toolbar")
         viewport=designer.locator(".vaw-canvas-viewport")
         assert "radial-gradient" in viewport.evaluate("element=>getComputedStyle(element).backgroundImage")
-        assert viewport.evaluate("element=>getComputedStyle(element).backgroundColor") == "rgb(17, 26, 32)"
+        assert viewport.evaluate("element=>getComputedStyle(element).backgroundColor") == "rgb(24, 24, 24)"
+        assert viewport.evaluate("element=>getComputedStyle(element).backgroundColor") == page.locator(".vaw-app").evaluate("element=>getComputedStyle(element).backgroundColor"), "Dark Modern graph and shell surfaces must match"
         assert designer.locator(".vaw-canvas-world").evaluate("element=>getComputedStyle(element).backgroundImage") == "none"
         assert "none" == page.locator(".vaw-studio").evaluate("element=>getComputedStyle(element).backgroundImage")
 

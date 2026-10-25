@@ -2,7 +2,7 @@
 
 The Studio creates and runs linear and conditional string-processing workflows. It supports deterministic transforms, workflow-owned string parameters, host-approved MCP text tools, a deterministic demonstration agent, and opt-in host-configured external model providers. Free placement and wire routing organize the graph; they do not change execution semantics. Branches are authored through explicit conditional nodes.
 
-Use the **Theme** selector in the top navigation to switch between **Dark Modern**, **Light Modern**, and **High Contrast**. The Studio remembers the choice in this browser. The graph is fitted and centered when the editor attaches; its grid fills the viewport and tracks pan and zoom. Embedded hosts can customize inherited theme tokens independently; see the [editor design system](design-system.md).
+Use the **Theme** selector in the top navigation to switch between **Dark Modern**, **Light Modern**, **VS Code Dark+**, **Solarized Dark**, **Nord**, **Monokai**, and **High Contrast**. The Studio remembers the choice in this browser. The graph canvas and nodes use colors coordinated with the selected shell theme. The graph is fitted and centered when the editor attaches; its grid fills the viewport and tracks pan and zoom. Embedded hosts can customize inherited theme tokens independently; see the [editor design system](design-system.md).
 
 Use disposable text in the local development app. It records inputs, outputs, and comments in local storage without workspace authentication or payload encryption.
 
