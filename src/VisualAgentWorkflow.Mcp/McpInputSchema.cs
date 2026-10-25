@@ -9,6 +9,9 @@ public static class McpToolInputSchemas
     /// <summary>Returns whether an MCP tool uses the supported bounded JSON schema subset.</summary>
     public static bool IsSupported(JsonElement schema) => McpInputSchema.IsSupported(schema);
 
+    /// <summary>Returns an actionable reason when an MCP input schema cannot be safely supported.</summary>
+    public static string? GetUnsupportedReason(JsonElement schema) => McpInputSchema.GetUnsupportedReason(schema);
+
     /// <summary>Returns a normalized schema suitable for an agent function declaration.</summary>
     public static JsonElement Normalize(JsonElement schema) => McpInputSchema.Normalize(schema);
 
@@ -62,6 +65,12 @@ internal sealed class McpInputSchema
     {
         try { Validate(schema); return true; }
         catch (ToolInvocationException) { return false; }
+    }
+
+    internal static string? GetUnsupportedReason(JsonElement schema)
+    {
+        try { Validate(schema); return null; }
+        catch (ToolInvocationException exception) { return exception.Message; }
     }
 
     internal static string Summarize(JsonElement schema)
@@ -130,16 +139,18 @@ internal sealed class McpInputSchema
         var type = typeElement.GetString();
         var allowedFields = type switch
         {
-            "object" => new[] { "type", "title", "description", "$schema", "properties", "required", "additionalProperties", "propertyNames" },
-            "array" => new[] { "type", "title", "description", "items", "minItems", "maxItems" },
-            "string" => new[] { "type", "title", "description", "enum", "minLength", "maxLength" },
-            "integer" or "number" => new[] { "type", "title", "description", "enum", "minimum", "maximum" },
-            "boolean" => new[] { "type", "title", "description", "enum" },
+            "object" => new[] { "type", "title", "description", "default", "$schema", "properties", "required", "additionalProperties", "propertyNames" },
+            "array" => new[] { "type", "title", "description", "default", "items", "minItems", "maxItems" },
+            "string" => new[] { "type", "title", "description", "default", "enum", "minLength", "maxLength" },
+            "integer" or "number" => new[] { "type", "title", "description", "default", "enum", "minimum", "maximum" },
+            "boolean" => new[] { "type", "title", "description", "default", "enum" },
             _ => throw UnsupportedSchema()
         };
 
-        if (definition.EnumerateObject().Any(field => !allowedFields.Contains(field.Name, StringComparer.Ordinal)))
-            throw UnsupportedSchema();
+        var unsupportedField = definition.EnumerateObject().Select(field => field.Name)
+            .FirstOrDefault(name => !allowedFields.Contains(name, StringComparer.Ordinal));
+        if (unsupportedField is not null)
+            throw UnsupportedSchema($"Unsupported JSON Schema keyword '{unsupportedField}'.");
 
         ValidateDescription(definition);
         ValidateEnum(definition, type!);
@@ -412,9 +423,10 @@ internal sealed class McpInputSchema
 
     private static void ValidateDescription(JsonElement definition)
     {
-        if (definition.TryGetProperty("description", out var description) &&
-            (description.ValueKind != JsonValueKind.String || description.GetString()!.Length > 1_024))
-            throw UnsupportedSchema();
+        if (definition.TryGetProperty("description", out var description) && description.ValueKind != JsonValueKind.String)
+            throw UnsupportedSchema("A schema description must be a string.");
+        // JSON Schema defaults are annotations, not required values. In particular, default:null on an
+        // optional string/integer property does not make null a valid invocation value.
     }
 
     private static void ValidateArrayBounds(JsonElement definition)
@@ -499,8 +511,10 @@ internal sealed class McpInputSchema
         writer.WriteNumber(name, ReadIntegerBound(definition, name, defaultValue));
     }
 
-    private static ToolInvocationException UnsupportedSchema() =>
-        new("This MCP tool uses an unsupported input schema. Supported inputs are bounded nested objects and arrays with string, integer, number, and boolean values.");
+    private static ToolInvocationException UnsupportedSchema(string? reason = null) =>
+        new(reason is null
+            ? "Unsupported input schema shape. Supported inputs are bounded nested objects and arrays with string, integer, number, and boolean values."
+            : $"Unsupported input schema: {reason}");
 
     private static ToolInvocationException InvalidArguments() =>
         new("Tool arguments do not match the discovered input schema or supported size limits.");

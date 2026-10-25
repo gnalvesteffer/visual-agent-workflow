@@ -23,6 +23,9 @@ public static class McpToolDescription
         try { Normalize(description); return true; }
         catch (McpToolDescriptionException) { return false; }
     }
+
+    public static string? GetUnsupportedReason(string? description) =>
+        IsSupported(description) ? null : $"Tool description exceeds the {MaximumLength}-character limit.";
 }
 
 public sealed class McpToolDescriptionException(string message) : InvalidOperationException(message);

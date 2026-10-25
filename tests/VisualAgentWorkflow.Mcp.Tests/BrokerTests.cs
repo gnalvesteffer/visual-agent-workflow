@@ -125,6 +125,51 @@ public class BrokerTests
     }
 
     [Fact]
+    public void OptionalNullDefaultFieldsAndImplicitArrayBoundsAreSupportedSafely()
+    {
+        using var schema = JsonDocument.Parse("""
+            {"type":"object","properties":{
+              "command":{"default":null,"description":"Shell command string (mutually exclusive with args).","type":"string"},
+              "args":{"default":null,"description":"List of arguments for direct execution.","items":{"type":"string"},"type":"array"},
+              "stdin":{"default":null,"type":"string"},
+              "working_directory":{"default":null,"type":"string"},
+              "timeout":{"default":null,"type":"integer"}
+            },"title":"sandbox_execArguments"}
+            """);
+
+        Assert.True(McpToolInputSchemas.IsSupported(schema.RootElement));
+        Assert.Null(McpToolInputSchemas.GetUnsupportedReason(schema.RootElement));
+        Assert.Contains("array<string> optional", McpToolInputSchemas.Summarize(schema.RootElement));
+        var normalized = McpToolInputSchemas.Normalize(schema.RootElement);
+        Assert.Equal(64, normalized.GetProperty("properties").GetProperty("args").GetProperty("maxItems").GetInt32());
+        Assert.False(normalized.GetProperty("additionalProperties").GetBoolean());
+
+        using var valid = JsonDocument.Parse("""{"command":"python3 -c 'print(1 + 1)'","args":["one","two"],"timeout":30}""");
+        var converted = McpToolInputSchemas.ToCallArguments(schema.RootElement, valid.RootElement);
+        Assert.Equal(30L, converted["timeout"]);
+        using var nullableInput = JsonDocument.Parse("""{"command":null}""");
+        Assert.Throws<ToolInvocationException>(() => McpToolInputSchemas.ToCallArguments(schema.RootElement, nullableInput.RootElement));
+        using var tooMany = JsonDocument.Parse("""{"args":["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","x","y","z","a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","x","y","z","a","b","c","d","e","f","g","h","i","j","k","l","m","n","o"]}""");
+        Assert.Throws<ToolInvocationException>(() => McpToolInputSchemas.ToCallArguments(schema.RootElement, tooMany.RootElement));
+    }
+
+    [Fact]
+    public void UnsupportedSchemaKeywordsProduceActionableDiscoveryReason()
+    {
+        using var schema = JsonDocument.Parse("""{"type":"object","properties":{"value":{"type":"string","pattern":".*"}}}""");
+        Assert.Equal("Unsupported input schema: Unsupported JSON Schema keyword 'pattern'.",
+            McpToolInputSchemas.GetUnsupportedReason(schema.RootElement));
+    }
+
+    [Fact]
+    public void OverlongDescriptionsProduceActionableDiscoveryReason()
+    {
+        Assert.Equal("Tool description exceeds the 2048-character limit.",
+            McpToolDescription.GetUnsupportedReason(new string('x', McpToolDescription.MaximumLength + 1)));
+        Assert.Null(McpToolDescription.GetUnsupportedReason("A supported tool description."));
+    }
+
+    [Fact]
     public async Task TypedScalarArgumentsAreValidatedAndPassedToMcp()
     {
         var broker = CreateBroker(policy: new DemoToolPolicy());

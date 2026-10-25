@@ -33,9 +33,9 @@
             <button type="button" @onclick="Discover" disabled="@busy">@(busy ? "Discovering…" : "Discover tools")</button>
             @if (discovered.Count > 0)
             {
-                <fieldset class="vaw-provider-form-wide"><legend>Enable tools for this Studio</legend>
-                    <p>Review each server tool before enabling it. Agents must separately request it in their node settings.</p>
-                    @foreach (var tool in discovered)
+                <fieldset class="vaw-provider-form-wide"><legend>Enable compatible tools for this Studio</legend>
+                    <p>@discovered.Count(tool => tool.IsSupported) supported · @discovered.Count(tool => !tool.IsSupported) excluded. Agents must separately request enabled tools in their node settings.</p>
+                    @foreach (var tool in discovered.Where(tool => tool.IsSupported))
                     {
                         <div class="vaw-mcp-tool-choice">
                             <label><input type="checkbox" checked="@selected.Contains(tool.Name)" @onchange="args => Select(tool.Name, args)" />@tool.Name · @tool.InputSummary · schema @tool.ContractHash[..8] · description @tool.DescriptionHash[..8]</label>
@@ -43,6 +43,19 @@
                         </div>
                     }
                 </fieldset>
+                @if (discovered.Any(tool => !tool.IsSupported))
+                {
+                    <section class="vaw-provider-form-wide vaw-mcp-excluded-tools" aria-label="Excluded MCP tools">
+                        <h3>Excluded tools and compatibility reasons</h3>
+                        <p>These tools were returned by the server but cannot currently be safely offered by this Studio.</p>
+                        <ul>
+                            @foreach (var tool in discovered.Where(tool => !tool.IsSupported))
+                            {
+                                <li><strong>@tool.Name</strong><span>@tool.RejectionReason</span></li>
+                            }
+                        </ul>
+                    </section>
+                }
             }
             <button type="button" class="vaw-primary" @onclick="Save" disabled="@(busy || discovered.Count == 0)">Save server and selected tools</button>
             @if (editing) { <button type="button" @onclick="Reset">Cancel edit</button> }
@@ -71,11 +84,11 @@
         try
         {
             discovered = await Library.DiscoverAsync(endpoint.Trim(), token, id.Trim());
-            selected.IntersectWith(discovered.Select(tool => tool.Name));
-            message = $"Found {discovered.Count} supported tools. Select the tools this Studio may offer.";
+            selected.IntersectWith(discovered.Where(tool => tool.IsSupported).Select(tool => tool.Name));
+            message = $"Discovered {discovered.Count} tools: {discovered.Count(tool => tool.IsSupported)} supported and {discovered.Count(tool => !tool.IsSupported)} excluded.";
         }
         catch (ArgumentException exception) { error = exception.Message; discovered = []; }
-        catch (Exception) { error = "Could not connect or discover supported tools. Check the endpoint, token and server logs."; discovered = []; }
+        catch (Exception) { error = "Could not connect or discover tools. Check the endpoint, token and server logs."; discovered = []; }
         finally { busy = false; }
     }
     private void Select(string tool, ChangeEventArgs args)

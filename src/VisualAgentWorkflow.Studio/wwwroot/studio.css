@@ -378,6 +378,13 @@
 .vaw-provider-form-note { margin: 0; color: var(--vaw-color-muted); font-size: .8125rem; line-height: 1.55; }
 .vaw-provider-form-actions { padding-block-start: .15rem; }
 .vaw-provider-form-section > .vaw-error { margin-block: 0 1.25rem; }
+.vaw-mcp-excluded-tools { margin: 0; border: 1px solid var(--vaw-color-control-border); border-radius: .35rem; padding: 1rem; background: var(--vaw-color-surface); }
+.vaw-mcp-excluded-tools h3 { margin: 0 0 .35rem; font-size: .95rem; }
+.vaw-mcp-excluded-tools > p { margin: 0 0 .75rem; color: var(--vaw-color-muted); font-size: .82rem; line-height: 1.5; }
+.vaw-mcp-excluded-tools ul { display: grid; gap: .6rem; margin: 0; padding-inline-start: 1.25rem; }
+.vaw-mcp-excluded-tools li { padding-inline-start: .2rem; }
+.vaw-mcp-excluded-tools li strong, .vaw-mcp-excluded-tools li span { display: block; }
+.vaw-mcp-excluded-tools li span { margin-block-start: .15rem; color: var(--vaw-color-error); font-size: .82rem; line-height: 1.5; overflow-wrap: anywhere; }
 
 @media (max-width: 44rem) {
     .vaw-settings-heading { align-items: start; flex-direction: column; gap: 1rem; }

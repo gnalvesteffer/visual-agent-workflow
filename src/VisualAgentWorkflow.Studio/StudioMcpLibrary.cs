@@ -11,7 +11,7 @@ public sealed record StudioMcpServer(string Id, string Name, string Folder, stri
 public sealed record StudioMcpServerView(string Id, string Name, string Folder, string Endpoint, bool HasToken,
     IReadOnlyList<string> EnabledTools);
 public sealed record StudioMcpToolView(string Name, string BindingId, string ContractHash, string InputSummary,
-    string Description, string DescriptionHash);
+    string Description, string DescriptionHash, bool IsSupported = true, string? RejectionReason = null);
 
 /// <summary>Operator-owned Studio connections. Only logical tool identities enter workflow definitions.</summary>
 public sealed class StudioMcpLibrary
@@ -61,9 +61,20 @@ public sealed class StudioMcpLibrary
         deadline.CancelAfter(TimeSpan.FromSeconds(10));
         await using var client = await Connect(endpoint, bearerToken, serverId, deadline.Token);
         var tools = await client.ListToolsAsync(cancellationToken: deadline.Token);
-        return tools.Where(tool => McpToolInputSchemas.IsSupported(tool.JsonSchema) && McpToolDescription.IsSupported(tool.Description)).Select(tool =>
-            new StudioMcpToolView(tool.Name, serverId + "." + tool.Name, ToolContractHash.Compute(tool), McpToolInputSchemas.Summarize(tool.JsonSchema),
-                McpToolDescription.Normalize(tool.Description), McpToolDescription.ComputeHash(tool.Description))).ToArray();
+        return tools.Select(tool =>
+        {
+            var schemaReason = McpToolInputSchemas.GetUnsupportedReason(tool.JsonSchema);
+            var descriptionReason = McpToolDescription.GetUnsupportedReason(tool.Description);
+            var reason = string.Join(" ", new[]
+            {
+                schemaReason is null ? null : $"Schema: {schemaReason}",
+                descriptionReason is null ? null : $"Description: {descriptionReason}"
+            }.Where(value => value is not null));
+            return new StudioMcpToolView(tool.Name, serverId + "." + tool.Name, ToolContractHash.Compute(tool),
+                schemaReason is null ? McpToolInputSchemas.Summarize(tool.JsonSchema) : "Input schema not supported",
+                tool.Description?.Trim() ?? "", descriptionReason is null ? McpToolDescription.ComputeHash(tool.Description) : "",
+                reason.Length == 0, reason.Length == 0 ? null : reason);
+        }).ToArray();
     }
 
     public void Save(string id, string name, string folder, string endpoint, string bearerToken, IReadOnlyList<string> enabledTools)
