@@ -75,6 +75,34 @@ public class AgentExecutionTests
     }
 
     [Fact]
+    public async Task SuccessfulToolCallIsWorkflowOutputWhenModelEndsWithoutText()
+    {
+        var broker = BrokerTests.CreateBroker(policy: new DemoToolPolicy());
+        var reverse = (await broker.ListBindingsAsync()).Single(binding => binding.BindingId == "demo.reverse");
+        var responses = 0;
+        var registration = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient((_, _, _) => Task.FromResult(++responses == 1
+                ? new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                    [new FunctionCallContent("reverse-call", "tool_0", new Dictionary<string, object?> { ["text"] = "abc" })]))
+                  { FinishReason = ChatFinishReason.ToolCalls }
+                : new ChatResponse(new ChatMessage(ChatRole.Assistant, "")) { FinishReason = ChatFinishReason.Stop }))
+        };
+        var executor = new AgentNodeExecutor([registration], broker);
+        var events = new List<ExecutionEvent>();
+
+        var output = await new PipelineRunner(broker, executor).ExecuteAsync(Guid.NewGuid(),
+            Revision(new ToolBindingRequest(reverse.BindingId, reverse.ContractHash)), "abc",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("cba", output);
+        var completed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentCompleted);
+        Assert.Contains("successful-tool-result-fallback", completed.Data);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed);
+    }
+
+    [Fact]
     public async Task AgentFunctionDeclarationUsesPinnedTypedMcpSchema()
     {
         var broker = BrokerTests.CreateBroker(policy: new DemoToolPolicy());

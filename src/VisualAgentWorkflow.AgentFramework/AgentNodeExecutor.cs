@@ -72,6 +72,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                 await Record(ExecutionEventKinds.ToolDenied, new { requirement.BindingId, reason = "Agent tool requirement has no effective host grant." });
                 throw new ToolAccessDeniedException();
             }
+            string? lastSuccessfulToolResult = null;
             var functions = new List<AITool>();
             foreach (var binding in allowed)
             {
@@ -85,7 +86,9 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                     schema.RootElement.Clone(), async (arguments, token) =>
                     {
                         var json = JsonSerializer.SerializeToElement(arguments.ToDictionary(pair => pair.Key, pair => pair.Value));
-                        return await scope.InvokeJsonAsync(binding.BindingId, json, token);
+                        var result = await scope.InvokeJsonAsync(binding.BindingId, json, token);
+                        lastSuccessfulToolResult = result;
+                        return result;
                     }));
             }
             using var client = new FunctionInvokingChatClient(new RecordingClient(provider.Create(), invocation))
@@ -116,10 +119,20 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             }
             });
             var response = await agent.RunAsync(userMessage, cancellationToken: deadline.Token);
-            if (string.IsNullOrWhiteSpace(response.Text) || response.Text.Length > 16_384)
-                throw new InvalidOperationException("The agent did not produce bounded final text.");
-            await Record(ExecutionEventKinds.AgentCompleted, new { output = response.Text });
-            return response.Text;
+            var output = response.Text;
+            var completionMode = "model-response";
+            if (string.IsNullOrWhiteSpace(output) && lastSuccessfulToolResult is not null)
+            {
+                output = lastSuccessfulToolResult.Length <= 16_384
+                    ? lastSuccessfulToolResult
+                    : "The assigned tool completed successfully; its result exceeded the text output limit.";
+                if (string.IsNullOrWhiteSpace(output)) output = "The assigned tool completed successfully.";
+                completionMode = "successful-tool-result-fallback";
+            }
+            if (string.IsNullOrWhiteSpace(output) || output.Length > 16_384)
+                throw new InvalidOperationException("The agent did not produce bounded final text or a successful tool result.");
+            await Record(ExecutionEventKinds.AgentCompleted, new { output, completionMode });
+            return output;
         }
         catch (OperationCanceledException)
         {
