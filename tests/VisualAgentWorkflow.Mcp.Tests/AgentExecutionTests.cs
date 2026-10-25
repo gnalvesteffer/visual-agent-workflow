@@ -7,6 +7,7 @@ using Xunit;
 
 namespace VisualAgentWorkflow.Mcp.Tests;
 
+[Collection(McpStdioCollection.Name)]
 public class AgentExecutionTests
 {
     private static WorkflowRevision Revision(params ToolBindingRequest[] tools)
@@ -19,7 +20,7 @@ public class AgentExecutionTests
     [Fact]
     public async Task FrameworkAgentCallsOnlyItsAssignedMcpToolAndRecordsModelRounds()
     {
-        var broker = new McpToolBroker(BrokerTests.Registrations(), new DemoToolPolicy());
+        var broker = BrokerTests.CreateBroker(policy: new DemoToolPolicy());
         var reverse = (await broker.ListBindingsAsync()).Single(b => b.BindingId == "demo.reverse");
         var agent = new AgentNodeExecutor([DeterministicDemoChatClient.Registration()], broker);
         var events = new List<ExecutionEvent>();
@@ -42,7 +43,7 @@ public class AgentExecutionTests
         var connections = 0;
         var registrations = BrokerTests.Registrations().Select(r => r with
         { Connect = _ => { connections++; throw new InvalidOperationException("Must not connect"); } });
-        var broker = new McpToolBroker(registrations, new DemoToolPolicy());
+        var broker = BrokerTests.CreateBroker(registrations, new DemoToolPolicy());
         var executor = new AgentNodeExecutor([DeterministicDemoChatClient.Registration()], broker);
         var events = new List<(string Kind, string? Data)>();
         var context = new NodeInvocationContext(Guid.NewGuid(), Revision(), "step-1", Guid.NewGuid(),
@@ -57,7 +58,7 @@ public class AgentExecutionTests
     public async Task DeniedAgentRequirementFailsBeforeProviderCreation()
     {
         var descriptor = new ToolBindingRequest("demo.reverse", new string('0', 64));
-        var broker = new McpToolBroker(BrokerTests.Registrations(), new ExplicitToolAuthorizationPolicy([]));
+        var broker = BrokerTests.CreateBroker(BrokerTests.Registrations(), new ExplicitToolAuthorizationPolicy([]));
         var created = 0;
         var registration = DeterministicDemoChatClient.Registration() with { Create = () => { created++; return new DeterministicDemoChatClient(); } };
         var executor = new AgentNodeExecutor([registration], broker);
@@ -77,7 +78,7 @@ public class AgentExecutionTests
         var definition = Revision().Definition;
         var node = definition.Nodes["step-1"];
         definition = definition with { Nodes = definition.Nodes.SetItem("step-1", node with { Agent = node.Agent! with { ProviderVersion = "2.0.0" } }) };
-        var broker = new McpToolBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
         var executor = new AgentNodeExecutor([DeterministicDemoChatClient.Registration()], broker);
         var events = new List<string>();
         var context = new NodeInvocationContext(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "step-1", Guid.NewGuid(),
@@ -89,7 +90,7 @@ public class AgentExecutionTests
     [Fact]
     public async Task ProviderFailureIsRecordedWithoutExceptionDetails()
     {
-        var broker = new McpToolBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
         var registration = DeterministicDemoChatClient.Registration() with
         { Create = () => new CallbackClient((_, _, _) => throw new InvalidOperationException("sensitive-provider-detail")) };
         var executor = new AgentNodeExecutor([registration], broker);
@@ -111,7 +112,7 @@ public class AgentExecutionTests
             await Task.Delay(Timeout.InfiniteTimeSpan, ct);
             throw new InvalidOperationException("Unreachable");
         }) };
-        var broker = new McpToolBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
         var executor = new AgentNodeExecutor([registration], broker);
         using var cancellation = new CancellationTokenSource();
         var events = new List<ExecutionEvent>();
@@ -128,7 +129,7 @@ public class AgentExecutionTests
     public async Task ModelCannotExecuteAnUndeclaredFunctionByGuessingItsName()
     {
         var connections = 0;
-        var broker = new McpToolBroker(BrokerTests.Registrations().Select(r => r with
+        var broker = BrokerTests.CreateBroker(BrokerTests.Registrations().Select(r => r with
         { Connect = _ => { connections++; throw new InvalidOperationException("Must not connect"); } }), new DemoToolPolicy());
         var registration = DeterministicDemoChatClient.Registration() with { Create = () => new CallbackClient((_, _, _) =>
             Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
