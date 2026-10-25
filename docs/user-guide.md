@@ -40,11 +40,11 @@ The **Configured providers** list is the settings page's read view. Select **Edi
 
 ### Define reusable workflow inputs
 
-1. Expand **Workflow parameters** above the graph. Add a parameter with a stable ID, display name, and default string value. IDs accept letters, digits, dashes, and underscores; values are limited to 16,384 characters.
+1. Expand **Workflow parameters** above the graph. Add a parameter with a stable ID, display name, and default value, then choose Text, Integer, Number, True/false, or Choice. Choice values are comma-separated and the default must be one of them. IDs accept letters, digits, dashes, and underscores; values are limited to 16,384 characters.
 2. Add a **Workflow value** node from the **Inputs** section of the node library. Select which parameter it reads in the node properties. The node replaces its incoming string with that parameter and passes the selected value to the next node, so the data path stays visible in the graph.
 3. Save and publish the definition. The parameter schema and defaults travel with the workflow package. When running a published version, edit the displayed parameter values to override defaults for that run. The effective values are captured in the run header and shown in the playback inspector.
 
-Parameters are strings in this first slice; they do not create mutable graph variables or expose credentials. Run overrides never alter the published definition. Because the local run store records inputs and parameter values as audit evidence, do not enter secrets or sensitive information.
+Typed parameters remain immutable workflow configuration; they do not create mutable graph variables or expose credentials. A choice parameter with `default,low,medium,high` can be assigned to an agent's **Reasoning effort** setting, exposing it as a workflow run input. Run overrides never alter the published definition, are validated against type and choices, and appear in audit/playback. Because the local run store records inputs and parameter values, do not enter secrets or sensitive information.
 
 ### Configure MCP servers and skills
 

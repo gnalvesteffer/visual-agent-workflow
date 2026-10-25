@@ -1,12 +1,12 @@
 # Workflow parameters
 
-Schema 1.6 adds portable string parameters for workflow-specific configuration. Parameters are immutable definition data with stable IDs, display names, and default values. A `core.workflow-value` node reads one resolved parameter and replaces the incoming string with it, making the data path explicit in the graph.
+Schema 1.6 adds portable string parameters for workflow-specific configuration. Schema 1.8 adds scalar types (`string`, `integer`, `number`, `boolean`, and bounded `choice`) with validated defaults and overrides. Parameters remain immutable definition data with stable IDs and display names. A `core.workflow-value` node reads one resolved parameter and replaces the incoming string with its canonical text value, making the data path explicit in the graph.
 
-This is the first parameter slice. It does not provide typed values, required/choice validation, mutable variables, prompt interpolation, special model-profile resolution, or parameter pins on agent configuration. All values are ordinary strings and must be treated as non-secret because local run histories record them in plaintext.
+Typed parameters do not add mutable variables or arbitrary object ports. Every value must be treated as non-secret because local run histories record it in plaintext. Schema 1.8 can expose a choice parameter as an agent's reasoning-effort setting, limited to `default`, `low`, `medium`, and `high`; provider support is checked at runtime.
 
 ## Definition contract
 
-The optional `parameters` property is an object keyed by parameter ID. IDs contain 1–64 ASCII letters, digits, dashes, or underscores. A definition may contain at most 64 parameters; display names are 1–128 characters, defaults are bounded at 16,384 characters, and combined IDs/names/defaults are bounded at 128,000 characters to remain inside the workflow JSON size limit.
+The optional `parameters` property is an object keyed by parameter ID. IDs contain 1–64 ASCII letters, digits, dashes, or underscores. A definition may contain at most 64 parameters; display names are 1–128 characters, defaults are bounded at 16,384 characters, and combined IDs/names/defaults are bounded at 128,000 characters to remain inside the workflow JSON size limit. The optional `type` field defaults to `string`. Choice parameters require 1–32 unique values, each at most 128 characters.
 
 ```json
 {
@@ -37,17 +37,18 @@ The optional `parameters` property is an object keyed by parameter ID. IDs conta
   "parameters": {
     "greeting-text": {
       "displayName": "Greeting text",
-      "defaultValue": "Hello"
+      "defaultValue": "Hello",
+      "type": "string"
     }
   }
 }
 ```
 
-Legacy workflow schemas continue to omit `parameters` and `parameterId` when unused; their canonical JSON and content hashes are unchanged. Editing helpers preserve schema 1.6 through graph edits. Reusable workflow insertion copies parameters used by inserted value nodes and remaps conflicting IDs.
+Legacy workflow schemas continue to omit `parameters` and `parameterId` when unused; optional parameter fields remain omitted for the old string form, preserving canonical hashes. Editing helpers preserve schema 1.8 through graph edits. Reusable workflow insertion copies parameters referenced by inserted value nodes, prompt templates, and agent settings, then remaps conflicting IDs.
 
 ## Resolve, execute, and replay
 
-At run admission, the host validates caller-supplied override IDs against the pinned definition, fills every missing value from its default, and bounds each string. Unknown IDs are rejected. The fully resolved map is separate from the workflow definition and is written into `RunHeader.Parameters` before execution. The worker passes that same map to the Agent Framework adapter. Each value node records its actual output and downstream transfer like any other node. Playback reads stored evidence only; it does not resolve current defaults or make live calls.
+At run admission, the host validates caller-supplied override IDs and typed values against the pinned definition, fills every missing value from its default, and enforces type, choice, and length constraints. Unknown IDs and out-of-range values are rejected. The fully resolved map is separate from the workflow definition and is written into `RunHeader.Parameters` before execution. The worker passes that same map to the Agent Framework adapter. Each value node records its actual output and downstream transfer like any other node. Playback reads stored evidence only; it does not resolve current defaults or make live calls.
 
 ```mermaid
 sequenceDiagram
@@ -56,8 +57,8 @@ sequenceDiagram
     participant Store as Run store
     participant Worker as Workflow executor
     participant Viewer as Playback
-    Caller->>Host: Definition revision, input, optional string overrides
-    Host->>Host: Validate IDs, fill defaults, enforce value bounds
+    Caller->>Host: Definition revision, input, optional typed overrides
+    Host->>Host: Validate IDs and types, fill defaults, enforce allowed values
     Host->>Store: Pin definition and effective parameter map
     Host->>Worker: Execute exact revision with resolved values
     Worker->>Store: Record node output and data transfer evidence

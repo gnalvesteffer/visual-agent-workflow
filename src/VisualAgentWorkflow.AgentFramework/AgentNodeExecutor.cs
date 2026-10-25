@@ -33,7 +33,16 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             ?? throw new ArgumentException("The invocation is not an agent node.");
         if (!Volatile.Read(ref registrations).TryGetValue(Key(configuration.ProviderId, configuration.ProviderVersion), out var provider))
             throw new InvalidOperationException("The pinned agent provider is unavailable.");
-        if (configuration.ReasoningEffort is not null && !provider.Descriptor.SupportsReasoningEffort)
+        var reasoningEffort = configuration.ReasoningEffortParameterId is { } parameterId && invocation.Parameters is { } values
+            ? values.GetValueOrDefault(parameterId) switch
+            {
+                "low" => AgentReasoningEffort.Low,
+                "medium" => AgentReasoningEffort.Medium,
+                "high" => AgentReasoningEffort.High,
+                _ => (AgentReasoningEffort?)null
+            }
+            : configuration.ReasoningEffort;
+        if (reasoningEffort is not null && !provider.Descriptor.SupportsReasoningEffort)
             throw new InvalidOperationException("The selected provider does not support reasoning effort.");
         var assignedSkills = (configuration.Skills ?? []).Select(reference =>
             invocation.Revision.Definition.Skills![reference.Id + "@" + reference.Version]).ToArray();
@@ -87,7 +96,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                 Instructions = instructions,
                 Tools = functions,
                 MaxOutputTokens = 1024,
-                Reasoning = configuration.ReasoningEffort is { } effort
+                Reasoning = reasoningEffort is { } effort
                     ? new ReasoningOptions { Effort = effort switch
                     {
                         AgentReasoningEffort.Low => Microsoft.Extensions.AI.ReasoningEffort.Low,

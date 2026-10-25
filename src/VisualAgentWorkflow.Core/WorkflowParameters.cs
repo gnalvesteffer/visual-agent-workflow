@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 
 namespace VisualAgentWorkflow.Core;
 
@@ -27,8 +28,27 @@ public static class WorkflowParameters
                 : parameter.DefaultValue;
             if (value is null || value.Length > 16_384)
                 throw new ArgumentException($"Parameter '{id}' must be a string up to 16,384 characters.", nameof(overrides));
-            resolved.Add(id, value);
+            if (!IsValidValue(parameter, value))
+                throw new ArgumentException($"Value for workflow parameter '{id}' does not match its {parameter.Type ?? "string"} type.", nameof(overrides));
+            resolved.Add(id, NormalizeValue(parameter, value));
         }
         return resolved.ToImmutable();
     }
+
+    public static bool IsValidValue(WorkflowParameterDefinition parameter, string value) => (parameter.Type ?? "string") switch
+    {
+        "string" => value.Length <= 16_384,
+        "integer" => long.TryParse(value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out _),
+        "number" => decimal.TryParse(value, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out _),
+        "boolean" => value is "true" or "false",
+        "choice" => parameter.Choices is { } choices && choices.Contains(value, StringComparer.Ordinal),
+        _ => false
+    };
+
+    public static string NormalizeValue(WorkflowParameterDefinition parameter, string value) => (parameter.Type ?? "string") switch
+    {
+        "integer" when long.TryParse(value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var integer) => integer.ToString(CultureInfo.InvariantCulture),
+        "number" when decimal.TryParse(value, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var number) => number.ToString("G29", CultureInfo.InvariantCulture),
+        _ => value
+    };
 }

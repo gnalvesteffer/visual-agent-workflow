@@ -116,10 +116,23 @@
             @foreach (var (parameterId, parameter) in SelectedRunParameters)
             {
                 <label @key="parameterId">@parameter.DisplayName · @parameterId
-                    <textarea value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)" maxlength="16384" rows="2"></textarea>
+                    @if (parameter.Type == "choice")
+                    {
+                        <select value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)">
+                            @foreach (var choice in parameter.Choices ?? []) { <option value="@choice">@choice</option> }
+                        </select>
+                    }
+                    else if (parameter.Type == "boolean")
+                    {
+                        <select value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)"><option value="true">True</option><option value="false">False</option></select>
+                    }
+                    else if (parameter.Type is "integer" or "number")
+                    { <input type="@(parameter.Type == "integer" ? "number" : "number")" step="@(parameter.Type == "integer" ? "1" : "any")" value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)" /> }
+                    else
+                    { <textarea value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)" maxlength="16384" rows="2"></textarea> }
                 </label>
             }
-            @if (SelectedRunParameters.Count > 0) { <p class="vaw-help">These per-run string values override the workflow defaults and are included in the run audit record. Do not enter secrets.</p> }
+            @if (SelectedRunParameters.Count > 0) { <p class="vaw-help">Per-run values are type-checked, override workflow defaults, and are included in audit and replay. Do not enter secrets.</p> }
             @if (Client is IPublishedWorkflowRunControl)
             { <label class="vaw-run-option"><input type="checkbox" @bind="startPublishedPaused" />Start published run paused</label> }
             <button type="button" class="vaw-primary" @onclick="RunPublished" disabled="@(busy || selectedRevisionId is null)">Run selected version</button>

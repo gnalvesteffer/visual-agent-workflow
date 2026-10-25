@@ -65,4 +65,26 @@ public class AgentCapabilityTests
         Assert.Throws<InvalidOperationException>(() => PromptRendering.Render(new([new("input", ""), new("input", "")]),
             new string('x', 9000), null));
     }
+
+    [Fact]
+    public void TypedParametersValidateDefaultsAndOverridesAndRoundTripAsSchema18()
+    {
+        var definition = new WorkflowDefinition("1.8", "typed-parameters", "input",
+            new Dictionary<string, NodeDefinition> { ["input"] = new(NodeTypes.Input, "1.0.0"), ["output"] = new(NodeTypes.Output, "1.0.0") }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition> { ["link"] = new(new("input", "out"), new("output", "in"), "data") }.ToImmutableSortedDictionary())
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("attempts", new("Attempts", "3") { Type = "integer" })
+                .Add("mode", new("Reasoning", "default") { Type = "choice", Choices = ["default", "low", "medium", "high"] })
+        };
+
+        var package = WorkflowJson.Deserialize(WorkflowJson.Serialize(definition));
+        Assert.Equal("integer", package.Parameters!["attempts"].Type);
+        var renamed = WorkflowParameterEditing.Update(package, "attempts", "Max attempts", "3");
+        Assert.Equal("integer", renamed.Parameters!["attempts"].Type);
+        Assert.Equal("3", WorkflowParameters.Resolve(package, new Dictionary<string, string> { ["attempts"] = "03", ["mode"] = "high" })!["attempts"]);
+        Assert.Throws<ArgumentException>(() => WorkflowParameters.Resolve(package, new Dictionary<string, string> { ["attempts"] = "3.14" }));
+        Assert.Throws<ArgumentException>(() => WorkflowParameters.Resolve(package, new Dictionary<string, string> { ["mode"] = "unlisted" }));
+        Assert.Equal("high", WorkflowParameters.Resolve(package, new Dictionary<string, string> { ["mode"] = "high" })!["mode"]);
+    }
 }

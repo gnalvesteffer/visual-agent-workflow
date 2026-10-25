@@ -26,14 +26,16 @@ public class AgentExecutionTests
         var node = baseline.Nodes["step-1"];
         var definition = baseline with
         {
-            SchemaVersion = "1.7",
+            SchemaVersion = "1.8",
             Skills = ImmutableSortedDictionary<string, WorkflowSkill>.Empty.Add("arithmetic@1", skill),
-            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty.Add("context", new("Context", "default")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("context", new("Context", "default"))
+                .Add("effort", new("Reasoning effort", "default") { Type = "choice", Choices = ["default", "low", "medium", "high"] }),
             Nodes = baseline.Nodes.SetItem("step-1", node with { Agent = node.Agent! with
             {
                 Skills = [new("arithmetic", "1", skill.ContentHash)],
                 UserMessage = new([new("literal", "Question: "), new("input", ""), new("literal", " / "), new("parameter", "context")]),
-                ReasoningEffort = AgentReasoningEffort.High
+                ReasoningEffortParameterId = "effort"
             } })
         };
         var events = new List<ExecutionEvent>();
@@ -41,7 +43,7 @@ public class AgentExecutionTests
         var fixture = DeterministicDemoChatClient.Registration();
         var executor = new AgentNodeExecutor([fixture with { Descriptor = fixture.Descriptor with { SupportsReasoningEffort = true } }], broker);
         await new PipelineRunner(broker, executor).ExecuteWithParametersAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"),
-            "1+1?", new Dictionary<string, string> { ["context"] = "integer arithmetic" },
+            "1+1?", new Dictionary<string, string> { ["context"] = "integer arithmetic", ["effort"] = "high" },
             e => { events.Add(e); return ValueTask.CompletedTask; });
         var request = Assert.Single(events, e => e.Kind == ExecutionEventKinds.ModelRequested);
         Assert.Contains("Give one number.", request.Data);

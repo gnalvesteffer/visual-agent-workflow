@@ -10,6 +10,7 @@ public sealed record AgentConfiguration(string ProviderId, string ProviderVersio
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public PromptTemplate? UserMessage { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<SkillReference>? Skills { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public AgentReasoningEffort? ReasoningEffort { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ReasoningEffortParameterId { get; init; }
 }
 
 public enum AgentReasoningEffort { Low, Medium, High }

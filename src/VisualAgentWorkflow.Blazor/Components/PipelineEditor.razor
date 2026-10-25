@@ -3,13 +3,18 @@
     {
         <details class="vaw-parameter-editor">
             <summary>Workflow parameters <span class="vaw-help">@ParameterDefinitions.Count configurable values</span></summary>
-            <p class="vaw-help">Define non-secret string inputs with portable defaults. Add a Workflow value node to pass a parameter through your graph.</p>
+            <p class="vaw-help">Define non-secret string, integer, number, boolean, or choice inputs. Workflow value nodes pass the validated value through the graph.</p>
             @foreach (var (parameterId, parameter) in ParameterDefinitions)
             {
                 <fieldset @key="parameterId" disabled="@Disabled">
                     <legend>@parameter.DisplayName · @parameterId</legend>
                     <label>Display name <input value="@parameter.DisplayName" maxlength="128" @onchange="args => UpdateParameter(parameterId, args, true)" /></label>
                     <label>Default value <textarea value="@parameter.DefaultValue" maxlength="16384" rows="2" @onchange="args => UpdateParameter(parameterId, args, false)"></textarea></label>
+                    <label>Type <select value="@(parameter.Type ?? "string")" @onchange="args => ChangeParameterType(parameterId, args)">
+                        <option value="string">Text</option><option value="integer">Integer</option><option value="number">Number</option><option value="boolean">True / false</option><option value="choice">Choice</option>
+                    </select></label>
+                    @if (parameter.Type == "choice")
+                    { <label>Allowed choices <input value="@string.Join(",", parameter.Choices ?? [])" @onchange="args => ChangeChoices(parameterId, args)" placeholder="default,low,medium,high" /></label> }
                     <button type="button" @onclick="() => Edit(() => WorkflowParameterEditing.Remove(Definition, parameterId))" disabled="@(Disabled || Definition.Nodes.Values.Any(node => node.Type == NodeTypes.WorkflowValue && node.ParameterId == parameterId))">Remove parameter</button>
                 </fieldset>
             }
@@ -170,8 +175,10 @@
                         @if (!ReadOnly && Providers.FirstOrDefault(p => p.ProviderId == agent.ProviderId && p.Version == agent.ProviderVersion) is { SupportsReasoningEffort: true })
                         {
                             <label>Reasoning effort
-                                <select aria-label="Reasoning effort for @id" value="@(agent.ReasoningEffort?.ToString() ?? "")" @onchange="args => ReasoningEffort(id, args)" disabled="@Disabled">
+                                <select aria-label="Reasoning effort for @id" value="@(agent.ReasoningEffortParameterId is { } reasoningParam ? "parameter:" + reasoningParam : agent.ReasoningEffort?.ToString() ?? "")" @onchange="args => ReasoningEffort(id, args)" disabled="@Disabled">
                                     <option value="">Provider default</option><option value="Low">Low</option><option value="Medium">Medium</option><option value="High">High</option>
+                                    @foreach (var (parameterId, parameter) in ParameterDefinitions.Where(pair => pair.Value.Type == "choice" && pair.Value.Choices is { } choices && new[] { "default", "low", "medium", "high" }.All(choices.Contains)))
+                                    { <option value="parameter:@parameterId">From workflow input: @parameter.DisplayName</option> }
                                 </select>
                             </label>
                             <p class="vaw-help">The provider adapter sends this preference. Compatible endpoints may interpret or ignore it.</p>
@@ -279,6 +286,7 @@
     private string newParameterDefault = "";
     private System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition> ParameterDefinitions =>
         Definition.Parameters ?? System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
+    private string CapabilitySchema => Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
     private string? error;
     private string? selectedNode;
     private string selectedPort = "out";
@@ -344,6 +352,19 @@
         var value = displayName ? existing.DefaultValue : args.Value?.ToString() ?? "";
         return Edit(() => WorkflowParameterEditing.Update(Definition, id, name, value));
     }
+    private Task ChangeParameterType(string id, ChangeEventArgs args)
+    {
+        var type = args.Value?.ToString() ?? "string";
+        return Edit(() => WorkflowParameterEditing.SetType(Definition, id, type,
+            type == "boolean" ? "false" : ParameterDefinitions[id].DefaultValue,
+            type == "choice" ? [ParameterDefinitions[id].DefaultValue] : null));
+    }
+    private Task ChangeChoices(string id, ChangeEventArgs args)
+    {
+        var choices = System.Collections.Immutable.ImmutableArray.CreateRange((args.Value?.ToString() ?? "").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
+        var defaultValue = choices.Contains(ParameterDefinitions[id].DefaultValue) ? ParameterDefinitions[id].DefaultValue : choices.FirstOrDefault() ?? "";
+        return Edit(() => WorkflowParameterEditing.SetType(Definition, id, "choice", defaultValue, choices));
+    }
     private Task BindParameter(string id, ChangeEventArgs args) => Edit(() => WorkflowParameterEditing.BindNode(
         Definition, id, args.Value?.ToString() ?? ""));
 
@@ -371,9 +392,10 @@
     {
         var value = args.Value?.ToString();
         var effort = Enum.TryParse<AgentReasoningEffort>(value, ignoreCase: false, out var parsed) ? parsed : (AgentReasoningEffort?)null;
+        var parameterId = value?.StartsWith("parameter:", StringComparison.Ordinal) == true ? value[10..] : null;
         var node = Definition.Nodes[id];
-        var definition = Definition with { SchemaVersion = "1.7", Nodes = Definition.Nodes.SetItem(id,
-            node with { Agent = node.Agent! with { ReasoningEffort = effort } }) };
+        var definition = Definition with { SchemaVersion = parameterId is not null ? "1.8" : CapabilitySchema, Nodes = Definition.Nodes.SetItem(id,
+            node with { Agent = node.Agent! with { ReasoningEffort = parameterId is null ? effort : null, ReasoningEffortParameterId = parameterId } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
     });
@@ -395,7 +417,7 @@
     private Task SetUserTemplate(string id, PromptTemplate? template) => Edit(() =>
     {
         var node = Definition.Nodes[id];
-        var definition = Definition with { SchemaVersion = "1.7", Nodes = Definition.Nodes.SetItem(id,
+        var definition = Definition with { SchemaVersion = CapabilitySchema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { UserMessage = template } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
@@ -411,7 +433,7 @@
             references = references.Add(new(skill.Id, skill.Version, skill.ContentHash));
             embedded = embedded.SetItem(skill.Id + "@" + skill.Version, skill);
         }
-        var definition = Definition with { SchemaVersion = "1.7", Skills = embedded.Count == 0 ? null : embedded,
+        var definition = Definition with { SchemaVersion = CapabilitySchema, Skills = embedded.Count == 0 ? null : embedded,
             Nodes = Definition.Nodes.SetItem(id, node with { Agent = node.Agent with { Skills = references.IsEmpty ? null : references } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
