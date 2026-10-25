@@ -57,6 +57,70 @@ public class AgentExecutionTests
     }
 
     [Fact]
+    public async Task ParentCanInvokeOnlyItsPinnedProfileAndChildToolsUseDistinctAuditedInvocation()
+    {
+        var broker = BrokerTests.CreateBroker(policy: new DemoToolPolicy());
+        var reverse = (await broker.ListBindingsAsync()).Single(binding => binding.BindingId == "demo.reverse");
+        var baseDefinition = Revision().Definition;
+        var profile = AgentProfile.Create("specialist", "1.0.0", "Text specialist", "Reverses text exactly.",
+            "demo.scripted", "1.0.0", "Specialist instructions.",
+            [new ToolBindingRequest(reverse.BindingId, reverse.ContractHash) { DescriptionHash = reverse.DescriptionHash }]);
+        var agent = baseDefinition.Nodes["step-1"].Agent! with
+        {
+            Instructions = "Parent instructions.",
+            Delegates = [new(profile.Id, profile.Version, profile.ContentHash!)]
+        };
+        var definition = baseDefinition with
+        {
+            SchemaVersion = "1.11",
+            AgentProfiles = ImmutableSortedDictionary<string, AgentProfile>.Empty.Add("specialist@1.0.0", profile),
+            Nodes = baseDefinition.Nodes.SetItem("step-1", baseDefinition.Nodes["step-1"] with { Agent = agent })
+        };
+        var responses = new Dictionary<string, int>(StringComparer.Ordinal);
+        var registration = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient((_, options, _) =>
+            {
+                var role = options?.Instructions?.Contains("Specialist instructions.", StringComparison.Ordinal) == true ? "child" : "parent";
+                responses[role] = responses.GetValueOrDefault(role) + 1;
+                if (role == "parent" && responses[role] == 1)
+                    return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                        [new FunctionCallContent("delegate-call", "delegate_0", new Dictionary<string, object?> { ["task"] = "reverse abc" })]))
+                    { FinishReason = ChatFinishReason.ToolCalls });
+                if (role == "child" && responses[role] == 1)
+                    return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                        [new FunctionCallContent("reverse-call", "tool_0", new Dictionary<string, object?> { ["text"] = "abc" })]))
+                    { FinishReason = ChatFinishReason.ToolCalls });
+                return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, role == "child" ? "" : "Final: cba"))
+                { FinishReason = ChatFinishReason.Stop });
+            })
+        };
+        var events = new List<ExecutionEvent>();
+        var output = await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "abc",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("Final: cba", output);
+        Assert.Equal(2, responses["parent"]);
+        Assert.Equal(2, responses["child"]);
+        var parentInvocation = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "step-1").InvocationId;
+        var childModelCalls = events.Where(evt => evt.Kind == ExecutionEventKinds.ModelRequested && evt.InvocationId != parentInvocation).ToArray();
+        Assert.Equal(2, childModelCalls.Length);
+        Assert.All(childModelCalls, childModelCall => Assert.Contains("Specialist instructions.", childModelCall.Data));
+        var parentModelCalls = events.Where(evt => evt.Kind == ExecutionEventKinds.ModelRequested && evt.InvocationId == parentInvocation).ToArray();
+        Assert.Equal(2, parentModelCalls.Length);
+        Assert.All(parentModelCalls, parentModelCall => Assert.DoesNotContain("tool_0", parentModelCall.Data));
+        Assert.Contains(parentModelCalls, parentModelCall => parentModelCall.Data!.Contains("delegate_0", StringComparison.Ordinal));
+        var toolCall = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+        Assert.NotEqual(parentInvocation, toolCall.InvocationId);
+        var delegatedStart = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentStarted && evt.Data!.Contains(profile.ContentHash!, StringComparison.Ordinal));
+        var delegatedCompletions = events.Where(evt => evt.Kind == ExecutionEventKinds.AgentCompleted && evt.Data!.Contains("delegatedProfileId", StringComparison.Ordinal)).ToArray();
+        Assert.NotEmpty(delegatedCompletions);
+        Assert.NotEqual(parentInvocation, delegatedStart.InvocationId);
+        Assert.All(delegatedCompletions, delegatedCompletion => Assert.Equal(delegatedStart.InvocationId, delegatedCompletion.InvocationId));
+    }
+
+    [Fact]
     public async Task FrameworkAgentCallsOnlyItsAssignedMcpToolAndRecordsModelRounds()
     {
         var broker = BrokerTests.CreateBroker(policy: new DemoToolPolicy());

@@ -50,7 +50,7 @@ public sealed class McpToolBroker : INodeToolBroker
         if (invocation.RunId == Guid.Empty || invocation.InvocationId == Guid.Empty ||
             !invocation.Revision.Definition.Nodes.TryGetValue(invocation.NodeId, out var node))
             throw new ArgumentException("Invalid runtime invocation context.", nameof(invocation));
-        return new Scope(this, invocation, NodeToolRequirements.For(node));
+        return new Scope(this, invocation, invocation.ToolRequirements ?? NodeToolRequirements.For(node));
     }
 
     private static async Task<McpClientTool> FindTool(McpClient client, McpToolRegistration registration, CancellationToken cancellationToken)
@@ -190,7 +190,7 @@ public sealed class McpToolBroker : INodeToolBroker
                 throw new ToolDescriptionMismatchException();
         }
 
-        private ValueTask Record(string kind, object payload) => invocation.Record(kind, JsonSerializer.Serialize(payload));
+        private ValueTask Record(string kind, object payload) => invocation.RecordEventAsync(kind, JsonSerializer.Serialize(payload));
         public ValueTask DisposeAsync() { Interlocked.Exchange(ref disposed, 1); return ValueTask.CompletedTask; }
     }
 }

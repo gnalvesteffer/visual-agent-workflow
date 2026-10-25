@@ -89,6 +89,7 @@ public static class PipelineReuse
         }
         var nodes = target.Nodes;
         var targetSkills = target.Skills ?? ImmutableSortedDictionary<string, WorkflowSkill>.Empty;
+        var targetProfiles = target.AgentProfiles ?? ImmutableSortedDictionary<string, AgentProfile>.Empty;
         foreach (var id in steps)
         {
             var sourceNode = source.Nodes[id];
@@ -99,6 +100,21 @@ public static class PipelineReuse
                 if (targetSkills.TryGetValue(key, out var existingSkill) && existingSkill != skill)
                     throw new ArgumentException("The target has a different skill with the same ID and version.");
                 targetSkills = targetSkills.SetItem(key, skill);
+            }
+            foreach (var reference in sourceNode.Agent?.Delegates ?? [])
+            {
+                var key = reference.Id + "@" + reference.Version;
+                var profile = source.AgentProfiles![key];
+                if (targetProfiles.TryGetValue(key, out var existingProfile) && existingProfile.ContentHash != profile.ContentHash)
+                    throw new ArgumentException("The target has a different agent profile with the same ID and version.");
+                targetProfiles = targetProfiles.SetItem(key, profile);
+                foreach (var skill in profile.Skills ?? [])
+                {
+                    var skillKey = skill.Id + "@" + skill.Version;
+                    if (targetSkills.TryGetValue(skillKey, out var existingSkill) && existingSkill != skill)
+                        throw new ArgumentException("The target has a different skill with the same ID and version.");
+                    targetSkills = targetSkills.SetItem(skillKey, skill);
+                }
             }
             nodes = nodes.Add(ids[id], sourceNode with
             {
@@ -113,13 +129,14 @@ public static class PipelineReuse
         order.InsertRange(position + 1, steps.Select(id => ids[id]));
         var definition = PipelineEditing.Reconnect(target with
         {
-            SchemaVersion = target.SchemaVersion == "1.10" || source.SchemaVersion == "1.10" ? "1.10" : target.SchemaVersion == "1.9" || source.SchemaVersion == "1.9" ? "1.9" :
+            SchemaVersion = target.SchemaVersion == "1.11" || source.SchemaVersion == "1.11" ? "1.11" : target.SchemaVersion == "1.10" || source.SchemaVersion == "1.10" ? "1.10" : target.SchemaVersion == "1.9" || source.SchemaVersion == "1.9" ? "1.9" :
                 target.SchemaVersion == "1.8" || source.SchemaVersion == "1.8" ? "1.8" :
                 target.SchemaVersion == "1.7" || source.SchemaVersion == "1.7" ? "1.7" :
                 target.SchemaVersion == "1.6" || parameterMap.Count > 0 ? "1.6" : "1.3",
             Nodes = nodes,
             Parameters = targetParameters.Count == 0 ? null : targetParameters,
-            Skills = targetSkills.Count == 0 ? null : targetSkills
+            Skills = targetSkills.Count == 0 ? null : targetSkills,
+            AgentProfiles = targetProfiles.Count == 0 ? null : targetProfiles
         }, order);
         var presentation = layout.Reconcile(definition);
         var points = steps.Select(id => sourceLayout.Nodes[id].Position)

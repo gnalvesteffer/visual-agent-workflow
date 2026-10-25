@@ -12,6 +12,35 @@ public sealed record AgentConfiguration(string ProviderId, string ProviderVersio
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public AgentReasoningEffort? ReasoningEffort { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ReasoningEffortParameterId { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? MaxOutputTokens { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<AgentProfileReference>? Delegates { get; init; }
+}
+
+/// <summary>A portable, immutable specialist-agent preset. Host registrations still resolve providers and authorize tools.</summary>
+public sealed record AgentProfile(string Id, string Version, string Name, string Description, string ProviderId,
+    string ProviderVersion, string Instructions, ImmutableArray<ToolBindingRequest> Tools)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<WorkflowSkill>? Skills { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public AgentReasoningEffort? ReasoningEffort { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? MaxOutputTokens { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ContentHash { get; init; }
+
+    public static AgentProfile Create(string id, string version, string name, string description, string providerId,
+        string providerVersion, string instructions, ImmutableArray<ToolBindingRequest> tools,
+        ImmutableArray<WorkflowSkill>? skills = null, AgentReasoningEffort? reasoningEffort = null, int? maxOutputTokens = null)
+    {
+        var profile = new AgentProfile(id, version, name, description, providerId, providerVersion, instructions, tools)
+        { Skills = skills, ReasoningEffort = reasoningEffort, MaxOutputTokens = maxOutputTokens };
+        var content = System.Text.Json.JsonSerializer.Serialize(profile with { ContentHash = null });
+        return profile with { ContentHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(content))) };
+    }
+}
+
+public sealed record AgentProfileReference(string Id, string Version, string ContentHash);
+public sealed record AgentProfileLibraryItem(AgentProfile Profile, string Folder);
+
+public interface IAgentProfileLibrary
+{
+    IReadOnlyList<AgentProfileLibraryItem> List();
 }
 
 // Preserve the persisted numeric values from the original schema: 0=Low, 1=Medium, 2=High.

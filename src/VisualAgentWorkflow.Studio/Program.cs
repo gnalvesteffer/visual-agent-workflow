@@ -47,6 +47,8 @@ builder.Services.AddSingleton<StudioModelProviderStore>(services => new StudioMo
 builder.Services.AddSingleton<IAgentProviderCatalog>(services => { _ = services.GetRequiredService<StudioModelProviderStore>(); return services.GetRequiredService<IAgentNodeExecutor>(); });
 builder.Services.AddSingleton(new StudioSkillLibrary(studioDataDirectory));
 builder.Services.AddSingleton<ISkillLibrary>(services => services.GetRequiredService<StudioSkillLibrary>());
+builder.Services.AddSingleton(new StudioAgentProfileLibrary(studioDataDirectory));
+builder.Services.AddSingleton<IAgentProfileLibrary>(services => services.GetRequiredService<StudioAgentProfileLibrary>());
 var runStoreKind = builder.Configuration["WorkflowStudio:RunStore"] ?? "file";
 if (runStoreKind == "sqlite")
     builder.Services.AddSingleton<IWorkflowRunStore>(_ => new SqliteWorkflowRunStore(Path.Combine(studioDataDirectory, "runs.sqlite3")));

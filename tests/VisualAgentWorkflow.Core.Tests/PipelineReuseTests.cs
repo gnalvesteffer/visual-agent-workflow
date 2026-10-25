@@ -101,6 +101,33 @@ public sealed class PipelineReuseTests
     }
 
     [Fact]
+    public void InsertionCarriesExactDelegatedProfilesAndTheirSkillSnapshots()
+    {
+        var skill = WorkflowSkill.Create("specialist-skill", "1", "Specialist", "Be exact.");
+        var source = Definition() with { SchemaVersion = "1.11" };
+        var profile = AgentProfile.Create("specialist", "1", "Specialist", "A child agent.",
+            "host-provider", "2.0", "Follow the skill.", [], [skill]);
+        var originalAgent = new AgentConfiguration("host-provider", "2.0", "Delegate deliberately.", [])
+        { Delegates = [new(profile.Id, profile.Version, profile.ContentHash!)] };
+        source = source with
+        {
+            Skills = ImmutableSortedDictionary<string, WorkflowSkill>.Empty.Add("specialist-skill@1", skill),
+            AgentProfiles = ImmutableSortedDictionary<string, AgentProfile>.Empty.Add("specialist@1", profile),
+            Nodes = source.Nodes.SetItem("step-0", new(NodeTypes.Agent, "1.0.0", Agent: originalAgent))
+        };
+
+        var inserted = PipelineReuse.Insert(Definition("target", 1), WorkflowLayout.Create(Definition("target", 1)), "input",
+            new(1, WorkflowRevision.Create(source, "test")), WorkflowLayout.Create(source));
+        var imported = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(inserted.Definition, inserted.Layout));
+
+        Assert.Empty(WorkflowValidator.Validate(inserted.Definition));
+        Assert.Equal(profile.ContentHash, inserted.Definition.AgentProfiles!["specialist@1"].ContentHash);
+        Assert.Equal(skill, inserted.Definition.Skills!["specialist-skill@1"]);
+        Assert.Contains(imported.Requirements, requirement => requirement.Kind == "agent-profile" && requirement.ContractHash == profile.ContentHash);
+        Assert.Contains(imported.Requirements, requirement => requirement.Kind == "skill" && requirement.ContractHash == skill.ContentHash);
+    }
+
+    [Fact]
     public void RejectsOverLimitInsertAndPreservesOldHashesAndSchemaThroughEdits()
     {
         var target = Definition("large", 253); var source = Definition();

@@ -145,6 +145,35 @@ public class AgentCapabilityTests
     }
 
     [Fact]
+    public void DelegatedAgentProfileRoundTripsWithPinnedDependenciesAndRejectsMissingSkillSnapshot()
+    {
+        var skill = WorkflowSkill.Create("math", "1.0", "Arithmetic", "Return a single number.");
+        var definition = Definition(skill);
+        var profile = AgentProfile.Create("calculator", "2.0", "Calculator", "Performs arithmetic.",
+            "demo.scripted", "1.0.0", "Use the assigned skill.", [], [skill], AgentReasoningEffort.Off, 512);
+        var agent = definition.Nodes["step-1"].Agent! with
+        { Delegates = [new(profile.Id, profile.Version, profile.ContentHash!)] };
+        definition = definition with
+        {
+            SchemaVersion = "1.11",
+            AgentProfiles = ImmutableSortedDictionary<string, AgentProfile>.Empty.Add("calculator@2.0", profile),
+            Nodes = definition.Nodes.SetItem("step-1", definition.Nodes["step-1"] with { Agent = agent })
+        };
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        var package = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(definition, WorkflowLayout.Create(definition)));
+        Assert.Equal(profile.ContentHash, package.Definition.AgentProfiles!["calculator@2.0"].ContentHash);
+        Assert.Contains(package.Requirements, requirement => requirement.Kind == "agent-profile" && requirement.ContractHash == profile.ContentHash);
+        Assert.Contains(package.Requirements, requirement => requirement.Kind == "skill" && requirement.ContractHash == skill.ContentHash);
+        Assert.Contains(package.Requirements, requirement => requirement.Kind == "agent-provider" && requirement.Id == "demo.scripted");
+
+        var missingSkill = definition with { Skills = null };
+        Assert.Contains(WorkflowValidator.Validate(missingSkill), issue => issue.Code == "agent.delegates");
+        var tampered = definition with { AgentProfiles = definition.AgentProfiles!.SetItem("calculator@2.0", profile with { Instructions = "Changed." }) };
+        Assert.Contains(WorkflowValidator.Validate(tampered), issue => issue.Code is "agentProfile.definition" or "agent.delegates");
+    }
+
+    [Fact]
     public void TypedParametersValidateDefaultsAndOverridesAndRoundTripAsSchema18()
     {
         var definition = new WorkflowDefinition("1.8", "typed-parameters", "input",

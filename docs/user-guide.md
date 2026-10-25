@@ -64,6 +64,14 @@ Select **Skill library** to create a text-only skill revision. Give it an ID, ve
 
 A consuming service needs its own model-provider and MCP registrations matching the workflow's provider IDs and tool contract hashes, plus its own tool authorization policy. It does not need the Studio's skill library because the assigned text is in the package. Endpoints, bearer tokens, and host grants do not travel with exports. See [agent capability libraries](agent-capability-libraries.md) for the portability model and current limits.
 
+### Design reusable subagents
+
+Open **Agent Designer** in the top navigation. Create a profile with a stable ID and version, instructions, provider, and optional reasoning/output-token settings. Select only the MCP tools and skill revisions the specialist needs, then save. To change a saved profile, use **New version** and save the revised settings as a new immutable revision. Folders only organize the local Studio library.
+
+Back in a workflow, select a parent agent node and add the desired exact profile versions under **Subagents**. The workflow embeds those profile snapshots and skill text. The parent model can call only the profiles assigned to that node. Each child receives the task as its user message and can use only its own profile tools. MCP calls must also pass the consuming host's grant for the workflow node; package import never grants access.
+
+The current bound allows four assigned profiles and four delegation calls per parent invocation, with one delegation level and a 16,384-character task. Child activity appears in run evidence under a separate invocation linked to the parent; historical playback does not re-run either model. Delegation is sequential and has no aggregate parent/child token budget yet. Parallel teams and shared agent channels are separate roadmap work. See [agent profiles and bounded delegation](agent-profiles.md).
+
 The following diagram shows supported execution, not the spatial arrangement of cards. Uppercase and reverse are example deterministic steps.
 
 ```mermaid

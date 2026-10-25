@@ -15,6 +15,8 @@ public sealed record WorkflowDefinition(
     public ImmutableSortedDictionary<string, WorkflowParameterDefinition>? Parameters { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ImmutableSortedDictionary<string, WorkflowSkill>? Skills { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableSortedDictionary<string, AgentProfile>? AgentProfiles { get; init; }
 }
 
 /// <summary>A workflow-owned, non-secret typed scalar represented portably as text.</summary>

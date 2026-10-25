@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -31,6 +32,12 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         WorkflowValidator.ThrowIfInvalid(invocation.Revision.Definition);
         var configuration = invocation.Revision.Definition.Nodes[invocation.NodeId].Agent
             ?? throw new ArgumentException("The invocation is not an agent node.");
+        return await ExecuteConfigurationAsync(invocation, configuration, input, true, cancellationToken);
+    }
+
+    private async Task<string> ExecuteConfigurationAsync(NodeInvocationContext invocation, AgentConfiguration configuration,
+        string input, bool allowDelegation, CancellationToken cancellationToken)
+    {
         if (!Volatile.Read(ref registrations).TryGetValue(Key(configuration.ProviderId, configuration.ProviderVersion), out var provider))
             throw new InvalidOperationException("The pinned agent provider is unavailable.");
         var reasoningEffort = configuration.ReasoningEffortParameterId is { } parameterId && invocation.Parameters is { } values
@@ -94,6 +101,82 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                         return result;
                     }));
             }
+            if (allowDelegation && configuration.Delegates is { } delegates)
+            {
+                var profiles = invocation.Revision.Definition.AgentProfiles
+                    ?? throw new InvalidOperationException("The workflow has no embedded agent profiles.");
+                var delegatedCalls = 0;
+                foreach (var reference in delegates)
+                {
+                    if (!profiles.TryGetValue(reference.Id + "@" + reference.Version, out var profile) || profile.ContentHash != reference.ContentHash)
+                        throw new InvalidOperationException("An assigned agent profile is unavailable or has changed.");
+                    var name = $"delegate_{functions.Count}";
+                    using var schema = JsonDocument.Parse("""{"type":"object","properties":{"task":{"type":"string","description":"The bounded task for this specialist agent."}},"required":["task"],"additionalProperties":false}""");
+                    functions.Add(new BoundMcpFunction(name,
+                        $"Delegate a bounded task to {profile.Name}. {profile.Description}", schema.RootElement.Clone(), async (arguments, token) =>
+                        {
+                            if (Interlocked.Increment(ref delegatedCalls) > 4)
+                                throw new InvalidOperationException("The agent delegation call limit was reached.");
+                            if (!arguments.TryGetValue("task", out var taskValue) || taskValue is not string task || string.IsNullOrWhiteSpace(task) || task.Length > 16_384)
+                                throw new InvalidOperationException("A delegate task must contain 1–16,384 characters.");
+                            var childInvocationId = Guid.NewGuid();
+                            var childContext = invocation with
+                            {
+                                InvocationId = childInvocationId,
+                                ToolRequirements = profile.Tools,
+                                RecordWithInvocation = (eventInvocationId, kind, data) => invocation.RecordEventForAsync(
+                                    eventInvocationId, kind, JsonSerializer.Serialize(new
+                                    {
+                                        delegatedProfileId = profile.Id,
+                                        delegatedProfileVersion = profile.Version,
+                                        childInvocationId,
+                                        parentInvocationId = invocation.InvocationId,
+                                        eventData = data
+                                    }))
+                            };
+                            var childConfiguration = new AgentConfiguration(profile.ProviderId, profile.ProviderVersion,
+                                profile.Instructions, profile.Tools)
+                            {
+                                Skills = profile.Skills?.Select(skill => new SkillReference(skill.Id, skill.Version, skill.ContentHash)).ToImmutableArray(),
+                                ReasoningEffort = profile.ReasoningEffort,
+                                MaxOutputTokens = profile.MaxOutputTokens
+                            };
+                            await childContext.RecordEventAsync(ExecutionEventKinds.AgentStarted, JsonSerializer.Serialize(new
+                            {
+                                delegatedProfileId = profile.Id,
+                                delegatedProfileVersion = profile.Version,
+                                profile.ContentHash,
+                                childInvocationId,
+                                parentInvocationId = invocation.InvocationId
+                            }));
+                            try
+                            {
+                                var result = await ExecuteConfigurationAsync(childContext, childConfiguration, task, false, token);
+                                await childContext.RecordEventAsync(ExecutionEventKinds.AgentCompleted, JsonSerializer.Serialize(new
+                                {
+                                    delegatedProfileId = profile.Id,
+                                    delegatedProfileVersion = profile.Version,
+                                    childInvocationId,
+                                    parentInvocationId = invocation.InvocationId,
+                                    output = result
+                                }));
+                                return result;
+                            }
+                            catch
+                            {
+                                await childContext.RecordEventAsync(ExecutionEventKinds.AgentFailed, JsonSerializer.Serialize(new
+                                {
+                                    delegatedProfileId = profile.Id,
+                                    delegatedProfileVersion = profile.Version,
+                                    childInvocationId,
+                                    parentInvocationId = invocation.InvocationId,
+                                    reason = "Delegated agent failed."
+                                }));
+                                throw;
+                            }
+                        }));
+                }
+            }
             using var client = new FunctionInvokingChatClient(new RecordingClient(provider.Create(), invocation))
             {
                 MaximumIterationsPerRequest = 8,
@@ -156,7 +239,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             throw;
         }
 
-        ValueTask Record(string kind, object payload) => invocation.Record(kind, JsonSerializer.Serialize(payload));
+        ValueTask Record(string kind, object payload) => invocation.RecordEventAsync(kind, JsonSerializer.Serialize(payload));
     }
 
     private sealed class RecordingClient(IChatClient inner, NodeInvocationContext invocation) : DelegatingChatClient(inner)
@@ -193,7 +276,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         {
             var json = JsonSerializer.Serialize(payload);
             if (json.Length > 262_144) throw new InvalidOperationException("Model trace exceeds the local capture budget.");
-            return invocation.Record(kind, json);
+            return invocation.RecordEventAsync(kind, json);
         }
 
         private static object[] Project(IEnumerable<ChatMessage> messages) => messages.Select(message => (object)new

@@ -30,6 +30,15 @@ public sealed record NodeInvocationContext(Guid RunId, WorkflowRevision Revision
     Func<string, string?, ValueTask> Record)
 {
     public IReadOnlyDictionary<string, string>? Parameters { get; init; }
+    /// <summary>Trusted runtime restriction for delegated calls; it can only narrow host policy access.</summary>
+    public IReadOnlyList<ToolBindingRequest>? ToolRequirements { get; init; }
+    /// <summary>Runtime event writer that preserves distinct child invocation identities.</summary>
+    public Func<Guid, string, string?, ValueTask>? RecordWithInvocation { get; init; }
+
+    public ValueTask RecordEventAsync(string kind, string? data) => RecordEventForAsync(InvocationId, kind, data);
+
+    public ValueTask RecordEventForAsync(Guid invocationId, string kind, string? data) =>
+        RecordWithInvocation is { } writer ? writer(invocationId, kind, data) : Record(kind, data);
 }
 
 public interface INodeToolScope : IAsyncDisposable

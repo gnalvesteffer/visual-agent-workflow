@@ -1,0 +1,156 @@
+@page "/agents"
+@rendermode InteractiveServer
+@using System.Collections.Immutable
+@inject StudioAgentProfileLibrary Library
+@inject IAgentProviderCatalog ProviderCatalog
+@inject IToolBindingCatalog ToolCatalog
+@inject ISkillLibrary SkillLibrary
+
+<PageTitle>Agent Designer · Visual Agent Workflow</PageTitle>
+<main class="vaw-provider-settings">
+    <nav class="vaw-studio-navigation" aria-label="Agent library navigation"><a href="/">← Workflow designer</a><a href="/skills">Skill library</a><span>Agent Designer</span><StudioThemePicker /></nav>
+    <header class="vaw-settings-heading"><div><p class="vaw-settings-kicker">WORKFLOW STUDIO</p><h1>Agent Designer</h1>
+        <p class="vaw-settings-intro">Create immutable specialist-agent profiles with their own model, instructions, skills, and MCP tools. Assign a profile to an agent node to expose it as a bounded delegate tool.</p></div></header>
+    @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
+    <section class="vaw-settings-section" aria-label="Saved agent profiles">
+        <h2>Saved profiles</h2>
+        @if (Library.List().Count == 0) { <p>No agent profiles yet. Create a profile below.</p> }
+        @foreach (var item in Library.List())
+        {
+            <article class="vaw-provider-card" @key="(item.Profile.Id,item.Profile.Version)">
+                <h3>@item.Profile.Name <small>@item.Profile.Version</small></h3>
+                <p><code>@item.Profile.Id</code> · @(string.IsNullOrWhiteSpace(item.Folder) ? "Unfiled" : item.Folder) · @item.Profile.ContentHash![..8]</p>
+                <p>@item.Profile.Description</p>
+                <p>@item.Profile.ProviderId · @item.Profile.ProviderVersion · @item.Profile.Tools.Length MCP tools · @(item.Profile.Skills?.Length ?? 0) skills</p>
+                <details><summary>View system instructions</summary><pre>@item.Profile.Instructions</pre></details>
+                <label>Folder <input aria-label="Folder for @item.Profile.Id @item.Profile.Version" value="@item.Folder" @onchange="args => Move(item, args)" /></label>
+                <button type="button" @onclick="() => Copy(item)">New version from this profile</button>
+                <button type="button" class="vaw-danger-quiet" @onclick="() => Delete(item)">Delete from library</button>
+            </article>
+        }
+    </section>
+    <section class="vaw-settings-section" aria-label="Create agent profile">
+        <h2>Create agent profile</h2>
+        <p>Saving creates an immutable version. Workflows embed the exact version they assign; editing starts a new version.</p>
+        <form class="vaw-provider-form" @onsubmit="Save" @onsubmit:preventDefault>
+            <label>Profile ID <input required @bind="id" maxlength="64" /></label>
+            <label>Version <input required @bind="version" maxlength="64" /></label>
+            <label>Name <input required @bind="name" maxlength="128" /></label>
+            <label>Folder <input @bind="folder" maxlength="256" placeholder="Research/Review" /></label>
+            <label class="vaw-provider-form-wide">Delegate description <textarea required @bind="description" maxlength="512" rows="2" placeholder="When should the parent agent ask this specialist for help?" /></label>
+            <label>Model provider
+                <select @bind="providerKey" required>
+                    @foreach (var provider in providers) { <option value="@($"{provider.ProviderId}@{provider.Version}")">@provider.DisplayName · @provider.ModelId</option> }
+                </select>
+            </label>
+            <label>Reasoning effort
+                <select @bind="reasoning">
+                    <option value="">Provider default</option><option value="Off">Off</option><option value="Low">Low</option><option value="Medium">Medium</option><option value="High">High</option>
+                </select>
+            </label>
+            <label>Maximum output tokens <input type="number" min="@AgentOutputTokenLimits.Minimum" max="@AgentOutputTokenLimits.Maximum" @bind="maxOutputTokens" /></label>
+            <label class="vaw-provider-form-wide">System instructions <textarea required @bind="instructions" maxlength="8192" rows="6" /></label>
+            <fieldset class="vaw-provider-form-wide"><legend>Allowed MCP tools</legend>
+                <p class="vaw-help">The profile can call only these tools. The consumer host must also authorize each binding for the parent agent node.</p>
+                @foreach (var tool in tools)
+                { <label @key="tool.BindingId"><input type="checkbox" checked="@selectedTools.Contains(tool.BindingId)" @onchange="args => ToggleTool(tool, args)" />@tool.DisplayName · @tool.BindingId</label> }
+                @if (tools.Count == 0) { <p>No invocation-enabled MCP tools are available. Configure connections in the MCP library first.</p> }
+            </fieldset>
+            <fieldset class="vaw-provider-form-wide"><legend>Skills</legend>
+                <p class="vaw-help">Selected skill revisions are copied into the immutable profile snapshot.</p>
+                @foreach (var item in skills)
+                { <label @key="item.Skill.Id + item.Skill.Version"><input type="checkbox" checked="@selectedSkills.Contains(item.Skill.Id + "@" + item.Skill.Version)" @onchange="args => ToggleSkill(item, args)" />@item.Skill.Name · @item.Skill.Version @(string.IsNullOrWhiteSpace(item.Folder) ? "" : "· " + item.Folder)</label> }
+            </fieldset>
+            <button type="submit" class="vaw-primary" disabled="@(providers.Count == 0)">Save profile version</button>
+        </form>
+        @if (message is not null) { <p role="status">@message</p> }
+    </section>
+</main>
+
+@code {
+    private IReadOnlyList<AgentProviderDescriptor> providers = [];
+    private IReadOnlyList<ToolBindingDescriptor> tools = [];
+    private IReadOnlyList<SkillLibraryItem> skills = [];
+    private readonly HashSet<string> selectedTools = new(StringComparer.Ordinal);
+    private readonly HashSet<string> selectedSkills = new(StringComparer.Ordinal);
+    private string id = "";
+    private string version = "1.0.0";
+    private string name = "";
+    private string description = "";
+    private string folder = "";
+    private string providerKey = "";
+    private string instructions = "";
+    private string reasoning = "";
+    private int? maxOutputTokens;
+    private string? message;
+    private string? error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            providers = await ProviderCatalog.ListProvidersAsync();
+            tools = await ToolCatalog.ListBindingsAsync();
+            skills = SkillLibrary.List();
+            providerKey = providers.FirstOrDefault() is { } provider ? $"{provider.ProviderId}@{provider.Version}" : "";
+        }
+        catch (Exception exception) { error = exception.Message; }
+    }
+
+    private void ToggleTool(ToolBindingDescriptor tool, ChangeEventArgs args)
+    {
+        if (args.Value is true) selectedTools.Add(tool.BindingId); else selectedTools.Remove(tool.BindingId);
+    }
+
+    private void ToggleSkill(SkillLibraryItem item, ChangeEventArgs args)
+    {
+        var key = item.Skill.Id + "@" + item.Skill.Version;
+        if (args.Value is true) selectedSkills.Add(key); else selectedSkills.Remove(key);
+    }
+
+    private void Save()
+    {
+        try
+        {
+            var provider = providers.Single(item => $"{item.ProviderId}@{item.Version}" == providerKey);
+            var profileTools = tools.Where(tool => selectedTools.Contains(tool.BindingId))
+                .Select(tool => new ToolBindingRequest(tool.BindingId, tool.ContractHash) { DescriptionHash = tool.DescriptionHash }).ToImmutableArray();
+            var profileSkills = skills.Where(item => selectedSkills.Contains(item.Skill.Id + "@" + item.Skill.Version))
+                .Select(item => item.Skill).ToImmutableArray();
+            var effort = Enum.TryParse<AgentReasoningEffort>(reasoning, out var selectedEffort) ? selectedEffort : (AgentReasoningEffort?)null;
+            if (effort is not null && !provider.SupportsReasoningEffort)
+                throw new ArgumentException("The selected provider does not advertise reasoning effort support.");
+            var profile = AgentProfile.Create(id.Trim(), version.Trim(), name.Trim(), description.Trim(), provider.ProviderId,
+                provider.Version, instructions, profileTools, profileSkills, effort, maxOutputTokens);
+            Library.Add(profile, folder.Trim());
+            message = "Agent profile version saved.";
+            error = null;
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        { error = exception.Message; message = null; }
+    }
+
+    private void Copy(AgentProfileLibraryItem item)
+    {
+        id = item.Profile.Id; version = item.Profile.Version + ".1"; name = item.Profile.Name;
+        description = item.Profile.Description; instructions = item.Profile.Instructions; folder = item.Folder;
+        providerKey = $"{item.Profile.ProviderId}@{item.Profile.ProviderVersion}";
+        reasoning = item.Profile.ReasoningEffort?.ToString() ?? "";
+        maxOutputTokens = item.Profile.MaxOutputTokens;
+        selectedTools.Clear(); selectedTools.UnionWith(item.Profile.Tools.Select(tool => tool.BindingId));
+        selectedSkills.Clear(); selectedSkills.UnionWith((item.Profile.Skills ?? []).Select(skill => skill.Id + "@" + skill.Version));
+        message = "Update the copied profile and save it as a new version.";
+    }
+
+    private void Move(AgentProfileLibraryItem item, ChangeEventArgs args)
+    {
+        try { Library.Move(item.Profile.Id, item.Profile.Version, args.Value?.ToString() ?? ""); error = null; }
+        catch (ArgumentException exception) { error = exception.Message; }
+    }
+
+    private void Delete(AgentProfileLibraryItem item)
+    {
+        Library.Delete(item.Profile.Id, item.Profile.Version);
+        message = "Removed from the local library. Workflows with this profile keep their embedded revision.";
+    }
+}

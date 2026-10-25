@@ -140,6 +140,8 @@ public partial class WorkflowDesigner
         "mcp-tool" => McpRequirementAvailability(requirement),
         "agent-provider" => providers.Any(p => p.ProviderId == requirement.Id && p.Version == requirement.Version)
             ? "Matching host provider listed" : "Matching host provider not listed",
+        "agent-profile" => AgentProfileLibrary?.List().Any(item => item.Profile.Id == requirement.Id && item.Profile.Version == requirement.Version && item.Profile.ContentHash == requirement.ContractHash) == true
+            ? "Matching local profile listed" : "Exact profile is embedded in this workflow",
         _ => "Unknown requirement"
     };
 

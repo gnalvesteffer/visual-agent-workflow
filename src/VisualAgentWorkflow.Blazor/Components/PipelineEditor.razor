@@ -281,6 +281,21 @@
                                 { <p>Assigned: @reference.Id · @reference.Version · @reference.ContentHash[..8]</p> }
                                 @if (SkillLibrary is not null) { <a href="/skills">Manage skill library</a> }
                             </fieldset>
+                            <fieldset disabled="@Disabled"><legend>Subagents</legend>
+                                <p class="vaw-help">Selected profiles appear as delegate tools. The parent chooses when to call them. Each child gets only its own profile tools within host authorization. Delegation is limited to one level and four calls per parent run.</p>
+                                @foreach (var item in AgentProfileLibrary?.List() ?? [])
+                                {
+                                    var profile = item.Profile;
+                                    var assigned = (agent.Delegates ?? []).Any(reference => reference.Id == profile.Id && reference.Version == profile.Version);
+                                    <label @key="profile.Id + profile.Version"><input type="checkbox" checked="@assigned" @onchange="args => AssignProfile(id, profile, args)" disabled="@(!assigned && (agent.Delegates?.Length ?? 0) >= 4)" />@profile.Name · @profile.Version @(string.IsNullOrEmpty(item.Folder) ? "" : "· " + item.Folder)</label>
+                                }
+                                @foreach (var reference in agent.Delegates ?? [])
+                                {
+                                    @if (!(AgentProfileLibrary?.List() ?? []).Any(item => item.Profile.Id == reference.Id && item.Profile.Version == reference.Version))
+                                    { <p>Embedded profile: @reference.Id · @reference.Version · @reference.ContentHash[..8] <button type="button" @onclick="() => RemoveProfile(id, reference)">Remove unavailable profile</button></p> }
+                                }
+                                @if (AgentProfileLibrary is not null) { <a href="/agents">Open Agent Designer</a> }
+                            </fieldset>
                                 @foreach (var binding in Bindings)
                                 {
                                     var assigned = agent.Tools.Any(request => BindingMatches(request, binding));
@@ -333,6 +348,7 @@
     [Parameter] public IReadOnlyList<ToolBindingDescriptor> Bindings { get; set; } = [];
     [Parameter] public IReadOnlyList<AgentProviderDescriptor> Providers { get; set; } = [];
     [Parameter] public ISkillLibrary? SkillLibrary { get; set; }
+    [Parameter] public IAgentProfileLibrary? AgentProfileLibrary { get; set; }
     private string newType = NodeTypes.Uppercase;
     private string newParameterId = "";
     private string newParameterName = "";
@@ -340,7 +356,7 @@
     private string newParameterDescription = "";
     private System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition> ParameterDefinitions =>
         Definition.Parameters ?? System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
-    private string CapabilitySchema => Definition.SchemaVersion is "1.10" or "1.9" ? Definition.SchemaVersion : Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
+    private string CapabilitySchema => Definition.SchemaVersion is "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
     private string? error;
     private string? selectedNode;
     private string selectedPort = "out";
@@ -484,7 +500,7 @@
         var parameterId = value?.StartsWith("parameter:", StringComparison.Ordinal) == true ? value[10..] : null;
         var node = Definition.Nodes[id];
         var parameterIncludesOff = parameterId is not null && ParameterDefinitions.TryGetValue(parameterId, out var parameter) && parameter.Choices?.Contains("off") == true;
-        var schema = effort == AgentReasoningEffort.Off || parameterIncludesOff ? "1.10" : parameterId is not null ? Definition.SchemaVersion is "1.10" or "1.9" ? Definition.SchemaVersion : "1.8" : CapabilitySchema;
+        var schema = effort == AgentReasoningEffort.Off || parameterIncludesOff ? Definition.SchemaVersion == "1.11" ? "1.11" : "1.10" : parameterId is not null ? Definition.SchemaVersion is "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : "1.8" : CapabilitySchema;
         var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { ReasoningEffort = parameterId is null ? effort : null, ReasoningEffortParameterId = parameterId } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -496,7 +512,8 @@
         if (!int.TryParse(args.Value?.ToString(), out var limit) || limit is < AgentOutputTokenLimits.Minimum or > AgentOutputTokenLimits.Maximum)
             throw new ArgumentException($"Choose an output limit from {AgentOutputTokenLimits.Minimum} to {AgentOutputTokenLimits.Maximum} tokens.");
         var node = Definition.Nodes[id];
-        var definition = Definition with { SchemaVersion = "1.10", Nodes = Definition.Nodes.SetItem(id,
+        var schema = Definition.SchemaVersion == "1.11" ? "1.11" : "1.10";
+        var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { MaxOutputTokens = limit } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
@@ -524,6 +541,50 @@
         }
         var definition = Definition with { SchemaVersion = CapabilitySchema, Skills = embedded.Count == 0 ? null : embedded,
             Nodes = Definition.Nodes.SetItem(id, node with { Agent = node.Agent with { Skills = references.IsEmpty ? null : references } }) };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    });
+
+    private Task AssignProfile(string id, AgentProfile profile, ChangeEventArgs args) => Edit(() =>
+    {
+        var node = Definition.Nodes[id];
+        var references = System.Collections.Immutable.ImmutableArray.CreateRange((node.Agent!.Delegates ?? [])
+            .Where(reference => reference.Id != profile.Id || reference.Version != profile.Version));
+        var profiles = Definition.AgentProfiles ?? System.Collections.Immutable.ImmutableSortedDictionary<string, AgentProfile>.Empty;
+        var skills = Definition.Skills ?? System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowSkill>.Empty;
+        if (args.Value is true)
+        {
+            if (references.Length >= 4) throw new ArgumentException("An agent can use up to four delegated profiles.");
+            references = references.Add(new(profile.Id, profile.Version, profile.ContentHash!));
+            profiles = profiles.SetItem(profile.Id + "@" + profile.Version, profile);
+            foreach (var skill in profile.Skills ?? [])
+            {
+                var key = skill.Id + "@" + skill.Version;
+                if (skills.TryGetValue(key, out var existing) && existing.ContentHash != skill.ContentHash)
+                    throw new ArgumentException($"Skill revision {key} conflicts with a different embedded copy.");
+                skills = skills.SetItem(key, skill);
+            }
+        }
+        var nodes = Definition.Nodes.SetItem(id, node with { Agent = node.Agent with { Delegates = references.IsEmpty ? null : references } });
+        var stillUsed = nodes.Values.Where(item => item.Agent is not null).SelectMany(item => item.Agent!.Delegates ?? [])
+            .Any(reference => reference.Id == profile.Id && reference.Version == profile.Version);
+        if (!stillUsed) profiles = profiles.Remove(profile.Id + "@" + profile.Version);
+        var definition = Definition with { SchemaVersion = "1.11", AgentProfiles = profiles.Count == 0 ? null : profiles,
+            Skills = skills.Count == 0 ? null : skills, Nodes = nodes };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    });
+
+    private Task RemoveProfile(string id, AgentProfileReference reference) => Edit(() =>
+    {
+        var node = Definition.Nodes[id];
+        var delegates = System.Collections.Immutable.ImmutableArray.CreateRange((node.Agent!.Delegates ?? []).Where(item => item != reference));
+        var nodes = Definition.Nodes.SetItem(id, node with { Agent = node.Agent with { Delegates = delegates.IsEmpty ? null : delegates } });
+        var profiles = Definition.AgentProfiles ?? System.Collections.Immutable.ImmutableSortedDictionary<string, AgentProfile>.Empty;
+        var stillUsed = nodes.Values.Where(item => item.Agent is not null).SelectMany(item => item.Agent!.Delegates ?? [])
+            .Any(item => item.Id == reference.Id && item.Version == reference.Version);
+        if (!stillUsed) profiles = profiles.Remove(reference.Id + "@" + reference.Version);
+        var definition = Definition with { AgentProfiles = profiles.Count == 0 ? null : profiles, Nodes = nodes };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
     });

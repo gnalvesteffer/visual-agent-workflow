@@ -8,6 +8,6 @@
     <ProjectReference Include="../../src/VisualAgentWorkflow.Mcp/VisualAgentWorkflow.Mcp.csproj" />
     <ProjectReference Include="../../src/VisualAgentWorkflow.Blazor/VisualAgentWorkflow.Blazor.csproj" />
     <ProjectReference Include="../../src/VisualAgentWorkflow.AgentFramework/VisualAgentWorkflow.AgentFramework.csproj" />
-    <ProjectReference Include="../../src/VisualAgentWorkflow.Studio/VisualAgentWorkflow.Studio.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/VisualAgentWorkflow.Studio/VisualAgentWorkflow.Studio.csproj" />
   </ItemGroup>
 </Project>

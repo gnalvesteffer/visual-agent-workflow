@@ -148,7 +148,11 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.McpTool => await InvokeTool(message, invocation, cancellationToken),
                     NodeTypes.Agent => agents is null ? throw new InvalidOperationException("No agent executor is configured.") :
                         await agents.ExecuteAsync(new NodeInvocationContext(runId, revision, Id, invocation,
-                            (kind, data) => emit(kind, Id, invocation, null, data)) { Parameters = parameters }, message, cancellationToken),
+                            (kind, data) => emit(kind, Id, invocation, null, data))
+                        {
+                            Parameters = parameters,
+                            RecordWithInvocation = (eventInvocationId, kind, data) => emit(kind, Id, eventInvocationId, null, data)
+                        }, message, cancellationToken),
                     _ => throw new InvalidOperationException("Unsupported executor type.")
                 };
                 WorkflowApprovalPermit? permit = null;

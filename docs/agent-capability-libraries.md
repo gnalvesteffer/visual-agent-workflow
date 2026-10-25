@@ -2,6 +2,8 @@
 
 This page records the current implementation boundary and the remaining authoring direction. The [roadmap](roadmap.md) tracks delivery; the [architecture guide](architecture.md) describes current behavior.
 
+Versioned subagent profiles and bounded delegation are implemented; see [agent profiles](agent-profiles.md) for current product behavior. The broader MCP, skill, and prompt-authoring research and remaining extension scope are retained here.
+
 ## What comparable builders do
 
 | Product | Observed approach | Decision for Visual Agent Workflow |
