@@ -66,6 +66,12 @@ Blueprint is powerful because it is a complete visual programming environment, n
 
 The target is not to make every possible behavior a single giant graph. Blueprint's strength comes from moving between levels of abstraction: a compact node can represent a function, a macro, a component, or a class instance while still exposing its meaningful inputs and outputs. Visual Agent Workflow should offer the same progressive disclosure. A user can start with visible nodes, extract a reusable unit when a pattern stabilizes, open that unit when debugging, and inspect the exact revision and capabilities involved in a run.
 
+## Current project boundary
+
+This reference is a capability target, not a claim that Visual Agent Workflow already implements all Blueprint concepts. The current roadmap describes a substantial but deliberately bounded subset: typed scalar parameters and bounded JSON selection/projection, explicit conditional routing, one bounded loop shape, one two-branch fork/barrier shape, successful no-result termination, pinned child-workflow calls, node-scoped MCP and skill capabilities, versioned agent profiles and bounded delegation, approvals, immutable publications, layout-aware authoring, persisted run evidence, and read-only playback. See the [roadmap](roadmap.md) and the focused references linked from it for exact limits and verification status.
+
+The following remain capability targets or open design areas rather than general support: a fully general type/container system, mutable graph variables with defined branch/loop write semantics, arbitrary nested forks and loops, event-dispatcher subscriptions, timeline-like progression, richer stream semantics, broad inheritance/template specialization, generalized error-compensation graphs, multi-user collaboration, and production-grade distributed durability. These features require runtime and evidence contracts; adding a card or wire type alone would not complete them.
+
 ## Design philosophies to preserve
 
 ### Visual programming should be a real programming model
@@ -297,6 +303,22 @@ The Unreal Blueprint Debugger pauses Play-In-Editor or Simulate-In-Editor execut
 Visual Agent Workflow should adapt the user experience while respecting its backend-owned run model. Useful equivalents include node-level breakpoints for a controlled local/debug run, recorded node inputs and outputs, route/branch evidence, call-stack-like child-workflow nesting, and an execution trace ordered by actual runtime events. The UI may highlight the node associated with an event, but color or animation must come from recorded evidence, never from wire geometry or selection alone.
 
 Playback must be read-only. It should reconstruct the published revision/layout associated with the run, show which nodes actually executed, and make “not executed,” “blocked,” “failed,” “skipped,” and “value unavailable” distinct states. Do not query a live provider or rerun an MCP call merely to populate a historical view. Redact or omit sensitive values before persistence according to the project's evidence policy.
+
+## Open questions and verification plan
+
+The source documentation explains the user-facing Blueprint model more completely than it specifies every compiler and runtime invariant. The following questions should be resolved before Visual Agent Workflow claims parity for the corresponding capability.
+
+| Question | Why it matters | Required verification |
+| --- | --- | --- |
+| What is the canonical intermediate representation between an authored graph and the runtime plan? | Prevents editor-only behavior from becoming accidental execution semantics. | Round-trip definitions through validation, publication, execution, and playback while preserving stable node/port identity. |
+| Which types are value types, references, handles, or policy-bearing capabilities? | Determines serialization, copying, redaction, lifetime, and authorization. | Contract tests for nullability, containers, schema evolution, reference drift, and imported untrusted values. |
+| What does a data read mean when its producing node has not executed, failed, or produced multiple values? | Avoids hidden eager/lazy evaluation and stale-value bugs. | Test unavailable, repeated, branch-skipped, retry, loop, and parallel data states with explicit evidence. |
+| How are retries and resumption distinguished from duplicate side effects? | Agent/tool nodes can be externally observable and non-idempotent. | Use invocation identity, idempotency policy, persisted cursors, cancellation, and failure-injection fixtures. |
+| Which reusable units are expanded, called, inherited, or interface-dispatched? | Determines revision pinning, provenance, debugging, and upgrade behavior. | Publish parent/child/template changes and verify old runs, new runs, drill-in, and playback use the correct identities. |
+| How should event subscriptions, streaming, and timeline-like updates be bounded? | Prevents hidden fan-out, unbounded queues, and non-replayable state. | Define ownership, ordering, backpressure, replay, timeout, cancellation, and recovery tests before implementation. |
+| Which editor actions are semantic edits versus presentation edits? | Keeps undo, hashes, publication, and runtime behavior stable. | Assert that movement, comments, sections, reroutes, zoom, and arrangement do not change executable content. |
+
+When a question is answered, update the owning focused reference and this high-level mapping. Do not turn a proposed answer into a current capability claim until its contract and representative runtime/editor tests pass.
 
 ## Editor and authoring conventions to borrow
 
