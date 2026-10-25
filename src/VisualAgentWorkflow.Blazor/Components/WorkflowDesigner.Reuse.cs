@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text;
 using Microsoft.AspNetCore.Components;
 using VisualAgentWorkflow.Core;
@@ -19,6 +20,20 @@ public partial class WorkflowDesigner
     private WorkflowDefinition? packagedDefinition;
     private WorkflowLayout? packagedLayout;
     private string packageDownloadHref = "";
+    private string upgradeCallNodeId = "";
+    private Guid? upgradeRevisionId;
+    private IReadOnlyList<PublishedWorkflowRevision> upgradeVersions = [];
+    private ImmutableArray<WorkflowChange> upgradeChanges = [];
+    private ImmutableArray<string> upgradeRequirementChanges = [];
+    private ImmutableArray<WorkflowCallParameterMapping> droppedUpgradeMappings = [];
+    private string? upgradeReviewError;
+    private string upgradeReviewBaseHash = "";
+    private bool upgradeReviewOpen;
+    private bool upgradeReviewValid;
+
+    private WorkflowCallConfiguration? SelectedCallForUpgrade => definition is not null &&
+        definition.Nodes.TryGetValue(upgradeCallNodeId, out var selectedNode) ? selectedNode.WorkflowCall : null;
+    private PublishedWorkflowRevision? SelectedUpgradeRevision => upgradeVersions.FirstOrDefault(item => item.Revision.RevisionId == upgradeRevisionId);
 
     private string PackageDownloadHref
     {
@@ -41,7 +56,116 @@ public partial class WorkflowDesigner
     {
         reusableWorkflowId = ""; reusableRevisionId = null; reusableVersions = []; reusableRequirements = [];
         packageRequirements = []; reusableSectionId = ""; insertAfterNode = "";
+        ResetCallUpgrade();
         reusablePipelineId = "pipeline-" + Guid.NewGuid().ToString("N")[..8];
+    }
+
+    private void ResetCallUpgrade()
+    {
+        upgradeCallNodeId = ""; upgradeRevisionId = null; upgradeVersions = [];
+        upgradeChanges = []; upgradeRequirementChanges = []; droppedUpgradeMappings = [];
+        upgradeReviewError = null; upgradeReviewBaseHash = ""; upgradeReviewOpen = false; upgradeReviewValid = false;
+    }
+
+    private Task SelectWorkflowCallForUpgrade(ChangeEventArgs args) => Perform(async current =>
+    {
+        upgradeCallNodeId = args.Value?.ToString() ?? "";
+        upgradeRevisionId = null; upgradeVersions = []; ClearUpgradeReview();
+        var call = SelectedCallForUpgrade;
+        if (call is null) return;
+        var available = await current.Catalog.ListRevisionsAsync(call.WorkflowId).WaitAsync(current.Token);
+        if (!Current(current) || SelectedCallForUpgrade?.RevisionId != call.RevisionId) return;
+        upgradeVersions = available.OrderByDescending(item => item.Version).ToArray();
+        upgradeRevisionId = upgradeVersions.FirstOrDefault(item => item.Revision.RevisionId != call.RevisionId)?.Revision.RevisionId;
+    });
+
+    private void SelectUpgradeRevision(ChangeEventArgs args)
+    {
+        upgradeRevisionId = Guid.TryParse(args.Value?.ToString(), out var revisionId) ? revisionId : null;
+        ClearUpgradeReview();
+    }
+
+    private void ClearUpgradeReview()
+    {
+        upgradeChanges = []; upgradeRequirementChanges = []; droppedUpgradeMappings = [];
+        upgradeReviewError = null; upgradeReviewBaseHash = ""; upgradeReviewOpen = false; upgradeReviewValid = false;
+    }
+
+    private void ReviewWorkflowCallUpgrade()
+    {
+        if (definition is null || upgradeCallNodeId.Length == 0 || SelectedCallForUpgrade is not { } call ||
+            SelectedUpgradeRevision is not { } target) return;
+
+        upgradeChanges = WorkflowDifference.Compare(call.Definition, target.Revision.Definition);
+        upgradeRequirementChanges = RequirementChanges(call.Definition, target.Revision.Definition);
+        upgradeReviewBaseHash = WorkflowJson.ComputeDraftHash(definition);
+        upgradeReviewOpen = true;
+        upgradeReviewValid = false;
+        upgradeReviewError = null;
+        try
+        {
+            var result = WorkflowCallEditing.Upgrade(definition, upgradeCallNodeId, target);
+            droppedUpgradeMappings = result.DroppedParameterMappings;
+            upgradeReviewValid = true;
+        }
+        catch (ArgumentException exception)
+        {
+            upgradeReviewError = exception.Message;
+        }
+    }
+
+    private void AcceptWorkflowCallUpgrade()
+    {
+        if (!upgradeReviewOpen || !upgradeReviewValid || preview is not null || definition is null || layout is null ||
+            SelectedUpgradeRevision is not { } target) return;
+        if (WorkflowJson.ComputeDraftHash(definition) != upgradeReviewBaseHash)
+        {
+            upgradeReviewError = "The parent draft changed after this review. Review the upgrade again before applying it.";
+            upgradeReviewValid = false;
+            return;
+        }
+
+        try
+        {
+            var result = WorkflowCallEditing.Upgrade(definition, upgradeCallNodeId, target);
+            ApplyComposition(new(result.Definition, layout));
+            message = result.DroppedParameterMappings.IsEmpty
+                ? $"Updated the call to '{target.Revision.Definition.WorkflowId}' version {target.Version}. Undo edit restores its previous pin. Save and publish the draft to make the change active."
+                : $"Updated the call to version {target.Version}. {result.DroppedParameterMappings.Length} incompatible parameter mapping(s) were removed; those child parameters now use their defaults. Undo edit restores the previous pin and mappings.";
+            ClearUpgradeReview();
+        }
+        catch (ArgumentException exception)
+        {
+            upgradeReviewError = exception.Message;
+            upgradeReviewValid = false;
+        }
+    }
+
+    private static ImmutableArray<string> RequirementChanges(WorkflowDefinition before, WorkflowDefinition after)
+    {
+        var previous = WorkflowPackageJson.Requirements(before).ToDictionary(RequirementKey, StringComparer.Ordinal);
+        var next = WorkflowPackageJson.Requirements(after).ToDictionary(RequirementKey, StringComparer.Ordinal);
+        var removed = previous.Keys.Except(next.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal)
+            .Select(key => "Removed · " + RequirementSummary(previous[key]));
+        var added = next.Keys.Except(previous.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal)
+            .Select(key => "Added · " + RequirementSummary(next[key]));
+        return removed.Concat(added).ToImmutableArray();
+    }
+
+    private static string RequirementSummary(PackageRequirement requirement) =>
+        $"{requirement.Kind} · {requirement.Id} {requirement.Version}" +
+        (requirement.ContractHash is null ? "" : " · " + requirement.ContractHash[..8]);
+
+    private static string RequirementKey(PackageRequirement requirement) =>
+        $"{requirement.Kind}|{requirement.Id}|{requirement.Version}|{requirement.ContractHash}|{requirement.DescriptionHash}";
+
+    private string WorkflowCallLabel(string nodeId)
+    {
+        var label = layout?.Nodes.TryGetValue(nodeId, out var nodeLayout) == true && !string.IsNullOrWhiteSpace(nodeLayout.Label)
+            ? nodeLayout.Label : nodeId;
+        return definition?.Nodes.GetValueOrDefault(nodeId)?.WorkflowCall is { } call
+            ? $"{label} · {call.WorkflowId} v{call.Version}"
+            : $"{label} · Missing pinned revision";
     }
 
     private Task ChooseReusableWorkflow(ChangeEventArgs args) => Perform(async current =>
@@ -159,6 +283,7 @@ public partial class WorkflowDesigner
     private string RequirementAvailability(PackageRequirement requirement) => requirement.Kind switch
     {
         "node" => "Supported implementation",
+        "workflow-revision" => "Exact child revision is embedded",
         "mcp-tool" => McpRequirementAvailability(requirement),
         "agent-provider" => providers.Any(p => p.ProviderId == requirement.Id && p.Version == requirement.Version)
             ? "Matching host provider listed" : "Matching host provider not listed",

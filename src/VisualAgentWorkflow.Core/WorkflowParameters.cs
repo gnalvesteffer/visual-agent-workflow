@@ -5,6 +5,16 @@ namespace VisualAgentWorkflow.Core;
 
 public static class WorkflowParameters
 {
+    /// <summary>Checks whether every value allowed by a parent parameter is accepted by a child parameter.</summary>
+    public static bool AreCompatible(WorkflowParameterDefinition parent, WorkflowParameterDefinition child)
+    {
+        ArgumentNullException.ThrowIfNull(parent);
+        ArgumentNullException.ThrowIfNull(child);
+        if ((parent.Type ?? "string") != (child.Type ?? "string")) return false;
+        return parent.Type != "choice" || parent.Choices is { } parentChoices && child.Choices is { } childChoices &&
+            parentChoices.All(choice => childChoices.Contains(choice, StringComparer.Ordinal));
+    }
+
     /// <summary>Resolves portable defaults and per-run string overrides. Values are audit evidence, never secrets.</summary>
     public static ImmutableSortedDictionary<string, string>? Resolve(
         WorkflowDefinition definition, IReadOnlyDictionary<string, string>? overrides)

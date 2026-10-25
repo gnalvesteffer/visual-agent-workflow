@@ -150,7 +150,7 @@
                                         <label>@childParameter.DisplayName · @childParameterId
                                             <select aria-label="Parent value for child parameter @childParameterId on @id" value="@mappedParentId" @onchange="args => MapChildParameter(id, childParameterId, args)" disabled="@Disabled">
                                                 <option value="">Use child default</option>
-                                                @foreach (var (parentParameterId, parentParameter) in ParameterDefinitions.Where(pair => ParameterContractsMatch(pair.Value, childParameter)))
+                                                @foreach (var (parentParameterId, parentParameter) in ParameterDefinitions.Where(pair => WorkflowParameters.AreCompatible(pair.Value, childParameter)))
                                                 { <option value="@parentParameterId">@parentParameter.DisplayName · @parentParameterId</option> }
                                             </select>
                                         </label>
@@ -518,10 +518,6 @@
     private bool GuardedTool(string id) => Definition.Connections.Values.Any(e => e.Target.NodeId == id && Definition.Nodes[e.Source.NodeId].Type == NodeTypes.Approval);
     private Task ApprovalPrompt(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
         Definition.Nodes[id] with { Approval = new(args.Value?.ToString() ?? "") }));
-    private static bool ParameterContractsMatch(WorkflowParameterDefinition parent, WorkflowParameterDefinition child) =>
-        (parent.Type ?? "string") == (child.Type ?? "string") && (parent.Type != "choice" ||
-            parent.Choices is { } parentChoices && child.Choices is { } childChoices &&
-            parentChoices.All(choice => childChoices.Contains(choice, StringComparer.Ordinal)));
     private static string WorkflowCallInputType(WorkflowDefinition child) =>
         child.Nodes is { } nodes && nodes.TryGetValue(child.EntryNodeId, out var input) && input is not null
             ? WorkflowPorts.Outputs(input).SingleOrDefault()?.DataType ?? "unavailable"

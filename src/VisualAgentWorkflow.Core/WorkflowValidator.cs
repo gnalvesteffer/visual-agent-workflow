@@ -179,7 +179,7 @@ public static class WorkflowValidator
                                 continue;
                             }
 
-                            if (!ParameterContractsMatch(parentParameter, childParameter))
+                            if (!WorkflowParameters.AreCompatible(parentParameter, childParameter))
                                 Error("workflowCall.parameters.type", $"nodes.{id}.workflowCall.parameterMappings.{mapping.ChildParameterId}", "Mapped parameters must have compatible types; parent choice values must all be allowed by the child parameter.");
                         }
                     }
@@ -502,13 +502,6 @@ public static class WorkflowValidator
 
     private static bool ValidParameterId(string id) => id.Length is > 0 and <= 64 &&
         id.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-');
-
-    private static bool ParameterContractsMatch(WorkflowParameterDefinition parent, WorkflowParameterDefinition child)
-    {
-        if ((parent.Type ?? "string") != (child.Type ?? "string")) return false;
-        return parent.Type != "choice" || parent.Choices is { } parentChoices && child.Choices is { } childChoices &&
-            parentChoices.All(choice => childChoices.Contains(choice, StringComparer.Ordinal));
-    }
 
     private static bool ValidChannelId(string? id) => id is { Length: > 0 and <= 64 } && id[0] is >= 'a' and <= 'z' &&
         id.All(character => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '_' or '-' or '.');

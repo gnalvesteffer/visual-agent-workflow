@@ -87,7 +87,7 @@
                     </label>
                     <button type="button" @onclick="InsertReusablePipeline" disabled="@(preview is not null || WorkflowGraph.HasControlNodes(definition) || ReusableHasControlNodes || reusableRevisionId is null)">Insert published pipeline</button>
                     <button type="button" @onclick="InsertReusableWorkflowCall" disabled="@(preview is not null || reusableRevisionId is null || reusableWorkflowId == definition.WorkflowId)">Call pinned workflow version</button>
-                    <p class="vaw-help">A call embeds the selected immutable revision. Its tools and provider requirements remain host-configured. Inputs use the child workflow’s default parameters; the child must be a string-to-string workflow.</p>
+                    <p class="vaw-help">A call embeds the selected immutable revision. Pins inherit the child’s string or JSON boundary types; compatible parent parameters can be mapped in the call node properties. Its tools and provider requirements remain host-configured.</p>
                     <ul class="vaw-requirements">
                         @foreach (var requirement in reusableRequirements)
                         { <li @key="requirement">@requirement.Kind · @requirement.Id @requirement.Version: @RequirementAvailability(requirement)</li> }
@@ -95,6 +95,76 @@
                     <p class="vaw-help">Listed requirements are not permission grants. The host authorizes each actual node invocation.</p>
                 </section>
             </div>
+            <section class="vaw-call-upgrade" aria-label="Inspect or upgrade a pinned workflow call">
+                <h3>Inspect or upgrade a pinned call</h3>
+                <p class="vaw-help">Review the embedded child’s dependencies, then compare another published revision before applying it to this draft. The current pin stays in place until you accept the review.</p>
+                <label>Pinned workflow call
+                    <select aria-label="Pinned workflow call to inspect" value="@upgradeCallNodeId" @onchange="SelectWorkflowCallForUpgrade" disabled="@(preview is not null || busy)">
+                        <option value="">Choose a call node</option>
+                        @foreach (var (nodeId, callNode) in definition.Nodes.Where(pair => pair.Value.Type == NodeTypes.WorkflowCall))
+                        { <option @key="nodeId" value="@nodeId">@WorkflowCallLabel(nodeId)</option> }
+                    </select>
+                </label>
+                @if (SelectedCallForUpgrade is { } pinnedCall)
+                {
+                    <p><strong>Current pin:</strong> @pinnedCall.WorkflowId · version @pinnedCall.Version · <code>@pinnedCall.RevisionId</code></p>
+                    <h4>Dependencies in this pinned revision</h4>
+                    <ul class="vaw-requirements">
+                        @foreach (var requirement in WorkflowPackageJson.Requirements(pinnedCall.Definition))
+                        { <li @key="requirement">@requirement.Kind · @requirement.Id @requirement.Version · @RequirementAvailability(requirement)</li> }
+                    </ul>
+                    <label>Published revision to compare
+                        <select aria-label="Published revision to upgrade the workflow call to" value="@upgradeRevisionId" @onchange="SelectUpgradeRevision" disabled="@(preview is not null || busy || upgradeVersions.All(item => item.Revision.RevisionId == pinnedCall.RevisionId))">
+                            @foreach (var candidate in upgradeVersions.Where(item => item.Revision.RevisionId != pinnedCall.RevisionId))
+                            { <option @key="candidate.Revision.RevisionId" value="@candidate.Revision.RevisionId">Version @candidate.Version · @candidate.Revision.ContentHash[..8]</option> }
+                        </select>
+                    </label>
+                    <button type="button" @onclick="ReviewWorkflowCallUpgrade" disabled="@(preview is not null || busy || SelectedUpgradeRevision is null)">Review revision changes</button>
+                    @if (upgradeVersions.All(item => item.Revision.RevisionId == pinnedCall.RevisionId))
+                    { <p class="vaw-help">No other published revision is available for this workflow.</p> }
+                    @if (upgradeReviewOpen && SelectedUpgradeRevision is { } target)
+                    {
+                        <section class="vaw-upgrade-review" aria-label="Workflow call upgrade review">
+                            <h4>Review version @pinnedCall.Version → @target.Version</h4>
+                            <p>The target remains a preview. Applying it changes this draft only; save and publish explicitly to activate the new pin. Undo edit restores the previous revision and parameter mappings.</p>
+                            @if (upgradeChanges.IsEmpty)
+                            { <p>The child workflow definition has no structural changes; the revision identity and content hash will still change.</p> }
+                            else
+                            {
+                                <details open>
+                                    <summary>Child definition changes (@upgradeChanges.Length)</summary>
+                                    <ul>
+                                        @foreach (var change in upgradeChanges)
+                                        {
+                                            <li @key="(change.Kind, change.Id)"><strong>@change.Kind · @change.Id</strong>
+                                                <details><summary>Before / after</summary>
+                                                    <p>Before</p><pre>@(change.Before ?? "Absent")</pre>
+                                                    <p>After</p><pre>@(change.After ?? "Absent")</pre>
+                                                </details>
+                                            </li>
+                                        }
+                                    </ul>
+                                </details>
+                            }
+                            <details>
+                                <summary>Dependency changes (@upgradeRequirementChanges.Length)</summary>
+                                @if (upgradeRequirementChanges.IsEmpty) { <p>No dependency requirements changed.</p> }
+                                else { <ul>@foreach (var change in upgradeRequirementChanges) { <li @key="change">@change</li> }</ul> }
+                            </details>
+                            @if (!droppedUpgradeMappings.IsEmpty)
+                            {
+                                <p role="status">These mappings cannot be retained; the corresponding child values will use their new defaults:</p>
+                                <ul>@foreach (var mapping in droppedUpgradeMappings) { <li @key="mapping.ChildParameterId">@mapping.ChildParameterId ← @mapping.ParentParameterId</li> }</ul>
+                            }
+                            @if (upgradeReviewError is not null) { <p role="alert" class="vaw-error">Upgrade cannot be applied: @upgradeReviewError</p> }
+                            <div class="vaw-controls">
+                                <button type="button" class="vaw-primary" @onclick="AcceptWorkflowCallUpgrade" disabled="@(busy || preview is not null || !upgradeReviewValid)">Apply upgrade to draft</button>
+                                <button type="button" @onclick="ClearUpgradeReview">Cancel review</button>
+                            </div>
+                        </section>
+                    }
+                }
+            </section>
         </details>
         <section class="vaw-version-panel" aria-label="Published workflow versions">
             <div class="vaw-version-management">

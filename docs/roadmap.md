@@ -105,8 +105,8 @@ flowchart TD
     Orchestration --> ProjectionTypes["Complete: declared JSON projection value kinds"]
     ProjectionTypes --> TypedMapping["Complete: recursive object and collection mapping"]
     TypedMapping --> Loops["Complete: bounded loop"]
-    Loops --> Exit["Complete: explicit workflow return and termination"] --> Next["Complete: pinned nested workflow calls"]
-    Orchestration --> Assets["Next: typed child contracts and explicit upgrades"]
+    Loops --> Exit["Complete: explicit workflow return and termination"] --> Calls["Complete: typed pinned calls, parameter mapping, and revision upgrades"]
+    Calls --> Assets["Next: child graph drill-in and scoped nested approvals"]
     Orchestration --> Durable["Later: host-attributed reconciliation decisions"]
     Assets --> Extensions["Approved extensions in isolated workers"]
     Durable --> Collaboration["Workspace sharing and collaboration"]
@@ -142,13 +142,13 @@ Schema 1.17 supports one loop node on a string graph, with one linear body, a sa
 
 Schema 1.18 adds the visible `core.terminate` node for successful exits with no result. Condition paths may finish independently without a merge; normal return paths still finish at the workflow Output. Run history distinguishes `run.terminated` from `run.completed`, the typed runner outcome distinguishes no result from an empty string, and playback shows the terminal route without executing it. Termination is string-only, bounded to 16 exits, and does not roll back prior external work. It is not part of the checkpoint-resume subset. See [workflow termination](workflow-termination.md).
 
-### Complete: nested versioned workflow calls
+### Complete: typed nested workflow calls and revision upgrades
 
-Schema 1.19 adds a call node that embeds an immutable child definition, exact revision/version and content hash. The Studio can add a pinned call alongside copy-on-insert reuse. The runner executes children as part of the parent run, emits one ordered audit stream with slash-separated workflow scopes, and maps child lifecycle events to `subworkflow.*`; playback shows child activity and nested events without re-execution. Package requirements include child revisions and recursively derived dependencies. Validation limits nesting to three levels and 1,024 expanded nodes, rejects call-path cycles, verifies hashes, requires supported `string` or `json` child boundary contracts, and checks declared parent-to-child parameter mappings. The call pin types inherit the embedded child’s Input and Output boundaries. Unmapped child values use defaults. Parent capabilities are not inherited, and host policy still authorizes child calls. Additional graph data types, upgrades/rebase, embedded child graph editing, and nested approvals remain future work. Core and Agent Framework regression tests passed. See [nested workflow calls](nested-workflows.md).
+Schema 1.19 call nodes embed the exact child definition, revision/version, and content hash. Child execution stays in the parent run’s ordered audit stream under scoped event paths, and playback does not re-execute dependencies. Call pins inherit the child Input and Output types (`string` or `json`); parent parameters can map into compatible child parameters while unmapped child values use their defaults. The Studio lists dependencies from the pinned snapshot and compares another published revision across child nodes, connections, parameters, skills, profiles, and package requirements. Applying an accepted upgrade changes only the parent draft, preserves compatible mappings, reports removed mappings, and adds one undo step. The old snapshot remains active until the parent draft is saved and published. Validation limits nesting to three levels and 1,024 expanded nodes, rejects call-path cycles and invalid hashes, and requires host authorization for child capabilities. An embedded child-graph view, additional graph data types, and nested approvals remain future work. Core contract/editing and Agent Framework execution tests cover the changes. See [nested workflow calls](nested-workflows.md).
 
-### Next: dependency inspection and explicit workflow upgrades
+### Next: child graph drill-in and scoped nested approvals
 
-Add a child-graph view for inspecting pinned dependencies, then let authors explicitly upgrade a call to another published revision with a reviewable diff and undo. The existing embedded snapshot remains the playback and export authority until the author accepts an upgrade. Scoped approval actions need a root-run and child-graph authorization contract before nested approvals can be enabled. String/JSON child boundary typing and parent-to-child parameter mappings are implemented.
+Let authors inspect and navigate the embedded child graph from its call node while preserving parent context and scoped replay. Nested approval actions need a root-run and child-graph authorization contract before they can be enabled; root-level grants must not silently authorize child calls.
 
 ## Latest completed milestone: bounded parallel graph block
 
@@ -202,7 +202,7 @@ Schema 1.10 adds a bounded output-token limit to each agent and an explicit reas
 
 ### Planned: broader complex graph orchestration
 
-Build on the bounded JSON projection foundation with loops and richer failure/cancellation behavior. These are executable semantics, not just canvas arrangements. Prove representative graphs against the pinned Microsoft Agent Framework adapter before fixing each node or control-flow contract; preserve event ordering, exact-version dependencies, and truthful playback. Keep loops, concurrency, payloads, and tool calls bounded and diagnosable.
+Explore nested forks, nested loops, and branch-local control structures after defining their cancellation, failure, audit, and replay semantics. These are executable semantics, not just canvas arrangements. Prove representative graphs against the pinned Microsoft Agent Framework adapter before fixing each node contract; preserve event ordering, exact-version dependencies, and truthful playback. Keep concurrency, payloads, and tool calls bounded and diagnosable.
 
 ### Later: host-attributed reconciliation decision records
 
@@ -216,7 +216,7 @@ Add workspace identity, backend authorization, authenticated audit actors, paylo
 
 ### Planned: further reusable assets and specialization
 
-Explicit conditional-block removal is implemented for isolated decision regions, with affected-node confirmation and shared definition/layout undo. Shared-boundary removal remains unsupported. Evolve template copies into nested workflow prefab instances with pinned dependencies, declared inputs/outputs, explicit upgrades/overrides, cycle detection, and readable invocation scopes. Preserve historical playback when sources/providers are absent.
+Explicit conditional-block removal is implemented for isolated decision regions, with affected-node confirmation and shared definition/layout undo. Shared-boundary removal remains unsupported. Continue reusable workflow work with embedded child-graph drill-in and scoped composition controls. Preserve historical playback when sources/providers are absent.
 
 ### Planned: approved extension workers
 

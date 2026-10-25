@@ -111,6 +111,46 @@ public sealed class WorkflowCallTests
         Assert.Throws<ArgumentException>(() => GraphEditing.InsertNodeAfter(Baseline("string-parent"), "input", "out", call));
     }
 
+    [Fact]
+    public void ExplicitCallUpgradePinsNewRevisionAndRetainsOnlyCompatibleMappings()
+    {
+        var childDefinition = WorkflowParameterEditing.Add(
+            WorkflowParameterEditing.Add(Baseline("child"), "tone", "Tone", "calm"), "count", "Count", "one");
+        var originalChild = WorkflowRevision.Create(childDefinition, "test");
+        var parentDefinition = WorkflowParameterEditing.Add(
+            WorkflowParameterEditing.Add(Baseline("parent"), "style", "Style", "calm"), "count", "Count", "one");
+        var call = Call(originalChild) with { WorkflowCall = Call(originalChild).WorkflowCall! with
+        { ParameterMappings = [new("tone", "style"), new("count", "count")] } };
+        var parent = GraphEditing.InsertNodeAfter(parentDefinition, "input", "out", call);
+        var callNodeId = parent.Nodes.Single(entry => entry.Value.Type == NodeTypes.WorkflowCall).Key;
+        var newerChildDefinition = WorkflowParameterEditing.SetType(childDefinition, "count", "integer", "1");
+        var newerChild = WorkflowRevision.Create(newerChildDefinition, "test", originalChild.RevisionId);
+
+        var result = WorkflowCallEditing.Upgrade(parent, callNodeId, new(2, newerChild));
+        var upgradedCall = result.Definition.Nodes[callNodeId].WorkflowCall!;
+
+        Assert.Equal(newerChild.RevisionId, upgradedCall.RevisionId);
+        Assert.Equal(2, upgradedCall.Version);
+        Assert.Equal(newerChild.ContentHash, upgradedCall.ContentHash);
+        Assert.Equal("tone", upgradedCall.ParameterMappings!.Value.Single().ChildParameterId);
+        Assert.Equal("count", Assert.Single(result.DroppedParameterMappings).ChildParameterId);
+        Assert.Empty(WorkflowValidator.Validate(result.Definition));
+    }
+
+    [Fact]
+    public void CallUpgradeRejectsDifferentWorkflowAndIncompatibleBoundaryWithoutChangingParent()
+    {
+        var originalChild = WorkflowRevision.Create(Baseline("child"), "test");
+        var parent = GraphEditing.InsertNodeAfter(Baseline("parent"), "input", "out", Call(originalChild));
+        var callNodeId = parent.Nodes.Single(entry => entry.Value.Type == NodeTypes.WorkflowCall).Key;
+        var differentWorkflow = WorkflowRevision.Create(Baseline("another-child"), "test");
+        var jsonInputChild = WorkflowRevision.Create(JsonBoundary(Baseline("child")), "test");
+
+        Assert.Throws<ArgumentException>(() => WorkflowCallEditing.Upgrade(parent, callNodeId, new(2, differentWorkflow)));
+        Assert.Throws<ArgumentException>(() => WorkflowCallEditing.Upgrade(parent, callNodeId, new(2, jsonInputChild)));
+        Assert.Equal(originalChild.RevisionId, parent.Nodes[callNodeId].WorkflowCall!.RevisionId);
+    }
+
     private static WorkflowDefinition JsonBoundary(WorkflowDefinition definition) => definition with
     {
         SchemaVersion = "1.19",

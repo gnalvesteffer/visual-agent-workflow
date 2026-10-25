@@ -46,6 +46,27 @@ public class PipelineEditingTests
     }
 
     [Fact]
+    public void DifferenceIncludesWorkflowParametersSkillsAndAgentProfiles()
+    {
+        var initial = WorkflowParameterEditing.Add(Empty() with { SchemaVersion = "1.19" }, "model", "Model", "small");
+        var skill = WorkflowSkill.Create("research", "1.0.0", "Research", "Use concise, cited answers.");
+        var profile = AgentProfile.Create("researcher", "1.0.0", "Researcher", "Research specialist.",
+            "test-provider", "1.0.0", "Research the question.", []);
+        var updated = WorkflowParameterEditing.Add(initial, "locale", "Locale", "en") with
+        {
+            Skills = ImmutableSortedDictionary<string, WorkflowSkill>.Empty.Add(skill.Id + "@" + skill.Version, skill),
+            AgentProfiles = ImmutableSortedDictionary<string, AgentProfile>.Empty.Add(profile.Id + "@" + profile.Version, profile)
+        };
+
+        var changes = WorkflowDifference.Compare(initial, updated);
+
+        Assert.Equal(["agentProfile", "parameter", "skill"], changes.Select(change => change.Kind).Order(StringComparer.Ordinal));
+        Assert.Contains(changes, change => change.Kind == "parameter" && change.Id == "locale" && change.Before is null && change.After!.Contains("Locale", StringComparison.Ordinal));
+        Assert.Contains(changes, change => change.Kind == "skill" && change.Id == "research@1.0.0");
+        Assert.Contains(changes, change => change.Kind == "agentProfile" && change.Id == "researcher@1.0.0");
+    }
+
+    [Fact]
     public void TerminalEditsUnknownOperationsAndIllegalMovesAreRejected()
     {
         var definition = Empty();

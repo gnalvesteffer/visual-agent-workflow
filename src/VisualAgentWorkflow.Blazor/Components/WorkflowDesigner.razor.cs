@@ -144,6 +144,7 @@ public partial class WorkflowDesigner
 
     private void SetDesign(WorkflowDefinition value, WorkflowLayout presentation)
     {
+        ClearUpgradeReview();
         definition = value; layout = presentation;
         definitionHash = WorkflowJson.ComputeDraftHash(value);
         layoutHash = WorkflowLayoutJson.ComputeHash(presentation, value);
