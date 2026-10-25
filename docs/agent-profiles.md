@@ -6,14 +6,16 @@ In the workflow designer, select an agent node and assign the exact profiles it 
 
 At runtime, assigned profiles appear to the parent model as bounded `delegate` tools. The parent supplies a task string and receives a result string. The child uses its profile's instructions, provider, skills, reasoning/output settings, and tool list. A child does not inherit the parent's tools. Each requested child MCP tool must also be allowed by the host policy for the parent workflow node; failure to resolve or authorize a required tool fails that delegation closed.
 
-The initial implementation is deliberately bounded:
+The initial delegation implementation is deliberately bounded:
 
 - A parent may expose at most four profiles and make at most four delegation calls during its node invocation.
 - Delegation depth is one level; profiles cannot delegate further.
 - Each task is limited to 16,384 characters. Agent calls retain the existing provider timeout and model-round limits.
 - A profile's optional output-token limit applies to that child agent. There is no aggregate token budget across the parent and children yet.
 - Child model, tool, start, completion, and failure events retain the same run/revision and use a distinct child invocation ID. Event data identifies the exact profile revision and links child activity to the parent invocation. Playback reads this evidence and makes no live calls.
-- Delegation is sequential. Parallel teams, shared channels, persistent agent memory, workflow-as-tool invocation, automatic retries, and model-selected tool-call approval are not part of this feature.
+- Individual delegation remains sequential. Shared channels, persistent agent memory, workflow-as-tool invocation, automatic retries, and model-selected tool-call approval are outside the current scope.
+
+When an agent node has two or more assigned profiles, its parent also receives a **parallel team** tool. One task is sent to every assigned profile concurrently, up to four members. The team returns a JSON array in assignment order, with each member's profile ID, version, name, and output. Individual delegation and team calls share the four-child-execution limit for that parent invocation. If one member fails, the team cancels remaining members where possible, records a failed team event, and returns no partial aggregate; the parent model may decide how to proceed from the tool error. Completed MCP side effects are not undone. The combined result is limited to 80,000 characters. Team members do not communicate with each other during this fan-out; run-scoped channels and manager-directed rounds are the next coordination increment.
 
 The local Agent Designer library is part of the unauthenticated development Studio and is stored in its data directory. It is not a multi-user asset service. Consumer hosts do not need this local library to execute a package because each used profile revision is embedded in the workflow definition.
 

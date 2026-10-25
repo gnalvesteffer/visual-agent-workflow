@@ -84,13 +84,35 @@
     {
         if (State(id)?.Kind != ExecutionEventKinds.NodeStarted) return null;
         var invocation = State(id)?.InvocationId;
-        var events = VisibleEvents.Where(e => e.NodeId == id && e.InvocationId == invocation).ToArray();
+        var events = VisibleEvents.Where(e => e.NodeId == id &&
+            (e.InvocationId == invocation || IsDelegatedInvocation(e, invocation))).ToArray();
         var terminalIndex = Array.FindLastIndex(events, e => e.Kind is ExecutionEventKinds.NodeCompleted or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
         if (terminalIndex >= 0) return null;
-        var current = events.LastOrDefault(e => e.Kind is ExecutionEventKinds.AgentStarted or ExecutionEventKinds.ModelRequested or ExecutionEventKinds.ModelResponded or ExecutionEventKinds.ToolRequested or ExecutionEventKinds.ToolAuthorized or ExecutionEventKinds.ToolCompleted or ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ApprovalRequested);
+        var current = events.LastOrDefault(e => e.Kind is ExecutionEventKinds.AgentTeamStarted or ExecutionEventKinds.AgentTeamCompleted or ExecutionEventKinds.AgentTeamFailed or ExecutionEventKinds.AgentStarted or ExecutionEventKinds.AgentCompleted or ExecutionEventKinds.AgentFailed or ExecutionEventKinds.ModelRequested or ExecutionEventKinds.ModelResponded or ExecutionEventKinds.ToolRequested or ExecutionEventKinds.ToolAuthorized or ExecutionEventKinds.ToolCompleted or ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ApprovalRequested);
         if (current is null) return "Preparing node";
+        var delegatedPrefix = DelegatedProfileLabel(current);
+        if (delegatedPrefix is not null)
+        {
+            var childActivity = current.Kind switch
+            {
+                ExecutionEventKinds.AgentStarted => "starting",
+                ExecutionEventKinds.AgentCompleted => "completed",
+                ExecutionEventKinds.AgentFailed => "failed",
+                ExecutionEventKinds.ModelRequested => "waiting for model",
+                ExecutionEventKinds.ModelResponded => "processing model response",
+                ExecutionEventKinds.ToolRequested => ToolActivity(current, "calling MCP tool"),
+                ExecutionEventKinds.ToolAuthorized => ToolActivity(current, "MCP tool authorized"),
+                ExecutionEventKinds.ToolCompleted => ToolActivity(current, "MCP tool completed"),
+                ExecutionEventKinds.ToolFailed => ToolActivity(current, "MCP tool failed"),
+                _ => "running"
+            };
+            return $"Subagent {delegatedPrefix} · {childActivity}";
+        }
         return current.Kind switch
         {
+            ExecutionEventKinds.AgentTeamStarted => "Running parallel agent team",
+            ExecutionEventKinds.AgentTeamCompleted => "Joining named team results",
+            ExecutionEventKinds.AgentTeamFailed => "Agent team failed",
             ExecutionEventKinds.AgentStarted => "Preparing agent",
             ExecutionEventKinds.ModelRequested => "Waiting for model response",
             ExecutionEventKinds.ModelResponded => "Processing model response",
@@ -102,16 +124,48 @@
             _ => "Processing"
         };
     }
+    private static bool IsDelegatedInvocation(ExecutionEvent evt, Guid? parentInvocationId)
+    {
+        if (parentInvocationId is not { } expectedParent) return false;
+        try
+        {
+            using var data = JsonDocument.Parse(evt.Data ?? "{}");
+            return data.RootElement.TryGetProperty("parentInvocationId", out var parent) && parent.TryGetGuid(out var value) && value == expectedParent;
+        }
+        catch (JsonException) { return false; }
+    }
+    private static string? DelegatedProfileLabel(ExecutionEvent evt)
+    {
+        try
+        {
+            using var data = JsonDocument.Parse(evt.Data ?? "{}");
+            return data.RootElement.TryGetProperty("delegatedProfileId", out var profile) && profile.ValueKind == JsonValueKind.String
+                ? profile.GetString() : null;
+        }
+        catch (JsonException) { return null; }
+    }
     private static string ToolActivity(ExecutionEvent evt, string description)
     {
         try
         {
             using var data = JsonDocument.Parse(evt.Data ?? "{}");
-            if (data.RootElement.TryGetProperty("bindingId", out var binding) && binding.ValueKind == JsonValueKind.String &&
-                binding.GetString() is { } id)
-                return $"{description}: {id[(id.LastIndexOf('.') + 1)..]}";
+            var payload = data.RootElement.TryGetProperty("eventData", out var nested) && nested.ValueKind == JsonValueKind.String
+                ? nested.GetString() : evt.Data;
+            if (!string.IsNullOrEmpty(payload) && payload != evt.Data)
+            {
+                using var nestedData = JsonDocument.Parse(payload);
+                return ToolActivity(nestedData.RootElement, description);
+            }
+            return ToolActivity(data.RootElement, description);
         }
         catch (JsonException) { }
+        return description;
+    }
+    private static string ToolActivity(JsonElement data, string description)
+    {
+        if (data.TryGetProperty("bindingId", out var binding) && binding.ValueKind == JsonValueKind.String &&
+            binding.GetString() is { } id)
+            return $"{description}: {id[(id.LastIndexOf('.') + 1)..]}";
         return description;
     }
     private string? BranchPort(string id)

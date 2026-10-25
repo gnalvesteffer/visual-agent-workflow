@@ -42,10 +42,19 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         if (input.Length > 16_384) throw new ArgumentException("Input exceeds 16,384 characters.", nameof(input));
         WorkflowValidator.ThrowIfInvalid(revision.Definition);
         var resolvedParameters = WorkflowParameters.Resolve(revision.Definition, parameters);
+        using var recordGate = new SemaphoreSlim(1, 1);
         long sequence = 0;
-        ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null, string? data = null) =>
-            record(new(runId, revision.RevisionId, Interlocked.Increment(ref sequence), DateTimeOffset.UtcNow,
-                kind, node, invocation, connection, data));
+        async ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null, string? data = null)
+        {
+            await recordGate.WaitAsync();
+            try
+            {
+                var evt = new ExecutionEvent(runId, revision.RevisionId, Interlocked.Increment(ref sequence), DateTimeOffset.UtcNow,
+                    kind, node, invocation, connection, data);
+                await record(evt);
+            }
+            finally { recordGate.Release(); }
+        }
 
         var workflow = BuildWorkflow(runId, revision, resolvedParameters, Emit, gate);
 

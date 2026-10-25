@@ -105,72 +105,159 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             {
                 var profiles = invocation.Revision.Definition.AgentProfiles
                     ?? throw new InvalidOperationException("The workflow has no embedded agent profiles.");
-                var delegatedCalls = 0;
-                foreach (var reference in delegates)
+                var assignedProfiles = delegates.Select(reference =>
                 {
                     if (!profiles.TryGetValue(reference.Id + "@" + reference.Version, out var profile) || profile.ContentHash != reference.ContentHash)
                         throw new InvalidOperationException("An assigned agent profile is unavailable or has changed.");
+                    return profile;
+                }).ToArray();
+                var delegatedCalls = 0;
+                async Task<string> InvokeProfileAsync(AgentProfile profile, string task, CancellationToken token,
+                    Guid? teamInvocationId = null, bool callReserved = false)
+                {
+                    if (!callReserved && Interlocked.Increment(ref delegatedCalls) > 4)
+                    {
+                        Interlocked.Decrement(ref delegatedCalls);
+                        throw new InvalidOperationException("The agent delegation call limit was reached.");
+                    }
+                    var childInvocationId = Guid.NewGuid();
+                    var childContext = invocation with
+                    {
+                        InvocationId = childInvocationId,
+                        ToolRequirements = profile.Tools,
+                        RecordWithInvocation = (eventInvocationId, kind, data) => invocation.RecordEventForAsync(
+                            eventInvocationId, kind, JsonSerializer.Serialize(new
+                            {
+                                delegatedProfileId = profile.Id,
+                                delegatedProfileVersion = profile.Version,
+                                childInvocationId,
+                                parentInvocationId = invocation.InvocationId,
+                                teamInvocationId,
+                                eventData = data
+                            }))
+                    };
+                    var childConfiguration = new AgentConfiguration(profile.ProviderId, profile.ProviderVersion,
+                        profile.Instructions, profile.Tools)
+                    {
+                        Skills = profile.Skills?.Select(skill => new SkillReference(skill.Id, skill.Version, skill.ContentHash)).ToImmutableArray(),
+                        ReasoningEffort = profile.ReasoningEffort,
+                        MaxOutputTokens = profile.MaxOutputTokens
+                    };
+                    await childContext.RecordEventAsync(ExecutionEventKinds.AgentStarted, JsonSerializer.Serialize(new
+                    {
+                        delegatedProfileId = profile.Id,
+                        delegatedProfileVersion = profile.Version,
+                        profile.ContentHash,
+                        childInvocationId,
+                        parentInvocationId = invocation.InvocationId,
+                        teamInvocationId
+                    }));
+                    try
+                    {
+                        var result = await ExecuteConfigurationAsync(childContext, childConfiguration, task, false, token);
+                        await childContext.RecordEventAsync(ExecutionEventKinds.AgentCompleted, JsonSerializer.Serialize(new
+                        {
+                            delegatedProfileId = profile.Id,
+                            delegatedProfileVersion = profile.Version,
+                            childInvocationId,
+                            parentInvocationId = invocation.InvocationId,
+                            teamInvocationId,
+                            output = result
+                        }));
+                        return result;
+                    }
+                    catch
+                    {
+                        await childContext.RecordEventAsync(ExecutionEventKinds.AgentFailed, JsonSerializer.Serialize(new
+                        {
+                            delegatedProfileId = profile.Id,
+                            delegatedProfileVersion = profile.Version,
+                            childInvocationId,
+                            parentInvocationId = invocation.InvocationId,
+                            teamInvocationId,
+                            reason = "Delegated agent failed."
+                        }));
+                        throw;
+                    }
+                }
+
+                foreach (var profile in assignedProfiles)
+                {
                     var name = $"delegate_{functions.Count}";
                     using var schema = JsonDocument.Parse("""{"type":"object","properties":{"task":{"type":"string","description":"The bounded task for this specialist agent."}},"required":["task"],"additionalProperties":false}""");
                     functions.Add(new BoundMcpFunction(name,
                         $"Delegate a bounded task to {profile.Name}. {profile.Description}", schema.RootElement.Clone(), async (arguments, token) =>
                         {
-                            if (Interlocked.Increment(ref delegatedCalls) > 4)
-                                throw new InvalidOperationException("The agent delegation call limit was reached.");
                             if (!arguments.TryGetValue("task", out var taskValue) || taskValue is not string task || string.IsNullOrWhiteSpace(task) || task.Length > 16_384)
                                 throw new InvalidOperationException("A delegate task must contain 1–16,384 characters.");
-                            var childInvocationId = Guid.NewGuid();
-                            var childContext = invocation with
+                            return await InvokeProfileAsync(profile, task, token);
+                        }));
+                }
+
+                if (assignedProfiles.Length >= 2)
+                {
+                    using var schema = JsonDocument.Parse("""{"type":"object","properties":{"task":{"type":"string","description":"Shared task given to every assigned team member."}},"required":["task"],"additionalProperties":false}""");
+                    functions.Add(new BoundMcpFunction("team_0", "Run every assigned specialist in parallel on the same task. The result contains one named output per specialist.",
+                        schema.RootElement.Clone(), async (arguments, token) =>
+                        {
+                            if (!arguments.TryGetValue("task", out var taskValue) || taskValue is not string task || string.IsNullOrWhiteSpace(task) || task.Length > 16_384)
+                                throw new InvalidOperationException("A team task must contain 1–16,384 characters.");
+                            if (Interlocked.Add(ref delegatedCalls, assignedProfiles.Length) > 4)
                             {
-                                InvocationId = childInvocationId,
-                                ToolRequirements = profile.Tools,
-                                RecordWithInvocation = (eventInvocationId, kind, data) => invocation.RecordEventForAsync(
-                                    eventInvocationId, kind, JsonSerializer.Serialize(new
-                                    {
-                                        delegatedProfileId = profile.Id,
-                                        delegatedProfileVersion = profile.Version,
-                                        childInvocationId,
-                                        parentInvocationId = invocation.InvocationId,
-                                        eventData = data
-                                    }))
-                            };
-                            var childConfiguration = new AgentConfiguration(profile.ProviderId, profile.ProviderVersion,
-                                profile.Instructions, profile.Tools)
+                                Interlocked.Add(ref delegatedCalls, -assignedProfiles.Length);
+                                throw new InvalidOperationException("The team would exceed the four-call delegation limit.");
+                            }
+                            var teamInvocationId = Guid.NewGuid();
+                            await invocation.RecordEventAsync(ExecutionEventKinds.AgentTeamStarted, JsonSerializer.Serialize(new
                             {
-                                Skills = profile.Skills?.Select(skill => new SkillReference(skill.Id, skill.Version, skill.ContentHash)).ToImmutableArray(),
-                                ReasoningEffort = profile.ReasoningEffort,
-                                MaxOutputTokens = profile.MaxOutputTokens
-                            };
-                            await childContext.RecordEventAsync(ExecutionEventKinds.AgentStarted, JsonSerializer.Serialize(new
-                            {
-                                delegatedProfileId = profile.Id,
-                                delegatedProfileVersion = profile.Version,
-                                profile.ContentHash,
-                                childInvocationId,
-                                parentInvocationId = invocation.InvocationId
+                                teamInvocationId,
+                                parentInvocationId = invocation.InvocationId,
+                                profiles = assignedProfiles.Select(profile => new { profile.Id, profile.Version, profile.ContentHash }),
+                                task
                             }));
+                            using var teamCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
                             try
                             {
-                                var result = await ExecuteConfigurationAsync(childContext, childConfiguration, task, false, token);
-                                await childContext.RecordEventAsync(ExecutionEventKinds.AgentCompleted, JsonSerializer.Serialize(new
+                                async Task<object> RunMemberAsync(AgentProfile profile)
                                 {
-                                    delegatedProfileId = profile.Id,
-                                    delegatedProfileVersion = profile.Version,
-                                    childInvocationId,
+                                    try
+                                    {
+                                        return new
+                                        {
+                                            profile.Id,
+                                            profile.Version,
+                                            profile.Name,
+                                            output = await InvokeProfileAsync(profile, task, teamCancellation.Token, teamInvocationId, callReserved: true)
+                                        };
+                                    }
+                                    catch
+                                    {
+                                        teamCancellation.Cancel();
+                                        throw;
+                                    }
+                                }
+                                var members = assignedProfiles.Select(RunMemberAsync);
+                                var results = await Task.WhenAll(members);
+                                var aggregated = JsonSerializer.Serialize(results);
+                                if (aggregated.Length > 80_000)
+                                    throw new InvalidOperationException("Named team results exceed the 80,000-character aggregate limit.");
+                                await invocation.RecordEventAsync(ExecutionEventKinds.AgentTeamCompleted, JsonSerializer.Serialize(new
+                                {
+                                    teamInvocationId,
                                     parentInvocationId = invocation.InvocationId,
-                                    output = result
+                                    members = results.Length,
+                                    output = aggregated
                                 }));
-                                return result;
+                                return aggregated;
                             }
                             catch
                             {
-                                await childContext.RecordEventAsync(ExecutionEventKinds.AgentFailed, JsonSerializer.Serialize(new
+                                teamCancellation.Cancel();
+                                await invocation.RecordEventAsync(ExecutionEventKinds.AgentTeamFailed, JsonSerializer.Serialize(new
                                 {
-                                    delegatedProfileId = profile.Id,
-                                    delegatedProfileVersion = profile.Version,
-                                    childInvocationId,
+                                    teamInvocationId,
                                     parentInvocationId = invocation.InvocationId,
-                                    reason = "Delegated agent failed."
+                                    reason = "At least one team member failed; the aggregate was not produced."
                                 }));
                                 throw;
                             }

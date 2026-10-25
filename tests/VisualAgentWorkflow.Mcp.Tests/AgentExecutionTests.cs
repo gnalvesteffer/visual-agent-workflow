@@ -121,6 +121,159 @@ public class AgentExecutionTests
     }
 
     [Fact]
+    public async Task ParentCanRunAssignedProfilesInParallelAndReceiveNamedTeamResults()
+    {
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var baseDefinition = Revision().Definition;
+        var profiles = new[]
+        {
+            AgentProfile.Create("researcher", "1", "Researcher", "Find relevant facts.", "demo.scripted", "1.0.0", "Research instructions.", []),
+            AgentProfile.Create("reviewer", "1", "Reviewer", "Check the answer.", "demo.scripted", "1.0.0", "Review instructions.", [])
+        };
+        var agent = baseDefinition.Nodes["step-1"].Agent! with
+        {
+            Instructions = "Parent instructions.",
+            Delegates = [.. profiles.Select(profile => new AgentProfileReference(profile.Id, profile.Version, profile.ContentHash!))]
+        };
+        var definition = baseDefinition with
+        {
+            SchemaVersion = "1.11",
+            AgentProfiles = profiles.ToImmutableSortedDictionary(profile => profile.Id + "@" + profile.Version, profile => profile, StringComparer.Ordinal),
+            Nodes = baseDefinition.Nodes.SetItem("step-1", baseDefinition.Nodes["step-1"] with { Agent = agent })
+        };
+        var parentCalls = 0;
+        var activeMembers = 0;
+        var maximumConcurrentMembers = 0;
+        var bothMembersStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registration = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient(async (_, options, cancellationToken) =>
+            {
+                var instructions = options?.Instructions ?? "";
+                if (instructions == "Parent instructions.")
+                {
+                    if (Interlocked.Increment(ref parentCalls) == 1)
+                        return new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                            [new FunctionCallContent("team-call", "team_0", new Dictionary<string, object?> { ["task"] = "Review the proposal." })]))
+                        { FinishReason = ChatFinishReason.ToolCalls };
+                    return new ChatResponse(new ChatMessage(ChatRole.Assistant, "Team review complete."))
+                    { FinishReason = ChatFinishReason.Stop };
+                }
+
+                var member = instructions.StartsWith("Research", StringComparison.Ordinal) ? "Researcher" : "Reviewer";
+                var active = Interlocked.Increment(ref activeMembers);
+                UpdateMaximum(ref maximumConcurrentMembers, active);
+                if (active == 2) bothMembersStarted.TrySetResult();
+                try
+                {
+                    await bothMembersStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+                    return new ChatResponse(new ChatMessage(ChatRole.Assistant, member + " result."))
+                    { FinishReason = ChatFinishReason.Stop };
+                }
+                finally { Interlocked.Decrement(ref activeMembers); }
+            })
+        };
+        var events = new List<ExecutionEvent>();
+
+        var result = await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "Analyze this.",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("Team review complete.", result);
+        Assert.Equal(2, maximumConcurrentMembers);
+        Assert.Equal(events.OrderBy(evt => evt.Sequence).ToArray(), events.ToArray());
+        Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.AgentTeamStarted));
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.AgentTeamFailed);
+        var completedTeam = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentTeamCompleted);
+        using var completedTeamData = JsonDocument.Parse(completedTeam.Data!);
+        var teamInvocation = completedTeamData.RootElement.GetProperty("teamInvocationId").GetGuid();
+        using var teamResult = JsonDocument.Parse(completedTeamData.RootElement.GetProperty("output").GetString()!);
+        Assert.Equal("Researcher result.", teamResult.RootElement[0].GetProperty("output").GetString());
+        Assert.Equal("Reviewer result.", teamResult.RootElement[1].GetProperty("output").GetString());
+        var parentInvocation = Assert.Single(events, item => item.Kind == ExecutionEventKinds.NodeStarted && item.NodeId == "step-1").InvocationId;
+        var childRequests = events.Where(evt => evt.Kind == ExecutionEventKinds.ModelRequested && evt.InvocationId != parentInvocation).ToArray();
+        Assert.Equal(2, childRequests.Length);
+        Assert.Equal(2, childRequests.Select(evt => evt.InvocationId).Distinct().Count());
+        Assert.All(childRequests, request => Assert.Contains(teamInvocation.ToString(), request.Data));
+        var secondParentRequest = events.Last(evt => evt.Kind == ExecutionEventKinds.ModelRequested && evt.InvocationId == parentInvocation);
+        Assert.Contains("Researcher result.", secondParentRequest.Data);
+        Assert.Contains("Reviewer result.", secondParentRequest.Data);
+
+        static void UpdateMaximum(ref int maximum, int candidate)
+        {
+            var observed = Volatile.Read(ref maximum);
+            while (candidate > observed)
+            {
+                var previous = Interlocked.CompareExchange(ref maximum, candidate, observed);
+                if (previous == observed) return;
+                observed = previous;
+            }
+        }
+    }
+
+    [Fact]
+    public async Task FailedTeamCancelsRemainingMembersAndDoesNotPublishPartialAggregate()
+    {
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var baseDefinition = Revision().Definition;
+        var profiles = new[]
+        {
+            AgentProfile.Create("failing", "1", "Failing", "Fails during review.", "demo.scripted", "1.0.0", "Failing instructions.", []),
+            AgentProfile.Create("waiting", "1", "Waiting", "Waits for cancellation.", "demo.scripted", "1.0.0", "Waiting instructions.", [])
+        };
+        var agent = baseDefinition.Nodes["step-1"].Agent! with
+        {
+            Instructions = "Parent instructions.",
+            Delegates = [.. profiles.Select(profile => new AgentProfileReference(profile.Id, profile.Version, profile.ContentHash!))]
+        };
+        var definition = baseDefinition with
+        {
+            SchemaVersion = "1.11",
+            AgentProfiles = profiles.ToImmutableSortedDictionary(profile => profile.Id + "@" + profile.Version, profile => profile, StringComparer.Ordinal),
+            Nodes = baseDefinition.Nodes.SetItem("step-1", baseDefinition.Nodes["step-1"] with { Agent = agent })
+        };
+        var parentCalls = 0;
+        var activeMembers = 0;
+        var bothMembersStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registration = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient(async (_, options, cancellationToken) =>
+            {
+                var instructions = options?.Instructions ?? "";
+                if (instructions == "Parent instructions.")
+                {
+                    if (Interlocked.Increment(ref parentCalls) == 1)
+                        return new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                            [new FunctionCallContent("team-call", "team_0", new Dictionary<string, object?> { ["task"] = "Review this." })]))
+                        { FinishReason = ChatFinishReason.ToolCalls };
+                    return new ChatResponse(new ChatMessage(ChatRole.Assistant, "I will review this manually."))
+                    { FinishReason = ChatFinishReason.Stop };
+                }
+
+                if (Interlocked.Increment(ref activeMembers) == 2) bothMembersStarted.TrySetResult();
+                try
+                {
+                    await bothMembersStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+                    if (instructions == "Failing instructions.") throw new InvalidOperationException("sensitive provider detail");
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                    return new ChatResponse(new ChatMessage(ChatRole.Assistant, "Should be cancelled."));
+                }
+                finally { Interlocked.Decrement(ref activeMembers); }
+            })
+        };
+        var events = new List<ExecutionEvent>();
+
+        var result = await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "Review this proposal.",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("I will review this manually.", result);
+        Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.AgentTeamFailed));
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.AgentTeamCompleted);
+        Assert.DoesNotContain(events, evt => evt.Data?.Contains("sensitive provider detail", StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
     public async Task FrameworkAgentCallsOnlyItsAssignedMcpToolAndRecordsModelRounds()
     {
         var broker = BrokerTests.CreateBroker(policy: new DemoToolPolicy());
