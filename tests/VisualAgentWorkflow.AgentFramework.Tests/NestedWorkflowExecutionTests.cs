@@ -69,4 +69,26 @@ public sealed class NestedWorkflowExecutionTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Terminated && evt.ScopeId is null);
         Assert.DoesNotContain(events, evt => evt.NodeId == "output" && evt.ScopeId is null && evt.Kind == ExecutionEventKinds.NodeCompleted);
     }
+
+    [Fact]
+    public async Task ParentParameterOverridesAreMappedIntoPinnedChildParameters()
+    {
+        var childDefinition = WorkflowParameterEditing.Add(Baseline("child"), "tone", "Tone", "child default");
+        childDefinition = GraphEditing.InsertNodeAfter(childDefinition, "input", "out",
+            new NodeDefinition(NodeTypes.WorkflowValue, "1.0.0") { ParameterId = "tone" });
+        var child = WorkflowRevision.Create(childDefinition, "test");
+        var parentDefinition = WorkflowParameterEditing.Add(Baseline("parent"), "style", "Style", "parent default");
+        var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
+            { ParameterMappings = [new("tone", "style")] }
+        };
+        var parent = GraphEditing.InsertNodeAfter(parentDefinition, "input", "out", call);
+        var revision = WorkflowRevision.Create(parent, "test");
+
+        var output = await new PipelineRunner().ExecuteWithParametersAsync(Guid.NewGuid(), revision, "ignored",
+            new Dictionary<string, string> { ["style"] = "mapped value" }, _ => ValueTask.CompletedTask);
+
+        Assert.Equal("mapped value", output);
+    }
 }

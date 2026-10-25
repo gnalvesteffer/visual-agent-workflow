@@ -39,6 +39,60 @@ public sealed class WorkflowCallTests
         Assert.Equal(package.Requirements.Select(RequirementKey), roundTripRequirements.Select(RequirementKey));
     }
 
+    [Fact]
+    public void WorkflowCallMappingsRequireDeclaredCompatibleParameters()
+    {
+        var childDefinition = WorkflowParameterEditing.Add(Baseline("child"), "tone", "Tone", "calm");
+        var parentDefinition = WorkflowParameterEditing.Add(Baseline("parent"), "style", "Style", "calm");
+        var child = WorkflowRevision.Create(childDefinition, "test");
+        var call = Call(child) with { WorkflowCall = Call(child).WorkflowCall! with
+        { ParameterMappings = [new("tone", "style")] } };
+        var definition = GraphEditing.InsertNodeAfter(parentDefinition, "input", "out", call);
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+
+        var callId = definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.WorkflowCall).Key;
+        var invalidCall = definition.Nodes[callId] with { WorkflowCall = definition.Nodes[callId].WorkflowCall! with
+        { ParameterMappings = [new("missing", "style")] } };
+        var invalid = definition with { Nodes = definition.Nodes.SetItem(callId, invalidCall) };
+        Assert.Contains(WorkflowValidator.Validate(invalid), issue => issue.Code == "workflowCall.parameters.reference");
+    }
+
+    [Fact]
+    public void WorkflowCallMappingsRejectIncompatibleTypesAndDuplicateChildTargets()
+    {
+        var childDefinition = WorkflowParameterEditing.SetType(
+            WorkflowParameterEditing.Add(Baseline("child"), "tone", "Tone", "1"), "tone", "integer", "1");
+        var parentDefinition = WorkflowParameterEditing.Add(Baseline("parent"), "style", "Style", "calm");
+        var child = WorkflowRevision.Create(childDefinition, "test");
+        var definition = GraphEditing.InsertNodeAfter(parentDefinition, "input", "out", Call(child));
+        var callId = definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.WorkflowCall).Key;
+        var call = definition.Nodes[callId] with { WorkflowCall = definition.Nodes[callId].WorkflowCall! with
+        { ParameterMappings = [new("tone", "style"), new("tone", "style")] } };
+        definition = definition with { Nodes = definition.Nodes.SetItem(callId, call) };
+
+        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "workflowCall.parameters.duplicate");
+        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "workflowCall.parameters.type");
+    }
+
+    [Fact]
+    public void WorkflowCallMappingsRoundTripAndArePartOfThePinnedParentContent()
+    {
+        var childDefinition = WorkflowParameterEditing.Add(Baseline("child"), "tone", "Tone", "calm");
+        var parentDefinition = WorkflowParameterEditing.Add(Baseline("parent"), "style", "Style", "calm");
+        var child = WorkflowRevision.Create(childDefinition, "test");
+        var unmapped = GraphEditing.InsertNodeAfter(parentDefinition, "input", "out", Call(child));
+        var nodeId = unmapped.Nodes.Single(entry => entry.Value.Type == NodeTypes.WorkflowCall).Key;
+        var call = unmapped.Nodes[nodeId] with { WorkflowCall = unmapped.Nodes[nodeId].WorkflowCall! with
+        { ParameterMappings = [new("tone", "style")] } };
+        var mapped = unmapped with { Nodes = unmapped.Nodes.SetItem(nodeId, call) };
+        var roundTrip = WorkflowJson.Deserialize(WorkflowJson.Serialize(mapped));
+
+        Assert.Equal("style", roundTrip.Nodes[nodeId].WorkflowCall!.ParameterMappings!.Value.Single().ParentParameterId);
+        Assert.NotEqual(WorkflowJson.ComputeHash(unmapped), WorkflowJson.ComputeHash(mapped));
+        Assert.Empty(WorkflowValidator.Validate(roundTrip));
+    }
+
     private static string RequirementKey(PackageRequirement requirement) =>
         $"{requirement.Kind}|{requirement.Id}|{requirement.Version}|{requirement.ContractHash}|{requirement.DescriptionHash}";
 

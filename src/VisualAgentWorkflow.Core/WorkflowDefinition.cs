@@ -92,7 +92,14 @@ public sealed record LoopConfiguration(StringCondition ContinueWhile, int Maximu
 
 /// <summary>An immutable, self-contained reference to the exact child release used by this node.</summary>
 public sealed record WorkflowCallConfiguration(string WorkflowId, Guid RevisionId, int Version, string ContentHash,
-    WorkflowDefinition Definition);
+    WorkflowDefinition Definition)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableArray<WorkflowCallParameterMapping>? ParameterMappings { get; init; }
+}
+
+/// <summary>Maps one parent-owned workflow parameter to a child parameter; values are resolved per run.</summary>
+public sealed record WorkflowCallParameterMapping(string ChildParameterId, string ParentParameterId);
 
 public static class WorkflowCallLimits
 {

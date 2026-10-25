@@ -136,7 +136,28 @@
                     {
                         <p>This node executes the embedded workflow revision and returns its string result. The workflow ID, revision, version, and content hash are pinned in this node. Its tools, model providers, and skills remain subject to the host’s configured catalogs and grants.</p>
                         @if (node.WorkflowCall is { } child)
-                        { <dl><dt>Workflow</dt><dd>@child.WorkflowId</dd><dt>Version</dt><dd>@child.Version</dd><dt>Revision</dt><dd><code>@child.RevisionId</code></dd><dt>Content hash</dt><dd><code>@child.ContentHash</code></dd></dl> }
+                        {
+                            <dl><dt>Workflow</dt><dd>@child.WorkflowId</dd><dt>Version</dt><dd>@child.Version</dd><dt>Revision</dt><dd><code>@child.RevisionId</code></dd><dt>Content hash</dt><dd><code>@child.ContentHash</code></dd></dl>
+                            var childParameters = child.Definition.Parameters ?? System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
+                            @if (childParameters.Count > 0)
+                            {
+                                <fieldset disabled="@(ReadOnly || Disabled)">
+                                    <legend>Child workflow parameters</legend>
+                                    <p class="vaw-help">Map declared values from this workflow into the pinned child. Unmapped values keep their child defaults. Only compatible types are offered.</p>
+                                    @foreach (var (childParameterId, childParameter) in childParameters)
+                                    {
+                                        var mappedParentId = child.ParameterMappings?.FirstOrDefault(mapping => mapping.ChildParameterId == childParameterId)?.ParentParameterId ?? "";
+                                        <label>@childParameter.DisplayName · @childParameterId
+                                            <select aria-label="Parent value for child parameter @childParameterId on @id" value="@mappedParentId" @onchange="args => MapChildParameter(id, childParameterId, args)" disabled="@Disabled">
+                                                <option value="">Use child default</option>
+                                                @foreach (var (parentParameterId, parentParameter) in ParameterDefinitions.Where(pair => ParameterContractsMatch(pair.Value, childParameter)))
+                                                { <option value="@parentParameterId">@parentParameter.DisplayName · @parentParameterId</option> }
+                                            </select>
+                                        </label>
+                                    }
+                                </fieldset>
+                            }
+                        }
                         @if (!ReadOnly) { <button type="button" @onclick="() => RemoveSelected(id)" disabled="@Disabled">Remove workflow call</button> }
                     }
                     else if (node.Type == NodeTypes.Loop)
@@ -497,6 +518,19 @@
     private bool GuardedTool(string id) => Definition.Connections.Values.Any(e => e.Target.NodeId == id && Definition.Nodes[e.Source.NodeId].Type == NodeTypes.Approval);
     private Task ApprovalPrompt(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
         Definition.Nodes[id] with { Approval = new(args.Value?.ToString() ?? "") }));
+    private static bool ParameterContractsMatch(WorkflowParameterDefinition parent, WorkflowParameterDefinition child) =>
+        (parent.Type ?? "string") == (child.Type ?? "string") && (parent.Type != "choice" ||
+            parent.Choices is { } parentChoices && child.Choices is { } childChoices &&
+            parentChoices.All(choice => childChoices.Contains(choice, StringComparer.Ordinal)));
+    private Task MapChildParameter(string nodeId, string childParameterId, ChangeEventArgs args) => Edit(() =>
+    {
+        var node = Definition.Nodes[nodeId];
+        var call = node.WorkflowCall ?? throw new ArgumentException("The pinned child workflow is unavailable.");
+        var mappings = System.Collections.Immutable.ImmutableArray.CreateRange((call.ParameterMappings ?? []).Where(mapping => mapping.ChildParameterId != childParameterId));
+        var parentParameterId = args.Value?.ToString();
+        if (!string.IsNullOrEmpty(parentParameterId)) mappings = mappings.Add(new(childParameterId, parentParameterId));
+        return GraphEditing.ReplaceNode(Definition, nodeId, node with { WorkflowCall = call with { ParameterMappings = mappings.IsEmpty ? null : mappings } });
+    });
     private bool HasRouting => WorkflowGraph.HasControlNodes(Definition);
     private bool UsesGraphEditing => HasRouting || WorkflowGraph.HasTypedJson(Definition);
     private static string PortLabel(string id, string port) => port == "out" ? id : id + "." + port;

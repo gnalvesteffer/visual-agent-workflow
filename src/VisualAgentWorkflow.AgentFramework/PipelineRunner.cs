@@ -372,9 +372,12 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             }
 
             var runner = new PipelineRunner(tools, agents);
+            IReadOnlyDictionary<string, string>? childParameters = call.ParameterMappings is { Length: > 0 } mappings
+                ? mappings.ToDictionary(mapping => mapping.ChildParameterId, mapping => parameters![mapping.ParentParameterId], StringComparer.Ordinal)
+                : null;
             return gate is null
-                ? await runner.ExecuteWithOutcomeAsync(runId, child, input, null, RecordChild, cancellationToken)
-                : await runner.ExecuteControlledWithParametersAndOutcomeAsync(runId, child, input, null, RecordChild, gate, cancellationToken);
+                ? await runner.ExecuteWithOutcomeAsync(runId, child, input, childParameters, RecordChild, cancellationToken)
+                : await runner.ExecuteControlledWithParametersAndOutcomeAsync(runId, child, input, childParameters, RecordChild, gate, cancellationToken);
         }
 
         private (bool Started, bool Complete, string? Result, int ReceivedCount) CollectParallelJoinInput(string inputPort, string input)

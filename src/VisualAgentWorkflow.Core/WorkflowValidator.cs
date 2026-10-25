@@ -160,6 +160,30 @@ public static class WorkflowValidator
                     call.WorkflowId.Length > 256 || call.WorkflowId != call.Definition?.WorkflowId || call.RevisionId == Guid.Empty ||
                     call.Version < 1 || !ValidHash(call.ContentHash) || !hashMatches || call.Definition is { } childDefinition && !IsStringWorkflow(childDefinition))
                     Error("workflowCall.configuration", $"nodes.{id}.workflowCall", "Workflow call nodes require schema 1.19 and an embedded, hash-matching string-to-string workflow revision.");
+                if (call?.ParameterMappings is { } mappings)
+                {
+                    var childParameters = call.Definition?.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
+                    if (mappings.IsDefault || mappings.Length > 64)
+                        Error("workflowCall.parameters.limit", $"nodes.{id}.workflowCall.parameterMappings", "A workflow call can map at most 64 child parameters.");
+                    else
+                    {
+                        if (mappings.Select(mapping => mapping?.ChildParameterId).Distinct(StringComparer.Ordinal).Count() != mappings.Length)
+                            Error("workflowCall.parameters.duplicate", $"nodes.{id}.workflowCall.parameterMappings", "Each child parameter can be mapped only once.");
+                        foreach (var mapping in mappings)
+                        {
+                            if (mapping is null || string.IsNullOrEmpty(mapping.ChildParameterId) || string.IsNullOrEmpty(mapping.ParentParameterId) ||
+                                !childParameters.TryGetValue(mapping.ChildParameterId, out var childParameter) || childParameter is null ||
+                                !parameters.TryGetValue(mapping.ParentParameterId, out var parentParameter) || parentParameter is null)
+                            {
+                                Error("workflowCall.parameters.reference", $"nodes.{id}.workflowCall.parameterMappings", "Mappings must reference a parameter declared by both the child and parent workflows.");
+                                continue;
+                            }
+
+                            if (!ParameterContractsMatch(parentParameter, childParameter))
+                                Error("workflowCall.parameters.type", $"nodes.{id}.workflowCall.parameterMappings.{mapping.ChildParameterId}", "Mapped parameters must have compatible types; parent choice values must all be allowed by the child parameter.");
+                        }
+                    }
+                }
             }
             else if (node.WorkflowCall is not null)
                 Error("workflowCall.unexpected", $"nodes.{id}.workflowCall", "Only workflow call nodes may declare a nested workflow revision.");
@@ -472,6 +496,13 @@ public static class WorkflowValidator
 
     private static bool ValidParameterId(string id) => id.Length is > 0 and <= 64 &&
         id.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-');
+
+    private static bool ParameterContractsMatch(WorkflowParameterDefinition parent, WorkflowParameterDefinition child)
+    {
+        if ((parent.Type ?? "string") != (child.Type ?? "string")) return false;
+        return parent.Type != "choice" || parent.Choices is { } parentChoices && child.Choices is { } childChoices &&
+            parentChoices.All(choice => childChoices.Contains(choice, StringComparer.Ordinal));
+    }
 
     private static bool ValidChannelId(string? id) => id is { Length: > 0 and <= 64 } && id[0] is >= 'a' and <= 'z' &&
         id.All(character => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '_' or '-' or '.');
