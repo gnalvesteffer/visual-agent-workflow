@@ -253,25 +253,21 @@ The same graph viewer supports Live and Recorded Playback modes. Recorded playba
 
 Playback is reconstruction of recorded evidence, not deterministic re-execution. Redacted, expired, truncated, or unrecorded content must be visibly marked. Show uncertain external outcomes accurately. Re-execution from a checkpoint and testing against recorded tool responses are separate features with separate side-effect semantics.
 
-## Workflow versions and releases
+## Git history, local recovery, and immutable runs
 
-- Drafts are editable working copies with autosave and conflict detection.
-- Saved revisions record author, time, description, and parent/merge lineage.
-- Published revisions are immutable, validated release artifacts.
-- Loading an older/newer revision supports viewing, comparison, or creating a draft, subject to schema compatibility.
-- Restoring an old revision creates a new draft/revision rather than rewriting history.
-- Activation chooses the published revision used by new runs.
-- Existing runs retain their original revision and dependencies.
+Git is the source-control history for editable projects. Studio should not create a second project-local draft/revision lineage or require a database to open a source project. Authors can inspect, branch, compare, and revert ordinary project files with their Git client; Studio validates the checked-out files before running or packaging them.
 
-For example, restoring version 2 after version 5 creates version 6 containing the restored definition. Versions 3–5 and their execution histories remain available.
+Studio may keep optional local recovery snapshots and test artifacts in an ignored `.vaw/` directory. These snapshots are client-local conveniences, are not the canonical history, are excluded from exports and consumer bundles, and can be deleted without losing the project. Restoring one writes validated source files back into the project so Git can show the resulting changes. Sensitive inputs and run payloads must follow the host's run-retention policy rather than being silently copied into project snapshots.
 
-Pin node implementation versions, configuration schemas, skills, prefabs, and extension artifacts. Missing or incompatible dependencies produce explicit errors. Schema migration creates a new draft and preserves the original. Playback remains available from stored evidence even when execution dependencies are unavailable.
+Each execution still binds to an immutable, content-addressed workflow/package snapshot and resolved dependency identities. The snapshot and run evidence live in the host-owned run store or an exported artifact, outside canonical source files. Editing a workflow or switching Git branches changes future runs only; a historical run does not resolve its graph from the current branch. Run playback remains possible from recorded graph metadata and evidence without loading executable dependencies.
+
+Pin node implementation versions, configuration schemas, skills, graph functions, and extension artifacts in portable files and package manifests. Missing or incompatible dependencies produce explicit validation errors. A package build produces an immutable artifact hash for deployment and run attribution; it does not create a competing source-control history.
 
 Promote the same immutable release across environments using separately authorized environment bindings. Record relevant resolved binding metadata for each run without copying credentials into definitions or logs.
 
-## Projects and Git-based source control
+## Folder projects and Git-based source control
 
-Organize authoring like a Visual Studio solution with an Unreal-style asset navigator: a workspace contains projects, and each project groups its workflows, graph/function assets, agent presets, skills, and workflow-specific parameter schemas. The project browser and asset tree provide navigation and organization; the Blueprint-style graph editor remains the primary surface for composing execution and data flow.
+Organize authoring like a Visual Studio solution with an Unreal-style asset navigator: a workspace can open multiple ordinary project folders, and each project groups its workflows, graph/function assets, agent presets, skills, and workflow-specific parameter schemas. Studio shows the real project contents in a file tree; opening a workflow keeps the Blueprint-style graph editor as the primary surface for composing execution and data flow. Git commands and collaboration remain the user's responsibility outside Studio.
 
 Project ownership is catalog metadata, not executable authority. A project may refer to approved MCP server/tool bindings and model-provider profiles available in a selected host environment, but it does not own their live endpoints, credentials, grants, or runtime clients. The host/environment owns those registrations and checks caller policy plus node-scoped requirements on every invocation. Changing a project's membership, importing a bundle, or selecting an MCP connection in the project cannot grant a workflow permission to invoke it. Promotion should keep a workflow's portable identity stable while staging and production resolve separate authorized endpoints and secrets.
 
@@ -295,11 +291,11 @@ flowchart TB
 
 Keep project membership separate from runtime authority. Published workflow snapshots and packages remain self-contained for portable behavior and requirements; a consumer host resolves environment references and supplies grants. A project bundle is an authoring/sharing artifact, not a deployment credential bundle.
 
-Introduce projects in stages: establish the deterministic default project; migrate catalog records and APIs without changing workflow/revision identities, hashes, audit, layout, generation or active pointers; scope Studio navigation and asset catalogs; then define a Git-friendly project snapshot and explicit environment remapping. Archive projects rather than deleting data that published runs and playback still reference. Keep stable globally unique asset IDs unless a demonstrated collision requirement justifies changing executable references.
+Use a small versioned project manifest and deterministic, reviewable JSON source files. A workspace file may list relative project-folder roots so multiple projects can be opened together without embedding machine-specific paths. Preserve workflow and asset IDs, content hashes, and layouts during migration. Keep local recovery metadata in ignored `.vaw/` storage and immutable package/run snapshots in host-owned artifact/history storage. Existing SQLite authoring catalogs are transitional migration sources, not the target project format. Do not preserve or copy their revision UI into portable projects.
 
 Sharing supports pinned references to catalog assets and independent copies/forks with provenance. Export bundles include dependency manifests, never credentials. Imports validate content and require explicit mapping to authorized local capabilities. Imported extension references must not trigger automatic assembly installation or loading.
 
-Use Git as the source-control and sharing mechanism for project snapshots; do not build simultaneous editing into Studio. Store workflows and project-owned assets as stable, reviewable, versioned files with IDs and content hashes. Avoid committing every canvas gesture: persist layout with the graph and let Git commits capture deliberate snapshots. Validate files and dependencies in CI. When two branches change the same semantic asset, let Git report the textual conflict and require an explicit Studio import/validation step; never silently choose a definition or merge behavior that can change execution.
+Use Git as the source-control and sharing mechanism; do not build simultaneous editing or an in-app Git client into Studio. Store workflows and project-owned assets as stable, reviewable files with IDs and content hashes. Persist layout alongside the workflow source so visual edits are source changes. Validate files and dependencies in CI. If two branches change the same asset, let Git report the conflict and require the user to resolve it before Studio loads or packages the project; never silently choose a definition that can change execution.
 
 ## Serialization
 
@@ -309,12 +305,15 @@ Use platform-owned versioned JSON documents validated against JSON Schema. Do no
 
 | Document | Contents |
 | --- | --- |
-| `workflow.json` | Executable nodes/connections, input/output schemas, configuration, capability requirements |
-| `layout.json` | Node positions, viewport, groups, and visual annotations |
-| `dependencies.lock.json` | Exact dependencies, artifact hashes, and tool contract fingerprints |
-| `manifest.json` | Bundle identity and document/resource references |
+| `vaw.project.json` | Project format version, stable project ID, display name, and relative asset indexes |
+| `workflows/<id>.json` | Executable nodes/connections, input/output schemas, configuration, requirements, and graph layout |
+| `skills/<id>/<version>.json` | Immutable text skill revision and content hash |
+| `agents/<id>/<version>.json` | Immutable agent profile revision and content hash |
+| `functions/<id>/<version>.json` | Immutable pure graph-function definition and content hash |
+| `.vaw/` | Optional ignored local recovery/index/cache; never required to open, validate, or package a project |
+| `.vawpkg` ZIP artifact | Built, validated project/workflow payload and dependency manifest for consumer installation; excludes `.vaw`, endpoints, credentials, grants, and local run history |
 
-Keep layout separate so moving nodes does not obscure behavior changes. Published revisions retain the associated layout snapshot. Execution events, audit records, payload artifacts, collaboration operations, and runtime checkpoints are separate records, not mutations to `workflow.json`.
+Keep layout in a dedicated field/document when the selected source schema supports it so moving nodes is reviewable separately from behavior changes. A built artifact captures the exact definition and layout. Execution events, host audit, payload artifacts, and runtime checkpoints stay outside project source files.
 
 ### Illustrative definition fragment
 

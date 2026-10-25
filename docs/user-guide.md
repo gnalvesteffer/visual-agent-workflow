@@ -8,11 +8,11 @@ Use disposable text in the local development app. It records inputs, outputs, an
 
 ## Organize work with projects
 
-Select **Projects** in the Studio navigation to create a project, open it, archive it, or restore an archived project. The workflow editor, Skill library, Agent Designer, and Function library follow the selected project. The first project is **Default Project**; when an older Studio data directory is opened, the Studio copies its workflow catalog and skill/profile/function files into this project and keeps the original files as a recovery copy.
+Select **Projects** in the Studio navigation to create and open a local project, archive it, or restore it. The workflow editor, Skill library, Agent Designer, and Function library follow the selected project. The first project is **Default Project**; when an older Studio data directory is opened, the Studio copies its workflow catalog and skill/profile/function files into this project and keeps the original files as a recovery copy.
 
 Projects organize local authoring. Model provider and MCP connection settings remain environment-wide because they contain endpoints, credentials, and host registrations. Choosing a tool in a project does not grant it permission; the current development host still applies its local broker policy. Run history is also host-wide. Archived projects are omitted from the selector, and their data is retained; restore an archived project from **Projects** to open it again.
 
-Studio does not yet provide a Git-native project format or project-level commit UI. Use the existing workflow package export when you need a portable, reviewable workflow artifact. Project bundles, import remapping, and Git-aware multi-asset project files remain planned. See [local project workspaces](project-workspaces.md) for the migration and persistence details.
+The current project prototype stores its catalog under Studio's local data directory, so it is not yet a portable folder that you can clone/open from Git. The target is ordinary project folders, with Git managed in your normal Git client and optional ignored `.vaw/` files for local recovery. Use the existing workflow package export for portable single-workflow artifacts. A project-folder explorer, opening multiple folder roots, and installable project ZIP remain planned. See [local project workspaces](project-workspaces.md) for current persistence and the migration plan.
 
 ## Build workflows for your own service
 

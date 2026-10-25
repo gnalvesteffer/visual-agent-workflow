@@ -1,43 +1,54 @@
-# Local project workspaces
+# Project folders and workspaces
 
-Studio now has a local project registry that organizes workflow authoring. This is a single-operator feature for the loopback development app, not multi-user authorization or a workspace collaboration service.
+## Current implementation
 
-## Current behavior
+Studio currently offers a local project registry and project selection. Workflows live in a project-scoped SQLite catalog; skills, agent profiles, and graph functions use JSON catalogs. The project registry and catalog roots are under the Studio data directory. This is a local single-operator prototype, not a portable folder/Git project format.
 
-The **Projects** page creates projects, opens them, archives them, and restores archived projects. The project selector is available beside the workflow editor, Agent Designer, Skill library, and Function library. Each project gets a separate data directory and workflow catalog. The project-aware API is available under `/api/projects/{projectId}`; the older `/api/workflows` routes select **Default Project**.
+The first access to the deterministic Default Project copies a legacy workflow database with SQLite backup and copies legacy JSON libraries, preserving the source files. Existing tests verify migrated workflow definitions, revision IDs and hashes, layouts, generations, head/active pointers, audit order, and skills. Model-provider and MCP registrations, endpoints, protected credentials, grants, and run history are host-wide. Project selection does not authorize runtime capabilities.
 
-```mermaid
-flowchart TB
-    Workspace["Local Studio workspace"] --> Registry["projects.json"]
-    Registry --> Default["Default Project"]
-    Registry --> Other["Other project"]
-    Default --> WorkflowA["workflows.db"]
-    Default --> AssetsA["skills, profiles, functions JSON"]
-    Other --> WorkflowB["workflows.db"]
-    Other --> AssetsB["skills, profiles, functions JSON"]
-    Environment["Host-wide provider and MCP settings"] --> Runtime["Studio runtime and broker"]
-    WorkflowA --> Runtime
-    WorkflowB --> Runtime
+## Target project contract
+
+The portable project directory is the canonical editable source. It must be openable and understandable without Studio, SQLite, or `.vaw/`. Studio will open several folders in a workspace and show the real project files in a tree; selecting a workflow opens it in the graph editor. Git runs through the user's normal tooling. Studio will not provide multi-user editing or an in-app Git client.
+
+The proposed source tree is:
+
+```text
+my-project/
+  .gitignore                 # excludes .vaw/
+  vaw.project.json           # format version, stable ID, name, relative indexes
+  workflows/
+    support-triage.json      # definition, layout, parameters, exact asset snapshots/references
+  skills/
+    research/1.0.0.json
+  agents/
+    support-specialist/1.2.0.json
+  functions/
+    normalize-ticket/1.0.0.json
+  .vaw/                      # optional local-only restore points, test snapshots and indexes
 ```
 
-Workflow definitions, drafts, layouts, immutable revisions, catalog audit, and active/head pointers stay in the selected project's SQLite catalog. Skills, agent profiles, and pure graph functions use project-local JSON libraries. Workflow and asset identifiers are unchanged by the legacy migration. Published workflows continue embedding exact skill/profile/function snapshots; moving between projects does not rewrite a published workflow.
+Paths in manifests are relative and must remain under the project root after canonicalization. Reject path traversal, unsupported links that leave the root, duplicate IDs, case-colliding paths, oversized files, and unknown format versions with actionable diagnostics. Save one source file atomically. When an external Git/editor change conflicts with an open unsaved editor buffer, preserve both versions and ask the operator to reload or compare; never overwrite the external edit silently.
 
-On first use, Studio creates the deterministic `default` project. If it finds legacy `workflows.db`, `skills.json`, `agent-profiles.json`, or `graph-functions.json` at the root of the configured Studio data directory, it copies each missing destination into the Default Project. SQLite uses the backup API so a consistent database snapshot is copied. Legacy files are retained as recovery copies; future writes go to the project directory. The copy is repeatable and never overwrites an already-created project catalog. It is not an all-files transaction, so if interrupted, the next open retries any missing file.
+Git is authoritative for source history. `.vaw/` is optional disposable client state and must be ignored by Git and omitted from all exports. Local restore points can help recover or test a prior snapshot, but restoring one writes source files back for Git review. Project files must not contain model endpoints, API keys, MCP access tokens, host grants, or local run evidence. Host-owned run history records immutable definition/layout hashes and resolved dependency identities independently of the active Git branch.
 
-Archiving hides a project from the selector while retaining its files. Restoring it makes it selectable again. The Default Project cannot be archived. Project IDs are local catalog keys; they do not authenticate a user or grant access.
+## Consumer artifact
 
-## Host-wide settings and permission boundary
+Studio should build a ZIP artifact from validated project source (proposed extension `.vawpkg`). The archive contains the project manifest, selected workflow files, exact required graph-function/skill/profile snapshots, and a dependency manifest with format versions, content hashes, node/provider/MCP requirements, and unresolved logical binding IDs. It excludes `.vaw/`, Git metadata, endpoints, credentials, grants, and run history. A consumer application installs the artifact into its own deployment/release mechanism and resolves implementations, provider clients, MCP servers, credentials, and authorization under its own host policy. The archive is not a NuGet package and does not install executable assemblies.
 
-Model-provider registrations, endpoints, protected keys, MCP endpoints/tokens, broker registrations, grants, and run history remain local Studio environment data. This prevents a project selection or project import from silently granting a tool. The current Studio process is a development host with a local operator policy; it does not yet expose per-project environment binding manifests or separate multiple secured execution environments. Workflows and projects must not be treated as an authorization boundary.
+Do not claim this as consumer-installable until a clean consumer sample can load it, resolve declared runtime IDs/versions and hashes, supply host-owned services, and execute a workflow without Studio or its authoring catalog. Existing single-workflow JSON export remains available in the meantime.
 
-Workflow parameters remain workflow-owned inputs with per-run overrides. There are no mutable project-global variables. Runtime execution and history remain independent of the browser, but run history is currently host-wide rather than filtered by project.
+## Local data and version behavior
 
-## Git and sharing limits
+The target has no project-local in-app revision history. Users use Git branches, commits, and reverts. Optional `.vaw/` recovery snapshots are content-addressed, local-only conveniences; they can be deleted without losing source. Studio may list snapshots to allow a user to inspect or materialize one for testing. A run must identify the exact immutable artifact/content hash it used, not a mutable folder path, current branch, or sidecar snapshot ID. The host run store owns execution evidence and retention.
 
-Studio does not yet have a Git-native project format, project bundle import/export, Git commit UI, or project-level merge semantics. The workflow catalog is SQLite and project metadata is in a local JSON registry, so these local database files are not reviewable line-by-line like ordinary source files. Use the existing workflow package export for a portable, hash-validated workflow artifact. Do not assume copying project database files to another host will safely remap provider/MCP endpoints, credentials, or grants.
+Migration from the current SQLite-backed catalog must preserve stable workflow/asset IDs and produce ordinary source files. Existing audit/revision data may be retained in local `.vaw/` history for recovery and old run inspection, but it is not copied into project source or represented as Git history. There must be one clear source-of-truth rule at each migration phase; avoid unsignaled dual writes.
 
-The planned source-controlled format should serialize deliberate project snapshots into ordinary versioned files, retain stable asset IDs and immutable content hashes, and keep environment bindings external. Git will provide version control and sharing; Studio will need explicit import/export and conflict handling before a project directory is a supported interchange contract.
+## Roadmap sequence
 
-## Validation
+1. Define and test deterministic project-file schemas, manifest validation, package build/round-trip, stable IDs, and content hashes.
+2. Convert the project catalogs to folder-backed source with a single authority rule and safe migration from the current local catalogs.
+3. Add a workspace that opens multiple project directories, an expandable file tree, file watching, atomic saves, and clear external-change/conflict diagnostics.
+4. Add optional ignored `.vaw/` snapshots and restore/test selection, proving that deleting the sidecar does not affect project validity.
+5. Build the ZIP consumer artifact and prove clean consumer installation/execution with host-supplied dependencies and policy.
 
-`StudioProjectWorkspaceTests` verifies deterministic project metadata, archive/restore behavior, project isolation, and legacy migration of workflow definitions, revision IDs/hashes, layout, generations, head/active pointers, audit entries, and skills. These tests do not establish Git mergeability, cross-project references, or project-aware run-history filtering. Multi-user editing is out of scope; Git-friendly serialization remains planned.
+The current registry/catalog tests do not prove Git merge behavior, portable project interchange, safe arbitrary-folder access, or consumer installation.
