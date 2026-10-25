@@ -12,6 +12,7 @@ The structure follows `gnalvesteffer/ai-newspaper`: a project guide plus focused
 | [Mermaid diagrams](../.agents/skills/mermaid-diagrams/SKILL.md) | Architecture, lifecycle, sequence, and user-flow visualizations; see [local guidance and provenance](../.agents/skills/mermaid-diagrams/SOURCE.md) |
 | [Project guide](../.agents/skills/project-guide/SKILL.md) | Changing architecture, planning implementation, or orienting in the repository |
 | [Agent orchestration](../.agents/skills/agent-orchestration/SKILL.md) | Splitting independent work across subagents, coordinating a shared workspace, or integrating parallel changes |
+| [Adversarial review](../.agents/skills/adversarial-review/SKILL.md) | Independently testing consequential designs and proposals with proponent, opponent, and adjudicator roles before implementation |
 | [Microsoft Agent Framework](../.agents/skills/microsoft-agent-framework/SKILL.md) | Selecting/upgrading .NET framework packages, implementing the adapter, or verifying agent/workflow/tool APIs |
 | [Blazor](../.agents/skills/blazor/SKILL.md) | Building or reviewing Razor components, lifecycle, binding, rendering, state, and UI tests; read the [project compatibility notes and license](../.agents/skills/blazor/SOURCE.md) too |
 | [Modern C# coding standards](../.agents/skills/modern-csharp-coding-standards/SKILL.md) | C# implementation, declarative readability, async/cancellation, immutable contracts, composition; read [local notes](../.agents/skills/modern-csharp-coding-standards/SOURCE.md) |

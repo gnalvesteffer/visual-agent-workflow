@@ -12,7 +12,7 @@ Delegate only when the work can be split into independent, bounded outcomes. The
 - First identify dependencies and likely file ownership. Parallelize separate investigations or changes that can be integrated independently.
 - Keep tightly coupled architecture, broad refactors, shared-state debugging, and edits to the same files with one implementer. Parallel effort is not useful when agents must continually reconcile each other's intermediate changes.
 - Delegate read-only research or review when implementation must remain serial. A reviewer should report findings and proposed fixes without editing the implementer's files.
-- Use the smallest number of agents that meaningfully reduces elapsed work. Delegation adds briefing, integration, and review costs.
+- Use the smallest number of agents that meaningfully reduces elapsed work. Delegation adds briefing, integration, and review costs. The scoped three-role gate in [adversarial-review](../adversarial-review/SKILL.md) is the project-defined exception for consequential design decisions, not a general reason to add agents to routine implementation.
 
 ## Write self-contained work briefs
 

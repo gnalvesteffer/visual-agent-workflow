@@ -1,6 +1,6 @@
 # Agent guidance
 
-Read [project-guide](.agents/skills/project-guide/SKILL.md) before changing this repository. Read the focused skill whose description matches the task; the [skill catalog](docs/agent-skills.md) lists them. Do not run every review for every change.
+Read [project-guide](.agents/skills/project-guide/SKILL.md) before changing this repository. Read the focused skill whose description matches the task; the [skill catalog](docs/agent-skills.md) lists them. Use [adversarial-review](.agents/skills/adversarial-review/SKILL.md) before implementing consequential design or architecture decisions. Routine implementation, mechanical edits, and clear localized fixes do not need the full review; if they uncover a consequential decision, pause at that decision and review it first.
 
 The repository is in early implementation. [docs/design.md](docs/design.md) owns the product direction; [docs/roadmap.md](docs/roadmap.md) tracks priorities, implemented scope, and limitations. Do not describe roadmap features as implemented.
 
