@@ -42,7 +42,7 @@ This is local organization for one operator, not a multi-user authorization or s
 
 ## Active milestone: folder-backed Git projects and workspace explorer
 
-The roadmap below defines the next project milestone: deterministic project files, multiple open folder roots, a real file tree, `.vaw/` local recovery state, and a consumer project artifact. Git supplies source-control history; no in-app Git client or multi-user editing is planned. Keep provider/MCP credentials, grants, and run evidence outside portable source. See [folder projects and Git source control](design.md#folder-projects-and-git-based-source-control) and the [migration sequence](project-workspaces.md#roadmap-sequence).
+The roadmap below defines the next project milestone: deterministic project files, multiple open folder roots, a real file tree, `.vaw/` local recovery state, and a consumer project artifact. Git supplies source-control history; no in-app Git client or multi-user editing is planned. Keep provider/MCP credentials, grants, and run evidence outside portable source. Consumers configure one authoritative `IWorkflowRunStore`; Studio keeps run data in host-local storage outside project roots and may use OS temp only for explicitly disposable sessions. See [folder projects and Git source control](design.md#folder-projects-and-git-based-source-control) and the [migration sequence](project-workspaces.md#roadmap-sequence).
 
 ## Previous completed milestone: Provider management and Studio theme refinement
 
