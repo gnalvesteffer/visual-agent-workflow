@@ -6,7 +6,7 @@ Statuses mean **Complete** (implemented and verified), **Active** (currently bei
 
 ## Current product boundary
 
-The development Studio edits and runs validated linear and conditional string graphs through Microsoft Agent Framework. It has free node placement, edge sockets, reroutes/pinned angles, labels/comments, named sections, immutable publications, restore/activation, persisted local audit/run evidence, and recorded playback, plus reusable published pipelines and portable packages. Agent nodes can configure system instructions/provider/model, select node-scoped MCP tools, and set low/medium/high reasoning effort where the adapter advertises support, including from a bounded workflow choice input. Studio has a local Streamable HTTP MCP library with a portable flat-scalar argument subset and a text-only versioned skill library; selected skill revisions and structured user-message templates travel in schema 1.7 definitions. Schema 1.6 supports up to 64 string parameters; schema 1.8 adds integer, number, boolean and choice validation and exposes a reasoning-effort input. Mutable variables, nested/collection MCP arguments, richer graph data ports and additional agent-configuration pins remain planned. Model providers can be managed in Studio settings. The default agent provider is a deterministic fixture; the opt-in OpenAI SDK adapter is protocol-verified, while credentialed live-service qualification remains outstanding.
+The development Studio edits and runs validated linear and conditional graphs through Microsoft Agent Framework. Most graph connections carry strings; schema 1.9 adds a bounded JSON entry input and pointer selector that returns text. It has free node placement, edge sockets, multi-selection/group movement, pan/reset/fit, reroutes/pinned angles, labels/comments, named sections, immutable publications, restore/activation, persisted local audit/run evidence, and recorded playback, plus reusable published pipelines and portable packages. Agent nodes can configure system instructions/provider/model, select node-scoped MCP tools, and set low/medium/high reasoning effort where the adapter advertises support, including from a bounded workflow choice input. Studio has a local Streamable HTTP MCP library with a portable nested argument subset and a text-only versioned skill library; selected skill revisions and structured user-message templates travel in schema 1.7 definitions. Schema 1.6 supports up to 64 string parameters; schema 1.8 adds integer, number, boolean and choice validation and exposes a reasoning-effort input. Mutable variables, general object/collection graph mapping, parallel fan-out/joins, loops and additional agent-configuration pins remain planned. Model providers can be managed in Studio settings. The default agent provider is a deterministic fixture; the opt-in OpenAI SDK adapter is protocol-verified, while credentialed live-service qualification remains outstanding.
 
 The backend owns execution. Studio/ordinary queued runs still interrupt after host failure; a separate opt-in host explicitly resumes deterministic saved checkpoints. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Free placement does not imply arbitrary socket rewiring or parallel execution. Conditional routing is an explicit validated operation.
 
@@ -82,7 +82,8 @@ flowchart TD
     Store --> Recovery["Complete: explicit deterministic checkpoint recovery"]
     Recovery --> Assess["Complete: read-only run reconciliation"]
     Assess --> Agents["Next: configurable MCP servers, tools, and agent skills"]
-    Agents --> Orchestration["Planned: typed data and complex graph orchestration"]
+    Agents --> JsonData["Active: bounded JSON input and selection"]
+    JsonData --> Orchestration["Planned: typed mapping and complex graph orchestration"]
     Orchestration --> Assets["Planned: nested versioned workflow prefabs"]
     Orchestration --> Durable["Later: host-attributed reconciliation decisions"]
     Assets --> Extensions["Approved extensions in isolated workers"]
@@ -137,7 +138,11 @@ Treat a configured stdio process as trusted code running under the Studio/servic
 
 The milestone is complete when a user can configure an approved MCP server, discover a tool, assign it to one agent, attach a versioned skill and supported reasoning effort to that agent, define a typed workflow parameter, and wire its getter to a compatible data input or explicitly exposed agent configuration pin. The user can share/publish and run the workflow with a per-run override, then replay evidence showing the exact tool, skill, provider/model, parameter schema, and effective setting versions—while a second agent without those assignments cannot access them.
 
-### Planned: typed data and complex graph orchestration
+### Active: bounded JSON input and selection
+
+Schema 1.9 provides a focused typed-data foundation: an entry node may validate bounded JSON input and pass its `json` port to an RFC 6901 property/array selector. The selector emits text so existing agent, MCP and deterministic nodes remain unchanged. Core type-checks graph edges, graph edits add/remove the pair atomically, and runtime events record the selected value. Broader JSON/object ports, mapping/validation nodes, arbitrary socket rewiring, parallel fan-out/fan-in, loops and richer error/cancellation semantics remain planned.
+
+### Planned: typed mapping and complex graph orchestration
 
 Build on the agent-capability foundation with schema-backed JSON and other reviewed typed ports, mapping and validation nodes, validated arbitrary socket rewiring, deliberate parallel fan-out/fan-in joins, bounded loops, and richer failure/cancellation behavior. These are executable semantics, not just canvas arrangements. Prove representative graphs against the pinned Microsoft Agent Framework adapter before fixing each node or control-flow contract; preserve event ordering, exact-version dependencies, and truthful playback. Keep loops, joins, concurrency, payloads, and tool calls bounded and diagnosable.
 

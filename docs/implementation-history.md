@@ -2,6 +2,10 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Bounded JSON input and pointer selection
+
+Schema 1.9 adds a JSON-typed entry output and a bounded RFC 6901 selector that emits text, allowing existing string nodes to continue unchanged. Core validates typed edges and inserts/removes the entry-selector boundary as one edit; the Agent Framework runner normalizes JSON, selects object keys or array indexes, and preserves the value through audit and playback. The Studio exposes **Use JSON input and add a value selector** and a JSON Pointer field. Tests cover pointer escaping/limits, incompatible connections, atomic editing, string/array/root selection, and recorded output. General object ports, mapping expressions and typed joins remain planned. See [user guide](user-guide.md), [architecture](architecture.md), and [roadmap](roadmap.md).
+
 ## Persistent Studio theme selector
 
 The Studio navigation now offers Dark Modern, Light Modern, VS Code Dark+, Solarized Dark, Nord, Monokai, and High Contrast themes. A small synchronous bootstrap applies the browser's saved choice before the stylesheet paints; the interactive selector updates and persists it. A Blazor enhanced-navigation callback restores the root theme after route transitions, and each selector reads the saved preference. Theme tokens adapt the standalone shell and graph together, while embedded components continue to inherit their host's own theme.

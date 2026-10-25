@@ -1,6 +1,6 @@
 # Studio user guide
 
-The Studio creates and runs linear and conditional string-processing workflows. It supports deterministic transforms, workflow-owned typed scalar parameters, host-approved MCP tools with bounded structured JSON inputs, a deterministic demonstration agent, and opt-in host-configured external model providers. Free placement and wire routing organize the graph; they do not change execution semantics. Branches are authored through explicit conditional nodes.
+The Studio creates and runs linear and conditional workflows with bounded text and JSON input. It supports deterministic transforms, workflow-owned typed scalar parameters, host-approved MCP tools with bounded structured JSON inputs, a deterministic demonstration agent, and opt-in host-configured external model providers. A JSON input can be reduced to text by a pointer selector; this does not provide arbitrary object ports or mapping expressions. Free placement and wire routing organize the graph; they do not change execution semantics. Branches are authored through explicit conditional nodes.
 
 Use the **Theme** selector in the top navigation to switch between **Dark Modern**, **Light Modern**, **VS Code Dark+**, **Solarized Dark**, **Nord**, **Monokai**, and **High Contrast**. The Studio remembers the choice in this browser and keeps it when you move between the designer, settings, and observation pages. The graph canvas and nodes use colors coordinated with the selected shell theme. The graph is fitted and centered when the editor attaches; its grid fills the viewport and tracks pan and zoom. Embedded hosts can customize inherited theme tokens independently; see the [editor design system](design-system.md).
 
@@ -45,6 +45,10 @@ The **Configured providers** list is the settings page's read view. Select **Edi
 3. Save and publish the definition. The parameter schema and defaults travel with the workflow package. When running a published version, edit the displayed parameter values to override defaults for that run. The effective values are captured in the run header and shown in the playback inspector.
 
 Typed parameters remain immutable workflow configuration; they do not create mutable graph variables or expose credentials. A choice parameter with `default,low,medium,high` can be assigned to an agent's **Reasoning effort** setting, exposing it as a workflow run input. Run overrides never alter the published definition, are validated against type and choices, and appear in audit/playback. Because the local run store records inputs and parameter values, do not enter secrets or sensitive information.
+
+### Select a value from JSON input
+
+Select the **Input** node and choose **Use JSON input and add a value selector**. The Studio changes that entry input to JSON and inserts a selector before the existing string path. Set the selector's **JSON Pointer** using RFC 6901 syntax, such as `/customer/name` or `/items/0/id`. A selected JSON string becomes plain text; numbers, booleans, null, objects, and arrays become compact JSON text. The selector accepts at most 16 path segments and 1,024 pointer characters; workflow JSON input is bounded to 16,384 characters and a maximum nesting depth of 32. The output is a string, so existing text, agent, tool, and output nodes can consume it. Removing the selector returns the input to text mode. Invalid JSON or a pointer that does not resolve fails the run and is visible in recorded evidence.
 
 ### Configure MCP servers and skills
 

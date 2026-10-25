@@ -238,6 +238,28 @@ def check(browser, screenshots):
     workbench(designer).get_by_role("button", name="Restore selected to draft", exact=True).click()
     workbench(designer).get_by_text("Version restored to draft. Publish to create a new version; active runs are unchanged.", exact=True).wait_for()
     assert design()["layout"] == pinned
+    # The authoring control creates the typed input/selector pair and saves its RFC 6901 pointer.
+    json_definition = page.request.get(BASE + "/api/templates/default").json()
+    json_definition["workflowId"] = "json-canvas-smoke-" + uuid.uuid4().hex
+    json_path = BASE + "/api/workflows/" + json_definition["workflowId"]
+    response = page.request.put(json_path + "/draft", data={"definition": json_definition, "expectedGeneration": 0})
+    assert response.ok, response.text()
+    page.goto(BASE)
+    json_designer = page.get_by_role("region", name="Workflow designer", exact=True)
+    workbench(json_designer).get_by_label("Saved workflow", exact=True).select_option(json_definition["workflowId"])
+    json_canvas = workbench(json_designer).locator(".vaw-graph-editor")
+    json_canvas.get_by_role("button", name="Use JSON input and add a value selector", exact=True).click()
+    selector = json_canvas.locator("li[data-node-type='core.json.select-string']")
+    expect(selector).to_have_count(1)
+    pointer = json_canvas.locator("input[aria-label^='JSON pointer for']")
+    pointer.fill("/customer/name")
+    pointer.press("Tab")
+    workbench(json_designer).get_by_role("button", name="Save draft", exact=True).click()
+    workbench(json_designer).get_by_text("Draft saved.", exact=True).wait_for()
+    json_saved = page.request.get(json_path + "/design").json()["draft"]["definition"]
+    assert json_saved["schemaVersion"] == "1.9"
+    assert json_saved["nodes"]["input"]["inputDataType"] == "json"
+    assert next(node for node in json_saved["nodes"].values() if node["type"] == "core.json.select-string")["jsonPropertySelection"]["pointer"] == "/customer/name"
     if screenshots:
         workbench(designer).scroll_into_view_if_needed()
         page.screenshot(path=str(screenshots / "canvas-app.png"), full_page=True)
@@ -245,7 +267,7 @@ def check(browser, screenshots):
         expect(viewer).to_be_visible()
         viewer.screenshot(path=str(screenshots / "canvas-playback.png"))
     assert not errors, errors
-    print("Edge sockets, cancellation, pointer/keyboard moves, undo/redo, comments, box selection/group moves, free pan/reset, section moves, wire reroutes/angles, zoom, reload, CAS conflicts, publication, version preview/restore, and recorded layout playback passed.")
+    print("Edge sockets, cancellation, pointer/keyboard moves, undo/redo, comments, box selection/group moves, free pan/reset, section moves, wire reroutes/angles, zoom, JSON-input authoring, reload, CAS conflicts, publication, version preview/restore, and recorded layout playback passed.")
     page.close()
 
 

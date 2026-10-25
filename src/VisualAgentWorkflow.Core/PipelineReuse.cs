@@ -21,6 +21,8 @@ public static class PipelineReuse
         if (selection.Length == 0 || selection.Length != members.Count ||
             selection.Any(id => source.Nodes[id].Type is NodeTypes.Input or NodeTypes.Output))
             throw new ArgumentException("Select processing nodes only.");
+        if (selection.Any(id => source.Nodes[id].Type == NodeTypes.JsonSelectString))
+            throw new ArgumentException("JSON input selectors cannot yet be extracted into reusable string pipelines.");
         var start = order.IndexOf(selection[0]);
         if (!order.Skip(start).Take(selection.Length).SequenceEqual(selection))
             throw new ArgumentException("A reusable section must contain consecutive steps in execution order.");
@@ -54,6 +56,8 @@ public static class PipelineReuse
         WorkflowLayoutJson.Validate(sourceLayout, source);
         var sourceOrder = PipelineEditing.OrderedNodes(source);
         var steps = sourceOrder.Skip(1).SkipLast(1).ToArray();
+        if (steps.Any(id => source.Nodes[id].Type == NodeTypes.JsonSelectString))
+            throw new ArgumentException("JSON input selectors cannot yet be inserted as reusable string pipelines.");
         var order = PipelineEditing.OrderedNodes(target).ToList();
         var position = order.IndexOf(afterNodeId);
         if (position < 0 || position == order.Count - 1) throw new ArgumentException("Insert after a non-output node.");
@@ -106,7 +110,8 @@ public static class PipelineReuse
         order.InsertRange(position + 1, steps.Select(id => ids[id]));
         var definition = PipelineEditing.Reconnect(target with
         {
-            SchemaVersion = target.SchemaVersion == "1.8" || source.SchemaVersion == "1.8" ? "1.8" :
+            SchemaVersion = target.SchemaVersion == "1.9" || source.SchemaVersion == "1.9" ? "1.9" :
+                target.SchemaVersion == "1.8" || source.SchemaVersion == "1.8" ? "1.8" :
                 target.SchemaVersion == "1.7" || source.SchemaVersion == "1.7" ? "1.7" :
                 target.SchemaVersion == "1.6" || parameterMap.Count > 0 ? "1.6" : "1.3",
             Nodes = nodes,

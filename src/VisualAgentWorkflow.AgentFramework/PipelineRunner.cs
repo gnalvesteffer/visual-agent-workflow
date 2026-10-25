@@ -53,7 +53,9 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await using var run = await InProcessExecution.RunStreamingAsync(workflow, new GraphMessage(input, null, null), cancellationToken: cancellationToken);
+            var inputType = WorkflowPorts.Outputs(revision.Definition.Nodes[revision.Definition.EntryNodeId]).Single().DataType;
+            await using var run = await InProcessExecution.RunStreamingAsync(workflow,
+                new GraphMessage(input, null, null, DataType: inputType), cancellationToken: cancellationToken);
             string? output = null;
             await foreach (var evt in run.WatchStreamAsync(cancellationToken))
             {
@@ -102,7 +104,8 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         return builder.Build();
     }
 
-    private sealed record GraphMessage(string Text, string? SourceNode, string? SourcePort, WorkflowApprovalPermit? Approval = null);
+    private sealed record GraphMessage(string Text, string? SourceNode, string? SourcePort,
+        WorkflowApprovalPermit? Approval = null, string DataType = "string");
 
     private sealed class StringExecutor(
         string id,
@@ -125,6 +128,8 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             {
                 var incoming = revision.Definition.Connections.Single(e => e.Value.Source.NodeId == received.SourceNode &&
                     e.Value.Source.PortId == received.SourcePort && e.Value.Target.NodeId == Id);
+                var inputType = WorkflowPorts.Inputs(node).Single(port => port.Id == incoming.Value.Target.PortId).DataType;
+                if (received.DataType != inputType) throw new InvalidOperationException("Connected workflow data type does not match the receiving node.");
                 await emit(ExecutionEventKinds.Transfer, Id, invocation, incoming.Key, message);
             }
             await emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, message);
@@ -132,7 +137,9 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             {
                 var result = node.Type switch
                 {
+                    NodeTypes.Input when node.InputDataType == "json" => NormalizeJson(message),
                     NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval => message,
+                    NodeTypes.JsonSelectString => SelectJsonText(message, node.JsonPropertySelection!.Pointer),
                     NodeTypes.WorkflowValue => parameters is null || !parameters.TryGetValue(node.ParameterId!, out var value)
                         ? throw new InvalidOperationException("The workflow parameter was not resolved for this run.") : value,
                     NodeTypes.Uppercase => message.ToUpperInvariant(),
@@ -162,7 +169,9 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                     await emit(ExecutionEventKinds.BranchSelected, Id, invocation, null, JsonSerializer.Serialize(new { port }));
                 }
                 await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, result);
-                return new(result, Id, port, permit);
+                var outputType = node.Type == NodeTypes.Output ? received.DataType :
+                    WorkflowPorts.Outputs(node).Single(output => output.Id == port).DataType;
+                return new(result, Id, port, permit, outputType);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -183,5 +192,38 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 (kind, data) => emit(kind, Id, invocation, null, data)));
             return await scope.InvokeAsync(node.Tool!.BindingId, input, cancellationToken);
         }
+
+        private static string NormalizeJson(string input)
+        {
+            using var document = JsonDocument.Parse(input, new JsonDocumentOptions { MaxDepth = 32 });
+            using var output = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(output)) document.RootElement.WriteTo(writer);
+            return System.Text.Encoding.UTF8.GetString(output.ToArray());
+        }
+
+        private static string SelectJsonText(string input, string pointer)
+        {
+            if (input.Length > 16_384) throw new InvalidOperationException("JSON workflow data exceeds 16,384 characters.");
+            using var document = JsonDocument.Parse(input, new JsonDocumentOptions { MaxDepth = 32 });
+            var selected = document.RootElement;
+            foreach (var segment in WorkflowJsonPointer.Parse(pointer))
+            {
+                selected = selected.ValueKind switch
+                {
+                    JsonValueKind.Object when selected.TryGetProperty(segment, out var property) => property,
+                    JsonValueKind.Array when TryArrayIndex(segment, selected.GetArrayLength(), out var index) => selected[index],
+                    _ => throw new InvalidOperationException("The configured JSON pointer does not resolve to a value.")
+                };
+            }
+
+            if (selected.ValueKind == JsonValueKind.String) return selected.GetString()!;
+            using var serialized = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(serialized)) selected.WriteTo(writer);
+            return System.Text.Encoding.UTF8.GetString(serialized.ToArray());
+        }
+
+        private static bool TryArrayIndex(string segment, int length, out int index) =>
+            int.TryParse(segment, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out index) &&
+            index < length && segment == index.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 }

@@ -74,6 +74,35 @@ public class PipelineRunnerTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Transfer && evt.ConnectionId == "b" && evt.Data == "override");
     }
 
+    [Theory]
+    [InlineData("{\"user\":{\"name\":\"Ada\"},\"items\":[{\"id\":7}]}", "/user/name", "Ada")]
+    [InlineData("{\"items\":[{\"id\":7}]}", "/items/0/id", "7")]
+    [InlineData("{\"name\":\"Ada\",\"age\":3}", "", "{\"name\":\"Ada\",\"age\":3}")]
+    public async Task JsonInputAndPointerSelectorExecuteAndRecordSelectedString(string input, string pointer, string expected)
+    {
+        var definition = new WorkflowDefinition("1.9", "json-run", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0") { InputDataType = "json" },
+                ["select"] = new(NodeTypes.JsonSelectString, "1.0.0") { JsonPropertySelection = new(pointer) },
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["json"] = new(new("input", "out"), new("select", "in"), "data"),
+                ["text"] = new(new("select", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary());
+        var revision = WorkflowRevision.Create(definition, "test");
+        var events = new List<ExecutionEvent>();
+
+        var result = await new PipelineRunner().ExecuteAsync(Guid.NewGuid(), revision, input,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal(expected, result);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "select" && evt.Data == expected);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Transfer && evt.ConnectionId == "text" && evt.Data == expected);
+    }
+
     [Fact]
     public async Task ExpandedPublishedPipelineExecutesWithoutSourceCatalogOrRuntimePrefabLookup()
     {

@@ -40,7 +40,9 @@ public sealed partial class PipelineRunner
         {
             await using var run = checkpoints.RestoredCheckpoint is { } restored
                 ? await InProcessExecution.ResumeStreamingAsync(workflow, new CheckpointInfo(restored.SessionId, restored.CheckpointId), manager, cancellationToken)
-                : await InProcessExecution.RunStreamingAsync(workflow, new GraphMessage(input, null, null), manager, sessionId: runId.ToString("D"), cancellationToken: cancellationToken);
+                : await InProcessExecution.RunStreamingAsync(workflow,
+                    new GraphMessage(input, null, null, DataType: WorkflowPorts.Outputs(revision.Definition.Nodes[revision.Definition.EntryNodeId]).Single().DataType),
+                    manager, sessionId: runId.ToString("D"), cancellationToken: cancellationToken);
             string? output = null;
             await foreach (var evt in run.WatchStreamAsync(cancellationToken))
             {
@@ -71,7 +73,7 @@ public sealed partial class PipelineRunner
     public static void ValidateCheckpointGraph(WorkflowDefinition definition)
     {
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (definition.Nodes.Values.Any(n => n.Type is not (NodeTypes.Input or NodeTypes.Output or NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.Condition or NodeTypes.Merge)))
+        if (definition.Nodes.Values.Any(n => n.Type is not (NodeTypes.Input or NodeTypes.Output or NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.JsonSelectString)))
             throw new InvalidOperationException("Checkpoint recovery currently permits deterministic graph nodes only; agents, MCP and approvals require a separate recovery policy.");
     }
 

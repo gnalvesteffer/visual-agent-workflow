@@ -46,6 +46,8 @@ public static class PipelineEditing
     {
         var order = OrderedNodes(definition).ToList();
         RequireTransformNode(definition, nodeId);
+        if (definition.Nodes[nodeId].Type == NodeTypes.JsonSelectString)
+            return GraphEditing.RemoveJsonSelector(definition, nodeId);
         order.Remove(nodeId);
         return Reconnect(definition with { Nodes = definition.Nodes.Remove(nodeId) }, order);
     }
@@ -107,12 +109,12 @@ public static class PipelineEditing
 
     private static void RequireEditable(string type)
     {
-        if (type is not (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.WorkflowValue))
+        if (type is not (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.WorkflowValue or NodeTypes.JsonSelectString))
             throw new ArgumentException("Only registered processing nodes can be edited.", nameof(type));
     }
 
     internal static string SchemaFor(WorkflowDefinition definition, NodeDefinition node) =>
-        definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : definition.SchemaVersion == "1.4" ? "1.4" : definition.SchemaVersion == "1.3" || node.Origin is not null ? "1.3" : node.Type == NodeTypes.Agent
+        definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : definition.SchemaVersion == "1.4" ? "1.4" : definition.SchemaVersion == "1.3" || node.Origin is not null ? "1.3" : node.Type == NodeTypes.Agent
             ? "1.2" : node.Type == NodeTypes.McpTool && definition.SchemaVersion == "1.0" ? "1.1" : definition.SchemaVersion;
 
     private static void RequireTransform(string type)

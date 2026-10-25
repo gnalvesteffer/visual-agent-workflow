@@ -36,6 +36,10 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     public ApprovalConfiguration? Approval { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ParameterId { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InputDataType { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public JsonPropertySelection? JsonPropertySelection { get; init; }
 }
 
 /// <summary>Copy-on-insert source identity; informational provenance, never a grant or runtime resolver.</summary>
@@ -56,7 +60,11 @@ public static class NodeTypes
     public const string Merge = "core.merge";
     public const string Approval = "core.approval";
     public const string WorkflowValue = "core.workflow-value";
+    public const string JsonSelectString = "core.json.select-string";
 
     public static bool IsSupported(string? type) =>
-        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue;
+        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString;
 }
+
+/// <summary>Selects a JSON value through a bounded RFC 6901 JSON Pointer.</summary>
+public sealed record JsonPropertySelection(string Pointer);

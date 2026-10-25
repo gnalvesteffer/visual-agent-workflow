@@ -18,13 +18,53 @@ public sealed record StringCondition(string Operator, string Operand)
 /// <summary>Explicit typed ports for the bounded string graph; no CLR types or executable expressions.</summary>
 public static class WorkflowPorts
 {
-    public static ImmutableArray<WorkflowPort> Inputs(NodeDefinition node) => node.Type == NodeTypes.Input ? [] : [new("in", "string")];
+    public static ImmutableArray<WorkflowPort> Inputs(NodeDefinition node) => node.Type switch
+    {
+        NodeTypes.Input => [],
+        NodeTypes.JsonSelectString => [new("in", "json")],
+        _ => [new("in", "string")]
+    };
     public static ImmutableArray<WorkflowPort> Outputs(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Output => [],
         NodeTypes.Condition => [new("true", "string"), new("false", "string")],
+        NodeTypes.Input when node.InputDataType == "json" => [new("out", "json")],
         _ => [new("out", "string")]
     };
+}
+
+/// <summary>Parses bounded RFC 6901 JSON Pointers used by declarative JSON selector nodes.</summary>
+public static class WorkflowJsonPointer
+{
+    public const int MaximumLength = 1_024;
+    public const int MaximumSegments = 16;
+
+    public static ImmutableArray<string> Parse(string pointer)
+    {
+        if (pointer is null || pointer.Length > MaximumLength)
+            throw new ArgumentException("A JSON pointer must be at most 1,024 characters.", nameof(pointer));
+        if (pointer.Length == 0) return [];
+        if (pointer[0] != '/') throw new ArgumentException("A JSON pointer must be empty or begin with '/'.", nameof(pointer));
+
+        var segments = pointer[1..].Split('/');
+        if (segments.Length > MaximumSegments)
+            throw new ArgumentException("A JSON pointer can contain at most 16 segments.", nameof(pointer));
+
+        return segments.Select(DecodeSegment).ToImmutableArray();
+    }
+
+    private static string DecodeSegment(string segment)
+    {
+        var decoded = new System.Text.StringBuilder(segment.Length);
+        for (var index = 0; index < segment.Length; index++)
+        {
+            if (segment[index] != '~') { decoded.Append(segment[index]); continue; }
+            if (++index >= segment.Length || segment[index] is not ('0' or '1'))
+                throw new ArgumentException("Use '~0' for '~' and '~1' for '/' in a JSON pointer.", "pointer");
+            decoded.Append(segment[index] == '0' ? '~' : '/');
+        }
+        return decoded.ToString();
+    }
 }
 
 public static class WorkflowGraph

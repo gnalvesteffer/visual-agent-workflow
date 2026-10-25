@@ -68,7 +68,22 @@
             {
             var index = Order.IndexOf(id);
             var terminal = node.Type is NodeTypes.Input or NodeTypes.Output or NodeTypes.Merge;
-                    @if (node.Type == NodeTypes.Approval)
+                    @if (node.Type == NodeTypes.Input && !ReadOnly)
+                    {
+                        <p>The workflow input is text by default.</p>
+                        @if (node.InputDataType == "json")
+                        { <p class="vaw-help">This input is validated JSON. Its first node selects a value and returns text.</p> }
+                        else
+                        { <button type="button" @onclick="() => Edit(() => GraphEditing.InsertJsonSelectorAfterInput(Definition, id))" disabled="@(Disabled || Definition.Nodes.Count >= 256)">Use JSON input and add a value selector</button> }
+                    }
+                    else if (node.Type == NodeTypes.JsonSelectString)
+                    {
+                        <label>JSON Pointer
+                            <input aria-label="JSON pointer for @id" value="@node.JsonPropertySelection!.Pointer" @onchange="args => JsonPointer(id, args)" maxlength="1024" disabled="@Disabled" />
+                        </label>
+                        <p class="vaw-help">Uses RFC 6901 paths such as <code>/customer/name</code>. Strings become text; other JSON values become compact JSON.</p>
+                    }
+                    else if (node.Type == NodeTypes.Approval)
                     {
                         <p>Review the exact next MCP call. Approval does not grant tool access.</p>
                         @if (ReadOnly) { <pre>@node.Approval!.Prompt</pre> }
@@ -274,7 +289,7 @@
     private string newParameterDefault = "";
     private System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition> ParameterDefinitions =>
         Definition.Parameters ?? System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
-    private string CapabilitySchema => Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
+    private string CapabilitySchema => Definition.SchemaVersion == "1.9" ? "1.9" : Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
     private string? error;
     private string? selectedNode;
     private string selectedPort = "out";
@@ -285,6 +300,7 @@
         NodeTypes.Output => "Workflow result",
         NodeTypes.Uppercase => "Convert text to uppercase",
         NodeTypes.Reverse => "Reverse text",
+        NodeTypes.JsonSelectString => $"JSON pointer · {node.JsonPropertySelection?.Pointer}",
         NodeTypes.WorkflowValue => node.ParameterId is { } parameterId && ParameterDefinitions.TryGetValue(parameterId, out var parameter)
             ? $"Workflow value · {parameter.DisplayName}" : "Workflow value",
         NodeTypes.Condition => $"{node.Condition!.Operator} · {node.Condition.Operand}",
@@ -359,6 +375,9 @@
     private Task ChangeType(string id, ChangeEventArgs args) =>
         Edit(() => ReplaceProcessing(id, FromSelection(args.Value?.ToString() ?? "", Definition.Nodes[id])));
 
+    private Task JsonPointer(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
+        Definition.Nodes[id] with { JsonPropertySelection = new(args.Value?.ToString() ?? "") }));
+
     private static string ToolKey(ToolBindingDescriptor binding) => $"mcp:{binding.BindingId}:{binding.ContractHash}:{binding.DescriptionHash}";
     private static string ProviderKey(AgentProviderDescriptor provider) => $"agent:{provider.ProviderId}:{provider.Version}";
     private string NodeKey(NodeDefinition node) => node.Agent is { } agent ? $"agent:{agent.ProviderId}:{agent.ProviderVersion}" :
@@ -377,6 +396,8 @@
     private static string ToolInputSummary(ToolBindingDescriptor binding) => binding.InputSummary;
     private NodeDefinition FromSelection(string value, NodeDefinition? existing = null)
     {
+        if (value == NodeTypes.JsonSelectString)
+            return new(NodeTypes.JsonSelectString, "1.0.0") { JsonPropertySelection = existing?.JsonPropertySelection ?? new("/name") };
         if (value == NodeTypes.WorkflowValue)
             return new(NodeTypes.WorkflowValue, "1.0.0") { ParameterId = ParameterDefinitions.Keys.FirstOrDefault() };
         var provider = Providers.SingleOrDefault(p => ProviderKey(p) == value);
@@ -395,7 +416,7 @@
         var effort = Enum.TryParse<AgentReasoningEffort>(value, ignoreCase: false, out var parsed) ? parsed : (AgentReasoningEffort?)null;
         var parameterId = value?.StartsWith("parameter:", StringComparison.Ordinal) == true ? value[10..] : null;
         var node = Definition.Nodes[id];
-        var definition = Definition with { SchemaVersion = parameterId is not null ? "1.8" : CapabilitySchema, Nodes = Definition.Nodes.SetItem(id,
+        var definition = Definition with { SchemaVersion = parameterId is not null ? Definition.SchemaVersion == "1.9" ? "1.9" : "1.8" : CapabilitySchema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { ReasoningEffort = parameterId is null ? effort : null, ReasoningEffortParameterId = parameterId } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
