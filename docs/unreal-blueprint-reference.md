@@ -6,6 +6,10 @@ The goal is capability parity at the level of visual programming, not API or run
 
 Recommendations using “should,” “target,” or “recommended” require agreement with [product design](design.md). [Architecture](architecture.md), [roadmap](roadmap.md), and the focused contract documents own shipped behavior and implementation limits. Engine-specific rendering, animation, physics, actor replication, and object lifetime are outside the agent-workflow capability target.
 
+## Reading paths
+
+For language design, start with [types and evaluation](#data-type-system-and-containers), [control flow](#control-flow-vocabulary-and-state-ownership), [object identity and lifetime](#inheritance-templates-and-specialization), and [reuse forms](#functions-macros-and-reusable-workflows). For runtime design, continue with [temporal work](#asynchronous-latent-and-time-based-work), [event binding](#events-dispatchers-and-subscriptions), [execution activations](#events-and-execution-flow), and [debugging](#debugging-and-evidence). For implementation planning, use the [node contract](#node-definition-contract), [acceptance scenarios](#representative-acceptance-scenarios), and [subsystem handoff](#implementation-handoff-by-subsystem).
+
 ## Blueprint programming concepts
 
 The following concepts establish the vocabulary for the workflow design guidance that follows.
@@ -175,6 +179,39 @@ Generic or wildcard pins can improve authoring ergonomics, but they must resolve
 
 Pure nodes deserve a distinct contract. Unreal pure functions have no execution pins and are evaluated as data is needed; they do not cache results merely because they are pure. In this project, pure nodes should be deterministic and side-effect-free. Model calls, tool calls, memory writes, approvals, waits, and other effectful operations must have explicit execution semantics even when their outputs are consumed as data.
 
+### Value categories and their operations
+
+A usable visual language needs operations over its types, not just a type picker. Blueprint's types determine which operators, input widgets, conversions, properties, and function targets can appear. Use the same principle when expanding the workflow vocabulary.
+
+| Value family | Blueprint concepts and operations | Workflow design implications |
+| --- | --- | --- |
+| Boolean | Logical operators, comparisons, condition inputs, toggle/set operations. | Distinguish boolean data from a true/false route. Define conjunction, negation, and evaluation behavior independently of control dispatch. |
+| Numeric | Byte, integer, wider integers, and floating-point values; arithmetic, comparisons, ranges, clamping, interpolation, random generation. | Define precision, ranges, overflow, division-by-zero, non-finite values, and cross-type conversions. Counts, durations, money, and probabilities need deliberate representations. |
+| String, Name, Text | Strings store character sequences, Names identify things, and Text represents display content with localization support. | Separate stable IDs from labels and human-readable text. A renamed label must not break references; formatting or localization must not modify identity. |
+| Enum | A finite set of named alternatives; comparison, selection, and switch cases. | Preserve member identity, define unknown-value handling, and detect incompatible additions/removals in saved graphs. Avoid free-form strings for closed decision sets. |
+| Struct | Named fields of potentially different types; Make, Break, split/recombine pins, and member updates. | Give record types versioned schemas; validate required/optional fields and distinguish replacing a record from updating selected fields. |
+| Array | Ordered elements of one element type; indexed reads/writes, append/insert/remove, length, search, and iteration. | Validate indices and size bounds. Define item copy/reference behavior and mutation during iteration. Collection processing needs a completion contract. |
+| Set | Unique elements; membership and set operations. | Specify equality and duplicate handling. Do not promise stable iteration order unless the contract adds it. |
+| Map | Key/value associations; find, add/update, remove, key/value enumeration. | Distinguish a missing key from a present default/null value and declare key comparison and serialization ordering. |
+| Object, class, interface | References to instances, types to instantiate, or instances supporting a common interface. | Keep definition references, run handles, schemas, and host capability bindings distinct; a reference never manufactures an instance or grants access. |
+| Spatial and engine values | Vectors, rotations, transforms, colors, and engine-specific handles. | Use domain-specific types only where agent use cases require them; allow approved extensions to expose bounded structured equivalents. |
+
+Wildcard pins describe unresolved types during authoring. Connecting a concrete value or selecting a type may specialize a node and its other related pins. Disconnecting a pin must follow an explicit rule about whether specialization remains or resets. Dynamic pin counts, such as adding switch cases or formatting arguments, require stable port IDs so existing wires survive reordering and renaming. Split struct pins need field identities and schema compatibility checks, rather than deriving persisted port IDs from the current displayed text.
+
+### Pure evaluation and execution order
+
+A typical Blueprint action runs when its execution input is activated. Its input expressions are evaluated as needed, the action performs its work, and its execution output continues the path. A pure expression contributes a value when a consumer requests it. Its visual position does not assign it an earlier execution time. Reading the same mutable property before and after a Set may therefore produce different values, even when both reads use the same getter design.
+
+Consider `Event -> Set Counter -> Print`, with a getter and addition node supplying `Counter + 1` to Set. The input expression reads the old counter, Set stores the incremented value, and Print can then read the new counter. The data wires alone do not cause the event, assignment, or printing. If several consumers use a pure output, an author should not assume one universal cached value or a fixed number of evaluations solely from the wire shape.
+
+For workflows, choose and document the evaluation contract. A pure transformation can be evaluated from immutable input values; an effectful node's successful output should be retained for its identified invocation, so adding a second consumer does not repeat a model or tool call. A read from mutable state must specify the activation and state version it observes. A cached output from a prior loop iteration must not satisfy a current iteration's missing input accidentally. These choices determine whether a graph is explainable and safe to resume.
+
+### Variable declarations are more than names and defaults
+
+Blueprint variable metadata controls several independent authoring and runtime concerns: instance editability, exposure on creation, visibility/access, category, tooltip, numeric ranges, advanced display, persistence-related flags, and deprecation. An author can also promote a pin value into a variable, turning a literal or connection into a named declaration with matching type.
+
+For the workflow target, model these concerns independently. An invocation parameter can be externally supplied without becoming mutable state. An inspector field can be hidden under advanced settings without becoming private or secret. A UI slider range is an editing aid unless backend validation enforces the same range. A deprecation message should identify a replacement and leave existing saved definitions diagnosable. Promoting a value to a parameter should create a typed stable declaration, preserve its current safe default, replace the binding explicitly, and form one undoable edit.
+
 ## Control-flow vocabulary and state ownership
 
 Blueprint exposes different programming mechanisms through its control nodes. Their differences matter more than the node shapes. Unreal's Sequence dispatches its outputs in order; it is not a parallel fork and does not provide a barrier that waits for latent work launched by an earlier output.
@@ -212,6 +249,29 @@ Visual Agent Workflow should support the same specialization capability, but use
 
 Function override and extension points need explicit rules: which inputs and outputs may change, whether defaults may narrow or widen, how validation is inherited, how capability requirements are merged, and whether an override can add side effects. If those rules are not defined, prefer a child-workflow call or interface implementation over class-like inheritance. The user should always be able to inspect the effective graph and its provenance.
 
+### Classes, defaults, instances, and parent behavior
+
+A Blueprint Class defines a type; a class reference selects that type; an object reference identifies one concrete instance. Class defaults describe the starting configuration for instances. A placed instance can override selected editable values. Changing one instance's runtime variable does not rewrite the class defaults or another instance's variable. Components also belong to an instance even when their templates originate in a class definition.
+
+Inheritance combines a parent's contract and behavior with a child's specialization. Overriding a function changes what an instance of that child does when the operation is invoked. An explicit parent call can extend inherited behavior; omitting it can replace that behavior. The call's target matters: calling an instance method on a referenced object acts on that target's state, not the caller's state. Static library functions have no corresponding per-object target state.
+
+These distinctions motivate separate workflow identities for definition, revision, invocation, and instance-like working state. A reusable agent profile is configuration, not an executing agent. Two uses of one child-workflow revision must have separate invocation state even though they share code and defaults. If specialization is supported, display which values are inherited, which are overridden, and how resetting an override restores the inherited value. Upgrading a base must not silently change a published dependent revision.
+
+### Object and component lifecycle
+
+Blueprint behavior runs within the Unreal object world. Actor creation, component setup, construction, gameplay activation, and teardown are different phases. Actor components may provide behavior without their own spatial transform; scene components form attachment hierarchies and have transforms. Attaching or detaching a component changes that relationship, not the class it belongs to. Logical ownership, attachment, and lifetime are distinct concepts.
+
+| Phase or operation | Blueprint meaning | Workflow counterpart to specify |
+| --- | --- | --- |
+| Define defaults and component templates | Describe the reusable type before an instance exists. | Published definition, parameter defaults, dependency snapshots, and host requirements. |
+| Instantiate or spawn | Create a concrete actor/object of a selected class; exposed creation inputs configure it. | Admit a run or child call with validated effective inputs and a unique invocation identity. |
+| Construct/configure | Assemble/configure components and apply construction behavior; relevant editor changes can reconstruct placed actors. | Pure preview and initialization phases with explicit effect rules. Editing a draft must not implicitly launch work. |
+| BeginPlay and event handling | Start gameplay behavior and respond to input, overlap, damage, timers, or other events. | Explicit workflow entry, node activations, callbacks, and correlation to the receiving run. |
+| Tick | Receive a repeated update with elapsed time. | Use only deliberate recurring-work contracts; frame updates are not a scheduler for expensive agent operations. |
+| EndPlay / destruction | End participation in the world and release or detach associated activity as appropriate. | Complete, fail, cancel, or terminate a run; release listeners/resources and record final disposition. |
+
+An object reference can be unset or become unusable after its target's lifecycle ends. Checking validity is separate from checking that a target has the desired type. A cast can refine the type of a valid instance but does not instantiate, discover, authorize, or resurrect it. Workflow resolution should likewise distinguish absent, stale, incompatible, and unauthorized handles. Do not use an identifier's syntactic validity as proof that a live target exists.
+
 ## Asynchronous, latent, and time-based work
 
 Blueprint includes latent operations such as Delay and movement or animation operations that yield and resume later. Timelines drive values from tracks and curves over time, with update and completion execution paths. These features let a graph describe behavior that spans multiple frames without blocking the editor or pretending that the whole operation is instantaneous.
@@ -228,11 +288,27 @@ Agent workflows need the same expressive power for provider latency, tool calls,
 
 Do not use a client-side timer as the equivalent of a latent node. Closing the Studio must not accidentally erase a run's suspension state, and reconnecting a browser must not duplicate an external effect. A resumed run must re-enter at a defined cursor with the exact published revision and dependency identities it started with.
 
+### Delay, timer, Timeline, and asynchronous completion
+
+A Delay suspends a continuation until a duration elapses. A timer invokes a callback after an interval or repeatedly until managed or cleared. A Timeline maintains a playback position and produces values or events over that position. An asynchronous action completes in response to external work, not merely elapsed time. All four can appear visually as work that continues later, but their identity, repetition, outputs, and cancellation differ.
+
+Timeline value tracks can represent scalars, vectors, or colors; event tracks mark execution points. Keys and interpolation determine track values between positions. Controls include play from the current position, restart from the beginning, reverse, stop, seek, change playback rate, and loop. Update and completion describe different events: stopping, seeking, reaching an endpoint, and canceling should not be treated as interchangeable outcomes. A workflow analogue might be a scheduled escalation progression or bounded update stream rather than visual animation.
+
+An asynchronous node may expose several callback outputs, such as progress, success, and failure. That does not imply several independent invocations. Its lifetime must outlive the initial activation until completion/cancellation, and late callbacks must correlate to that same invocation. A workflow implementation needs to define which outputs are repeatable, which are terminal, what state survives suspension, and how timeout-versus-completion races resolve. Cancellation cannot promise to undo an external operation that has already committed.
+
 ## Events, dispatchers, and subscriptions
 
 Blueprint Event Dispatchers let one Blueprint broadcast that something happened to listeners without hard-coding every listener into the broadcaster. They are useful for decoupling a producer from consumers, but they also introduce subscription lifetime and ordering concerns.
 
 An agent workflow equivalent can support named event channels, notifications, or outputs that wake subscribed workflows. The contract must define who may publish, who may subscribe, whether subscriptions are definition-scoped or run-scoped, delivery guarantees, ordering, replay, deduplication, and failure handling. A dispatcher must not become an unbounded hidden fan-out mechanism. For most current workflow composition, explicit outputs and child calls remain easier to validate; event subscriptions are an advanced capability that should be added only with durable ownership and audit semantics.
+
+### Signatures, binding, and interface dispatch
+
+A dispatcher has a parameter signature, a publisher instance, and a set of bound handlers. Binding registers a compatible handler; unbinding removes that handler; clearing listeners is broader than removing one subscription. Calling a dispatcher invokes its current listeners, and with no listeners there is no handler work to execute. A dispatcher is notification, not an implicit return-value aggregation. A multicast callback also does not by itself promise durable delivery or distributed concurrency.
+
+For workflows, expose subscription ownership and removal scope. Reopening an editor or repeating an initialization step should not create duplicate listeners accidentally. An unbind-all operation must not erase unrelated runs' subscriptions. Define whether listener changes during delivery affect the current notification or the next one, whether listener failures stop other deliveries, and how subscriber limits are enforced. Use explicit correlation for a later reply rather than treating a notification as a synchronous function return.
+
+An interface defines a common callable signature while each implementing type provides its behavior. Interface dispatch asks the target for that behavior without requiring the caller to know its concrete class. It differs from casting to a particular implementation. Dynamic message-style calls and statically interface-typed calls can have different behavior for unsupported targets, so the workflow interface contract should explicitly choose rejection, optional handling, or a typed unsupported result. Tool discovery is not proof that a tool satisfies a particular contract version.
 
 ## Responsibility, policy data, and reactive tasks
 
@@ -306,6 +382,30 @@ Unreal commonly uses three graph roles:
 
 Do not reproduce Unreal's permissive “any graph can be placed anywhere” model without a contract. Every graph kind in Visual Agent Workflow should state whether it is executable, authoring-only, callable, resumable, observable, and allowed to contain side effects.
 
+## Node definition contract
+
+A node's rendered card is one view of a larger contract. Blueprint-like authoring depends on node metadata, graph validation, runtime behavior, and debugger mapping agreeing about that contract. The following describes a proposed language-level descriptor, not a new implemented JSON schema.
+
+| Contract element | Information the engine and editor need |
+| --- | --- |
+| Identity and compatibility | Stable node kind, descriptor version, required schema version, deprecation/replacement information, and stable instance ID. |
+| Authoring metadata | Display name, category, keywords, explanation, compact summary, and expected graph contexts. |
+| Port declarations | Stable IDs, direction, data/execution kind, type/schema, optionality, default binding, multiplicity, and dynamic-port rules. |
+| Configuration | Typed persistent settings, constraints, sensitivity, and distinctions between literals, parameter bindings, and connected data. |
+| Execution classification | Pure expression, state read/write, control operation, synchronous effect, asynchronous effect, trigger, or callable unit. |
+| Activation rules | Required inputs, allowed repeated entry, emitted routes, cardinality of outputs, and completion versus progress behavior. |
+| State ownership | Lifetime and scope of counters, locals, cached values, subscriptions, and handles, including nested-call and loop behavior. |
+| Capability requirements | Logical provider/tool/skill bindings, exact contracts, host admission, approval scope, and approved extension identity. |
+| Limits and failures | Timeouts, payload/work budgets, safe failure categories, retry eligibility, cancellation, and cleanup obligations. |
+| Validation | Local configuration errors plus graph-level requirements such as matching joins, legal cycles, available data, and callable dependency bounds. |
+| Persistence and recovery | What can be saved, when a checkpoint is valid, which external operations require reconciliation, and what cannot be resumed safely. |
+| Evidence and debugging | Activation identity, recorded inputs/outputs/routes, redaction, duration, attempt data, and authored-node mapping after expansion. |
+| Editing behavior | Duplicate/extract/delete effects, connection replacement rules, undo boundaries, migration, and handling unknown node versions. |
+
+For example, a pure field projection produces bounded typed data and has no host tool requirement. A model node has an invocation, host-resolved profile, asynchronous completion, output validation, usage evidence, and cancellation. A branch has named routes and decision evidence. They should not share a generic “input string/output string” implementation merely because their cards have similar shapes.
+
+The authoring palette should consume these descriptors to offer valid actions and useful explanations. The backend must validate the same contracts independently. Missing implementations or unsupported descriptor versions should remain inspectable with precise errors; they must not silently become pass-through nodes or trigger assembly loading from an imported artifact.
+
 ## Nodes, pins, and wires
 
 A Blueprint node can expose execution pins and data pins. Execution pins are usually visually distinct and are responsible for activating the next node. Data pins carry values and can often be read by a node only when that node executes. Some connections insert conversion nodes automatically when a compatible conversion exists.
@@ -335,6 +435,16 @@ Blueprint's multiple Event Graph canvases are organizational. Likewise, a workfl
 
 Event-driven authoring is preferable to an implicit tick loop for most workflow behavior. Heavy work on every update creates repeated cost even when nothing relevant has changed. Prefer explicit triggers, bounded loops, cancellation boundaries, and recorded transitions; use polling only with a defined interval, work budget, and stop condition.
 
+### Activations, repeated entry, and joins
+
+One node definition can execute multiple times. An event can fire repeatedly, a function can be called by different callers, and a loop revisits its body. The editor contains one node card; runtime evidence must distinguish its activations. A mutable value on a Blueprint instance can outlive a particular function call, while the call's locals belong to that invocation. These lifetimes explain why a graph can have state even when there is only one visible copy of a node.
+
+Execution wires describe logical ordering, not operating-system threads. In particular, several outgoing callbacks or a Sequence must not be advertised as parallel execution. Latent work yields and lets other activity occur before its continuation; this can expose shared-state changes and repeated-entry problems even without true multithreading. A workflow scheduler needs a separate concurrency contract for forked work, plus an explicit policy for repeated events while an earlier activation is still active: queue, coalesce, reject, replace, or run concurrently within a bound.
+
+For a proposed general scheduler, identify every activation by run, call path, node ID, activation ID, iteration, and attempt where relevant. Require inputs from the appropriate activation context. A join must correlate branch results from the same fork activation; it must not combine an old branch value with a new one merely because both originate at the same node IDs. Define cancellation, duplicate delivery, late arrival, and branch skipping together with the join's result shape.
+
+Loop variants also differ. An indexed loop exposes an index and completion; collection iteration exposes an item and index; a while loop tests a condition around repeated body work; a break-capable loop adds an early exit. A latently completed operation inside a body cannot be assumed finished just because the body's immediate dispatch returned. Before supporting asynchronous iteration, specify whether iterations are sequential or concurrent, when completion fires, and how per-item failures and collection mutation behave. The existing bounded loop is not a promise of all these variants.
+
 ## Variables, parameters, and references
 
 Unreal variables can hold primitive values such as numbers and booleans, or references to objects and components. Class variables can be shared across graphs in a Blueprint; local variables are scoped to a function and disappear when that function returns. Public/editable variables expose defaults on placed instances, allowing each instance to override the class default without modifying the class asset.
@@ -356,6 +466,28 @@ Mutable Set/Get behavior is more complex than a visual pair of nodes suggests. D
 Unreal Functions are callable graphs with one entry point. They are appropriate for reusable calculations, checks, and behavior that may be targeted at an object or overridden in a child Blueprint. Functions can communicate across Blueprints through parameters and object targets.
 
 Macros look similar at the call site but are graph fragments. They have tunnel inputs and outputs, can expose multiple execution outputs, and are expanded into the consuming graph during compilation. Because they are expansion rather than runtime calls, Unreal's debugger does not show a macro as its own call-stack frame. Macro changes require consuming Blueprints to compile before the change is reflected.
+
+### Reuse forms compared
+
+| Form | Contract and scope | State, continuation, and debugging consequences |
+| --- | --- | --- |
+| Function | Named callable operation on a target, with inputs, outputs, visibility, and one entry. | Call-specific locals and explicit returns; synchronous Blueprint functions exclude latent nodes. A call can be inspected as a runtime boundary. |
+| Pure function | A data-producing function with no execution pins and a promise not to mutate state. | Evaluated for consumers; purity alone is not caching or proof that repeated reads observe identical state. |
+| Custom Event | Named entry into event-graph behavior with input parameters. | Useful for event-driven/latent behavior; does not provide a synchronous typed function return. Request/reply needs a separate contract. |
+| Macro | A reusable graph fragment with tunnel ports, potentially multiple execution paths. | Expanded at each use; latent-node eligibility follows its graph context. Debug attribution must retain the expansion's origin. |
+| Collapsed graph | A local wrapper around graph nodes for organization. | Keeps a local abstraction boundary; independent copies do not gain shared update/version semantics. |
+| Function library | Reusable static operations callable across Blueprints. | Has no implicit object instance; pass necessary context explicitly. Static does not automatically mean pure or deterministic. |
+| Macro library | A collection of reusable graph expansions. | Changes affect consuming graphs when rebuilt; expansion limits and provenance matter. |
+| Interface | Named operation signatures implemented by different types. | Implementation is chosen on the target; no shared storage or default state is implied by the interface. |
+| Inherited Blueprint Class | A reusable type with inherited configuration and behavior plus specialization. | Instances have their own state; overrides and parent calls control how behavior is extended or replaced. |
+
+A workflow may map several of these authoring concepts to one implementation mechanism, but it must retain the meaningful distinctions in its contract. For example, both a function-like unit and an event handler may be represented as child workflows, while one promises a typed result and the other exposes a bounded event/request lifecycle. Use the interface the author is actually composing rather than exposing framework internals as node behavior.
+
+### Signatures, recursion, and contract evolution
+
+A callable signature includes operation identity, parameter IDs/types/defaults, output IDs/types, visibility, and effect/continuation rules. Reordering displayed parameters must not rebind arguments. Renaming a display label must not change operation identity. Type changes, removed parameters, or new required inputs need explicit compatibility diagnostics and upgrade behavior. An instance target must be distinguishable from an ordinary data argument.
+
+Recursion requires another contract: maximum depth or execution budget, stack/call-path evidence, cancellation, and state ownership. Blueprint's ability to express recursive functions does not require the workflow engine to accept recursive dependency cycles. The current nested-call contract rejects call-path cycles and bounds expansion. Any later recursion support must preserve that protection through an explicitly designed replacement.
 
 For this project, the distinction maps to two separate implementation choices:
 
@@ -422,6 +554,30 @@ Visual Agent Workflow should adapt the user experience while respecting its back
 
 Playback must be read-only. It should reconstruct the published revision/layout associated with the run, show which nodes actually executed, and make “not executed,” “blocked,” “failed,” “skipped,” and “value unavailable” distinct states. Do not query a live provider or rerun an MCP call merely to populate a historical view. Redact or omit sensitive values before persistence according to the project's evidence policy.
 
+### Debugging context and stepping
+
+The selected runtime instance matters. Several instances of one Blueprint Class can execute the same node with different values; likewise, two runs or child invocations can use the same workflow revision. Selecting a node in an editor is insufficient to identify which values to inspect. A debug view needs a run, revision, call path, activation, and event cursor, with explicit navigation when these change.
+
+Step into, step over, and step out express different navigation around calls. For a workflow, define these in terms of supported backend execution boundaries. Stepping over a model call may involve a long external request; stepping out of a child may require waiting through suspensions or approvals. Observation-only hosts cannot promise these execution controls. A historical trace can support analogous navigation over recorded events without making any call.
+
+Breakpoints should distinguish enabled, disabled, unreachable/invalid, pending, and reached states where supported. A breakpoint before an operation is different from pausing after it: only the former can prevent admission of that operation. Watch values should identify their producing activation and timestamp/cursor, especially across loops or retries. Show “never executed,” “not captured,” “redacted,” and “stale relative to this cursor” separately from a valid null or empty result.
+
+### Diagnostics and graph-level explanations
+
+Validation and runtime errors should carry a stable category plus graph/node/port or configuration-field identity. A wrong-type connection, a missing capability, an invalid tool argument, a provider failure, and a canceled operation require different remedies. Keep upstream failure distinct from nodes that simply never became eligible. A validation panel should navigate to every relevant issue, including disconnected regions, rather than stopping at the first error.
+
+Visual execution highlighting should have bounded persistence and a matching textual trace. A value wire indicates a recorded transfer or observation; an execution wire indicates an actual activation when that edge kind exists. Do not animate a route that was only considered by a predicate. Expansion/template provenance should let a user move from an internal failing node back to the authored call site. Debug prints and custom trace annotations are useful when bounded and redacted, but they do not replace structured node outcomes.
+
+## Specialized graphs and distributed authority
+
+Blueprint's vocabulary also appears in specialized environments. Widget Blueprints combine UI design, bindings, events, and callable logic. Animation Blueprints combine state machines and pose evaluation. Behavior Trees use tasks, conditions, and working state with different scheduling rules. Editor utilities run in authoring contexts. These systems demonstrate reuse of graph infrastructure across distinct languages; they do not imply that all graph nodes are legal in every context.
+
+Visual Agent Workflow can use the same editor infrastructure for deterministic transformations, orchestration, and optional reactive planners while declaring each graph's allowed nodes, entry/exit shape, state scope, and execution semantics. A state-machine view can express named states and transitions; a dataflow view can emphasize value derivation. Either requires a runtime contract before a specialized view is treated as executable.
+
+Blueprint networking distinguishes replicated state from remote calls. Property replication communicates state under engine authority; notification callbacks can react to replicated updates. RPCs request execution at defined network roles under ownership and replication rules. An Event Dispatcher is a separate local notification mechanism; binding one does not establish network delivery. Multiplayer authority is not the same contract as authentication or tool permission in an agent platform.
+
+For distributed workflows, any future remote-execution or replicated-view capability needs explicit owner/worker identity, admission, message correlation, ordering, deduplication, and recovery rules. Replicating a run-status snapshot does not transfer the right to execute that run. Receiving a remote event does not authorize its requested tool. These engine capabilities provide useful concepts for future design, while actor replication itself remains outside the current workflow feature target.
+
 ## Open questions and verification plan
 
 The following questions require explicit contracts and verification before Visual Agent Workflow claims parity for the corresponding capability.
@@ -456,6 +612,18 @@ The project already treats labels, comments, sections, coordinates, wire styles,
 
 Large graphs also need navigation at multiple scales. Named bookmarks, searchable event/function inventories, and a navigable outline of comments or sections help authors move between an overview and detailed work. Group exposed parameters by purpose and provide descriptions, defaults, and validation help alongside their controls. Keep navigation targets bound to stable graph/node identities, and define what happens when a target is removed. These are authoring affordances; they do not schedule work or change access to capabilities.
 
+### Pin presentation and literal editing
+
+Execution pins should have an immediately distinct shape from data pins; type colors can reinforce the distinction but must not carry meaning alone. Show labels, type/schema information, connected state, and invalid-connection feedback. Container and reference kinds should be recognizable in the inspector even when compact cards omit detail. Input and output placement should remain consistent across node families so a graph is readable before its text is inspected.
+
+Unconnected data inputs can expose typed literal controls where a default is legal. Connecting a wire changes the binding to a produced value; disconnecting must explicitly restore a retained literal, use a declared default, or report a missing input. Required execution inputs do not become literal-editable. Optional pins, advanced pins, split records, and expanded formatting arguments must preserve wiring when hidden or collapsed. Never serialize the visual visibility of a pin as if it removed a required runtime input.
+
+### Semantic editing and asset evolution
+
+Duplicate assigns fresh node identities while preserving eligible configuration; extraction computes a declared boundary from crossing connections; deletion reports affected references and routes. Changing a type or a callable signature should produce a preview of broken bindings and possible conversions. Reconstructing a node from new metadata must reconnect only ports whose identities and contracts remain compatible. Do not silently repair an invalid graph by dropping behavior.
+
+Undo/redo should restore a coherent definition and its related layout in one edit for operations such as extraction, insertion, and block deletion. Search and find-references should cover declarations, call sites, and parameter usages rather than matching labels alone. A semantic diff should separate value/signature/dependency changes from node movement, wire routing, and comments. Authors need to know whether an upgrade changes behavior, invalidates a connection, or only alters presentation.
+
 ## Completeness criteria
 
 Consider the visual scripting system Blueprint-level only when a user can move through the full lifecycle without dropping into ad hoc code or hidden host configuration. The system should support authoring a typed graph; extracting reusable logic; specializing a template; composing event, data, conditional, loop, parallel, wait, and approval behavior; invoking approved agent and tool capabilities; validating and publishing an immutable asset; running a precise revision; pausing and resuming where the contract allows; inspecting actual execution; and replaying evidence without re-execution.
@@ -483,6 +651,10 @@ These are proposed acceptance scenarios for capability parity, not claims that t
 | Configuration lookup and selection | Look up a pinned policy row, select a typed threshold, and feed one downstream decision path. | Duplicate or missing keys and wrong types fail explicitly; changing the dataset does not change an earlier run's recorded policy revision. |
 | Interrupted reactive task | Start a task, update scoped working state, then cancel or preempt it. | Cleanup has a recorded completion or failure, stale flags do not survive, and no completed external effect is silently repeated or treated as undone. |
 | Scheduled observation | Schedule a bounded recurring check while an inspector observes its state. | Reopening or rerendering the inspector creates no timers or calls; canceling the schedule follows its declared late-delivery policy. |
+| Repeated pure consumption | Feed one pure computation to two consumers and one effectful result to multiple downstream nodes. | Evaluation policy is visible; consuming the retained effect result never implicitly repeats the model/tool call. |
+| Independent instances | Invoke the same reusable workflow twice with different overrides and mutable task state where supported. | Defaults remain unchanged, state and activation IDs stay separate, and a watcher cannot display the other invocation's values. |
+| Signature and pin evolution | Add or reorder an optional argument, rename a label, then remove a required output. | Compatible IDs retain bindings; incompatible changes produce precise diagnostics and a reviewable upgrade rather than silent rewiring. |
+| Dispatcher lifecycle | Bind a handler, deliver repeated events, remove that binding, and deliver again. | Subscription identity prevents accidental duplication; teardown affects only the intended owner and defines no-listener/failing-listener behavior. |
 
 For example, the support decision scenario should make the data contract visible: a request contains a case identifier, message, and allowed action category; classification returns a validated decision and rationale; the selected route either returns advice, requests an exact approved operation, or escalates for a human response. The model's text is data to validate, not authority to grant a tool. A reusable child owns classification behavior, while the parent owns its routing and effect policy. These boundaries make the example's data, behavior, and authority contracts explicit for the implementer.
 
