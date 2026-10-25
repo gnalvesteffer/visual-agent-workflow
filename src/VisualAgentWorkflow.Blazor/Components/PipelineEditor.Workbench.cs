@@ -39,8 +39,9 @@ public partial class PipelineEditor
         [
             new(NodeTypes.Uppercase, "Uppercase", "Text processing", "Convert text deterministically", enabled),
             new(NodeTypes.Reverse, "Reverse", "Text processing", "Reverse text deterministically", enabled),
+            new(NodeTypes.TextTemplate, "Text template", "Text processing", "Build deterministic text from input and workflow values", enabled),
             new(NodeTypes.WorkflowValue, "Workflow value", "Inputs", "Pass a configured workflow parameter into the graph", enabled && ParameterDefinitions.Count > 0),
-            new("condition", "Condition", "Flow", "Create true / false paths and a merge", enabled && Definition.Nodes.Count <= 252),
+            new("condition", "Condition", "Flow", "Create true / false paths and a merge", enabled && Definition.Nodes.Count <= 254),
             new("approval", "Approval", "Flow", "Select an MCP tool to require exact-action review", enabled && selected is not null && Definition.Nodes.TryGetValue(selected, out var selectedDefinition) && selectedDefinition.Type == NodeTypes.McpTool && !GuardedTool(selected))
         ];
         entries.AddRange(Providers.Select(p => new WorkflowNodeLibraryEntry(ProviderKey(p), p.DisplayName, "Agents", $"{p.ModelId} · {p.Version}", enabled)));

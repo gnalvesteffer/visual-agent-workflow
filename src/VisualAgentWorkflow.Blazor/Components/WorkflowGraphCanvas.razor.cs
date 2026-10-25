@@ -69,7 +69,7 @@ public partial class WorkflowGraphCanvas
     private string Title(string id) => string.IsNullOrWhiteSpace(Layout.Nodes[id].Label) ? FriendlyName(Definition.Nodes[id]) : Layout.Nodes[id].Label;
     internal static string FriendlyName(NodeDefinition node) => node.Type switch
     {
-        NodeTypes.Input => "Input", NodeTypes.Output => "Output", NodeTypes.Uppercase => "Uppercase", NodeTypes.Reverse => "Reverse",
+        NodeTypes.Input => "Input", NodeTypes.Output => "Output", NodeTypes.Uppercase => "Uppercase", NodeTypes.Reverse => "Reverse", NodeTypes.TextTemplate => "Text template",
         NodeTypes.Condition => "Condition", NodeTypes.Merge => "Merge", NodeTypes.Approval => "Approval", NodeTypes.Agent => "Agent", _ => "MCP tool"
     };
     private async Task SelectNode(string id)

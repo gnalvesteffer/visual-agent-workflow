@@ -1,8 +1,8 @@
 @using VisualAgentWorkflow.Core
 
 <div class="vaw-prompt-template-editor">
-    <label for="@editorId">User message template</label>
-    <textarea id="@editorId" aria-label="User message template" aria-controls="@pickerId" aria-expanded="@PickerOpen"
+    <label for="@editorId">@EditorLabel</label>
+    <textarea id="@editorId" aria-label="@EditorLabel" aria-controls="@pickerId" aria-expanded="@PickerOpen"
               value="@draft" @oninput="DraftChanged" @onchange="Commit"
               maxlength="8192" rows="5" disabled="@Disabled"></textarea>
     <p class="vaw-help">Type <code>{{</code> at the end of a line to insert a value. Use <code>{{input}}</code>, <code>{{parameter:ID}}</code>, and <code>\{{</code> for literal braces.</p>
@@ -47,6 +47,7 @@
     [Parameter] public EventCallback<PromptTemplate?> ValueChanged { get; set; }
     [Parameter] public IReadOnlyDictionary<string, WorkflowParameterDefinition> Parameters { get; set; } = new Dictionary<string, WorkflowParameterDefinition>();
     [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string EditorLabel { get; set; } = "User message template";
 
     private bool PickerOpen
     {

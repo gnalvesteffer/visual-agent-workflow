@@ -44,6 +44,51 @@ def prompt_template_check(page, designer):
     tool_details.locator("summary").click()
     expect(tool_details).to_contain_text("Adds two base-10 integers")
     expect(tool_details).to_contain_text("left: integer required")
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    designer.get_by_text("Draft saved.", exact=True).wait_for()
+
+
+def text_template_node_check(page, designer):
+    designer.get_by_role("button", name="New workflow", exact=True).click()
+    designer.get_by_text("New workflow created locally. Save its draft before publishing.", exact=True).wait_for()
+    workflow_id = designer.get_by_label("Saved workflow", exact=True).input_value()
+    designer.get_by_role("button", name="Add Text template", exact=True).click()
+    canvas = designer.locator(".vaw-graph-editor")
+    expect(canvas.locator("li[data-node-type='core.text.template']")).to_have_count(1)
+    template_id = canvas.locator("li[data-node-type='core.text.template']").get_attribute("data-node-id")
+    parameters = designer.locator("details.vaw-parameter-editor > summary")
+    if parameters.evaluate("element => !element.parentElement.open"):
+        parameters.click()
+    designer.get_by_label("Parameter ID", exact=True).fill("customer")
+    designer.get_by_label("Display name", exact=True).fill("Customer")
+    designer.get_by_label("Default value", exact=True).fill("Ada")
+    designer.get_by_role("button", name="Add parameter", exact=True).click()
+    inspect_control(designer, f"Operation for {template_id}")
+    editor = designer.get_by_role("textbox", name="Template text", exact=True)
+    editor.fill("Customer {{parameter:customer}} asks: {{input}}")
+    editor.press("Tab")
+    expect(designer.get_by_text("Preview with sample input: Customer Ada asks: Sample input", exact=True)).to_be_visible()
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    designer.get_by_text("Draft saved.", exact=True).wait_for()
+    saved = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()
+    assert saved["draft"]["definition"]["nodes"][template_id]["type"] == "core.text.template"
+    assert saved["draft"]["definition"]["nodes"][template_id]["textTemplate"]["parts"] == [
+        {"kind": "literal", "value": "Customer "},
+        {"kind": "parameter", "value": "customer"},
+        {"kind": "literal", "value": " asks: "},
+        {"kind": "input", "value": ""},
+    ]
+    designer.get_by_role("button", name="Publish & activate", exact=True).click()
+    designer.get_by_text("Published and activated version 1.", exact=True).wait_for()
+    revision = page.request.get(BASE + f"/api/workflows/{workflow_id}/revisions").json()[0]["revision"]
+    response = page.request.post(BASE + f"/api/revisions/{revision['revisionId']}/runs",
+        data={"input": "What is 1+1?", "parameters": {"customer": "Grace"}})
+    assert response.ok, response.text()
+    run_id = response.json()["header"]["runId"]
+    page.wait_for_function("""async id => (await (await fetch('/api/runs/'+id)).json()).status==='completed'""", arg=run_id)
+    run = page.request.get(BASE + f"/api/runs/{run_id}").json()
+    assert any(event["nodeId"] == template_id and event["kind"] == "node.completed" and
+               event.get("data") == "Customer Grace asks: What is 1+1?" for event in run["events"])
 
 
 def check(browser, screenshots):
@@ -208,7 +253,9 @@ def check(browser, screenshots):
         page.screenshot(path=str(screenshots / "studio-designer.png"))
     # The false socket must create on the false arm, rather than the first available port.
     library.get_by_role("button",name="Add Condition",exact=True).click()
-    expect(canvas.locator("li[data-node-id]")).to_have_count(7)
+    expect(canvas.locator("li[data-node-id]")).to_have_count(5)
+    assert canvas.locator("li[data-node-type='core.condition']").count() == 1
+    assert canvas.locator("li[data-node-type='core.merge']").count() == 1
     branch=canvas.locator("li[data-node-type='core.condition']").get_attribute("data-node-id")
     false_pin=canvas.locator(f"li[data-node-id='{branch}'] [data-socket='false']")
     false_pin.scroll_into_view_if_needed();box=false_pin.bounding_box();bounds=viewport.bounding_box()
@@ -217,11 +264,11 @@ def check(browser, screenshots):
     expect(menu).to_be_visible()
     expect(menu.locator(".vaw-insertion-hint")).to_contain_text("false")
     menu.get_by_role("button",name="Add Reverse",exact=True).click()
-    expect(canvas.locator("li[data-node-id]")).to_have_count(8)
+    expect(canvas.locator("li[data-node-id]")).to_have_count(6)
     false_target=canvas.locator(f"path[data-source='{branch}'][data-source-port='false']").first.get_attribute("data-target")
     expect(canvas.locator(f"li[data-node-id='{false_target}']")).to_have_attribute("data-node-type","core.text.reverse")
     canvas.get_by_role("button",name="Undo edit",exact=True).click()
-    expect(canvas.locator("li[data-node-id]")).to_have_count(7)
+    expect(canvas.locator("li[data-node-id]")).to_have_count(5)
     canvas.get_by_role("button",name="Undo edit",exact=True).click()
     expect(canvas.locator("li[data-node-id]")).to_have_count(3)
     expect(designer.locator(".vaw-definition-status")).to_contain_text("Draft saved")
@@ -235,9 +282,10 @@ def check(browser, screenshots):
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), "Narrow viewport overflow"
     page.set_viewport_size({"width":1920,"height":1080})
     prompt_template_check(page, designer)
+    text_template_node_check(page, designer)
     assert not errors,errors
     page.close()
-    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, and MCP tool detail review passed.")
+    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring and replay, and MCP tool detail review passed.")
 
 
 if __name__=="__main__":

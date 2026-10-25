@@ -109,11 +109,12 @@ public static class PipelineEditing
 
     private static void RequireEditable(string type)
     {
-        if (type is not (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.WorkflowValue or NodeTypes.JsonSelectString))
+        if (type is not (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.WorkflowValue or NodeTypes.JsonSelectString or NodeTypes.TextTemplate))
             throw new ArgumentException("Only registered processing nodes can be edited.", nameof(type));
     }
 
     internal static string SchemaFor(WorkflowDefinition definition, NodeDefinition node) =>
+        node.Type == NodeTypes.TextTemplate && definition.SchemaVersion is not ("1.7" or "1.8" or "1.9") ? "1.7" :
         definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : definition.SchemaVersion == "1.4" ? "1.4" : definition.SchemaVersion == "1.3" || node.Origin is not null ? "1.3" : node.Type == NodeTypes.Agent
             ? "1.2" : node.Type == NodeTypes.McpTool && definition.SchemaVersion == "1.0" ? "1.1" : definition.SchemaVersion;
 

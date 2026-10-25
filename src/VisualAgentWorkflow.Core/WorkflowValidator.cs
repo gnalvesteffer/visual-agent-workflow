@@ -86,6 +86,14 @@ public static class WorkflowValidator
             }
             else if (node.JsonPropertySelection is not null)
                 Error("json.selection.unexpected", $"nodes.{id}.jsonPropertySelection", "Only JSON selection nodes can declare a JSON property pointer.");
+            if (node.Type == NodeTypes.TextTemplate)
+            {
+                if (definition.SchemaVersion is not ("1.7" or "1.8" or "1.9")) Error("node.schema", $"nodes.{id}", "Text template nodes require schema 1.7 or later.");
+                if (!ValidTextTemplate(node.TextTemplate, parameters))
+                    Error("text.template", $"nodes.{id}.textTemplate", "Use 1–64 bounded literal, input, or declared-parameter parts.");
+            }
+            else if (node.TextTemplate is not null)
+                Error("text.template.unexpected", $"nodes.{id}.textTemplate", "Only text template nodes may declare a template.");
             if (node.Type == NodeTypes.Approval)
             {
                 if (definition.SchemaVersion is not ("1.5" or "1.6" or "1.7" or "1.8" or "1.9")) Error("node.schema", $"nodes.{id}", "Approval nodes require schema 1.5 or later.");
@@ -239,6 +247,12 @@ public static class WorkflowValidator
         try { WorkflowJsonPointer.Parse(pointer!); return true; }
         catch (ArgumentException) { return false; }
     }
+
+    private static bool ValidTextTemplate(PromptTemplate? template, IReadOnlyDictionary<string, WorkflowParameterDefinition> parameters) =>
+        template is { Parts.IsDefault: false, Parts.Length: >= 1 and <= 64 } &&
+        template.Parts.Sum(part => (long)(part?.Value?.Length ?? 0)) <= 8192 &&
+        template.Parts.All(part => part is not null && part.Value is not null && part.Value.Length <= 8192 &&
+            (part.Kind is "literal" or "input" or "parameter") && (part.Kind != "parameter" || parameters.ContainsKey(part.Value)));
 
     private static bool ValidHash(string? hash) => hash is { Length: 64 } && hash.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
 }

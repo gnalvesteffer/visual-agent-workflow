@@ -140,6 +140,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.Input when node.InputDataType == "json" => NormalizeJson(message),
                     NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval => message,
                     NodeTypes.JsonSelectString => SelectJsonText(message, node.JsonPropertySelection!.Pointer),
+                    NodeTypes.TextTemplate => PromptRendering.Render(node.TextTemplate!, message, parameters),
                     NodeTypes.WorkflowValue => parameters is null || !parameters.TryGetValue(node.ParameterId!, out var value)
                         ? throw new InvalidOperationException("The workflow parameter was not resolved for this run.") : value,
                     NodeTypes.Uppercase => message.ToUpperInvariant(),

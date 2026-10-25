@@ -2,7 +2,7 @@
 
 Schema 1.6 adds portable string parameters for workflow-specific configuration. Schema 1.8 adds scalar types (`string`, `integer`, `number`, `boolean`, and bounded `choice`) with validated defaults and overrides. Parameters remain immutable definition data with stable IDs and display names. A `core.workflow-value` node reads one resolved parameter and replaces the incoming string with its canonical text value, making the data path explicit in the graph.
 
-Typed parameters do not add mutable variables or arbitrary object ports. Every value must be treated as non-secret because local run histories record it in plaintext. Schema 1.8 can expose a choice parameter as an agent's reasoning-effort setting, limited to `default`, `low`, `medium`, and `high`; provider support is checked at runtime.
+Typed parameters do not add mutable variables or arbitrary object ports. Every value must be treated as non-secret because local run histories record it in plaintext. Schema 1.8 can expose a choice parameter as an agent's reasoning-effort setting, limited to `default`, `low`, `medium`, and `high`; provider support is checked at runtime. Schema 1.7 also supports deterministic `core.text.template` nodes: ordered literal, incoming-text and declared-parameter parts build one bounded string without expression evaluation. Referenced parameters are copied and remapped when a reusable pipeline containing a template node is inserted.
 
 ## Definition contract
 
@@ -44,7 +44,7 @@ The optional `parameters` property is an object keyed by parameter ID. IDs conta
 }
 ```
 
-Legacy workflow schemas continue to omit `parameters` and `parameterId` when unused; optional parameter fields remain omitted for the old string form, preserving canonical hashes. Editing helpers preserve schema 1.8 through graph edits. Reusable workflow insertion copies parameters referenced by inserted value nodes, prompt templates, and agent settings, then remaps conflicting IDs.
+Legacy workflow schemas continue to omit `parameters` and `parameterId` when unused; optional parameter fields remain omitted for the old string form, preserving canonical hashes. Editing helpers upgrade definitions to the minimum schema when adding new features and preserve newer schema versions through graph edits. Reusable workflow insertion copies parameters referenced by inserted value nodes, text-template nodes, agent prompts, and agent settings, then remaps conflicting IDs.
 
 ## Resolve, execute, and replay
 
@@ -67,7 +67,7 @@ sequenceDiagram
 
 `LocalWorkflowRuntime` implements the additive `IParameterizedWorkflowClient` capability. Existing `IWorkflowClient` method signatures remain unchanged and still resolve definition defaults. Parameter-bearing runs require an `IParameterizedWorkflowRunStore`; built-in file and SQLite stores implement it. Older/custom run stores that do not implement the optional capability reject parameterized definitions rather than dropping audit values.
 
-The Studio accepts overrides for selected published revisions and displays the effective values in the run inspector. The development HTTP endpoint accepts a `parameters` string map alongside `input`; consumer hosts should call the parameterized client directly or implement equivalent authenticated invocation policy. Do not treat the unauthenticated local Studio endpoint as a production service boundary.
+The Studio accepts overrides for selected published revisions and displays the effective values in the run inspector. The development HTTP endpoint accepts a `parameters` string map alongside `input`; consumer hosts should call the parameterized client directly or implement equivalent authenticated invocation policy. Text-template nodes resolve the same effective map used by agent prompts; their rendered result is captured in node and connection evidence for playback. Do not treat the unauthenticated local Studio endpoint as a production service boundary.
 
 ## Security and limits
 

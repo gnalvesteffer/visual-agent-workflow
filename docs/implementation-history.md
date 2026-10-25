@@ -2,6 +2,10 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Deterministic text-template node
+
+Schema 1.7 adds a `core.text.template` graph node that composes bounded literal text, its connected input, and declared workflow parameters using the structured prompt-part format already used by agents. The Studio reuses the token editor and preview; runtime output appears in normal node and transfer evidence. Reusable insertion copies and remaps referenced parameters, and referenced values cannot be deleted from the workflow. The node is deterministic and has no expression evaluation or external side effects. Core validation/round-trip/package tests, Agent Framework execution tests, the workbench browser smoke, and docs checks cover the feature. See [workflow parameters](workflow-parameters.md), [user guide](user-guide.md), and [architecture](architecture.md).
+
 ## Bounded JSON input and pointer selection
 
 Schema 1.9 adds a JSON-typed entry output and a bounded RFC 6901 selector that emits text, allowing existing string nodes to continue unchanged. Core validates typed edges and inserts/removes the entry-selector boundary as one edit; the Agent Framework runner normalizes JSON, selects object keys or array indexes, and preserves the value through audit and playback. The Studio exposes **Use JSON input and add a value selector** and a JSON Pointer field. Tests cover pointer escaping/limits, incompatible connections, atomic editing, string/array/root selection, and recorded output. General object ports, mapping expressions and typed joins remain planned. See [user guide](user-guide.md), [architecture](architecture.md), and [roadmap](roadmap.md).

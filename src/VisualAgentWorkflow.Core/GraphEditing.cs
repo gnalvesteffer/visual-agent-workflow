@@ -141,7 +141,7 @@ public static class GraphEditing
             ? edge : throw new ArgumentException("Choose a connected output port.");
     private static void RequireProcessing(string type)
     {
-        if (type is not (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.WorkflowValue or NodeTypes.JsonSelectString))
+        if (type is not (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.WorkflowValue or NodeTypes.JsonSelectString or NodeTypes.TextTemplate))
             throw new ArgumentException("Only processing nodes can be inserted, replaced or removed here.");
     }
 }

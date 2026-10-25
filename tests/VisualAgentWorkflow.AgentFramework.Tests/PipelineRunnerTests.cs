@@ -74,6 +74,38 @@ public class PipelineRunnerTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Transfer && evt.ConnectionId == "b" && evt.Data == "override");
     }
 
+    [Fact]
+    public async Task TextTemplateNodeRendersInputAndResolvedParametersAsRecordedData()
+    {
+        var definition = new WorkflowDefinition("1.7", "text-template-runtime", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["format"] = new(NodeTypes.TextTemplate, "1.0.0")
+                {
+                    TextTemplate = new([new("literal", "Tell "), new("input", ""), new("literal", " to greet "), new("parameter", "name")])
+                },
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["a"] = new(new("input", "out"), new("format", "in"), "data"),
+                ["b"] = new(new("format", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary())
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty.Add("name", new("Name", "Ada"))
+        };
+        var events = new List<ExecutionEvent>();
+
+        var result = await new PipelineRunner().ExecuteWithParametersAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"),
+            "answer the question", new Dictionary<string, string> { ["name"] = "Grace" },
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("Tell answer the question to greet Grace", result);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "format" && evt.Data == result);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Transfer && evt.ConnectionId == "b" && evt.Data == result);
+    }
+
     [Theory]
     [InlineData("{\"user\":{\"name\":\"Ada\"},\"items\":[{\"id\":7}]}", "/user/name", "Ada")]
     [InlineData("{\"items\":[{\"id\":7}]}", "/items/0/id", "7")]

@@ -25,8 +25,12 @@ public static class WorkflowParameterEditing
 
     public static WorkflowDefinition Remove(WorkflowDefinition definition, string id)
     {
-        if (definition.Nodes.Values.Any(node => node.Type == NodeTypes.WorkflowValue && node.ParameterId == id))
-            throw new ArgumentException("Remove or reassign every workflow value node before deleting this parameter.", nameof(id));
+        if (definition.Nodes.Values.Any(node =>
+            node.Type == NodeTypes.WorkflowValue && node.ParameterId == id ||
+            node.TextTemplate?.Parts.Any(part => part.Kind == "parameter" && part.Value == id) == true ||
+            node.Agent?.ReasoningEffortParameterId == id ||
+            node.Agent?.UserMessage?.Parts.Any(part => part.Kind == "parameter" && part.Value == id) == true))
+            throw new ArgumentException("Remove or reassign every node that references this parameter before deleting it.", nameof(id));
         var parameters = definition.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
         if (!parameters.ContainsKey(id)) throw new ArgumentException("The parameter does not exist.", nameof(id));
         return Checked(definition with { SchemaVersion = Schema(definition), Parameters = parameters.Remove(id) });

@@ -73,7 +73,7 @@ public sealed partial class PipelineRunner
     public static void ValidateCheckpointGraph(WorkflowDefinition definition)
     {
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (definition.Nodes.Values.Any(n => n.Type is not (NodeTypes.Input or NodeTypes.Output or NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.JsonSelectString)))
+        if (definition.Nodes.Values.Any(n => n.Type is not (NodeTypes.Input or NodeTypes.Output or NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.JsonSelectString or NodeTypes.TextTemplate)))
             throw new InvalidOperationException("Checkpoint recovery currently permits deterministic graph nodes only; agents, MCP and approvals require a separate recovery policy.");
     }
 

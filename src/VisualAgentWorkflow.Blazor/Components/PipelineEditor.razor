@@ -15,7 +15,7 @@
                     </select></label>
                     @if (parameter.Type == "choice")
                     { <label>Allowed choices <input value="@string.Join(",", parameter.Choices ?? [])" @onchange="args => ChangeChoices(parameterId, args)" placeholder="default,low,medium,high" /></label> }
-                    <button type="button" @onclick="() => Edit(() => WorkflowParameterEditing.Remove(Definition, parameterId))" disabled="@(Disabled || Definition.Nodes.Values.Any(node => node.Type == NodeTypes.WorkflowValue && node.ParameterId == parameterId))">Remove parameter</button>
+            <button type="button" @onclick="() => Edit(() => WorkflowParameterEditing.Remove(Definition, parameterId))" disabled="@(Disabled || ParameterIsReferenced(parameterId))">Remove parameter</button>
                 </fieldset>
             }
             <div class="vaw-controls">
@@ -82,6 +82,14 @@
                             <input aria-label="JSON pointer for @id" value="@node.JsonPropertySelection!.Pointer" @onchange="args => JsonPointer(id, args)" maxlength="1024" disabled="@Disabled" />
                         </label>
                         <p class="vaw-help">Uses RFC 6901 paths such as <code>/customer/name</code>. Strings become text; other JSON values become compact JSON.</p>
+                    }
+                    else if (node.Type == NodeTypes.TextTemplate)
+                    {
+                        <fieldset disabled="@Disabled">
+                            <legend>Text template</legend>
+                            <p class="vaw-help">Build deterministic text from the incoming value and declared workflow parameters. References are tokens, not expressions.</p>
+                            <PromptTemplateEditor EditorLabel="Template text" Value="node.TextTemplate!" Parameters="ParameterDefinitions" ValueChanged="template => SetTextTemplate(id, template)" Disabled="Disabled" />
+                        </fieldset>
                     }
                     else if (node.Type == NodeTypes.Approval)
                     {
@@ -301,6 +309,7 @@
         NodeTypes.Uppercase => "Convert text to uppercase",
         NodeTypes.Reverse => "Reverse text",
         NodeTypes.JsonSelectString => $"JSON pointer · {node.JsonPropertySelection?.Pointer}",
+        NodeTypes.TextTemplate => $"Template · {PromptTemplateCodec.Format(node.TextTemplate)}",
         NodeTypes.WorkflowValue => node.ParameterId is { } parameterId && ParameterDefinitions.TryGetValue(parameterId, out var parameter)
             ? $"Workflow value · {parameter.DisplayName}" : "Workflow value",
         NodeTypes.Condition => $"{node.Condition!.Operator} · {node.Condition.Operand}",
@@ -378,6 +387,15 @@
     private Task JsonPointer(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
         Definition.Nodes[id] with { JsonPropertySelection = new(args.Value?.ToString() ?? "") }));
 
+    private Task SetTextTemplate(string id, PromptTemplate? template) => Edit(() => ReplaceProcessing(id,
+        Definition.Nodes[id] with { TextTemplate = template ?? new([new("input", "")]) }));
+
+    private bool ParameterIsReferenced(string parameterId) => Definition.Nodes.Values.Any(node =>
+        node.Type == NodeTypes.WorkflowValue && node.ParameterId == parameterId ||
+        node.TextTemplate?.Parts.Any(part => part.Kind == "parameter" && part.Value == parameterId) == true ||
+        node.Agent?.ReasoningEffortParameterId == parameterId ||
+        node.Agent?.UserMessage?.Parts.Any(part => part.Kind == "parameter" && part.Value == parameterId) == true);
+
     private static string ToolKey(ToolBindingDescriptor binding) => $"mcp:{binding.BindingId}:{binding.ContractHash}:{binding.DescriptionHash}";
     private static string ProviderKey(AgentProviderDescriptor provider) => $"agent:{provider.ProviderId}:{provider.Version}";
     private string NodeKey(NodeDefinition node) => node.Agent is { } agent ? $"agent:{agent.ProviderId}:{agent.ProviderVersion}" :
@@ -398,6 +416,8 @@
     {
         if (value == NodeTypes.JsonSelectString)
             return new(NodeTypes.JsonSelectString, "1.0.0") { JsonPropertySelection = existing?.JsonPropertySelection ?? new("/name") };
+        if (value == NodeTypes.TextTemplate)
+            return new(NodeTypes.TextTemplate, "1.0.0") { TextTemplate = existing?.TextTemplate ?? new([new("input", "")]) };
         if (value == NodeTypes.WorkflowValue)
             return new(NodeTypes.WorkflowValue, "1.0.0") { ParameterId = ParameterDefinitions.Keys.FirstOrDefault() };
         var provider = Providers.SingleOrDefault(p => ProviderKey(p) == value);

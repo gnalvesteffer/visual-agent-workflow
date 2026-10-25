@@ -68,7 +68,8 @@ public static class PipelineReuse
         var targetParameters = target.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
         var parameterMap = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var parameterId in steps.SelectMany(id => new[] { source.Nodes[id].ParameterId }
-            .Concat(source.Nodes[id].Agent?.UserMessage?.Parts.Where(part => part.Kind == "parameter").Select(part => part.Value) ?? []))
+            .Concat(source.Nodes[id].Agent?.UserMessage?.Parts.Where(part => part.Kind == "parameter").Select(part => part.Value) ?? [])
+            .Concat(source.Nodes[id].TextTemplate?.Parts.Where(part => part.Kind == "parameter").Select(part => part.Value) ?? []))
             .Where(id => id is not null).Distinct(StringComparer.Ordinal))
         {
             var sourceParameter = source.Parameters![parameterId!];
@@ -102,6 +103,8 @@ public static class PipelineReuse
             nodes = nodes.Add(ids[id], sourceNode with
             {
                 ParameterId = sourceNode.ParameterId is { } parameterId ? parameterMap[parameterId] : null,
+                TextTemplate = sourceNode.TextTemplate is { } textTemplate ? new(textTemplate.Parts.Select(part =>
+                    part.Kind == "parameter" ? part with { Value = parameterMap[part.Value] } : part).ToImmutableArray()) : null,
                 Agent = sourceNode.Agent is { UserMessage: { } prompt } agent ? agent with
                 { UserMessage = new(prompt.Parts.Select(part => part.Kind == "parameter" ? part with { Value = parameterMap[part.Value] } : part).ToImmutableArray()) } : sourceNode.Agent,
                 Origin = new(source.WorkflowId, published.Revision.RevisionId, published.Version, published.Revision.ContentHash, id)
