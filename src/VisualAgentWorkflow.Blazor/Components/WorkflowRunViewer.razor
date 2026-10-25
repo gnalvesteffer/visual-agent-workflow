@@ -31,10 +31,11 @@
         </div>
             </ToolbarContent>
             <NodeContent Context="nodeId">
-                @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); var label = PendingApproval?.Action.ApprovalNodeId == nodeId ? "Awaiting approval" : PausedBefore(nodeId) && state is null ? "Paused before execution" : StateLabel(state); }
+                @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); var label = PendingApproval?.Action.ApprovalNodeId == nodeId ? "Awaiting approval" : PausedBefore(nodeId) && state is null ? "Paused before execution" : StateLabel(state); var activity = ActiveActivity(nodeId); }
                 <button type="button" class="vaw-node-button" aria-label="@($"{nodeId} {node.Type} {label}")" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId ? "true" : "false")">
                     <span>@label</span>
                 </button>
+                @if (activity is not null) { <p class="vaw-node-activity" role="status">@activity</p> }
                 @if (BranchPort(nodeId) is { } chosenPort) { <p class="vaw-help">Selected output: @chosenPort</p> }
             </NodeContent>
             <NodeInspector Context="inspected">
@@ -79,6 +80,40 @@
     [Parameter] public WorkflowLayout? Layout { get; set; }
     private WorkflowLayout Presentation = default!;
     private ExecutionEvent? State(string id) => VisibleEvents.LastOrDefault(e => e.NodeId == id && e.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
+    private string? ActiveActivity(string id)
+    {
+        if (State(id)?.Kind != ExecutionEventKinds.NodeStarted) return null;
+        var invocation = State(id)?.InvocationId;
+        var events = VisibleEvents.Where(e => e.NodeId == id && e.InvocationId == invocation).ToArray();
+        var terminalIndex = Array.FindLastIndex(events, e => e.Kind is ExecutionEventKinds.NodeCompleted or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
+        if (terminalIndex >= 0) return null;
+        var current = events.LastOrDefault(e => e.Kind is ExecutionEventKinds.AgentStarted or ExecutionEventKinds.ModelRequested or ExecutionEventKinds.ModelResponded or ExecutionEventKinds.ToolRequested or ExecutionEventKinds.ToolAuthorized or ExecutionEventKinds.ToolCompleted or ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ApprovalRequested);
+        if (current is null) return "Preparing node";
+        return current.Kind switch
+        {
+            ExecutionEventKinds.AgentStarted => "Preparing agent",
+            ExecutionEventKinds.ModelRequested => "Waiting for model response",
+            ExecutionEventKinds.ModelResponded => "Processing model response",
+            ExecutionEventKinds.ToolRequested => ToolActivity(current, "Calling MCP tool"),
+            ExecutionEventKinds.ToolAuthorized => ToolActivity(current, "MCP tool authorized"),
+            ExecutionEventKinds.ToolCompleted => ToolActivity(current, "MCP tool completed"),
+            ExecutionEventKinds.ToolFailed => ToolActivity(current, "MCP tool failed"),
+            ExecutionEventKinds.ApprovalRequested => "Waiting for approval",
+            _ => "Processing"
+        };
+    }
+    private static string ToolActivity(ExecutionEvent evt, string description)
+    {
+        try
+        {
+            using var data = JsonDocument.Parse(evt.Data ?? "{}");
+            if (data.RootElement.TryGetProperty("bindingId", out var binding) && binding.ValueKind == JsonValueKind.String &&
+                binding.GetString() is { } id)
+                return $"{description}: {id[(id.LastIndexOf('.') + 1)..]}";
+        }
+        catch (JsonException) { }
+        return description;
+    }
     private string? BranchPort(string id)
     {
         var decision = VisibleEvents.LastOrDefault(e => e.NodeId == id && e.Kind == ExecutionEventKinds.BranchSelected);

@@ -175,6 +175,7 @@
 
 /* Payloads remain readable without expanding the surrounding page. */
 .vaw-inspector { border-block-start: 1px solid var(--vaw-border); margin-block-start: var(--vaw-space-4); }
+.vaw-node-activity { margin: 0.375rem 0 0; padding-inline-start: 0.5rem; border-inline-start: 2px solid var(--vaw-accent); color: var(--vaw-muted); font-size: 0.8rem; line-height: 1.35; overflow-wrap: anywhere; }
 :where(.vaw-viewer, .vaw-designer, .vaw-pipeline-editor) pre { font-family: var(--vaw-mono); font-size: 0.875rem; white-space: pre-wrap; overflow-wrap: anywhere; background-color: var(--vaw-canvas); padding: var(--vaw-space-3); }
 .vaw-table-scroll { max-inline-size: 100%; overflow-x: auto; }
 .vaw-viewer table { inline-size: 100%; table-layout: fixed; border-collapse: collapse; text-align: start; }
