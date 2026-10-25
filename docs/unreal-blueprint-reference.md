@@ -4,7 +4,7 @@ This is a design and capability reference, not a tutorial for using Unreal Engin
 
 The goal is capability parity at the level of visual programming, not API or runtime compatibility. Visual Agent Workflow should provide the same breadth of authoring concepts that makes Blueprint useful—typed values, event-driven execution, reusable functions, macros, interfaces, object-like composition, exposed configuration, control flow, asynchronous work, debugging, and asset reuse—while specializing those concepts for agent calls, tools, approvals, memory, structured data, human interaction, and durable evidence.
 
-The source material is `/home/xorberax/ebooks/01_unreal-engine-5-7-documentation.pdf`, especially the sections titled **Introduction to Blueprints in Unreal Engine**, **Blueprints Visual Scripting Overview in Unreal Engine**, **Basic Scripting with Blueprints**, **Anatomy of a Blueprint**, **Blueprint Best Practices**, **Blueprint Communication Usage**, and **Blueprint Debugger**. The PDF is a large compiled documentation volume, so page numbers are not stable enough to use as durable anchors; use the section titles when cross-checking it. Unreal concepts below are summarized rather than quoted, and every “workflow” requirement is project guidance rather than a claim about Unreal behavior.
+The source basis was the supplied Unreal Engine 5.7 documentation, especially the sections titled **Introduction to Blueprints in Unreal Engine**, **Blueprints Visual Scripting Overview in Unreal Engine**, **Basic Scripting with Blueprints**, **Anatomy of a Blueprint**, **Blueprint Best Practices**, **Blueprint Communication Usage**, and **Blueprint Debugger**. The original compiled PDF is not a repository dependency. The relevant source context is summarized and embedded below, so this document remains useful when the source file is unavailable. Unreal concepts are paraphrased rather than quoted, and every “workflow” requirement is project guidance rather than a claim about Unreal behavior.
 
 ## Evidence map
 
@@ -22,6 +22,54 @@ The analysis used targeted text extraction and section-level cross-checking in t
 | Debugging and evidence | **Blueprint Debugger**; **Blueprint Debugging Example** | Source fact + project decision | Breakpoints, watched values, call stacks, and execution traces should map to recorded workflow evidence without replaying live effects. |
 
 The document deliberately does not treat every Unreal-specific capability as a requirement. Actor replication, engine object lifetime, rendering, animation, physics, and editor-only utilities are source concepts that require separate analysis before they are mapped to agent workflows.
+
+## Embedded Unreal source context
+
+This section preserves the source knowledge needed to read the rest of the document without access to the original manual. It is a compact conceptual reference, not a step-by-step Unreal tutorial.
+
+### What Blueprint is
+
+Unreal Blueprint is a visual programming system for creating gameplay behavior inside the Unreal Editor. It uses node graphs rather than handwritten code, but it still exposes programming concepts: typed values, variables, references, functions, events, control flow, reusable libraries, object-like classes, inheritance, and debugging. Blueprint assets are saved in the project's content system and can be edited, compiled, instantiated, and reused.
+
+The most common asset is a Blueprint Class. It derives from an existing gameplay class, combines Components with scripted graphs, and can be placed into a level as multiple instances. Editing the class changes the behavior shared by its instances; exposed defaults can be overridden on an individual instance. A Level Blueprint is instead scoped to one level and is appropriate for level-specific behavior, references to actors in that level, level streaming, or cinematics. A data-only Blueprint changes inherited defaults or components without adding graph logic.
+
+Blueprint also has specialized asset forms. A Blueprint Interface declares function signatures without implementations; implementing Blueprints provide the behavior, and the interface does not add variables, components, or arbitrary graph logic. A Blueprint Function Library contains reusable static functions that operate on supplied inputs rather than hidden instance state. A Blueprint Macro Library contains reusable graph fragments that are expanded into consuming graphs during compilation. Editor Utility Blueprints automate editor-only actions and are not ordinary gameplay assets.
+
+### Components and graph roles
+
+Components are the assembled parts of a Blueprint object, such as collision, rendered geometry, movement, camera, audio, or other engine capabilities. A Blueprint can be useful as a reusable component composition even without scripted behavior. Graphs can reference those Components and change them during construction or gameplay.
+
+Blueprint graphs have distinct roles. A Construction Script runs when an actor is created or updated in the editor and helps derive its configured components or appearance. An Event Graph contains event entry points and the gameplay behavior that follows them. Function graphs provide callable reusable logic with declared inputs and outputs. Multiple Event Graph views are organizational; their canvas arrangement does not establish runtime order.
+
+### Nodes, pins, and typed data
+
+Nodes represent events, function calls, operators, variable reads/writes, conversions, flow control, and engine operations. Execution pins activate nodes and establish the next action. Data pins carry typed values such as numbers, booleans, text, arrays, structs, enumerations, or object references. A data connection by itself does not cause a node to execute. Wires connect ports; reroute points improve readability without changing behavior.
+
+The editor supports context-sensitive creation. Right-clicking the graph opens a searchable action menu, while dragging from a pin narrows the available nodes to compatible types or targets. Connections normally require compatible pin types; some supported conversions insert a conversion node. The editor's discoverability does not replace validation: a serialized or imported graph still needs independent type, reference, and contract checks.
+
+Variables can hold values or references. Class variables are available across the Blueprint's graphs; local variables are scoped to a function. Public/editable variables expose defaults in the editor and allow placed instances to override those defaults without changing the class asset. Object variables point to existing objects; they do not create new objects merely because a reference variable exists.
+
+### Events, control flow, and time
+
+Events are entry points activated by gameplay or another system. Custom Events provide named graph entry points. Flow-control nodes branch or sequence execution based on data. Blueprint also supports latent operations such as delays and other work that yields and resumes later, plus Timelines that drive values from tracks or curves over time and expose update/completion paths.
+
+The important source principle is that execution flow is explicit. A node does not run because it is visually nearby or because a value happens to be connected. Time-based behavior has a lifecycle, and an operation that yields must have a meaningful completion or cancellation path. Visual Agent Workflow adopts that principle with durable waits, approvals, provider/tool calls, bounded loops, and explicit run evidence.
+
+### Reuse and communication
+
+Functions and macros look similar at a call site but have different semantics. A Function is a callable graph with one entry point and a runtime call boundary. It can be targeted, parameterized, reused across graphs, and overridden in child Blueprints where the contract permits. A Macro is a graph fragment with tunnel inputs/outputs that is expanded into the consuming graph; it can expose multiple execution paths and does not appear as an independent runtime call-stack frame.
+
+Blueprints communicate through direct calls or references, Event Dispatchers, and Interfaces. Direct communication is appropriate when the caller knows a target and operation. Event Dispatchers let one Blueprint notify listeners without hard-coding every listener. Interfaces let different Blueprint types satisfy a common operation contract without sharing implementation. These mechanisms differ in lifetime, coupling, debugging, and ownership; they are not interchangeable “subflow” nodes.
+
+### Compile, save, and debug
+
+Blueprint editing has an authoring lifecycle: create or open an asset, edit Components/graphs/defaults, compile to check and update the executable representation, and save the asset. Compilation is not the same as authorization, publication, or proof that all runtime dependencies are available.
+
+The Blueprint Debugger can pause a Play-In-Editor or Simulate-In-Editor run at breakpoints, step through execution, inspect watched pin values, view a call stack, and inspect an execution trace. A watched value represents the most recent execution of its node; an unexecuted node has no current runtime value. Debugging is tied to actual execution, not to the static appearance of a graph. Visual Agent Workflow carries this principle into recorded evidence and read-only playback.
+
+### Source design philosophy
+
+The source presents Blueprint as a way for designers to access substantial programming power through a visual, discoverable, reusable, and debuggable medium. It favors reusable Blueprint Classes over copying level-specific logic, encourages functions/macros and comments to control graph complexity, recommends event-driven behavior over heavy per-frame work, and treats readability as a maintenance concern. Those principles—not Unreal's actor memory model or engine-specific APIs—are the primary design inspiration for Visual Agent Workflow.
 
 ## The central model
 
