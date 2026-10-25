@@ -89,11 +89,13 @@ public static class WorkflowJson
     public static string ComputeDraftHash(WorkflowDefinition definition) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(SerializeDraft(definition))));
 
-    /// <summary>Accepts the canonical hash and the prior Windows CRLF hash for persisted cross-version evidence.</summary>
+    /// <summary>Checks content identity independently of current validation rules, including archived run evidence.</summary>
     public static bool MatchesHash(WorkflowDefinition definition, string? hash)
     {
         if (hash is null) return false;
-        var serialized = Serialize(definition);
+        // A stored run is historical evidence. A later validator may reject an old definition even though
+        // the bytes and captured hash are intact. Callers that accept executable revisions validate separately.
+        var serialized = SerializeNormalized(definition);
         if (string.Equals(Hash(serialized), hash, StringComparison.Ordinal)) return true;
 
         // Before the cross-platform serialization fix, Windows hashed the same JSON with CRLF indentation.

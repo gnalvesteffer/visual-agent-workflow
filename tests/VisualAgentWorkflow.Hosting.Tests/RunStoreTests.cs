@@ -125,6 +125,53 @@ public sealed class RunStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task RuntimeStartupPreservesRunsWithDefinitionsRejectedByNewerValidationRules()
+    {
+        var store = new FileRunJournal(directory);
+        var revision = Revision();
+        var run = store.Create(revision, "historical run");
+        store.Append(run.Header.RunId, 0, [Event(run, 1)]);
+
+        var definition = revision.Definition;
+        var agent = definition.Nodes["step-1"] with
+        {
+            Type = NodeTypes.Agent,
+            Agent = new AgentConfiguration("test.provider", "1.0", "Answer the request.", [])
+            { ReasoningEffort = AgentReasoningEffort.Off }
+        };
+        var validCurrent = definition with
+        {
+            SchemaVersion = "1.10",
+            Nodes = definition.Nodes.SetItem("step-1", agent)
+        };
+        var canonical = WorkflowJson.Serialize(validCurrent);
+        var historicalJson = canonical.Replace("\"schemaVersion\": \"1.10\"", "\"schemaVersion\": \"1.9\"", StringComparison.Ordinal);
+        var historicalDefinition = validCurrent with { SchemaVersion = "1.9" };
+        var historicalHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(historicalJson)));
+        var persisted = store.Get(run.Header.RunId)! with
+        {
+            Header = store.Get(run.Header.RunId)!.Header with
+            {
+                Definition = historicalDefinition,
+                ContentHash = historicalHash
+            }
+        };
+        File.WriteAllText(Path.Combine(directory, run.Header.RunId + ".snapshot.json"),
+            JsonSerializer.Serialize(persisted, JsonSerializerOptions.Web));
+
+        var reopened = new FileRunJournal(directory);
+        var builder = Host.CreateApplicationBuilder();
+        builder.Services.AddSingleton<IWorkflowRunStore>(reopened);
+        builder.Services.AddLocalWorkflowRuntime(Path.Combine(directory, "unused-fallback"));
+        using var host = builder.Build();
+        await host.StartAsync();
+        await host.StopAsync();
+
+        Assert.Equal("interrupted", reopened.Get(run.Header.RunId)!.Status);
+    }
+
+    [Fact]
     public void SqliteFailureAfterEventInsertRollsBackEvidenceAndState()
     {
         var store = new SqliteWorkflowRunStore(Database);

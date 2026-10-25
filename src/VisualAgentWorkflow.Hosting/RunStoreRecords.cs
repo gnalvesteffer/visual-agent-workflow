@@ -41,10 +41,14 @@ internal static class RunStoreRecords
 
     public static void Validate(RunSnapshot snapshot, Guid runId)
     {
-        if (snapshot.Header.RunId != runId || snapshot.Header.RevisionId == Guid.Empty ||
+        if (snapshot.Header is null || snapshot.Header.Definition is null || snapshot.Events.IsDefault ||
+            snapshot.Header.RunId != runId || snapshot.Header.RevisionId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(snapshot.Header.Author) || snapshot.Header.Input is null || snapshot.Header.Input.Length > 16_384 ||
             !WorkflowJson.MatchesHash(snapshot.Header.Definition, snapshot.Header.ContentHash))
             throw new InvalidDataException("Run header identity/content mismatch.");
-        WorkflowValidator.ThrowIfInvalid(snapshot.Header.Definition);
+        // This is immutable historical evidence. Do not reapply today's workflow validator to a
+        // definition that was captured when the run was accepted; new runs are strictly validated
+        // through WorkflowRevision.Create before they reach the store.
         var resolvedParameters = WorkflowParameters.Resolve(snapshot.Header.Definition, snapshot.Header.Parameters);
         if (resolvedParameters is null != (snapshot.Header.Parameters is null) ||
             resolvedParameters is not null && !resolvedParameters.SequenceEqual(snapshot.Header.Parameters!))
