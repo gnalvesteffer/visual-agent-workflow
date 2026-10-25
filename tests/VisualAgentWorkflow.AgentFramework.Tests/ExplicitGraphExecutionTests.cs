@@ -150,6 +150,29 @@ public sealed class ExplicitGraphExecutionTests
     }
 
     [Fact]
+    public async Task Pure_graph_function_runs_lazily_and_records_its_pinned_snapshot_and_values()
+    {
+        var function = AppendSuffixFunction();
+        var definition = GraphFunctionCaller(function);
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var events = new List<ExecutionEvent>();
+
+        var result = await new PipelineRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "test"), "hello", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("hello!", result.Output);
+        var callEvidence = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "call");
+        using var evidence = JsonDocument.Parse(callEvidence.Data!);
+        Assert.Equal(function.FunctionId, evidence.RootElement.GetProperty("function").GetProperty("functionId").GetString());
+        Assert.Equal(function.Version, evidence.RootElement.GetProperty("function").GetProperty("version").GetInt32());
+        Assert.Equal(GraphFunctionJson.ComputeHash(function), evidence.RootElement.GetProperty("function").GetProperty("contentHash").GetString());
+        Assert.Equal("hello", evidence.RootElement.GetProperty("function").GetProperty("inputs").GetProperty("text").GetString());
+        Assert.Contains(evidence.RootElement.GetProperty("function").GetProperty("evaluatedValues").EnumerateArray(),
+            value => value.GetProperty("nodeId").GetString() == "concat" && value.GetProperty("value").GetString() == "hello!");
+    }
+
+    [Fact]
     public async Task Data_wires_evaluate_pure_values_without_activating_them()
     {
         var definition = new WorkflowDefinition(
@@ -308,4 +331,60 @@ public sealed class ExplicitGraphExecutionTests
             ["nested-false"] = new(new("nested", "false"), new("success", "execute"), "execution")
         }.ToImmutableSortedDictionary(StringComparer.Ordinal)
     };
+
+    private static GraphFunctionDefinition AppendSuffixFunction() => new(
+        "text.append-suffix", 1, "Append suffix", "Appends a fixed suffix to text.",
+        new Dictionary<string, GraphFunctionPort>
+        {
+            ["text"] = new("Text", "string")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+        new Dictionary<string, GraphFunctionPort>
+        {
+            ["result"] = new("Result", "string")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+        new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.FunctionInput, "1.0.0") { FunctionPortId = "text" },
+            ["suffix"] = new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("!") },
+            ["concat"] = new(NodeTypes.TextConcat, "1.0.0"),
+            ["output"] = new(NodeTypes.FunctionOutput, "1.0.0") { FunctionPortId = "result" }
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+        new Dictionary<string, ConnectionDefinition>
+        {
+            ["argument"] = new(new("input", "out"), new("concat", "left"), "data"),
+            ["suffix"] = new(new("suffix", "out"), new("concat", "right"), "data"),
+            ["result"] = new(new("concat", "out"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal));
+
+    private static WorkflowDefinition GraphFunctionCaller(GraphFunctionDefinition function)
+    {
+        var call = new NodeDefinition(NodeTypes.FunctionCall, "1.0.0")
+        {
+            GraphFunction = new(function, GraphFunctionJson.ComputeHash(function))
+        };
+        return new WorkflowDefinition("1.27", "graph-function", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["constant"] = new(NodeTypes.BooleanConstant, "1.0.0") { BooleanConstant = new(true) },
+                ["branch"] = new(NodeTypes.BooleanBranch, "1.0.0"),
+                ["call"] = call,
+                ["output"] = new(NodeTypes.Output, "1.0.0"),
+                ["terminate"] = new(NodeTypes.Terminate, "1.0.0") { Termination = new(WorkflowTerminationOutcomes.Failure) }
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["condition"] = new(new("constant", "out"), new("branch", "condition"), "data"),
+                ["argument"] = new(new("input", "out"), new("call", "text"), "data"),
+                ["result"] = new(new("call", "result"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["activate"] = new(new("input", "then"), new("branch", "execute"), "execution"),
+                ["success"] = new(new("branch", "true"), new("output", "execute"), "execution"),
+                ["failure"] = new(new("branch", "false"), new("terminate", "execute"), "execution")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+        };
+    }
 }

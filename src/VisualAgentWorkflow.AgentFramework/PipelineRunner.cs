@@ -182,12 +182,18 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         bool TerminationSignal = false, bool FailureSignal = false);
 
     private sealed record ExplicitGraphValue(string DataType, object Value);
-    private sealed record EvaluatedDataValue(string NodeId, string PortId, string DataType, object Value, string? ConnectionId);
+    private sealed record EvaluatedDataValue(string NodeId, string PortId, string DataType, object Value, string? ConnectionId,
+        object? FunctionEvidence = null);
     private sealed record DataInputEvaluation(ExplicitGraphValue Result, ImmutableArray<EvaluatedDataValue> Evaluations);
+    private sealed record GraphFunctionAudit(string FunctionId, int Version, string ContentHash, string OutputId,
+        IReadOnlyDictionary<string, object> Inputs, ImmutableArray<GraphFunctionValueEvidence> EvaluatedValues);
 
     /// <summary>Evaluates only bounded, pure explicit-graph data nodes in one activation context.</summary>
     private sealed class ExplicitGraphDataEvaluator(WorkflowDefinition definition, string input)
     {
+        private int functionNodeVisits;
+        private readonly Dictionary<(string NodeId, string PortId), GraphFunctionAudit> functionAudits = [];
+
         public DataInputEvaluation ResolveInput(string nodeId, string inputPort)
         {
             var edge = definition.Connections.Single(connection => connection.Value.Target.NodeId == nodeId && connection.Value.Target.PortId == inputPort);
@@ -227,18 +233,50 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                         node.BooleanConstant?.Value ?? throw new InvalidOperationException("The Boolean constant is not configured.")),
                     NodeTypes.BooleanNot when outputPort == "out" => new ExplicitGraphValue("boolean",
                         !ResolveBooleanInput(nodeId, "value", evaluated, cache, active)),
+                    NodeTypes.FunctionCall when node.GraphFunction is { } function && function.Definition.Outputs.TryGetValue(outputPort, out var output) =>
+                        EvaluateFunction(nodeId, outputPort, output.DataType, function, evaluated, cache, active),
                     _ => throw new InvalidOperationException("The data source is not a supported pure value node.")
                 };
                 if (result.DataType == "string" && ((string)result.Value).Length > 16_384)
                     throw new InvalidOperationException("Pure data output exceeds 16,384 characters.");
                 cache.Add(key, result);
-                evaluated.Add(new(nodeId, outputPort, result.DataType, result.Value, connectionId));
+                functionAudits.TryGetValue(key, out var functionEvidence);
+                evaluated.Add(new(nodeId, outputPort, result.DataType, result.Value, connectionId, functionEvidence));
                 return result;
             }
             finally
             {
                 active.Remove(key);
             }
+        }
+
+        private ExplicitGraphValue EvaluateFunction(string nodeId, string outputPort, string outputType,
+            GraphFunctionConfiguration configuration,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            var function = configuration.Definition;
+            var inputs = function.Inputs.ToDictionary(pair => pair.Key,
+                pair => ResolveFunctionInput(nodeId, pair.Key, pair.Value.DataType, evaluated, cache, active), StringComparer.Ordinal);
+            var result = GraphFunctionJson.Evaluate(function, inputs, outputPort, () => Interlocked.Increment(ref functionNodeVisits));
+            if (result.DataType != outputType)
+                throw new InvalidOperationException("The graph function returned a value with an incompatible output type.");
+            functionAudits[(nodeId, outputPort)] = new(function.FunctionId, function.Version, configuration.ContentHash,
+                outputPort, inputs.ToDictionary(pair => pair.Key, pair => pair.Value.Value, StringComparer.Ordinal), result.Values);
+            return new(result.DataType, result.Value);
+        }
+
+        private GraphFunctionEvaluation ResolveFunctionInput(string nodeId, string portId, string dataType,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            var edge = definition.Connections.Single(connection => connection.Value.Target.NodeId == nodeId && connection.Value.Target.PortId == portId);
+            var value = ResolveOutput(edge.Value.Source.NodeId, edge.Value.Source.PortId, edge.Key, evaluated, cache, active);
+            if (value.DataType != dataType)
+                throw new InvalidOperationException($"Graph function input '{portId}' requires a {dataType} value.");
+            return new(value.DataType, value.Value, []);
         }
 
         private string Concatenate(string nodeId, string leftPort, string rightPort,
@@ -307,6 +345,19 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         private ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null,
             string? data = null, string? eventScope = null) =>
             record(kind, node, invocation, connection, data, eventScope ?? scopeId);
+
+        private static string SerializeDataEvidence(string activatedByNodeId, EvaluatedDataValue value)
+        {
+            var evidence = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["activatedByNodeId"] = activatedByNodeId,
+                ["port"] = value.PortId,
+                ["dataType"] = value.DataType,
+                ["value"] = value.Value
+            };
+            if (value.FunctionEvidence is not null) evidence["function"] = value.FunctionEvidence;
+            return JsonSerializer.Serialize(evidence, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        }
 
         private sealed class JsonProjectionContractException(string message) : InvalidOperationException(message) { }
 
@@ -390,13 +441,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                     branchEvaluation = dataEvaluator!.ResolveBranchCondition(Id);
                 foreach (var value in (outputEvaluation ?? branchEvaluation)?.Evaluations ?? [])
                     await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
-                        value.ConnectionId is null ? null : $"data:{value.ConnectionId}", JsonSerializer.Serialize(new
-                    {
-                        activatedByNodeId = Id,
-                        port = value.PortId,
-                        dataType = value.DataType,
-                        value = value.Value
-                    }));
+                        value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value));
                 var childOutcome = node.Type == NodeTypes.WorkflowCall
                     ? await ExecuteWorkflowCall(message, cancellationToken)
                     : null;

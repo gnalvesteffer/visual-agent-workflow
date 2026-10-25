@@ -43,6 +43,9 @@ public static class WorkflowPackageJson
                 requirements.Add(new("workflow-revision", workflowCall.WorkflowId, workflowCall.Version.ToString(System.Globalization.CultureInfo.InvariantCulture), workflowCall.ContentHash));
                 foreach (var requirement in Requirements(workflowCall.Definition)) requirements.Add(requirement);
             }
+            if (node.GraphFunction is { } graphFunction)
+                requirements.Add(new("graph-function", graphFunction.Definition.FunctionId,
+                    graphFunction.Definition.Version.ToString(System.Globalization.CultureInfo.InvariantCulture), graphFunction.ContentHash));
             if (node.Tool is { } tool) requirements.Add(new("mcp-tool", tool.BindingId, "", tool.ContractHash) { DescriptionHash = tool.DescriptionHash });
             if (node.Agent is { } agent)
             {

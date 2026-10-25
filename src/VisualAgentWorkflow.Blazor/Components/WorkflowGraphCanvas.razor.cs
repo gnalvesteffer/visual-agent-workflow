@@ -94,6 +94,8 @@ public partial class WorkflowGraphCanvas
         NodeTypes.StringConstant => "String constant", NodeTypes.TextConcat => "Text concatenation",
         NodeTypes.StringEquals => "Compare strings", NodeTypes.BooleanBranch => "Boolean Branch",
         NodeTypes.BooleanConstant => "Boolean constant", NodeTypes.BooleanNot => "Boolean NOT",
+        NodeTypes.FunctionCall => node.GraphFunction?.Definition.DisplayName is { Length: > 0 } name
+            ? $"Function · {name} v{node.GraphFunction.Definition.Version}" : "Pure function",
         NodeTypes.Agent => "Agent", _ => "MCP tool"
     };
     private async Task SelectNode(string id)
@@ -107,7 +109,8 @@ public partial class WorkflowGraphCanvas
         node.Type == NodeTypes.Approval ? "Approval" : node.Type == NodeTypes.Condition ? "Condition" : node.Type == NodeTypes.Merge ? "Exclusive merge" :
         node.Type == NodeTypes.ParallelFork ? "Fork" : node.Type == NodeTypes.ParallelBranch ? "Branch" : node.Type == NodeTypes.ParallelJoin ? "Barrier join" :
         node.Type == NodeTypes.Loop ? "Bounded loop" : node.Type == NodeTypes.LoopBody ? "Loop body" : node.Type == NodeTypes.Terminate ? "Successful exit · no result" :
-        node.Type == NodeTypes.WorkflowCall ? "Pinned workflow call" : node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals ? "Pure value" :
+        node.Type == NodeTypes.WorkflowCall ? "Pinned workflow call" : node.Type == NodeTypes.FunctionCall ? "Pure function" :
+        node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals ? "Pure value" :
         node.Type == NodeTypes.BooleanBranch ? "Boolean routing" : node.Type is NodeTypes.BooleanConstant or NodeTypes.BooleanNot ? "Pure value" :
         node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform";
 

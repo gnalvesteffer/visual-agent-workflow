@@ -201,6 +201,25 @@
                     {
                         <p>Outputs the opposite of its Boolean <strong>value</strong> input. It never accepts or produces text.</p>
                     }
+                    else if (node.Type == NodeTypes.FunctionCall && node.GraphFunction is { } function)
+                    {
+                        <fieldset>
+                            <legend>Pure graph function</legend>
+                            <p>@function.Definition.Description</p>
+                            <dl>
+                                <dt>Function</dt><dd>@function.Definition.DisplayName</dd>
+                                <dt>Identity</dt><dd>@function.Definition.FunctionId</dd>
+                                <dt>Version</dt><dd>@function.Definition.Version</dd>
+                                <dt>Effect</dt><dd>Deterministic · no external capabilities</dd>
+                                <dt>Content hash</dt><dd><code>@function.ContentHash</code></dd>
+                            </dl>
+                            <h5>Inputs</h5>
+                            <ul>@foreach (var (portId, port) in function.Definition.Inputs) { <li>@port.DisplayName · <code>@portId</code> · @port.DataType</li> }</ul>
+                            <h5>Outputs</h5>
+                            <ul>@foreach (var (portId, port) in function.Definition.Outputs) { <li>@port.DisplayName · <code>@portId</code> · @port.DataType</li> }</ul>
+                            <p class="vaw-help">This call is a lazy data node, not an execution step. The exact function graph is embedded in this workflow revision. Studio does not yet provide a separate function library/editor.</p>
+                        </fieldset>
+                    }
                     else if (node.Type == NodeTypes.WorkflowCall)
                     {
                         <p>This node executes the embedded workflow revision. Its input and output pins inherit the child workflow’s declared string or JSON types. The workflow ID, revision, version, and content hash are pinned in this node. Its tools, model providers, and skills remain subject to the host’s configured catalogs and grants.</p>
@@ -592,6 +611,9 @@
         NodeTypes.BooleanBranch => "Route by Boolean value",
         NodeTypes.BooleanConstant => node.BooleanConstant?.Value == true ? "True" : "False",
         NodeTypes.BooleanNot => "Invert Boolean value",
+        NodeTypes.FunctionCall => node.GraphFunction is { } function
+            ? $"{function.Definition.Inputs.Count} typed inputs · {function.Definition.Outputs.Count} typed outputs · pinned v{function.Definition.Version}"
+            : "Graph function snapshot unavailable",
         NodeTypes.WorkflowValue => node.ParameterId is { } parameterId && ParameterDefinitions.TryGetValue(parameterId, out var parameter)
             ? $"Workflow value · {parameter.DisplayName}" : "Workflow value",
         NodeTypes.Condition => $"{node.Condition!.Operator} · {node.Condition.Operand}",

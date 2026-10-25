@@ -65,6 +65,10 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     public LoopConfiguration? Loop { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public WorkflowCallConfiguration? WorkflowCall { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public GraphFunctionConfiguration? GraphFunction { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? FunctionPortId { get; init; }
 }
 
 /// <summary>Copy-on-insert source identity; informational provenance, never a grant or runtime resolver.</summary>
@@ -101,9 +105,12 @@ public static class NodeTypes
     public const string BooleanBranch = "core.branch.boolean";
     public const string BooleanConstant = "core.constant.boolean";
     public const string BooleanNot = "core.boolean.not";
+    public const string FunctionInput = "core.function.input";
+    public const string FunctionOutput = "core.function.output";
+    public const string FunctionCall = "core.function.call";
 
     public static bool IsSupported(string? type) =>
-        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin or Loop or LoopBody or Terminate or WorkflowCall or StringConstant or TextConcat or StringEquals or BooleanBranch or BooleanConstant or BooleanNot;
+        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin or Loop or LoopBody or Terminate or WorkflowCall or StringConstant or TextConcat or StringEquals or BooleanBranch or BooleanConstant or BooleanNot or FunctionInput or FunctionOutput or FunctionCall;
 }
 
 public static class WorkflowSchemaVersions
@@ -112,8 +119,9 @@ public static class WorkflowSchemaVersions
     public const string ExplicitBranchGraph = "1.24";
     public const string TypedBooleanGraph = "1.25";
     public const string BooleanTopologyGraph = "1.26";
+    public const string PureGraphFunctions = "1.27";
 
-    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph;
+    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph or PureGraphFunctions;
 }
 
 public sealed record StringConstantConfiguration(string Value);

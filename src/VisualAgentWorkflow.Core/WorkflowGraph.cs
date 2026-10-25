@@ -34,6 +34,7 @@ public static class WorkflowPorts
         NodeTypes.StringEquals => [new("left", "string"), new("right", "string")],
         NodeTypes.BooleanBranch => [new("condition", "boolean")],
         NodeTypes.BooleanNot => [new("value", "boolean")],
+        NodeTypes.FunctionCall when node.GraphFunction?.Definition?.Inputs is { } inputs => [.. inputs.Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))],
         _ => []
     };
 
@@ -41,6 +42,7 @@ public static class WorkflowPorts
     {
         NodeTypes.Input or NodeTypes.StringConstant or NodeTypes.TextConcat => [new("out", "string")],
         NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", "boolean")],
+        NodeTypes.FunctionCall when node.GraphFunction?.Definition?.Outputs is { } outputs => [.. outputs.Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))],
         _ => []
     };
 
