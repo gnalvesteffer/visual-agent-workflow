@@ -21,6 +21,7 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Checkpoint recovery](checkpoint-recovery.md) | Opt-in deterministic native checkpoints, saved-suspension recovery and exclusive local ownership |
 | [Run storage](run-storage.md) | Atomic batches, expected-sequence conflicts, file compatibility and SQLite persistence |
 | [Local hosting API](hosting-sdk.md) | DI registration, host ownership, current project-reference consumption and future package-release boundaries |
+| [Containerized MCP workers](extension-workers.md) | Digest-pinned host registration, no-network container limits, trust assumptions, and Linux isolation proof |
 | [Service integration](service-integration.md) | User-owned service hosting, current headless APIs, and planned SDK acceptance criteria |
 | [Embedding](embedding.md) | Public Razor components, host services, lifecycle, and theming |
 | [Pause and resume](run-control.md) | Cooperative boundaries, controls, audit, process ownership and restart limitations |

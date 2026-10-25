@@ -80,6 +80,8 @@ jobs:
           global-json-file: global.json
       - run: dotnet restore --locked-mode
       - run: dotnet build --no-restore --configuration Release
+      - name: Verify container-isolated MCP extension worker
+        run: python3 scripts/container_mcp_smoke.py
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

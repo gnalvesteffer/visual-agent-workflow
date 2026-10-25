@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/samples/">
     <Project Path="samples/WorkflowService/WorkflowService.csproj" />
+    <Project Path="samples/IsolatedMcpServer/IsolatedMcpServer.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/VisualAgentWorkflow.Providers.OpenAI/VisualAgentWorkflow.Providers.OpenAI.csproj" />
