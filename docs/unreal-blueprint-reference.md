@@ -1,39 +1,14 @@
 # Unreal Blueprint design reference for Visual Agent Workflow
 
-This is a design and capability reference, not a tutorial for using Unreal Engine. It distills the Blueprint model described in the supplied Unreal Engine 5.7 documentation PDF and turns it into a target architecture for Visual Agent Workflow: a visual programming environment powerful enough to compose complex, reusable, inspectable agent workflows without requiring users to write general-purpose code.
+This design and capability reference describes a target architecture for Visual Agent Workflow: a visual programming environment powerful enough to compose complex, reusable, inspectable agent workflows without requiring users to write general-purpose code.
 
 The goal is capability parity at the level of visual programming, not API or runtime compatibility. Visual Agent Workflow should provide the same breadth of authoring concepts that makes Blueprint useful—typed values, event-driven execution, reusable functions, macros, interfaces, object-like composition, exposed configuration, control flow, asynchronous work, debugging, and asset reuse—while specializing those concepts for agent calls, tools, approvals, memory, structured data, human interaction, and durable evidence.
 
-The source basis was the supplied Unreal Engine 5.7 documentation, especially the sections titled **Introduction to Blueprints in Unreal Engine**, **Blueprints Visual Scripting Overview in Unreal Engine**, **Basic Scripting with Blueprints**, **Anatomy of a Blueprint**, **Blueprint Best Practices**, **Blueprint Communication Usage**, and **Blueprint Debugger**. The original compiled PDF is not a repository dependency. The relevant source context is summarized and embedded below, so this document remains useful when the source file is unavailable. Unreal concepts are paraphrased rather than quoted, and every “workflow” requirement is project guidance rather than a claim about Unreal behavior.
+Recommendations using “should,” “target,” or “recommended” require agreement with [product design](design.md). [Architecture](architecture.md), [roadmap](roadmap.md), and the focused contract documents own shipped behavior and implementation limits. Engine-specific rendering, animation, physics, actor replication, and object lifetime are outside the agent-workflow capability target.
 
-## Evidence map
+## Blueprint programming concepts
 
-The analysis used targeted text extraction and section-level cross-checking in the supplied UE 5.7 PDF. The following map identifies the primary evidence for each design layer and the kind of conclusion drawn from it.
-
-| Design layer | Primary source sections | Finding type | What the implementation agent should take from it |
-| --- | --- | --- | --- |
-| Purpose and mental model | **Introduction to Blueprints in Unreal Engine**; **Blueprints Visual Scripting Overview in Unreal Engine** | Source fact + interpretation | Blueprint is presented as a visual programming language, not only a diagramming surface; the workflow system needs a real language/runtime model. |
-| Assets and composition | **Blueprints Visual Scripting Overview**; **Anatomy of a Blueprint**; **Blueprint Best Practices** | Source fact + project decision | Reusable assets, class-like composition, data-only variants, libraries, and specialization should have explicit identities and version boundaries. |
-| Types and data | **Basic Scripting with Blueprints**; **Blueprint Variables**; **Placing Nodes**; **Connecting Nodes** | Source fact + project decision | Typed pins, references, containers, conversions, defaults, and context-sensitive discovery are first-class authoring concepts. |
-| Execution | **Event Graph** material in **Anatomy of a Blueprint**; **Events**; **Flow Control**; **Custom Events** | Source fact + project decision | Execution wires activate work; data wires carry values; entry points and branches need explicit runtime semantics. |
-| Reuse and communication | **Functions**; **Making Macros**; **Blueprint Function Library**; **Blueprint Macro Library**; **Event Dispatchers**; **Blueprint Interfaces** | Source fact + interpretation | Functions, expanded graph fragments, interfaces, and broadcasts solve different reuse/communication problems and should not collapse into one opaque “subflow.” |
-| Time and external work | **Timelines**; latent/action references in the Blueprint API material | Source fact + project decision | Work that yields, waits, or progresses over time requires a lifecycle and resumption contract; browser timers are not sufficient. |
-| Authoring and quality | **Blueprint Editor**; **Blueprint Best Practices**; **Blueprint Basic User Guide** | Source fact + interpretation | Search, context filtering, comments, graph organization, compile feedback, and readable boundaries are part of the system's power. |
-| Debugging and evidence | **Blueprint Debugger**; **Blueprint Debugging Example** | Source fact + project decision | Breakpoints, watched values, call stacks, and execution traces should map to recorded workflow evidence without replaying live effects. |
-
-The document deliberately does not treat every Unreal-specific capability as a requirement. Actor replication, engine object lifetime, rendering, animation, physics, and editor-only utilities are source concepts that require separate analysis before they are mapped to agent workflows.
-
-### Source scope and confidence
-
-This reference is a documentation-based reconstruction of the Blueprint programming model. Targeted Blueprint chapters were inspected in a 25,910-page compilation labeled Unreal Engine 5.7; the entire compilation was not reviewed, and no Unreal runtime or compiler was executed. The PDF identifies itself as a compilation downloaded from UnrealDocs.net, so it should be treated as a supplied snapshot of documentation rather than an independently authenticated Epic release artifact. Some chapters retain older engine examples and terminology. Compiler details below describe the documented model and are not a claim of a UE 5.7 source-code audit.
-
-For reproducibility, these are one-based physical page numbers in that supplied PDF: **Blueprint Namespaces**, 10317; **Collapsing Graphs**, 10378; **Blueprint Debugger**, 10409; **Blueprint Compiler Overview**, 10449; **Exposing C++ to Blueprints**, 10460; **Functions**, 10533; **Timelines**, 10575; **Blueprint Variables**, 10658; **Flow Control**, 10693. They are provenance locators only; no implementation step requires this PDF. Section names and the embedded explanations carry the meaning if pagination changes.
-
-Statements describing Unreal are source summaries. Explanations of the value or intent of a pattern are interpretations. Statements using “should,” “target,” or “recommended” for Visual Agent Workflow are design recommendations requiring agreement with [product design](design.md); they do not silently establish a new product decision. [Architecture](architecture.md), [roadmap](roadmap.md), and the focused contract documents own shipped behavior and implementation limits.
-
-## Embedded Unreal source context
-
-This section preserves the source knowledge needed to read the rest of the document without access to the original manual. It is a compact conceptual reference, not a step-by-step Unreal tutorial.
+The following concepts establish the vocabulary for the workflow design guidance that follows.
 
 ### What Blueprint is
 
@@ -61,7 +36,7 @@ Variables can hold values or references. Class variables are available across th
 
 Events are entry points activated by gameplay or another system. Custom Events provide named graph entry points. Flow-control nodes branch or sequence execution based on data. Blueprint also supports latent operations such as delays and other work that yields and resumes later, plus Timelines that drive values from tracks or curves over time and expose update/completion paths.
 
-The important source principle is that execution flow is explicit. A node does not run because it is visually nearby or because a value happens to be connected. Time-based behavior has a lifecycle, and an operation that yields must have a meaningful completion or cancellation path. Visual Agent Workflow adopts that principle with durable waits, approvals, provider/tool calls, bounded loops, and explicit run evidence.
+Execution flow is explicit. A node does not run because it is visually nearby or because a value happens to be connected. Time-based behavior has a lifecycle, and an operation that yields must have a meaningful completion or cancellation path. Visual Agent Workflow adopts that principle with durable waits, approvals, provider/tool calls, bounded loops, and explicit run evidence.
 
 ### Reuse and communication
 
@@ -75,9 +50,9 @@ Blueprint editing has an authoring lifecycle: create or open an asset, edit Comp
 
 The Blueprint Debugger can pause a Play-In-Editor or Simulate-In-Editor run at breakpoints, step through execution, inspect watched pin values, view a call stack, and inspect an execution trace. A watched value represents the most recent execution of its node; an unexecuted node has no current runtime value. Debugging is tied to actual execution, not to the static appearance of a graph. Visual Agent Workflow carries this principle into recorded evidence and read-only playback.
 
-### Source design philosophy
+### Design philosophy
 
-The source presents Blueprint as a way for designers to access substantial programming power through a visual, discoverable, reusable, and debuggable medium. It favors reusable Blueprint Classes over copying level-specific logic, encourages functions/macros and comments to control graph complexity, recommends event-driven behavior over heavy per-frame work, and treats readability as a maintenance concern. Those principles—not Unreal's actor memory model or engine-specific APIs—are the primary design inspiration for Visual Agent Workflow.
+Blueprint gives designers substantial programming power through a visual, discoverable, reusable, and debuggable medium. Reusable Blueprint Classes reduce copied level-specific logic; functions, macros, and comments control graph complexity; event-driven behavior avoids unnecessary per-frame work; and readable graphs support maintenance. These principles guide Visual Agent Workflow's authoring model.
 
 ## The central model
 
@@ -164,7 +139,7 @@ Blueprint asset types establish scope and reuse boundaries. Visual Agent Workflo
 | Blueprint Macro Library | Reusable graph fragments expanded into consuming graphs during compilation. | A reusable authoring template only if expansion, identity, versioning, and audit behavior are explicitly defined. A callable version-pinned workflow is safer when runtime provenance matters. |
 | Editor Utility Blueprint | Editor-only automation that acts on the editor or selected objects. | An authoring-time utility, never a runtime workflow node unless its side effects and trust boundary are separately defined. |
 
-Blueprint Classes and Level Blueprints are not interchangeable. Unreal's own best-practices guidance favors classes for reusable behavior and Level Blueprints for behavior specific to a particular level. Apply the same rule here: reusable graph behavior belongs in a named workflow or reusable pipeline; host-specific coordination belongs at the host boundary or in an explicitly scoped orchestration definition.
+Blueprint Classes provide reusable behavior across instances and levels; Level Blueprints scope behavior to one level. Apply the same distinction here: reusable graph behavior belongs in a named workflow or reusable pipeline; host-specific coordination belongs at the host boundary or in an explicitly scoped orchestration definition.
 
 ## Agent workflow primitives
 
@@ -202,9 +177,9 @@ Pure nodes deserve a distinct contract. Unreal pure functions have no execution 
 
 ## Control-flow vocabulary and state ownership
 
-The source's **Flow Control** chapter exposes different programming mechanisms. Their differences matter more than the node shapes. Unreal's Sequence dispatches its outputs in order; it is not a parallel fork and does not provide a barrier that waits for latent work launched by an earlier output.
+Blueprint exposes different programming mechanisms through its control nodes. Their differences matter more than the node shapes. Unreal's Sequence dispatches its outputs in order; it is not a parallel fork and does not provide a barrier that waits for latent work launched by an earlier output.
 
-| Blueprint mechanism | Embedded source meaning | Agent-workflow adaptation and invariant |
+| Blueprint mechanism | Programming meaning | Agent-workflow adaptation and invariant |
 | --- | --- | --- |
 | Branch | Select the true or false execution output from a boolean condition. | Exactly one route is chosen per activation; record the condition outcome separately from downstream delivery. |
 | Switch | Select an execution output by a selector such as an integer, string, name, or enumeration. | Validate cases, comparison rules, default behavior, and exhaustiveness; retain stable case-port identities when labels change. |
@@ -259,9 +234,43 @@ Blueprint Event Dispatchers let one Blueprint broadcast that something happened 
 
 An agent workflow equivalent can support named event channels, notifications, or outputs that wake subscribed workflows. The contract must define who may publish, who may subscribe, whether subscriptions are definition-scoped or run-scoped, delivery guarantees, ordering, replay, deduplication, and failure handling. A dispatcher must not become an unbounded hidden fan-out mechanism. For most current workflow composition, explicit outputs and child calls remain easier to validate; event subscriptions are an advanced capability that should be added only with durable ownership and audit semantics.
 
+## Responsibility, policy data, and reactive tasks
+
+The following patterns extend the capability target with clear ownership, configurable behavior, and interruptible tasks. They are recommendations for future capabilities; existing schemas and runtime limits remain authoritative.
+
+### Keep state transitions with their owner
+
+A reusable component should own its internal state and expose operations through events or functions. For example, a character owns the behavior that follows its death; different damage producers request that behavior instead of copying its implementation. In a workflow, the unit responsible for a case or transaction should likewise own that entity's valid transitions. Callers supply parameters to an operation such as `RequestEscalation` rather than reproducing its rules or editing another unit's private state.
+
+Keep business policy in reusable workflows or approved domain operations, host authority with the capability host, and temporary calculation values in the narrowest invocation scope. These boundaries let an author change one behavior without editing every workflow that triggers it.
+
+### Make configuration data reusable alongside graphs
+
+Blueprint Data Tables group rows with a common struct schema and unique row keys. A typed lookup selects a row and distinguishes found from not found. This supports changing domain values without rewiring the graph that consumes them.
+
+The workflow analogue is a versioned configuration dataset for routing thresholds, evaluation rubrics, allowed categories, or prompt-template variants. Define its row schema, uniqueness and missing-key rules, bounds, sensitivity, and revision identity. A lookup against a pinned dataset can be deterministic; querying an external mutable catalog is an effect with its own admission and evidence contract. Record the effective dataset revision so later policy edits do not alter the explanation of an earlier run. Credentials and host grants remain separate from configuration assets.
+
+### Select values separately from execution routes
+
+A Select node chooses a typed value from alternatives using a selector. A Switch chooses an execution route. Value selection can choose a threshold or response template while preserving one downstream processing path. Define unsupported selectors and eager/lazy input evaluation explicitly; selecting a value must not implicitly launch or suppress effectful work.
+
+Text-formatting nodes should expose named arguments and produce an ordinary text value for a designated prompt role. Calculation nodes should expose typed operators, arithmetic failures, and work limits. Compact math expressions may be useful authoring sugar only if a bounded, project-approved operator model exists; they must not introduce unrestricted user code or replace the project's structured prompt contracts.
+
+### Coordinate planners through explicit task lifecycles
+
+A Behavior Tree is a separate control model that can invoke Blueprint-authored tasks. A Blackboard stores named working values, decorators determine eligibility, and tasks report completion or abort. Its Sequence evaluates task outcomes, unlike the Event Graph Sequence node that dispatches execution outputs. These models should have distinct names and contracts in any workflow adaptation.
+
+An optional agent planner could coordinate reusable tasks through typed arguments, scoped working state, eligibility conditions, and outcomes such as running, succeeded, failed, or aborted. Define priority, preemption, restart rules, and evidence before adding such a planner. Tasks need cancellation acknowledgment and cleanup ownership. Resetting a working flag on both completion and abort prevents stale state; cleanup does not undo a completed external effect. Isolate working state by run and child call, and record decisions and actions without requiring private model reasoning.
+
+### Distinguish scheduling, observation, and saved business state
+
+Timers schedule delayed or repeated activations and need an owner that can cancel them. UI bindings expose runtime values to presentation. Saved domain state preserves selected business values across sessions. These mechanisms have different lifetimes and must not share an ambiguous “state” contract.
+
+Workflow timers should have stable identities, explicit cancel/reschedule behavior, overlap limits, and a missed-interval policy. Editable display names should not resolve executable callbacks. UI bindings should read bounded observer snapshots or events; rendering an inspector must not trigger a model, execute a node, or persist business values. Persistent memory needs identity, schema, retention, and concurrency rules. Saving business values does not preserve a pending approval, execution cursor, or in-flight tool result. Follow [checkpoint recovery](checkpoint-recovery.md) and [run storage](run-storage.md) for current implementation boundaries.
+
 ## Resource, cost, and performance boundaries
 
-Unreal's Blueprint guidance favors event-driven behavior and warns against doing heavy work every frame or growing a single graph until it becomes difficult to read and manage. Visual Agent Workflow has different costs, but the same principle applies: node count, graph fan-out, repeated model calls, large payloads, long loops, and excessive parallelism can make a workflow expensive or impossible to operate.
+Event-driven behavior avoids unnecessary repeated work, and focused reusable graphs make execution easier to understand. For Visual Agent Workflow, node count, graph fan-out, repeated model calls, large payloads, long loops, and excessive parallelism can make a workflow expensive or impossible to operate.
 
 Every effectful or potentially expensive node should declare useful limits: timeout, retry budget, maximum input/output size, concurrency class, rate/cost estimate where available, cancellation behavior, and whether it is safe to repeat. A bounded loop is not safe merely because it has a maximum iteration number if each iteration can spawn unbounded work. A parallel region needs both branch count and downstream admission limits. Compile-time validation should catch obvious unbounded structures; runtime admission should enforce host policy and quotas.
 
@@ -324,7 +333,7 @@ The workflow analogue should use explicit entry points such as input, trigger, b
 
 Blueprint's multiple Event Graph canvases are organizational. Likewise, a workflow may split a large definition into named graph views or reusable subgraphs, but a view must not create hidden execution order. The runtime schedule comes from the validated definition and its node contracts.
 
-Event-driven authoring is preferable to an implicit tick loop for most workflow behavior. Unreal's best-practices material warns that heavy work every frame is a poor fit for Blueprint and recommends event-driven behavior where possible. For Visual Agent Workflow, avoid polling, unbounded retries, and implicit “run every update” semantics. Prefer explicit triggers, bounded loops, cancellation boundaries, and recorded transitions.
+Event-driven authoring is preferable to an implicit tick loop for most workflow behavior. Heavy work on every update creates repeated cost even when nothing relevant has changed. Prefer explicit triggers, bounded loops, cancellation boundaries, and recorded transitions; use polling only with a defined interval, work budget, and stop condition.
 
 ## Variables, parameters, and references
 
@@ -397,9 +406,9 @@ Unreal's Compile action checks a Blueprint for errors and updates the runtime re
 
 “Compile” should not be presented as equivalent to “safe to run.” Compilation/normalization validates the graph shape. Host admission, approvals, provider availability, and runtime policy remain separate decisions. A graph that is visually connected but lacks a valid capability binding must fail validation or admission with a precise error.
 
-### What the documented Blueprint compiler contributes
+### Compiler architecture
 
-The **Blueprint Compiler Overview** describes conversion of asset properties and graphs into a generated class. It collects class properties and functions, combines/processes event graphs, works on temporary graph copies, expands nodes, calculates execution and data dependencies, emits intermediate statements, and translates those statements to VM bytecode. The documented pipeline also copies class defaults and reinstantiates objects after class changes. The exact internal implementation is outside this document's verification scope.
+Blueprint compilation converts asset properties and graphs into a generated class. Its conceptual stages collect class properties and functions, process event graphs, work on temporary graph copies, expand nodes, calculate execution and data dependencies, emit intermediate statements, and translate statements to VM bytecode. Class defaults and existing instances must also be reconciled after class changes. These stages explain the architectural responsibilities without prescribing particular engine internals for Visual Agent Workflow.
 
 The transferable pattern is a compilation boundary between the editable graph and an executable representation. Visual Agent Workflow may use an interpreter or framework adapter rather than bytecode, but should preserve typed validation, bounded expansion, stable diagnostics, and mappings from runtime instructions back to authored node/port IDs. Template expansion must allocate unique internal identities and preserve source provenance. Do not optimize across a side effect, approval, or observable boundary unless equivalence is defined. Debug traces should still explain the authored graph after normalization.
 
@@ -415,7 +424,7 @@ Playback must be read-only. It should reconstruct the published revision/layout 
 
 ## Open questions and verification plan
 
-The source documentation explains the user-facing Blueprint model more completely than it specifies every compiler and runtime invariant. The following questions should be resolved before Visual Agent Workflow claims parity for the corresponding capability.
+The following questions require explicit contracts and verification before Visual Agent Workflow claims parity for the corresponding capability.
 
 | Question | Why it matters | Required verification |
 | --- | --- | --- |
@@ -445,6 +454,8 @@ Blueprint's editor conventions are valuable because they make a large graph disc
 
 The project already treats labels, comments, sections, coordinates, wire styles, and reroute waypoints as presentation data. Preserve that boundary. Comments are text rendered as text, not instructions to an agent; user-authored labels must not become executable prompt content or schema fragments.
 
+Large graphs also need navigation at multiple scales. Named bookmarks, searchable event/function inventories, and a navigable outline of comments or sections help authors move between an overview and detailed work. Group exposed parameters by purpose and provide descriptions, defaults, and validation help alongside their controls. Keep navigation targets bound to stable graph/node identities, and define what happens when a target is removed. These are authoring affordances; they do not schedule work or change access to capabilities.
+
 ## Completeness criteria
 
 Consider the visual scripting system Blueprint-level only when a user can move through the full lifecycle without dropping into ad hoc code or hidden host configuration. The system should support authoring a typed graph; extracting reusable logic; specializing a template; composing event, data, conditional, loop, parallel, wait, and approval behavior; invoking approved agent and tool capabilities; validating and publishing an immutable asset; running a precise revision; pausing and resuming where the contract allows; inspecting actual execution; and replaying evidence without re-execution.
@@ -469,8 +480,11 @@ These are proposed acceptance scenarios for capability parity, not claims that t
 | Native capability reuse | Register a typed approved extension operation and compose it with a transformation and agent call. | Catalog metadata matches dispatch validation; missing grants fail at admission; errors retain invocation and source-node identity. |
 | Editor semantics | Move, group, comment, and reroute the same valid workflow, then undo an extraction/edit. | Presentation changes preserve executable identity; compound semantic/layout edits undo together; invalid drafts remain editable. |
 | Historical inspection | Open a run after its provider or child source is unavailable. | Inspect the recorded revision, values, routes, and nesting; distinguish unavailable/redacted/unexecuted values without querying live dependencies. |
+| Configuration lookup and selection | Look up a pinned policy row, select a typed threshold, and feed one downstream decision path. | Duplicate or missing keys and wrong types fail explicitly; changing the dataset does not change an earlier run's recorded policy revision. |
+| Interrupted reactive task | Start a task, update scoped working state, then cancel or preempt it. | Cleanup has a recorded completion or failure, stale flags do not survive, and no completed external effect is silently repeated or treated as undone. |
+| Scheduled observation | Schedule a bounded recurring check while an inspector observes its state. | Reopening or rerendering the inspector creates no timers or calls; canceling the schedule follows its declared late-delivery policy. |
 
-For example, the support decision scenario should make the data contract visible: a request contains a case identifier, message, and allowed action category; classification returns a validated decision and rationale; the selected route either returns advice, requests an exact approved operation, or escalates for a human response. The model's text is data to validate, not authority to grant a tool. A reusable child owns classification behavior, while the parent owns its routing and effect policy. These boundaries let an implementer reason about a concrete graph without needing the Unreal PDF.
+For example, the support decision scenario should make the data contract visible: a request contains a case identifier, message, and allowed action category; classification returns a validated decision and rationale; the selected route either returns advice, requests an exact approved operation, or escalates for a human response. The model's text is data to validate, not authority to grant a tool. A reusable child owns classification behavior, while the parent owns its routing and effect policy. These boundaries make the example's data, behavior, and authority contracts explicit for the implementer.
 
 ## Implementation handoff by subsystem
 
@@ -505,7 +519,7 @@ Visual similarity is useful only when it preserves the workflow's stronger trust
 
 ## Design constraints for Visual Agent Workflow
 
-The following constraints are the practical implementation checklist derived from the source material and this project's existing contracts:
+The following constraints form the implementation checklist for this project's visual scripting model:
 
 1. Make execution edges and data edges visually and structurally distinct.
 2. Give every node and port a stable identity independent of position, label, or display order.
