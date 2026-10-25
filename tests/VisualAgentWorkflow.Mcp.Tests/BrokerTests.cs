@@ -105,6 +105,24 @@ public class BrokerTests
     }
 
     [Fact]
+    public void DynamicMapSchemasValidateAndConvertBoundedArbitraryJson()
+    {
+        using var schema = JsonDocument.Parse("""{"type":"object","properties":{"tool":{"type":"string"},"arguments":{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{}}},"required":["tool","arguments"]}""");
+        using var arguments = JsonDocument.Parse("""{"tool":"ntfy.publish","arguments":{"topic":"alerts","priority":5,"tags":["red",true,null],"meta":{"source":"agent"}}}""");
+
+        Assert.True(McpToolInputSchemas.IsSupported(schema.RootElement));
+        var normalized = McpToolInputSchemas.Normalize(schema.RootElement);
+        Assert.Equal(JsonValueKind.Object, normalized.GetProperty("properties").GetProperty("arguments").GetProperty("additionalProperties").ValueKind);
+        var converted = McpToolInputSchemas.ToCallArguments(schema.RootElement, arguments.RootElement);
+        var dynamicArguments = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(converted["arguments"]);
+        Assert.Equal(5L, dynamicArguments["priority"]);
+        Assert.Equal(new object?[] { "red", true, null }, Assert.IsAssignableFrom<object?[]>(dynamicArguments["tags"]));
+
+        using var tooDeep = JsonDocument.Parse("""{"tool":"x","arguments":{"a":{"b":{"c":{"d":{"e":{"f":{"g":{"h":{"i":1}}}}}}}}}}""");
+        Assert.Throws<ToolInvocationException>(() => McpToolInputSchemas.ToCallArguments(schema.RootElement, tooDeep.RootElement));
+    }
+
+    [Fact]
     public async Task TypedScalarArgumentsAreValidatedAndPassedToMcp()
     {
         var broker = CreateBroker(policy: new DemoToolPolicy());

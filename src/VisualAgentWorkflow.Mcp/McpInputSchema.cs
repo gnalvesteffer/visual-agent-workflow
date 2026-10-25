@@ -29,6 +29,7 @@ internal sealed class McpInputSchema
     private const int MaximumArrayItems = 64;
     private const int MaximumValueCount = 1_024;
     private const int MaximumStringLength = 8_192;
+    private const int MaximumObjectProperties = 128;
     private const int MaximumSummaryFields = 32;
     private const int MaximumSummaryLength = 4_096;
     private readonly JsonElement schema;
@@ -110,6 +111,7 @@ internal sealed class McpInputSchema
 
     private static void ValidateSchema(JsonElement definition, int depth)
     {
+        if (IsAnySchema(definition)) return;
         if (depth > MaximumDepth || definition.ValueKind != JsonValueKind.Object ||
             !definition.TryGetProperty("type", out var typeElement) || typeElement.ValueKind != JsonValueKind.String)
             throw UnsupportedSchema();
@@ -117,7 +119,7 @@ internal sealed class McpInputSchema
         var type = typeElement.GetString();
         var allowedFields = type switch
         {
-            "object" => new[] { "type", "title", "description", "$schema", "properties", "required", "additionalProperties" },
+            "object" => new[] { "type", "title", "description", "$schema", "properties", "required", "additionalProperties", "propertyNames" },
             "array" => new[] { "type", "title", "description", "items", "minItems", "maxItems" },
             "string" => new[] { "type", "title", "description", "enum", "minLength", "maxLength" },
             "integer" or "number" => new[] { "type", "title", "description", "enum", "minimum", "maximum" },
@@ -153,20 +155,24 @@ internal sealed class McpInputSchema
 
     private static void ValidateObjectSchema(JsonElement definition, int depth)
     {
-        if (!definition.TryGetProperty("properties", out var properties) || properties.ValueKind != JsonValueKind.Object ||
-            properties.EnumerateObject().Count() > MaximumProperties ||
-            definition.TryGetProperty("additionalProperties", out var additional) && additional.ValueKind != JsonValueKind.False)
+        var hasProperties = definition.TryGetProperty("properties", out var properties) && properties.ValueKind == JsonValueKind.Object;
+        var hasAdditional = definition.TryGetProperty("additionalProperties", out var additional);
+        if (hasProperties && properties.EnumerateObject().Count() > MaximumProperties ||
+            hasAdditional && additional.ValueKind is not (JsonValueKind.False or JsonValueKind.Object) ||
+            hasAdditional && additional.ValueKind == JsonValueKind.Object && !IsAnySchema(additional) ||
+            definition.TryGetProperty("propertyNames", out var nameConstraint) && !IsStringNameSchema(nameConstraint))
             throw UnsupportedSchema();
 
-        var propertyNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var property in properties.EnumerateObject())
+        var declaredPropertyNames = new HashSet<string>(StringComparer.Ordinal);
+        if (hasProperties) foreach (var property in properties.EnumerateObject())
         {
-            if (string.IsNullOrWhiteSpace(property.Name) || property.Name.Length > 128 || !propertyNames.Add(property.Name))
+            if (string.IsNullOrWhiteSpace(property.Name) || property.Name.Length > 128 || !declaredPropertyNames.Add(property.Name))
                 throw UnsupportedSchema();
             ValidateSchema(property.Value, depth + 1);
         }
 
         if (!definition.TryGetProperty("required", out var required)) return;
+        if (!hasProperties) throw UnsupportedSchema();
         if (required.ValueKind != JsonValueKind.Array) throw UnsupportedSchema();
         var requiredNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var field in required.EnumerateArray())
@@ -176,8 +182,14 @@ internal sealed class McpInputSchema
 
     }
 
+    private static bool IsAnySchema(JsonElement schema) => schema.ValueKind == JsonValueKind.Object && !schema.EnumerateObject().Any();
+    private static bool IsStringNameSchema(JsonElement schema) => schema.ValueKind == JsonValueKind.Object &&
+        schema.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String && type.GetString() == "string" &&
+        schema.EnumerateObject().All(field => field.Name is "type" or "minLength" or "maxLength");
+
     private static void WriteNormalizedSchema(Utf8JsonWriter writer, JsonElement definition)
     {
+        if (IsAnySchema(definition)) { writer.WriteStartObject(); writer.WriteEndObject(); return; }
         var type = definition.GetProperty("type").GetString()!;
         writer.WriteStartObject();
         writer.WriteString("type", type);
@@ -187,7 +199,7 @@ internal sealed class McpInputSchema
         {
             writer.WritePropertyName("properties");
             writer.WriteStartObject();
-            foreach (var property in definition.GetProperty("properties").EnumerateObject())
+            if (definition.TryGetProperty("properties", out var properties)) foreach (var property in properties.EnumerateObject())
             {
                 writer.WritePropertyName(property.Name);
                 WriteNormalizedSchema(writer, property.Value);
@@ -198,7 +210,18 @@ internal sealed class McpInputSchema
                 writer.WritePropertyName("required");
                 required.WriteTo(writer);
             }
-            writer.WriteBoolean("additionalProperties", false);
+            if (definition.TryGetProperty("additionalProperties", out var additional))
+            {
+                writer.WritePropertyName("additionalProperties");
+                if (additional.ValueKind == JsonValueKind.Object) WriteNormalizedSchema(writer, additional);
+                else additional.WriteTo(writer);
+            }
+            else writer.WriteBoolean("additionalProperties", false);
+            if (definition.TryGetProperty("propertyNames", out var propertyNames))
+            {
+                writer.WritePropertyName("propertyNames");
+                propertyNames.WriteTo(writer);
+            }
         }
 
         if (type == "array")
@@ -258,17 +281,64 @@ internal sealed class McpInputSchema
 
     private static void ValidateObjectValue(JsonElement definition, JsonElement value, int depth, ref int visitedValues)
     {
-        var properties = definition.GetProperty("properties");
+        var properties = definition.TryGetProperty("properties", out var declared) ? declared : default;
+        var hasAdditional = definition.TryGetProperty("additionalProperties", out var additional) && additional.ValueKind == JsonValueKind.Object;
+        var openMap = hasAdditional && IsAnySchema(additional);
+        if (value.EnumerateObject().Count() > (openMap ? MaximumObjectProperties : MaximumProperties)) throw InvalidArguments();
         var supplied = new HashSet<string>(StringComparer.Ordinal);
         foreach (var field in value.EnumerateObject())
         {
-            if (!supplied.Add(field.Name) || !properties.TryGetProperty(field.Name, out var fieldSchema)) throw InvalidArguments();
-            ValidateValue(fieldSchema, field.Value, depth + 1, ref visitedValues);
+            if (!supplied.Add(field.Name)) throw InvalidArguments();
+            if (definition.TryGetProperty("propertyNames", out var nameSchema)) ValidateStringValue(nameSchema, field.Name);
+            if (properties.ValueKind == JsonValueKind.Object && properties.TryGetProperty(field.Name, out var fieldSchema))
+                ValidateValue(fieldSchema, field.Value, depth + 1, ref visitedValues);
+            else if (openMap) ValidateAnyValue(field.Value, depth + 1, ref visitedValues);
+            else throw InvalidArguments();
         }
 
         if (definition.TryGetProperty("required", out var required) &&
             required.EnumerateArray().Any(field => !supplied.Contains(field.GetString()!)))
             throw InvalidArguments();
+    }
+
+    private static void ValidateStringValue(JsonElement schema, string value)
+    {
+        if (value.Length > ReadIntegerBound(schema, "maxLength", MaximumStringLength) || value.Length < ReadIntegerBound(schema, "minLength", 0))
+            throw InvalidArguments();
+    }
+
+    private static void ValidateAnyValue(JsonElement value, int depth, ref int visitedValues)
+    {
+        visitedValues++;
+        if (depth > MaximumDepth || visitedValues > MaximumValueCount) throw InvalidArguments();
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.Object:
+                var fields = value.EnumerateObject().ToArray();
+                if (fields.Length > MaximumObjectProperties) throw InvalidArguments();
+                foreach (var field in fields)
+                {
+                    if (string.IsNullOrWhiteSpace(field.Name) || field.Name.Length > 128) throw InvalidArguments();
+                    ValidateAnyValue(field.Value, depth + 1, ref visitedValues);
+                }
+                break;
+            case JsonValueKind.Array:
+                var items = value.EnumerateArray().ToArray();
+                if (items.Length > MaximumArrayItems) throw InvalidArguments();
+                foreach (var item in items) ValidateAnyValue(item, depth + 1, ref visitedValues);
+                break;
+            case JsonValueKind.String:
+                if (value.GetString()!.Length > MaximumStringLength) throw InvalidArguments();
+                break;
+            case JsonValueKind.Number:
+                if (!value.TryGetDouble(out var number) || !double.IsFinite(number)) throw InvalidArguments();
+                break;
+            case JsonValueKind.True:
+            case JsonValueKind.False:
+            case JsonValueKind.Null:
+                break;
+            default: throw InvalidArguments();
+        }
     }
 
     private static void ValidateArrayValue(JsonElement definition, JsonElement value, int depth, ref int visitedValues)
@@ -284,7 +354,8 @@ internal sealed class McpInputSchema
         return type switch
         {
             "object" => value.EnumerateObject().ToDictionary(field => field.Name,
-                field => ConvertValue(definition.GetProperty("properties").GetProperty(field.Name), field.Value), StringComparer.Ordinal),
+                field => definition.TryGetProperty("properties", out var properties) && properties.TryGetProperty(field.Name, out var propertySchema)
+                    ? ConvertValue(propertySchema, field.Value) : ConvertAnyValue(field.Value), StringComparer.Ordinal),
             "array" => value.EnumerateArray().Select(item => ConvertValue(definition.GetProperty("items"), item)).ToArray(),
             "string" => value.GetString()!,
             "integer" => value.GetInt64(),
@@ -293,6 +364,19 @@ internal sealed class McpInputSchema
             _ => throw InvalidArguments()
         };
     }
+
+    private static object? ConvertAnyValue(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.Object => value.EnumerateObject().ToDictionary(field => field.Name, field => ConvertAnyValue(field.Value), StringComparer.Ordinal),
+        JsonValueKind.Array => value.EnumerateArray().Select(ConvertAnyValue).ToArray(),
+        JsonValueKind.String => value.GetString(),
+        JsonValueKind.Number when value.TryGetInt64(out var integer) => integer,
+        JsonValueKind.Number => value.GetDouble(),
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        JsonValueKind.Null => null,
+        _ => throw InvalidArguments()
+    };
 
     private static bool MatchesType(string type, JsonElement value) => (type, value.ValueKind) switch
     {
