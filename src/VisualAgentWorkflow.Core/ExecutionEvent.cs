@@ -27,6 +27,7 @@ public static class ExecutionEventKinds
     public const string ApprovalRejected = "approval.rejected";
     public const string ApprovalCancelled = "approval.cancelled";
     public const string BranchSelected = "branch.selected";
+    public const string ParallelJoinProgress = "parallel.join.progress";
     public const string Transfer = "connection.received";
     public const string Completed = "run.completed";
     public const string Failed = "run.failed";

@@ -21,6 +21,7 @@ public partial class PipelineEditor
         if (connection is not null && Definition.Connections.TryGetValue(connection, out var edge)) return edge.Source;
         var id = context?.NodeId ?? selectedNode ?? Definition.EntryNodeId;
         if (!Definition.Nodes.TryGetValue(id, out var node)) return null;
+        if (node.Type == NodeTypes.ParallelFork) return null;
         if (node.Type is NodeTypes.Output or NodeTypes.Approval)
             return Definition.Connections.Values.Single(e => e.Target.NodeId == id).Source;
         var ports = WorkflowPorts.Outputs(node);
@@ -40,7 +41,12 @@ public partial class PipelineEditor
         var canInsert = !ReadOnly && !Disabled && Definition.Nodes.Count < 256 && sourceType is not null;
         var textPath = canInsert && sourceType == "string";
         var jsonPath = canInsert && sourceType == "json";
+        var jsonSelectorWouldBreakPath = insertion is { } jsonSource &&
+            Definition.Nodes[jsonSource.NodeId].Type == NodeTypes.ParallelJoin &&
+            Definition.Connections.Values.FirstOrDefault(edge => edge.Source == jsonSource) is { } joinEdge &&
+            Definition.Nodes[joinEdge.Target.NodeId].Type == NodeTypes.JsonSelectString;
         var selected = context?.NodeId ?? selectedNode;
+        var canInsertCondition = textPath && Definition.Nodes.Count <= 254 && !IsParallelBranchPath(insertion);
         List<WorkflowNodeLibraryEntry> entries =
         [
             new(NodeTypes.Uppercase, "Uppercase", "Text processing", "Convert text deterministically", textPath),
@@ -48,12 +54,32 @@ public partial class PipelineEditor
             new(NodeTypes.TextTemplate, "Text template", "Text processing", "Build deterministic text from input and workflow values", textPath),
             new(NodeTypes.WorkflowValue, "Workflow value", "Inputs", "Pass a configured workflow parameter into the graph", textPath && ParameterDefinitions.Count > 0),
             new(NodeTypes.JsonProject, "Project JSON fields", "Data", "Build a bounded JSON object from selected JSON Pointer values", jsonPath),
-            new("condition", "Condition", "Flow", "Create true / false paths; merge only when branches rejoin", textPath && Definition.Nodes.Count <= 254),
+            new("json-selector", "Select JSON value as text", "Data", "Convert a selected JSON value to text", jsonPath && !jsonSelectorWouldBreakPath),
+            new("parallel", "Parallel block", "Flow", "Run two visible branch paths concurrently and collect named results", textPath && Definition.Nodes.Count <= 251 && !Definition.Nodes.Values.Any(node => node.Type == NodeTypes.ParallelFork)),
+            new("condition", "Condition", "Flow", "Create true / false paths; merge only when branches rejoin", canInsertCondition),
             new("approval", "Approval", "Flow", "Select an MCP tool to require exact-action review", textPath && selected is not null && Definition.Nodes.TryGetValue(selected, out var selectedDefinition) && selectedDefinition.Type == NodeTypes.McpTool && !GuardedTool(selected))
         ];
         entries.AddRange(Providers.Select(p => new WorkflowNodeLibraryEntry(ProviderKey(p), p.DisplayName, "Agents", $"{p.ModelId} · {p.Version}", textPath)));
         entries.AddRange(Bindings.Select(b => new WorkflowNodeLibraryEntry(ToolKey(b), b.DisplayName, "MCP tools", "Host-registered tool; node grants still apply", textPath)));
         return entries;
+    }
+
+    private bool IsParallelBranchPath(PortReference? insertion)
+    {
+        if (insertion is null) return false;
+        var fork = Definition.Nodes.FirstOrDefault(entry => entry.Value.Type == NodeTypes.ParallelFork);
+        if (fork.Value is null) return false;
+        var joinId = Definition.Nodes.FirstOrDefault(entry => entry.Value.Type == NodeTypes.ParallelJoin).Key;
+        if (joinId is null) return false;
+        var pending = new Queue<string>();
+        foreach (var edge in Definition.Connections.Values.Where(edge => edge.Source.NodeId == fork.Key)) pending.Enqueue(edge.Target.NodeId);
+        var pathNodes = new HashSet<string>(StringComparer.Ordinal);
+        while (pending.TryDequeue(out var id))
+        {
+            if (id == joinId || !pathNodes.Add(id)) continue;
+            foreach (var edge in Definition.Connections.Values.Where(edge => edge.Source.NodeId == id)) pending.Enqueue(edge.Target.NodeId);
+        }
+        return pathNodes.Contains(insertion.NodeId);
     }
 
     private async Task AddLibraryNode(string key, GraphContextRequest? context = null)
@@ -69,6 +95,10 @@ public partial class PipelineEditor
         }
         else if (key == "condition")
             await Edit(() => GraphEditing.InsertConditionalAfter(Definition, insertion.NodeId, insertion.PortId), context, insertion);
+        else if (key == "parallel")
+            await Edit(() => GraphEditing.InsertParallelBlockAfter(Definition, insertion.NodeId, insertion.PortId), context, insertion);
+        else if (key == "json-selector")
+            await Edit(() => GraphEditing.InsertJsonSelectorAfterJson(Definition, insertion.NodeId, insertion.PortId), context, insertion);
         else
             await Edit(() => UsesGraphEditing ? GraphEditing.InsertNodeAfter(Definition, insertion.NodeId, insertion.PortId, FromSelection(key)) :
                 PipelineEditing.InsertNodeAfter(Definition, insertion.NodeId, FromSelection(key)), context, insertion);
@@ -77,12 +107,16 @@ public partial class PipelineEditor
 
     private bool CanRemove(string id) => !ReadOnly && !Disabled && Definition.Nodes.TryGetValue(id, out var node) &&
         node.Type is not (NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition) && !GuardedTool(id);
-    private bool CanDuplicate(string id) => CanRemove(id) && Definition.Nodes[id].Type is not (NodeTypes.Approval or NodeTypes.Merge);
+    private bool CanDuplicate(string id) => CanRemove(id) && Definition.Nodes[id].Type is not
+        (NodeTypes.Approval or NodeTypes.Merge or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin);
     private async Task RemoveSelected(string id, GraphContextRequest? context = null)
     {
         await CloseMenu(context);
         if (!ReadOnly && !Disabled && Definition.Nodes.TryGetValue(id, out var node) && node.Type == NodeTypes.Condition)
         { await RequestBlockRemoval(id); return; }
+        if (!ReadOnly && !Disabled && Definition.Nodes.TryGetValue(id, out node) &&
+            node.Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin)
+        { await RequestParallelBlockRemoval(id); return; }
         if (!CanRemove(id)) { error = "This node cannot be deleted independently. Input/output and branch boundaries are required; remove an approval before its guarded tool."; return; }
         await Edit(() => Definition.Nodes[id].Type == NodeTypes.Approval ? GraphEditing.RemoveApproval(Definition, id) :
             UsesGraphEditing ? GraphEditing.RemoveNode(Definition, id) : PipelineEditing.Remove(Definition, id));
@@ -90,6 +124,8 @@ public partial class PipelineEditor
 
     private string? pendingBlockRemoval;
     private ImmutableArray<string> pendingBlockNodes = [];
+    private string? pendingParallelBlockRemoval;
+    private ImmutableArray<string> pendingParallelBlockNodes = [];
     private async Task RequestBlockRemoval(string id, GraphContextRequest? context = null)
     {
         if (ReadOnly || Disabled) return;
@@ -106,6 +142,30 @@ public partial class PipelineEditor
     }
 
     private void CancelBlockRemoval() { pendingBlockRemoval = null; pendingBlockNodes = []; }
+
+    private async Task RequestParallelBlockRemoval(string id, GraphContextRequest? context = null)
+    {
+        if (ReadOnly || Disabled) return;
+        await CloseMenu(context);
+        CancelBlockRemoval();
+        try
+        {
+            pendingParallelBlockNodes = ParallelBlockEditing.Nodes(Definition, id);
+            pendingParallelBlockRemoval = Definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.ParallelFork).Key;
+            await SelectNode(pendingParallelBlockRemoval);
+            error = null;
+        }
+        catch (ArgumentException exception) { error = exception.Message; }
+    }
+
+    private void CancelParallelBlockRemoval() { pendingParallelBlockRemoval = null; pendingParallelBlockNodes = []; }
+
+    private async Task ConfirmParallelBlockRemoval()
+    {
+        if (pendingParallelBlockRemoval is not { } id || ReadOnly || Disabled) return;
+        await Edit(() => ParallelBlockEditing.Remove(Definition, id));
+        CancelParallelBlockRemoval();
+    }
 
     private async Task ConfirmBlockRemoval()
     {

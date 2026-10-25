@@ -88,7 +88,10 @@
             (e.InvocationId == invocation || IsDelegatedInvocation(e, invocation))).ToArray();
         var terminalIndex = Array.FindLastIndex(events, e => e.Kind is ExecutionEventKinds.NodeCompleted or ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled);
         if (terminalIndex >= 0) return null;
-        var current = events.LastOrDefault(e => e.Kind is ExecutionEventKinds.AgentTeamStarted or ExecutionEventKinds.AgentTeamCompleted or ExecutionEventKinds.AgentTeamFailed or ExecutionEventKinds.AgentChannelMessageSent or ExecutionEventKinds.AgentChannelMessagesRead or ExecutionEventKinds.AgentStarted or ExecutionEventKinds.AgentCompleted or ExecutionEventKinds.AgentFailed or ExecutionEventKinds.ModelRequested or ExecutionEventKinds.ModelResponded or ExecutionEventKinds.ToolRequested or ExecutionEventKinds.ToolAuthorized or ExecutionEventKinds.ToolCompleted or ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ApprovalRequested);
+        var current = events.LastOrDefault(e => e.Kind is ExecutionEventKinds.AgentTeamStarted or ExecutionEventKinds.AgentTeamCompleted or ExecutionEventKinds.AgentTeamFailed or ExecutionEventKinds.AgentChannelMessageSent or ExecutionEventKinds.AgentChannelMessagesRead or ExecutionEventKinds.AgentStarted or ExecutionEventKinds.AgentCompleted or ExecutionEventKinds.AgentFailed or ExecutionEventKinds.ModelRequested or ExecutionEventKinds.ModelResponded or ExecutionEventKinds.ToolRequested or ExecutionEventKinds.ToolAuthorized or ExecutionEventKinds.ToolCompleted or ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ApprovalRequested or ExecutionEventKinds.ParallelJoinProgress);
+        if (current is null && Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type == NodeTypes.ParallelJoin &&
+            VisibleEvents.LastOrDefault(evt => evt.NodeId == id && evt.Kind == ExecutionEventKinds.ParallelJoinProgress) is { } joinProgress)
+            return joinProgress.Data ?? "Waiting for both branch results";
         if (current is null) return "Preparing node";
         var delegatedPrefix = DelegatedProfileLabel(current);
         if (delegatedPrefix is not null)
@@ -125,6 +128,7 @@
             ExecutionEventKinds.ToolCompleted => ToolActivity(current, "MCP tool completed"),
             ExecutionEventKinds.ToolFailed => ToolActivity(current, "MCP tool failed"),
             ExecutionEventKinds.ApprovalRequested => "Waiting for approval",
+            ExecutionEventKinds.ParallelJoinProgress => current.Data ?? "Waiting for both branch results",
             _ => "Processing"
         };
     }

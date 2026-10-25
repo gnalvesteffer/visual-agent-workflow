@@ -17,3 +17,5 @@ Prefer focused nodes, clear names, visible inputs/outputs, useful comments/secti
 
 
 For conditional-block edits, use `ConditionalBlockEditing` to preview and remove a single-entry/single-exit region. A matching merge must lie on every downstream route; reachability from both arms alone is insufficient. Reject outside incoming paths, list all affected nodes before confirmation, and commit definition/layout as one undo unit. Verify nested and sequential boundaries plus shared-merge rejection.
+
+For the bounded parallel region, use explicit named branch pins and anchors and `ParallelBlockEditing` to preview/remove the full fork-to-join region. Do not infer concurrent execution from node placement. Verify Agent Framework fan-out/barrier behavior, concurrent branch calls, exact result payloads and evidence; document that completed external side effects cannot be rolled back if another branch fails. The current contract excludes nested forks, loops and conditional routing inside parallel branches.

@@ -64,7 +64,7 @@
             <div class="vaw-context-actions">
                 <button type="button" @onclick="() => CloseMenu(context)">Edit selected node properties</button>
                 <button type="button" disabled="@(!CanDuplicate(contextNode))" @onclick="() => Duplicate(contextNode, context)">Duplicate node</button>
-                <button type="button" disabled="@(!CanRemove(contextNode))" @onclick="() => RemoveSelected(contextNode, context)">@(Definition.Nodes[contextNode].Type == NodeTypes.Merge ? "Remove merge and split paths" : "Delete node")</button>
+                <button type="button" disabled="@(!CanRemove(contextNode))" @onclick="() => RemoveSelected(contextNode, context)">@(Definition.Nodes[contextNode].Type == NodeTypes.Merge ? "Remove merge and split paths" : Definition.Nodes[contextNode].Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin ? "Remove parallel block…" : "Delete node")</button>
                 @if (Definition.Nodes[contextNode].Type == NodeTypes.Condition)
                 { <button type="button" disabled="@Disabled" @onclick="() => RequestBlockRemoval(contextNode, context)">Remove conditional block…</button> }
             </div>
@@ -130,6 +130,32 @@
                             <label>Approval prompt<textarea aria-label="Approval prompt for @id" value="@node.Approval!.Prompt" @onchange="args => ApprovalPrompt(id, args)" maxlength="2000" rows="3" disabled="@Disabled"></textarea></label>
                             <button type="button" @onclick="() => Edit(() => GraphEditing.RemoveApproval(Definition, id))" disabled="@Disabled" aria-label="Remove approval @id">Remove approval step</button>
                         }
+                    }
+                    else if (node.Type == NodeTypes.ParallelFork)
+                    {
+                        <p>Starts both branches concurrently with the same input. Connect each output to its matching branch anchor. A branch failure fails the workflow; side effects already performed by another branch are not rolled back.</p>
+                        @if (pendingParallelBlockRemoval == id)
+                        {
+                            <section aria-label="Confirm parallel block removal">
+                                <p>Remove this parallel block and its @pendingParallelBlockNodes.Length nodes, then reconnect its original input to the following node?</p>
+                                <ul>
+                                    @foreach (var removedId in pendingParallelBlockNodes)
+                                    { <li>@(string.IsNullOrWhiteSpace(EffectiveLayout.Nodes[removedId].Label) ? WorkflowGraphCanvas.FriendlyName(Definition.Nodes[removedId]) : EffectiveLayout.Nodes[removedId].Label) · @removedId</li> }
+                                </ul>
+                                <button type="button" disabled="@Disabled" @onclick="ConfirmParallelBlockRemoval">Remove parallel block and reconnect</button>
+                                <button type="button" @onclick="CancelParallelBlockRemoval">Cancel block removal</button>
+                            </section>
+                        }
+                        else if (!ReadOnly)
+                        { <button type="button" disabled="@Disabled" @onclick="() => RequestParallelBlockRemoval(id)">Remove parallel block…</button> }
+                    }
+                    else if (node.Type == NodeTypes.ParallelBranch)
+                    {
+                        <p>Visible branch anchor. Add text transforms, agents, or MCP tools after this node. The path must reach the matching input on the parallel join.</p>
+                    }
+                    else if (node.Type == NodeTypes.ParallelJoin)
+                    {
+                        <p>Waits until both named branches finish, then emits a JSON object with <code>branch_1</code> and <code>branch_2</code> values. Use a JSON selector to continue with one value as text.</p>
                     }
                     else if (node.Type == NodeTypes.Condition && !ReadOnly)
                     {
@@ -211,7 +237,7 @@
                             <button type="button" @onclick="() => Edit(() => UsesGraphEditing ? GraphEditing.RemoveNode(Definition, id) : PipelineEditing.Remove(Definition, id))" disabled="@(Disabled || GuardedTool(id))" aria-label="Remove @id">Remove</button>
                         </div>
                     }
-                    @if (!ReadOnly && node.Type != NodeTypes.Approval && WorkflowPorts.Outputs(node).Length > 0)
+                    @if (!ReadOnly && node.Type is not (NodeTypes.Approval or NodeTypes.ParallelFork) && WorkflowPorts.Outputs(node).Length > 0)
                     {
                     <details class="vaw-insertion-options"><summary>Insertion options</summary>
             @if (!ReadOnly)
@@ -222,12 +248,16 @@
                     @foreach (var provider in Providers) { <option value="@ProviderKey(provider)">@provider.DisplayName</option> }
                 </select></label>
             }
-                    @if (!ReadOnly && node.Type != NodeTypes.Approval)
+                    @if (!ReadOnly && node.Type is not (NodeTypes.Approval or NodeTypes.ParallelFork))
                     {
                         @foreach (var port in WorkflowPorts.Outputs(node))
                         {
-                            <button type="button" @onclick="() => InsertAfter(id, port.Id)" disabled="@(Disabled || Definition.Nodes.Count >= 256)" aria-label="Add node after @PortLabel(id, port.Id)">+ Add node after @port.Id</button>
-                            <button type="button" @onclick="() => Edit(() => GraphEditing.InsertConditionalAfter(Definition, id, port.Id))" disabled="@(Disabled || Definition.Nodes.Count > 254)" aria-label="Add condition after @PortLabel(id, port.Id)">+ Condition after @port.Id</button>
+                            @if (port.DataType == "string")
+                            {
+                                <button type="button" @onclick="() => InsertAfter(id, port.Id)" disabled="@(Disabled || Definition.Nodes.Count >= 256)" aria-label="Add node after @PortLabel(id, port.Id)">+ Add node after @port.Id</button>
+                                @if (!IsParallelBranchPath(new(id, port.Id)))
+                                { <button type="button" @onclick="() => Edit(() => GraphEditing.InsertConditionalAfter(Definition, id, port.Id))" disabled="@(Disabled || Definition.Nodes.Count > 254)" aria-label="Add condition after @PortLabel(id, port.Id)">+ Condition after @port.Id</button> }
+                            }
                         }
                     }
                     </details>
@@ -374,7 +404,7 @@
     private string newParameterDescription = "";
     private System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition> ParameterDefinitions =>
         Definition.Parameters ?? System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
-    private string CapabilitySchema => Definition.SchemaVersion is "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
+    private string CapabilitySchema => Definition.SchemaVersion is "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
     private string? error;
     private string? selectedNode;
     private string selectedPort = "out";
@@ -392,6 +422,9 @@
             ? $"Workflow value · {parameter.DisplayName}" : "Workflow value",
         NodeTypes.Condition => $"{node.Condition!.Operator} · {node.Condition.Operand}",
         NodeTypes.Merge => "Continue the selected path",
+        NodeTypes.ParallelFork => "Start both branches concurrently",
+        NodeTypes.ParallelBranch => "Parallel branch anchor",
+        NodeTypes.ParallelJoin => "Wait for both branch results",
         NodeTypes.Approval => "Review before the next tool call",
         NodeTypes.Agent => Providers.FirstOrDefault(p => p.ProviderId == node.Agent!.ProviderId)?.DisplayName ?? "Host-configured agent",
         _ => Bindings.FirstOrDefault(b => b.BindingId == node.Tool?.BindingId)?.DisplayName ?? "Host-approved tool"
@@ -403,6 +436,7 @@
     {
         if (ReferenceEquals(orderedDefinition, Definition)) return;
         CancelBlockRemoval();
+        CancelParallelBlockRemoval();
         Order = WorkflowGraph.DisplayOrder(Definition);
         localLayout = orderedDefinition?.WorkflowId != Definition.WorkflowId
             ? WorkflowLayout.Create(Definition)
@@ -548,7 +582,7 @@
         var parameterId = value?.StartsWith("parameter:", StringComparison.Ordinal) == true ? value[10..] : null;
         var node = Definition.Nodes[id];
         var parameterIncludesOff = parameterId is not null && ParameterDefinitions.TryGetValue(parameterId, out var parameter) && parameter.Choices?.Contains("off") == true;
-        var schema = effort == AgentReasoningEffort.Off || parameterIncludesOff ? Definition.SchemaVersion is "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10" : parameterId is not null ? Definition.SchemaVersion is "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : "1.8" : CapabilitySchema;
+        var schema = effort == AgentReasoningEffort.Off || parameterIncludesOff ? Definition.SchemaVersion is "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10" : parameterId is not null ? Definition.SchemaVersion is "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : "1.8" : CapabilitySchema;
         var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { ReasoningEffort = parameterId is null ? effort : null, ReasoningEffortParameterId = parameterId } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -560,7 +594,7 @@
         if (!int.TryParse(args.Value?.ToString(), out var limit) || limit is < AgentOutputTokenLimits.Minimum or > AgentOutputTokenLimits.Maximum)
             throw new ArgumentException($"Choose an output limit from {AgentOutputTokenLimits.Minimum} to {AgentOutputTokenLimits.Maximum} tokens.");
         var node = Definition.Nodes[id];
-        var schema = Definition.SchemaVersion is "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10";
+        var schema = Definition.SchemaVersion is "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10";
         var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { MaxOutputTokens = limit } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -617,7 +651,7 @@
         var stillUsed = nodes.Values.Where(item => item.Agent is not null).SelectMany(item => item.Agent!.Delegates ?? [])
             .Any(reference => reference.Id == profile.Id && reference.Version == profile.Version);
         if (!stillUsed) profiles = profiles.Remove(profile.Id + "@" + profile.Version);
-        var definition = Definition with { SchemaVersion = profile.Channels is not null ? (Definition.SchemaVersion == "1.13" ? "1.13" : "1.12") : Definition.SchemaVersion is "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.11", AgentProfiles = profiles.Count == 0 ? null : profiles,
+        var definition = Definition with { SchemaVersion = profile.Channels is not null ? (Definition.SchemaVersion is "1.14" or "1.13" ? Definition.SchemaVersion : "1.12") : Definition.SchemaVersion is "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.11", AgentProfiles = profiles.Count == 0 ? null : profiles,
             Skills = skills.Count == 0 ? null : skills, Nodes = nodes };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
@@ -659,7 +693,7 @@
             error = null;
             var next = edit();
             var added = next.Nodes.Keys.Where(id => !Definition.Nodes.ContainsKey(id)).ToArray();
-            if (added.Length > 0) selectedNode = added.FirstOrDefault(id => next.Nodes[id].Type is NodeTypes.Condition or NodeTypes.Approval) ?? added[0];
+            if (added.Length > 0) selectedNode = added.FirstOrDefault(id => next.Nodes[id].Type == NodeTypes.ParallelFork) ?? added.FirstOrDefault(id => next.Nodes[id].Type is NodeTypes.Condition or NodeTypes.Approval) ?? added[0];
             var nextLayout = PlaceAddedNodes(next, EffectiveLayout.Reconcile(next), added, placement, insertion);
             if (GraphEdited.HasDelegate) await GraphEdited.InvokeAsync(new(next, nextLayout));
             else

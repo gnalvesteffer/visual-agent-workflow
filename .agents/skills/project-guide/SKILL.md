@@ -5,7 +5,7 @@ description: Use when changing, reviewing, or explaining this project, its archi
 
 # Project guide
 
-Read [the design baseline](../../../docs/design.md), [roadmap and current scope](../../../docs/roadmap.md), and [README](../../../README.md). Inspect the actual tree before naming projects, commands, or APIs. Core supports linear/acyclic conditional graphs with string ports, one bounded schema-1.9 JSON input-to-string-selector path, schema-1.5 exact-action MCP approvals, and schema-1.6+ workflow parameters with explicit getter nodes. General object/collection mapping, parallelism and loops remain planned; see [workflow parameter contracts](../../../docs/workflow-parameters.md).
+Read [the design baseline](../../../docs/design.md), [roadmap and current scope](../../../docs/roadmap.md), and [README](../../../README.md). Inspect the actual tree before naming projects, commands, or APIs. Core supports acyclic conditional graphs, one bounded schema-1.14 two-branch fork/barrier block with JSON output, a schema-1.9 JSON input-to-string-selector path, schema-1.5 exact-action MCP approvals, and schema-1.6+ workflow parameters with explicit getter nodes. General object/collection mapping, nested/unbounded parallelism and loops remain planned; see [workflow parameter contracts](../../../docs/workflow-parameters.md) and [parallel graph semantics](../../../docs/parallel-graphs.md).
 
 ## Preserve the architecture
 
@@ -43,7 +43,7 @@ For local runtime DI use `AddLocalWorkflowRuntime`; Studio and the standalone se
 
 Consumer observation uses Core's read-only `IWorkflowRunObserver`, a host-policy-protected opt-in route group, a separate Core-only HTTP client, and the reusable `WorkflowObservationPanel`. Studio connects only to operator-configured sources; browser users cannot supply server-side URLs or credentials. Preserve this separation from authoring and execution control. See [consumer observation](../../../docs/observation.md).
 
-For routing use explicit port IDs and validated `GraphEditing` operations. `WorkflowGraph.OrderedNodes` is topological display/analysis order, never a runtime schedule. Keep linear-only editing/reuse guarded so conditional graphs cannot be flattened. Read [conditional graph semantics](../../../docs/conditional-graphs.md).
+For routing use explicit port IDs and validated `GraphEditing` operations. `WorkflowGraph.OrderedNodes` is topological display/analysis order, never a runtime schedule. Keep linear-only editing/reuse guarded so routed graphs cannot be flattened. Use `ParallelBlockEditing` to preview/remove a whole parallel region. Read [conditional graph semantics](../../../docs/conditional-graphs.md) and [parallel graph semantics](../../../docs/parallel-graphs.md).
 
 Approvals guard the exact next explicit MCP invocation, not an entire agent loop or host permission grant. Use optional approval client/gate capabilities; retain read-only observation and historical playback. Awaiting approvals release execution ownership but not admission capacity. See [approval contracts](../../../docs/approvals.md).
 

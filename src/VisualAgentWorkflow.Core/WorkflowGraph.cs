@@ -15,13 +15,15 @@ public sealed record StringCondition(string Operator, string Operand)
     };
 }
 
-/// <summary>Explicit typed ports for the bounded string graph; no CLR types or executable expressions.</summary>
+/// <summary>Explicit typed ports for the bounded workflow graph; no CLR types or executable expressions.</summary>
 public static class WorkflowPorts
 {
     public static ImmutableArray<WorkflowPort> Inputs(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input => [],
         NodeTypes.JsonSelectString or NodeTypes.JsonProject => [new("in", "json")],
+        NodeTypes.ParallelFork or NodeTypes.ParallelBranch => [new("in", "string")],
+        NodeTypes.ParallelJoin => [new("branch_1", "string"), new("branch_2", "string")],
         NodeTypes.Output => [new("in", node.OutputDataType ?? "string")],
         _ => [new("in", "string")]
     };
@@ -31,8 +33,16 @@ public static class WorkflowPorts
         NodeTypes.Condition => [new("true", "string"), new("false", "string")],
         NodeTypes.Input when node.InputDataType == "json" => [new("out", "json")],
         NodeTypes.JsonProject => [new("out", "json")],
+        NodeTypes.ParallelFork => [new("branch_1", "string"), new("branch_2", "string")],
+        NodeTypes.ParallelJoin => [new("out", "json")],
         _ => [new("out", "string")]
     };
+}
+
+public static class ParallelGraphLimits
+{
+    public const int MaximumBranches = 2;
+    public const int MaximumAggregateCharacters = 16_384;
 }
 
 /// <summary>Parses bounded RFC 6901 JSON Pointers used by declarative JSON selector nodes.</summary>
@@ -79,7 +89,8 @@ public static class JsonProjectionLimits
 
 public static class WorkflowGraph
 {
-    public static bool HasRouting(WorkflowDefinition definition) => definition.Nodes.Values.Any(n => n?.Type is NodeTypes.Condition or NodeTypes.Merge);
+    public static bool HasRouting(WorkflowDefinition definition) => definition.Nodes.Values.Any(n =>
+        n?.Type is NodeTypes.Condition or NodeTypes.Merge or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin);
 
     public static bool HasControlNodes(WorkflowDefinition definition) => HasRouting(definition) || definition.Nodes.Values.Any(n => n?.Type == NodeTypes.Approval);
 

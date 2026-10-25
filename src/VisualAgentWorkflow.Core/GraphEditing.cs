@@ -25,7 +25,7 @@ public static class GraphEditing
             Nodes = target.Type == NodeTypes.Output
                 ? definition.Nodes.SetItem(targetId, target with { OutputDataType = output.DataType == "json" ? "json" : null })
                 : definition.Nodes,
-            SchemaVersion = output.DataType == "json" ? "1.13" : definition.SchemaVersion,
+            SchemaVersion = output.DataType == "json" && definition.SchemaVersion != "1.14" ? "1.13" : definition.SchemaVersion,
             Connections = connections.Add(connectionId, new(new(sourceId, sourcePortId), new(targetId, targetPortId), "data"))
         };
     }
@@ -47,7 +47,50 @@ public static class GraphEditing
         var connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(branch, "in"), "data"))
             .Add(NewId("link"), Link(branch, "true", merge)).Add(NewId("link"), Link(branch, "false", merge))
             .Add(NewId("link"), new(new(merge, "out"), edge.Value.Target, "data"));
-        return Checked(definition with { SchemaVersion = definition.SchemaVersion is "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" ? definition.SchemaVersion : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : "1.4", Nodes = nodes, Connections = connections });
+        return Checked(definition with { SchemaVersion = definition.SchemaVersion is "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : "1.4", Nodes = nodes, Connections = connections });
+    }
+
+    public static WorkflowDefinition InsertParallelBlockAfter(WorkflowDefinition definition, string sourceId, string portId)
+    {
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var edge = Outgoing(definition, sourceId, portId);
+        var source = definition.Nodes[sourceId];
+        if (WorkflowPorts.Outputs(source).Single(port => port.Id == portId).DataType != "string")
+            throw new ArgumentException("Parallel blocks currently accept string values.", nameof(portId));
+        var target = definition.Nodes[edge.Value.Target.NodeId];
+        var targetPort = WorkflowPorts.Inputs(target).Single(port => port.Id == edge.Value.Target.PortId);
+        var needsTextSelector = targetPort.DataType == "string" && target.Type != NodeTypes.Output;
+        var addedCount = needsTextSelector ? 5 : 4;
+        if (definition.Nodes.Count + addedCount > 256)
+            throw new ArgumentException("The parallel block would exceed the 256-node workflow limit.");
+
+        var forkId = NewId("parallel-fork");
+        var firstBranchId = NewId("parallel-branch");
+        var secondBranchId = NewId("parallel-branch");
+        var joinId = NewId("parallel-join");
+        var selectorId = needsTextSelector ? NewId("json-select") : null;
+        var nodes = definition.Nodes
+            .Add(forkId, new(NodeTypes.ParallelFork, "1.0.0"))
+            .Add(firstBranchId, new(NodeTypes.ParallelBranch, "1.0.0"))
+            .Add(secondBranchId, new(NodeTypes.ParallelBranch, "1.0.0"))
+            .Add(joinId, new(NodeTypes.ParallelJoin, "1.0.0"));
+        if (selectorId is not null)
+            nodes = nodes.Add(selectorId, new(NodeTypes.JsonSelectString, "1.0.0") { JsonPropertySelection = new("") });
+        if (target.Type == NodeTypes.Output && !needsTextSelector)
+            nodes = nodes.SetItem(edge.Value.Target.NodeId, target with { OutputDataType = "json" });
+
+        var connections = definition.Connections
+            .SetItem(edge.Key, new(edge.Value.Source, new(forkId, "in"), "data"))
+            .Add(NewId("link"), new(new(forkId, "branch_1"), new(firstBranchId, "in"), "data"))
+            .Add(NewId("link"), new(new(forkId, "branch_2"), new(secondBranchId, "in"), "data"))
+            .Add(NewId("link"), new(new(firstBranchId, "out"), new(joinId, "branch_1"), "data"))
+            .Add(NewId("link"), new(new(secondBranchId, "out"), new(joinId, "branch_2"), "data"));
+        connections = selectorId is null
+            ? connections.Add(NewId("link"), new(new(joinId, "out"), edge.Value.Target, "data"))
+            : connections.Add(NewId("link"), new(new(joinId, "out"), new(selectorId, "in"), "data"))
+                .Add(NewId("link"), new(new(selectorId, "out"), edge.Value.Target, "data"));
+
+        return Checked(definition with { SchemaVersion = "1.14", Nodes = nodes, Connections = connections });
     }
 
     public static WorkflowDefinition InsertNodeAfter(WorkflowDefinition definition, string sourceId, string portId, NodeDefinition node)
@@ -85,11 +128,29 @@ public static class GraphEditing
 
         return Checked(definition with
         {
-            SchemaVersion = definition.SchemaVersion is "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : "1.9",
+            SchemaVersion = definition.SchemaVersion is "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : "1.9",
             Nodes = definition.Nodes.SetItem(inputId, input with { InputDataType = "json" }).Add(selectorId, selector),
             Connections = definition.Connections.SetItem(edge.Key, new(new(selectorId, "out"), edge.Value.Target, "data"))
                 .Add(NewId("link"), new(new(inputId, "out"), new(selectorId, "in"), "data"))
         });
+    }
+
+    public static WorkflowDefinition InsertJsonSelectorAfterJson(WorkflowDefinition definition, string sourceId, string portId, string pointer = "")
+    {
+        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!definition.Nodes.TryGetValue(sourceId, out var source) ||
+            WorkflowPorts.Outputs(source).SingleOrDefault(port => port.Id == portId)?.DataType != "json")
+            throw new ArgumentException("Choose a JSON output pin.", nameof(portId));
+        WorkflowJsonPointer.Parse(pointer);
+        var edge = Outgoing(definition, sourceId, portId);
+        var selectorId = NewId("json-select");
+        var target = definition.Nodes[edge.Value.Target.NodeId];
+        var nodes = definition.Nodes.Add(selectorId,
+            new NodeDefinition(NodeTypes.JsonSelectString, "1.0.0") { JsonPropertySelection = new(pointer) });
+        if (target.Type == NodeTypes.Output) nodes = nodes.SetItem(edge.Value.Target.NodeId, target with { OutputDataType = null });
+        var connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(selectorId, "in"), "data"))
+            .Add(NewId("link"), new(new(selectorId, "out"), edge.Value.Target, "data"));
+        return Checked(definition with { Nodes = nodes, Connections = connections });
     }
 
     public static WorkflowDefinition ReplaceNode(WorkflowDefinition definition, string id, NodeDefinition node)
@@ -154,7 +215,7 @@ public static class GraphEditing
 
         return Checked(definition with
         {
-            SchemaVersion = sourceType == "json" ? "1.13" : definition.SchemaVersion,
+            SchemaVersion = sourceType == "json" && definition.SchemaVersion != "1.14" ? "1.13" : definition.SchemaVersion,
             Nodes = nodes,
             Connections = definition.Connections.Remove(incoming.Key).SetItem(outgoing.Key,
                 new(incoming.Value.Source, outgoing.Value.Target, "data"))
@@ -171,7 +232,7 @@ public static class GraphEditing
         var id = NewId("approval");
         return Checked(definition with
         {
-            SchemaVersion = definition.SchemaVersion is "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" ? definition.SchemaVersion : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : "1.5",
+            SchemaVersion = definition.SchemaVersion is "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : "1.5",
             Nodes = definition.Nodes.Add(id, new(NodeTypes.Approval, "1.0.0") { Approval = new("Review the exact MCP call before allowing it.") }),
             Connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(id, "in"), "data"))
                 .Add(NewId("link"), Link(id, "out", targetId))

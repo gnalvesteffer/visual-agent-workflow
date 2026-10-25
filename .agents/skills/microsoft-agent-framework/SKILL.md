@@ -5,7 +5,7 @@ description: Use when selecting or upgrading Microsoft Agent Framework .NET pack
 
 # Microsoft Agent Framework integration
 
-Read [project-guide](../project-guide/SKILL.md). The adapter targets Agent Framework 1.26.0 on .NET 10. Tests cover linear/conditional string workflows, real stdio MCP tools, and `ChatClientAgent` function loops with a deterministic `IChatClient`. See [roadmap and current scope](../../../docs/roadmap.md) for supported scope. These checks do not validate live LLM providers, parallel joins, loops or general production crash recovery.
+Read [project-guide](../project-guide/SKILL.md). The adapter targets Agent Framework 1.26.0 on .NET 10. Tests cover linear/conditional string workflows, a bounded parallel fork/barrier join, real stdio MCP tools, and `ChatClientAgent` function loops with a deterministic `IChatClient`. See [roadmap and current scope](../../../docs/roadmap.md) for supported scope. These checks do not validate live LLM providers, loops or general production crash recovery.
 
 ## Establish version-specific evidence
 
@@ -42,6 +42,8 @@ Historical playback must remain independent of framework execution and available
 In the tested version, a workflow stream can finish normally when its execution token is cancelled. Check the token inside/after enumeration before interpreting no output as a failure. Preserve the active-provider cancellation regression in `VisualAgentWorkflow.Mcp.Tests`. Agent functions must delegate to the scoped platform broker rather than exposing raw SDK MCP tools. The deterministic fixture deliberately ignores instructions; never describe it as live model behavior.
 
 Agent Framework 1.26.0 conditional edges were checked against the peeled `dotnet-1.26.0` tag `9c8a3514a15a702f81bfda456d80c7ccaa4d2712` and installed XML, then executed in adapter tests. Use a private source-node/port envelope to identify actual received merge connections; never infer delivery from predicate/branch completion. No extra scheduler or barrier is needed for the single-path exclusive-merge model. See [mapping and evidence](../../../docs/conditional-graphs.md).
+
+The bounded parallel adapter is verified against Agent Framework 1.26.0: the fork sends explicit messages to two named branch anchors, `InProcessExecution.Concurrent` runs them concurrently, and `AddFanInBarrierEdge` releases both endpoint messages to the join only after both branches have produced output. The join records the actual incoming connections and emits one bounded named JSON result. The workflow builder creates fresh executor instances for each run; concurrent branch execution therefore uses per-run state. A synchronized two-agent regression test proves overlapping execution and joined output. Do not generalize this mapping to nested/variable fan-out, loops, or rollback of branch side effects. See [parallel graph behavior](../../../docs/parallel-graphs.md).
 
 Explicit-MCP approval uses the existing awaited executor plus the optional platform approval gate; it does not claim native durable request/checkpoint restoration. A reserved target invocation ID passes through the trusted private message envelope so tool evidence matches the exact reviewed action. Preserve the fail-closed direct-runner test and real scripted-agent/approval/MCP proof; provider-selected tool calls inside agent loops remain outside this approval feature.
 

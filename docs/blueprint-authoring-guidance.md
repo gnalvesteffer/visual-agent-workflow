@@ -12,7 +12,7 @@ Epic's guidance is spread across several documentation pages rather than one pro
 | Typed variables have names, types, defaults, and Get/Set access | A workflow declares stable, typed parameters; getter nodes make values visible in the graph. Mutable Set/Get variables require explicit per-run and ordering semantics |
 | Instance-editable or exposed-on-spawn values configure an instance | Hosts and run callers can override declared values without mutating a published workflow. Defaults remain safe and shareable |
 | Function/event inputs and outputs appear as pins | Workflow entry inputs and reusable workflow inputs/outputs have explicit typed contracts |
-| Execution and value pins have different meanings | Define edge semantics before rendering them. The current graph is a bounded, single-path string dataflow with explicit conditional nodes; screen position and topological display order never schedule execution |
+| Execution and value pins have different meanings | Define edge semantics before rendering them. The current graph has bounded string dataflow, explicit conditional nodes, and one named two-branch fork/barrier block; screen position and topological display order never schedule execution |
 | Functions, macros, comments, categories, and graph layout organize behavior | Prefer focused nodes, named reusable workflows with pinned versions, meaningful labels/comments/sections, and readable wire routing over one sprawling canvas |
 | Blueprint debugging shows runtime behavior in graph context | Color or animate only recorded execution evidence; retain payload/event inspection and historical playback without invoking live dependencies |
 
@@ -28,6 +28,8 @@ See [product design: workflow parameters and variables](design.md#workflow-param
 - **Host capabilities and secrets** remain outside workflow artifacts. A model-profile parameter resolves only through the host's approved provider catalog; it cannot provide a URL or credential. Assigning a parameter or skill never grants an MCP tool.
 
 Use visible pins or named bindings for values that affect agent instructions, provider/model choice, tool arguments, conditions, or transformations. Avoid hidden placeholder substitution in arbitrary node fields. Share parameter schemas and safe defaults with the workflow, resolve run overrides separately, and record effective non-secret values or redacted references according to sensitivity policy.
+
+The shipped parallel slice is deliberately bounded: two named branches, one fan-out, one matching fan-in barrier, and a JSON result. Model it with explicit branch anchors and connections, never infer parallelism from layout. Validation rejects incomplete or crossed paths before publication or execution. Keep side-effect and failure semantics visible; completed external effects cannot be undone when another branch fails.
 
 ## Review each authoring change
 

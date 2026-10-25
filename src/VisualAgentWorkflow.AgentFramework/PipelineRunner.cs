@@ -63,7 +63,10 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         {
             cancellationToken.ThrowIfCancellationRequested();
             var inputType = WorkflowPorts.Outputs(revision.Definition.Nodes[revision.Definition.EntryNodeId]).Single().DataType;
-            await using var run = await InProcessExecution.RunStreamingAsync(workflow,
+            var execution = revision.Definition.Nodes.Values.Any(node => node?.Type == NodeTypes.ParallelFork)
+                ? InProcessExecution.Concurrent
+                : InProcessExecution.Default;
+            await using var run = await execution.RunStreamingAsync(workflow,
                 new GraphMessage(input, null, null, DataType: inputType), cancellationToken: cancellationToken);
             string? output = null;
             await foreach (var evt in run.WatchStreamAsync(cancellationToken))
@@ -107,7 +110,18 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             n => new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, emit, gate));
         var builder = new WorkflowBuilder(executors[definition.EntryNodeId]);
         foreach (var edge in definition.Connections.Values)
+        {
+            if (definition.Nodes[edge.Target.NodeId].Type == NodeTypes.ParallelJoin) continue;
             builder.AddEdge<GraphMessage>(executors[edge.Source.NodeId], executors[edge.Target.NodeId], message => message?.SourcePort == edge.Source.PortId);
+        }
+        var join = definition.Nodes.SingleOrDefault(entry => entry.Value.Type == NodeTypes.ParallelJoin);
+        if (join.Value is not null)
+        {
+            var branchSources = definition.Connections.Values
+                .Where(edge => edge.Target.NodeId == join.Key)
+                .Select(edge => (ExecutorBinding)executors[edge.Source.NodeId]);
+            builder.AddFanInBarrierEdge(branchSources, (ExecutorBinding)executors[join.Key]);
+        }
         var outputId = definition.Nodes.Single(n => n.Value.Type == NodeTypes.Output).Key;
         builder.WithOutputFrom(executors[outputId]);
         return builder.Build();
@@ -124,15 +138,23 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         IReadOnlyDictionary<string, string>? parameters,
         INodeToolBroker? tools,
         IAgentNodeExecutor? agents,
-        Func<string, string?, Guid?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate) : Executor<GraphMessage, GraphMessage>(id)
+        Func<string, string?, Guid?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate)
+        // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
+        : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
+        private readonly object parallelJoinSync = new();
+        private readonly SemaphoreSlim parallelJoinExecution = new(1, 1);
+        private readonly SortedDictionary<string, string> parallelJoinInputs = new(StringComparer.Ordinal);
+        private Guid? parallelJoinInvocationId;
+
         public override async ValueTask<GraphMessage> HandleAsync(GraphMessage received, IWorkflowContext context, CancellationToken cancellationToken = default)
         {
             if (gate is not null) await gate.WaitForBoundaryAsync(Id, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             var message = received.Text;
-            var invocation = received.Approval?.TargetInvocationId ?? Guid.NewGuid();
+            var invocation = node.Type == NodeTypes.ParallelJoin ? ParallelJoinInvocation() : received.Approval?.TargetInvocationId ?? Guid.NewGuid();
             // Receiving the downstream message is direct evidence of delivery, not inferred completion.
+            string? incomingPort = null;
             if (received.SourceNode is not null)
             {
                 var incoming = revision.Definition.Connections.Single(e => e.Value.Source.NodeId == received.SourceNode &&
@@ -140,6 +162,32 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 var inputType = WorkflowPorts.Inputs(node).Single(port => port.Id == incoming.Value.Target.PortId).DataType;
                 if (received.DataType != inputType) throw new InvalidOperationException("Connected workflow data type does not match the receiving node.");
                 await emit(ExecutionEventKinds.Transfer, Id, invocation, incoming.Key, message);
+                incomingPort = incoming.Value.Target.PortId;
+            }
+            if (node.Type == NodeTypes.ParallelJoin)
+            {
+                await parallelJoinExecution.WaitAsync(cancellationToken);
+                try
+                {
+                    var (started, complete, result, receivedCount) = CollectParallelJoinInput(incomingPort!, message);
+                    if (started) await emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, "Waiting for both parallel branch results.");
+                    await emit(ExecutionEventKinds.ParallelJoinProgress, Id, invocation, null,
+                        complete ? "Both branch results received." : $"Received {receivedCount} of 2 branch results; waiting for the other branch.");
+                    if (!complete) return new("", Id, "parallel.pending", DataType: "json");
+                    await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, result);
+                    return new(result!, Id, "out", DataType: "json");
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    await emit(ExecutionEventKinds.NodeCancelled, Id, invocation, null, "Parallel join cancelled.");
+                    throw;
+                }
+                catch
+                {
+                    await emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, "Parallel join failed.");
+                    throw;
+                }
+                finally { parallelJoinExecution.Release(); }
             }
             await emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, message);
             try
@@ -150,6 +198,8 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval => message,
                     NodeTypes.JsonSelectString => SelectJsonText(message, node.JsonPropertySelection!.Pointer),
                     NodeTypes.JsonProject => ProjectJson(message, node.JsonProjection!),
+                    NodeTypes.ParallelBranch => message,
+                    NodeTypes.ParallelFork => message,
                     NodeTypes.TextTemplate => PromptRendering.Render(node.TextTemplate!, message, parameters),
                     NodeTypes.WorkflowValue => parameters is null || !parameters.TryGetValue(node.ParameterId!, out var value)
                         ? throw new InvalidOperationException("The workflow parameter was not resolved for this run.") : value,
@@ -184,6 +234,14 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                     await emit(ExecutionEventKinds.BranchSelected, Id, invocation, null, JsonSerializer.Serialize(new { port }));
                 }
                 await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, result);
+                if (node.Type == NodeTypes.ParallelFork)
+                {
+                    foreach (var edge in revision.Definition.Connections.Values.Where(edge => edge.Source.NodeId == Id))
+                    {
+                        await context.SendMessageAsync(new GraphMessage(result, Id, edge.Source.PortId, DataType: "string"), edge.Target.NodeId, cancellationToken);
+                    }
+                    return new(result, Id, "parallel.dispatched", DataType: "string");
+                }
                 var outputType = node.Type == NodeTypes.Output ? received.DataType :
                     WorkflowPorts.Outputs(node).Single(output => output.Id == port).DataType;
                 return new(result, Id, port, permit, outputType);
@@ -197,6 +255,28 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             {
                 await emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, "Node execution failed.");
                 throw;
+            }
+        }
+
+        private Guid ParallelJoinInvocation()
+        {
+            lock (parallelJoinSync) return parallelJoinInvocationId ??= Guid.NewGuid();
+        }
+
+        private (bool Started, bool Complete, string? Result, int ReceivedCount) CollectParallelJoinInput(string inputPort, string input)
+        {
+            lock (parallelJoinSync)
+            {
+                if (inputPort is not ("branch_1" or "branch_2") || !parallelJoinInputs.TryAdd(inputPort, input))
+                    throw new InvalidOperationException("The parallel join received an unexpected or duplicate branch result.");
+                var started = parallelJoinInputs.Count == 1;
+                if (parallelJoinInputs.Count < ParallelGraphLimits.MaximumBranches)
+                    return (started, false, null, parallelJoinInputs.Count);
+
+                var result = JsonSerializer.Serialize(parallelJoinInputs);
+                if (result.Length > ParallelGraphLimits.MaximumAggregateCharacters)
+                    throw new InvalidOperationException($"Parallel branch results exceed {ParallelGraphLimits.MaximumAggregateCharacters} characters.");
+                return (started, true, result, parallelJoinInputs.Count);
             }
         }
 
