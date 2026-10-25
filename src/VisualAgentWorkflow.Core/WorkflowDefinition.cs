@@ -49,6 +49,8 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     public JsonProjectionConfiguration? JsonProjection { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public PromptTemplate? TextTemplate { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public LoopConfiguration? Loop { get; init; }
 }
 
 /// <summary>Copy-on-insert source identity; informational provenance, never a grant or runtime resolver.</summary>
@@ -56,7 +58,7 @@ public sealed record NodeOrigin(string WorkflowId, Guid RevisionId, int Version,
 public sealed record PortReference(string NodeId, string PortId);
 public sealed record ConnectionDefinition(PortReference Source, PortReference Target, string Kind);
 
-/// <summary>The execution subset is an acyclic typed graph with explicit conditional and bounded parallel blocks; loops are unsupported.</summary>
+/// <summary>The execution subset is a typed graph with explicit routing, bounded parallel blocks, and one validated bounded loop region.</summary>
 public static class NodeTypes
 {
     public const string Input = "core.input";
@@ -75,10 +77,14 @@ public static class NodeTypes
     public const string ParallelFork = "core.parallel.fork";
     public const string ParallelBranch = "core.parallel.branch";
     public const string ParallelJoin = "core.parallel.join";
+    public const string Loop = "core.loop";
+    public const string LoopBody = "core.loop.body";
 
     public static bool IsSupported(string? type) =>
-        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin;
+        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin or Loop or LoopBody;
 }
+
+public sealed record LoopConfiguration(StringCondition ContinueWhile, int MaximumIterations);
 
 /// <summary>Selects a JSON value through a bounded RFC 6901 JSON Pointer.</summary>
 public sealed record JsonPropertySelection(string Pointer);

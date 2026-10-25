@@ -64,7 +64,7 @@
             <div class="vaw-context-actions">
                 <button type="button" @onclick="() => CloseMenu(context)">Edit selected node properties</button>
                 <button type="button" disabled="@(!CanDuplicate(contextNode))" @onclick="() => Duplicate(contextNode, context)">Duplicate node</button>
-                <button type="button" disabled="@(!CanRemove(contextNode))" @onclick="() => RemoveSelected(contextNode, context)">@(Definition.Nodes[contextNode].Type == NodeTypes.Merge ? "Remove merge and split paths" : Definition.Nodes[contextNode].Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin ? "Remove parallel block…" : "Delete node")</button>
+                <button type="button" disabled="@(!CanRemove(contextNode))" @onclick="() => RemoveSelected(contextNode, context)">@(Definition.Nodes[contextNode].Type == NodeTypes.Merge ? "Remove merge and split paths" : Definition.Nodes[contextNode].Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin ? "Remove parallel block…" : Definition.Nodes[contextNode].Type == NodeTypes.Loop ? "Remove loop (run body once)" : "Delete node")</button>
                 @if (Definition.Nodes[contextNode].Type == NodeTypes.Condition)
                 { <button type="button" disabled="@Disabled" @onclick="() => RequestBlockRemoval(contextNode, context)">Remove conditional block…</button> }
             </div>
@@ -131,6 +131,32 @@
                             <p class="vaw-help">Build deterministic text from the incoming value and declared workflow parameters. References are tokens, not expressions.</p>
                             <PromptTemplateEditor EditorLabel="Template text" Value="node.TextTemplate!" Parameters="ParameterDefinitions" ValueChanged="template => SetTextTemplate(id, template)" Disabled="Disabled" />
                         </fieldset>
+                    }
+                    else if (node.Type == NodeTypes.Loop)
+                    {
+                        <p>A bounded loop sends the current text through the body while the predicate matches. The loop stops when it no longer matches or reaches its maximum. The body anchor is on the graph; insert deterministic steps, agents, or MCP tools after it. Only one linear body is supported in this version.</p>
+                        @if (!ReadOnly)
+                        {
+                            <label>Continue while
+                                <select aria-label="Loop predicate operator for @id" value="@node.Loop!.ContinueWhile.Operator" @onchange="args => LoopOperator(id, args)" disabled="@Disabled">
+                                    <option value="equals">Equals</option><option value="contains">Contains</option><option value="starts-with">Starts with</option><option value="is-empty">Is empty</option>
+                                </select>
+                            </label>
+                            <label>Match text
+                                <input aria-label="Loop predicate text for @id" value="@node.Loop!.ContinueWhile.Operand" @onchange="args => LoopOperand(id, args)" maxlength="1024" disabled="@(Disabled || node.Loop.ContinueWhile.Operator == "is-empty")" />
+                            </label>
+                            <label>Maximum iterations
+                                <input aria-label="Maximum loop iterations for @id" type="number" min="1" max="@WorkflowLoopLimits.MaximumIterations" step="1" value="@node.Loop.MaximumIterations" @onchange="args => LoopMaximumIterations(id, args)" disabled="@Disabled" />
+                            </label>
+                            <p class="vaw-help">Maximum: @WorkflowLoopLimits.MaximumIterations iterations per run. Iteration starts, completions, and stop reason are recorded for playback.</p>
+                            <button type="button" @onclick="() => RemoveSelected(id)" disabled="@Disabled" aria-label="Remove bounded loop @id">Remove loop and run body once</button>
+                        }
+                        else
+                        { <p>Continue while @node.Loop!.ContinueWhile.Operator @node.Loop.ContinueWhile.Operand · maximum @node.Loop.MaximumIterations iterations.</p> }
+                    }
+                    else if (node.Type == NodeTypes.LoopBody)
+                    {
+                        <p>Start of the loop body. Insert text transforms, workflow values, agents, or MCP tools after this anchor. The body must return to the loop input.</p>
                     }
                     else if (node.Type == NodeTypes.Approval)
                     {
@@ -248,7 +274,7 @@
                             <button type="button" @onclick="() => Edit(() => UsesGraphEditing ? GraphEditing.RemoveNode(Definition, id) : PipelineEditing.Remove(Definition, id))" disabled="@(Disabled || GuardedTool(id))" aria-label="Remove @id">Remove</button>
                         </div>
                     }
-                    @if (!ReadOnly && node.Type is not (NodeTypes.Approval or NodeTypes.ParallelFork) && WorkflowPorts.Outputs(node).Length > 0)
+                    @if (!ReadOnly && node.Type is not (NodeTypes.Approval or NodeTypes.ParallelFork or NodeTypes.Loop) && WorkflowPorts.Outputs(node).Length > 0)
                     {
                     <details class="vaw-insertion-options"><summary>Insertion options</summary>
             @if (!ReadOnly)
@@ -259,14 +285,14 @@
                     @foreach (var provider in Providers) { <option value="@ProviderKey(provider)">@provider.DisplayName</option> }
                 </select></label>
             }
-                    @if (!ReadOnly && node.Type is not (NodeTypes.Approval or NodeTypes.ParallelFork))
+                    @if (!ReadOnly && node.Type is not (NodeTypes.Approval or NodeTypes.ParallelFork or NodeTypes.Loop))
                     {
                         @foreach (var port in WorkflowPorts.Outputs(node))
                         {
                             @if (port.DataType == "string")
                             {
                                 <button type="button" @onclick="() => InsertAfter(id, port.Id)" disabled="@(Disabled || Definition.Nodes.Count >= 256)" aria-label="Add node after @PortLabel(id, port.Id)">+ Add node after @port.Id</button>
-                                @if (!IsParallelBranchPath(new(id, port.Id)))
+                                @if (!IsParallelBranchPath(new(id, port.Id)) && !Definition.Nodes.Values.Any(existing => existing.Type == NodeTypes.Loop))
                                 { <button type="button" @onclick="() => Edit(() => GraphEditing.InsertConditionalAfter(Definition, id, port.Id))" disabled="@(Disabled || Definition.Nodes.Count > 254)" aria-label="Add condition after @PortLabel(id, port.Id)">+ Condition after @port.Id</button> }
                             }
                         }
@@ -415,7 +441,7 @@
     private string newParameterDescription = "";
     private System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition> ParameterDefinitions =>
         Definition.Parameters ?? System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
-    private string CapabilitySchema => Definition.SchemaVersion is "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
+    private string CapabilitySchema => Definition.SchemaVersion is "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
     private string? error;
     private string? selectedNode;
     private string selectedPort = "out";
@@ -432,6 +458,8 @@
         NodeTypes.WorkflowValue => node.ParameterId is { } parameterId && ParameterDefinitions.TryGetValue(parameterId, out var parameter)
             ? $"Workflow value · {parameter.DisplayName}" : "Workflow value",
         NodeTypes.Condition => $"{node.Condition!.Operator} · {node.Condition.Operand}",
+        NodeTypes.Loop => $"Continue while {node.Loop!.ContinueWhile.Operator} · max {node.Loop.MaximumIterations}",
+        NodeTypes.LoopBody => "Start of bounded loop body",
         NodeTypes.Merge => "Continue the selected path",
         NodeTypes.ParallelFork => "Start both branches concurrently",
         NodeTypes.ParallelBranch => "Parallel branch anchor",
@@ -475,6 +503,25 @@
     });
     private Task ConditionOperand(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
         Definition.Nodes[id] with { Condition = Definition.Nodes[id].Condition! with { Operand = args.Value?.ToString() ?? "" } }));
+    private Task LoopOperator(string id, ChangeEventArgs args) => Edit(() =>
+    {
+        var operation = args.Value?.ToString() ?? "contains";
+        if (!WorkflowLoopLimits.Operators.Contains(operation, StringComparer.Ordinal))
+            throw new ArgumentException("Choose a supported loop predicate.");
+        var current = Definition.Nodes[id].Loop!.ContinueWhile;
+        return GraphEditing.ReplaceNode(Definition, id, Definition.Nodes[id] with
+        { Loop = Definition.Nodes[id].Loop! with { ContinueWhile = new(operation, operation == "is-empty" ? "" : current.Operand) } });
+    });
+    private Task LoopOperand(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
+        Definition.Nodes[id] with { Loop = Definition.Nodes[id].Loop! with
+        { ContinueWhile = Definition.Nodes[id].Loop!.ContinueWhile with { Operand = args.Value?.ToString() ?? "" } } }));
+    private Task LoopMaximumIterations(string id, ChangeEventArgs args) => Edit(() =>
+    {
+        if (!int.TryParse(args.Value?.ToString(), out var maximum) || maximum is < 1 or > WorkflowLoopLimits.MaximumIterations)
+            throw new ArgumentException($"Choose from 1 to {WorkflowLoopLimits.MaximumIterations} iterations.");
+        return GraphEditing.ReplaceNode(Definition, id, Definition.Nodes[id] with
+        { Loop = Definition.Nodes[id].Loop! with { MaximumIterations = maximum } });
+    });
 
     private async Task AddParameter()
     {
@@ -618,7 +665,7 @@
         var parameterId = value?.StartsWith("parameter:", StringComparison.Ordinal) == true ? value[10..] : null;
         var node = Definition.Nodes[id];
         var parameterIncludesOff = parameterId is not null && ParameterDefinitions.TryGetValue(parameterId, out var parameter) && parameter.Choices?.Contains("off") == true;
-        var schema = effort == AgentReasoningEffort.Off || parameterIncludesOff ? Definition.SchemaVersion is "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10" : parameterId is not null ? Definition.SchemaVersion is "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : "1.8" : CapabilitySchema;
+        var schema = effort == AgentReasoningEffort.Off || parameterIncludesOff ? Definition.SchemaVersion is "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10" : parameterId is not null ? Definition.SchemaVersion is "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : "1.8" : CapabilitySchema;
         var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { ReasoningEffort = parameterId is null ? effort : null, ReasoningEffortParameterId = parameterId } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -630,7 +677,7 @@
         if (!int.TryParse(args.Value?.ToString(), out var limit) || limit is < AgentOutputTokenLimits.Minimum or > AgentOutputTokenLimits.Maximum)
             throw new ArgumentException($"Choose an output limit from {AgentOutputTokenLimits.Minimum} to {AgentOutputTokenLimits.Maximum} tokens.");
         var node = Definition.Nodes[id];
-        var schema = Definition.SchemaVersion is "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10";
+        var schema = Definition.SchemaVersion is "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10";
         var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { MaxOutputTokens = limit } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -687,7 +734,7 @@
         var stillUsed = nodes.Values.Where(item => item.Agent is not null).SelectMany(item => item.Agent!.Delegates ?? [])
             .Any(reference => reference.Id == profile.Id && reference.Version == profile.Version);
         if (!stillUsed) profiles = profiles.Remove(profile.Id + "@" + profile.Version);
-        var definition = Definition with { SchemaVersion = profile.Channels is not null ? (Definition.SchemaVersion is "1.16" or "1.15" or "1.14" or "1.13" ? Definition.SchemaVersion : "1.12") : Definition.SchemaVersion is "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.11", AgentProfiles = profiles.Count == 0 ? null : profiles,
+        var definition = Definition with { SchemaVersion = profile.Channels is not null ? (Definition.SchemaVersion is "1.17" or "1.16" or "1.15" or "1.14" or "1.13" ? Definition.SchemaVersion : "1.12") : Definition.SchemaVersion is "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.11", AgentProfiles = profiles.Count == 0 ? null : profiles,
             Skills = skills.Count == 0 ? null : skills, Nodes = nodes };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;

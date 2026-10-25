@@ -22,7 +22,7 @@ public static class WorkflowPorts
     {
         NodeTypes.Input => [],
         NodeTypes.JsonSelectString or NodeTypes.JsonProject => [new("in", "json")],
-        NodeTypes.ParallelFork or NodeTypes.ParallelBranch => [new("in", "string")],
+        NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Loop or NodeTypes.LoopBody => [new("in", "string")],
         NodeTypes.ParallelJoin => [new("branch_1", "string"), new("branch_2", "string")],
         NodeTypes.Output => [new("in", node.OutputDataType ?? "string")],
         _ => [new("in", "string")]
@@ -35,6 +35,7 @@ public static class WorkflowPorts
         NodeTypes.JsonProject => [new("out", "json")],
         NodeTypes.ParallelFork => [new("branch_1", "string"), new("branch_2", "string")],
         NodeTypes.ParallelJoin => [new("out", "json")],
+        NodeTypes.Loop => [new("body", "string"), new("done", "string")],
         _ => [new("out", "string")]
     };
 }
@@ -43,6 +44,12 @@ public static class ParallelGraphLimits
 {
     public const int MaximumBranches = 2;
     public const int MaximumAggregateCharacters = 16_384;
+}
+
+public static class WorkflowLoopLimits
+{
+    public const int MaximumIterations = 16;
+    public static readonly ImmutableArray<string> Operators = ["equals", "contains", "starts-with", "is-empty"];
 }
 
 /// <summary>Parses bounded RFC 6901 JSON Pointers used by declarative JSON selector nodes.</summary>
@@ -94,7 +101,7 @@ public static class JsonProjectionLimits
 public static class WorkflowGraph
 {
     public static bool HasRouting(WorkflowDefinition definition) => definition.Nodes.Values.Any(n =>
-        n?.Type is NodeTypes.Condition or NodeTypes.Merge or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin);
+        n?.Type is NodeTypes.Condition or NodeTypes.Merge or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.Loop);
 
     public static bool HasControlNodes(WorkflowDefinition definition) => HasRouting(definition) || definition.Nodes.Values.Any(n => n?.Type == NodeTypes.Approval);
 
@@ -105,22 +112,25 @@ public static class WorkflowGraph
     public static ImmutableArray<string> OrderedNodes(WorkflowDefinition definition)
     {
         WorkflowValidator.ThrowIfInvalid(definition);
-        return TopologicalOrder(definition);
+        var order = TopologicalOrder(definition, LoopBackConnectionId(definition));
+        return order.AddRange(definition.Nodes.Keys.Except(order, StringComparer.Ordinal).Order(StringComparer.Ordinal));
     }
 
     /// <summary>Safe deterministic canvas order for incomplete drafts. Never use for runtime execution.</summary>
     public static ImmutableArray<string> DisplayOrder(WorkflowDefinition definition)
     {
-        var connected = TopologicalOrder(definition);
-        return connected.AddRange(definition.Nodes.Keys.Except(connected, StringComparer.Ordinal).Order(StringComparer.Ordinal));
+        var connectedOrder = TopologicalOrder(definition, LoopBackConnectionId(definition));
+        var connected = connectedOrder.AddRange(definition.Nodes.Keys.Except(connectedOrder, StringComparer.Ordinal).Order(StringComparer.Ordinal));
+        return connected;
     }
 
-    internal static ImmutableArray<string> TopologicalOrder(WorkflowDefinition definition)
+    internal static ImmutableArray<string> TopologicalOrder(WorkflowDefinition definition, string? ignoredConnectionId = null)
     {
         var incoming = definition.Nodes.Keys.ToDictionary(id => id, _ => 0, StringComparer.Ordinal);
         var outgoing = definition.Nodes.Keys.ToDictionary(id => id, _ => new List<string>(), StringComparer.Ordinal);
-        foreach (var edge in definition.Connections.Values)
+        foreach (var (connectionId, edge) in definition.Connections)
         {
+            if (connectionId == ignoredConnectionId) continue;
             if (edge?.Source?.NodeId is not { } source || edge.Target?.NodeId is not { } target || !incoming.ContainsKey(source) || !incoming.ContainsKey(target)) continue;
             incoming[target]++;
             outgoing[source].Add(target);
@@ -136,5 +146,25 @@ public static class WorkflowGraph
                 if (--incoming[next] == 0) ready.Add(next);
         }
         return order.ToImmutable();
+    }
+
+    internal static string? LoopBackConnectionId(WorkflowDefinition definition)
+    {
+        var loops = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.Loop).Select(entry => entry.Key).ToArray();
+        if (loops.Length != 1) return null;
+        var loopId = loops[0];
+        var bodyEdge = definition.Connections.FirstOrDefault(entry => entry.Value?.Source?.NodeId == loopId && entry.Value?.Source?.PortId == "body");
+        if (bodyEdge.Value?.Target?.NodeId is not { } bodyStart) return null;
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var current = bodyStart;
+        while (visited.Add(current) && visited.Count <= definition.Nodes.Count)
+        {
+            if (current == loopId) return null;
+            var outgoing = definition.Connections.Where(entry => entry.Value?.Source?.NodeId == current).ToArray();
+            if (outgoing.Length != 1 || outgoing[0].Value?.Target?.NodeId is not { } target) return null;
+            if (target == loopId) return outgoing[0].Key;
+            current = target;
+        }
+        return null;
     }
 }

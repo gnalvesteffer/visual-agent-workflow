@@ -21,7 +21,7 @@ public partial class PipelineEditor
         if (connection is not null && Definition.Connections.TryGetValue(connection, out var edge)) return edge.Source;
         var id = context?.NodeId ?? selectedNode ?? Definition.EntryNodeId;
         if (!Definition.Nodes.TryGetValue(id, out var node)) return null;
-        if (node.Type == NodeTypes.ParallelFork) return null;
+        if (node.Type is NodeTypes.ParallelFork or NodeTypes.Loop) return null;
         if (node.Type is NodeTypes.Output or NodeTypes.Approval)
             return Definition.Connections.Values.Single(e => e.Target.NodeId == id).Source;
         var ports = WorkflowPorts.Outputs(node);
@@ -46,7 +46,9 @@ public partial class PipelineEditor
             Definition.Connections.Values.FirstOrDefault(edge => edge.Source == jsonSource) is { } joinEdge &&
             Definition.Nodes[joinEdge.Target.NodeId].Type == NodeTypes.JsonSelectString;
         var selected = context?.NodeId ?? selectedNode;
-        var canInsertCondition = textPath && Definition.Nodes.Count <= 254 && !IsParallelBranchPath(insertion);
+        var hasLoop = Definition.Nodes.Values.Any(node => node.Type == NodeTypes.Loop);
+        var canInsertCondition = textPath && Definition.Nodes.Count <= 254 && !hasLoop && !IsParallelBranchPath(insertion);
+        var canInsertLoop = textPath && Definition.Nodes.Count <= 254 && !WorkflowGraph.HasControlNodes(Definition) && !WorkflowGraph.HasTypedJson(Definition);
         List<WorkflowNodeLibraryEntry> entries =
         [
             new(NodeTypes.Uppercase, "Uppercase", "Text processing", "Convert text deterministically", textPath),
@@ -55,9 +57,10 @@ public partial class PipelineEditor
             new(NodeTypes.WorkflowValue, "Workflow value", "Inputs", "Pass a configured workflow parameter into the graph", textPath && ParameterDefinitions.Count > 0),
             new(NodeTypes.JsonProject, "Project JSON fields", "Data", "Build a bounded JSON object from selected JSON Pointer values", jsonPath),
             new("json-selector", "Select JSON value as text", "Data", "Convert a selected JSON value to text", jsonPath && !jsonSelectorWouldBreakPath),
-            new("parallel", "Parallel block", "Flow", "Run two visible branch paths concurrently and collect named results", textPath && Definition.Nodes.Count <= 251 && !Definition.Nodes.Values.Any(node => node.Type == NodeTypes.ParallelFork)),
+            new("parallel", "Parallel block", "Flow", "Run two visible branch paths concurrently and collect named results", textPath && Definition.Nodes.Count <= 251 && !hasLoop && !Definition.Nodes.Values.Any(node => node.Type == NodeTypes.ParallelFork)),
             new("condition", "Condition", "Flow", "Create true / false paths; merge only when branches rejoin", canInsertCondition),
-            new("approval", "Approval", "Flow", "Select an MCP tool to require exact-action review", textPath && selected is not null && Definition.Nodes.TryGetValue(selected, out var selectedDefinition) && selectedDefinition.Type == NodeTypes.McpTool && !GuardedTool(selected))
+            new("loop", "Bounded loop", "Flow", "Repeat one linear body while a text condition holds, up to a fixed iteration limit", canInsertLoop),
+            new("approval", "Approval", "Flow", "Select an MCP tool to require exact-action review", !hasLoop && textPath && selected is not null && Definition.Nodes.TryGetValue(selected, out var selectedDefinition) && selectedDefinition.Type == NodeTypes.McpTool && !GuardedTool(selected))
         ];
         entries.AddRange(Providers.Select(p => new WorkflowNodeLibraryEntry(ProviderKey(p), p.DisplayName, "Agents", $"{p.ModelId} · {p.Version}", textPath)));
         entries.AddRange(Bindings.Select(b => new WorkflowNodeLibraryEntry(ToolKey(b), b.DisplayName, "MCP tools", "Host-registered tool; node grants still apply", textPath)));
@@ -97,6 +100,8 @@ public partial class PipelineEditor
             await Edit(() => GraphEditing.InsertConditionalAfter(Definition, insertion.NodeId, insertion.PortId), context, insertion);
         else if (key == "parallel")
             await Edit(() => GraphEditing.InsertParallelBlockAfter(Definition, insertion.NodeId, insertion.PortId), context, insertion);
+        else if (key == "loop")
+            await Edit(() => GraphEditing.InsertBoundedLoopAfter(Definition, insertion.NodeId, insertion.PortId), context, insertion);
         else if (key == "json-selector")
             await Edit(() => GraphEditing.InsertJsonSelectorAfterJson(Definition, insertion.NodeId, insertion.PortId), context, insertion);
         else
@@ -106,9 +111,9 @@ public partial class PipelineEditor
     }
 
     private bool CanRemove(string id) => !ReadOnly && !Disabled && Definition.Nodes.TryGetValue(id, out var node) &&
-        node.Type is not (NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition) && !GuardedTool(id);
+        node.Type is not (NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.LoopBody) && !GuardedTool(id);
     private bool CanDuplicate(string id) => CanRemove(id) && Definition.Nodes[id].Type is not
-        (NodeTypes.Approval or NodeTypes.Merge or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin);
+        (NodeTypes.Loop or NodeTypes.Approval or NodeTypes.Merge or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin);
     private async Task RemoveSelected(string id, GraphContextRequest? context = null)
     {
         await CloseMenu(context);

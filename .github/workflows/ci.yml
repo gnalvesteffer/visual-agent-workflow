@@ -114,4 +114,5 @@ jobs:
           python3 scripts/pause_resume_smoke.py
           python3 scripts/conditional_graph_smoke.py
           python3 scripts/parallel_graph_smoke.py
+          python3 scripts/loop_graph_smoke.py
           python3 scripts/approval_smoke.py

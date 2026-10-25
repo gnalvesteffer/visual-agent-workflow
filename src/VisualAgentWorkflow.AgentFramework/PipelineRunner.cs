@@ -112,7 +112,8 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
         foreach (var edge in definition.Connections.Values)
         {
             if (definition.Nodes[edge.Target.NodeId].Type == NodeTypes.ParallelJoin) continue;
-            builder.AddEdge<GraphMessage>(executors[edge.Source.NodeId], executors[edge.Target.NodeId], message => message?.SourcePort == edge.Source.PortId);
+            builder.AddEdge<GraphMessage>(executors[edge.Source.NodeId], executors[edge.Target.NodeId], message =>
+                message?.SourceNode == edge.Source.NodeId && message.SourcePort == edge.Source.PortId);
         }
         var join = definition.Nodes.SingleOrDefault(entry => entry.Value.Type == NodeTypes.ParallelJoin);
         if (join.Value is not null)
@@ -128,7 +129,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
     }
 
     private sealed record GraphMessage(string Text, string? SourceNode, string? SourcePort,
-        WorkflowApprovalPermit? Approval = null, string DataType = "string");
+        WorkflowApprovalPermit? Approval = null, string DataType = "string", int LoopIteration = 0);
 
     private sealed class StringExecutor(
         string id,
@@ -197,7 +198,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 var result = node.Type switch
                 {
                     NodeTypes.Input when node.InputDataType == "json" => NormalizeJson(message),
-                    NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval => message,
+                    NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.LoopBody => message,
                     NodeTypes.JsonSelectString => SelectJsonText(message, node.JsonPropertySelection!.Pointer),
                     NodeTypes.JsonProject => ProjectJson(message, node.JsonProjection!),
                     NodeTypes.ParallelBranch => message,
@@ -235,7 +236,30 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                     port = node.Condition!.Evaluate(message) ? "true" : "false";
                     await emit(ExecutionEventKinds.BranchSelected, Id, invocation, null, JsonSerializer.Serialize(new { port }));
                 }
-                await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, result);
+                var nextLoopIteration = received.LoopIteration;
+                if (node.Type == NodeTypes.Loop)
+                {
+                    var loop = node.Loop!;
+                    var shouldContinue = loop.ContinueWhile.Evaluate(result);
+                    if (received.LoopIteration > 0)
+                        await emit(ExecutionEventKinds.LoopIterationCompleted, Id, invocation, null, JsonSerializer.Serialize(new { iteration = received.LoopIteration }));
+                    if (shouldContinue && received.LoopIteration < loop.MaximumIterations)
+                    {
+                        port = "body";
+                        nextLoopIteration++;
+                        await emit(ExecutionEventKinds.LoopIterationStarted, Id, invocation, null,
+                            JsonSerializer.Serialize(new { iteration = nextLoopIteration, maximumIterations = loop.MaximumIterations }));
+                    }
+                    else
+                    {
+                        port = "done";
+                        var reason = shouldContinue ? "maximum-iterations" : "predicate-false";
+                        await emit(ExecutionEventKinds.LoopStopped, Id, invocation, null,
+                            JsonSerializer.Serialize(new { reason, iterations = received.LoopIteration, maximumIterations = loop.MaximumIterations }));
+                    }
+                }
+                await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null,
+                    node.Type == NodeTypes.Loop ? JsonSerializer.Serialize(new { port, iteration = received.LoopIteration, maximumIterations = node.Loop!.MaximumIterations }) : result);
                 if (node.Type == NodeTypes.ParallelFork)
                 {
                     foreach (var edge in revision.Definition.Connections.Values.Where(edge => edge.Source.NodeId == Id))
@@ -246,7 +270,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 }
                 var outputType = node.Type == NodeTypes.Output ? received.DataType :
                     WorkflowPorts.Outputs(node).Single(output => output.Id == port).DataType;
-                return new(result, Id, port, permit, outputType);
+                return new(result, Id, port, permit, outputType, nextLoopIteration);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

@@ -83,6 +83,9 @@
     private string? ActiveActivity(string id)
     {
         if (State(id)?.Kind != ExecutionEventKinds.NodeStarted) return null;
+        if (Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type == NodeTypes.Loop &&
+            VisibleEvents.LastOrDefault(evt => evt.NodeId == id && evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped) is { } loopActivity)
+            return LoopActivity(loopActivity, "Preparing loop");
         var invocation = State(id)?.InvocationId;
         var events = VisibleEvents.Where(e => e.NodeId == id &&
             (e.InvocationId == invocation || IsDelegatedInvocation(e, invocation))).ToArray();
@@ -131,6 +134,27 @@
             ExecutionEventKinds.ParallelJoinProgress => current.Data ?? "Waiting for both branch results",
             _ => "Processing"
         };
+    }
+    private static string LoopActivity(ExecutionEvent evt, string fallback)
+    {
+        try
+        {
+            using var data = JsonDocument.Parse(evt.Data ?? "{}");
+            var root = data.RootElement;
+            var iteration = root.TryGetProperty("iteration", out var iterationValue) && iterationValue.TryGetInt32(out var currentIteration) ? currentIteration :
+                root.TryGetProperty("iterations", out var iterationsValue) && iterationsValue.TryGetInt32(out var completedIterations) ? completedIterations : 0;
+            var maximum = root.TryGetProperty("maximumIterations", out var maximumValue) && maximumValue.TryGetInt32(out var maxIterations) ? maxIterations : 0;
+            var reason = root.TryGetProperty("reason", out var reasonValue) && reasonValue.ValueKind == JsonValueKind.String ? reasonValue.GetString() : null;
+            return evt.Kind switch
+            {
+                ExecutionEventKinds.LoopIterationStarted when maximum > 0 => $"Iteration {iteration} of {maximum} · entering body",
+                ExecutionEventKinds.LoopIterationCompleted when iteration > 0 => $"Completed iteration {iteration}",
+                ExecutionEventKinds.LoopStopped when reason == "maximum-iterations" => $"Reached iteration limit · {iteration} of {maximum}",
+                ExecutionEventKinds.LoopStopped when reason == "predicate-false" => $"Predicate no longer matches after {iteration} iterations",
+                _ => fallback
+            };
+        }
+        catch (JsonException) { return fallback; }
     }
     private static bool IsDelegatedInvocation(ExecutionEvent evt, Guid? parentInvocationId)
     {

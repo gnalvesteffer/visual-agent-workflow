@@ -102,9 +102,13 @@ Studio and the standalone service can explicitly enable version-pinned OpenAI Ch
 
 Schema 1.5 adds a backend-owned approval immediately before an explicit MCP tool. Requests bind the pinned revision, exact input/binding/contract and reserved invocation identity; decisions are sequenced and host-attributed. Waiting releases execution ownership, while pause and approval remain independent. Designer/review/playback controls and the scripted Agent → Condition → Approval → MCP → Output browser proof are implemented. Remote observation remains read-only. Restart interrupts unfinished waits; durable approval recovery and live-model validation remain planned. See [approvals](approvals.md).
 
+## Latest completed milestone: bounded workflow loop
+
+Schema 1.17 adds one explicit bounded loop over a linear string body. Agent Framework feedback-edge execution is verified end to end: predicate changes exit normally, a continuing predicate stops at the configured 1–16 cap, and loop audit records expose iteration start/completion and stop reason for replay. The Studio inserts and configures the loop, edits its body with ordinary processing/agent/MCP nodes, and removes the structure while retaining the body as a one-pass route. Validation rejects extra loops, other control nodes, unsupported body nodes, invalid predicates, wrong return edges, and cycles outside the validated loop. Core and runtime tests cover these contracts. See [bounded loop graphs](loop-graphs.md).
+
 ## conditional string graphs
 
-Schema 1.4 adds approved ordinal predicates, true/false string ports, exclusive merges and bounded acyclic validation. The adapter uses real Agent Framework conditional edges and records decisions separately from actual deliveries. Designer controls insert conditional blocks, edit predicates/arms and preserve undo/version/package/playback behavior. Existing linear schemas/hashes remain supported; linear-only reuse rejects routing graphs. See [conditional graphs](conditional-graphs.md). Richer port types, arbitrary socket rewiring and loops remain planned. Bounded parallel joins shipped in schema 1.14; see [parallel graphs](parallel-graphs.md).
+Schema 1.4 adds approved ordinal predicates, true/false string ports, exclusive merges and bounded acyclic validation. The adapter uses real Agent Framework conditional edges and records decisions separately from actual deliveries. Designer controls insert conditional blocks, edit predicates/arms and preserve undo/version/package/playback behavior. Existing linear schemas/hashes remain supported; linear-only reuse rejects routing graphs. See [conditional graphs](conditional-graphs.md). Richer port types and nested or variable control-flow structures remain planned. Bounded parallel joins shipped in schema 1.14; see [parallel graphs](parallel-graphs.md).
 
 ## opt-in consumer observation
 

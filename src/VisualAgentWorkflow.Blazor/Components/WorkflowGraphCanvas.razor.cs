@@ -76,6 +76,7 @@ public partial class WorkflowGraphCanvas
         NodeTypes.JsonProject => "JSON projection", NodeTypes.JsonSelectString => "JSON selector",
         NodeTypes.Condition => "Condition", NodeTypes.Merge => "Merge", NodeTypes.Approval => "Approval",
         NodeTypes.ParallelFork => "Parallel fork", NodeTypes.ParallelBranch => "Parallel branch", NodeTypes.ParallelJoin => "Parallel join",
+        NodeTypes.Loop => "Bounded loop", NodeTypes.LoopBody => "Loop body",
         NodeTypes.Agent => "Agent", _ => "MCP tool"
     };
     private async Task SelectNode(string id)
@@ -88,6 +89,7 @@ public partial class WorkflowGraphCanvas
     private static string Kind(NodeDefinition node) => node.Type == NodeTypes.Input ? "Input" : node.Type == NodeTypes.Output ? "Output" :
         node.Type == NodeTypes.Approval ? "Approval" : node.Type == NodeTypes.Condition ? "Condition" : node.Type == NodeTypes.Merge ? "Exclusive merge" :
         node.Type == NodeTypes.ParallelFork ? "Fork" : node.Type == NodeTypes.ParallelBranch ? "Branch" : node.Type == NodeTypes.ParallelJoin ? "Barrier join" :
+        node.Type == NodeTypes.Loop ? "Bounded loop" : node.Type == NodeTypes.LoopBody ? "Loop body" :
         node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform";
 
     protected override void OnParametersSet()
