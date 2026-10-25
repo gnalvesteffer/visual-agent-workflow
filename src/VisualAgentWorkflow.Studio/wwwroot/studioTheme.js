@@ -2,20 +2,27 @@
     const key = 'visual-agent-workflow.theme';
     const themes = new Set(['dark', 'light', 'vs-code-dark-plus', 'solarized-dark', 'nord', 'monokai', 'high-contrast']);
     const root = document.documentElement;
-    let theme = 'dark';
 
-    try {
-        const saved = localStorage.getItem(key);
-        if (themes.has(saved)) theme = saved;
-    } catch { }
+    const read = () => {
+        try {
+            const saved = localStorage.getItem(key);
+            return themes.has(saved) ? saved : 'dark';
+        } catch { return 'dark'; }
+    };
+    const apply = () => { root.dataset.vawTheme = read(); };
 
-    root.dataset.vawTheme = theme;
+    apply();
     window.vawStudioTheme = {
-        get: () => root.dataset.vawTheme,
+        get: read,
         set: value => {
             if (!themes.has(value)) return;
             root.dataset.vawTheme = value;
             try { localStorage.setItem(key, value); } catch { }
         }
     };
+
+    // Enhanced navigation patches the document and can discard root data attributes.
+    document.addEventListener('DOMContentLoaded', () => {
+        window.Blazor?.addEventListener('enhancedload', apply);
+    }, { once: true });
 })();
