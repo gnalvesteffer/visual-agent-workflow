@@ -60,7 +60,15 @@ Use the Function nodes palette to add constants, text concatenation, string comp
 
 Choose **Save immutable function version**. To make a change, select **New version from this function** on a saved revision, edit the copy, and save the next version. Folder changes organize the local library without changing the function content hash. Deleting a library entry does not change any workflow that already embeds its snapshot.
 
-To call a function from a workflow, first validate a Boolean-primitive workflow and choose **Enable pure graph functions**. The node library lists saved function revisions. Add the exact revision you need, then connect compatible data pins to its named input/output sockets. The call node contains the immutable definition and hash; no service-side function catalog lookup occurs. Publish and export the workflow normally. The consumer only needs the workflow package and any ordinary provider/MCP registrations used by the rest of that workflow. Function library CRUD is local to this Studio; standalone function-package import/export, draft collaboration, and exposing graph functions to agents are not implemented yet.
+To call a function from a workflow, first validate a Boolean-primitive workflow and choose **Enable pure graph functions**. The node library lists saved function revisions. Add the exact revision you need, then connect compatible data pins to its named input/output sockets. The call node contains the immutable definition and hash; no service-side function catalog lookup occurs. Publish and export the workflow normally. The consumer only needs the workflow package and any ordinary provider/MCP registrations used by the rest of that workflow. Function library CRUD is local to this Studio; standalone function-package import/export and draft collaboration are not implemented yet.
+
+### Expose pure graph functions as agent tools
+
+1. Create and validate the pure function you want the agent to use. Give it a clear name and description and define named inputs and outputs; those become the tool contract the model sees.
+2. In a valid schema 1.27 workflow, choose **Enable agent function tools**. Select the Agent node and use **Graph function tools** in its properties to assign the exact saved function revision. The agent receives only the selected revisions, up to eight; adding another function revision to the library does not silently expose it.
+3. Connect the Agent node's execution pins as usual. The function call result is returned to the model as a JSON object with the declared outputs; the Agent node's data output remains the agent's final response for downstream workflow nodes.
+
+The runtime validates arguments and rejects undeclared inputs. Calls are limited to 16 per agent invocation, 1,024 aggregate evaluated graph nodes, and 65,536 aggregate input and output characters. Audit records capture the exact function hash, inputs, outputs, evaluated values, and failures. Run playback displays these records without calling the model or reevaluating the function. Graph functions are pure: they cannot use the agent's MCP tools or perform external I/O. Use an explicitly assigned MCP tool for external services.
 
 ### Define reusable workflow inputs
 

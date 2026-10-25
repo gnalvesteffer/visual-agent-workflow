@@ -30,7 +30,7 @@ public static class WorkflowPorts
     public static ImmutableArray<WorkflowPort> ExplicitDataInputs(NodeDefinition node) => node.Type switch
     {
         NodeTypes.FunctionOutput => [new("in", node.InputDataType ?? "string")],
-        NodeTypes.Output => [new("in", "string")],
+        NodeTypes.Output => [new("in", node.OutputDataType ?? "string")],
         NodeTypes.TextConcat => [new("left", "string"), new("right", "string")],
         NodeTypes.StringEquals => [new("left", "string"), new("right", "string")],
         NodeTypes.BooleanBranch => [new("condition", "boolean")],
@@ -43,6 +43,7 @@ public static class WorkflowPorts
     {
         NodeTypes.FunctionInput => [new("out", node.OutputDataType ?? "string")],
         NodeTypes.Input or NodeTypes.StringConstant or NodeTypes.TextConcat => [new("out", "string")],
+        NodeTypes.Agent => [new("out", node.Agent?.RequireStructuredResult == true ? "json" : "string")],
         NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", "boolean")],
         NodeTypes.FunctionCall when node.GraphFunction?.Definition?.Outputs is { } outputs => [.. outputs.Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))],
         _ => []
@@ -50,13 +51,14 @@ public static class WorkflowPorts
 
     public static ImmutableArray<string> ExplicitExecutionInputs(NodeDefinition node) => node.Type switch
     {
-        NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate => ["execute"],
+        NodeTypes.Agent or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate => ["execute"],
         _ => []
     };
 
     public static ImmutableArray<string> ExplicitExecutionOutputs(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input => ["then"],
+        NodeTypes.Agent => ["out"],
         NodeTypes.BooleanBranch => ["true", "false"],
         _ => []
     };

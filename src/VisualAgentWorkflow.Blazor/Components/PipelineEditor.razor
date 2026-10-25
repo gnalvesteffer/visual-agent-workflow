@@ -79,6 +79,14 @@
                 <button type="button" @onclick="EnablePureGraphFunctionsPreview" disabled="@Disabled">Enable pure graph functions</button>
             </section>
         }
+        @if (CanUpgradeAgentGraphFunctionTools)
+        {
+            <section class="vaw-library-note" aria-label="Agent graph-function tools">
+                <strong>Agent graph-function tools</strong>
+                <p class="vaw-help">Upgrade this valid pure graph to add scheduled Agent nodes. Each agent can expose selected immutable pure function revisions as bounded tools.</p>
+                <button type="button" @onclick="EnableAgentGraphFunctionToolsPreview" disabled="@Disabled">Enable agent function tools</button>
+            </section>
+        }
         <WorkflowNodeLibrary Entries="LibraryEntries()" Disabled="Disabled" OnSelected="key => AddLibraryNode(key)" />
         <p class="vaw-help">Click to add an unconnected node. Connect its pins when ready; use a wire menu to explicitly insert into a path.</p>
         <p class="vaw-insertion-hint">@InsertionDescription(null)</p>
@@ -537,6 +545,28 @@
                                 }
                                 @if (AgentProfileLibrary is not null) { <a href="/agents">Open Agent Designer</a> }
                             </fieldset>
+                            @if (Definition.SchemaVersion is WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools)
+                            {
+                                <fieldset disabled="@Disabled"><legend>Graph function tools</legend>
+                                    <p class="vaw-help">Expose only selected immutable pure functions as tools. Their graph body runs deterministically in this workflow; it receives no MCP, network, filesystem, or parent-agent capabilities.</p>
+                                    @foreach (var item in FunctionCatalog?.List() ?? [])
+                                    {
+                                        var function = item.Function;
+                                        var assigned = (agent.GraphFunctionTools ?? []).Any(snapshot => snapshot.ContentHash == function.ContentHash);
+                                        var replacesRevision = (agent.GraphFunctionTools ?? []).Any(snapshot => snapshot.Definition.FunctionId == function.Definition.FunctionId && snapshot.ContentHash != function.ContentHash);
+                                        <label @key="function.ContentHash"><input type="checkbox" aria-label="Expose graph function @function.Definition.DisplayName to @id" checked="@assigned"
+                                            @onchange="args => AssignGraphFunction(id, function, args)" disabled="@(Disabled || !assigned && !replacesRevision && (agent.GraphFunctionTools?.Length ?? 0) >= AgentGraphFunctionToolLimits.MaximumAssignedFunctions)" />
+                                            @function.Definition.DisplayName · v@function.Definition.Version @(string.IsNullOrEmpty(item.Folder) ? "" : "· " + item.Folder)</label>
+                                    }
+                                    @foreach (var snapshot in agent.GraphFunctionTools ?? [])
+                                    {
+                                        @if (!(FunctionCatalog?.List() ?? []).Any(item => item.Function.ContentHash == snapshot.ContentHash))
+                                        { <p>Embedded function: @snapshot.Definition.DisplayName · v@snapshot.Definition.Version · @snapshot.ContentHash[..8] <button type="button" @onclick="() => RemoveGraphFunction(id, snapshot.ContentHash)" disabled="@Disabled">Remove embedded function</button></p> }
+                                    }
+                                    @if (FunctionCatalog is not null) { <a href="/functions">Manage function library</a> }
+                                    <p class="vaw-help">At most @AgentGraphFunctionToolLimits.MaximumAssignedFunctions function revisions and @AgentGraphFunctionToolLimits.MaximumCallsPerInvocation calls per agent invocation. Aggregate inputs and outputs are bounded to @AgentGraphFunctionToolLimits.MaximumInputCharacters characters each.</p>
+                                </fieldset>
+                            }
                                 @foreach (var binding in Bindings)
                                 {
                                     var assigned = agent.Tools.Any(request => BindingMatches(request, binding));
@@ -598,7 +628,7 @@
     private string newParameterDescription = "";
     private System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition> ParameterDefinitions =>
         Definition.Parameters ?? System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
-    private string CapabilitySchema => Definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
+    private string CapabilitySchema => Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
     private string? error;
     private string? selectedNode;
     private string selectedPort = "out";
@@ -869,7 +899,7 @@
         var parameterId = value?.StartsWith("parameter:", StringComparison.Ordinal) == true ? value[10..] : null;
         var node = Definition.Nodes[id];
         var parameterIncludesOff = parameterId is not null && ParameterDefinitions.TryGetValue(parameterId, out var parameter) && parameter.Choices?.Contains("off") == true;
-        var schema = effort == AgentReasoningEffort.Off || parameterIncludesOff ? Definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10" : parameterId is not null ? Definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : "1.8" : CapabilitySchema;
+        var schema = effort == AgentReasoningEffort.Off || parameterIncludesOff ? Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10" : parameterId is not null ? Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : "1.8" : CapabilitySchema;
         var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { ReasoningEffort = parameterId is null ? effort : null, ReasoningEffortParameterId = parameterId } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -881,7 +911,7 @@
         if (!int.TryParse(args.Value?.ToString(), out var limit) || limit is < AgentOutputTokenLimits.Minimum or > AgentOutputTokenLimits.Maximum)
             throw new ArgumentException($"Choose an output limit from {AgentOutputTokenLimits.Minimum} to {AgentOutputTokenLimits.Maximum} tokens.");
         var node = Definition.Nodes[id];
-        var schema = Definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10";
+        var schema = Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10";
         var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { MaxOutputTokens = limit } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -893,7 +923,7 @@
         if (!int.TryParse(args.Value?.ToString(), out var limit) || limit is < AgentExecutionLimits.MinimumTurns or > AgentExecutionLimits.MaximumTurns)
             throw new ArgumentException($"Choose a model-turn limit from {AgentExecutionLimits.MinimumTurns} to {AgentExecutionLimits.MaximumTurns}.");
         var node = Definition.Nodes[id];
-        var schema = Definition.SchemaVersion == "1.22" ? "1.22" : "1.21";
+        var schema = Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or "1.22" ? Definition.SchemaVersion : "1.21";
         var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { MaxTurns = limit } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -910,7 +940,7 @@
             limit = parsed;
         }
         var node = Definition.Nodes[id];
-        var definition = Definition with { SchemaVersion = limit is null ? Definition.SchemaVersion : "1.22", Nodes = Definition.Nodes.SetItem(id,
+        var definition = Definition with { SchemaVersion = limit is null || Definition.SchemaVersion == WorkflowSchemaVersions.AgentGraphFunctionTools ? Definition.SchemaVersion : "1.22", Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { MaxTotalTokens = limit } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
@@ -920,7 +950,7 @@
     {
         var enabled = args.Value is true;
         var node = Definition.Nodes[id];
-        var schema = enabled ? Definition.SchemaVersion == "1.22" ? "1.22" : "1.21" : Definition.SchemaVersion;
+        var schema = enabled ? Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or "1.22" ? Definition.SchemaVersion : "1.21" : Definition.SchemaVersion;
         var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { RequireStructuredResult = enabled ? true : null } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -937,7 +967,7 @@
             timeout = seconds;
         }
         var node = Definition.Nodes[id];
-        var schema = timeout is null && node.Agent!.MaxTurns is null ? Definition.SchemaVersion : Definition.SchemaVersion == "1.22" ? "1.22" : "1.21";
+        var schema = timeout is null && node.Agent!.MaxTurns is null ? Definition.SchemaVersion : Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or "1.22" ? Definition.SchemaVersion : "1.21";
         var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { TimeoutSeconds = timeout } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -966,6 +996,39 @@
         }
         var definition = Definition with { SchemaVersion = CapabilitySchema, Skills = embedded.Count == 0 ? null : embedded,
             Nodes = Definition.Nodes.SetItem(id, node with { Agent = node.Agent with { Skills = references.IsEmpty ? null : references } }) };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    });
+
+    private Task AssignGraphFunction(string id, GraphFunctionConfiguration function, ChangeEventArgs args) => Edit(() =>
+    {
+        if (Definition.SchemaVersion is not (WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools))
+            throw new ArgumentException("Upgrade this workflow to the pure graph-function schema before assigning function tools.");
+        if (GraphFunctionJson.ComputeHash(function.Definition) != function.ContentHash || !GraphFunctionJson.Validate(function.Definition).IsEmpty)
+            throw new ArgumentException("The selected function revision is invalid or its content hash changed.");
+        var node = Definition.Nodes[id];
+        var agent = node.Agent ?? throw new ArgumentException("Select an agent node first.");
+        var tools = (agent.GraphFunctionTools ?? []).Where(snapshot => snapshot.Definition.FunctionId != function.Definition.FunctionId ||
+            snapshot.ContentHash != function.ContentHash).ToImmutableArray();
+        if (args.Value is true)
+        {
+            if (tools.Length >= AgentGraphFunctionToolLimits.MaximumAssignedFunctions)
+                throw new ArgumentException($"An agent can expose up to {AgentGraphFunctionToolLimits.MaximumAssignedFunctions} graph functions.");
+            tools = tools.Add(function);
+        }
+        var nodes = Definition.Nodes.SetItem(id, node with { Agent = agent with { GraphFunctionTools = tools.IsEmpty ? null : tools } });
+        var definition = Definition with { SchemaVersion = WorkflowSchemaVersions.AgentGraphFunctionTools, Nodes = nodes };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
+    });
+
+    private Task RemoveGraphFunction(string id, string contentHash) => Edit(() =>
+    {
+        var node = Definition.Nodes[id];
+        var agent = node.Agent ?? throw new ArgumentException("Select an agent node first.");
+        var tools = (agent.GraphFunctionTools ?? []).Where(function => function.ContentHash != contentHash).ToImmutableArray();
+        var definition = Definition with { Nodes = Definition.Nodes.SetItem(id,
+            node with { Agent = agent with { GraphFunctionTools = tools.IsEmpty ? null : tools } }) };
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
     });

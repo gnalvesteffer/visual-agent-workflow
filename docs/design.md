@@ -271,7 +271,31 @@ Promote the same immutable release across environments using separately authoriz
 
 ## Sharing, collaboration, and source control
 
-Organize definitions and reusable assets into workspaces/projects. Enforce roles such as viewer, editor, runner, publisher, and administrator on the backend. Workflow-definition access and execution-payload access may require different permissions.
+Organize authoring like a Visual Studio solution with an Unreal-style asset navigator: a workspace contains projects, and each project groups its workflows, graph/function assets, agent presets, skills, and workflow-specific parameter schemas. The project browser and asset tree provide navigation and organization; the Blueprint-style graph editor remains the primary surface for composing execution and data flow.
+
+Project ownership is catalog metadata, not executable authority. A project may refer to approved MCP server/tool bindings and model-provider profiles available in a selected host environment, but it does not own their live endpoints, credentials, grants, or runtime clients. The host/environment owns those registrations and checks caller policy plus node-scoped requirements on every invocation. Changing a project's membership, importing a bundle, or selecting an MCP connection in the project cannot grant a workflow permission to invoke it. Promotion should keep a workflow's portable identity stable while staging and production resolve separate authorized endpoints and secrets.
+
+Workflow parameters remain declared workflow inputs/defaults and per-run values; do not imply mutable project-global variables. Define mutable Set/Get semantics only after ordering, loops, parallel writes, isolation and run evidence are specified.
+
+Enforce roles such as viewer, editor, runner, publisher, and administrator through a host-selected authorization context. Workflow-definition access and execution-payload access may require different permissions. Do not trust a caller-supplied project ID without resolving it against the authenticated actor's workspace membership.
+
+```mermaid
+flowchart TB
+    Actor["Authenticated actor"] --> Workspace["Authorized workspace"]
+    Workspace --> Project["Project: authoring and asset ownership"]
+    Project --> Workflows["Workflow and graph revisions"]
+    Project --> Reusable["Functions, agent presets and skills"]
+    Project --> References["Logical MCP and model references"]
+    References --> Environment["Host/environment registrations and secrets"]
+    Workflow["Published workflow snapshot"] --> Runtime["Independent runtime"]
+    Environment --> Policy["Host authorization and node grants"]
+    Runtime --> Policy
+    Policy --> MCP["Authorized MCP operation"]
+```
+
+Keep project membership separate from runtime authority. Published workflow snapshots and packages remain self-contained for portable behavior and requirements; a consumer host resolves environment references and supplies grants. A project bundle is an authoring/sharing artifact, not a deployment credential bundle.
+
+Introduce projects in stages: first define the host authorization/ownership contracts and deterministic default workspace/project; then migrate catalog records and APIs without changing workflow/revision identities, hashes, audit, layout, generation or active pointers; next scope Studio navigation and asset catalogs; finally define project bundle import/export, explicit environment remapping, cross-project pinned references/forks, and collaboration. Archive projects rather than deleting data that published runs and playback still reference. Keep stable globally unique asset IDs unless a demonstrated collision requirement justifies changing executable references.
 
 Sharing supports pinned references to catalog assets and independent copies/forks with provenance. Export bundles include dependency manifests, never credentials. Imports validate content and require explicit mapping to authorized local capabilities. Imported extension references must not trigger automatic assembly installation or loading.
 

@@ -39,6 +39,40 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         return JsonDocument.Parse(JsonSerializer.Serialize(new { type = "object", properties, required, additionalProperties = false }));
     }
 
+    private static JsonDocument GraphFunctionSchema(GraphFunctionDefinition function)
+    {
+        var properties = function.Inputs.ToDictionary(pair => pair.Key, pair => pair.Value.DataType switch
+        {
+            "string" => (object)new { type = "string", maxLength = GraphFunctionLimits.MaximumStringLength, description = pair.Value.DisplayName },
+            "boolean" => new { type = "boolean", description = pair.Value.DisplayName },
+            _ => throw new InvalidOperationException("The graph function declares an unsupported tool input type.")
+        }, StringComparer.Ordinal);
+        return JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            type = "object",
+            properties,
+            required = function.Inputs.Keys,
+            additionalProperties = false
+        }));
+    }
+
+    private static object GraphFunctionArgument(AIFunctionArguments arguments, string portId, string dataType)
+    {
+        if (!arguments.TryGetValue(portId, out var value))
+            throw new InvalidOperationException($"Graph function input '{portId}' is required.");
+        if (value is JsonElement jsonValue)
+            value = dataType == "string" && jsonValue.ValueKind == JsonValueKind.String ? jsonValue.GetString() :
+                dataType == "boolean" && jsonValue.ValueKind is JsonValueKind.True or JsonValueKind.False ? jsonValue.GetBoolean() : value;
+        return dataType switch
+        {
+            "string" when value is string text && text.Length <= GraphFunctionLimits.MaximumStringLength => text,
+            "boolean" when value is bool boolean => boolean,
+            "string" => throw new InvalidOperationException($"Graph function input '{portId}' must be a string of at most {GraphFunctionLimits.MaximumStringLength} characters."),
+            "boolean" => throw new InvalidOperationException($"Graph function input '{portId}' must be a Boolean."),
+            _ => throw new InvalidOperationException("The graph function declares an unsupported tool input type.")
+        };
+    }
+
     private static JsonDocument StructuredResultSchema() => JsonDocument.Parse("""
         {"type":"object","properties":{"status":{"type":"string","enum":["success","failure"]},"payload":{"type":"string","minLength":2,"maxLength":16384,"description":"A JSON object encoded as text; it must fit the node's bounded result payload limit."}},"required":["status","payload"],"additionalProperties":false}
         """);
@@ -107,6 +141,12 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             structuredResultRequired = configuration.RequireStructuredResult == true,
             reasoningEffort,
             requestedTools = configuration.Tools.Select((binding, index) => new { functionName = $"tool_{index}", binding.BindingId, binding.ContractHash }),
+            requestedGraphFunctionTools = (configuration.GraphFunctionTools ?? []).Select(function => new
+            {
+                functionId = function.Definition.FunctionId,
+                version = function.Definition.Version,
+                function.ContentHash
+            }),
             skills = assignedSkills.Select(skill => new { skill.Id, skill.Version, skill.ContentHash })
         });
         try
@@ -121,6 +161,8 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                 throw new ToolAccessDeniedException();
             }
             string? lastSuccessfulToolResult = null;
+            var graphFunctionCalls = 0;
+            var graphFunctionNodeVisits = 0;
             var functions = new List<AITool>();
             foreach (var binding in allowed)
             {
@@ -143,6 +185,82 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                         catch
                         {
                             toolInvocationFailed = true;
+                            throw;
+                        }
+                    }));
+            }
+            foreach (var functionSnapshot in configuration.GraphFunctionTools ?? [])
+            {
+                var graphFunction = functionSnapshot.Definition;
+                using var schema = GraphFunctionSchema(graphFunction);
+                functions.Add(new BoundMcpFunction($"graph_function_{functions.Count}",
+                    $"{graphFunction.Description}\nPure deterministic graph function: {graphFunction.DisplayName} (ID {graphFunction.FunctionId}, revision {graphFunction.Version}). Returns a JSON object with its declared outputs.",
+                    schema.RootElement.Clone(), async (arguments, token) =>
+                    {
+                        var functionInvocationId = Guid.NewGuid();
+                        var inputValues = new Dictionary<string, object>(StringComparer.Ordinal);
+                        await invocation.RecordEventAsync(ExecutionEventKinds.AgentGraphFunctionStarted, JsonSerializer.Serialize(new
+                        {
+                            functionInvocationId,
+                            functionId = graphFunction.FunctionId,
+                            version = graphFunction.Version,
+                            contentHash = functionSnapshot.ContentHash
+                        }));
+                        try
+                        {
+                            if (Interlocked.Increment(ref graphFunctionCalls) > AgentGraphFunctionToolLimits.MaximumCallsPerInvocation)
+                                throw new InvalidOperationException($"The agent reached its {AgentGraphFunctionToolLimits.MaximumCallsPerInvocation}-call graph-function limit.");
+                            foreach (var (inputId, inputPort) in graphFunction.Inputs)
+                                inputValues.Add(inputId, GraphFunctionArgument(arguments, inputId, inputPort.DataType));
+                            if (arguments.Keys.Any(key => !graphFunction.Inputs.ContainsKey(key)))
+                                throw new InvalidOperationException("The graph function received an undeclared input.");
+                            var inputCharacters = JsonSerializer.Serialize(inputValues).Length;
+                            if (inputCharacters > AgentGraphFunctionToolLimits.MaximumInputCharacters)
+                                throw new InvalidOperationException("Graph function inputs exceed the 65,536-character aggregate limit.");
+                            var functionInputs = inputValues.ToDictionary(pair => pair.Key,
+                                pair => new GraphFunctionEvaluation(graphFunction.Inputs[pair.Key].DataType, pair.Value, []), StringComparer.Ordinal);
+                            var outputs = new SortedDictionary<string, object>(StringComparer.Ordinal);
+                            var evaluated = new List<GraphFunctionValueEvidence>();
+                            foreach (var (outputId, _) in graphFunction.Outputs)
+                            {
+                                var result = GraphFunctionJson.Evaluate(graphFunction, functionInputs, outputId, () =>
+                                {
+                                    var visit = Interlocked.Increment(ref graphFunctionNodeVisits);
+                                    if (visit > AgentGraphFunctionToolLimits.MaximumEvaluatedNodesPerInvocation)
+                                        throw new InvalidOperationException($"The agent reached its {AgentGraphFunctionToolLimits.MaximumEvaluatedNodesPerInvocation}-node graph-function evaluation limit.");
+                                    return visit;
+                                });
+                                outputs.Add(outputId, result.Value);
+                                evaluated.AddRange(result.Values);
+                            }
+                            var resultJson = JsonSerializer.Serialize(new { outputs });
+                            if (resultJson.Length > AgentGraphFunctionToolLimits.MaximumOutputCharacters)
+                                throw new InvalidOperationException("Graph function outputs exceed the 65,536-character aggregate limit.");
+                            await invocation.RecordEventAsync(ExecutionEventKinds.AgentGraphFunctionCompleted, JsonSerializer.Serialize(new
+                            {
+                                functionInvocationId,
+                                functionId = graphFunction.FunctionId,
+                                version = graphFunction.Version,
+                                contentHash = functionSnapshot.ContentHash,
+                                inputs = inputValues,
+                                outputs,
+                                evaluatedValues = evaluated
+                            }));
+                            lastSuccessfulToolResult = resultJson;
+                            return resultJson;
+                        }
+                        catch (Exception failure)
+                        {
+                            toolInvocationFailed = true;
+                            await invocation.RecordEventAsync(ExecutionEventKinds.AgentGraphFunctionFailed, JsonSerializer.Serialize(new
+                            {
+                                functionInvocationId,
+                                functionId = graphFunction.FunctionId,
+                                version = graphFunction.Version,
+                                contentHash = functionSnapshot.ContentHash,
+                                inputs = inputValues,
+                                reason = failure.Message
+                            }));
                             throw;
                         }
                     }));

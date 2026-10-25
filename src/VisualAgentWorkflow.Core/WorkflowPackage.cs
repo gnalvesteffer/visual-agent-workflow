@@ -54,6 +54,9 @@ public static class WorkflowPackageJson
                 { DescriptionHash = request.DescriptionHash });
                 foreach (var skill in agent.Skills ?? []) requirements.Add(new("skill", skill.Id, skill.Version, skill.ContentHash));
                 foreach (var profile in agent.Delegates ?? []) requirements.Add(new("agent-profile", profile.Id, profile.Version, profile.ContentHash));
+                foreach (var function in agent.GraphFunctionTools ?? [])
+                    requirements.Add(new("graph-function-tool", function.Definition.FunctionId,
+                        function.Definition.Version.ToString(System.Globalization.CultureInfo.InvariantCulture), function.ContentHash));
             }
         }
         foreach (var profile in definition.AgentProfiles?.Values ?? [])

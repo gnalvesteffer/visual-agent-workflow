@@ -875,6 +875,78 @@ public class AgentExecutionTests
     }
 
     [Fact]
+    public async Task AgentCanInvokeOnlyItsPinnedPureGraphFunctionAndRecordsReplayEvidence()
+    {
+        var registration = DeterministicDemoChatClient.Registration();
+        var function = AppendSuffixFunction();
+        var functionSnapshot = new GraphFunctionConfiguration(function, GraphFunctionJson.ComputeHash(function));
+        var definition = AgentGraphFunctionWorkflow(registration.Descriptor.ProviderId, registration.Descriptor.Version, functionSnapshot);
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var calls = 0;
+        var modelRequests = new List<string>();
+        var registrationWithFunctionCall = registration with
+        {
+            Create = () => new CallbackClient((messages, options, _) =>
+            {
+                modelRequests.Add(JsonSerializer.Serialize(new
+                {
+                    declaredTools = options?.Tools?.Select(tool => tool.Name),
+                    messages
+                }));
+                calls++;
+                return Task.FromResult(calls == 1
+                    ? new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                        [new FunctionCallContent("function-call", "graph_function_0", new Dictionary<string, object?> { ["text"] = "Hello" })]))
+                    { FinishReason = ChatFinishReason.ToolCalls }
+                    : new ChatResponse(new ChatMessage(ChatRole.Assistant, "Done")) { FinishReason = ChatFinishReason.Stop });
+            })
+        };
+        var events = new List<ExecutionEvent>();
+
+        var output = await new PipelineRunner(broker, new AgentNodeExecutor([registrationWithFunctionCall], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "Hello",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("Done", output);
+        Assert.Contains(WorkflowPackageJson.Requirements(definition), requirement =>
+            requirement.Kind == "graph-function-tool" && requirement.Id == function.FunctionId &&
+            requirement.Version == function.Version.ToString(System.Globalization.CultureInfo.InvariantCulture) &&
+            requirement.ContractHash == functionSnapshot.ContentHash);
+        Assert.Contains("graph_function_0", modelRequests[0]);
+        Assert.Contains("Hello!", modelRequests[1]);
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ToolAuthorized or ExecutionEventKinds.ToolCompleted);
+        using var started = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentStarted).Data!);
+        Assert.Equal(function.FunctionId, started.RootElement.GetProperty("requestedGraphFunctionTools")[0].GetProperty("functionId").GetString());
+        var functionStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentGraphFunctionStarted);
+        var functionCompleted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentGraphFunctionCompleted);
+        using var completion = JsonDocument.Parse(functionCompleted.Data!);
+        Assert.Equal(functionSnapshot.ContentHash, completion.RootElement.GetProperty("contentHash").GetString());
+        Assert.Equal("Hello!", completion.RootElement.GetProperty("outputs").GetProperty("result").GetString());
+        using var functionStart = JsonDocument.Parse(functionStarted.Data!);
+        Assert.Equal(functionStart.RootElement.GetProperty("functionInvocationId").GetGuid(),
+            completion.RootElement.GetProperty("functionInvocationId").GetGuid());
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentCompleted && evt.Data!.Contains("Done", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AgentDoesNotDiscoverFunctionsThatAreNotPinnedToItsConfiguration()
+    {
+        var registration = DeterministicDemoChatClient.Registration();
+        var definition = AgentGraphFunctionWorkflow(registration.Descriptor.ProviderId, registration.Descriptor.Version, null);
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var events = new List<ExecutionEvent>();
+
+        await new PipelineRunner(broker, new AgentNodeExecutor([registration], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "Hello",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        using var request = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested).Data!);
+        Assert.Empty(request.RootElement.GetProperty("tools").EnumerateArray());
+        using var started = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentStarted).Data!);
+        Assert.Empty(started.RootElement.GetProperty("requestedGraphFunctionTools").EnumerateArray());
+    }
+
+    [Fact]
     public async Task AgentWithNoToolsDoesNotDiscoverOrExposeConnectedServers()
     {
         var connections = 0;
@@ -982,6 +1054,57 @@ public class AgentExecutionTests
         Assert.DoesNotContain(ExecutionEventKinds.ToolAuthorized, events);
         Assert.DoesNotContain(ExecutionEventKinds.AgentCompleted, events);
     }
+
+    private static WorkflowDefinition AgentGraphFunctionWorkflow(string providerId, string providerVersion,
+        GraphFunctionConfiguration? functionTool)
+    {
+        var agent = new AgentConfiguration(providerId, providerVersion, "Use the assigned graph function, then return a short confirmation.", [])
+        {
+            GraphFunctionTools = functionTool is null ? null : [functionTool]
+        };
+        return new WorkflowDefinition(WorkflowSchemaVersions.AgentGraphFunctionTools, "agent-graph-function", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["agent"] = new(NodeTypes.Agent, "1.0.0", Agent: agent),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["agent-result"] = new(new("agent", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["activate-agent"] = new(new("input", "then"), new("agent", "execute"), "execution"),
+                ["agent-completed"] = new(new("agent", "out"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+        };
+    }
+
+    private static GraphFunctionDefinition AppendSuffixFunction() => new(
+        "text.append-suffix", 1, "Append suffix", "Appends a fixed suffix to text.",
+        new Dictionary<string, GraphFunctionPort>
+        {
+            ["text"] = new("Text", "string")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+        new Dictionary<string, GraphFunctionPort>
+        {
+            ["result"] = new("Result", "string")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+        new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.FunctionInput, "1.0.0") { FunctionPortId = "text" },
+            ["suffix"] = new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("!") },
+            ["concat"] = new(NodeTypes.TextConcat, "1.0.0"),
+            ["output"] = new(NodeTypes.FunctionOutput, "1.0.0") { FunctionPortId = "result" }
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+        new Dictionary<string, ConnectionDefinition>
+        {
+            ["argument"] = new(new("input", "out"), new("concat", "left"), "data"),
+            ["suffix"] = new(new("suffix", "out"), new("concat", "right"), "data"),
+            ["result"] = new(new("concat", "out"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal));
 
     private sealed class CallbackClient(Func<IEnumerable<ChatMessage>, ChatOptions?, CancellationToken, Task<ChatResponse>> callback) : IChatClient
     {

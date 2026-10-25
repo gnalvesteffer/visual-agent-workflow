@@ -184,3 +184,7 @@ Core contracts, Studio controls, and end-to-end validation are complete. The hea
 | Export/import the full package through Studio | Complete | Layout/annotation preservation, local-only import, explicit save/publication, no permission transfer |
 
 This increment uses copy-on-insert template expansion, not recursive runtime prefab calls or automatic instance upgrades. See [reusable pipeline contracts](reusable-pipelines.md).
+
+## agent tools from pinned pure graph functions
+
+Schema 1.28 lets authors assign up to eight exact immutable function snapshots to an Agent node. The model sees only those selected tools. Calls validate the named contract, enforce per-agent call, evaluated-node, and payload bounds, return declared outputs, and record correlated inputs/outputs/evaluated values/failures with the content hash for replay. MCP grants are not inherited by a graph function, which remains a pure deterministic graph. Workflow packages include exact function snapshots and `graph-function-tool` requirements. Runtime regression coverage verifies invocation, audit correlation, package requirements, and that unassigned library functions are not discovered. Multi-project workspace support remains the next authoring milestone; its solution/project layout and security boundaries are documented in [product design](design.md#sharing-collaboration-and-source-control) and [the roadmap](roadmap.md#next-milestone-multi-project-authoring-workspaces).

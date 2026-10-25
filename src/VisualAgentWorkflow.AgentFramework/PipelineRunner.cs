@@ -193,6 +193,10 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
     {
         private int functionNodeVisits;
         private readonly Dictionary<(string NodeId, string PortId), GraphFunctionAudit> functionAudits = [];
+        private readonly Dictionary<(string NodeId, string PortId), ExplicitGraphValue> runtimeValues = [];
+
+        public void SetRuntimeOutput(string nodeId, string portId, string dataType, object value) =>
+            runtimeValues[(nodeId, portId)] = new(dataType, value);
 
         public DataInputEvaluation ResolveInput(string nodeId, string inputPort)
         {
@@ -221,6 +225,12 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
             {
                 if (!definition.Nodes.TryGetValue(nodeId, out var node) || node is null)
                     throw new InvalidOperationException("Pure data source is unavailable.");
+                if (runtimeValues.TryGetValue(key, out var runtimeValue))
+                {
+                    cache.Add(key, runtimeValue);
+                    evaluated.Add(new(nodeId, outputPort, runtimeValue.DataType, runtimeValue.Value, connectionId));
+                    return runtimeValue;
+                }
                 var result = node.Type switch
                 {
                     NodeTypes.Input when outputPort == "out" => new ExplicitGraphValue("string", input),
@@ -433,9 +443,12 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition.SchemaVersion) && node.Type == NodeTypes.Output && !internalTerminationHandoff)
                 {
                     outputEvaluation = dataEvaluator!.ResolveInput(Id, "in");
-                    if (outputEvaluation.Result.DataType != "string" || outputEvaluation.Result.Value is not string outputValue)
-                        throw new InvalidOperationException("An Output node requires a string value.");
-                    message = outputValue;
+                    message = outputEvaluation.Result.DataType switch
+                    {
+                        "string" when outputEvaluation.Result.Value is string outputValue => outputValue,
+                        "json" when outputEvaluation.Result.Value is JsonElement jsonValue && jsonValue.ValueKind == JsonValueKind.Object => jsonValue.GetRawText(),
+                        _ => throw new InvalidOperationException("An Output node requires a string or bounded JSON object value.")
+                    };
                 }
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition.SchemaVersion) && node.Type == NodeTypes.BooleanBranch)
                     branchEvaluation = dataEvaluator!.ResolveBranchCondition(Id);
@@ -471,6 +484,14 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                         }, message, cancellationToken),
                     _ => throw new InvalidOperationException("Unsupported executor type.")
                 };
+                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition.SchemaVersion) && node.Type == NodeTypes.Agent)
+                {
+                    var structuredResult = node.Agent?.RequireStructuredResult == true;
+                    object runtimeValue = structuredResult
+                        ? JsonDocument.Parse(result).RootElement.Clone()
+                        : result;
+                    dataEvaluator!.SetRuntimeOutput(Id, "out", structuredResult ? "json" : "string", runtimeValue);
+                }
                 WorkflowApprovalPermit? permit = null;
                 if (node.Type == NodeTypes.Approval)
                 {
@@ -539,6 +560,7 @@ public sealed partial class PipelineRunner(INodeToolBroker? tools = null, IAgent
                     return new(result, Id, "parallel.dispatched", DataType: "string");
                 }
                 var outputType = node.Type == NodeTypes.Terminate ? "string" : node.Type == NodeTypes.Output ? received.DataType :
+                    node.Type == NodeTypes.Agent && node.Agent?.RequireStructuredResult == true ? "json" :
                     WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition.SchemaVersion) ? "string" : WorkflowPorts.Outputs(node).Single(output => output.Id == port).DataType;
                 var failureSignal = node.Termination?.Outcome == WorkflowTerminationOutcomes.Failure ||
                     received.FailureSignal || childOutcome?.Failed == true;

@@ -17,6 +17,8 @@ public sealed record AgentConfiguration(string ProviderId, string ProviderVersio
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? TimeoutSeconds { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? RequireStructuredResult { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<AgentProfileReference>? Delegates { get; init; }
+    /// <summary>Exact immutable pure graph-function revisions this agent may invoke as tools.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<GraphFunctionConfiguration>? GraphFunctionTools { get; init; }
 }
 
 /// <summary>A portable, immutable specialist-agent preset. Host registrations still resolve providers and authorize tools.</summary>
@@ -77,6 +79,15 @@ public static class AgentExecutionLimits
 public static class AgentResultLimits
 {
     public const int MaximumPayloadCharacters = 16_384;
+}
+
+public static class AgentGraphFunctionToolLimits
+{
+    public const int MaximumAssignedFunctions = 8;
+    public const int MaximumCallsPerInvocation = 16;
+    public const int MaximumEvaluatedNodesPerInvocation = 1024;
+    public const int MaximumInputCharacters = 65_536;
+    public const int MaximumOutputCharacters = 65_536;
 }
 
 public static class AgentResultStatuses
