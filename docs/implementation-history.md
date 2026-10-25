@@ -2,6 +2,10 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Parent-coordinated sequential subagent turns
+
+The parent agent can select assigned delegate tools in sequence, and those child invocations share bounded coordination channels scoped to that parent invocation. Parallel team fan-out uses a distinct per-team board. Every exchange remains attached to the child invocation for audit and replay; tool isolation, one-level delegation and the shared four-child limit remain in force. A deterministic end-to-end regression test verifies manager-selected order and a later delegate reading the earlier delegate's message. Release build passed with zero warnings; the full suite passed (271 tests, one opt-in live-model test skipped), and all 24 Mermaid diagrams rendered. See [agent profiles](agent-profiles.md), [architecture](architecture.md), and the [user guide](user-guide.md#design-reusable-subagents).
+
 ## Run-scoped agent team channels
 
 Schema 1.12 adds channel IDs to immutable agent profiles. Parallel team members receive send/read functions only for channels pinned to their exact profile revision. Each team invocation gets a fresh append-only board with bounds of 4,000 characters per message, 32 messages per channel and 64 total; every write and read is captured under the member's child invocation, including the exact messages returned to the model. Playback uses those records and makes no calls. Core validation, package round-trip, library validation, cross-run isolation, and denied-membership tests cover the new contract. Release build and full test suite pass (270 passed; one opt-in live-model test skipped); all 24 Mermaid diagrams rendered locally. Manager-directed turns and shared durable memory remain out of scope. See [agent profiles](agent-profiles.md), [architecture](architecture.md), and [the user guide](user-guide.md#design-reusable-subagents).

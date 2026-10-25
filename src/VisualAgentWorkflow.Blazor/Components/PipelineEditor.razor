@@ -282,7 +282,7 @@
                                 @if (SkillLibrary is not null) { <a href="/skills">Manage skill library</a> }
                             </fieldset>
                             <fieldset disabled="@Disabled"><legend>Subagents</legend>
-                                <p class="vaw-help">Selected profiles appear as delegate tools. With two or more profiles, the parent also gets a parallel team tool. Team members can exchange bounded messages only on channels they share in Agent Designer; membership is pinned with each profile revision. Each child gets only its own profile tools within host authorization. Teams run up to four members concurrently, one level deep, with a four-child-call limit per parent-agent invocation.</p>
+                                <p class="vaw-help">Selected profiles appear as delegate tools, so the parent agent chooses which specialist to call and when. Sequential delegate turns can exchange bounded messages on shared Agent Designer channels; the parallel team tool uses a separate channel scope for that team call. Membership is pinned with each profile revision. Each child gets only its own profile tools within host authorization. Teams run up to four members concurrently, one level deep, with a four-child-call limit per parent-agent invocation.</p>
                                 @foreach (var item in AgentProfileLibrary?.List() ?? [])
                                 {
                                     var profile = item.Profile;

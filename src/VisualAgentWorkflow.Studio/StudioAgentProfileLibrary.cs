@@ -92,7 +92,7 @@ public sealed class StudioAgentProfileLibrary : IAgentProfileLibrary
             profile.Tools.Any(tool => tool is null || !ValidBinding(tool)) ||
             profile.Tools.Select(tool => tool.BindingId).Distinct(StringComparer.Ordinal).Count() != profile.Tools.Length ||
             profile.Skills?.Any(skill => skill is null || skill != WorkflowSkill.Create(skill.Id, skill.Version, skill.Name, skill.Instructions)) == true)
-            throw new ArgumentException("Enter a valid profile with bounded instructions, up to eight unique tools and skills, and up to eight valid team-channel IDs.");
+            throw new ArgumentException("Enter a valid profile with bounded instructions, up to eight unique tools and skills, and up to eight valid coordination-channel IDs.");
         ValidateFolder(folder);
     }
 

@@ -22,7 +22,7 @@
                 <p><code>@item.Profile.Id</code> · @(string.IsNullOrWhiteSpace(item.Folder) ? "Unfiled" : item.Folder) · @item.Profile.ContentHash![..8]</p>
                 <p>@item.Profile.Description</p>
                 <p>@item.Profile.ProviderId · @item.Profile.ProviderVersion · @item.Profile.Tools.Length MCP tools · @(item.Profile.Skills?.Length ?? 0) skills · @(item.Profile.Channels?.Length ?? 0) channels</p>
-                @if (item.Profile.Channels is { Length: > 0 }) { <p>Team channels: @string.Join(", ", item.Profile.Channels)</p> }
+                @if (item.Profile.Channels is { Length: > 0 }) { <p>Coordination channels: @string.Join(", ", item.Profile.Channels)</p> }
                 <details><summary>View system instructions</summary><pre>@item.Profile.Instructions</pre></details>
                 <label>Folder <input aria-label="Folder for @item.Profile.Id @item.Profile.Version" value="@item.Folder" @onchange="args => Move(item, args)" /></label>
                 <button type="button" @onclick="() => Copy(item)">New version from this profile</button>
@@ -50,8 +50,8 @@
                 </select>
             </label>
             <label>Maximum output tokens <input type="number" min="@AgentOutputTokenLimits.Minimum" max="@AgentOutputTokenLimits.Maximum" @bind="maxOutputTokens" /></label>
-            <label class="vaw-provider-form-wide">Team channels <textarea @bind="channelsText" maxlength="600" rows="3" placeholder="research&#10;review" /></label>
-            <p class="vaw-help vaw-provider-form-wide">One channel ID per line, using lowercase letters, numbers, dots, hyphens, or underscores. Teammates assigned the same channel can read and append messages during a parallel team run. Channels exist only for that run.</p>
+            <label class="vaw-provider-form-wide">Coordination channels <textarea @bind="channelsText" maxlength="600" rows="3" placeholder="research&#10;review" /></label>
+            <p class="vaw-help vaw-provider-form-wide">One channel ID per line, using lowercase letters, numbers, dots, hyphens, or underscores. Assigned profiles on the same channel can exchange bounded messages when the parent calls them in sequence or as a parallel team. Messages last only for that parent invocation or team call.</p>
             <label class="vaw-provider-form-wide">System instructions <textarea required @bind="instructions" maxlength="8192" rows="6" /></label>
             <fieldset class="vaw-provider-form-wide"><legend>Allowed MCP tools</legend>
                 <p class="vaw-help">The profile can call only these tools. The consumer host must also authorize each binding for the parent agent node.</p>
@@ -123,7 +123,7 @@
                 .Select(item => item.Skill).ToImmutableArray();
             var profileChannels = channelsText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(channel => channel.TrimEnd('\r')).Distinct(StringComparer.Ordinal).ToImmutableArray();
-            if (profileChannels.Length > 8) throw new ArgumentException("An agent profile can join up to eight team channels.");
+            if (profileChannels.Length > 8) throw new ArgumentException("An agent profile can join up to eight coordination channels.");
             var effort = Enum.TryParse<AgentReasoningEffort>(reasoning, out var selectedEffort) ? selectedEffort : (AgentReasoningEffort?)null;
             if (effort is not null && !provider.SupportsReasoningEffort)
                 throw new ArgumentException("The selected provider does not advertise reasoning effort support.");

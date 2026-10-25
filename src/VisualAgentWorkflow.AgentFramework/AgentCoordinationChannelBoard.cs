@@ -4,17 +4,18 @@ using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.AgentFramework;
 
-/// <summary>Append-only, team-invocation-local messages, authorized by each profile's declared channel membership.</summary>
-internal sealed class AgentTeamChannelBoard(Guid teamInvocationId, IEnumerable<AgentProfile> profiles)
+/// <summary>Append-only, parent- or team-invocation-local messages with exact-profile membership checks.</summary>
+internal sealed class AgentCoordinationChannelBoard(Guid coordinationId, string coordinationScope, Guid parentInvocationId,
+    IEnumerable<AgentProfile> profiles)
 {
     public const int MaximumMessagesPerChannel = 32;
-    public const int MaximumMessagesPerTeam = 64;
+    public const int MaximumMessagesPerScope = 64;
     public const int MaximumMessageCharacters = 4_000;
 
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly ImmutableDictionary<(string Id, string Version), AgentProfile> members =
         profiles.ToImmutableDictionary(profile => (profile.Id, profile.Version));
-    private readonly Dictionary<string, List<AgentTeamChannelMessage>> messages = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<AgentChannelMessage>> messages = new(StringComparer.Ordinal);
     private long sequence;
 
     public ImmutableArray<string> ChannelsFor(AgentProfile profile) =>
@@ -31,13 +32,15 @@ internal sealed class AgentTeamChannelBoard(Guid teamInvocationId, IEnumerable<A
         try
         {
             var channelMessages = messages.GetValueOrDefault(channel);
-            if (sequence >= MaximumMessagesPerTeam || channelMessages is { Count: >= MaximumMessagesPerChannel })
-                throw new InvalidOperationException("The team channel message limit was reached.");
+            if (sequence >= MaximumMessagesPerScope || channelMessages is { Count: >= MaximumMessagesPerChannel })
+                throw new InvalidOperationException("The coordination channel message limit was reached.");
 
-            var recordedMessage = new AgentTeamChannelMessage(sequence + 1, sender.Id, sender.Version, sender.Name, message);
+            var recordedMessage = new AgentChannelMessage(sequence + 1, sender.Id, sender.Version, sender.Name, message);
             await invocation.RecordEventAsync(ExecutionEventKinds.AgentChannelMessageSent, JsonSerializer.Serialize(new
             {
-                teamInvocationId,
+                coordinationId,
+                coordinationScope,
+                parentInvocationId,
                 channel,
                 message = recordedMessage
             }));
@@ -59,7 +62,9 @@ internal sealed class AgentTeamChannelBoard(Guid teamInvocationId, IEnumerable<A
             var output = JsonSerializer.Serialize(available);
             await invocation.RecordEventAsync(ExecutionEventKinds.AgentChannelMessagesRead, JsonSerializer.Serialize(new
             {
-                teamInvocationId,
+                coordinationId,
+                coordinationScope,
+                parentInvocationId,
                 channel,
                 readerProfileId = profile.Id,
                 readerProfileVersion = profile.Version,
@@ -73,10 +78,10 @@ internal sealed class AgentTeamChannelBoard(Guid teamInvocationId, IEnumerable<A
     private AgentProfile RequireMember(AgentProfile profile, string channel)
     {
         if (!members.TryGetValue((profile.Id, profile.Version), out var member) || member.Channels?.Contains(channel, StringComparer.Ordinal) != true)
-            throw new InvalidOperationException("The agent profile is not a member of this team channel.");
+            throw new InvalidOperationException("The agent profile is not a member of this coordination channel.");
         return member;
     }
 }
 
-internal sealed record AgentTeamChannelMessage(long Sequence, string SenderProfileId, string SenderProfileVersion, string SenderName, string Content);
-internal sealed record AgentTeamChannelAccess(AgentTeamChannelBoard Board, AgentProfile Profile);
+internal sealed record AgentChannelMessage(long Sequence, string SenderProfileId, string SenderProfileVersion, string SenderName, string Content);
+internal sealed record AgentCoordinationChannelAccess(AgentCoordinationChannelBoard Board, AgentProfile Profile);

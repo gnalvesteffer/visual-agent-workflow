@@ -33,7 +33,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         var required = new List<string> { "channel" };
         if (includeMessage)
         {
-            properties["message"] = new { type = "string", minLength = 1, maxLength = AgentTeamChannelBoard.MaximumMessageCharacters };
+            properties["message"] = new { type = "string", minLength = 1, maxLength = AgentCoordinationChannelBoard.MaximumMessageCharacters };
             required.Add("message");
         }
         return JsonDocument.Parse(JsonSerializer.Serialize(new { type = "object", properties, required, additionalProperties = false }));
@@ -56,7 +56,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
     }
 
     private async Task<string> ExecuteConfigurationAsync(NodeInvocationContext invocation, AgentConfiguration configuration,
-        string input, bool allowDelegation, CancellationToken cancellationToken, AgentTeamChannelAccess? channelAccess = null)
+        string input, bool allowDelegation, CancellationToken cancellationToken, AgentCoordinationChannelAccess? channelAccess = null)
     {
         if (!Volatile.Read(ref registrations).TryGetValue(Key(configuration.ProviderId, configuration.ProviderVersion), out var provider))
             throw new InvalidOperationException("The pinned agent provider is unavailable.");
@@ -128,7 +128,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                 {
                     using var sendSchema = ChannelSchema(channelIds, includeMessage: true);
                     functions.Add(new BoundMcpFunction("channel_send",
-                        "Append a message to one of your assigned team channels. Other profiles assigned to that channel can read it.",
+                        "Append a message to one of your assigned coordination channels. Other assigned profiles on that channel can read it.",
                         sendSchema.RootElement.Clone(), async (arguments, token) =>
                         {
                             var channel = RequiredString(arguments, "channel");
@@ -137,7 +137,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                         }));
                     using var readSchema = ChannelSchema(channelIds, includeMessage: false);
                     functions.Add(new BoundMcpFunction("channel_read",
-                        "Read the append-only messages currently recorded in one of your assigned team channels.",
+                        "Read the append-only messages currently recorded in one of your assigned coordination channels.",
                         readSchema.RootElement.Clone(), async (arguments, token) =>
                         {
                             var channel = RequiredString(arguments, "channel");
@@ -155,9 +155,11 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                         throw new InvalidOperationException("An assigned agent profile is unavailable or has changed.");
                     return profile;
                 }).ToArray();
+                var parentChannels = new AgentCoordinationChannelBoard(invocation.InvocationId, "agent-invocation",
+                    invocation.InvocationId, assignedProfiles);
                 var delegatedCalls = 0;
                 async Task<string> InvokeProfileAsync(AgentProfile profile, string task, CancellationToken token,
-                    Guid? teamInvocationId = null, bool callReserved = false, AgentTeamChannelBoard? teamChannels = null)
+                    Guid? teamInvocationId = null, bool callReserved = false, AgentCoordinationChannelBoard? channels = null)
                 {
                     if (!callReserved && Interlocked.Increment(ref delegatedCalls) > 4)
                     {
@@ -199,7 +201,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                     try
                     {
                         var result = await ExecuteConfigurationAsync(childContext, childConfiguration, task, false, token,
-                            teamChannels is null ? null : new(teamChannels, profile));
+                            channels is null ? null : new(channels, profile));
                         await childContext.RecordEventAsync(ExecutionEventKinds.AgentCompleted, JsonSerializer.Serialize(new
                         {
                             delegatedProfileId = profile.Id,
@@ -235,7 +237,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                         {
                             if (!arguments.TryGetValue("task", out var taskValue) || taskValue is not string task || string.IsNullOrWhiteSpace(task) || task.Length > 16_384)
                                 throw new InvalidOperationException("A delegate task must contain 1–16,384 characters.");
-                            return await InvokeProfileAsync(profile, task, token);
+                            return await InvokeProfileAsync(profile, task, token, channels: parentChannels);
                         }));
                 }
 
@@ -253,7 +255,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                                 throw new InvalidOperationException("The team would exceed the four-call delegation limit.");
                             }
                             var teamInvocationId = Guid.NewGuid();
-                            var teamChannels = new AgentTeamChannelBoard(teamInvocationId, assignedProfiles);
+                            var teamChannels = new AgentCoordinationChannelBoard(teamInvocationId, "team", invocation.InvocationId, assignedProfiles);
                             await invocation.RecordEventAsync(ExecutionEventKinds.AgentTeamStarted, JsonSerializer.Serialize(new
                             {
                                 teamInvocationId,
@@ -274,7 +276,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                                             profile.Version,
                                             profile.Name,
                                             output = await InvokeProfileAsync(profile, task, teamCancellation.Token, teamInvocationId,
-                                                callReserved: true, teamChannels: teamChannels)
+                                                callReserved: true, channels: teamChannels)
                                         };
                                     }
                                     catch
