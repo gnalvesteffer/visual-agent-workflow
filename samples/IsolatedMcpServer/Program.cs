@@ -1,4 +1,7 @@
 using System.ComponentModel;
+using System.Reflection;
+using System.Runtime.Loader;
+using System.Security.Cryptography;
 using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
@@ -9,8 +12,48 @@ using VisualAgentWorkflow.Mcp;
 
 var builder = Host.CreateApplicationBuilder();
 builder.Logging.ClearProviders();
-builder.Services.AddMcpServer().WithStdioServerTransport().WithTools<IsolationProbeTools>();
+var mcpServer = builder.Services.AddMcpServer().WithStdioServerTransport().WithTools<IsolationProbeTools>();
+var extensionTools = IsolatedExtensionLoader.LoadTools(args);
+if (extensionTools.Count > 0) mcpServer.WithTools(extensionTools);
 await builder.Build().RunAsync();
+
+internal static class IsolatedExtensionLoader
+{
+    private const string AssemblyPath = "/app/extensions/extension.dll";
+    private const long MaximumAssemblyBytes = 64 * 1024 * 1024;
+
+    public static IReadOnlyList<McpServerTool> LoadTools(string[] arguments)
+    {
+        if (arguments.Length == 0) return [];
+        if (arguments.Length != 6 || arguments[0] != "--extension-id" || arguments[2] != "--extension-version" ||
+            arguments[4] != "--extension-sha256")
+            throw new InvalidOperationException("Invalid extension worker configuration.");
+
+        var file = new FileInfo(AssemblyPath);
+        if (!file.Exists || file.Length is <= 0 or > MaximumAssemblyBytes)
+            throw new InvalidOperationException("The approved extension artifact is missing or exceeds its size limit.");
+        using var assemblyFile = File.OpenRead(AssemblyPath);
+        var actualDigest = Convert.ToHexString(SHA256.HashData(assemblyFile)).ToLowerInvariant();
+        if (!string.Equals(actualDigest, arguments[5], StringComparison.Ordinal))
+            throw new InvalidOperationException("The extension artifact digest does not match the host pin.");
+
+        var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(AssemblyPath);
+        var extensionTypes = assembly.GetTypes()
+            .Where(type => !type.IsAbstract && !type.IsInterface && typeof(IWorkflowExtension).IsAssignableFrom(type))
+            .ToArray();
+        if (extensionTypes.Length != 1 || Activator.CreateInstance(extensionTypes[0]) is not IWorkflowExtension extension)
+            throw new InvalidOperationException("The assembly must contain exactly one public parameterless workflow extension.");
+
+        if (extension.Descriptor.Id != arguments[1] || extension.Descriptor.Version != arguments[3])
+            throw new InvalidOperationException("The extension identity does not match the host pin.");
+
+        var tools = extension.CreateTools(new McpWorkerCapabilityClient());
+        if (tools.Count is < 1 or > 8 || tools.Select(tool => tool.ProtocolTool.Name).Distinct(StringComparer.Ordinal).Count() != tools.Count ||
+            tools.Any(tool => !tool.ProtocolTool.Name.StartsWith($"{extension.Descriptor.Id}.", StringComparison.Ordinal)))
+            throw new InvalidOperationException("Extension tool names must be unique, namespaced, and limited to eight operations.");
+        return tools;
+    }
+}
 
 internal sealed class IsolationProbeTools
 {

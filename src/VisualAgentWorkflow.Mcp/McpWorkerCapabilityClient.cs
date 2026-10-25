@@ -6,7 +6,7 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.Mcp;
 
 /// <summary>Worker-side client for the host-brokered MCP capabilities mounted into a Linux container worker.</summary>
-public sealed class McpWorkerCapabilityClient(string socketPath = "/run/vaw-capabilities/capabilities.sock")
+public sealed class McpWorkerCapabilityClient(string socketPath = "/run/vaw-capabilities/capabilities.sock") : IWorkflowExtensionContext
 {
     public const string DefaultSocketPath = "/run/vaw-capabilities/capabilities.sock";
     private const int ProtocolVersion = 1;
@@ -27,6 +27,9 @@ public sealed class McpWorkerCapabilityClient(string socketPath = "/run/vaw-capa
         var response = await SendAsync(new(ProtocolVersion, Guid.NewGuid(), "invoke", bindingId, arguments.Clone()), cancellationToken);
         return response.Result ?? throw new ToolInvocationException("The host returned no capability result.");
     }
+
+    public Task<string> InvokeMcpToolAsync(string bindingId, JsonElement arguments, CancellationToken cancellationToken = default) =>
+        InvokeJsonAsync(bindingId, arguments, cancellationToken);
 
     private async Task<CapabilityResponse> SendAsync(CapabilityRequest request, CancellationToken cancellationToken)
     {

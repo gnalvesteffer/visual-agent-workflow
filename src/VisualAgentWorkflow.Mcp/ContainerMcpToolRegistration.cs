@@ -11,8 +11,13 @@ public sealed record ContainerMcpServerOptions(string ImageReference)
     public IReadOnlyList<string> Arguments { get; init; } = [];
     /// <summary>Additional node-assigned host tool bindings this worker may request through the broker.</summary>
     public IReadOnlyList<string> CapabilityBindingIds { get; init; } = [];
+    /// <summary>Identity and SHA-256 pin for an extension assembly baked into the worker image.</summary>
+    public WorkflowExtensionArtifact? ExtensionArtifact { get; init; }
     public bool AllowInvocation { get; init; }
 }
+
+/// <summary>Operator-approved extension identity. The worker verifies the assembly bytes against this digest.</summary>
+public sealed record WorkflowExtensionArtifact(string Id, string Version, string Sha256);
 
 /// <summary>Creates a host registration for an MCP tool running in a constrained disposable container.</summary>
 public static partial class ContainerMcpToolRegistration
@@ -37,7 +42,8 @@ public static partial class ContainerMcpToolRegistration
         var capabilityBindingIds = options.CapabilityBindingIds.ToArray();
         if (capabilityBindingIds.Contains(bindingId, StringComparer.Ordinal))
             throw new ArgumentException("A worker cannot grant itself as a capability.", nameof(options));
-        var arguments = BuildDockerArguments(options).ToArray();
+        var workerArguments = BuildWorkerArguments(options);
+        var arguments = BuildDockerArguments(options, workerArguments).ToArray();
 
         async Task<McpClient> Connect(CancellationToken cancellationToken)
         {
@@ -92,7 +98,11 @@ public static partial class ContainerMcpToolRegistration
         };
     }
 
-    internal static IReadOnlyList<string> BuildDockerArguments(ContainerMcpServerOptions options)
+    internal static IReadOnlyList<string> BuildDockerArguments(ContainerMcpServerOptions options) =>
+        BuildDockerArguments(options, options.Arguments);
+
+    private static IReadOnlyList<string> BuildDockerArguments(ContainerMcpServerOptions options,
+        IReadOnlyList<string> workerArguments)
     {
         var arguments = new List<string>
         {
@@ -103,7 +113,20 @@ public static partial class ContainerMcpToolRegistration
             "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m"
         };
         arguments.Add(options.ImageReference);
-        arguments.AddRange(options.Arguments);
+        arguments.AddRange(workerArguments);
+        return arguments;
+    }
+
+    private static IReadOnlyList<string> BuildWorkerArguments(ContainerMcpServerOptions options)
+    {
+        var arguments = options.Arguments.ToList();
+        if (options.ExtensionArtifact is not { } extension) return arguments;
+        arguments.Add("--extension-id");
+        arguments.Add(extension.Id);
+        arguments.Add("--extension-version");
+        arguments.Add(extension.Version);
+        arguments.Add("--extension-sha256");
+        arguments.Add(extension.Sha256);
         return arguments;
     }
 
@@ -120,6 +143,12 @@ public static partial class ContainerMcpToolRegistration
             options.CapabilityBindingIds.Any(string.IsNullOrWhiteSpace) ||
             options.CapabilityBindingIds.Distinct(StringComparer.Ordinal).Count() != options.CapabilityBindingIds.Count)
             throw new ArgumentException("Worker capability bindings must be unique and limited to eight entries.", nameof(options));
+        if (options.ExtensionArtifact is { } extension &&
+            (!ExtensionIdRegex().IsMatch(extension.Id) || !ExtensionVersionRegex().IsMatch(extension.Version) ||
+             !ImageIdRegex().IsMatch($"sha256:{extension.Sha256}")))
+            throw new ArgumentException("Extension ID, semantic version, or SHA-256 digest is invalid.", nameof(options));
+        if (options.ExtensionArtifact is not null && options.Arguments.Count > 0)
+            throw new ArgumentException("The extension worker image does not accept additional process arguments.", nameof(options));
     }
 
     private static bool IsDigestPinned(string? imageReference) => imageReference is not null &&
@@ -130,4 +159,10 @@ public static partial class ContainerMcpToolRegistration
 
     [GeneratedRegex("^[A-Za-z0-9._:/-]+@sha256:[0-9a-f]{64}$", RegexOptions.CultureInvariant)]
     private static partial Regex RegistryDigestRegex();
+
+    [GeneratedRegex("^[a-z0-9][a-z0-9._-]{0,63}$", RegexOptions.CultureInvariant)]
+    private static partial Regex ExtensionIdRegex();
+
+    [GeneratedRegex("^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[A-Za-z0-9.-]+)?$", RegexOptions.CultureInvariant)]
+    private static partial Regex ExtensionVersionRegex();
 }
