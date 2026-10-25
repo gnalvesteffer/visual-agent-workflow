@@ -1,6 +1,19 @@
 # Deterministic visual programming and reusable graph functions
 
-This is an active product capability, not a claim that the full Blueprint-style language exists. Today the graph engine supports string and bounded JSON values, deterministic text/JSON nodes, conditions, bounded loops, parallel blocks, and versioned workflow parameters. Schema 1.23 separates execution edges from pure data dependencies. Studio has an opt-in authoring preview for a blank Input-to-Output graph, string constants, and pure text concatenation; the preview records evaluated values and identifies the data wires that supplied them. It is deliberately bounded: explicit graphs currently allow only Input, Output, String constant, and Text concatenation nodes, with one direct Input-to-Output execution activation. Branching and mixed explicit control-flow graphs are not supported yet, so the roadmap's branch-inclusive proof remains open. Legacy serialized `data` connections still activate downstream nodes under their original schemas, so they are not reinterpreted as pure value wires. The toolbox should grow into a safe visual programming language for deterministic work, with reusable, packaged functions that feel like small integrated circuits.
+This is an active product capability, not a claim that the full Blueprint-style language exists. The graph engine supports string and bounded JSON values, deterministic text/JSON nodes, conditions, bounded loops, parallel blocks, and versioned workflow parameters. Schema 1.23 separates execution edges from pure data dependencies. Schema 1.24 adds a narrow mixed-graph proof: ordinal, case-sensitive string equality produces an actual Boolean value; a Boolean Branch consumes that typed value and activates exactly one of its `true` or `false` execution outputs. In Studio, the opt-in preview can route `true` to Output and `false` to a failure termination. Branch selection and evaluated values are recorded with their connection IDs, and playback displays only recorded evidence without reevaluation. This bounded schema does not yet allow arbitrary branch topology, reconvergence, general operators, or migration of legacy node families. Legacy serialized `data` connections still activate downstream nodes under their original schemas, so they are not reinterpreted as pure value wires. The toolbox should grow into a safe visual programming language for deterministic work, with reusable, packaged functions that feel like small integrated circuits.
+
+```mermaid
+flowchart LR
+    Input[Input] -->|data: string| Compare[Compare strings]
+    Expected[String constant] -->|data: string| Compare
+    Compare -->|data: Boolean| Branch[Boolean Branch]
+    Input -.->|execution: then| Branch
+    Input -->|data: string| Output[Output]
+    Branch -->|execution: true| Output
+    Branch -->|execution: false| Failure[Terminate: failure]
+```
+
+Data wires supply typed values; execution wires activate nodes. The input can feed both pure comparison and output data without activating either data dependency. Branch chooses one recorded execution route, and the false path does not evaluate Output.
 
 For the source-grounded Blueprint concepts, capability map, scope boundaries, and project adaptations, see the [Unreal Blueprint design reference](https://github.com/gnalvesteffer/visual-agent-workflow/blob/main/docs/unreal-blueprint-reference.md). Treat that document's capability targets as roadmap guidance; shipped behavior remains defined by this repo's architecture and focused contracts.
 

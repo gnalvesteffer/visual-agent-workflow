@@ -206,6 +206,31 @@ def explicit_graph_preview_check(page, designer):
     slider.evaluate("e => { e.value=0; e.dispatchEvent(new Event('input',{bubbles:true})); }")
     expect(run_canvas.locator("path.vaw-wire-delivered[data-kind='data']")).to_have_count(0)
 
+    workbench(designer)
+    designer.get_by_role("button", name="New workflow", exact=True).click()
+    designer.get_by_text("New workflow created locally. Save its draft before publishing.", exact=True).wait_for()
+    branch_workflow_id = designer.get_by_label("Saved workflow", exact=True).input_value()
+    designer.get_by_role("button", name="Start typed graph preview", exact=True).click()
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    designer.get_by_text("Draft saved.", exact=True).wait_for()
+    designer.get_by_role("button", name="Enable Boolean Branch preview", exact=True).click()
+    library = designer.locator(".vaw-node-library")
+    library.get_by_role("button", name="Add Compare strings", exact=True).click()
+    library.get_by_role("button", name="Add Boolean Branch", exact=True).click()
+    library.get_by_role("button", name="Add Terminate workflow", exact=True).click()
+    branch = designer.locator("li[data-node-type='core.branch.boolean']")
+    expect(branch).to_have_count(1)
+    expect(branch.locator("[data-socket='condition'][data-socket-kind='data'][data-socket-type='boolean']")).to_have_count(1)
+    expect(branch.locator("[data-socket='true'][data-socket-kind='execution']")).to_have_count(1)
+    expect(branch.locator("[data-socket='false'][data-socket-kind='execution']")).to_have_count(1)
+    expect(designer.get_by_role("alert", name="Workflow validation issues")).to_contain_text("unresolved issue")
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    designer.get_by_text("Draft saved.", exact=True).wait_for()
+    saved_branch = page.request.get(BASE + f"/api/workflows/{branch_workflow_id}/design").json()["draft"]["definition"]
+    assert saved_branch["schemaVersion"] == "1.24"
+    assert {node["type"] for node in saved_branch["nodes"].values()} >= {
+        "core.text.equals", "core.branch.boolean", "core.terminate"}
+
 
 def check(browser, screenshots):
     page = browser.new_page(viewport={"width":1920,"height":1080})
@@ -423,7 +448,7 @@ def check(browser, screenshots):
     explicit_graph_preview_check(page, designer)
     assert not errors,errors
     page.close()
-    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring/replay, recursive JSON projection authoring, explicit typed-graph authoring/execution/replay, and MCP tool detail review passed.")
+    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring/replay, recursive JSON projection authoring, explicit typed-graph authoring/execution/replay, Boolean branch node authoring/draft save, and MCP tool detail review passed.")
 
 
 if __name__=="__main__":

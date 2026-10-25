@@ -45,6 +45,33 @@ public class WorkflowTests
         }.ToImmutableSortedDictionary(StringComparer.Ordinal)
     };
 
+    private static WorkflowDefinition ExplicitBooleanBranchGraph() => new WorkflowDefinition(
+        "1.24", "explicit-branch", "input",
+        new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["expected"] = new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("yes") },
+            ["equals"] = new(NodeTypes.StringEquals, "1.0.0"),
+            ["branch"] = new(NodeTypes.BooleanBranch, "1.0.0"),
+            ["output"] = new(NodeTypes.Output, "1.0.0"),
+            ["terminate"] = new(NodeTypes.Terminate, "1.0.0") { Termination = new(WorkflowTerminationOutcomes.Failure) }
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+        new Dictionary<string, ConnectionDefinition>
+        {
+            ["input-left"] = new(new("input", "out"), new("equals", "left"), "data"),
+            ["expected-right"] = new(new("expected", "out"), new("equals", "right"), "data"),
+            ["comparison"] = new(new("equals", "out"), new("branch", "condition"), "data"),
+            ["output-value"] = new(new("input", "out"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+    {
+        ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+        {
+            ["activate-branch"] = new(new("input", "then"), new("branch", "execute"), "execution"),
+            ["true-route"] = new(new("branch", "true"), new("output", "execute"), "execution"),
+            ["false-route"] = new(new("branch", "false"), new("terminate", "execute"), "execution")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+    };
+
     [Fact]
     public void ValidPipelineRoundTripsWithStableHash()
     {
@@ -72,6 +99,37 @@ public class WorkflowTests
         Assert.Collection(WorkflowPorts.Explicit(restored.Nodes["output"]),
             port => Assert.Equal(new WorkflowPortDescriptor("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, "string"), port),
             port => Assert.Equal(new WorkflowPortDescriptor("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution), port));
+    }
+
+    [Fact]
+    public void Explicit_boolean_branch_uses_typed_data_and_preserves_draft_rewiring()
+    {
+        var definition = ExplicitBooleanBranchGraph();
+        var json = WorkflowJson.Serialize(definition);
+        var restored = WorkflowJson.Deserialize(json);
+        Assert.Empty(WorkflowValidator.Validate(restored));
+        Assert.Equal(json, WorkflowJson.Serialize(restored));
+        Assert.Collection(WorkflowPorts.Explicit(restored.Nodes["branch"]),
+            port => Assert.Equal(new WorkflowPortDescriptor("condition", WorkflowPortDirection.Input, WorkflowPortKind.Data, "boolean"), port),
+            port => Assert.Equal(new WorkflowPortDescriptor("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution), port),
+            port => Assert.Equal(new WorkflowPortDescriptor("true", WorkflowPortDirection.Output, WorkflowPortKind.Execution), port),
+            port => Assert.Equal(new WorkflowPortDescriptor("false", WorkflowPortDirection.Output, WorkflowPortKind.Execution), port));
+
+        var mismatchedType = definition with
+        {
+            Connections = definition.Connections.SetItem("comparison",
+                new(new("input", "out"), new("branch", "condition"), "data"))
+        };
+        Assert.Contains(WorkflowValidator.Validate(mismatchedType), issue => issue.Code == "connection.port");
+
+        var incomplete = GraphEditing.AddUnconnectedNode(definition, new(NodeTypes.BooleanBranch, "1.0.0"));
+        var draft = WorkflowJson.DeserializeDraft(WorkflowJson.SerializeDraft(incomplete));
+        Assert.Equal("1.24", draft.SchemaVersion);
+        Assert.NotEmpty(WorkflowValidator.Validate(draft));
+        Assert.Throws<ArgumentException>(() => WorkflowJson.Serialize(draft));
+
+        var outcome = WorkflowTerminationEditing.SetOutcome(definition, "terminate", WorkflowTerminationOutcomes.Failure);
+        Assert.Equal("1.24", outcome.SchemaVersion);
     }
 
     [Fact]

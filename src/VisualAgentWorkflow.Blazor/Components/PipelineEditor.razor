@@ -47,6 +47,14 @@
                 <button type="button" @onclick="EnableExplicitPreview" disabled="@Disabled">Start typed graph preview</button>
             </section>
         }
+        @if (CanUpgradeBranchGraph)
+        {
+            <section class="vaw-library-note" aria-label="Boolean branch preview">
+                <strong>Boolean Branch preview</strong>
+                <p class="vaw-help">Add ordinal string comparison, a typed Boolean Branch, and success or failure termination routes. The new nodes remain unconnected until you wire them.</p>
+                <button type="button" @onclick="EnableBranchPreview" disabled="@Disabled">Enable Boolean Branch preview</button>
+            </section>
+        }
         <WorkflowNodeLibrary Entries="LibraryEntries()" Disabled="Disabled" OnSelected="key => AddLibraryNode(key)" />
         <p class="vaw-help">Click to add an unconnected node. Connect its pins when ready; use a wire menu to explicitly insert into a path.</p>
         <p class="vaw-insertion-hint">@InsertionDescription(null)</p>
@@ -89,7 +97,7 @@
             {
             var index = Order.IndexOf(id);
             var terminal = node.Type is NodeTypes.Input or NodeTypes.Output;
-                    @if (node.Type == NodeTypes.Input && Definition.SchemaVersion == "1.23")
+                    @if (node.Type == NodeTypes.Input && WorkflowSchemaVersions.UsesExplicitGraph(Definition.SchemaVersion))
                     {
                         <p>The <strong>then</strong> pin activates the workflow path. The <strong>out</strong> pin is a value dependency and does not activate nodes.</p>
                     }
@@ -154,6 +162,14 @@
                     else if (node.Type == NodeTypes.TextConcat)
                     {
                         <p>Concatenates the <strong>left</strong> and <strong>right</strong> string inputs when a downstream data input requests its output. It does not activate through execution wires.</p>
+                    }
+                    else if (node.Type == NodeTypes.StringEquals)
+                    {
+                        <p>Compares the <strong>left</strong> and <strong>right</strong> string values using ordinal, case-sensitive equality. Its output is a Boolean value.</p>
+                    }
+                    else if (node.Type == NodeTypes.BooleanBranch)
+                    {
+                        <p>Reads a Boolean data value and activates exactly one execution output: <strong>true</strong> or <strong>false</strong>. It never converts text to a Boolean.</p>
                     }
                     else if (node.Type == NodeTypes.WorkflowCall)
                     {
@@ -528,7 +544,7 @@
     private string? error;
     private string? selectedNode;
     private string selectedPort = "out";
-    private Task SelectNode(string id) { insertionConnection = null; if (selectedNode != id) selectedPort = Definition.SchemaVersion == "1.23"
+    private Task SelectNode(string id) { insertionConnection = null; if (selectedNode != id) selectedPort = WorkflowSchemaVersions.UsesExplicitGraph(Definition.SchemaVersion)
         ? WorkflowPorts.Explicit(Definition.Nodes[id]).FirstOrDefault(port => port.Direction == WorkflowPortDirection.Output)?.Id ?? "out"
         : WorkflowPorts.Outputs(Definition.Nodes[id]).FirstOrDefault()?.Id ?? "out"; selectedNode = id; return Task.CompletedTask; }
     private string Summary(NodeDefinition node) => node.Type switch
@@ -542,6 +558,8 @@
         NodeTypes.TextTemplate => $"Template · {PromptTemplateCodec.Format(node.TextTemplate)}",
         NodeTypes.StringConstant => node.StringConstant?.Value ?? "Empty text constant",
         NodeTypes.TextConcat => "Join left + right",
+        NodeTypes.StringEquals => "Ordinal string equality",
+        NodeTypes.BooleanBranch => "Route by Boolean value",
         NodeTypes.WorkflowValue => node.ParameterId is { } parameterId && ParameterDefinitions.TryGetValue(parameterId, out var parameter)
             ? $"Workflow value · {parameter.DisplayName}" : "Workflow value",
         NodeTypes.Condition => $"{node.Condition!.Operator} · {node.Condition.Operand}",
@@ -595,7 +613,7 @@
         return GraphEditing.ReplaceNode(Definition, nodeId, node with { WorkflowCall = call with { ParameterMappings = mappings.IsEmpty ? null : mappings } });
     });
     private bool HasRouting => WorkflowGraph.HasControlNodes(Definition);
-    private bool UsesGraphEditing => HasRouting || WorkflowGraph.HasTypedJson(Definition);
+    private bool UsesGraphEditing => WorkflowSchemaVersions.UsesExplicitGraph(Definition.SchemaVersion) || HasRouting || WorkflowGraph.HasTypedJson(Definition);
     private static string PortLabel(string id, string port) => port == "out" ? id : id + "." + port;
     private WorkflowDefinition ReplaceProcessing(string id, NodeDefinition node) => UsesGraphEditing
         ? GraphEditing.ReplaceNode(Definition, id, node) : PipelineEditing.ReplaceNode(Definition, id, node);
@@ -749,6 +767,8 @@
         if (value == NodeTypes.StringConstant)
             return new(NodeTypes.StringConstant, "1.0.0") { StringConstant = existing?.StringConstant ?? new("") };
         if (value == NodeTypes.TextConcat) return new(NodeTypes.TextConcat, "1.0.0");
+        if (value == NodeTypes.StringEquals) return new(NodeTypes.StringEquals, "1.0.0");
+        if (value == NodeTypes.BooleanBranch) return new(NodeTypes.BooleanBranch, "1.0.0");
         if (value == NodeTypes.JsonSelectString)
             return new(NodeTypes.JsonSelectString, "1.0.0") { JsonPropertySelection = existing?.JsonPropertySelection ?? new("/name") };
         if (value == NodeTypes.JsonProject)

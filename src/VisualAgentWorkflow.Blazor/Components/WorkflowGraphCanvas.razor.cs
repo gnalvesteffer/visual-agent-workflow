@@ -72,13 +72,13 @@ public partial class WorkflowGraphCanvas
     }
     private static string PointsJson(WirePresentation route) => JsonSerializer.Serialize(route.Points, JsonOptions);
     private WirePresentation Route(string id) => Layout.Wires.GetValueOrDefault(id) ?? new("curve", []);
-    private IEnumerable<CanvasConnection> CanvasConnections => Definition.SchemaVersion == "1.23"
+    private IEnumerable<CanvasConnection> CanvasConnections => WorkflowSchemaVersions.UsesExplicitGraph(Definition.SchemaVersion)
         ? Definition.Connections.Select(edge => new CanvasConnection($"data:{edge.Key}", edge.Value, "data"))
             .Concat((Definition.ExecutionConnections ?? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
                 .Select(edge => new CanvasConnection($"execution:{edge.Key}", edge.Value, "execution")))
         : Definition.Connections.Select(edge => new CanvasConnection(edge.Key, edge.Value, "data"));
     private CanvasConnection? FindConnection(string? id) => id is null ? null : CanvasConnections.FirstOrDefault(edge => edge.Id == id);
-    private ImmutableArray<WorkflowPortDescriptor> Ports(NodeDefinition node) => Definition.SchemaVersion == "1.23"
+    private ImmutableArray<WorkflowPortDescriptor> Ports(NodeDefinition node) => WorkflowSchemaVersions.UsesExplicitGraph(Definition.SchemaVersion)
         ? WorkflowPorts.Explicit(node)
         : [.. WorkflowPorts.Inputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType)),
            .. WorkflowPorts.Outputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType))];
@@ -92,6 +92,7 @@ public partial class WorkflowGraphCanvas
         NodeTypes.Loop => "Bounded loop", NodeTypes.LoopBody => "Loop body", NodeTypes.Terminate => "Terminate workflow",
         NodeTypes.WorkflowCall => $"Workflow · {node.WorkflowCall?.WorkflowId} v{node.WorkflowCall?.Version}",
         NodeTypes.StringConstant => "String constant", NodeTypes.TextConcat => "Text concatenation",
+        NodeTypes.StringEquals => "Compare strings", NodeTypes.BooleanBranch => "Boolean Branch",
         NodeTypes.Agent => "Agent", _ => "MCP tool"
     };
     private async Task SelectNode(string id)
@@ -105,7 +106,8 @@ public partial class WorkflowGraphCanvas
         node.Type == NodeTypes.Approval ? "Approval" : node.Type == NodeTypes.Condition ? "Condition" : node.Type == NodeTypes.Merge ? "Exclusive merge" :
         node.Type == NodeTypes.ParallelFork ? "Fork" : node.Type == NodeTypes.ParallelBranch ? "Branch" : node.Type == NodeTypes.ParallelJoin ? "Barrier join" :
         node.Type == NodeTypes.Loop ? "Bounded loop" : node.Type == NodeTypes.LoopBody ? "Loop body" : node.Type == NodeTypes.Terminate ? "Successful exit · no result" :
-        node.Type == NodeTypes.WorkflowCall ? "Pinned workflow call" : node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat ? "Pure value" :
+        node.Type == NodeTypes.WorkflowCall ? "Pinned workflow call" : node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals ? "Pure value" :
+        node.Type == NodeTypes.BooleanBranch ? "Boolean routing" :
         node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform";
 
     protected override void OnParametersSet()

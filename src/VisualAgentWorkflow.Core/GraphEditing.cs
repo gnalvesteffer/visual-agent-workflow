@@ -9,7 +9,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableExplicitGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (definition.SchemaVersion == "1.23" && definition.ExecutionConnections is not null) return definition;
+        if (definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph && definition.ExecutionConnections is not null) return definition;
         var onlyProcessingNodes = definition.Nodes.Count == 2 &&
             definition.Nodes.TryGetValue(definition.EntryNodeId, out var input) && input.Type == NodeTypes.Input &&
             definition.Nodes.Values.Count(node => node.Type == NodeTypes.Output) == 1;
@@ -22,12 +22,22 @@ public static class GraphEditing
         var executionId = NewId("activate");
         var upgraded = definition with
         {
-            SchemaVersion = "1.23",
+            SchemaVersion = WorkflowSchemaVersions.ExplicitGraph,
             ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
                 .Add(executionId, new(new(definition.EntryNodeId, "then"), new(output.Key, "execute"), "execution"))
         };
         WorkflowValidator.ThrowIfInvalid(upgraded);
         return upgraded;
+    }
+
+    /// <summary>Enables the bounded 1.24 branch preview without changing existing graph wires.</summary>
+    public static WorkflowDefinition EnableExplicitBranchGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.ExplicitGraph || definition.ExecutionConnections is null)
+            throw new ArgumentException("Start the explicit graph preview before enabling branch routing.", nameof(definition));
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition with { SchemaVersion = WorkflowSchemaVersions.ExplicitBranchGraph };
     }
 
     /// <summary>Adds a configured node without connecting it. Incomplete topology remains an editable draft.</summary>
@@ -39,7 +49,8 @@ public static class GraphEditing
         var prefix = node.Type switch
         {
             NodeTypes.Condition => "condition", NodeTypes.Terminate => "terminate", NodeTypes.Merge => "merge",
-            NodeTypes.Agent => "agent", NodeTypes.McpTool => "mcp", NodeTypes.StringConstant => "constant", NodeTypes.TextConcat => "concat", _ => node.Type
+            NodeTypes.Agent => "agent", NodeTypes.McpTool => "mcp", NodeTypes.StringConstant => "constant", NodeTypes.TextConcat => "concat",
+            NodeTypes.StringEquals => "equals", NodeTypes.BooleanBranch => "branch", _ => node.Type
         };
         var id = NewId(prefix);
         return definition with
@@ -52,7 +63,7 @@ public static class GraphEditing
     /// <summary>Reconnects pins in an editable draft. Structural validation remains visible until every issue is fixed.</summary>
     public static WorkflowDefinition ConnectPins(WorkflowDefinition definition, string sourceId, string sourcePortId, string targetId, string targetPortId)
     {
-        if (definition.SchemaVersion == "1.23")
+        if (WorkflowSchemaVersions.UsesExplicitGraph(definition.SchemaVersion))
             return ConnectExplicitPins(definition, sourceId, sourcePortId, targetId, targetPortId);
 
         if (!definition.Nodes.TryGetValue(sourceId, out var source) || !definition.Nodes.TryGetValue(targetId, out var target))
@@ -313,7 +324,7 @@ public static class GraphEditing
     public static WorkflowDefinition RemoveNode(WorkflowDefinition definition, string id)
     {
         if (!definition.Nodes.TryGetValue(id, out var requestedNode)) throw new ArgumentException("Unknown node.", nameof(id));
-        if (definition.SchemaVersion == "1.23")
+        if (WorkflowSchemaVersions.UsesExplicitGraph(definition.SchemaVersion))
         {
             if (requestedNode.Type is NodeTypes.Input or NodeTypes.Output)
                 throw new ArgumentException("Input and output boundary nodes cannot be removed independently.", nameof(id));

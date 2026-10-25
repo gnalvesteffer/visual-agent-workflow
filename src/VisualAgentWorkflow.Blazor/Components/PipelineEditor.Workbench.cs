@@ -7,10 +7,10 @@ namespace VisualAgentWorkflow.Blazor.Components;
 public partial class PipelineEditor
 {
     private string? insertionConnection;
-    private bool UseGraphRemoval => Definition.SchemaVersion == "1.23" || UsesGraphEditing || WorkflowValidator.Validate(Definition).Any(issue =>
+    private bool UseGraphRemoval => WorkflowSchemaVersions.UsesExplicitGraph(Definition.SchemaVersion) || UsesGraphEditing || WorkflowValidator.Validate(Definition).Any(issue =>
         issue.Code is "graph.degree" or "pipeline.degree" or "graph.unreachable" or "graph.cycle" or "pipeline.terminals");
     private ImmutableArray<WorkflowPort> SelectedOutputs => selectedNode is { } id && Definition.Nodes.TryGetValue(id, out var node)
-        ? Definition.SchemaVersion == "1.23"
+        ? WorkflowSchemaVersions.UsesExplicitGraph(Definition.SchemaVersion)
             ? [.. WorkflowPorts.Explicit(node).Where(port => port.Direction == WorkflowPortDirection.Output)
                 .Select(port => new WorkflowPort(port.Id, port.DataType ?? "execution"))]
             : WorkflowPorts.Outputs(node)
@@ -24,7 +24,7 @@ public partial class PipelineEditor
             : Definition.Connections.GetValueOrDefault(connectionId);
         if (edge is not null)
         {
-            insertionConnection = Definition.SchemaVersion == "1.23" ? null : id;
+            insertionConnection = WorkflowSchemaVersions.UsesExplicitGraph(Definition.SchemaVersion) ? null : id;
             selectedNode = edge.Source.NodeId;
             selectedPort = edge.Source.PortId;
         }
@@ -35,7 +35,7 @@ public partial class PipelineEditor
     {
         // Only a command opened directly on a wire is an explicit insert operation.
         // A selected node or previously selected wire must never make a library click auto-connect.
-        var connection = Definition.SchemaVersion == "1.23" ? null : context?.ConnectionId;
+        var connection = WorkflowSchemaVersions.UsesExplicitGraph(Definition.SchemaVersion) ? null : context?.ConnectionId;
         if (connection is not null && Definition.Connections.TryGetValue(connection, out var edge)) return edge.Source;
         return null;
     }
@@ -51,14 +51,26 @@ public partial class PipelineEditor
             Definition.Nodes.TryGetValue(edge.Target.NodeId, out var target) && target.Type == NodeTypes.Output && edge.Target.PortId == "in");
 
     private Task EnableExplicitPreview() => Edit(() => GraphEditing.EnableExplicitGraph(Definition));
+    private bool CanUpgradeBranchGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph &&
+        WorkflowValidator.Validate(Definition).IsEmpty;
+    private Task EnableBranchPreview() => Edit(() => GraphEditing.EnableExplicitBranchGraph(Definition));
 
     private IReadOnlyList<WorkflowNodeLibraryEntry> LibraryEntries(GraphContextRequest? context = null)
     {
-        if (Definition.SchemaVersion == "1.23")
+        if (Definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph)
             return
             [
                 new(NodeTypes.StringConstant, "String constant", "Values", "A literal text value; evaluated only when a data input needs it", !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
                 new(NodeTypes.TextConcat, "Concatenate text", "Values", "Join two text inputs without activating a node", !ReadOnly && !Disabled && Definition.Nodes.Count < 256)
+            ];
+        if (Definition.SchemaVersion == WorkflowSchemaVersions.ExplicitBranchGraph)
+            return
+            [
+                new(NodeTypes.StringConstant, "String constant", "Values", "A literal text value, evaluated only when requested", !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
+                new(NodeTypes.TextConcat, "Concatenate text", "Values", "Join two string inputs deterministically", !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
+                new(NodeTypes.StringEquals, "Compare strings", "Values", "Compare strings using ordinal, case-sensitive equality", !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
+                new(NodeTypes.BooleanBranch, "Boolean Branch", "Flow", "Choose exactly one execution route from a Boolean data input", !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
+                new("terminate", "Terminate workflow", "Flow", "End this route with a successful or failed result", !ReadOnly && !Disabled && Definition.Nodes.Count < 256)
             ];
         var insertion = Insertion(context);
         var sourceType = insertion is { } source

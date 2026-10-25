@@ -16,7 +16,7 @@ public sealed record WorkflowDefinition(
     public string? DisplayName { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ImmutableSortedDictionary<string, WorkflowParameterDefinition>? Parameters { get; init; }
-    /// <summary>Explicit execution activations used by schema 1.23 and later; legacy versions schedule through Connections.</summary>
+    /// <summary>Explicit execution activations used by schemas 1.23+; legacy versions schedule through Connections.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ImmutableSortedDictionary<string, ConnectionDefinition>? ExecutionConnections { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -95,9 +95,19 @@ public static class NodeTypes
     public const string WorkflowCall = "core.workflow-call";
     public const string StringConstant = "core.constant.string";
     public const string TextConcat = "core.text.concat";
+    public const string StringEquals = "core.text.equals";
+    public const string BooleanBranch = "core.branch.boolean";
 
     public static bool IsSupported(string? type) =>
-        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin or Loop or LoopBody or Terminate or WorkflowCall or StringConstant or TextConcat;
+        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin or Loop or LoopBody or Terminate or WorkflowCall or StringConstant or TextConcat or StringEquals or BooleanBranch;
+}
+
+public static class WorkflowSchemaVersions
+{
+    public const string ExplicitGraph = "1.23";
+    public const string ExplicitBranchGraph = "1.24";
+
+    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph;
 }
 
 public sealed record StringConstantConfiguration(string Value);

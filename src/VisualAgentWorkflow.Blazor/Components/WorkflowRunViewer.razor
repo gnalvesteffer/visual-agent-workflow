@@ -106,7 +106,8 @@
         try
         {
             using var document = JsonDocument.Parse(evt.Data!);
-            return document.RootElement.GetProperty("value").GetString() ?? "";
+            var value = document.RootElement.GetProperty("value");
+            return value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : value.GetRawText();
         }
         catch (JsonException) { return evt.Data ?? ""; }
     }

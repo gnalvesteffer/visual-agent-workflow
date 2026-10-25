@@ -60,8 +60,8 @@ public static class WorkflowValidator
         var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
 
-        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23"))
-            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.23.");
+        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24"))
+            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.24.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.DisplayName is { } displayName &&
@@ -73,8 +73,8 @@ public static class WorkflowValidator
             Error("graph.missing", "nodes", "Nodes and connections must be present.");
             return issues.ToImmutable();
         }
-        if (definition.Nodes.Count is < 2 or > 256 || definition.Connections.Count > (definition.SchemaVersion is "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" ? 510 : 255))
-            Error("graph.limit", "nodes", "A graph requires 2–256 nodes and at most 255 connections (510 for schemas 1.4–1.21).");
+        if (definition.Nodes.Count is < 2 or > 256 || definition.Connections.Count > (definition.SchemaVersion is "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" ? 510 : 255))
+            Error("graph.limit", "nodes", "A graph requires 2–256 nodes and at most 255 connections (510 for routed and explicit-graph schemas).");
 
         var parameters = definition.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
         if (parameters.Count > 64)
@@ -259,13 +259,15 @@ public static class WorkflowValidator
                 Error("condition.unexpected", $"nodes.{id}.condition", "Only conditional nodes may declare a predicate.");
             if (node.Type == NodeTypes.StringConstant)
             {
-                if (definition.SchemaVersion != "1.23" || node.StringConstant is not { Value.Length: <= 16_384 })
-                    Error("constant.configuration", $"nodes.{id}.stringConstant", "String constants require schema 1.23 and a value up to 16,384 characters.");
+                if (!WorkflowSchemaVersions.UsesExplicitGraph(definition.SchemaVersion) || node.StringConstant is not { Value.Length: <= 16_384 })
+                    Error("constant.configuration", $"nodes.{id}.stringConstant", "String constants require schema 1.23 or later and a value up to 16,384 characters.");
             }
             else if (node.StringConstant is not null)
                 Error("constant.unexpected", $"nodes.{id}.stringConstant", "Only string constant nodes may declare a constant value.");
-            if (node.Type == NodeTypes.TextConcat && definition.SchemaVersion != "1.23")
-                Error("node.schema", $"nodes.{id}", "Pure text concatenation requires schema 1.23.");
+            if (node.Type == NodeTypes.TextConcat && !WorkflowSchemaVersions.UsesExplicitGraph(definition.SchemaVersion))
+                Error("node.schema", $"nodes.{id}", "Pure text concatenation requires an explicit graph schema.");
+            if (node.Type is NodeTypes.StringEquals or NodeTypes.BooleanBranch && definition.SchemaVersion != WorkflowSchemaVersions.ExplicitBranchGraph)
+                Error("node.schema", $"nodes.{id}", "Pure string equality and Boolean Branch nodes require schema 1.24.");
             if (node.Origin is { } origin && (definition.SchemaVersion is not ("1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16") ||
                 string.IsNullOrWhiteSpace(origin.WorkflowId) || origin.WorkflowId.Length > 256 ||
                 string.IsNullOrWhiteSpace(origin.NodeId) || origin.NodeId.Length > 256 || origin.RevisionId == Guid.Empty ||
@@ -347,9 +349,12 @@ public static class WorkflowValidator
             !definition.Nodes.TryGetValue(definition.EntryNodeId, out var entry) || entry?.Type != NodeTypes.Input)
             Error("entry.invalid", "entryNodeId", "The entry must reference an input node.");
 
-        if (definition.SchemaVersion == "1.23")
+        if (WorkflowSchemaVersions.UsesExplicitGraph(definition.SchemaVersion))
         {
-            ValidateExplicitGraph(definition, Error);
+            if (definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph)
+                ValidateExplicitGraph(definition, Error);
+            else
+                ValidateExplicitBranchGraph(definition, Error);
             return issues.ToImmutable();
         }
         if (definition.ExecutionConnections is not null)
@@ -542,6 +547,169 @@ public static class WorkflowValidator
                 if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat && !visited.Contains(id))
                     error("data.unreachable", $"nodes.{id}", "Every pure data node must be reachable from an output input.");
         }
+    }
+
+    private static void ValidateExplicitBranchGraph(WorkflowDefinition definition, Action<string, string, string> error)
+    {
+        if (definition.ExecutionConnections is null)
+        {
+            error("execution.missing", "executionConnections", "Schema 1.24 requires an explicit execution-connection collection.");
+            return;
+        }
+        if (definition.Nodes.Count is < 2 or > 256 || definition.Connections.Count + definition.ExecutionConnections.Count > 510)
+            error("graph.limit", "nodes", "An explicit graph requires 2–256 nodes and at most 510 total data and execution connections.");
+
+        var supportedTypes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            NodeTypes.Input, NodeTypes.Output, NodeTypes.StringConstant, NodeTypes.TextConcat,
+            NodeTypes.StringEquals, NodeTypes.BooleanBranch, NodeTypes.Terminate
+        };
+        foreach (var (id, node) in definition.Nodes)
+            if (node is null || !supportedTypes.Contains(node.Type))
+                error("execution.node.unsupported", $"nodes.{id}", "Schema 1.24 supports input, output, string constants, text concatenation, string equality, Boolean Branch, and termination nodes.");
+
+        var inputs = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Input).Select(pair => pair.Key).ToArray();
+        var outputs = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Output).Select(pair => pair.Key).ToArray();
+        var branches = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.BooleanBranch).Select(pair => pair.Key).ToArray();
+        var terminators = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Terminate).Select(pair => pair.Key).ToArray();
+        if (inputs.Length != 1 || outputs.Length != 1 || inputs.FirstOrDefault() != definition.EntryNodeId)
+            error("pipeline.terminals", "nodes", "An explicit graph requires one configured input entry and one output node.");
+        if (branches.Length != 1 || terminators.Length != 1)
+            error("graph.degree", "nodes", "The schema 1.24 proof graph requires one Boolean Branch and one termination node.");
+
+        var seen = new HashSet<(string Kind, string Source, string SourcePort, string Target, string TargetPort)>();
+        var dataIncoming = new Dictionary<(string Node, string Port), int>();
+        var dataDependencies = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var (id, edge) in definition.Connections)
+        {
+            var path = $"connections.{id}";
+            if (string.IsNullOrWhiteSpace(id) || edge?.Source?.NodeId is not { } source || edge.Target?.NodeId is not { } target ||
+                !definition.Nodes.TryGetValue(source, out var sourceNode) || !definition.Nodes.TryGetValue(target, out var targetNode) ||
+                sourceNode is null || targetNode is null)
+            {
+                error("connection.reference", path, "Both data-edge endpoints must reference existing nodes and ports.");
+                continue;
+            }
+            var sourcePort = WorkflowPorts.ExplicitDataOutputs(sourceNode).FirstOrDefault(port => port.Id == edge.Source.PortId);
+            var targetPort = WorkflowPorts.ExplicitDataInputs(targetNode).FirstOrDefault(port => port.Id == edge.Target.PortId);
+            if (edge.Kind != "data" || sourcePort is null || targetPort is null || sourcePort.DataType != targetPort.DataType)
+                error("connection.port", path, "Data edges must connect compatible typed data ports; they never schedule execution.");
+            if (!seen.Add(("data", source, edge.Source.PortId, target, edge.Target.PortId)))
+                error("connection.duplicate", path, "Duplicate data edge.");
+            dataIncoming[(target, edge.Target.PortId)] = dataIncoming.GetValueOrDefault((target, edge.Target.PortId)) + 1;
+            if (!dataDependencies.TryGetValue(target, out var upstream)) dataDependencies[target] = upstream = [];
+            upstream.Add(source);
+        }
+
+        var executionIncoming = new Dictionary<(string Node, string Port), int>();
+        var executionOutgoing = new Dictionary<(string Node, string Port), int>();
+        var executionAdjacency = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var (id, edge) in definition.ExecutionConnections)
+        {
+            var path = $"executionConnections.{id}";
+            if (string.IsNullOrWhiteSpace(id) || edge?.Source?.NodeId is not { } source || edge.Target?.NodeId is not { } target ||
+                !definition.Nodes.TryGetValue(source, out var sourceNode) || !definition.Nodes.TryGetValue(target, out var targetNode) ||
+                sourceNode is null || targetNode is null)
+            {
+                error("execution.reference", path, "Both execution-edge endpoints must reference existing nodes and ports.");
+                continue;
+            }
+            var sourcePorts = WorkflowPorts.ExplicitExecutionOutputs(sourceNode);
+            var targetPorts = WorkflowPorts.ExplicitExecutionInputs(targetNode);
+            if (edge.Kind != "execution" || !sourcePorts.Contains(edge.Source.PortId) || !targetPorts.Contains(edge.Target.PortId))
+                error("execution.port", path, "Execution edges must connect declared execution ports and cannot carry data.");
+            if (!seen.Add(("execution", source, edge.Source.PortId, target, edge.Target.PortId)))
+                error("execution.duplicate", path, "Duplicate execution edge.");
+            executionIncoming[(target, edge.Target.PortId)] = executionIncoming.GetValueOrDefault((target, edge.Target.PortId)) + 1;
+            executionOutgoing[(source, edge.Source.PortId)] = executionOutgoing.GetValueOrDefault((source, edge.Source.PortId)) + 1;
+            if (!executionAdjacency.TryGetValue(source, out var downstream)) executionAdjacency[source] = downstream = [];
+            downstream.Add(target);
+        }
+
+        foreach (var (id, node) in definition.Nodes)
+        {
+            if (node is null) continue;
+            foreach (var port in WorkflowPorts.ExplicitDataInputs(node))
+                if (dataIncoming.GetValueOrDefault((id, port.Id)) != 1)
+                    error("data.degree", $"nodes.{id}.inputs.{port.Id}", "Every required data input must have exactly one compatible data edge.");
+            var expectedExecutionInput = node.Type == NodeTypes.Input ? 0 : node.Type is NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate ? 1 : 0;
+            var actualExecutionInput = WorkflowPorts.ExplicitExecutionInputs(node).Sum(port => executionIncoming.GetValueOrDefault((id, port)));
+            if (actualExecutionInput != expectedExecutionInput)
+                error("graph.degree", $"nodes.{id}", "Input has no execution input; output, Branch, and termination require one activation.");
+            foreach (var port in WorkflowPorts.ExplicitExecutionOutputs(node))
+                if (executionOutgoing.GetValueOrDefault((id, port)) != 1)
+                    error("graph.degree", $"nodes.{id}.outputs.{port}", "Every execution output pin must connect exactly once.");
+            if (node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals &&
+                WorkflowPorts.ExplicitDataOutputs(node).Length > 0 && !definition.Connections.Values.Any(edge => edge.Source.NodeId == id))
+                error("data.unused", $"nodes.{id}", "Every pure data node must contribute to a Branch condition or Output value.");
+            if (node.Type == NodeTypes.Terminate && node.Termination is { Outcome: not (WorkflowTerminationOutcomes.Success or WorkflowTerminationOutcomes.Failure) })
+                error("termination.outcome", $"nodes.{id}.termination.outcome", "Termination outcome must be success or failure.");
+        }
+
+        if (branches.Length == 1 && inputs.Length == 1 && outputs.Length == 1 && terminators.Length == 1)
+        {
+            var inputId = inputs[0];
+            var outputId = outputs[0];
+            var branchId = branches[0];
+            var terminateId = terminators[0];
+            var expectedRoutes = new[]
+            {
+                (inputId, "then", branchId, "execute"),
+                (branchId, "true", outputId, "execute"),
+                (branchId, "false", terminateId, "execute")
+            };
+            if (definition.ExecutionConnections.Count != expectedRoutes.Length || expectedRoutes.Any(route =>
+                !definition.ExecutionConnections.Values.Any(edge => edge.Source.NodeId == route.Item1 && edge.Source.PortId == route.Item2 &&
+                    edge.Target.NodeId == route.Item3 && edge.Target.PortId == route.Item4)))
+                error("graph.degree", "executionConnections", "Wire Input to Branch, Branch true to Output, and Branch false to Terminate.");
+            if (definition.Nodes.TryGetValue(terminateId, out var terminator) && terminator.Termination?.Outcome != WorkflowTerminationOutcomes.Failure)
+                error("graph.degree", $"nodes.{terminateId}.termination", "The Branch false route must end at a failure termination.");
+        }
+
+        var pendingExecution = new Stack<string>();
+        if (inputs.FirstOrDefault() is { } entryId) pendingExecution.Push(entryId);
+        var reachedExecution = new HashSet<string>(StringComparer.Ordinal);
+        while (pendingExecution.TryPop(out var current))
+        {
+            if (!reachedExecution.Add(current)) continue;
+            foreach (var next in executionAdjacency.GetValueOrDefault(current) ?? []) pendingExecution.Push(next);
+        }
+        var executableIds = definition.Nodes.Where(pair => WorkflowPorts.ExplicitExecutionInputs(pair.Value).Length > 0 ||
+            WorkflowPorts.ExplicitExecutionOutputs(pair.Value).Length > 0).Select(pair => pair.Key);
+        if (executableIds.Any(id => !reachedExecution.Contains(id)))
+            error("graph.unreachable", "executionConnections", "Every executable node must be reachable from the input entry.");
+        if (HasCycle(executionAdjacency, executableIds))
+            error("graph.cycle", "executionConnections", "Explicit execution routes must be acyclic.");
+
+        var dataOrder = WorkflowGraph.TopologicalOrder(definition);
+        if (dataOrder.Length != definition.Nodes.Count)
+            error("graph.cycle", "connections", "Pure data dependencies must be acyclic.");
+        var reachedData = new HashSet<string>(StringComparer.Ordinal);
+        var pendingData = new Stack<string>(outputs.Concat(branches));
+        while (pendingData.TryPop(out var current))
+        {
+            if (!reachedData.Add(current)) continue;
+            foreach (var dependency in dataDependencies.GetValueOrDefault(current) ?? []) pendingData.Push(dependency);
+        }
+        foreach (var (id, node) in definition.Nodes)
+            if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals && !reachedData.Contains(id))
+                error("graph.unreachable", $"nodes.{id}", "Every pure data node must contribute to a Branch condition or Output value.");
+    }
+
+    private static bool HasCycle(IReadOnlyDictionary<string, List<string>> adjacency, IEnumerable<string> nodes)
+    {
+        var state = new Dictionary<string, byte>(StringComparer.Ordinal);
+        bool Visit(string id)
+        {
+            if (state.GetValueOrDefault(id) == 1) return true;
+            if (state.GetValueOrDefault(id) == 2) return false;
+            state[id] = 1;
+            foreach (var next in adjacency.GetValueOrDefault(id) ?? [])
+                if (Visit(next)) return true;
+            state[id] = 2;
+            return false;
+        }
+        return nodes.Any(Visit);
     }
 
     public static void ThrowIfInvalid(WorkflowDefinition definition)

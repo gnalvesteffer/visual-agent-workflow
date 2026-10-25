@@ -31,24 +31,28 @@ public static class WorkflowPorts
     {
         NodeTypes.Output => [new("in", "string")],
         NodeTypes.TextConcat => [new("left", "string"), new("right", "string")],
+        NodeTypes.StringEquals => [new("left", "string"), new("right", "string")],
+        NodeTypes.BooleanBranch => [new("condition", "boolean")],
         _ => []
     };
 
     public static ImmutableArray<WorkflowPort> ExplicitDataOutputs(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input or NodeTypes.StringConstant or NodeTypes.TextConcat => [new("out", "string")],
+        NodeTypes.StringEquals => [new("out", "boolean")],
         _ => []
     };
 
     public static ImmutableArray<string> ExplicitExecutionInputs(NodeDefinition node) => node.Type switch
     {
-        NodeTypes.Output => ["execute"],
+        NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate => ["execute"],
         _ => []
     };
 
     public static ImmutableArray<string> ExplicitExecutionOutputs(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input => ["then"],
+        NodeTypes.BooleanBranch => ["true", "false"],
         _ => []
     };
 
@@ -150,7 +154,7 @@ public static class JsonProjectionLimits
 public static class WorkflowGraph
 {
     public static bool HasRouting(WorkflowDefinition definition) => definition.Nodes.Values.Any(n =>
-        n?.Type is NodeTypes.Condition or NodeTypes.Merge or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.Loop or NodeTypes.Terminate);
+        n?.Type is NodeTypes.Condition or NodeTypes.BooleanBranch or NodeTypes.Merge or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.Loop or NodeTypes.Terminate);
 
     public static bool HasControlNodes(WorkflowDefinition definition) => HasRouting(definition) || definition.Nodes.Values.Any(n => n?.Type == NodeTypes.Approval);
 
