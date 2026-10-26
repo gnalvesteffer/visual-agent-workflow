@@ -52,7 +52,7 @@ public sealed class GraphDesignCatalogTests : IDisposable
         var node = baseline.Nodes["step-1"] with
         {
             Type = NodeTypes.Agent,
-            Agent = new AgentConfiguration("test.provider", "Answer the request.", [])
+            Agent = new AgentConfiguration("test.provider", null, "Answer the request.", [])
             { ReasoningEffort = AgentReasoningEffort.Low }
         };
         var definition = baseline with

@@ -110,7 +110,7 @@ public sealed class ParallelExecutionTests
         {
             var branch = definition.Connections.Values.Single(edge => edge.Target.NodeId == branchAnchor).Source.PortId;
             definition = GraphEditing.InsertNodeAfter(definition, branchAnchor, "out",
-                new(NodeTypes.Agent, "1.0.0", Agent: new("test.parallel", branch, [])));
+                new(NodeTypes.Agent, "1.0.0", Agent: new("test.parallel", null, branch, [])));
         }
         return definition;
     }

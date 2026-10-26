@@ -29,7 +29,7 @@ Provide a trusted configuration section `WorkflowAgents:OpenAI:openai.primary`. 
 | `ApiKey` | Optional host secret; an empty value sends no Authorization header |
 | `DisplayName` | Optional catalog label |
 | `Endpoint` | Default `https://api.openai.com/v1/`; absolute OpenAI-compatible API base URL |
-| `TimeoutSeconds` | Whole agent invocation budget, 1–120 seconds; default 30 |
+| `TimeoutSeconds` | Hard maximum invocation timeout for agents using this connection; any positive whole number of seconds; default 30 |
 | `AllowInsecureHttp` | Default false; explicitly allows plain HTTP for any endpoint; prompts and keys are unencrypted in transit |
 | `AllowInsecureLoopback` | Legacy setting; remains supported for loopback-only HTTP configurations |
 

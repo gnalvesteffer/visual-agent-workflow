@@ -118,7 +118,7 @@ public static class WorkflowValidator
         foreach (var (key, profile) in profiles)
         {
             var expected = profile is null ? null : AgentProfile.Create(profile.Id, profile.Version, profile.Name, profile.Description,
-                profile.ProviderId, profile.Instructions, profile.Tools, profile.Skills,
+                profile.ProviderId, profile.ProviderVersion, profile.Instructions, profile.Tools, profile.Skills,
                 profile.ReasoningEffort, profile.MaxOutputTokens, profile.Channels);
             if (profile is null || key != profile.Id + "@" + profile.Version || !ValidParameterId(profile.Id) ||
                 string.IsNullOrWhiteSpace(profile.Version) || profile.Version.Length > 64 ||
@@ -348,8 +348,8 @@ public static class WorkflowValidator
                         (definition.SchemaVersion is not ("1.21" or "1.22" or WorkflowSchemaVersions.AgentGraphFunctionTools) || !AgentExecutionLimits.IsValidMaximumTurns(maxTurns)))
                         Error("agent.maxTurns", $"nodes.{id}.agent.maxTurns", "Maximum turns require schema 1.21 or later and must be -1 (unlimited) or a positive integer.");
                     if (configured.TimeoutSeconds is { } timeoutSeconds &&
-                        (definition.SchemaVersion is not ("1.21" or "1.22" or WorkflowSchemaVersions.AgentGraphFunctionTools) || timeoutSeconds is < AgentExecutionLimits.MinimumTimeoutSeconds or > AgentExecutionLimits.MaximumTimeoutSeconds))
-                        Error("agent.timeout", $"nodes.{id}.agent.timeoutSeconds", $"Agent timeout requires schema 1.21 or later and a value from {AgentExecutionLimits.MinimumTimeoutSeconds} to {AgentExecutionLimits.MaximumTimeoutSeconds} seconds.");
+                        (definition.SchemaVersion is not ("1.21" or "1.22" or WorkflowSchemaVersions.AgentGraphFunctionTools) || !AgentExecutionLimits.IsValidTimeoutSeconds(timeoutSeconds)))
+                        Error("agent.timeout", $"nodes.{id}.agent.timeoutSeconds", "Agent timeout requires schema 1.21 or later and a positive whole number of seconds.");
                     if (configured.RequireStructuredResult is { } structuredResult &&
                         (definition.SchemaVersion is not ("1.21" or "1.22" or WorkflowSchemaVersions.AgentGraphFunctionTools) || !structuredResult))
                         Error("agent.structuredResult", $"nodes.{id}.agent.requireStructuredResult", "Structured agent results require schema 1.21 or later and must be enabled explicitly.");

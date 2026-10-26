@@ -17,7 +17,7 @@ public sealed class GraphCanvasRenderingTests
     {
         var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.2" };
         var definition = baseline with { Nodes = baseline.Nodes.SetItem("step-1", new(NodeTypes.Agent, "1.0.0",
-            Agent: new("connection.current", "Answer the question.", []))) };
+            Agent: new("connection.current", null, "Answer the question.", []))) };
         var revision = WorkflowRevision.Create(definition, "test");
         var runId = Guid.NewGuid();
         var invocationId = Guid.NewGuid();
@@ -50,7 +50,7 @@ public sealed class GraphCanvasRenderingTests
     {
         var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.2" };
         var definition = baseline with { Nodes = baseline.Nodes.SetItem("step-1", new(NodeTypes.Agent, "1.0.0",
-            Agent: new("connection.current", "Answer the question.", []))) };
+            Agent: new("connection.current", null, "Answer the question.", []))) };
         var revision = WorkflowRevision.Create(definition, "test");
         var runId = Guid.NewGuid();
         var invocationId = Guid.NewGuid();

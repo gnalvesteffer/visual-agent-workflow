@@ -14,7 +14,7 @@ public class AgentExecutionTests
     private static WorkflowRevision Revision(params ToolBindingRequest[] tools)
     {
         var definition = WorkflowEditing.ReplaceNode(WorkflowTemplates.Create("uppercase"), "step-1",
-            new(NodeTypes.Agent, "1.0.0", Agent: new("demo.scripted", "Use only assigned tools.", [.. tools])));
+            new(NodeTypes.Agent, "1.0.0", Agent: new("demo.scripted", null, "Use only assigned tools.", [.. tools])));
         return WorkflowRevision.Create(definition, "test");
     }
 
@@ -60,6 +60,34 @@ public class AgentExecutionTests
     {
         using var data = JsonDocument.Parse(evt.Data!);
         return data.RootElement.GetProperty("provider").GetProperty("ModelId").GetString();
+    }
+
+    [Fact]
+    public async Task AgentTimeoutCanExceedFormer120SecondLimitWithinConnectionMaximum()
+    {
+        var baseline = Revision().Definition;
+        var node = baseline.Nodes["step-1"];
+        var definition = baseline with
+        {
+            SchemaVersion = "1.21",
+            Nodes = baseline.Nodes.SetItem("step-1", node with { Agent = node.Agent! with { TimeoutSeconds = 150 } })
+        };
+        var events = new List<ExecutionEvent>();
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var provider = DeterministicDemoChatClient.Registration() with
+        {
+            InvocationTimeout = TimeSpan.FromSeconds(180),
+            Create = () => new CallbackClient((_, _, _) => Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "complete"))
+                { FinishReason = ChatFinishReason.Stop }))
+        };
+
+        var result = await new WorkflowRunner(broker, new AgentNodeExecutor([provider], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "question",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("complete", result);
+        using var started = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentStarted).Data!);
+        Assert.Equal(150, started.RootElement.GetProperty("timeoutSeconds").GetDouble());
     }
 
     [Fact]
@@ -1129,7 +1157,7 @@ public class AgentExecutionTests
     private static WorkflowDefinition AgentGraphFunctionWorkflow(string providerId,
         GraphFunctionConfiguration? functionTool)
     {
-        var agent = new AgentConfiguration(providerId, "Use the assigned graph function, then return a short confirmation.", [])
+        var agent = new AgentConfiguration(providerId, null, "Use the assigned graph function, then return a short confirmation.", [])
         {
             GraphFunctionTools = functionTool is null ? null : [functionTool]
         };

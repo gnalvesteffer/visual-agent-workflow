@@ -36,6 +36,28 @@ public sealed class RunStoreTests : IDisposable
         Assert.Equal(2, store.Get(run.Header.RunId)!.Events.Length);
     }
 
+    [Fact]
+    public void FileJournalCanReadAndInterruptHistoricalRunsWithLegacyProviderVersions()
+    {
+        var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.2" };
+        var oldAgentNode = baseline.Nodes["step-1"] with
+        {
+            Type = NodeTypes.Agent,
+            Agent = new AgentConfiguration("test.provider", "1.0.0", "Answer the request.", [])
+        };
+        var historicalDefinition = baseline with { Nodes = baseline.Nodes.SetItem("step-1", oldAgentNode) };
+        var revision = WorkflowRevision.Create(historicalDefinition, "test");
+        var journal = new FileRunJournal(directory);
+        var run = journal.Create(revision, "question");
+
+        Assert.Single(journal.List());
+        journal.MarkUnfinishedAsInterrupted();
+
+        var recovered = journal.Get(run.Header.RunId)!;
+        Assert.Equal("interrupted", recovered.Status);
+        Assert.Equal("1.0.0", recovered.Header.Definition.Nodes["step-1"].Agent!.ProviderVersion);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -156,7 +178,7 @@ public sealed class RunStoreTests : IDisposable
         var agent = definition.Nodes["step-1"] with
         {
             Type = NodeTypes.Agent,
-            Agent = new AgentConfiguration("test.provider", "Answer the request.", [])
+            Agent = new AgentConfiguration("test.provider", null, "Answer the request.", [])
             { ReasoningEffort = AgentReasoningEffort.Off }
         };
         var validCurrent = definition with

@@ -95,6 +95,7 @@ def check(dotnet, browser_executable):
         prefix = "WorkflowAgents__OpenAI__openai.fixture__"
         env.update({prefix+"Enabled":"true",prefix+"Version":"1.0.0",prefix+"Model":"fixture-model",prefix+"ApiKey":key,
                     prefix+"Endpoint":endpoint,prefix+"AllowInsecureLoopback":"true",prefix+"DisplayName":"Configured protocol fixture",
+                    prefix+"TimeoutSeconds":"180",
                     "ASPNETCORE_ENVIRONMENT":"Development","WorkflowStudio__Port":str(studio_port),"WorkflowStudio__DataDirectory":str(directory/"studio")})
         def get(path):
             with urllib.request.urlopen(base + path, timeout=3) as response:
@@ -140,11 +141,14 @@ def check(dotnet, browser_executable):
                     turns = inspect_control(designer, "Maximum model turns for step-1").get_by_label("Maximum model turns for step-1",exact=True)
                     turns.fill("17"); turns.press("Tab")
                     turns.fill("-1"); turns.press("Tab")
+                    timeout = inspect_control(designer, "Agent timeout in seconds for step-1").get_by_label("Agent timeout in seconds for step-1",exact=True)
+                    timeout.fill("150"); timeout.press("Tab")
                     workbench(designer).get_by_role("button",name="Save draft",exact=True).click()
                     workbench(designer).get_by_text("Draft saved.",exact=True).wait_for()
                     configured_draft = get(f"/api/workflows/{workflow_id}")["definition"]
                     assert configured_draft["schemaVersion"] == "1.21"
                     assert configured_draft["nodes"]["step-1"]["agent"]["maxTurns"] == -1
+                    assert configured_draft["nodes"]["step-1"]["agent"]["timeoutSeconds"] == 150
                     workbench(designer).get_by_role("button",name="Publish & activate",exact=True).click()
                     workbench(designer).get_by_text("Published and activated version 1.",exact=True).wait_for()
                     revision = get(f"/api/workflows/{workflow_id}/revisions")[0]["revision"]

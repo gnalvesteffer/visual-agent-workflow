@@ -13,7 +13,7 @@ public class AgentCapabilityTests
             new Dictionary<string, NodeDefinition>
             {
                 ["input"] = new(NodeTypes.Input, "1.0.0"),
-                ["step-1"] = new(NodeTypes.Agent, "1.0.0", Agent: new("demo.scripted", "Answer briefly.", [])),
+                ["step-1"] = new(NodeTypes.Agent, "1.0.0", Agent: new("demo.scripted", null, "Answer briefly.", [])),
                 ["output"] = new(NodeTypes.Output, "1.0.0")
             }.ToImmutableSortedDictionary(),
             new Dictionary<string, ConnectionDefinition>
@@ -132,9 +132,13 @@ public class AgentCapabilityTests
             Assert.Contains(WorkflowValidator.Validate(configured with { Nodes = configured.Nodes.SetItem("step-1",
                 configured.Nodes["step-1"] with { Agent = configured.Nodes["step-1"].Agent! with { MaxTurns = turns } }) }),
                 issue => issue.Code == "agent.maxTurns");
-        Assert.Contains(WorkflowValidator.Validate(configured with { Nodes = configured.Nodes.SetItem("step-1",
-            configured.Nodes["step-1"] with { Agent = configured.Nodes["step-1"].Agent! with { TimeoutSeconds = 0 } }) }),
-            issue => issue.Code == "agent.timeout");
+        foreach (var seconds in new[] { 121, int.MaxValue })
+            Assert.Empty(WorkflowValidator.Validate(configured with { Nodes = configured.Nodes.SetItem("step-1",
+                configured.Nodes["step-1"] with { Agent = configured.Nodes["step-1"].Agent! with { TimeoutSeconds = seconds } }) }));
+        foreach (var seconds in new[] { 0, -1 })
+            Assert.Contains(WorkflowValidator.Validate(configured with { Nodes = configured.Nodes.SetItem("step-1",
+                configured.Nodes["step-1"] with { Agent = configured.Nodes["step-1"].Agent! with { TimeoutSeconds = seconds } }) }),
+                issue => issue.Code == "agent.timeout");
     }
 
     [Fact]

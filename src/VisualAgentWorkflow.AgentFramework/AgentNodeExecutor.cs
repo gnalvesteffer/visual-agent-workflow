@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -120,14 +121,14 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         AgentStructuredSubmission? structuredSubmission = null;
         var toolInvocationFailed = false;
         var lastFinishReason = "";
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        if (provider.InvocationTimeout <= TimeSpan.Zero || provider.InvocationTimeout > TimeSpan.FromMinutes(2))
-            throw new InvalidOperationException("The registered agent timeout is invalid.");
+        using var deadline = new InvocationDeadline(cancellationToken);
+        if (provider.InvocationTimeout <= TimeSpan.Zero)
+            throw new InvalidOperationException("The registered model connection timeout is invalid.");
         var configuredTimeout = configuration.TimeoutSeconds is { } timeoutSeconds
             ? TimeSpan.FromSeconds(timeoutSeconds)
             : provider.InvocationTimeout;
         var effectiveTimeout = configuredTimeout <= provider.InvocationTimeout ? configuredTimeout : provider.InvocationTimeout;
-        deadline.CancelAfter(effectiveTimeout);
+        deadline.Start(effectiveTimeout);
         await Record(ExecutionEventKinds.AgentStarted, new
         {
             provider = provider.Descriptor,
@@ -346,7 +347,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                                 eventData = data
                             }))
                     };
-                    var childConfiguration = new AgentConfiguration(profile.ProviderId, profile.Instructions, profile.Tools)
+                    var childConfiguration = new AgentConfiguration(profile.ProviderId, profile.ProviderVersion, profile.Instructions, profile.Tools)
                     {
                         Skills = profile.Skills?.Select(skill => new SkillReference(skill.Id, skill.Version, skill.ContentHash)).ToImmutableArray(),
                         ReasoningEffort = profile.ReasoningEffort,
@@ -641,6 +642,76 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
     }
 
     private sealed record AgentStructuredSubmission(string Status, string PayloadJson);
+
+    private sealed class InvocationDeadline : IDisposable
+    {
+        private static readonly TimeSpan MaximumTimerWindow = TimeSpan.FromDays(20);
+        private readonly CancellationTokenSource source;
+        private readonly Stopwatch elapsed = Stopwatch.StartNew();
+        private readonly Timer timer;
+        private readonly object gate = new();
+        private TimeSpan timeout;
+        private bool started;
+        private bool disposed;
+
+        public InvocationDeadline(CancellationToken cancellationToken)
+        {
+            source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timer = new Timer(OnTimer, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        }
+
+        public CancellationToken Token => source.Token;
+
+        public void Start(TimeSpan timeout)
+        {
+            if (timeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(timeout));
+            lock (gate)
+            {
+                ObjectDisposedException.ThrowIf(disposed, this);
+                if (started) throw new InvalidOperationException("The invocation deadline has already started.");
+                this.timeout = timeout;
+                started = true;
+                timer.Change(NextWindow(timeout), Timeout.InfiniteTimeSpan);
+            }
+        }
+
+        private void OnTimer(object? state)
+        {
+            var cancel = false;
+            lock (gate)
+            {
+                if (disposed || !started) return;
+                var remaining = timeout - elapsed.Elapsed;
+                if (remaining <= TimeSpan.Zero)
+                {
+                    timer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+                    cancel = true;
+                }
+                else
+                {
+                    timer.Change(NextWindow(remaining), Timeout.InfiniteTimeSpan);
+                }
+            }
+            if (cancel)
+            {
+                try { source.Cancel(); }
+                catch (ObjectDisposedException) { }
+            }
+        }
+
+        private static TimeSpan NextWindow(TimeSpan remaining) => remaining < MaximumTimerWindow ? remaining : MaximumTimerWindow;
+
+        public void Dispose()
+        {
+            lock (gate)
+            {
+                if (disposed) return;
+                disposed = true;
+                timer.Dispose();
+            }
+            source.Dispose();
+        }
+    }
 
     private sealed class AgentTokenBudget(int maximum)
     {

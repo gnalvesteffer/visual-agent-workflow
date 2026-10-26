@@ -320,7 +320,7 @@ public static class StudioProjectSourceArchive
                 var item = JsonSerializer.Deserialize<AgentProfileLibraryItem>(content, JsonOptions);
                 if (item?.Profile is not { } profile || profile.Id != file.Id || profile.Version != file.Version ||
                     !ValidFolder(item.Folder) || profile.ContentHash != AgentProfile.Create(profile.Id, profile.Version,
-                        profile.Name, profile.Description, profile.ProviderId, profile.Instructions,
+                        profile.Name, profile.Description, profile.ProviderId, profile.ProviderVersion, profile.Instructions,
                         profile.Tools, profile.Skills, profile.ReasoningEffort, profile.MaxOutputTokens, profile.Channels).ContentHash)
                     throw new InvalidDataException($"Project agent profile '{file.Path}' is invalid or does not match its manifest entry.");
                 break;

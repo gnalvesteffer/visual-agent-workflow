@@ -89,7 +89,7 @@ public sealed class WorkflowReuseTests
         var request = new ToolBindingRequest("customer.read", new string('a', 64));
         source = source with { Nodes = source.Nodes
             .SetItem("step-0", new(NodeTypes.McpTool, "1.0.0", request))
-            .SetItem("step-1", new(NodeTypes.Agent, "1.0.0", Agent: new("host-provider", "Instructions", [request]))) };
+            .SetItem("step-1", new(NodeTypes.Agent, "1.0.0", Agent: new("host-provider", null, "Instructions", [request]))) };
         var inserted = WorkflowReuse.Insert(Definition("target"), WorkflowLayout.Create(Definition("target")), "input",
             new(1, WorkflowRevision.Create(source, "test")), WorkflowLayout.Create(source));
         var imported = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(inserted.Definition, inserted.Layout));
@@ -107,7 +107,7 @@ public sealed class WorkflowReuseTests
         var source = Definition() with { SchemaVersion = "1.11" };
         var profile = AgentProfile.Create("specialist", "1", "Specialist", "A child agent.",
             "host-provider", "Follow the skill.", [], [skill]);
-        var originalAgent = new AgentConfiguration("host-provider", "Delegate deliberately.", [])
+        var originalAgent = new AgentConfiguration("host-provider", null, "Delegate deliberately.", [])
         { Delegates = [new(profile.Id, profile.Version, profile.ContentHash!)] };
         source = source with
         {
@@ -136,7 +136,7 @@ public sealed class WorkflowReuseTests
         Assert.DoesNotContain("origin", WorkflowJson.Serialize(source));
         var inserted = WorkflowReuse.Insert(source, WorkflowLayout.Create(source), "input", new(1, WorkflowRevision.Create(source, "test")), WorkflowLayout.Create(source));
         var id = inserted.Definition.Nodes.First(p => p.Value.Origin is not null).Key;
-        var replaced = WorkflowEditing.ReplaceNode(inserted.Definition, id, new(NodeTypes.Agent, "1.0.0", Agent: new("demo", "", [])));
+        var replaced = WorkflowEditing.ReplaceNode(inserted.Definition, id, new(NodeTypes.Agent, "1.0.0", Agent: new("demo", null, "", [])));
         Assert.Equal("1.3", replaced.SchemaVersion);
         WorkflowValidator.ThrowIfInvalid(replaced);
         Assert.Throws<ArgumentException>(() => WorkflowJson.Serialize(inserted.Definition with { SchemaVersion = "1.0" }));

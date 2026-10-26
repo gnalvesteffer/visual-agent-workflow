@@ -72,7 +72,7 @@ public sealed class StudioAgentProfileLibrary : IAgentProfileLibrary
 
     private static bool IsIntact(AgentProfile? profile) => profile is not null &&
         profile.ContentHash == AgentProfile.Create(profile.Id, profile.Version, profile.Name, profile.Description,
-            profile.ProviderId, profile.Instructions, profile.Tools, profile.Skills,
+            profile.ProviderId, profile.ProviderVersion, profile.Instructions, profile.Tools, profile.Skills,
             profile.ReasoningEffort, profile.MaxOutputTokens, profile.Channels).ContentHash;
 
     private static void Validate(AgentProfile profile, string folder)

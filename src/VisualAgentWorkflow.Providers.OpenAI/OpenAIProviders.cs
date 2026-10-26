@@ -41,7 +41,8 @@ public static class OpenAIProviders
                 {
                     Endpoint = options.Endpoint,
                     RetryPolicy = new ClientRetryPolicy(0),
-                    NetworkTimeout = options.InvocationTimeout,
+                    // AgentNodeExecutor supplies the invocation deadline; avoid applying a shorter SDK timer here.
+                    NetworkTimeout = Timeout.InfiniteTimeSpan,
                     Transport = new HttpClientPipelineTransport(http)
                 });
                 return new OwnedChatClient(sdk.GetChatClient(options.Model).AsIChatClient(), http);
@@ -64,8 +65,8 @@ public static class OpenAIProviders
             if (entry["Enabled"] is not { } enabledText) continue;
             if (!bool.TryParse(enabledText, out var enabled)) throw new InvalidOperationException("Invalid model provider enablement setting.");
             if (!enabled) continue;
-            if (!int.TryParse(entry["TimeoutSeconds"] ?? "30", out var seconds) || seconds is < 1 or > 120)
-                throw new InvalidOperationException("Model provider timeout must be 1–120 seconds.");
+            if (!int.TryParse(entry["TimeoutSeconds"] ?? "30", out var seconds) || seconds < 1)
+                throw new InvalidOperationException("Model provider timeout must be a positive whole number of seconds.");
             if (!bool.TryParse(entry["AllowInsecureHttp"] ?? "false", out var allowHttp) ||
                 !bool.TryParse(entry["AllowInsecureLoopback"] ?? "false", out var legacyLoopback))
                 throw new InvalidOperationException("Invalid model provider HTTP setting.");
@@ -105,8 +106,8 @@ public static class OpenAIProviders
             endpoint.Scheme != "https" && !(options.AllowInsecureHttp || options.AllowInsecureLoopback && endpoint.IsLoopback && endpoint.Scheme == "http") ||
             endpoint.Scheme is not ("https" or "http"))
             throw new ArgumentException("Use an HTTPS endpoint, or explicitly allow plain HTTP. Endpoints cannot include user information, query parameters, or fragments.");
-        if (options.InvocationTimeout <= TimeSpan.Zero || options.InvocationTimeout > TimeSpan.FromMinutes(2))
-            throw new ArgumentOutOfRangeException(nameof(options), "Model timeout must be positive and at most two minutes.");
+        if (options.InvocationTimeout <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(options), "Model connection timeout must be positive.");
         if (options.ContextWindowTokens is { } contextWindow && contextWindow is < 128 or > 2_000_000)
             throw new ArgumentOutOfRangeException(nameof(options), "Model context window must be between 128 and 2,000,000 tokens.");
         ValidateRate(options.InputCostPerMillionTokens, "input token price");

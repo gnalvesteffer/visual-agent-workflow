@@ -90,7 +90,7 @@
             <label>Connection name <input required @bind="form.DisplayName" /></label>
             <label>Model ID <input required @bind="form.Model" placeholder="For example, the model name shown by your server" /><small>Copy the exact served model identifier.</small></label>
             <label class="vaw-provider-form-wide">API base URL <input required type="url" @bind="form.Endpoint" placeholder="https://api.example.com/v1" /><small>Use the server's OpenAI-compatible API base URL, usually ending in <code>/v1</code>.</small></label>
-            <label>Request timeout <span class="vaw-input-suffix"><input required type="number" min="1" max="120" @bind="form.TimeoutSeconds" /><span>seconds</span></span></label>
+            <label>Connection timeout <span class="vaw-input-suffix"><input required type="number" min="1" step="1" @bind="form.TimeoutSeconds" /><span>seconds</span></span><small>Positive whole number. Hard maximum for agents using this model connection.</small></label>
             <label class="vaw-provider-option"><input type="checkbox" @bind="form.AllowInsecureHttp" />Allow unencrypted HTTP for this endpoint</label>
             <label>Context window <span class="vaw-input-suffix"><input type="number" min="128" max="2000000" step="1" @bind="form.ContextWindowTokens" /><span>tokens</span></span><small>Optional. Used to visualize prompt usage; this does not enforce a model limit.</small></label>
             <label>Input price <span class="vaw-input-suffix"><input type="number" min="0" max="100000" step="0.000001" @bind="form.InputCostPerMillionTokens" /><span>USD / 1M tokens</span></span></label>
@@ -115,7 +115,7 @@
         [System.ComponentModel.DataAnnotations.Required] public string DisplayName { get; set; } = "OpenAI";
         [System.ComponentModel.DataAnnotations.Required] public string Model { get; set; } = "gpt-4.1";
         [System.ComponentModel.DataAnnotations.Required] public string Endpoint { get; set; } = "https://api.openai.com/v1/";
-        [System.ComponentModel.DataAnnotations.Range(1, 120)] public int TimeoutSeconds { get; set; } = 30;
+        [System.ComponentModel.DataAnnotations.Range(1, int.MaxValue)] public int TimeoutSeconds { get; set; } = 30;
         public int? ContextWindowTokens { get; set; }
         public decimal? InputCostPerMillionTokens { get; set; }
         public decimal? OutputCostPerMillionTokens { get; set; }

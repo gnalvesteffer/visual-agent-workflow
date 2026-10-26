@@ -478,9 +478,9 @@
                             <label><input aria-label="Require structured result for @id" type="checkbox" checked="@(agent.RequireStructuredResult == true)" @onchange="args => RequireStructuredResult(id, args)" disabled="@Disabled" /> Require a structured result</label>
                             <p class="vaw-help">Adds a built-in submit_result tool. The node returns JSON with status and payload; select status to route success, reported failure, or runtime limit outcomes.</p>
                             <label>Agent timeout in seconds
-                                <input aria-label="Agent timeout in seconds for @id" type="number" min="@AgentExecutionLimits.MinimumTimeoutSeconds" max="@AgentExecutionLimits.MaximumTimeoutSeconds" value="@agent.TimeoutSeconds" placeholder="Host default" @onchange="args => AgentTimeout(id, args)" disabled="@Disabled" />
+                                <input aria-label="Agent timeout in seconds for @id" type="number" min="1" step="1" value="@agent.TimeoutSeconds" placeholder="Host default" @onchange="args => AgentTimeout(id, args)" disabled="@Disabled" />
                             </label>
-                            <p class="vaw-help">Optional node timeout. The host's provider timeout remains the hard upper bound; default: host-configured.</p>
+                            <p class="vaw-help">Any positive whole number of seconds. Blank uses the model connection's timeout; the connection timeout remains the hard upper bound.</p>
                         }
                         else
                         {
@@ -878,7 +878,7 @@
         if (FunctionCatalog?.List().FirstOrDefault(item => FunctionKey(item.Function) == value) is { } function)
             return new(NodeTypes.FunctionCall, "1.0.0") { GraphFunction = function.Function };
         var provider = Providers.SingleOrDefault(p => ProviderKey(p) == value);
-        if (provider is not null) return new(NodeTypes.Agent, "1.0.0", Agent: (existing?.Agent ?? new(provider.ProviderId,
+        if (provider is not null) return new(NodeTypes.Agent, "1.0.0", Agent: (existing?.Agent ?? new(provider.ProviderId, null,
             "Use assigned tools when available and return the result.", [])) with { ProviderId = provider.ProviderId });
         var binding = Bindings.SingleOrDefault(b => ToolKey(b) == value);
         return binding is null ? new(value, "1.0.0") : new(NodeTypes.McpTool, "1.0.0", new(binding.BindingId, binding.ContractHash)
@@ -963,8 +963,8 @@
         int? timeout = null;
         if (!string.IsNullOrWhiteSpace(args.Value?.ToString()))
         {
-            if (!int.TryParse(args.Value.ToString(), out var seconds) || seconds is < AgentExecutionLimits.MinimumTimeoutSeconds or > AgentExecutionLimits.MaximumTimeoutSeconds)
-                throw new ArgumentException($"Choose a timeout from {AgentExecutionLimits.MinimumTimeoutSeconds} to {AgentExecutionLimits.MaximumTimeoutSeconds} seconds, or leave it blank for the host default.");
+            if (!int.TryParse(args.Value.ToString(), out var seconds) || !AgentExecutionLimits.IsValidTimeoutSeconds(seconds))
+                throw new ArgumentException("Choose a positive whole number of seconds, or leave it blank for the model connection timeout.");
             timeout = seconds;
         }
         var node = Definition.Nodes[id];

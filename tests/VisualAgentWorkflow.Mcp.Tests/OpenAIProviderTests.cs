@@ -22,7 +22,7 @@ public sealed class OpenAIProviderTests
     private static WorkflowRevision Revision(ToolBindingRequest? tool = null, int? maxOutputTokens = null)
     {
         var graph = WorkflowEditing.ReplaceNode(WorkflowTemplates.Create("uppercase"), "step-1",
-            new(NodeTypes.Agent, "1.0.0", Agent: new("openai.fixture", "Fixture instructions", tool is null ? [] : [tool])));
+            new(NodeTypes.Agent, "1.0.0", Agent: new("openai.fixture", null, "Fixture instructions", tool is null ? [] : [tool])));
         if (maxOutputTokens is { } limit)
             graph = graph with
             {
@@ -31,6 +31,28 @@ public sealed class OpenAIProviderTests
                 graph.Nodes["step-1"] with { Agent = graph.Nodes["step-1"].Agent! with { MaxOutputTokens = limit } })
             };
         return WorkflowRevision.Create(graph, "fixture");
+    }
+
+    [Fact]
+    public void ModelConnectionTimeoutConfigurationAcceptsAnyPositiveIntegerSeconds()
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["openai.fixture:Enabled"] = "true",
+            ["openai.fixture:Model"] = "fixture-model",
+            ["openai.fixture:TimeoutSeconds"] = "180"
+        }).Build();
+
+        var registration = Assert.Single(OpenAIProviders.FromConfiguration(configuration));
+
+        Assert.Equal(TimeSpan.FromSeconds(180), registration.InvocationTimeout);
+        Assert.Throws<InvalidOperationException>(() => OpenAIProviders.FromConfiguration(
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["openai.fixture:Enabled"] = "true",
+                ["openai.fixture:Model"] = "fixture-model",
+                ["openai.fixture:TimeoutSeconds"] = "0"
+            }).Build()));
     }
 
     [Fact]
