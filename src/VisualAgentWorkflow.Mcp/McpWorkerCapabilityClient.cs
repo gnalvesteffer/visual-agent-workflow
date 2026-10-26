@@ -1,4 +1,6 @@
 using System.Buffers.Binary;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Net.Sockets;
 using System.Text.Json;
 using VisualAgentWorkflow.Core;
@@ -81,6 +83,16 @@ public sealed class McpWorkerCapabilityClient(string socketPath = "/run/vaw-capa
 
 internal sealed class McpCapabilitySocketSession : IAsyncDisposable
 {
+    private const string SocketName = "capabilities.sock";
+    private const UnixFileMode PrivateDirectoryMode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+    private const UnixFileMode TraversalOnlyDirectoryMode = UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute;
+    private const UnixFileMode WorkerConnectSocketMode = UnixFileMode.UserRead | UnixFileMode.UserWrite |
+                                                        UnixFileMode.GroupRead | UnixFileMode.GroupWrite |
+                                                        UnixFileMode.OtherRead | UnixFileMode.OtherWrite;
+
+    [DllImport("libc", EntryPoint = "mkdtemp", SetLastError = true)]
+    private static extern IntPtr CreatePrivateDirectory(IntPtr template);
+
     private readonly Socket listener;
     private readonly string directory;
     private readonly INodeToolScope scope;
@@ -116,28 +128,63 @@ internal sealed class McpCapabilitySocketSession : IAsyncDisposable
             BrokeredCapabilityDepth = invocation.BrokeredCapabilityDepth + 1
         };
         var scope = invocation.OpenToolScope(narrowedInvocation);
-        var directory = Path.Combine(Path.GetTempPath(), $"vaw-cap-{Guid.NewGuid():N}");
+        string? directory = null;
+        Socket? listener = null;
+        var socketPath = string.Empty;
         try
         {
-            Directory.CreateDirectory(directory);
-            File.SetUnixFileMode(directory, UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute);
-            var path = Path.Combine(directory, "capabilities.sock");
-            var listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-            listener.Bind(new UnixDomainSocketEndPoint(path));
+            directory = CreatePrivateTemporaryDirectory();
+            socketPath = Path.Combine(directory, SocketName);
+            listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+            listener.Bind(new UnixDomainSocketEndPoint(socketPath));
             listener.Listen(backlog: 8);
-            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite |
-                                      UnixFileMode.GroupRead | UnixFileMode.GroupWrite |
-                                      UnixFileMode.OtherRead | UnixFileMode.OtherWrite);
-            return new(listener, directory, scope, cancellationToken);
+            File.SetUnixFileMode(socketPath, WorkerConnectSocketMode);
+            File.SetUnixFileMode(directory, TraversalOnlyDirectoryMode);
+            var session = new McpCapabilitySocketSession(listener, directory, scope, cancellationToken);
+            listener = null;
+            return session;
         }
         catch
         {
+            listener?.Dispose();
+            if (directory is not null)
+            {
+                RestorePrivateDirectoryPermissions(directory);
+                if (socketPath.Length > 0)
+                {
+                    try { File.Delete(socketPath); }
+                    catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+                }
+                try { Directory.Delete(directory); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+            }
             scope.DisposeAsync().AsTask().GetAwaiter().GetResult();
-            try { File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute); }
-            catch (IOException) { }
-            try { Directory.Delete(directory, recursive: true); } catch (IOException) { }
             throw;
         }
+    }
+
+    private static string CreatePrivateTemporaryDirectory()
+    {
+        var template = Marshal.StringToCoTaskMemUTF8(Path.Combine(Path.GetTempPath(), "vaw-cap-XXXXXXXXXX"));
+        try
+        {
+            var result = CreatePrivateDirectory(template);
+            if (result == IntPtr.Zero)
+            {
+                var error = Marshal.GetLastPInvokeError();
+                throw new IOException("Could not create a private MCP capability directory.", new Win32Exception(error));
+            }
+            return Marshal.PtrToStringUTF8(result)
+                ?? throw new IOException("Could not read the private MCP capability directory path.");
+        }
+        finally { Marshal.FreeCoTaskMem(template); }
+    }
+
+    private static void RestorePrivateDirectoryPermissions(string directory)
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        try { File.SetUnixFileMode(directory, PrivateDirectoryMode); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
 
     private async Task AcceptLoopAsync(CancellationToken cancellationToken)
@@ -210,9 +257,10 @@ internal sealed class McpCapabilitySocketSession : IAsyncDisposable
         lifetime.Dispose();
         if (OperatingSystem.IsLinux())
         {
-            try { File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute); }
+            try { File.SetUnixFileMode(directory, PrivateDirectoryMode); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
         }
-        try { Directory.Delete(directory, recursive: true); } catch (IOException) { }
+        try { Directory.Delete(directory, recursive: true); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
 }

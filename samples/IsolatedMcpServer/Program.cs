@@ -10,9 +10,11 @@ using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using VisualAgentWorkflow.Mcp;
 
+const string protocolVersion = "2025-11-25";
 var builder = Host.CreateApplicationBuilder();
 builder.Logging.ClearProviders();
-var mcpServer = builder.Services.AddMcpServer().WithStdioServerTransport().WithTools<IsolationProbeTools>();
+var mcpServer = builder.Services.AddMcpServer(options => options.ProtocolVersion = protocolVersion)
+    .WithStdioServerTransport().WithTools<IsolationProbeTools>();
 var extensionTools = IsolatedExtensionLoader.LoadTools(args);
 if (extensionTools.Count > 0) mcpServer.WithTools(extensionTools);
 await builder.Build().RunAsync();
@@ -95,7 +97,7 @@ internal sealed class IsolationProbeTools
             RootFileWriteDenied: rootFileWriteDenied,
             TemporaryWriteAllowed: temporaryWriteAllowed,
             NetworkReachable: networkReachable);
-        return JsonSerializer.Serialize(report);
+        return JsonSerializer.Serialize(report, new JsonSerializerOptions(JsonSerializerDefaults.Web));
     }
 
     private static async Task<bool> IsDenied(Func<Task> write)

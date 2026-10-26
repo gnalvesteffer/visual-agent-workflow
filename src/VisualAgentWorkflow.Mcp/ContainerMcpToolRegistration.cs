@@ -22,6 +22,7 @@ public sealed record WorkflowExtensionArtifact(string Id, string Version, string
 /// <summary>Creates a host registration for an MCP tool running in a constrained disposable container.</summary>
 public static partial class ContainerMcpToolRegistration
 {
+    private const string WorkerProtocolVersion = "2025-11-25";
     private const int MaximumArguments = 32;
     private const int MaximumArgumentLength = 4096;
 
@@ -54,7 +55,8 @@ public static partial class ContainerMcpToolRegistration
                 Arguments = arguments,
                 InheritEnvironmentVariables = false
             });
-            return await McpClient.CreateAsync(transport, cancellationToken: cancellationToken);
+            var clientOptions = new McpClientOptions { ProtocolVersion = WorkerProtocolVersion };
+            return await McpClient.CreateAsync(transport, clientOptions, cancellationToken: cancellationToken);
         }
 
         async Task<McpToolConnection> ConnectInScope(NodeInvocationContext invocation, CancellationToken cancellationToken)
@@ -81,7 +83,8 @@ public static partial class ContainerMcpToolRegistration
                     Arguments = workerArguments,
                     InheritEnvironmentVariables = false
                 });
-                var client = await McpClient.CreateAsync(transport, cancellationToken: cancellationToken);
+                var clientOptions = new McpClientOptions { ProtocolVersion = WorkerProtocolVersion };
+                var client = await McpClient.CreateAsync(transport, clientOptions, cancellationToken: cancellationToken);
                 return new(client, session);
             }
             catch
