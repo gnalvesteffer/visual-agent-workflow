@@ -16,8 +16,11 @@
                 <h3>@server.Name</h3><p><code>@server.Id</code> · @(string.IsNullOrEmpty(server.Folder) ? "Unfiled" : server.Folder)</p>
                 <p>@ConnectionSummary(server) · @server.EnabledTools.Count enabled tools</p>
                 <ul>@foreach (var tool in server.EnabledTools) { <li>@server.Id.@tool</li> }</ul>
-                <button type="button" @onclick="() => Edit(server)">Edit connection and tools</button>
-                <button type="button" class="vaw-danger-quiet" @onclick="() => Delete(server)">Delete server</button>
+                <button type="button" @onclick="() => TestSavedConnection(server)" disabled="@testingServerIds.Contains(server.Id)">@(testingServerIds.Contains(server.Id) ? "Testing…" : "Test connection")</button>
+                <button type="button" @onclick="() => Edit(server)" disabled="@testingServerIds.Contains(server.Id)">Edit connection and tools</button>
+                <button type="button" class="vaw-danger-quiet" @onclick="() => Delete(server)" disabled="@testingServerIds.Contains(server.Id)">Delete server</button>
+                @if (serverTestResults.TryGetValue(server.Id, out var serverTestResult))
+                { <p role="status" class="@(serverTestResult.Succeeded ? "vaw-settings-status" : "vaw-error")">@serverTestResult.Message</p> }
             </article>
         }
     </section>
@@ -64,7 +67,8 @@
                     <button type="button" @onclick="AddEnvironmentVariable">Add environment variable</button>
                 </fieldset>
             }
-            <button type="button" @onclick="Discover" disabled="@busy">@(busy ? "Discovering…" : "Discover tools")</button>
+            <button type="button" @onclick="Discover" disabled="@busy">@(busy ? "Testing connection…" : "Test connection & discover tools")</button>
+            <p class="vaw-help">The test opens the configured transport and lists its tools. It does not save settings or enable tools.</p>
             @if (discovered.Count > 0)
             {
                 <fieldset class="vaw-provider-form-wide"><legend>Enable compatible tools for this Studio</legend>
@@ -112,6 +116,8 @@
     private List<EnvironmentVariableRow> environmentVariables = [];
     private bool editing;
     private bool busy;
+    private readonly HashSet<string> testingServerIds = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (bool Succeeded, string Message)> serverTestResults = new(StringComparer.Ordinal);
     private string? error;
     private string? message;
     private IReadOnlyList<StudioMcpToolView> discovered = [];
@@ -148,7 +154,7 @@
         message = "Rediscover tools before saving this connection.";
     }
     private void Delete(StudioMcpServerView server)
-    { Library.Delete(server.Id); if (id == server.Id) Reset(); message = "Server removed. Existing workflow bindings now require a compatible host registration."; }
+    { Library.Delete(server.Id); serverTestResults.Remove(server.Id); if (id == server.Id) Reset(); message = "Server removed. Existing workflow bindings now require a compatible host registration."; }
     private void Reset()
     { id = ""; name = ""; folder = ""; endpoint = ""; token = ""; transport = StudioMcpTransport.Http; command = ""; argumentsText = ""; workingDirectory = ""; environmentVariables = []; selected.Clear(); discovered = []; editing = false; }
 
@@ -164,6 +170,32 @@
     private static string ConnectionSummary(StudioMcpServerView server) => server.Transport == StudioMcpTransport.Stdio
         ? $"stdio · {server.Command} · {server.Arguments.Count} arguments · {server.EnvironmentVariableNames.Count} environment values"
         : server.Endpoint;
+
+    private async Task TestSavedConnection(StudioMcpServerView server)
+    {
+        testingServerIds.Add(server.Id);
+        serverTestResults.Remove(server.Id);
+        try
+        {
+            var result = await Library.TestSavedConnectionAsync(server.Id);
+            serverTestResults[server.Id] = result.Succeeded
+                ? (true, $"Connection succeeded: {result.DiscoveredTools} tools found, {result.SupportedTools} supported, {result.ExcludedTools} excluded. No settings were changed.")
+                : (false, result.Error ?? "The connection test failed.");
+        }
+        catch (ArgumentException exception)
+        {
+            serverTestResults[server.Id] = (false, exception.Message);
+        }
+        catch (IOException)
+        {
+            serverTestResults[server.Id] = (false, "The MCP server process or connection failed. Check the command, endpoint, and server output.");
+        }
+        catch (Exception)
+        {
+            serverTestResults[server.Id] = (false, "Could not connect or list tools. Check the endpoint, credentials, and server logs.");
+        }
+        finally { testingServerIds.Remove(server.Id); }
+    }
 
     private sealed class EnvironmentVariableRow
     {

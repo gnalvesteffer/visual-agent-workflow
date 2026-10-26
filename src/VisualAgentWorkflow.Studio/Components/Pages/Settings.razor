@@ -19,6 +19,7 @@
             <div>
                 <h2 id="configured-providers-title">Configured connections</h2>
                 <p>Each stable connection ID points to its current endpoint and model. Editing it affects future runs that use it.</p>
+                <p class="vaw-provider-form-note">Testing a model connection sends a real chat request with an output limit of one token. Your provider may charge for it.</p>
             </div>
             <span class="vaw-provider-count">@providers.Count @(providers.Count == 1 ? "connection" : "connections")</span>
         </div>
@@ -65,10 +66,13 @@
                         else
                         {
                             <div class="vaw-provider-actions">
-                                <button type="button" class="vaw-secondary" @onclick="() => PrepareEdit(provider)">Edit connection</button>
-                                <button type="button" class="vaw-danger-quiet" @onclick="() => RequestDelete(provider)">Delete connection</button>
+                                <button type="button" class="vaw-secondary" @onclick="() => TestSavedConnection(provider)" disabled="@testingProviderIds.Contains(provider.ProviderId)">@(testingProviderIds.Contains(provider.ProviderId) ? "Testing…" : "Test connection")</button>
+                                <button type="button" class="vaw-secondary" @onclick="() => PrepareEdit(provider)" disabled="@testingProviderIds.Contains(provider.ProviderId)">Edit connection</button>
+                                <button type="button" class="vaw-danger-quiet" @onclick="() => RequestDelete(provider)" disabled="@testingProviderIds.Contains(provider.ProviderId)">Delete connection</button>
                             </div>
                         }
+                        @if (providerTestResults.TryGetValue(provider.ProviderId, out var providerTestResult))
+                        { <p role="status" class="@(providerTestResult.Succeeded ? "vaw-settings-status" : "vaw-error")">@providerTestResult.Message</p> }
                     </article>
                 }
             </div>
@@ -86,25 +90,29 @@
         </div>
         <aside class="vaw-provider-tip"><strong>Works with compatible APIs</strong><span>Use OpenAI, Unsloth, LM Studio, llama.cpp, vLLM, or another server that implements OpenAI-compatible chat completions. Enter its base URL, served model ID, and API key if required.</span></aside>
         <form class="vaw-provider-form" @onsubmit="Save" @onsubmit:preventDefault>
-            <label>Connection ID <input required @bind="form.ProviderId" autocomplete="off" disabled="@editing" /><small>Stable ID referenced by agent nodes and profiles.</small></label>
-            <label>Connection name <input required @bind="form.DisplayName" /></label>
-            <label>Model ID <input required @bind="form.Model" placeholder="For example, the model name shown by your server" /><small>Copy the exact served model identifier.</small></label>
-            <label class="vaw-provider-form-wide">API base URL <input required type="url" @bind="form.Endpoint" placeholder="https://api.example.com/v1" /><small>Use the server's OpenAI-compatible API base URL, usually ending in <code>/v1</code>.</small></label>
-            <label>Connection timeout <span class="vaw-input-suffix"><input required type="number" min="1" step="1" @bind="form.TimeoutSeconds" /><span>seconds</span></span><small>Positive whole number. Used when an agent node does not set its own timeout.</small></label>
-            <label class="vaw-provider-option"><input type="checkbox" @bind="form.AllowInsecureHttp" />Allow unencrypted HTTP for this endpoint</label>
+            <label>Connection ID <input required @bind="form.ProviderId" @bind:after="ClearFormTest" autocomplete="off" disabled="@editing" /><small>Stable ID referenced by agent nodes and profiles.</small></label>
+            <label>Connection name <input required @bind="form.DisplayName" @bind:after="ClearFormTest" /></label>
+            <label>Model ID <input required @bind="form.Model" @bind:after="ClearFormTest" placeholder="For example, the model name shown by your server" /><small>Copy the exact served model identifier.</small></label>
+            <label class="vaw-provider-form-wide">API base URL <input required type="url" @bind="form.Endpoint" @bind:after="ClearFormTest" placeholder="https://api.example.com/v1" /><small>Use the server's OpenAI-compatible API base URL, usually ending in <code>/v1</code>.</small></label>
+            <label>Connection timeout <span class="vaw-input-suffix"><input required type="number" min="1" step="1" @bind="form.TimeoutSeconds" @bind:after="ClearFormTest" /><span>seconds</span></span><small>Positive whole number. Used when an agent node does not set its own timeout.</small></label>
+            <label class="vaw-provider-option"><input type="checkbox" @bind="form.AllowInsecureHttp" @bind:after="ClearFormTest" />Allow unencrypted HTTP for this endpoint</label>
             <label>Context window <span class="vaw-input-suffix"><input type="number" min="128" max="2000000" step="1" @bind="form.ContextWindowTokens" /><span>tokens</span></span><small>Optional. Used to visualize prompt usage; this does not enforce a model limit.</small></label>
             <label>Input price <span class="vaw-input-suffix"><input type="number" min="0" max="100000" step="0.000001" @bind="form.InputCostPerMillionTokens" /><span>USD / 1M tokens</span></span></label>
             <label>Output price <span class="vaw-input-suffix"><input type="number" min="0" max="100000" step="0.000001" @bind="form.OutputCostPerMillionTokens" /><span>USD / 1M tokens</span></span><small>Optional. If both prices are set, runs show an estimate from provider-reported input and output usage.</small></label>
-            <label class="vaw-provider-form-wide">API key (optional) <input type="password" autocomplete="new-password" @bind="form.ApiKey" placeholder="@(editing ? "Leave blank to keep the current key" : "Enter API key if required")" /><small>Encrypted when saved. If left blank on a new connection, no Authorization header is sent.</small></label>
+            <label class="vaw-provider-form-wide">API key (optional) <input type="password" autocomplete="new-password" @bind="form.ApiKey" @bind:after="ClearFormTest" placeholder="@(editing ? "Leave blank to keep the current key" : "Enter API key if required")" /><small>Encrypted when saved. If left blank on a new connection, no Authorization header is sent.</small></label>
             @if (editing && providerHasCredential)
-            { <label class="vaw-provider-option"><input type="checkbox" @bind="form.RemoveApiKey" />Remove the saved API key</label> }
+            { <label class="vaw-provider-option"><input type="checkbox" @bind="form.RemoveApiKey" @bind:after="ClearFormTest" />Remove the saved API key</label> }
+            <p class="vaw-provider-form-note vaw-provider-form-wide">Testing sends a short chat request to the selected model with an output limit of one token. The endpoint may charge for the request.</p>
             <p class="vaw-provider-form-note vaw-provider-form-wide">HTTPS protects prompts, responses, and API keys in transit. If you enable HTTP, traffic is unencrypted and anyone able to observe the network path could read it. Use HTTP only on a trusted network.</p>
             <div class="vaw-provider-form-actions vaw-provider-form-wide">
-                <button type="submit" class="vaw-primary" disabled="@saving">@(saving ? "Saving…" : editing ? "Save connection" : "Add connection")</button>
-                @if (editing) { <button type="button" class="vaw-secondary" @onclick="ResetForm">Cancel edit</button> }
+                <button type="submit" class="vaw-primary" disabled="@(saving || testingConnection)">@(saving ? "Saving…" : editing ? "Save connection" : "Add connection")</button>
+                <button type="button" class="vaw-secondary" @onclick="TestFormConnection" disabled="@(testingConnection || saving)">@(testingConnection ? "Testing…" : "Test connection")</button>
+                @if (editing) { <button type="button" class="vaw-secondary" @onclick="ResetForm" disabled="@testingConnection">Cancel edit</button> }
             </div>
         </form>
         @if (formError is not null) { <p role="alert" class="vaw-error">@formError</p> }
+        @if (formTestResult is { } testResult)
+        { <p role="status" class="@(testResult.Succeeded ? "vaw-settings-status" : "vaw-error")">@testResult.Message</p> }
     </section>
 </main>
 
@@ -131,6 +139,12 @@
     private bool editing;
     private bool saving;
     private bool deleting;
+    private bool testingConnection;
+    private CancellationTokenSource? formTestCancellation;
+    private readonly HashSet<string> testingProviderIds = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, StudioModelConnectionTestResult> providerTestResults = new(StringComparer.Ordinal);
+    private StudioModelConnectionTestResult? formTestResult;
+    private int formTestVersion;
     private string? error;
     private string? formError;
     private string? message;
@@ -148,14 +162,24 @@
         editing = true;
         formError = error = null;
         message = null;
+        formTestResult = null;
     }
 
     private void ResetForm()
     {
+        ClearFormTest();
         editing = false;
         providerHasCredential = false;
         form = new();
         formError = null;
+        formTestResult = null;
+    }
+
+    private void ClearFormTest()
+    {
+        formTestVersion++;
+        formTestCancellation?.Cancel();
+        formTestResult = null;
     }
 
     private void RequestDelete(StudioModelProviderView provider)
@@ -184,6 +208,8 @@
 
     private void Save()
     {
+        if (testingConnection) return;
+        ClearFormTest();
         saving = true;
         formError = error = message = null;
         try
@@ -201,6 +227,41 @@
         catch (ArgumentException exception) { formError = exception.Message; }
         catch (InvalidOperationException exception) { formError = exception.Message; }
         finally { saving = false; }
+    }
+
+    private async Task TestFormConnection()
+    {
+        using var cancellation = new CancellationTokenSource();
+        formTestCancellation = cancellation;
+        var testVersion = formTestVersion;
+        testingConnection = true;
+        formError = null;
+        formTestResult = null;
+        try
+        {
+            var result = await Providers.TestConnectionAsync(form.ProviderId.Trim(), form.DisplayName.Trim(),
+                form.Model.Trim(), form.Endpoint.Trim(), form.TimeoutSeconds, form.ApiKey,
+                form.AllowInsecureHttp, form.RemoveApiKey, keepSavedCredentialWhenBlank: editing,
+                cancellationToken: cancellation.Token);
+            if (testVersion == formTestVersion) formTestResult = result;
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (ArgumentException exception) { formError = exception.Message; }
+        catch (InvalidOperationException exception) { formError = exception.Message; }
+        finally
+        {
+            if (ReferenceEquals(formTestCancellation, cancellation)) formTestCancellation = null;
+            testingConnection = false;
+        }
+    }
+
+    private async Task TestSavedConnection(StudioModelProviderView provider)
+    {
+        testingProviderIds.Add(provider.ProviderId);
+        providerTestResults.Remove(provider.ProviderId);
+        try { providerTestResults[provider.ProviderId] = await Providers.TestSavedConnectionAsync(provider.ProviderId); }
+        catch (ArgumentException exception) { providerTestResults[provider.ProviderId] = new(false, exception.Message); }
+        finally { testingProviderIds.Remove(provider.ProviderId); }
     }
 
     private static string Pricing(decimal? input, decimal? output) => input is { } inputRate && output is { } outputRate

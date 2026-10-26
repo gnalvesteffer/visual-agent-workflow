@@ -138,12 +138,21 @@ def check(dotnet, browser_executable):
                     instructions = inspect_control(designer, "Agent instructions for step-1").get_by_label("Agent instructions for step-1",exact=True)
                     instructions.fill("Local protocol test instructions"); instructions.press("Tab")
                     inspect_control(designer, "Assign demo.reverse to step-1").get_by_label("Assign demo.reverse to step-1",exact=True).check()
+                    save_draft = workbench(designer).get_by_role("button",name="Save draft",exact=True)
+                    save_draft.click()
+                    workbench(designer).get_by_text("Draft saved.",exact=True).wait_for()
                     turns = inspect_control(designer, "Maximum model turns for step-1").get_by_label("Maximum model turns for step-1",exact=True)
                     turns.fill("17"); turns.press("Tab")
+                    expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Unsaved changes")
+                    save_draft.click()
+                    workbench(designer).get_by_text("Draft saved.",exact=True).wait_for()
+                    saved_turns = get(f"/api/workflows/{workflow_id}")["definition"]["nodes"]["step-1"]["agent"]["maxTurns"]
+                    assert saved_turns == 17, f"Expected 17 turns after the first edit, got {saved_turns}"
                     turns.fill("-1"); turns.press("Tab")
+                    expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Unsaved changes")
                     timeout = inspect_control(designer, "Agent timeout in seconds for step-1").get_by_label("Agent timeout in seconds for step-1",exact=True)
                     timeout.fill("150"); timeout.press("Tab")
-                    workbench(designer).get_by_role("button",name="Save draft",exact=True).click()
+                    save_draft.click()
                     workbench(designer).get_by_text("Draft saved.",exact=True).wait_for()
                     configured_draft = get(f"/api/workflows/{workflow_id}")["definition"]
                     assert configured_draft["schemaVersion"] == "1.21"

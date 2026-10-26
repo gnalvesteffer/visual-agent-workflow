@@ -36,6 +36,11 @@ public sealed record StudioMcpServerView(string Id, string Name, string Folder, 
 
 public sealed record StudioMcpToolView(string Name, string BindingId, string ContractHash, string InputSummary,
     string Description, string DescriptionHash, bool IsSupported = true, string? RejectionReason = null);
+public sealed record StudioMcpConnectionTestResult(int DiscoveredTools, int SupportedTools, int ExcludedTools,
+    string? Error = null)
+{
+    public bool Succeeded => Error is null;
+}
 
 /// <summary>Operator-owned MCP connections. Only logical tool identities enter workflow definitions.</summary>
 public sealed class StudioMcpLibrary
@@ -113,6 +118,49 @@ public sealed class StudioMcpLibrary
         }).ToArray();
     }
 
+    public async Task<StudioMcpConnectionTestResult> TestSavedConnectionAsync(string serverId,
+        CancellationToken cancellationToken = default)
+    {
+        StudioMcpServer server;
+        lock (gate)
+            server = servers.SingleOrDefault(item => item.Id == serverId)
+                ?? throw new ArgumentException("This MCP server is no longer configured.", nameof(serverId));
+
+        var token = server.ProtectedBearerToken.Length == 0 ? "" : protector.Unprotect(server.ProtectedBearerToken);
+        var draft = Draft(server, token) with { EnvironmentVariables = ReadEnvironmentVariables(server) };
+        try
+        {
+            var tools = await DiscoverAsync(draft, cancellationToken);
+            return new(tools.Count, tools.Count(tool => tool.IsSupported), tools.Count(tool => !tool.IsSupported));
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new(0, 0, 0, "The MCP connection test timed out after 30 seconds. Check that the server starts promptly and responds to MCP initialization.");
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not OperationCanceledException)
+        {
+            return new(0, 0, 0, ConnectionFailureMessage(exception));
+        }
+    }
+
+    private static string ConnectionFailureMessage(Exception exception)
+    {
+        var current = exception;
+        while (current.InnerException is not null) current = current.InnerException;
+        return current switch
+        {
+            FileNotFoundException => "The MCP executable could not be found. Check the executable path and ensure it is installed.",
+            DirectoryNotFoundException => "The MCP working directory could not be found. Check the configured directory.",
+            System.ComponentModel.Win32Exception => "Studio could not start the MCP executable. Check that it exists and is runnable by the current user.",
+            HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden } => "The MCP server rejected authentication. Check the bearer token and its permissions.",
+            HttpRequestException => "Could not reach the MCP endpoint. Check its URL, network access, and server availability.",
+            IOException => "The MCP server process or connection ended unexpectedly. Check the command, endpoint, and server logs.",
+            TimeoutException => "The MCP server did not finish initialization or tool discovery before the timeout.",
+            _ when current.GetType().Name.Contains("Protocol", StringComparison.OrdinalIgnoreCase) => "The server responded, but MCP initialization or tool discovery failed. Check protocol compatibility and server logs.",
+            _ => "Could not connect, initialize MCP, or list tools. Check the executable or endpoint, credentials, and server logs."
+        };
+    }
+
     public void Save(string id, string name, string folder, string endpoint, string bearerToken,
         IReadOnlyList<string> enabledTools) =>
         Save(new(id, name, folder, StudioMcpTransport.Http, endpoint, bearerToken, "", [], "",
@@ -174,9 +222,13 @@ public sealed class StudioMcpLibrary
 
     private void Refresh()
     {
-        var configured = servers.SelectMany(server => server.EnabledTools.Select(tool =>
-            new McpToolRegistration(server.Id + "." + tool, server.Name + " · " + tool, server.Id, tool,
-                token => Connect(server, token)) { AllowInvocation = true }));
+        var configured = servers.SelectMany(server =>
+        {
+            Func<CancellationToken, Task<McpClient>> connect = token => Connect(server, token);
+            return server.EnabledTools.Select(tool =>
+                new McpToolRegistration(server.Id + "." + tool, server.Name + " · " + tool, server.Id, tool,
+                    connect) { AllowInvocation = true });
+        });
         var registrations = builtIn.Concat(configured).ToArray();
         broker.ReplaceRegistrations(registrations);
         policy.Replace(registrations.Select(registration => registration.BindingId));

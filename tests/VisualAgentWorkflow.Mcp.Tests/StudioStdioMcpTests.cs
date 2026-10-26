@@ -38,6 +38,17 @@ public sealed class StudioStdioMcpTests : IDisposable
         Assert.Contains("VAW_TEST_SECRET", Assert.Single(library.List()).EnvironmentVariableNames);
         Assert.Single(await broker.ListBindingsAsync());
 
+        var savedServer = Assert.Single(library.List());
+        var connectionTest = await library.TestSavedConnectionAsync(savedServer.Id);
+        Assert.Equal(discovered.Count, connectionTest.DiscoveredTools);
+        Assert.Equal(discovered.Count(tool => tool.IsSupported), connectionTest.SupportedTools);
+        Assert.Equal(discovered.Count(tool => !tool.IsSupported), connectionTest.ExcludedTools);
+        var unchangedServer = Assert.Single(library.List());
+        Assert.Equal(savedServer.Id, unchangedServer.Id);
+        Assert.Equal(savedServer.Endpoint, unchangedServer.Endpoint);
+        Assert.Equal(savedServer.EnabledTools, unchangedServer.EnabledTools);
+        Assert.DoesNotContain("never-write-this-to-disk", File.ReadAllText(Path.Combine(directory, "mcp-servers.json")), StringComparison.Ordinal);
+
         var definition = WorkflowTemplates.Create("uppercase");
         definition = WorkflowEditing.ReplaceNode(definition, "step-1", new(NodeTypes.McpTool, "1.0.0",
             new ToolBindingRequest("stdio-demo.reverse", reverse.ContractHash)
@@ -48,6 +59,28 @@ public sealed class StudioStdioMcpTests : IDisposable
         await using var scope = broker.OpenScope(invocation);
 
         Assert.Equal("owt olleh", await scope.InvokeAsync("stdio-demo.reverse", "hello two"));
+    }
+
+    [Fact]
+    public async Task SavedConnectionTestExplainsMissingExecutableWithoutShowingEnvironmentSecrets()
+    {
+        var services = new ServiceCollection();
+        services.AddDataProtection();
+        using var serviceProvider = services.BuildServiceProvider();
+        var protection = serviceProvider.GetRequiredService<IDataProtectionProvider>();
+        var policy = new StudioToolPolicy();
+        var library = new StudioMcpLibrary(directory, protection, new McpToolBroker([], policy), policy, []);
+        var draft = new StudioMcpConnectionDraft("missing-command", "Missing command", "Tests", StudioMcpTransport.Stdio,
+            "", "", "vaw-command-that-does-not-exist", [], "",
+            new Dictionary<string, string> { ["VAW_TEST_SECRET"] = "never-show-this-value" });
+
+        library.Save(draft, []);
+        var result = await library.TestSavedConnectionAsync("missing-command");
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("start the MCP executable", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("never-show-this-value", result.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("vaw-command-that-does-not-exist", result.Error, StringComparison.Ordinal);
     }
 
     public void Dispose()
