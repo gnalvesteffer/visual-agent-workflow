@@ -9,7 +9,7 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Roadmap](roadmap.md) | Completed, active, next, and planned milestones with explicit scope |
 | [Implementation history](implementation-history.md) | Detailed historical delivery notes, validation, and limitations |
 | [Product design](design.md) | Agreed direction and proposed future capabilities; not a deployment description |
-| [Project folders and workspaces](project-workspaces.md) | Current catalog-backed project behavior and target folder/Git, `.vaw`, migration, and consumer bundle design |
+| [Project folders and workspaces](project-workspaces.md) | Current catalog-backed behavior, source archive/directory adapters, and target folder/Git, `.vaw`, migration, and consumer bundle design |
 | [Blueprint authoring guidance](blueprint-authoring-guidance.md) | Project-specific principles for adapting Unreal Blueprint authoring concepts |
 | [Unreal Blueprint reference](unreal-blueprint-reference.md) | UE 5.7 Blueprint visual-scripting concepts translated into implementation guidance |
 | [Exact-action approvals](approvals.md) | Exact MCP action review, nested call-path binding, attribution, controls and process ownership |

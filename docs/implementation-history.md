@@ -2,6 +2,14 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Consistent Studio navigation and responsive page layouts
+
+Every Studio route now uses one shared navigation component with the same project selector, theme selector, links, and active-page indication. Common content surfaces remain aligned across authoring, project, MCP, model, skill, agent, function, and observation pages. The function workbench responds to its available container width, and workflow-name/project controls reflow without page-level horizontal scroll. The browser audit checks all eight routes on desktop and mobile and verifies no viewport overflow at normal and 200% text sizes. The graph stays independently scrollable inside the workbench. No page-specific capability or route changed.
+
+## Portable source directory adapter foundation
+
+The source manifest format now has a directory reader/writer beside the ZIP adapter. Both share the same schema, hash, path, and size validation; directory reads reject symbolic links/reparse points, and writes require a fresh destination and add a `.gitignore` entry for `.vaw/`. A round-trip regression test verifies ordinary manifest-listed source content and confirms local metadata is not created in the project tree. This helper is not yet connected to the Projects UI or active catalogs: folder opening, file watching, and folder-backed authoring remain roadmap work. See [project folders and workspaces](project-workspaces.md).
+
 ## Studio pure graph-function library and editor
 
 Studio now provides a local Function library with folders and immutable content-hash-pinned revisions, plus a visual editor for named `string`/`boolean` interfaces and bounded deterministic graph bodies. Authors can create a function, add/remove/rename/type its boundary pins, add constants and pure operators, wire typed pins, inspect validation issues, save a revision, copy a revision into a new version, move it between folders, and remove its library entry. Valid workflow authors can upgrade to schema 1.27 and insert an exact saved revision as a function-call data node. The workflow embeds the immutable snapshot, so execution does not depend on the local library. Library persistence/reopen, immutable version behavior, invalid-body rejection, typed boundary mismatch, and snapshot independence have automated tests. Current gaps are standalone function-asset package import/export, collaborative drafts, and agent-tool exposure; the pure runtime constraints described below still apply. See [the user guide](user-guide.md#create-and-reuse-pure-graph-functions), [architecture](architecture.md), [graph values](graph-values.md), and [roadmap](roadmap.md).

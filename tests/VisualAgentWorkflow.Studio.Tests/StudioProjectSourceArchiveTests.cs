@@ -121,6 +121,36 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
     }
 
     [Fact]
+    public void SourceDirectory_WriteAndRead_RoundTripValidatedPortableContentsWithoutSidecarData()
+    {
+        var skill = WorkflowSkill.Create("portable-skill", "1.0.0", "Portable skill", "A portable skill.");
+        var assetContent = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+            new SkillLibraryItem(skill, "Shared"), new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        var asset = new StudioProjectFile("skill", "portable-skill", "1.0.0", "skills/portable-skill.json",
+            Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(assetContent)));
+        var manifest = new StudioProjectManifest("1.0", "project-files", "Portable files", [asset]);
+        var files = new Dictionary<string, byte[]> { [asset.Path] = assetContent };
+        var folder = Path.Combine(directory, "portable-folder");
+
+        StudioProjectSourceDirectory.Write(folder, manifest, files);
+        var (readManifest, readFiles) = StudioProjectSourceDirectory.Read(folder);
+
+        Assert.Equal(manifest.FormatVersion, readManifest.FormatVersion);
+        Assert.Equal(manifest.ProjectId, readManifest.ProjectId);
+        Assert.Equal(manifest.ProjectName, readManifest.ProjectName);
+        Assert.Equal(manifest.Files.ToArray(), readManifest.Files.ToArray());
+        Assert.Equal(assetContent, readFiles[asset.Path]);
+        Assert.Equal(".vaw/\n", File.ReadAllText(Path.Combine(folder, ".gitignore")));
+        Assert.False(Directory.Exists(Path.Combine(folder, ".vaw")));
+        Assert.Throws<IOException>(() => StudioProjectSourceDirectory.Write(folder, manifest, files));
+
+        var rejectedFolder = Path.Combine(directory, "rejected-folder");
+        var invalidManifest = manifest with { Files = [asset with { Sha256 = new string('0', 64) }] };
+        Assert.Throws<InvalidDataException>(() => StudioProjectSourceDirectory.Write(rejectedFolder, invalidManifest, files));
+        Assert.False(Directory.Exists(rejectedFolder));
+    }
+
+    [Fact]
     public void Read_RejectsContentHashMismatchAndUnsafeManifestPaths()
     {
         var content = Encoding.UTF8.GetBytes("{}\n");

@@ -7,8 +7,8 @@
 @inject NavigationManager Navigation
 
 <PageTitle>Visual Agent Workflow</PageTitle>
+<StudioNavigation />
 <main>
-    <StudioProjectNavigation ProjectId="@ProjectWorkspace.CurrentProjectId" />
     <WorkflowErrorBoundary>
         <ChildContent>
             <WorkflowStudio @key="ProjectWorkspace.CurrentProjectId" ProjectId="ProjectWorkspace.CurrentProjectId" Client="ProjectWorkspace.Client" Catalog="ProjectWorkspace.Catalog" ToolCatalog="Tools" AgentCatalog="Agents" SkillLibrary="ProjectWorkspace.Skills" AgentProfileLibrary="ProjectWorkspace.AgentProfiles" FunctionCatalog="ProjectWorkspace.Functions" />

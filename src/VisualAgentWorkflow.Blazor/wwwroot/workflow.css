@@ -68,7 +68,8 @@
 .vaw-definition-status { margin-block: var(--vaw-space-2); color: var(--vaw-muted); font-size: 0.8125rem; }
 .vaw-definition-status strong { color: var(--vaw-text); font-weight: 500; }
 .vaw-workflow-identity { display: flex; flex-wrap: wrap; align-items: end; gap: var(--vaw-space-3); margin-block: var(--vaw-space-2); }
-.vaw-workflow-identity label { flex: 0 1 18rem; margin: 0; }
+.vaw-workflow-identity label { flex: 0 1 18rem; inline-size: min(100%, 22rem); min-inline-size: 0; max-inline-size: 100%; margin: 0; }
+.vaw-workflow-identity input { box-sizing: border-box; inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; }
 .vaw-workflow-identity .vaw-definition-status { margin: 0 0 var(--vaw-space-2); }
 .vaw-definition-status code { margin-inline-start: var(--vaw-space-2); color: var(--vaw-muted); font-size: 0.75rem; }
 .vaw-empty-state { border-inline-start: 3px solid var(--vaw-accent); padding-inline-start: var(--vaw-space-4); }
@@ -151,7 +152,7 @@
 
 /* Definition roles are visual metadata, distinct from recorded execution state. */
 .vaw-workflow-editor { background-color: transparent; margin-block-start: var(--vaw-space-4); }
-.vaw-workflow-editor > label { max-inline-size: 22rem; font-size: 0.875rem; }
+.vaw-workflow-editor > label { inline-size: min(100%, 22rem); min-inline-size: 0; max-inline-size: 100%; font-size: 0.875rem; }
 .vaw-node-heading { display: flex; align-items: center; flex-wrap: wrap; gap: var(--vaw-space-2); }
 .vaw-node-heading strong { font-size: 0.9375rem; }
 .vaw-node-kind { margin-inline-start: auto; color: var(--vaw-accent); font-size: 0.8125rem; }

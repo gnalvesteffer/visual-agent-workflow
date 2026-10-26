@@ -7,8 +7,8 @@
 @inject IToolBindingCatalog ToolCatalog
 
 <PageTitle>Agent Designer · Visual Agent Workflow</PageTitle>
+<StudioNavigation />
 <main class="vaw-provider-settings">
-    <StudioProjectNavigation ProjectId="@ProjectWorkspace.CurrentProjectId" />
     <header class="vaw-settings-heading"><div><p class="vaw-settings-kicker">WORKFLOW STUDIO</p><h1>Agent Designer</h1>
         <p class="vaw-settings-intro">Create immutable specialist-agent profiles with their own model, instructions, skills, and MCP tools. Assign a profile to an agent node to expose it as a bounded delegate tool.</p></div></header>
     @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }

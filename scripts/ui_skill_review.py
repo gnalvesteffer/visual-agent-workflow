@@ -33,6 +33,42 @@ def check(browser, screenshots):
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     try:
+        routes = (
+            ("/projects/default", "Workflow"),
+            ("/projects/default/agents", "Agents"),
+            ("/projects/default/skills", "Skills"),
+            ("/projects/default/functions", "Functions"),
+            ("/projects", "Projects"),
+            ("/mcp", "MCP library"),
+            ("/settings", "Models"),
+            ("/observe", "Observe"),
+        )
+        expected_links = ["Workflow", "Agents", "Skills", "Functions", "Projects", "MCP library", "Models", "Observe"]
+        for route, active_page in routes:
+            response = page.goto(BASE + route, wait_until="networkidle")
+            assert response and response.status == 200, f"Studio page failed to load: {route}"
+            navigation = page.get_by_role("navigation", name="Studio navigation", exact=True)
+            expect(navigation.locator("a")).to_have_text(expected_links)
+            expect(navigation.locator('a[aria-current="page"]')).to_have_text(active_page)
+            assert abs(navigation.bounding_box()["width"] - page.viewport_size["width"]) < 1, f"Navigation must span the viewport on {route}"
+            if screenshots:
+                page.screenshot(path=str(screenshots / f"page-{active_page.lower().replace(' ', '-')}.png"))
+
+        page.set_viewport_size({"width": 390, "height": 844})
+        for route, active_page in routes:
+            response = page.goto(BASE + route, wait_until="networkidle")
+            assert response and response.status == 200, f"Studio page failed to load on mobile: {route}"
+            navigation = page.get_by_role("navigation", name="Studio navigation", exact=True)
+            expect(navigation.locator('a[aria-current="page"]')).to_have_text(active_page)
+            assert abs(navigation.bounding_box()["width"] - page.viewport_size["width"]) < 1, f"Mobile navigation must span the viewport on {route}"
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), f"The page must not create horizontal scrolling on mobile: {route}"
+
+        page.goto(BASE + "/projects/default/functions", wait_until="networkidle")
+        page.wait_for_function("document.querySelector('.vaw-graph-editor')?.dataset.ready === 'true'")
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), "The function page must not create page-level horizontal scrolling on a phone viewport"
+        assert page.locator(".vaw-function-editor .vaw-canvas-viewport").evaluate("element => element.getBoundingClientRect().width") >= 160, "The function graph must retain a usable canvas at a narrow viewport"
+        page.set_viewport_size({"width": 1440, "height": 1100})
+
         page.goto(BASE)
         theme_picker = page.get_by_label("Color theme", exact=True)
         expect(theme_picker.locator("option")).to_have_count(len(THEMES))
@@ -49,17 +85,17 @@ def check(browser, screenshots):
         assert page.locator("body").evaluate("element=>getComputedStyle(element).backgroundColor") == "rgb(0, 0, 0)"
         theme_picker.select_option("nord")
         page.wait_for_function("document.documentElement.dataset.vawTheme === 'nord'")
-        page.get_by_role("link", name="Studio settings", exact=True).click()
+        page.get_by_role("link", name="Models", exact=True).click()
         expect(page.get_by_role("heading", name="Model connections", exact=True)).to_be_visible()
         expect(page.get_by_label("Color theme", exact=True)).to_have_value("nord")
         expect(page.locator("html")).to_have_attribute("data-vaw-theme", "nord")
-        page.get_by_role("link", name="Workflow designer", exact=True).click()
+        page.get_by_role("link", name="Workflow", exact=True).click()
         expect(page.get_by_role("region", name="Workflow designer", exact=True)).to_be_visible()
         expect(page.get_by_label("Color theme", exact=True)).to_have_value("nord")
-        page.get_by_role("link", name="Observe a consumer service", exact=True).click()
+        page.get_by_role("link", name="Observe", exact=True).click()
         expect(page.get_by_role("heading", name="Observe consumer workflows")).to_be_visible()
         expect(page.get_by_label("Color theme", exact=True)).to_have_value("nord")
-        page.get_by_role("link", name="Workflow designer", exact=True).first.click()
+        page.get_by_role("link", name="Workflow", exact=True).first.click()
         expect(page.get_by_role("region", name="Workflow designer", exact=True)).to_be_visible()
         expect(page.get_by_label("Color theme", exact=True)).to_have_value("nord")
         theme_picker.select_option("dark")
@@ -202,7 +238,13 @@ def check(browser, screenshots):
 
         page.set_viewport_size({"width": 390, "height": 844})
         page.evaluate("document.documentElement.style.fontSize = '200%'")
-        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), "200% text must reflow on mobile"
+        for route, _ in routes:
+            response = page.goto(BASE + route, wait_until="networkidle")
+            assert response and response.status == 200, f"Studio page failed to load with enlarged text: {route}"
+            page.evaluate("document.documentElement.style.fontSize = '200%'")
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), f"200% text must reflow on mobile: {route}"
+        page.goto(BASE, wait_until="networkidle")
+        page.evaluate("document.documentElement.style.fontSize = '200%'")
         assert page.locator(".vaw-studio").evaluate("element => getComputedStyle(element).fontSize") == "32px"
         if screenshots:
             page.evaluate("window.scrollTo(0,0)")
