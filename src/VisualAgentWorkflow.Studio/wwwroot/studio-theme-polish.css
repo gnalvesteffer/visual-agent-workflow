@@ -14,8 +14,8 @@
 }
 
 .vaw-studio-navigation {
-    background: linear-gradient(180deg, color-mix(in srgb, var(--vaw-color-surface) 90%, var(--vaw-color-accent) 10%), var(--vaw-color-surface));
-    border-bottom-color: color-mix(in srgb, var(--vaw-color-border) 78%, var(--vaw-color-accent) 22%);
+    background: var(--vaw-color-surface);
+    border-bottom-color: var(--vaw-color-border);
 }
 
 /* GitHub Dark: cool neutral surfaces and a restrained blue focus color. */

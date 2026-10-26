@@ -13,15 +13,15 @@
             </select>
         </label>
     }
-    <a href="/projects/@ProjectWorkspace.CurrentProjectId" aria-current="@(ActivePage == "workflow" ? "page" : null)">Workflow</a>
-    <a href="/projects/@ProjectWorkspace.CurrentProjectId/agents" aria-current="@(ActivePage == "agents" ? "page" : null)">Agents</a>
-    <a href="/projects/@ProjectWorkspace.CurrentProjectId/skills" aria-current="@(ActivePage == "skills" ? "page" : null)">Skills</a>
-    <a href="/projects/@ProjectWorkspace.CurrentProjectId/functions" aria-current="@(ActivePage == "functions" ? "page" : null)">Functions</a>
-    <a href="/projects" aria-current="@(ActivePage == "projects" ? "page" : null)">Projects</a>
-    <a href="/source-project" aria-current="@(ActivePage == "source-project" ? "page" : null)">Open folder</a>
-    <a href="/mcp" aria-current="@(ActivePage == "mcp" ? "page" : null)">MCP library</a>
-    <a href="/settings" aria-current="@(ActivePage == "models" ? "page" : null)">Models</a>
-    <a href="/observe" aria-current="@(ActivePage == "observe" ? "page" : null)">Observe</a>
+    <a data-vaw-route-link href="/projects/@ProjectWorkspace.CurrentProjectId" aria-current="@(ActivePage == "workflow" ? "page" : null)">Workflow</a>
+    <a data-vaw-route-link href="/projects/@ProjectWorkspace.CurrentProjectId/agents" aria-current="@(ActivePage == "agents" ? "page" : null)">Agents</a>
+    <a data-vaw-route-link href="/projects/@ProjectWorkspace.CurrentProjectId/skills" aria-current="@(ActivePage == "skills" ? "page" : null)">Skills</a>
+    <a data-vaw-route-link href="/projects/@ProjectWorkspace.CurrentProjectId/functions" aria-current="@(ActivePage == "functions" ? "page" : null)">Functions</a>
+    <a data-vaw-route-link href="/projects" aria-current="@(ActivePage == "projects" ? "page" : null)">Projects</a>
+    <a data-vaw-route-link href="/source-project" aria-current="@(ActivePage == "source-project" ? "page" : null)">Open folder</a>
+    <a data-vaw-route-link href="/mcp" aria-current="@(ActivePage == "mcp" ? "page" : null)">MCP library</a>
+    <a data-vaw-route-link href="/settings" aria-current="@(ActivePage == "models" ? "page" : null)">Models</a>
+    <a data-vaw-route-link href="/observe" aria-current="@(ActivePage == "observe" ? "page" : null)">Observe</a>
     <StudioThemePicker />
 </nav>
 

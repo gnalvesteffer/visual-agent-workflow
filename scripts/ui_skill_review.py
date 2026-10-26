@@ -9,6 +9,7 @@ from workbench_browser import workbench, inspect_control, show_runs
 import argparse
 import re
 import os
+import time
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -52,6 +53,7 @@ def check(browser, screenshots):
             expect(navigation.locator("a")).to_have_text(expected_links)
             expect(navigation.locator('a[aria-current="page"]')).to_have_text(active_page)
             assert abs(navigation.bounding_box()["width"] - page.viewport_size["width"]) < 1, f"Navigation must span the viewport on {route}"
+            assert "gradient" not in navigation.evaluate("element => getComputedStyle(element).backgroundImage"), f"Navigation should use a solid theme surface on {route}"
             if screenshots:
                 page.screenshot(path=str(screenshots / f"page-{active_page.lower().replace(' ', '-')}.png"))
 
@@ -74,6 +76,24 @@ def check(browser, screenshots):
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), "The function page must not create page-level horizontal scrolling on a phone viewport"
         assert page.locator(".vaw-function-editor .vaw-canvas-viewport").evaluate("element => element.getBoundingClientRect().width") >= 160, "The function graph must retain a usable canvas at a narrow viewport"
         page.set_viewport_size({"width": 1440, "height": 1100})
+
+        page.goto(BASE)
+        def delay_agents_navigation(route):
+            time.sleep(0.8)
+            route.continue_()
+
+        page.route("**/projects/default/agents", delay_agents_navigation)
+        page.get_by_role("link", name="Agents", exact=True).click(no_wait_after=True)
+        navigation_status = page.locator(".vaw-navigation-status")
+        expect(navigation_status).to_be_visible(timeout=3000)
+        expect(navigation_status).to_be_hidden(timeout=8000)
+        page.unroute("**/projects/default/agents", delay_agents_navigation)
+
+        page.goto(BASE + "/projects/default/agents", wait_until="networkidle")
+        agent_section = page.locator('.vaw-settings-section[aria-label="Saved agent profiles"]')
+        section_left = agent_section.bounding_box()["x"]
+        title_left = agent_section.locator(":scope > h2").bounding_box()["x"]
+        assert title_left - section_left >= 12, "Section titles must align to the shared content inset"
 
         page.goto(BASE)
         theme_picker = page.get_by_label("Color theme", exact=True)
@@ -109,6 +129,7 @@ def check(browser, screenshots):
         for theme in THEMES:
             theme_picker.select_option(theme)
             page.wait_for_function("theme => document.documentElement.dataset.vawTheme === theme", arg=theme)
+            assert "gradient" not in page.locator(".vaw-studio-navigation").evaluate("element => getComputedStyle(element).backgroundImage"), f"Navigation must stay solid in {theme}"
             if screenshots:
                 page.screenshot(path=str(screenshots / f"theme-{theme}.png"), full_page=True)
             theme_samples = page.evaluate("""() => {
