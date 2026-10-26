@@ -9,7 +9,7 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Roadmap](roadmap.md) | Completed, active, next, and planned milestones with explicit scope |
 | [Implementation history](implementation-history.md) | Detailed historical delivery notes, validation, and limitations |
 | [Product design](design.md) | Agreed direction and proposed future capabilities; not a deployment description |
-| [Project folders and workspaces](project-workspaces.md) | Catalog-backed projects, the single-root folder source editor, offline catalog cutover/recovery, and remaining `.vaw` and consumer-bundle work |
+| [Project folders and workspaces](project-workspaces.md) | Folder-backed authoring, source transport, local restore points, selected `.vawpkg` releases, and catalog cutover |
 | [Blueprint authoring guidance](blueprint-authoring-guidance.md) | Project-specific principles for adapting Unreal Blueprint authoring concepts |
 | [Unreal Blueprint reference](unreal-blueprint-reference.md) | UE 5.7 Blueprint visual-scripting concepts translated into implementation guidance |
 | [Exact-action approvals](approvals.md) | Exact MCP action review, nested call-path binding, attribution, controls and process ownership |
@@ -25,7 +25,7 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Local hosting API](hosting-sdk.md) | DI registration, host ownership, current project-reference consumption and future package-release boundaries |
 | [Containerized MCP workers](extension-workers.md) | Digest-pinned host registration, no-network container limits, trust assumptions, and Linux isolation proof |
 | [Isolated .NET extensions](extension-assemblies.md) | Extension interface, version/hash pinning, typed MCP operations, and host capability context |
-| [Service integration](service-integration.md) | User-owned service hosting, current headless APIs, and planned SDK acceptance criteria |
+| [Service integration](service-integration.md) | User-owned service hosting, selected workflow bundles, current headless APIs, and planned SDK acceptance criteria |
 | [Embedding](embedding.md) | Public Razor components, host services, lifecycle, and theming |
 | [Pause and resume](run-control.md) | Cooperative boundaries, controls, audit, process ownership and restart limitations |
 | [Workflow API](workflow-api.md) | Local development API and concurrency contracts |

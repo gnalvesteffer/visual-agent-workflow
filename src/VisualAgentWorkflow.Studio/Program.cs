@@ -136,7 +136,9 @@ app.Use(async (context, next) =>
         {
             var sourceArchive = HttpMethods.IsGet(context.Request.Method) &&
                 string.Equals(context.Request.Path.Value, $"/api/projects/{selectedProject}/source.zip", StringComparison.OrdinalIgnoreCase);
-            if (sourceArchive)
+            var workflowRelease = HttpMethods.IsGet(context.Request.Method) &&
+                string.Equals(context.Request.Path.Value, $"/api/projects/{selectedProject}/release.vawpkg", StringComparison.OrdinalIgnoreCase);
+            if (sourceArchive || workflowRelease)
             {
                 await next();
                 return;
@@ -206,6 +208,39 @@ app.MapGet("/api/projects/{projectId}/source.zip", async (string projectId, Stud
     }
     else archive = await StudioProjectSourceArchive.CreateAsync(workspace, cancellationToken);
     return Results.File(archive, "application/zip", $"{project.Name}.vawsrc.zip");
+});
+app.MapGet("/api/projects/{projectId}/release.vawpkg", (string projectId, HttpRequest request, StudioProjectStore store) =>
+{
+    try
+    {
+        var project = store.GetActive(projectId);
+        if (!project.IsFolderBacked)
+            return Results.Conflict(new { error = "Consumer releases are currently built from validated folder projects." });
+        var selectedIds = request.Query["workflowId"].SelectMany(value => (value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)).ToArray();
+        if (selectedIds.Length is < 1 or > WorkflowProjectPackageJson.MaximumWorkflows ||
+            selectedIds.Distinct(StringComparer.Ordinal).Count() != selectedIds.Length)
+            return Results.BadRequest(new { error = $"Select between 1 and {WorkflowProjectPackageJson.MaximumWorkflows} unique workflow entry points." });
+
+        var (manifest, files) = StudioProjectSourceDirectory.Read(store.FolderProjectPath(projectId));
+        var workflowFiles = manifest.Files.Where(file => file.Kind == "workflow" && selectedIds.Contains(file.Id, StringComparer.Ordinal)).ToArray();
+        if (workflowFiles.Length != selectedIds.Length)
+            return Results.BadRequest(new { error = "Every selected workflow must exist in the validated project source." });
+
+        var packages = workflowFiles.Select(file =>
+        {
+            var source = StudioProjectSourceArchive.DeserializeWorkflowSource(files[file.Path]);
+            if (source.Definition.WorkflowId != file.Id)
+                throw new InvalidDataException($"Workflow source '{file.Id}' does not match its project index.");
+            return WorkflowPackageJson.Create(source.Definition, source.Layout);
+        }).ToArray();
+        var archive = WorkflowProjectPackageJson.CreateArchive(manifest.ProjectId, manifest.ProjectName, packages);
+        var fileName = string.Concat(project.Name.Select(character => Path.GetInvalidFileNameChars().Contains(character) || char.IsControl(character) ? '-' : character));
+        return Results.File(archive, "application/zip", $"{fileName}.vawpkg");
+    }
+    catch (Exception exception) when (exception is InvalidDataException or ArgumentException or InvalidOperationException or KeyNotFoundException)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
 });
 app.MapPost("/api/projects/import", async (HttpContext context, StudioProjectStore store,
     StudioProjectWorkspace workspace, CancellationToken cancellationToken) =>

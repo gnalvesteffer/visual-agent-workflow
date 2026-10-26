@@ -6,7 +6,7 @@ The product goal is agreed. Lower-level headless execution APIs exist today; a s
 
 ## Author, deploy, invoke
 
-This diagram describes the target integration model, not an already shipped deployment system. The host supplies public entry points and infrastructure. Workflow packages declare behavior and requirements without transferring environment credentials or policy grants.
+Selected-workflow `.vawpkg` export and a clean consumer execution sample are implemented. The diagram shows the broader host-owned integration model: deployment and activation remain the consumer's responsibility. Workflow packages declare behavior and requirements without transferring environment credentials or policy grants.
 
 ```mermaid
 flowchart LR
@@ -28,6 +28,7 @@ The table below describes implemented public APIs. These are lower-level integra
 | --- | --- | --- |
 | Load an executable definition | `WorkflowJson.Deserialize` | Obtain an approved artifact and enforce access/deployment policy |
 | Load a portable design package | `WorkflowPackageJson.Deserialize` | Review user text and requirements; checksums do not authenticate the author |
+| Build/read a selected multi-workflow release | `WorkflowProjectPackageJson.CreateArchive` / `Read` | Select executable workflow entry points; resolve exact logical requirements and grants in the host |
 | Capture a run's immutable definition | `WorkflowRevision.Create` or a catalog's stored publication | Retain the approved identity/hash and resolved dependencies; creating a revision gives a new identity |
 | Execute directly from .NET code | `WorkflowRunner.ExecuteAsync` | Supply run ID, revision, string input, event sink, cancellation, and optional tool/agent adapters |
 | Enqueue a stored exact revision in the development host | `LocalWorkflowRuntime.StartRevisionAsync` | Start/stop the background service, provide its journal/adapters, and accept its single-process development limits |
@@ -35,6 +36,8 @@ The table below describes implemented public APIs. These are lower-level integra
 | Render historical evidence | `WorkflowRunViewer` with a snapshot and optional layout | Optional UI only; it must not invoke the engine during playback |
 
 Core and the Agent Framework adapter do not reference Blazor or Studio. Direct execution does not require a catalog, layout, renderer, or Studio's local database. A package's layout can be used for optional observation; its definition drives execution. The current Hosting project does reference ASP.NET Core support and SQLite, so it should not be confused with a finished minimal worker-hosting SDK.
+
+Folder projects can export selected workflows from the Studio editor as `.vawpkg`. The Core reader validates the complete bounded archive in memory and returns immutable workflow packages plus their graph-derived host requirements; it does not extract or activate the bundle. The standalone `WorkflowService` sample accepts `bundle direct|queued|paused|serve RELEASE.vawpkg WORKFLOW_ID JOURNAL_DIRECTORY INPUT [--grant-demo-tool]`. Its `pack PROJECT_ID PROJECT_NAME OUTPUT.vawpkg WORKFLOW.package.json [...]` command assembles selected existing workflow packages. Neither command configures host endpoints, credentials, or authorization; see the [sample guide](../samples/WorkflowService/README.md) and [project release contract](project-workspaces.md#consumer-artifact).
 
 MCP connections, model client factories, logical binding resolution, credentials, authorization, storage, and application-specific entry points remain host-owned. The separate [checkpoint host](checkpoint-recovery.md) adds explicit native saved-suspension recovery for deterministic-only workflows; it does not change the queue's interruption policy. The local runtime now accepts a host-selected `IWorkflowRunStore`; file and transactional SQLite implementations preserve the existing observation contracts. See [run storage](run-storage.md). A matching dependency registration is not a grant. Never load an unavailable provider's substitute silently or execute an imported assembly merely because a package references a type. The default built-in agent is deterministic. The optional [OpenAI provider adapter](model-providers.md) supplies host-configured SDK factories in Studio and the standalone service; it is protocol-verified, with credentialed live qualification still outstanding.
 

@@ -313,7 +313,7 @@ Use platform-owned versioned JSON documents validated against JSON Schema. Do no
 | `agents/<id>/<version>.json` | Immutable agent profile revision and content hash |
 | `functions/<id>/<version>.json` | Immutable pure graph-function definition and content hash |
 | `.vaw/` | Optional ignored local recovery/index/cache; never required to open, validate, or package a project |
-| `.vawpkg` ZIP artifact | Built, validated project/workflow payload and dependency manifest for consumer installation; excludes `.vaw`, endpoints, credentials, grants, and local run history |
+| `.vawpkg` ZIP artifact | Deterministic selected-workflow release wrapper with requirement manifest; consumer resolves host services and policy; excludes `.vaw`, Git data, endpoints, credentials, grants, and local run history |
 
 Keep layout in a dedicated field/document when the selected source schema supports it so moving nodes is reviewable separately from behavior changes. A built artifact captures the exact definition and layout. Execution events, host audit, payload artifacts, and runtime checkpoints stay outside project source files.
 

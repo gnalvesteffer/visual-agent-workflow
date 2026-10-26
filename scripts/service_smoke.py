@@ -67,6 +67,48 @@ def check(dotnet):
             for kind in ("pure", "mcp"):
                 for mode in ("direct", "queued"):
                     verify(mode, kind, grant=kind == "mcp", store=store)
+
+        # Build a selected multi-workflow release, then execute it in this standalone consumer.
+        release_path = work / "selected-release.vawpkg"
+        packed = subprocess.run(command + ["pack", "sample-project", "Service sample", str(release_path),
+                                            str(artifacts / "pure.package.json"), str(artifacts / "mcp.package.json")],
+                                capture_output=True, text=True, timeout=40)
+        assert packed.returncode == 0, (packed.stdout, packed.stderr)
+        release_hash = hashlib.sha256(release_path.read_bytes()).hexdigest()
+
+        def verify_bundle(mode, workflow_id, expected_output, grant=False, expected=0, error_type=None):
+            nonlocal counter
+            counter += 1
+            journal = work / f"bundle-{counter}"
+            args = command + ["bundle", mode, str(release_path), workflow_id, str(journal), "abc"]
+            if grant:
+                args.append("--grant-demo-tool")
+            result = subprocess.run(args, capture_output=True, text=True, timeout=40,
+                                    env={**os.environ, "WorkflowService__RunStore": "file"})
+            assert result.returncode == expected, (args, result.returncode, result.stdout, result.stderr)
+            if error_type:
+                assert f"{error_type}." in result.stderr, result.stderr
+            records = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
+            if expected != 0:
+                assert not records and not journal.exists()
+                return
+            final = records[-1]
+            assert final["status"] == "completed" and final["output"] == expected_output
+            assert final["contentHash"] == (json.loads((artifacts / ("pure.package.json" if workflow_id == "service-pure" else "mcp.package.json")).read_text())["definitionHash"])
+            snapshot = json.loads(next(journal.glob("*.snapshot.json")).read_text())
+            assert snapshot["header"]["contentHash"] == final["contentHash"]
+            assert snapshot["header"]["revisionId"] == final["revisionId"]
+            return final
+
+        verify_bundle("direct", "service-pure", "CBA")
+        verify_bundle("queued", "service-pure", "CBA")
+        verify_bundle("direct", "service-mcp", "cba", grant=True)
+        verify_bundle("direct", "service-mcp", None, expected=1, error_type="ToolAccessDeniedException")
+        unknown_workflow = subprocess.run(command + ["bundle", "direct", str(release_path), "not-selected",
+                                                       str(work / "unknown-entry"), "abc"],
+                                          capture_output=True, text=True, timeout=40)
+        assert unknown_workflow.returncode == 1 and not (work / "unknown-entry").exists()
+
         records, journal = execute("direct", artifacts / "mcp.deployment.json", expected=1, error_type="ToolAccessDeniedException")
         assert not records and not journal.exists(), "Denied deployment admitted execution"
 
@@ -143,7 +185,7 @@ def check(dotnet):
                 process.communicate()
         dependencies = json.loads((SAMPLE / "bin/Release/net10.0/WorkflowService.deps.json").read_text())["libraries"]
         assert not any("Blazor" in name or "Studio" in name for name in dependencies)
-    print("File/SQLite headless direct/queued execution, pinned artifacts, real MCP, denied/missing/drifted dependencies, no catalog/UI dependency, event sequences and host-stop cancellation passed.")
+    print("Headless direct/queued execution from operator manifests and selected multi-workflow .vawpkg releases, host-owned MCP grants, denied/missing/drifted dependencies, audit sequences and host-stop cancellation passed.")
 
 
 if __name__ == "__main__":

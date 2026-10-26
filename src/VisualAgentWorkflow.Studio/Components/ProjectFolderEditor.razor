@@ -28,6 +28,35 @@
         }
         @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
         @if (message is not null) { <p role="status">@message</p> }
+        <section class="vaw-settings-section vaw-project-release" aria-label="Build a consumer release">
+            <div class="vaw-settings-section-heading">
+                <div><h2>Build consumer package</h2><p>Select saved, executable workflows to include in a portable <code>.vawpkg</code>. Reusable assets embedded in those workflows travel with them; model connections, MCP endpoints, credentials, and grants stay with the consuming host.</p></div>
+            </div>
+            @if (manifest.Files.All(file => file.Kind != "workflow"))
+            {
+                <p class="vaw-empty-state">This project has no workflow source files yet.</p>
+            }
+            else
+            {
+                <form method="get" action="@($"/api/projects/{Uri.EscapeDataString(ProjectId)}/release.vawpkg")">
+                    <fieldset class="vaw-release-workflow-list" disabled="@(busy || HasUnsavedEdits || externalSourceChanged)">
+                        <legend>Workflow entry points</legend>
+                        @foreach (var workflowFile in manifest.Files.Where(file => file.Kind == "workflow").OrderBy(file => file.Id, StringComparer.Ordinal))
+                        {
+                            <label @key="workflowFile.Id">
+                                <input type="checkbox" name="workflowId" value="@workflowFile.Id"
+                                    checked="@selectedPackageWorkflows.Contains(workflowFile.Id)"
+                                    @onchange="args => TogglePackageWorkflow(workflowFile.Id, args)" />
+                                <span>@WorkflowName(workflowFile.Id)</span><code>@workflowFile.Id</code>
+                            </label>
+                        }
+                    </fieldset>
+                    @if (HasUnsavedEdits) { <p class="vaw-help">Save or discard editor changes first. The package uses files currently saved in the project folder.</p> }
+                    @if (externalSourceChanged) { <p class="vaw-help">Reload the changed project files before creating a release.</p> }
+                    <button type="submit" class="vaw-primary" disabled="@(busy || HasUnsavedEdits || externalSourceChanged || selectedPackageWorkflows.Count == 0)">Download selected workflows</button>
+                </form>
+            }
+        </section>
         <section class="vaw-settings-section vaw-project-snapshots" aria-label="Local restore points">
             <div class="vaw-settings-section-heading">
                 <div><h2>Local restore points</h2><p>Save or restore a validated copy of this project’s indexed source. Restore points stay in ignored <code>.vaw/</code> and never enter exports.</p></div>
@@ -223,6 +252,7 @@
     private StudioFolderAgentProfileSource? profileSource;
     private StudioFolderGraphFunctionCatalog? graphFunctionCatalog;
     private List<StudioFolderWorkflow> workflows = [];
+    private readonly HashSet<string> selectedPackageWorkflows = new(StringComparer.Ordinal);
     private IReadOnlyDictionary<string, string> workflowNames = new Dictionary<string, string>();
     private StudioFolderWorkflow? openedWorkflow;
     private StudioFolderSkill? openedSkill;
@@ -380,6 +410,7 @@
         RefreshSnapshots();
         workflows = loadedWorkflows;
         workflowNames = ToWorkflowNames(loadedWorkflows);
+        selectedPackageWorkflows.Clear();
         dirty = false;
         SetWorkflow(workflows.FirstOrDefault());
         externalSourceChanged = false;
@@ -934,6 +965,12 @@
         profileFormDirty = true;
     }
 
+    private void TogglePackageWorkflow(string workflowId, ChangeEventArgs args)
+    {
+        if (args.Value is true) selectedPackageWorkflows.Add(workflowId);
+        else selectedPackageWorkflows.Remove(workflowId);
+    }
+
     private void ToggleProfileSkill(SkillLibraryItem item, ChangeEventArgs args)
     {
         var key = item.Skill.Id + "@" + item.Skill.Version;
@@ -1060,6 +1097,7 @@
     }
 
     private static string WorkflowName(WorkflowDefinition value) => string.IsNullOrWhiteSpace(value.DisplayName) ? value.WorkflowId : value.DisplayName;
+    private string WorkflowName(string workflowId) => workflowNames.TryGetValue(workflowId, out var name) ? name : workflowId;
     private static IReadOnlyDictionary<string, string> ToWorkflowNames(IEnumerable<StudioFolderWorkflow> items) =>
         items.ToDictionary(item => item.WorkflowId, item => string.IsNullOrWhiteSpace(item.DisplayName) ? item.WorkflowId : item.DisplayName,
             StringComparer.Ordinal);

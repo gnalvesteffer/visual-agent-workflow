@@ -32,7 +32,7 @@ No model credentials or external services are needed for core tests. Keep packag
 dotnet run --project src/VisualAgentWorkflow.Studio --configuration Release --no-build -- --environment Development
 ```
 
-The console reports the local listening address on port 5099. The prototype requires Development mode and restricts requests to loopback peers/hosts and same-origin browser access. Do not expose it through a public reverse proxy. It has no workspace authentication and records plaintext input/output under `src/VisualAgentWorkflow.Studio/.local/runs/`. Catalog-backed projects organize authoring assets under `.local/projects/`; provider and MCP connection settings stay environment-wide under `.local/`. The Studio also has an early **Open folder** mode that directly edits manifest-indexed workflow source in one project directory; catalog-backed projects and folder projects remain separate; multiple roots and catalog migration are still in progress. Use disposable, non-sensitive inputs. See the [project user guide](docs/user-guide.md#organize-work-with-projects).
+The console reports the local listening address on port 5099. The prototype requires Development mode and restricts requests to loopback peers/hosts and same-origin browser access. Do not expose it through a public reverse proxy. It has no workspace authentication and records plaintext input/output under `src/VisualAgentWorkflow.Studio/.local/runs/`. Catalog-backed projects organize authoring assets under `.local/projects/`; provider and MCP connection settings stay environment-wide under `.local/`. The Studio can open up to eight Git folders, edit manifest-indexed workflows and reusable assets, save local restore points under ignored `.vaw/`, and export selected executable workflows as `.vawpkg` releases. Catalog-backed and folder projects remain separate. Use disposable, non-sensitive inputs and review prompt text before sharing a release. See the [project user guide](docs/user-guide.md#organize-work-with-projects).
 
 With the studio running, exercise the actual API:
 
@@ -56,7 +56,7 @@ For reusable workflows and sharing, `python3 scripts/workflow_reuse_smoke.py` ex
 
 ## Run in your own service
 
-The [standalone service sample](samples/WorkflowService/README.md) loads a pinned package and demonstrates direct/queued execution without Studio, Blazor or an authoring catalog. Run `python3 scripts/service_smoke.py` after the Release build to verify it with deterministic fixtures and real local MCP.
+The [standalone service sample](samples/WorkflowService/README.md) loads a pinned package or selected `.vawpkg` release and demonstrates direct/queued execution without Studio, Blazor or an authoring catalog. Run `python3 scripts/service_smoke.py` after the Release build to verify it with deterministic fixtures and real local MCP. The browser check `python3 scripts/folder_release_smoke.py` verifies selected folder export and clean consumer execution.
 
 Consumers can opt into an authorized read-only observation endpoint. Studio can attach to a named consumer source, and Blazor apps can embed the same observation panel. See [consumer observation](docs/observation.md) for setup and current limits.
 

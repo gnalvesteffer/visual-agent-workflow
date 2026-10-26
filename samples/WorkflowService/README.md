@@ -12,6 +12,18 @@ dotnet run --project samples/WorkflowService --configuration Release --no-build 
 
 The pure workflow returns `CBA`; the MCP workflow returns `cba`. Output is JSON lines: queued mode first reports an accepted, paused run identity, then resumes and reports the result. Its initial admission method returns before any node executes, where an integrating API/message handler could return control. Subsequent execution and observation belong to the host. There is no network API in this sample.
 
+## Build and execute a `.vawpkg`
+
+The project folder editor can export selected saved workflows directly. For automation, assemble one or more existing validated workflow package JSON files with the sample command:
+
+```sh
+dotnet run --project samples/WorkflowService --configuration Release --no-build -- pack sample-project "Service sample" .local/service-sample.vawpkg samples/WorkflowService/artifacts/pure.package.json samples/WorkflowService/artifacts/mcp.package.json
+dotnet run --project samples/WorkflowService --configuration Release --no-build -- bundle direct .local/service-sample.vawpkg service-pure .local/bundle-runs "abc"
+dotnet run --project samples/WorkflowService --configuration Release --no-build -- bundle direct .local/service-sample.vawpkg service-mcp .local/bundle-mcp-runs "abc" --grant-demo-tool
+```
+
+`pack` requires an explicit package-file list, validates each entry, and writes a deterministic archive with a strict release manifest. `bundle` selects the requested workflow ID from that artifact and validates the complete bundle before resolving host dependencies or creating a run. The sample revision ID is derived from the artifact digest and workflow ID. The run audit retains the selected workflow definition hash and revision ID. MCP grants are still supplied by this host configuration; omitting `--grant-demo-tool` rejects the MCP workflow before admission. The artifact does not install services, configure endpoints/credentials, or grant access. It is not signed, and hashes are not publisher authentication. A release can include user-authored prompt text, so review it before sharing.
+
 Use `paused` instead of `queued` to leave execution parked; Ctrl+C or SIGTERM stops the host and cancels the continuation. Exit codes: 0 completed, 1 configuration/dependency/execution error, 2 non-completed recorded outcome. Direct provider errors may return 1 after recording failure. Input and recorded payloads are plaintext; use disposable text. Give one runtime exclusive ownership of its run store. Set `WorkflowService__RunStore=sqlite` to opt into `runs.sqlite3` in the journal directory; the default remains file snapshots. Store selection does not migrate histories. See [run storage and upgrade notes](../../docs/run-storage.md). Restart interrupts unfinished work rather than restoring it. The journal/Hosting dependency still brings ASP.NET Core support and SQLite transitively; the sample creates no authoring database and requires no catalog. SQLite run persistence is opt-in.
 
 `artifacts/*.deployment.json` is operator-owned configuration mapping an exported package to a reviewed definition hash and stable deployment revision ID. The sample reconstructs that exact identity with `WorkflowRevision.Rehydrate`; package hashes are not signatures or authenticated publication lineage. Deploy the manifest through your own trusted release process. Package paths resolve relative to the manifest, not the current directory. Replacing content requires a new reviewed hash and revision identity. Layout is validated by the package loader but does not drive execution.
