@@ -26,7 +26,11 @@ public static class WorkflowPorts
          .. ExplicitDataOutputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType)),
          .. ExplicitExecutionInputs(node).Select(port => new WorkflowPortDescriptor(port, WorkflowPortDirection.Input, WorkflowPortKind.Execution)),
          .. ExplicitExecutionOutputs(node).Select(port => new WorkflowPortDescriptor(port, WorkflowPortDirection.Output, WorkflowPortKind.Execution,
-             DisplayName: node.Type == NodeTypes.Agent ? node.Agent?.Routes?.FirstOrDefault(route => route is not null && AgentExecutionRouteLimits.PinId(route.Id) == port)?.Label : null))];
+             DisplayName: node.Type == NodeTypes.Agent
+                 ? node.Agent?.Routes?.FirstOrDefault(route => route is not null && AgentExecutionRouteLimits.PinId(route.Id) == port)?.Label
+                 : node.Type == NodeTypes.ParallelFork
+                     ? node.ParallelFork?.Branches.FirstOrDefault(branch => branch is not null && ParallelBranchLimits.PinId(branch.Id) == port)?.Label
+                     : null))];
 
     public static ImmutableArray<WorkflowPort> ExplicitDataInputs(NodeDefinition node) => node.Type switch
     {
@@ -48,6 +52,7 @@ public static class WorkflowPorts
         NodeTypes.IntegerConstant or NodeTypes.IntegerAdd => [new("out", "integer")],
         NodeTypes.WorkflowValue => [new("out", node.OutputDataType ?? "string")],
         NodeTypes.Agent => [new("out", node.Agent?.RequireStructuredResult == true ? "json" : "string")],
+        NodeTypes.ParallelJoin => [new("out", "json")],
         NodeTypes.StringEquals or NodeTypes.IntegerEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", "boolean")],
         NodeTypes.FunctionCall when node.GraphFunction?.Definition?.Outputs is { } outputs => [.. outputs.Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))],
         _ => []
@@ -55,7 +60,8 @@ public static class WorkflowPorts
 
     public static ImmutableArray<string> ExplicitExecutionInputs(NodeDefinition node) => node.Type switch
     {
-        NodeTypes.Agent or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate => ["execute"],
+        NodeTypes.Agent or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch => ["execute"],
+        NodeTypes.ParallelJoin when node.ParallelJoin is { } join => [.. join.BranchIds.Select(ParallelBranchLimits.PinId)],
         _ => []
     };
 
@@ -65,6 +71,9 @@ public static class WorkflowPorts
         NodeTypes.Agent when node.Agent?.Routes is { IsDefaultOrEmpty: false } routes => [.. routes.Select(route => AgentExecutionRouteLimits.PinId(route.Id))],
         NodeTypes.Agent => ["out"],
         NodeTypes.BooleanBranch => ["true", "false"],
+        NodeTypes.ParallelFork when node.ParallelFork is { } fork => [.. fork.Branches.Select(branch => ParallelBranchLimits.PinId(branch.Id))],
+        NodeTypes.ParallelBranch => ["then"],
+        NodeTypes.ParallelJoin => ["then"],
         _ => []
     };
 
@@ -73,6 +82,7 @@ public static class WorkflowPorts
         NodeTypes.Input => [],
         NodeTypes.JsonSelectString or NodeTypes.JsonProject => [new("in", "json")],
         NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Loop or NodeTypes.LoopBody => [new("in", "string")],
+        NodeTypes.ParallelJoin when node.ParallelJoin is not null => [],
         NodeTypes.ParallelJoin => [new("branch_1", "string"), new("branch_2", "string")],
         NodeTypes.Output => [new("in", node.OutputDataType ?? "string")],
         NodeTypes.WorkflowCall => [new("in", WorkflowCallInputType(node))],
@@ -87,6 +97,7 @@ public static class WorkflowPorts
         NodeTypes.Condition => [new("true", "string"), new("false", "string")],
         NodeTypes.Input when node.InputDataType == "json" => [new("out", "json")],
         NodeTypes.JsonProject => [new("out", "json")],
+        NodeTypes.ParallelFork when node.ParallelFork is not null => [],
         NodeTypes.ParallelFork => [new("branch_1", "string"), new("branch_2", "string")],
         NodeTypes.ParallelJoin => [new("out", "json")],
         NodeTypes.Loop => [new("body", "string"), new("done", "string")],
@@ -107,8 +118,21 @@ public static class WorkflowPorts
 public static class ParallelGraphLimits
 {
     public const int MaximumBranches = 2;
+    public const int MaximumExplicitBranches = 8;
     public const int MaximumBlocks = 4;
     public const int MaximumAggregateCharacters = 16_384;
+}
+
+public static class ParallelBranchLimits
+{
+    public const int MinimumBranches = 2;
+    public const int MaximumIdLength = 32;
+    public const int MaximumLabelLength = 64;
+
+    public static string PinId(string branchId) => $"branch.{branchId}";
+
+    public static bool IsValidId(string? id) => id is { Length: > 0 and <= MaximumIdLength } &&
+        id[0] is >= 'a' and <= 'z' && id.All(character => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '_' or '-');
 }
 
 public static class WorkflowLoopLimits

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Collections.Concurrent;
 using Microsoft.Agents.AI.Workflows;
 using System.Globalization;
 using System.Text.Json;
@@ -180,7 +181,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
 
     private sealed record GraphMessage(string Text, string? SourceNode, string? SourcePort,
         WorkflowApprovalPermit? Approval = null, string DataType = "string", int LoopIteration = 0,
-        bool TerminationSignal = false, bool FailureSignal = false);
+        bool TerminationSignal = false, bool FailureSignal = false,
+        Guid? ParallelActivationId = null, string? ParallelBranchId = null, string? ParallelForkNodeId = null);
 
     private sealed class AgentRouteSelectionState(ImmutableArray<AgentExecutionRoute> routes)
     {
@@ -237,8 +239,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         IReadOnlyDictionary<string, string>? parameters)
     {
         private int functionNodeVisits;
-        private readonly Dictionary<(string NodeId, string PortId), GraphFunctionAudit> functionAudits = [];
-        private readonly Dictionary<(string NodeId, string PortId), ExplicitGraphValue> runtimeValues = [];
+        private readonly ConcurrentDictionary<(string NodeId, string PortId), GraphFunctionAudit> functionAudits = new();
+        private readonly ConcurrentDictionary<(string NodeId, string PortId), ExplicitGraphValue> runtimeValues = new();
 
         public void SetRuntimeOutput(string nodeId, string portId, string dataType, object value) =>
             runtimeValues[(nodeId, portId)] = new(dataType, value);
@@ -481,6 +483,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         private readonly object parallelJoinSync = new();
         private readonly SemaphoreSlim parallelJoinExecution = new(1, 1);
         private readonly SortedDictionary<string, string> parallelJoinInputs = new(StringComparer.Ordinal);
+        private Guid? configurableParallelActivationId;
         private Guid? parallelJoinInvocationId;
 
         public override async ValueTask<GraphMessage> HandleAsync(GraphMessage received, IWorkflowContext context, CancellationToken cancellationToken = default)
@@ -489,7 +492,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (gate is not null && !internalTerminationHandoff) await gate.WaitForBoundaryAsync(Id, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             var message = received.Text;
-            var invocation = node.Type == NodeTypes.ParallelJoin ? ParallelJoinInvocation() : received.Approval?.TargetInvocationId ?? Guid.NewGuid();
+            var invocation = node.Type == NodeTypes.ParallelJoin &&
+                revision.Definition.SchemaVersion == WorkflowSchemaVersions.ConfigurableParallelGraph && received.ParallelActivationId is { } activation
+                ? activation
+                : node.Type == NodeTypes.ParallelJoin ? ParallelJoinInvocation() : received.Approval?.TargetInvocationId ?? Guid.NewGuid();
             // Receiving the downstream message is direct evidence of delivery, not inferred completion.
             string? incomingPort = null;
             DataInputEvaluation? outputEvaluation = null;
@@ -529,13 +535,28 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 await parallelJoinExecution.WaitAsync(cancellationToken);
                 try
                 {
-                    var (started, complete, result, receivedCount) = CollectParallelJoinInput(incomingPort!, message);
-                    if (started) await Emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, "Waiting for both parallel branch results.");
-                    await Emit(ExecutionEventKinds.ParallelJoinProgress, Id, invocation, null,
-                        complete ? "Both branch results received." : $"Received {receivedCount} of 2 branch results; waiting for the other branch.");
+                    var configurable = revision.Definition.SchemaVersion == WorkflowSchemaVersions.ConfigurableParallelGraph;
+                    var joinResult = configurable
+                        ? CollectConfigurableParallelJoinInput(incomingPort!, received)
+                        : CollectParallelJoinInput(incomingPort!, message) is var legacy
+                            ? (legacy.Started, legacy.Complete, legacy.Result, legacy.ReceivedCount, ParallelGraphLimits.MaximumBranches)
+                            : throw new InvalidOperationException("Parallel join could not read its branch result.");
+                    var (started, complete, result, receivedCount, expectedCount) = joinResult;
+                    var progress = configurable
+                        ? complete ? $"All {expectedCount} branch results received." : $"Received {receivedCount} of {expectedCount} branch results; waiting for the others."
+                        : complete ? "Both branch results received." : $"Received {receivedCount} of 2 branch results; waiting for the other branch.";
+                    if (started) await Emit(ExecutionEventKinds.NodeStarted, Id, invocation,
+                        data: configurable ? $"Waiting for {expectedCount} parallel branch results." : "Waiting for both parallel branch results.");
+                    await Emit(ExecutionEventKinds.ParallelJoinProgress, Id, invocation, data: progress);
                     if (!complete) return new("", Id, "parallel.pending", DataType: "json");
+                    if (configurable)
+                    {
+                        using var document = JsonDocument.Parse(result!);
+                        dataEvaluator!.SetRuntimeOutput(Id, "out", "json", document.RootElement.Clone());
+                    }
                     await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, result);
-                    return new(result!, Id, "out", DataType: "json");
+                    return new(result!, Id, configurable ? "then" : "out", DataType: "json",
+                        ParallelActivationId: received.ParallelActivationId, ParallelForkNodeId: received.ParallelForkNodeId);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -633,6 +654,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 }
                 var port = agentRouteId is null ? "out" : AgentExecutionRouteLimits.PinId(agentRouteId);
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Input) port = "then";
+                if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.ConfigurableParallelGraph && node.Type == NodeTypes.ParallelBranch) port = "then";
                 if (node.Type == NodeTypes.BooleanBranch)
                 {
                     var condition = branchEvaluation!.Result;
@@ -676,9 +698,18 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         node.Type == NodeTypes.Terminate || received.TerminationSignal ? "Workflow terminated without returning a value." : result);
                 if (node.Type == NodeTypes.ParallelFork)
                 {
-                    foreach (var edge in revision.Definition.Connections.Values.Where(edge => edge.Source.NodeId == Id))
+                    var configurable = revision.Definition.SchemaVersion == WorkflowSchemaVersions.ConfigurableParallelGraph;
+                    var activationId = configurable ? invocation : (Guid?)null;
+                    var outgoingEdges = configurable
+                        ? revision.Definition.ExecutionConnections!.Values.Where(edge => edge.Source.NodeId == Id)
+                        : revision.Definition.Connections.Values.Where(edge => edge.Source.NodeId == Id);
+                    foreach (var edge in outgoingEdges)
                     {
-                        await context.SendMessageAsync(new GraphMessage(result, Id, edge.Source.PortId, DataType: "string"), edge.Target.NodeId, cancellationToken);
+                        var branchId = configurable && edge.Source.PortId.StartsWith("branch.", StringComparison.Ordinal)
+                            ? edge.Source.PortId["branch.".Length..] : null;
+                        await context.SendMessageAsync(new GraphMessage(result, Id, edge.Source.PortId, DataType: "string",
+                            ParallelActivationId: activationId, ParallelBranchId: branchId,
+                            ParallelForkNodeId: configurable ? Id : null), edge.Target.NodeId, cancellationToken);
                     }
                     return new(result, Id, "parallel.dispatched", DataType: "string");
                 }
@@ -691,7 +722,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 if (routeSelection is not null)
                     await Emit(ExecutionEventKinds.AgentRouteCommitted, Id, invocation, null, JsonSerializer.Serialize(new { routeId = agentRouteId, port }));
                 return new(result, internalTerminationHandoff ? received.SourceNode : Id, terminated ? "terminated" : port, permit, outputType, nextLoopIteration,
-                    terminated, failureSignal);
+                    terminated, failureSignal, received.ParallelActivationId, received.ParallelBranchId, received.ParallelForkNodeId);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -774,6 +805,36 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 if (result.Length > ParallelGraphLimits.MaximumAggregateCharacters)
                     throw new InvalidOperationException($"Parallel branch results exceed {ParallelGraphLimits.MaximumAggregateCharacters} characters.");
                 return (started, true, result, parallelJoinInputs.Count);
+            }
+        }
+
+        private (bool Started, bool Complete, string? Result, int ReceivedCount, int ExpectedCount)
+            CollectConfigurableParallelJoinInput(string inputPort, GraphMessage message)
+        {
+            var configuration = node.ParallelJoin ?? throw new InvalidOperationException("The parallel join has no branch configuration.");
+            var fork = revision.Definition.Nodes[configuration.ForkNodeId];
+            var expectedBranches = configuration.BranchIds.ToHashSet(StringComparer.Ordinal);
+            var branchId = inputPort.StartsWith("branch.", StringComparison.Ordinal) ? inputPort["branch.".Length..] : "";
+            if (message.ParallelActivationId is not { } activationId || message.ParallelForkNodeId != configuration.ForkNodeId ||
+                message.ParallelBranchId != branchId || !expectedBranches.Contains(branchId) || fork.Type != NodeTypes.ParallelFork)
+                throw new InvalidOperationException("The parallel join received a result from an unexpected fork or branch.");
+
+            lock (parallelJoinSync)
+            {
+                if (configurableParallelActivationId is { } existingActivation && existingActivation != activationId)
+                    throw new InvalidOperationException("A parallel join cannot combine results from different fork activations.");
+                configurableParallelActivationId = activationId;
+                if (!parallelJoinInputs.TryAdd(branchId, message.Text))
+                    throw new InvalidOperationException("The parallel join received a duplicate branch result.");
+
+                var started = parallelJoinInputs.Count == 1;
+                if (parallelJoinInputs.Count < expectedBranches.Count)
+                    return (started, false, null, parallelJoinInputs.Count, expectedBranches.Count);
+
+                var result = JsonSerializer.Serialize(parallelJoinInputs);
+                if (result.Length > ParallelGraphLimits.MaximumAggregateCharacters)
+                    throw new InvalidOperationException($"Parallel branch results exceed {ParallelGraphLimits.MaximumAggregateCharacters} characters.");
+                return (started, true, result, parallelJoinInputs.Count, expectedBranches.Count);
             }
         }
 

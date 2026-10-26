@@ -71,6 +71,12 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     public GraphFunctionConfiguration? GraphFunction { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? FunctionPortId { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ParallelForkConfiguration? ParallelFork { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ParallelBranchConfiguration? ParallelBranch { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ParallelJoinConfiguration? ParallelJoin { get; init; }
 }
 
 /// <summary>Copy-on-insert source identity; informational provenance, never a grant or runtime resolver.</summary>
@@ -129,17 +135,23 @@ public static class WorkflowSchemaVersions
     public const string AgentParameterBindings = "1.29";
     public const string AgentExecutionRoutes = "1.30";
     public const string IntegerGraph = "1.31";
+    public const string ConfigurableParallelGraph = "1.32";
 
-    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph or PureGraphFunctions or AgentGraphFunctionTools or AgentExecutionRoutes or IntegerGraph;
+    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph or PureGraphFunctions or AgentGraphFunctionTools or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph;
 
     public static bool UsesExplicitGraph(WorkflowDefinition definition) =>
         UsesExplicitGraph(definition.SchemaVersion) ||
-        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph && definition.ExecutionConnections is not null;
+        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph && definition.ExecutionConnections is not null;
 }
 
 public sealed record StringConstantConfiguration(string Value);
 public sealed record BooleanConstantConfiguration(bool Value);
 public sealed record IntegerConstantConfiguration(long Value);
+
+public sealed record ParallelForkConfiguration(ImmutableArray<ParallelBranchDescriptor> Branches);
+public sealed record ParallelBranchDescriptor(string Id, string Label, string AnchorNodeId);
+public sealed record ParallelBranchConfiguration(string ForkNodeId, string BranchId);
+public sealed record ParallelJoinConfiguration(string ForkNodeId, ImmutableArray<string> BranchIds);
 
 public sealed record LoopConfiguration(StringCondition ContinueWhile, int MaximumIterations);
 public sealed record TerminationConfiguration(string Outcome);

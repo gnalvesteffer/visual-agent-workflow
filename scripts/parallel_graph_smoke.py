@@ -15,8 +15,10 @@ def check(browser, base_url):
     workflow_id = designer.locator(".vaw-definition-status strong").inner_text()
     designer.get_by_role("button", name="Save draft", exact=True).click()
     designer.get_by_text("Draft saved.", exact=True).wait_for()
-    designer.get_by_label("Node to organize", exact=True).select_option("input")
-    designer.get_by_role("button", name="Add Parallel block", exact=True).click()
+    wire = designer.locator('path[data-wire="link-1"]').first
+    wire.click(button="right")
+    actions = designer.get_by_role("dialog", name="Graph actions", exact=True)
+    actions.get_by_role("button", name="Add Parallel block", exact=True).click()
     nodes = designer.locator("li[data-node-id]")
     expect(nodes).to_have_count(8)
     designer.get_by_role("button", name="Save draft", exact=True).click()
@@ -45,7 +47,7 @@ def check(browser, base_url):
     designer.get_by_role("button", name="Run selected version", exact=True).click()
     history = page.locator(".vaw-history button[aria-pressed='true'] small")
     expect(history).to_be_visible(timeout=30_000)
-    output = page.locator('li[data-node-id="output"]')
+    output = page.locator('li[data-node-id="output"]:visible')
     expect(output).to_be_visible(timeout=30_000)
     selected = page.locator(".vaw-history button[aria-pressed='true'] small").inner_text()
     summaries = page.request.get(base_url + "/api/runs").json()
@@ -57,12 +59,12 @@ def check(browser, base_url):
     assert any(event["kind"] == "node.completed" and event["nodeId"] == "output" and "BRANCH_1" in event["data"] for event in snapshot["events"])
     join_id = next(node_id for node_id, node in definition["nodes"].items() if node["type"] == "core.parallel.join")
     waiting = next(event for event in snapshot["events"] if event["kind"] == "parallel.join.progress" and "waiting" in event["data"].lower())
-    page.get_by_label("Recorded position", exact=True).evaluate(
-        "(input, position) => { input.value = position; input.dispatchEvent(new Event('input', { bubbles: true })); }",
-        waiting["sequence"],
-    )
-    expect(page.get_by_role("button", name=f"{join_id} core.parallel.join Running", exact=True)).to_be_visible()
-    expect(page.locator(f".vaw-node[data-node-id='{join_id}'] .vaw-node-activity")).to_contain_text("waiting for the other branch")
+    page.get_by_role("button", name="Run inspector", exact=True).click()
+    viewer = page.locator(".vaw-viewer:visible")
+    for _ in range(len(snapshot["events"]) - waiting["sequence"]):
+        viewer.get_by_role("button", name="Previous event", exact=True).click()
+    expect(viewer.get_by_role("button", name=f"{join_id} core.parallel.join Running", exact=True)).to_be_visible()
+    expect(viewer.locator(f".vaw-node[data-node-id='{join_id}'] .vaw-node-activity")).to_contain_text("waiting for the other branch")
     page.get_by_role("button", name="Designer", exact=True).click()
     designer = workbench(page.get_by_role("region", name="Workflow designer", exact=True))
     fork_id = next(node_id for node_id, node in definition["nodes"].items() if node["type"] == "core.parallel.fork")
