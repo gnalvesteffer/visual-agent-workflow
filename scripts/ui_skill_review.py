@@ -346,7 +346,8 @@ def check(browser, screenshots):
         show_runs(page)
         page.get_by_role("textbox", name="Input", exact=True).fill("form safety")
         start.click()
-        page.locator('li[data-node-id="output"] button.vaw-node-drag').click()
+        page.get_by_role("button", name="Fit graph", exact=True).click()
+        page.get_by_role("button", name="Inspect node output", exact=True).click()
         expect(page.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("YTEFAS MROF")
         assert page.evaluate("window.hostSubmissions") == 0
 
@@ -360,7 +361,8 @@ def check(browser, screenshots):
         # The old completed output remains clickable until admission selects the new run.
         # Wait for that identity change before inspecting, including with slower storage.
         expect(viewer).not_to_contain_text(previous_run)
-        page.locator('li[data-node-id="output"] button.vaw-node-drag').click()
+        page.get_by_role("button", name="Fit graph", exact=True).click()
+        page.get_by_role("button", name="Inspect node output", exact=True).click()
         expect(page.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("X" * 16384)
 
         # Successful polling must not immediately erase a failed user action.

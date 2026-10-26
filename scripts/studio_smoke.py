@@ -214,7 +214,8 @@ def browser_check(executable):
             expect(start).to_be_enabled()
             page.get_by_role("textbox", name="Input", exact=True).fill("browser proof")
             start.click()
-            page.locator('li[data-node-id="output"] button.vaw-node-drag').click()
+            page.get_by_role("button", name="Fit graph", exact=True).click()
+            page.get_by_role("button", name="Inspect node output", exact=True).click()
             inspector = page.get_by_role("region", name="Selected node payloads")
             expect(inspector.locator("pre").last).to_have_text("FOORP RESWORB")
             page.get_by_role("button", name="Previous event", exact=True).click()
@@ -250,7 +251,7 @@ def project_workspace_check(browser):
     project_card.get_by_role("link", name="Open project", exact=True).click()
     page.wait_for_url("**" + project_url)
     page.wait_for_timeout(1500)
-    expect(page.locator('nav[aria-label="Project and Studio navigation"]')).to_contain_text(page_name)
+    expect(page.get_by_role("navigation", name="Studio navigation", exact=True)).to_contain_text(page_name)
 
     page.goto(BASE + project_url + "/skills")
     page.wait_for_timeout(1500)
@@ -305,10 +306,9 @@ def designer_check(browser):
     workbench(designer).get_by_text("Published and activated version 2.", exact=True).wait_for()
     workbench(designer).get_by_label("Published run input", exact=True).fill("abc")
     workbench(designer).get_by_role("button", name="Run selected version", exact=True).click()
-    workbench(designer)
-    output_node = page.locator('li[data-node-id="output"] button.vaw-node-drag')
-    output_node.scroll_into_view_if_needed()
-    output_node.click()
+    show_runs(page)
+    page.get_by_role("button", name="Fit graph", exact=True).click()
+    page.get_by_role("button", name="Inspect node output", exact=True).click()
     expect(page.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("CBA")
     version_select = workbench(designer).get_by_label("Published version", exact=True)
     version_one = version_select.locator("option").evaluate_all("options => options.find(o => o.textContent.startsWith('Version 1 ')).value")
@@ -404,8 +404,9 @@ def mcp_designer_check(browser):
     page.reload()
     expect(workbench(designer).get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
     workbench(designer).get_by_label("Saved workflow", exact=True).select_option(workflow_id)
+    saved_tool = get("/api/workflows/" + workflow_id)["definition"]["nodes"]["step-1"]["tool"]
     expect(inspect_control(designer, "Operation for step-1").get_by_label("Operation for step-1", exact=True)).to_have_value(
-        "mcp:demo.reverse:" + get("/api/workflows/" + workflow_id)["definition"]["nodes"]["step-1"]["tool"]["contractHash"])
+        "mcp:demo.reverse:" + saved_tool["contractHash"] + ":" + saved_tool["descriptionHash"])
     page.close()
     print("Browser MCP binding selection, published execution, recorded tool result, and reload passed.")
 

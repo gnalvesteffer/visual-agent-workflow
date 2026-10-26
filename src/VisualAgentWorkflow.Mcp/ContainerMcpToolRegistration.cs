@@ -109,8 +109,10 @@ public static partial class ContainerMcpToolRegistration
             "run", "--rm", "--interactive", "--pull=never", "--network=none", "--read-only",
             "--cap-drop=ALL", "--security-opt=no-new-privileges=true", "--pids-limit=64",
             "--memory=256m", "--memory-swap=256m", "--cpus=1", "--user=65532:65532",
-            "--ulimit=nofile=128:128", "--log-driver=none",
-            "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m"
+            "--ulimit=nofile=256:256", "--log-driver=none",
+            "--env", "HOME=/tmp", "--env", "DOTNET_CLI_HOME=/tmp/.dotnet",
+            "--env", "DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1", "--env", "DOTNET_NOLOGO=1",
+            "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m",
         };
         arguments.Add(options.ImageReference);
         arguments.AddRange(workerArguments);
