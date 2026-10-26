@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using VisualAgentWorkflow.Core;
 using VisualAgentWorkflow.Studio;
 using Xunit;
@@ -41,6 +42,35 @@ public sealed class StudioGraphFunctionLibraryTests : IDisposable
         Assert.Throws<ArgumentNullException>(() => library.Add(CreateFunction(2, "Another revision"), null!));
         Assert.True(library.Delete(function.FunctionId, function.Version));
         Assert.Equal(configuration, caller.GraphFunction);
+    }
+
+    [Fact]
+    public void Library_preserves_layout_and_reads_legacy_catalog_entries()
+    {
+        var function = CreateFunction(1, "Append suffix");
+        var draft = StudioGraphFunctionAsset.Draft(function);
+        var layout = WorkflowLayout.Create(draft) with
+        {
+            Nodes = WorkflowLayout.Create(draft).Nodes.SetItem("concat", new(new GraphPoint(1_200, 700), "Join", "Custom placement")),
+            Sections = ImmutableSortedDictionary<string, GraphSection>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("body", new("Body", ["concat", "suffix"]))
+        };
+        var library = new StudioGraphFunctionLibrary(directory);
+        library.Add(function, "Text", layout);
+
+        var reopened = new StudioGraphFunctionLibrary(directory);
+        var asset = Assert.Single(reopened.ListAssets());
+        Assert.Equal(WorkflowLayoutJson.Serialize(layout, draft), WorkflowLayoutJson.Serialize(asset.Layout, draft));
+        Assert.Equal(GraphFunctionJson.ComputeHash(function), asset.Item.Function.ContentHash);
+
+        var legacyDirectory = Path.Combine(directory, "legacy");
+        Directory.CreateDirectory(legacyDirectory);
+        var entry = new GraphFunctionCatalogEntry(
+            new(function, GraphFunctionJson.ComputeHash(function)), "Legacy");
+        File.WriteAllText(Path.Combine(legacyDirectory, "graph-functions.json"), JsonSerializer.Serialize(new[] { entry }));
+        var legacy = Assert.Single(new StudioGraphFunctionLibrary(legacyDirectory).ListAssets());
+        Assert.Equal(WorkflowLayoutJson.Serialize(WorkflowLayout.Create(draft), draft),
+            WorkflowLayoutJson.Serialize(legacy.Layout, draft));
     }
 
     private static GraphFunctionDefinition CreateFunction(int version, string name) => new(

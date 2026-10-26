@@ -29,7 +29,13 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
         workspace.Skills.Add("source-check", "1.0.0", "Source check", "Confirm source requirements.", "Research");
         workspace.AgentProfiles.Add(AgentProfile.Create("review-agent", "1.0.0", "Review agent", "A portable profile.",
             "demo.scripted", "Review the request.", ImmutableArray<ToolBindingRequest>.Empty), "Agents");
-        workspace.Functions.Add(AppendSuffixFunction(), "Text/Formatting");
+        var function = AppendSuffixFunction();
+        var functionDraft = StudioGraphFunctionAsset.Draft(function);
+        var functionLayout = WorkflowLayout.Create(functionDraft) with
+        {
+            Nodes = WorkflowLayout.Create(functionDraft).Nodes.SetItem("output", new(new GraphPoint(1_100, 540), "Return", "Archive layout"))
+        };
+        workspace.Functions.Add(function, "Text/Formatting", functionLayout);
 
         var first = await StudioProjectSourceArchive.CreateAsync(workspace);
         var second = await StudioProjectSourceArchive.CreateAsync(workspace);
@@ -45,6 +51,10 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
         var workflow = StudioProjectSourceArchive.DeserializeWorkflowSource(files[workflowFile.Path]);
         Assert.Equal(definition.WorkflowId, workflow.Definition.WorkflowId);
         Assert.Equal(WorkflowLayoutJson.Serialize(layout, definition), WorkflowLayoutJson.Serialize(workflow.Layout, definition));
+        var functionFile = Assert.Single(manifest.Files.Where(file => file.Kind == "graph-function"));
+        var functionAsset = StudioProjectSourceArchive.DeserializeGraphFunctionSourceAsset(files[functionFile.Path]);
+        Assert.Equal(WorkflowLayoutJson.Serialize(functionLayout, functionDraft),
+            WorkflowLayoutJson.Serialize(functionAsset.Layout, functionDraft));
         Assert.DoesNotContain("runs/", string.Join('\n', files.Keys));
     }
 
@@ -98,7 +108,13 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
         sourceWorkspace.Skills.Add("source-check", "1.0.0", "Source check", "Confirm source requirements.", "Research");
         sourceWorkspace.AgentProfiles.Add(AgentProfile.Create("review-agent", "1.0.0", "Review agent", "A portable profile.",
             "demo.scripted", "Review the request.", ImmutableArray<ToolBindingRequest>.Empty), "Agents");
-        sourceWorkspace.Functions.Add(AppendSuffixFunction(), "Text/Formatting");
+        var function = AppendSuffixFunction();
+        var functionDraft = StudioGraphFunctionAsset.Draft(function);
+        var functionLayout = WorkflowLayout.Create(functionDraft) with
+        {
+            Nodes = WorkflowLayout.Create(functionDraft).Nodes.SetItem("output", new(new GraphPoint(1_000, 400), "Return", "Imported layout"))
+        };
+        sourceWorkspace.Functions.Add(function, "Text/Formatting", functionLayout);
         var archive = await StudioProjectSourceArchive.CreateAsync(sourceWorkspace);
 
         var targetData = Path.Combine(directory, "target");
@@ -115,6 +131,9 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
         Assert.Contains(targetWorkspace.Skills.List(), item => item.Skill.Id == "source-check" && item.Folder == "Research");
         Assert.Contains(targetWorkspace.AgentProfiles.List(), item => item.Profile.Id == "review-agent" && item.Folder == "Agents");
         Assert.Contains(targetWorkspace.Functions.List(), item => item.Function.Definition.FunctionId == "text.append-suffix");
+        var importedFunction = Assert.Single(targetWorkspace.Functions.ListAssets());
+        Assert.Equal(WorkflowLayoutJson.Serialize(functionLayout, functionDraft),
+            WorkflowLayoutJson.Serialize(importedFunction.Layout, functionDraft));
         var restored = await Assert.IsAssignableFrom<IWorkflowDesignCatalog>(targetWorkspace.Catalog).GetDesignAsync(definition.WorkflowId);
         Assert.NotNull(restored);
         Assert.Equal(WorkflowLayoutJson.Serialize(layout, definition), WorkflowLayoutJson.Serialize(restored.Layout, definition));

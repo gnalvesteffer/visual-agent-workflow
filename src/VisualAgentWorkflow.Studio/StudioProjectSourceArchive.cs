@@ -56,11 +56,12 @@ public static class StudioProjectSourceArchive
         foreach (var item in workspace.AgentProfiles.List())
             Add(sourceFiles, assetEntries, "agent-profile", item.Profile.Id, item.Profile.Version,
                 AssetPath("agents", item.Profile.Id, item.Profile.Version), JsonSerializer.Serialize(item, JsonOptions));
-        foreach (var item in workspace.Functions.List())
+        foreach (var asset in workspace.Functions.ListAssets())
         {
+            var item = asset.Item;
             var version = item.Function.Definition.Version.ToString(System.Globalization.CultureInfo.InvariantCulture);
             Add(sourceFiles, assetEntries, "graph-function", item.Function.Definition.FunctionId, version,
-                AssetPath("functions", item.Function.Definition.FunctionId, version), JsonSerializer.Serialize(item, JsonOptions));
+                AssetPath("functions", item.Function.Definition.FunctionId, version), SerializeGraphFunctionAsset(item, asset.Layout));
         }
 
         var manifest = new StudioProjectManifest(FormatVersion, workspace.CurrentProjectId, workspace.CurrentProjectName,
@@ -128,7 +129,7 @@ public static class StudioProjectSourceArchive
         var workflows = new List<StudioWorkflowSource>();
         var skills = new List<SkillLibraryItem>();
         var profiles = new List<AgentProfileLibraryItem>();
-        var functions = new List<GraphFunctionCatalogEntry>();
+        var functions = new List<StudioGraphFunctionAsset>();
         foreach (var file in manifest.Files)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -138,7 +139,7 @@ public static class StudioProjectSourceArchive
                 case "workflow": workflows.Add(DeserializeWorkflowSource(content)); break;
                 case "skill": skills.Add(JsonSerializer.Deserialize<SkillLibraryItem>(content, JsonOptions)!); break;
                 case "agent-profile": profiles.Add(JsonSerializer.Deserialize<AgentProfileLibraryItem>(content, JsonOptions)!); break;
-                case "graph-function": functions.Add(JsonSerializer.Deserialize<GraphFunctionCatalogEntry>(content, JsonOptions)!); break;
+                case "graph-function": functions.Add(DeserializeGraphFunctionSourceAsset(content)); break;
             }
         }
 
@@ -167,7 +168,7 @@ public static class StudioProjectSourceArchive
             foreach (var item in functions)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                workspace.Functions.Add(item.Function.Definition, item.Folder);
+                workspace.Functions.Add(item.Item.Function.Definition, item.Item.Folder, item.Layout);
             }
             return project;
         }
@@ -245,20 +246,21 @@ public static class StudioProjectSourceArchive
             ?? throw new InvalidDataException("Project agent profile is empty.");
     }
 
-    public static string SerializeGraphFunctionAsset(GraphFunctionCatalogEntry item)
+    public static string SerializeGraphFunctionAsset(GraphFunctionCatalogEntry item, WorkflowLayout? layout = null)
     {
         ArgumentNullException.ThrowIfNull(item);
-        return JsonSerializer.Serialize(item, JsonOptions).Replace("\r\n", "\n", StringComparison.Ordinal);
+        var asset = StudioGraphFunctionAsset.Create(item, layout);
+        return JsonSerializer.Serialize(asset, JsonOptions).Replace("\r\n", "\n", StringComparison.Ordinal);
     }
 
     public static GraphFunctionCatalogEntry DeserializeGraphFunctionAsset(ReadOnlySpan<byte> bytes)
+        => DeserializeGraphFunctionSourceAsset(bytes).Item;
+
+    public static StudioGraphFunctionAsset DeserializeGraphFunctionSourceAsset(ReadOnlySpan<byte> bytes)
     {
         if (bytes.Length is <= 0 or > MaximumFileBytes)
             throw new InvalidDataException("Project graph function size is outside the supported limit.");
-        using var document = JsonDocument.Parse(bytes.ToArray(), new JsonDocumentOptions { MaxDepth = 64 });
-        RejectDuplicateProperties(document.RootElement);
-        return JsonSerializer.Deserialize<GraphFunctionCatalogEntry>(bytes, JsonOptions)
-            ?? throw new InvalidDataException("Project graph function is empty.");
+        return StudioGraphFunctionAsset.Deserialize(bytes, JsonOptions);
     }
 
     public static string ComputeManifestHash(StudioProjectManifest manifest) =>
@@ -370,7 +372,8 @@ public static class StudioProjectSourceArchive
             }
             case "graph-function":
             {
-                var item = DeserializeGraphFunctionAsset(content);
+                var asset = DeserializeGraphFunctionSourceAsset(content);
+                var item = asset.Item;
                 if (item?.Function is not { } function ||
                     !int.TryParse(file.Version, System.Globalization.CultureInfo.InvariantCulture, out var version) ||
                     function.Definition.FunctionId != file.Id || function.Definition.Version != version ||

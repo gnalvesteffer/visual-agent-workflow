@@ -16,15 +16,16 @@
     <section class="vaw-settings-section" aria-label="Saved pure graph functions">
         <div class="vaw-settings-section-heading"><div><h2>Saved functions</h2><p>Each revision is content-hash pinned. Moving or deleting a library item does not alter workflow snapshots.</p></div><button type="button" class="vaw-primary" @onclick="NewFunction">New function</button></div>
         <div class="vaw-provider-list">
-            @if (Library.List().Count == 0) { <p class="vaw-provider-empty">No functions yet. Create one to get started.</p> }
-            @foreach (var item in Library.List())
+            @if (Library.ListAssets().Count == 0) { <p class="vaw-provider-empty">No functions yet. Create one to get started.</p> }
+            @foreach (var asset in Library.ListAssets())
             {
+                var item = asset.Item;
                 <article class="vaw-provider-card" @key="(item.Function.Definition.FunctionId,item.Function.Definition.Version)">
                     <div class="vaw-provider-card-heading"><h3>@item.Function.Definition.DisplayName <small>@($"v{item.Function.Definition.Version}")</small></h3><code>@item.Function.ContentHash[..8]</code></div>
                     <p class="vaw-provider-identity"><code>@item.Function.Definition.FunctionId</code><span>@(string.IsNullOrWhiteSpace(item.Folder) ? "Unfiled" : item.Folder)</span><span>@item.Function.Definition.Inputs.Count inputs · @item.Function.Definition.Outputs.Count outputs</span></p>
                     @if (!string.IsNullOrWhiteSpace(item.Function.Definition.Description)) { <p>@item.Function.Definition.Description</p> }
-                    <label>Folder <input aria-label="@($"Folder for {item.Function.Definition.FunctionId} v{item.Function.Definition.Version}")" value="@item.Folder" @onchange="args => Move(item, args)" /></label>
-                    <div class="vaw-provider-actions"><button type="button" class="vaw-secondary" @onclick="() => CopyForNewVersion(item)">New version from this function</button><button type="button" class="vaw-danger-quiet" @onclick="() => Delete(item)">Delete from library</button></div>
+                    <label>Folder <input aria-label="@($"Folder for {item.Function.Definition.FunctionId} v{item.Function.Definition.Version}")" value="@item.Folder" @onchange="args => Move(asset, args)" /></label>
+                    <div class="vaw-provider-actions"><button type="button" class="vaw-secondary" @onclick="() => CopyForNewVersion(asset)">New version from this function</button><button type="button" class="vaw-danger-quiet" @onclick="() => Delete(asset)">Delete from library</button></div>
                 </article>
             }
         </div>
@@ -171,18 +172,19 @@
     private GraphFunctionDefinition BuildFunction() => new(functionId.Trim(), version, displayName.Trim(), description.Trim(),
         inputPorts, outputPorts, editor.Nodes, editor.Connections);
 
-    private void LoadForEdit(GraphFunctionCatalogEntry item)
+    private void LoadForEdit(StudioGraphFunctionAsset asset)
     {
+        var item = asset.Item;
         var function = item.Function.Definition;
         functionId = function.FunctionId; version = function.Version + 1; displayName = function.DisplayName;
         description = function.Description; folder = item.Folder; inputPorts = function.Inputs; outputPorts = function.Outputs;
-        editor = Draft(function.Nodes, function.Connections); layout = WorkflowLayout.Create(editor);
+        editor = Draft(function.Nodes, function.Connections); layout = asset.Layout;
         SetBoundaryLabels();
         selectedNode = WorkflowGraph.DisplayOrder(editor).FirstOrDefault();
         editingExisting = true; error = null; message = "Editing a copy. Saving creates a new immutable revision.";
     }
 
-    private void CopyForNewVersion(GraphFunctionCatalogEntry item) => LoadForEdit(item);
+    private void CopyForNewVersion(StudioGraphFunctionAsset asset) => LoadForEdit(asset);
 
     private Task AddValueNode(string type)
     {
@@ -336,7 +338,7 @@
     {
         try
         {
-            Library.Add(BuildFunction(), folder.Trim());
+            Library.Add(BuildFunction(), folder.Trim(), layout);
             message = $"Saved {displayName} v{version} as an immutable function revision."; error = null;
             editingExisting = true;
         }
@@ -344,14 +346,16 @@
         { error = exception.Message; message = null; }
     }
 
-    private void Move(GraphFunctionCatalogEntry item, ChangeEventArgs args)
+    private void Move(StudioGraphFunctionAsset asset, ChangeEventArgs args)
     {
+        var item = asset.Item;
         try { Library.Move(item.Function.Definition.FunctionId, item.Function.Definition.Version, args.Value?.ToString() ?? ""); error = null; }
         catch (ArgumentException exception) { error = exception.Message; }
     }
 
-    private void Delete(GraphFunctionCatalogEntry item)
+    private void Delete(StudioGraphFunctionAsset asset)
     {
+        var item = asset.Item;
         Library.Delete(item.Function.Definition.FunctionId, item.Function.Definition.Version);
         message = "Removed from the local library. Workflow definitions keep their embedded function snapshots."; error = null;
     }

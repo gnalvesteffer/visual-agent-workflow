@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using System.Collections.Immutable;
 using VisualAgentWorkflow.Core;
 using VisualAgentWorkflow.Studio;
@@ -15,8 +17,16 @@ public sealed class StudioFolderGraphFunctionCatalogTests : IDisposable
         WriteEmptyProject();
         var source = new StudioFolderGraphFunctionCatalog(directory);
         var manifestHash = ManifestHash();
+        var function = CreateFunction(1);
+        var draft = StudioGraphFunctionAsset.Draft(function);
+        var layout = WorkflowLayout.Create(draft) with
+        {
+            Nodes = WorkflowLayout.Create(draft).Nodes.SetItem("concat", new(new GraphPoint(920, 640), "Join text", "Keep this node near the output.")),
+            Sections = ImmutableSortedDictionary<string, GraphSection>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("body", new("Function body", ["concat", "suffix"]))
+        };
 
-        var saved = source.SaveNewVersion(CreateFunction(1), "Text/Formatting", manifestHash);
+        var saved = source.SaveNewVersion(function, "Text/Formatting", manifestHash, layout);
         var listed = Assert.Single(source.List());
         var listedAsset = Assert.Single(source.ListAssets());
 
@@ -25,6 +35,11 @@ public sealed class StudioFolderGraphFunctionCatalogTests : IDisposable
         Assert.Equal("functions/text.append-suffix/1-6b86b273-" + saved.ContentHash + ".json", saved.RelativePath);
         Assert.Equal(saved.RelativePath, StudioProjectSourceDirectory.Read(directory).Manifest.Files.Single().Path);
         Assert.Equal(GraphFunctionJson.ComputeHash(listed.Function.Definition), listed.Function.ContentHash);
+        Assert.Equal(WorkflowLayoutJson.Serialize(layout, draft), WorkflowLayoutJson.Serialize(listedAsset.Layout, draft));
+        Assert.Equal(GraphFunctionJson.ComputeHash(function), GraphFunctionJson.ComputeHash(listedAsset.Item.Function.Definition));
+        var defaultLayoutHash = StudioProjectSourceArchive.ComputeContentHash(Encoding.UTF8.GetBytes(
+            StudioProjectSourceArchive.SerializeGraphFunctionAsset(listedAsset.Item, WorkflowLayout.Create(draft))));
+        Assert.NotEqual(saved.ContentHash, defaultLayoutHash);
     }
 
     [Fact]
@@ -42,6 +57,28 @@ public sealed class StudioFolderGraphFunctionCatalogTests : IDisposable
         Assert.Throws<StudioFolderGraphFunctionConflictException>(() =>
             source.SaveNewVersion(CreateFunction(3), "Text", initialManifestHash));
         Assert.Equal(2, second.Item.Function.Definition.Version);
+    }
+
+    [Fact]
+    public void GraphFunctionAsset_ReadsLegacyEntriesAndRejectsInvalidVersionOrLayout()
+    {
+        var function = CreateFunction(1);
+        var entry = new GraphFunctionCatalogEntry(new(function, GraphFunctionJson.ComputeHash(function)), "Text");
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true };
+        var legacy = StudioProjectSourceArchive.DeserializeGraphFunctionSourceAsset(
+            Encoding.UTF8.GetBytes(JsonSerializer.Serialize(entry, options)));
+        var draft = StudioGraphFunctionAsset.Draft(function);
+        Assert.Equal(WorkflowLayoutJson.Serialize(WorkflowLayout.Create(draft), draft),
+            WorkflowLayoutJson.Serialize(legacy.Layout, draft));
+
+        var current = StudioGraphFunctionAsset.Create(entry);
+        var unsupported = current with { FormatVersion = "99.0" };
+        Assert.Throws<InvalidDataException>(() => StudioProjectSourceArchive.DeserializeGraphFunctionSourceAsset(
+            Encoding.UTF8.GetBytes(JsonSerializer.Serialize(unsupported, options))));
+
+        var invalidLayout = current with { Layout = current.Layout with { Nodes = current.Layout.Nodes.Remove("input") } };
+        Assert.Throws<ArgumentException>(() => StudioProjectSourceArchive.DeserializeGraphFunctionSourceAsset(
+            Encoding.UTF8.GetBytes(JsonSerializer.Serialize(invalidLayout, options))));
     }
 
     private string ManifestHash() => StudioProjectSourceArchive.ComputeManifestHash(StudioProjectSourceDirectory.Read(directory).Manifest);

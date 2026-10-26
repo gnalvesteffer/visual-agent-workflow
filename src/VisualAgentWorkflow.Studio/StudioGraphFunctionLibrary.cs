@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Studio;
@@ -8,37 +9,38 @@ public sealed class StudioGraphFunctionLibrary : IGraphFunctionCatalog
 {
     private readonly object gate = new();
     private readonly string path;
-    private List<GraphFunctionCatalogEntry> entries;
+    private List<StudioGraphFunctionAsset> entries;
 
     public StudioGraphFunctionLibrary(string directory)
     {
         Directory.CreateDirectory(directory);
         path = Path.Combine(directory, "graph-functions.json");
-        entries = File.Exists(path)
-            ? JsonSerializer.Deserialize<List<GraphFunctionCatalogEntry>>(File.ReadAllText(path)) ?? []
-            : [];
-        if (entries.Any(entry => entry is null || !IsIntact(entry.Function) || !IsValidFolder(entry.Folder)) ||
-            entries.GroupBy(entry => (entry.Function.Definition.FunctionId, entry.Function.Definition.Version)).Any(group => group.Count() > 1))
+        entries = File.Exists(path) ? LoadEntries(File.ReadAllText(path)) : [];
+        if (entries.Any(entry => entry is null || !IsIntact(entry) || !IsValidFolder(entry.Item.Folder)) ||
+            entries.GroupBy(entry => (entry.Item.Function.Definition.FunctionId, entry.Item.Function.Definition.Version)).Any(group => group.Count() > 1))
             throw new InvalidDataException("The graph function library contains an invalid or modified revision.");
     }
 
     public IReadOnlyList<GraphFunctionCatalogEntry> List()
     {
-        lock (gate) return entries.OrderBy(entry => entry.Folder, StringComparer.Ordinal)
-            .ThenBy(entry => entry.Function.Definition.DisplayName, StringComparer.Ordinal)
-            .ThenBy(entry => entry.Function.Definition.Version).ToArray();
+        lock (gate) return OrderedEntries().Select(entry => entry.Item).ToArray();
     }
 
-    public void Add(GraphFunctionDefinition function, string folder)
+    public IReadOnlyList<StudioGraphFunctionAsset> ListAssets()
+    {
+        lock (gate) return OrderedEntries().ToArray();
+    }
+
+    public void Add(GraphFunctionDefinition function, string folder, WorkflowLayout? layout = null)
     {
         Validate(function, folder);
         var configuration = new GraphFunctionConfiguration(function, GraphFunctionJson.ComputeHash(function));
         lock (gate)
         {
-            if (entries.Any(entry => entry.Function.Definition.FunctionId == function.FunctionId &&
-                entry.Function.Definition.Version == function.Version))
+            if (entries.Any(entry => entry.Item.Function.Definition.FunctionId == function.FunctionId &&
+                entry.Item.Function.Definition.Version == function.Version))
                 throw new ArgumentException("This graph function version already exists. Create a new version for edits.");
-            Save([.. entries, new(configuration, folder)]);
+            Save([.. entries, StudioGraphFunctionAsset.Create(new(configuration, folder), layout)]);
         }
     }
 
@@ -47,11 +49,11 @@ public sealed class StudioGraphFunctionLibrary : IGraphFunctionCatalog
         ValidateFolder(folder);
         lock (gate)
         {
-            var index = entries.FindIndex(entry => entry.Function.Definition.FunctionId == functionId &&
-                entry.Function.Definition.Version == version);
+            var index = entries.FindIndex(entry => entry.Item.Function.Definition.FunctionId == functionId &&
+                entry.Item.Function.Definition.Version == version);
             if (index < 0) return false;
             var updated = entries.ToList();
-            updated[index] = updated[index] with { Folder = folder };
+            updated[index] = updated[index] with { Item = updated[index].Item with { Folder = folder } };
             Save(updated);
             return true;
         }
@@ -61,15 +63,19 @@ public sealed class StudioGraphFunctionLibrary : IGraphFunctionCatalog
     {
         lock (gate)
         {
-            var updated = entries.Where(entry => entry.Function.Definition.FunctionId != functionId ||
-                entry.Function.Definition.Version != version).ToList();
+            var updated = entries.Where(entry => entry.Item.Function.Definition.FunctionId != functionId ||
+                entry.Item.Function.Definition.Version != version).ToList();
             if (updated.Count == entries.Count) return false;
             Save(updated);
             return true;
         }
     }
 
-    private void Save(List<GraphFunctionCatalogEntry> updated)
+    private IEnumerable<StudioGraphFunctionAsset> OrderedEntries() => entries.OrderBy(entry => entry.Item.Folder, StringComparer.Ordinal)
+        .ThenBy(entry => entry.Item.Function.Definition.DisplayName, StringComparer.Ordinal)
+        .ThenBy(entry => entry.Item.Function.Definition.Version);
+
+    private void Save(List<StudioGraphFunctionAsset> updated)
     {
         var temporary = path + ".tmp";
         File.WriteAllText(temporary, JsonSerializer.Serialize(updated));
@@ -77,9 +83,54 @@ public sealed class StudioGraphFunctionLibrary : IGraphFunctionCatalog
         entries = updated;
     }
 
-    private static bool IsIntact(GraphFunctionConfiguration? configuration) => configuration is not null &&
-        GraphFunctionJson.Validate(configuration.Definition).IsEmpty &&
-        configuration.ContentHash == GraphFunctionJson.ComputeHash(configuration.Definition);
+    private static bool IsIntact(StudioGraphFunctionAsset asset)
+    {
+        if (asset.FormatVersion != StudioGraphFunctionAsset.CurrentFormatVersion || asset.Item?.Function is not { } configuration || asset.Layout is null ||
+            !GraphFunctionJson.Validate(configuration.Definition).IsEmpty ||
+            configuration.ContentHash != GraphFunctionJson.ComputeHash(configuration.Definition)) return false;
+        try
+        {
+            var draft = StudioGraphFunctionAsset.Draft(configuration.Definition);
+            _ = WorkflowLayoutJson.Deserialize(WorkflowLayoutJson.Serialize(asset.Layout, draft), draft);
+            return true;
+        }
+        catch (ArgumentException) { return false; }
+    }
+
+    private static List<StudioGraphFunctionAsset> LoadEntries(string json)
+    {
+        using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 64 });
+        RejectDuplicateProperties(document.RootElement);
+        if (document.RootElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("The graph function library must contain an array.");
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+            MaxDepth = 64
+        };
+        return document.RootElement.EnumerateArray().Select(element =>
+        {
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(element);
+            return StudioGraphFunctionAsset.Deserialize(bytes, options);
+        }).ToList();
+    }
+
+    private static void RejectDuplicateProperties(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var property in element.EnumerateObject())
+            {
+                if (!names.Add(property.Name)) throw new InvalidDataException("The graph function library contains duplicate JSON properties.");
+                RejectDuplicateProperties(property.Value);
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var child in element.EnumerateArray()) RejectDuplicateProperties(child);
+        }
+    }
 
     internal static void Validate(GraphFunctionDefinition function, string folder)
     {

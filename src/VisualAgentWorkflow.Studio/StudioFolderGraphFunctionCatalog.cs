@@ -5,7 +5,7 @@ using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Studio;
 
-public sealed record StudioFolderGraphFunction(string ContentHash, string RelativePath, GraphFunctionCatalogEntry Item);
+public sealed record StudioFolderGraphFunction(string ContentHash, string RelativePath, GraphFunctionCatalogEntry Item, WorkflowLayout Layout);
 
 public sealed class StudioFolderGraphFunctionConflictException(string sourcePath)
     : IOException($"Project source '{sourcePath}' changed in the project folder. Reload it before saving.");
@@ -19,8 +19,11 @@ public sealed class StudioFolderGraphFunctionCatalog(string projectDirectory) : 
     {
         var (manifest, files) = StudioProjectSourceDirectory.Read(root);
         return manifest.Files.Where(file => file.Kind == "graph-function")
-            .Select(file => new StudioFolderGraphFunction(file.Sha256, file.Path,
-                StudioProjectSourceArchive.DeserializeGraphFunctionAsset(files[file.Path])))
+            .Select(file =>
+            {
+                var asset = StudioProjectSourceArchive.DeserializeGraphFunctionSourceAsset(files[file.Path]);
+                return new StudioFolderGraphFunction(file.Sha256, file.Path, asset.Item, asset.Layout);
+            })
             .OrderBy(function => function.Item.Folder, StringComparer.Ordinal)
             .ThenBy(function => function.Item.Function.Definition.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(function => function.Item.Function.Definition.Version)
@@ -30,7 +33,7 @@ public sealed class StudioFolderGraphFunctionCatalog(string projectDirectory) : 
     public IReadOnlyList<GraphFunctionCatalogEntry> List() => ListAssets().Select(function => function.Item).ToArray();
 
     public StudioFolderGraphFunction SaveNewVersion(GraphFunctionDefinition definition, string folder,
-        string expectedManifestHash)
+        string expectedManifestHash, WorkflowLayout? layout = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedManifestHash);
         StudioGraphFunctionLibrary.Validate(definition, folder);
@@ -48,7 +51,8 @@ public sealed class StudioFolderGraphFunctionCatalog(string projectDirectory) : 
 
             var configuration = new GraphFunctionConfiguration(definition, GraphFunctionJson.ComputeHash(definition));
             var item = new GraphFunctionCatalogEntry(configuration, folder);
-            var bytes = Encoding.UTF8.GetBytes(StudioProjectSourceArchive.SerializeGraphFunctionAsset(item));
+            var normalizedAsset = StudioGraphFunctionAsset.Create(item, layout);
+            var bytes = Encoding.UTF8.GetBytes(StudioProjectSourceArchive.SerializeGraphFunctionAsset(item, normalizedAsset.Layout));
             if (bytes.Length > StudioProjectSourceArchive.MaximumFileBytes)
                 throw new InvalidDataException("Project graph function exceeds the supported source file size.");
 
@@ -66,7 +70,7 @@ public sealed class StudioFolderGraphFunctionCatalog(string projectDirectory) : 
 
             StudioFolderSourceWriter.PublishImmutableAsset(root, expectedManifestHash, updatedManifest,
                 relativePath, bytes, contentHash, sourcePath => new StudioFolderGraphFunctionConflictException(sourcePath));
-            return new(contentHash, relativePath, item);
+            return new(contentHash, relativePath, item, normalizedAsset.Layout);
         }
     }
 }
