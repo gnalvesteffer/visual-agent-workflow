@@ -162,8 +162,11 @@ public partial class WorkflowDesigner
         return removed.Concat(added).ToImmutableArray();
     }
 
+    private static string RequirementLabel(PackageRequirement requirement) =>
+        $"{requirement.Kind} · {requirement.Id}" + (requirement.Version.Length == 0 ? "" : " " + requirement.Version);
+
     private static string RequirementSummary(PackageRequirement requirement) =>
-        $"{requirement.Kind} · {requirement.Id} {requirement.Version}" +
+        RequirementLabel(requirement) +
         (requirement.ContractHash is null ? "" : " · " + requirement.ContractHash[..8]);
 
     private static string RequirementKey(PackageRequirement requirement) =>
@@ -295,7 +298,7 @@ public partial class WorkflowDesigner
         "node" => "Supported implementation",
         "workflow-revision" => "Exact child revision is embedded",
         "mcp-tool" => McpRequirementAvailability(requirement),
-        "agent-provider" => providers.Any(p => p.ProviderId == requirement.Id && p.Version == requirement.Version)
+        "agent-provider" => providers.Any(p => p.ProviderId == requirement.Id)
             ? "Matching host provider listed" : "Matching host provider not listed",
         "agent-profile" => AgentProfileLibrary?.List().Any(item => item.Profile.Id == requirement.Id && item.Profile.Version == requirement.Version && item.Profile.ContentHash == requirement.ContractHash) == true
             ? "Matching local profile listed" : "Exact profile is embedded in this workflow",

@@ -22,8 +22,13 @@ public static class OpenAIProviders
         ArgumentNullException.ThrowIfNull(getApiKey);
         ArgumentNullException.ThrowIfNull(createTransport);
         Validate(options);
-        var descriptor = new AgentProviderDescriptor(options.ProviderId, options.Version, options.DisplayName, options.Model, false)
-        { SupportsReasoningEffort = true };
+        var descriptor = new AgentProviderDescriptor(options.ProviderId, options.DisplayName, options.Model, false)
+        {
+            SupportsReasoningEffort = true,
+            ContextWindowTokens = options.ContextWindowTokens,
+            InputCostPerMillionTokens = options.InputCostPerMillionTokens,
+            OutputCostPerMillionTokens = options.OutputCostPerMillionTokens
+        };
         return new(descriptor, () =>
         {
             var key = getApiKey() ?? "";
@@ -69,12 +74,14 @@ public static class OpenAIProviders
             var options = new OpenAIProviderOptions
             {
                 ProviderId = entry.Key,
-                Version = entry["Version"] ?? "",
                 Model = entry["Model"] ?? "",
                 DisplayName = entry["DisplayName"] ?? "OpenAI · " + entry.Key,
                 Endpoint = endpoint,
                 InvocationTimeout = TimeSpan.FromSeconds(seconds),
-                AllowInsecureHttp = allowHttp || legacyLoopback
+                AllowInsecureHttp = allowHttp || legacyLoopback,
+                ContextWindowTokens = OptionalInt(entry["ContextWindowTokens"], "context window", 128, 2_000_000),
+                InputCostPerMillionTokens = OptionalRate(entry["InputCostPerMillionTokens"], "input token price"),
+                OutputCostPerMillionTokens = OptionalRate(entry["OutputCostPerMillionTokens"], "output token price")
             };
             registrations.Add(Create(options, () => entry["ApiKey"] ?? ""));
         }
@@ -90,10 +97,9 @@ public static class OpenAIProviders
     private static void Validate(OpenAIProviderOptions options)
     {
         if (string.IsNullOrWhiteSpace(options.ProviderId) || options.ProviderId.Length > 128 || options.ProviderId.StartsWith("demo.", StringComparison.Ordinal) ||
-            string.IsNullOrWhiteSpace(options.Version) || options.Version.Length > 64 ||
             string.IsNullOrWhiteSpace(options.Model) || options.Model.Length > 128 || options.Model.Any(char.IsControl) ||
             string.IsNullOrWhiteSpace(options.DisplayName) || options.DisplayName.Length > 160)
-            throw new ArgumentException("A bounded non-demo provider ID, version, model and display name are required.");
+            throw new ArgumentException("A bounded non-demo connection ID, model and display name are required.");
         var endpoint = options.Endpoint;
         if (endpoint is null || !endpoint.IsAbsoluteUri || endpoint.UserInfo.Length != 0 || endpoint.Query.Length != 0 || endpoint.Fragment.Length != 0 ||
             endpoint.Scheme != "https" && !(options.AllowInsecureHttp || options.AllowInsecureLoopback && endpoint.IsLoopback && endpoint.Scheme == "http") ||
@@ -101,6 +107,33 @@ public static class OpenAIProviders
             throw new ArgumentException("Use an HTTPS endpoint, or explicitly allow plain HTTP. Endpoints cannot include user information, query parameters, or fragments.");
         if (options.InvocationTimeout <= TimeSpan.Zero || options.InvocationTimeout > TimeSpan.FromMinutes(2))
             throw new ArgumentOutOfRangeException(nameof(options), "Model timeout must be positive and at most two minutes.");
+        if (options.ContextWindowTokens is { } contextWindow && contextWindow is < 128 or > 2_000_000)
+            throw new ArgumentOutOfRangeException(nameof(options), "Model context window must be between 128 and 2,000,000 tokens.");
+        ValidateRate(options.InputCostPerMillionTokens, "input token price");
+        ValidateRate(options.OutputCostPerMillionTokens, "output token price");
+    }
+
+    private static int? OptionalInt(string? text, string name, int minimum, int maximum)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        if (!int.TryParse(text, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var value) || value < minimum || value > maximum)
+            throw new InvalidOperationException($"Provider {name} must be between {minimum} and {maximum}.");
+        return value;
+    }
+
+    private static decimal? OptionalRate(string? text, string name)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        if (!decimal.TryParse(text, System.Globalization.NumberStyles.AllowDecimalPoint, System.Globalization.CultureInfo.InvariantCulture, out var value))
+            throw new InvalidOperationException($"Provider {name} must be a non-negative USD amount per million tokens.");
+        ValidateRate(value, name);
+        return value;
+    }
+
+    private static void ValidateRate(decimal? value, string name)
+    {
+        if (value is { } rate && (rate < 0 || rate > 100_000))
+            throw new ArgumentOutOfRangeException(name, "Token price must be between $0 and $100,000 per million tokens.");
     }
 
     private static void ValidateKey(string? key)

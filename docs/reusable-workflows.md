@@ -6,7 +6,7 @@ Core supports both copy-on-insert reuse of a published linear workflow and bound
 
 A reusable source is an ordinary workflow with immutable numbered publications. Extracting a section creates a separate workflow draft containing its consecutive processing steps between new input/output terminals. Input/output nodes, empty or nonconsecutive selections, unsupported operations, and over-limit expansions are rejected. Existing validation, publication, optimistic concurrency, and audit storage apply.
 
-Inserting a chosen publication copies its processing nodes into the consumer after a selected non-output node. It assigns fresh node and connection identities, preserves surviving consumer identities, copies labels/comments and internal routed wires/sections, and reconnects the linear sequence. MCP binding/contract requirements and agent provider/version/tool requirements remain pinned in the copied configurations. Runtime policy must still authorize the newly created node identities.
+Inserting a chosen publication copies its processing nodes into the consumer after a selected non-output node. It assigns fresh node and connection identities, preserves surviving consumer identities, copies labels/comments and internal routed wires/sections, and reconnects the linear sequence. MCP binding/contract requirements remain pinned, while agent nodes retain only the stable model connection ID and explicit tool requirements. The consuming host supplies the current model configuration for that ID. Runtime policy must still authorize the newly created node identities.
 
 ```mermaid
 flowchart LR

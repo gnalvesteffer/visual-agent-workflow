@@ -14,8 +14,52 @@ public class AgentExecutionTests
     private static WorkflowRevision Revision(params ToolBindingRequest[] tools)
     {
         var definition = WorkflowEditing.ReplaceNode(WorkflowTemplates.Create("uppercase"), "step-1",
-            new(NodeTypes.Agent, "1.0.0", Agent: new("demo.scripted", "1.0.0", "Use only assigned tools.", [.. tools])));
+            new(NodeTypes.Agent, "1.0.0", Agent: new("demo.scripted", "Use only assigned tools.", [.. tools])));
         return WorkflowRevision.Create(definition, "test");
+    }
+
+    [Fact]
+    public async Task StableProviderConnectionUsesItsCurrentModelConfigurationForEachNewRun()
+    {
+        var definition = Revision().Definition;
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var fixture = DeterministicDemoChatClient.Registration();
+        var executor = new AgentNodeExecutor([fixture with
+        {
+            Descriptor = fixture.Descriptor with { ModelId = "model-before-edit" },
+            Create = () => new CallbackClient((_, _, _) => Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "first"))
+                { FinishReason = ChatFinishReason.Stop }))
+        }], broker);
+        var firstEvents = new List<ExecutionEvent>();
+
+        var firstOutput = await new WorkflowRunner(broker, executor).ExecuteAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "stable-connection"), "question",
+            evt => { firstEvents.Add(evt); return ValueTask.CompletedTask; });
+
+        executor.ReplaceProviders([fixture with
+        {
+            Descriptor = fixture.Descriptor with { ModelId = "model-after-edit" },
+            Create = () => new CallbackClient((_, _, _) => Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "second"))
+                { FinishReason = ChatFinishReason.Stop }))
+        }]);
+        var secondEvents = new List<ExecutionEvent>();
+
+        var secondOutput = await new WorkflowRunner(broker, executor).ExecuteAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "stable-connection"), "question",
+            evt => { secondEvents.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("first", firstOutput);
+        Assert.Equal("second", secondOutput);
+        Assert.Equal("model-before-edit", ProviderModel(Assert.Single(firstEvents, evt => evt.Kind == ExecutionEventKinds.AgentStarted)));
+        Assert.Equal("model-after-edit", ProviderModel(Assert.Single(secondEvents, evt => evt.Kind == ExecutionEventKinds.AgentStarted)));
+        Assert.Equal(definition.Nodes["step-1"].Agent!.ProviderId,
+            WorkflowJson.Deserialize(WorkflowJson.Serialize(definition)).Nodes["step-1"].Agent!.ProviderId);
+    }
+
+    private static string? ProviderModel(ExecutionEvent evt)
+    {
+        using var data = JsonDocument.Parse(evt.Data!);
+        return data.RootElement.GetProperty("provider").GetProperty("ModelId").GetString();
     }
 
     [Fact]
@@ -82,6 +126,33 @@ public class AgentExecutionTests
         Assert.NotNull(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested));
         using var started = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentStarted).Data!);
         Assert.Equal(1, started.RootElement.GetProperty("maximumTurns").GetInt32());
+    }
+
+    [Fact]
+    public async Task UnlimitedAgentTurnSettingIsAcceptedDuringExecution()
+    {
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var baseline = Revision().Definition;
+        var node = baseline.Nodes["step-1"];
+        var definition = baseline with
+        {
+            SchemaVersion = "1.21",
+            Nodes = baseline.Nodes.SetItem("step-1", node with { Agent = node.Agent! with { MaxTurns = AgentExecutionLimits.UnlimitedTurns } })
+        };
+        var registration = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient((_, _, _) => Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "completed"))
+            { FinishReason = ChatFinishReason.Stop }))
+        };
+        var events = new List<ExecutionEvent>();
+
+        var output = await new WorkflowRunner(broker, new AgentNodeExecutor([registration], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "question",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("completed", output);
+        using var started = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentStarted).Data!);
+        Assert.Equal(AgentExecutionLimits.UnlimitedTurns, started.RootElement.GetProperty("maximumTurns").GetInt32());
     }
 
     [Fact]
@@ -343,7 +414,7 @@ public class AgentExecutionTests
         var reverse = (await broker.ListBindingsAsync()).Single(binding => binding.BindingId == "demo.reverse");
         var baseDefinition = Revision().Definition;
         var profile = AgentProfile.Create("specialist", "1.0.0", "Text specialist", "Reverses text exactly.",
-            "demo.scripted", "1.0.0", "Specialist instructions.",
+            "demo.scripted", "Specialist instructions.",
             [new ToolBindingRequest(reverse.BindingId, reverse.ContractHash) { DescriptionHash = reverse.DescriptionHash }]);
         var agent = baseDefinition.Nodes["step-1"].Agent! with
         {
@@ -407,8 +478,8 @@ public class AgentExecutionTests
         var baseDefinition = Revision().Definition;
         var profiles = new[]
         {
-            AgentProfile.Create("researcher", "1", "Researcher", "Find relevant facts.", "demo.scripted", "1.0.0", "Research instructions.", []),
-            AgentProfile.Create("reviewer", "1", "Reviewer", "Check the answer.", "demo.scripted", "1.0.0", "Review instructions.", [])
+            AgentProfile.Create("researcher", "1", "Researcher", "Find relevant facts.", "demo.scripted", "Research instructions.", []),
+            AgentProfile.Create("reviewer", "1", "Reviewer", "Check the answer.", "demo.scripted", "Review instructions.", [])
         };
         var agent = baseDefinition.Nodes["step-1"].Agent! with
         {
@@ -498,8 +569,8 @@ public class AgentExecutionTests
         var baseDefinition = Revision().Definition;
         var profiles = new[]
         {
-            AgentProfile.Create("failing", "1", "Failing", "Fails during review.", "demo.scripted", "1.0.0", "Failing instructions.", []),
-            AgentProfile.Create("waiting", "1", "Waiting", "Waits for cancellation.", "demo.scripted", "1.0.0", "Waiting instructions.", [])
+            AgentProfile.Create("failing", "1", "Failing", "Fails during review.", "demo.scripted", "Failing instructions.", []),
+            AgentProfile.Create("waiting", "1", "Waiting", "Waits for cancellation.", "demo.scripted", "Waiting instructions.", [])
         };
         var agent = baseDefinition.Nodes["step-1"].Agent! with
         {
@@ -560,8 +631,8 @@ public class AgentExecutionTests
         var baseDefinition = Revision().Definition;
         var profiles = new[]
         {
-            AgentProfile.Create("analyst", "1", "Writer", "Posts a finding.", "demo.scripted", "1.0.0", "Writer instructions.", [], channels: ["research"]),
-            AgentProfile.Create("analyst", "2", "Reader", "Reads a finding.", "demo.scripted", "1.0.0", "Reader instructions.", [], channels: ["research"])
+            AgentProfile.Create("analyst", "1", "Writer", "Posts a finding.", "demo.scripted", "Writer instructions.", [], channels: ["research"]),
+            AgentProfile.Create("analyst", "2", "Reader", "Reads a finding.", "demo.scripted", "Reader instructions.", [], channels: ["research"])
         };
         var agent = baseDefinition.Nodes["step-1"].Agent! with
         {
@@ -664,8 +735,8 @@ public class AgentExecutionTests
         var baseDefinition = Revision().Definition;
         var profiles = new[]
         {
-            AgentProfile.Create("sender", "1", "Sender", "Uses research.", "demo.scripted", "1.0.0", "Sender instructions.", [], channels: ["research"]),
-            AgentProfile.Create("reviewer", "1", "Reviewer", "Uses review.", "demo.scripted", "1.0.0", "Reviewer instructions.", [], channels: ["review"])
+            AgentProfile.Create("sender", "1", "Sender", "Uses research.", "demo.scripted", "Sender instructions.", [], channels: ["research"]),
+            AgentProfile.Create("reviewer", "1", "Reviewer", "Uses review.", "demo.scripted", "Reviewer instructions.", [], channels: ["review"])
         };
         var agent = baseDefinition.Nodes["step-1"].Agent! with
         {
@@ -721,8 +792,8 @@ public class AgentExecutionTests
         var baseDefinition = Revision().Definition;
         var profiles = new[]
         {
-            AgentProfile.Create("analyst", "1", "Researcher", "Posts evidence.", "demo.scripted", "1.0.0", "Writer instructions.", [], channels: ["research"]),
-            AgentProfile.Create("analyst", "2", "Reviewer", "Reviews evidence.", "demo.scripted", "1.0.0", "Reader instructions.", [], channels: ["research"])
+            AgentProfile.Create("analyst", "1", "Researcher", "Posts evidence.", "demo.scripted", "Writer instructions.", [], channels: ["research"]),
+            AgentProfile.Create("analyst", "2", "Reviewer", "Reviews evidence.", "demo.scripted", "Reader instructions.", [], channels: ["research"])
         };
         var agent = baseDefinition.Nodes["step-1"].Agent! with
         {
@@ -880,7 +951,7 @@ public class AgentExecutionTests
         var registration = DeterministicDemoChatClient.Registration();
         var function = AppendSuffixFunction();
         var functionSnapshot = new GraphFunctionConfiguration(function, GraphFunctionJson.ComputeHash(function));
-        var definition = AgentGraphFunctionWorkflow(registration.Descriptor.ProviderId, registration.Descriptor.Version, functionSnapshot);
+        var definition = AgentGraphFunctionWorkflow(registration.Descriptor.ProviderId, functionSnapshot);
         var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
         var calls = 0;
         var modelRequests = new List<string>();
@@ -932,7 +1003,7 @@ public class AgentExecutionTests
     public async Task AgentDoesNotDiscoverFunctionsThatAreNotPinnedToItsConfiguration()
     {
         var registration = DeterministicDemoChatClient.Registration();
-        var definition = AgentGraphFunctionWorkflow(registration.Descriptor.ProviderId, registration.Descriptor.Version, null);
+        var definition = AgentGraphFunctionWorkflow(registration.Descriptor.ProviderId, null);
         var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
         var events = new List<ExecutionEvent>();
 
@@ -982,11 +1053,11 @@ public class AgentExecutionTests
     }
 
     [Fact]
-    public async Task UnregisteredProviderVersionFailsBeforeAnyModelCall()
+    public async Task ProviderConnectionIdMustResolveBeforeAnyModelCall()
     {
         var definition = Revision().Definition;
         var node = definition.Nodes["step-1"];
-        definition = definition with { Nodes = definition.Nodes.SetItem("step-1", node with { Agent = node.Agent! with { ProviderVersion = "2.0.0" } }) };
+        definition = definition with { Nodes = definition.Nodes.SetItem("step-1", node with { Agent = node.Agent! with { ProviderId = "missing.connection" } }) };
         var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
         var executor = new AgentNodeExecutor([DeterministicDemoChatClient.Registration()], broker);
         var events = new List<string>();
@@ -1055,10 +1126,10 @@ public class AgentExecutionTests
         Assert.DoesNotContain(ExecutionEventKinds.AgentCompleted, events);
     }
 
-    private static WorkflowDefinition AgentGraphFunctionWorkflow(string providerId, string providerVersion,
+    private static WorkflowDefinition AgentGraphFunctionWorkflow(string providerId,
         GraphFunctionConfiguration? functionTool)
     {
-        var agent = new AgentConfiguration(providerId, providerVersion, "Use the assigned graph function, then return a short confirmation.", [])
+        var agent = new AgentConfiguration(providerId, "Use the assigned graph function, then return a short confirmation.", [])
         {
             GraphFunctionTools = functionTool is null ? null : [functionTool]
         };

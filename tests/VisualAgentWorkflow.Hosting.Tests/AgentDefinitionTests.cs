@@ -6,7 +6,7 @@ namespace VisualAgentWorkflow.Hosting.Tests;
 
 public class AgentDefinitionTests
 {
-    private static NodeDefinition Agent() => new(NodeTypes.Agent, "1.0.0", Agent: new("demo.scripted", "1.0.0", "Instructions", []));
+    private static NodeDefinition Agent() => new(NodeTypes.Agent, "1.0.0", Agent: new("demo.scripted", "Instructions", []));
 
     [Fact]
     public void AgentRoundTripAndStructuralComparisonPreserveToolRequirements()

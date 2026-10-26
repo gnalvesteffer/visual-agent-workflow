@@ -49,7 +49,7 @@ public static class WorkflowPackageJson
             if (node.Tool is { } tool) requirements.Add(new("mcp-tool", tool.BindingId, "", tool.ContractHash) { DescriptionHash = tool.DescriptionHash });
             if (node.Agent is { } agent)
             {
-                requirements.Add(new("agent-provider", agent.ProviderId, agent.ProviderVersion));
+                requirements.Add(new("agent-provider", agent.ProviderId, ""));
                 foreach (var request in agent.Tools) requirements.Add(new("mcp-tool", request.BindingId, "", request.ContractHash)
                 { DescriptionHash = request.DescriptionHash });
                 foreach (var skill in agent.Skills ?? []) requirements.Add(new("skill", skill.Id, skill.Version, skill.ContentHash));
@@ -61,7 +61,7 @@ public static class WorkflowPackageJson
         }
         foreach (var profile in definition.AgentProfiles?.Values ?? [])
         {
-            requirements.Add(new("agent-provider", profile.ProviderId, profile.ProviderVersion));
+            requirements.Add(new("agent-provider", profile.ProviderId, ""));
             foreach (var tool in profile.Tools) requirements.Add(new("mcp-tool", tool.BindingId, "", tool.ContractHash)
             { DescriptionHash = tool.DescriptionHash });
             foreach (var skill in profile.Skills ?? []) requirements.Add(new("skill", skill.Id, skill.Version, skill.ContentHash));

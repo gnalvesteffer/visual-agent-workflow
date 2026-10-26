@@ -215,7 +215,7 @@ def check(browser, screenshots):
     workbench(designer).get_by_label("Published run input", exact=True).fill("canvas proof")
     workbench(designer).get_by_role("button", name="Run selected version", exact=True).click()
     viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
-    viewer.get_by_role("button", name="output core.output Completed", exact=True).click()
+    viewer.locator('li[data-node-id="output"] button.vaw-node-drag').click()
     expect(viewer.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("FOORP SAVNAC")
     expect(viewer.get_by_role("button", name="Inspect node step-1", exact=True)).to_contain_text("Normalize input")
     expect(viewer.locator(".vaw-wire-delivered").first).to_be_attached()
@@ -272,7 +272,6 @@ def check(browser, screenshots):
     agent_definition["nodes"]["step-1"]["type"] = "core.agent"
     agent_definition["nodes"]["step-1"]["agent"] = {
         "providerId": "demo.scripted",
-        "providerVersion": "1.0.0",
         "instructions": "Return a deterministic response.",
         "tools": [],
         "reasoningEffort": 0,

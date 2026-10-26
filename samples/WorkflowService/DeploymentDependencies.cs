@@ -15,8 +15,8 @@ internal static class DeploymentDependencies
         var requirements = revision.Definition.Nodes
             .SelectMany(n => NodeToolRequirements.For(n.Value).Select(tool => (NodeId: n.Key, Tool: tool))).ToArray();
         if (revision.Definition.Nodes.Values.Where(n => n.Agent is not null).Any(n =>
-            !providers.Any(p => p.Descriptor.ProviderId == n.Agent!.ProviderId && p.Descriptor.Version == n.Agent.ProviderVersion)))
-            throw new InvalidOperationException("A pinned agent provider is unavailable; no substitution is permitted.");
+            !providers.Any(p => p.Descriptor.ProviderId == n.Agent!.ProviderId)))
+            throw new InvalidOperationException("A required agent model connection is unavailable.");
         foreach (var requirement in requirements)
         {
             if (!registrations.Any(r => r.BindingId == requirement.Tool.BindingId))

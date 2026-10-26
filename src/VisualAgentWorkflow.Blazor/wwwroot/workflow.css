@@ -184,6 +184,10 @@
 .vaw-graph-issues h3 { margin-block: 0 var(--vaw-space-2); color: var(--vaw-error); }
 .vaw-graph-issues ul { max-block-size: 12rem; overflow: auto; }
 .vaw-node-activity { margin: 0.375rem 0 0; padding-inline-start: 0.5rem; border-inline-start: 2px solid var(--vaw-accent); color: var(--vaw-muted); font-size: 0.8rem; line-height: 1.35; overflow-wrap: anywhere; }
+.vaw-agent-metrics { display: grid; gap: 0.25rem; margin-block-start: 0.5rem; padding: 0.4rem 0.5rem; border: 1px solid var(--vaw-border); border-radius: var(--vaw-control-radius); color: var(--vaw-muted); font-size: 0.7rem; line-height: 1.35; overflow-wrap: anywhere; }
+.vaw-agent-metrics label { display: grid; gap: 0.15rem; }
+.vaw-agent-metrics progress { inline-size: 100%; block-size: 0.3rem; accent-color: var(--vaw-accent); }
+.vaw-agent-metrics small { color: var(--vaw-text); font-family: var(--vaw-mono); }
 :where(.vaw-viewer, .vaw-designer, .vaw-workflow-editor) pre { font-family: var(--vaw-mono); font-size: 0.875rem; white-space: pre-wrap; overflow-wrap: anywhere; background-color: var(--vaw-canvas); padding: var(--vaw-space-3); }
 .vaw-table-scroll { max-inline-size: 100%; overflow-x: auto; }
 .vaw-viewer table { inline-size: 100%; table-layout: fixed; border-collapse: collapse; text-align: start; }

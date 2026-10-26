@@ -27,7 +27,6 @@ public sealed class RealModelInferenceTests
         var options = new OpenAIProviderOptions
         {
             ProviderId = "openai.local-ci",
-            Version = "1.0.0",
             Model = model,
             DisplayName = "Local CI model",
             Endpoint = endpointUri,
@@ -42,7 +41,7 @@ public sealed class RealModelInferenceTests
         var definition = baseline with
         {
             Nodes = baseline.Nodes
-                .SetItem("step-1", new(NodeTypes.Agent, "1.0.0", Agent: new(provider.Descriptor.ProviderId, provider.Descriptor.Version,
+                .SetItem("step-1", new(NodeTypes.Agent, "1.0.0", Agent: new(provider.Descriptor.ProviderId,
                     "Solve the arithmetic question. You must call the tool named tool_0 exactly once, " +
                     "with text set to only the final base-10 integer. Do not answer in prose.",
                     [new ToolBindingRequest(submitAnswer.BindingId, submitAnswer.ContractHash)])

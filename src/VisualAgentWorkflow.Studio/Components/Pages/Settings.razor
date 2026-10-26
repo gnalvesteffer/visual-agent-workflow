@@ -8,7 +8,7 @@
     <header class="vaw-settings-heading">
         <div>
             <p class="vaw-settings-kicker">WORKFLOW STUDIO</p>
-            <h1>Model connections</h1>
+        <h1>Model connections</h1>
             <p class="vaw-settings-intro">Connect any OpenAI-compatible chat API to your agent nodes. Each connection pins one endpoint, model, and optional API key. Credentials stay in this Studio and are never added to workflow files.</p>
         </div>
         <a class="vaw-primary vaw-add-provider-link" href="#add-provider">Add connection</a>
@@ -18,7 +18,7 @@
         <div class="vaw-settings-section-heading">
             <div>
                 <h2 id="configured-providers-title">Configured connections</h2>
-                <p>Each version is kept separate so published workflows stay pinned to the exact endpoint and model they were built with.</p>
+                <p>Each stable connection ID points to its current endpoint and model. Editing it affects future runs that use it.</p>
             </div>
             <span class="vaw-provider-count">@providers.Count @(providers.Count == 1 ? "connection" : "connections")</span>
         </div>
@@ -36,11 +36,11 @@
             <div class="vaw-provider-list">
                 @foreach (var provider in providers)
                 {
-                    <article class="vaw-provider-card" @key="(provider.ProviderId, provider.Version)">
+                    <article class="vaw-provider-card" @key="provider.ProviderId">
                         <div class="vaw-provider-card-heading">
                             <div>
                                 <h3>@provider.DisplayName</h3>
-                                <p class="vaw-provider-identity"><code>@provider.ProviderId</code><span>Version @provider.Version</span></p>
+                                <p class="vaw-provider-identity"><code>@provider.ProviderId</code><span>Stable connection ID</span></p>
                             </div>
                             <span class="vaw-provider-state"><span aria-hidden="true"></span>Configured</span>
                         </div>
@@ -49,22 +49,24 @@
                             <div><dt>Endpoint</dt><dd>@provider.Endpoint</dd></div>
                             <div><dt>Transport</dt><dd>@(provider.AllowInsecureHttp ? "HTTP · unencrypted" : "HTTPS · encrypted")</dd></div>
                             <div><dt>API key</dt><dd>@(provider.HasCredential ? "Stored securely" : "Not configured · endpoint must not require a key")</dd></div>
+                            <div><dt>Context window</dt><dd>@(provider.ContextWindowTokens is { } contextTokens ? $"{contextTokens:N0} tokens" : "Not configured")</dd></div>
+                            <div><dt>Token pricing</dt><dd>@Pricing(provider.InputCostPerMillionTokens, provider.OutputCostPerMillionTokens)</dd></div>
                         </dl>
                         @if (pendingDelete == provider)
                         {
                             <div class="vaw-provider-delete-confirmation" role="alert">
-                                <p><strong>Delete @provider.DisplayName version @provider.Version?</strong> Workflows pinned to this connection will no longer be able to start runs.</p>
+                                <p><strong>Delete @provider.DisplayName?</strong> Workflows using connection <code>@provider.ProviderId</code> will no longer be able to start model calls.</p>
                                 <div class="vaw-provider-actions">
                                     <button type="button" class="vaw-danger" disabled="@deleting" @onclick="() => Delete(provider)">@(deleting ? "Deleting…" : "Confirm delete")</button>
-                                    <button type="button" @onclick="CancelDelete">Keep provider</button>
+                                    <button type="button" @onclick="CancelDelete">Keep connection</button>
                                 </div>
                             </div>
                         }
                         else
                         {
                             <div class="vaw-provider-actions">
-                                <button type="button" class="vaw-secondary" @onclick="() => PrepareReplacement(provider)">Edit as new version</button>
-                                <button type="button" class="vaw-danger-quiet" @onclick="() => RequestDelete(provider)">Delete version</button>
+                                <button type="button" class="vaw-secondary" @onclick="() => PrepareEdit(provider)">Edit connection</button>
+                                <button type="button" class="vaw-danger-quiet" @onclick="() => RequestDelete(provider)">Delete connection</button>
                             </div>
                         }
                     </article>
@@ -78,25 +80,27 @@
     <section id="add-provider" class="vaw-settings-section vaw-provider-form-section" aria-labelledby="provider-form-title">
         <div class="vaw-settings-section-heading">
             <div>
-                <h2 id="provider-form-title">@(editing ? "Create a new connection version" : "Add a model connection")</h2>
-                <p>@(editing ? "Save changes as a new version. Existing workflow versions keep using their current connection." : "Connect an OpenAI-compatible chat completions endpoint and the model it serves.")</p>
+                <h2 id="provider-form-title">@(editing ? "Edit model connection" : "Add a model connection")</h2>
+                <p>@(editing ? "Saving updates this connection for every workflow that references its ID. Existing run evidence still records the connection settings used at that time." : "Connect an OpenAI-compatible chat completions endpoint and the model it serves.")</p>
             </div>
         </div>
         <aside class="vaw-provider-tip"><strong>Works with compatible APIs</strong><span>Use OpenAI, Unsloth, LM Studio, llama.cpp, vLLM, or another server that implements OpenAI-compatible chat completions. Enter its base URL, served model ID, and API key if required.</span></aside>
         <form class="vaw-provider-form" @onsubmit="Save" @onsubmit:preventDefault>
-            <label>Connection ID <input required @bind="form.ProviderId" autocomplete="off" /><small>Stable ID used by agent nodes. Keep it unchanged when creating a new version.</small></label>
-            <label>Version <input required @bind="form.Version" autocomplete="off" /><small>Every saved configuration needs a unique version.</small></label>
+            <label>Connection ID <input required @bind="form.ProviderId" autocomplete="off" disabled="@editing" /><small>Stable ID referenced by agent nodes and profiles.</small></label>
             <label>Connection name <input required @bind="form.DisplayName" /></label>
             <label>Model ID <input required @bind="form.Model" placeholder="For example, the model name shown by your server" /><small>Copy the exact served model identifier.</small></label>
             <label class="vaw-provider-form-wide">API base URL <input required type="url" @bind="form.Endpoint" placeholder="https://api.example.com/v1" /><small>Use the server's OpenAI-compatible API base URL, usually ending in <code>/v1</code>.</small></label>
             <label>Request timeout <span class="vaw-input-suffix"><input required type="number" min="1" max="120" @bind="form.TimeoutSeconds" /><span>seconds</span></span></label>
             <label class="vaw-provider-option"><input type="checkbox" @bind="form.AllowInsecureHttp" />Allow unencrypted HTTP for this endpoint</label>
+            <label>Context window <span class="vaw-input-suffix"><input type="number" min="128" max="2000000" step="1" @bind="form.ContextWindowTokens" /><span>tokens</span></span><small>Optional. Used to visualize prompt usage; this does not enforce a model limit.</small></label>
+            <label>Input price <span class="vaw-input-suffix"><input type="number" min="0" max="100000" step="0.000001" @bind="form.InputCostPerMillionTokens" /><span>USD / 1M tokens</span></span></label>
+            <label>Output price <span class="vaw-input-suffix"><input type="number" min="0" max="100000" step="0.000001" @bind="form.OutputCostPerMillionTokens" /><span>USD / 1M tokens</span></span><small>Optional. If both prices are set, runs show an estimate from provider-reported input and output usage.</small></label>
             <label class="vaw-provider-form-wide">API key (optional) <input type="password" autocomplete="new-password" @bind="form.ApiKey" placeholder="@(editing ? "Leave blank to keep the current key" : "Enter API key if required")" /><small>Encrypted when saved. If left blank on a new connection, no Authorization header is sent.</small></label>
             @if (editing && providerHasCredential)
-            { <label class="vaw-provider-option"><input type="checkbox" @bind="form.RemoveApiKey" />Remove the saved API key in this version</label> }
+            { <label class="vaw-provider-option"><input type="checkbox" @bind="form.RemoveApiKey" />Remove the saved API key</label> }
             <p class="vaw-provider-form-note vaw-provider-form-wide">HTTPS protects prompts, responses, and API keys in transit. If you enable HTTP, traffic is unencrypted and anyone able to observe the network path could read it. Use HTTP only on a trusted network.</p>
             <div class="vaw-provider-form-actions vaw-provider-form-wide">
-                <button type="submit" class="vaw-primary" disabled="@saving">@(saving ? "Saving…" : editing ? "Save new version" : "Add connection")</button>
+                <button type="submit" class="vaw-primary" disabled="@saving">@(saving ? "Saving…" : editing ? "Save connection" : "Add connection")</button>
                 @if (editing) { <button type="button" class="vaw-secondary" @onclick="ResetForm">Cancel edit</button> }
             </div>
         </form>
@@ -108,11 +112,13 @@
     private sealed class ProviderForm
     {
         [System.ComponentModel.DataAnnotations.Required] public string ProviderId { get; set; } = "openai.primary";
-        [System.ComponentModel.DataAnnotations.Required] public string Version { get; set; } = "1.0.0";
         [System.ComponentModel.DataAnnotations.Required] public string DisplayName { get; set; } = "OpenAI";
         [System.ComponentModel.DataAnnotations.Required] public string Model { get; set; } = "gpt-4.1";
         [System.ComponentModel.DataAnnotations.Required] public string Endpoint { get; set; } = "https://api.openai.com/v1/";
         [System.ComponentModel.DataAnnotations.Range(1, 120)] public int TimeoutSeconds { get; set; } = 30;
+        public int? ContextWindowTokens { get; set; }
+        public decimal? InputCostPerMillionTokens { get; set; }
+        public decimal? OutputCostPerMillionTokens { get; set; }
         public string ApiKey { get; set; } = "";
         public bool RemoveApiKey { get; set; }
         public bool AllowInsecureHttp { get; set; }
@@ -121,7 +127,6 @@
     private ProviderForm form = new();
     private IReadOnlyList<StudioModelProviderView> providers = [];
     private StudioModelProviderView? pendingDelete;
-    private string? credentialSourceVersion;
     private bool providerHasCredential;
     private bool editing;
     private bool saving;
@@ -132,48 +137,22 @@
 
     protected override void OnInitialized() => providers = Providers.List();
 
-    private void PrepareReplacement(StudioModelProviderView provider)
+    private void PrepareEdit(StudioModelProviderView provider)
     {
-        var nextVersion = NextVersion(provider);
-        credentialSourceVersion = provider.Version;
         providerHasCredential = provider.HasCredential;
-        form = new() { ProviderId = provider.ProviderId, Version = nextVersion, DisplayName = provider.DisplayName,
+        form = new() { ProviderId = provider.ProviderId, DisplayName = provider.DisplayName,
             Model = provider.Model, Endpoint = provider.Endpoint, TimeoutSeconds = provider.TimeoutSeconds,
-            AllowInsecureHttp = provider.AllowInsecureHttp };
+            AllowInsecureHttp = provider.AllowInsecureHttp, ContextWindowTokens = provider.ContextWindowTokens,
+            InputCostPerMillionTokens = provider.InputCostPerMillionTokens,
+            OutputCostPerMillionTokens = provider.OutputCostPerMillionTokens };
         editing = true;
         formError = error = null;
         message = null;
     }
 
-    private string NextVersion(StudioModelProviderView provider)
-    {
-        var versions = providers
-            .Where(candidate => candidate.ProviderId == provider.ProviderId)
-            .Select(candidate => Version.TryParse(candidate.Version, out var parsed) ? parsed : null)
-            .Where(parsed => parsed is not null)
-            .Cast<Version>()
-            .OrderDescending();
-        var latest = versions.FirstOrDefault();
-        if (latest is not null)
-        {
-            var patch = Math.Max(0, latest.Build) + 1;
-            var candidate = $"{latest.Major}.{latest.Minor}.{patch}";
-            while (providers.Any(existing => existing.ProviderId == provider.ProviderId && existing.Version == candidate))
-                candidate = $"{latest.Major}.{latest.Minor}.{++patch}";
-            return candidate;
-        }
-
-        var suffix = 1;
-        var fallback = provider.Version + "-next";
-        while (providers.Any(existing => existing.ProviderId == provider.ProviderId && existing.Version == fallback))
-            fallback = provider.Version + "-next" + ++suffix;
-        return fallback;
-    }
-
     private void ResetForm()
     {
         editing = false;
-        credentialSourceVersion = null;
         providerHasCredential = false;
         form = new();
         formError = null;
@@ -193,11 +172,11 @@
         error = message = null;
         try
         {
-            if (!Providers.Delete(provider.ProviderId, provider.Version))
-                throw new InvalidOperationException("This provider version is no longer configured. Refresh the page and try again.");
+            if (!Providers.Delete(provider.ProviderId))
+                throw new InvalidOperationException("This model connection is no longer configured. Refresh the page and try again.");
             providers = Providers.List();
             pendingDelete = null;
-            message = $"Deleted {provider.DisplayName} version {provider.Version}.";
+            message = $"Deleted model connection {provider.ProviderId}.";
         }
         catch (IOException) { error = "The provider could not be deleted from Studio settings. Check the local data directory and try again."; }
         finally { deleting = false; }
@@ -209,19 +188,22 @@
         formError = error = message = null;
         try
         {
-            Providers.Add(form.ProviderId, form.Version, form.DisplayName, form.Model, form.Endpoint, form.TimeoutSeconds,
-                form.ApiKey, form.AllowInsecureHttp, credentialSourceVersion, form.RemoveApiKey);
+            Providers.Save(form.ProviderId, form.DisplayName, form.Model, form.Endpoint, form.TimeoutSeconds,
+                form.ApiKey, form.AllowInsecureHttp, form.RemoveApiKey,
+                form.ContextWindowTokens, form.InputCostPerMillionTokens, form.OutputCostPerMillionTokens);
             providers = Providers.List();
             var savedName = form.DisplayName;
-            var savedVersion = form.Version;
             editing = false;
-            credentialSourceVersion = null;
             providerHasCredential = false;
             form = new();
-            message = $"Saved {savedName} version {savedVersion}. It is now available in agent nodes.";
+            message = $"Saved {savedName}. It is now available to agent nodes that use this connection ID.";
         }
         catch (ArgumentException exception) { formError = exception.Message; }
         catch (InvalidOperationException exception) { formError = exception.Message; }
         finally { saving = false; }
     }
+
+    private static string Pricing(decimal? input, decimal? output) => input is { } inputRate && output is { } outputRate
+        ? $"${inputRate:0.######} in · ${outputRate:0.######} out / 1M tokens"
+        : "Not configured";
 }

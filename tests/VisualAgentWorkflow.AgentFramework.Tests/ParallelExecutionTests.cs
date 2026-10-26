@@ -110,7 +110,7 @@ public sealed class ParallelExecutionTests
         {
             var branch = definition.Connections.Values.Single(edge => edge.Target.NodeId == branchAnchor).Source.PortId;
             definition = GraphEditing.InsertNodeAfter(definition, branchAnchor, "out",
-                new(NodeTypes.Agent, "1.0.0", Agent: new("test.parallel", "1.0.0", branch, [])));
+                new(NodeTypes.Agent, "1.0.0", Agent: new("test.parallel", branch, [])));
         }
         return definition;
     }
@@ -124,7 +124,7 @@ public sealed class ParallelExecutionTests
         public int MaximumConcurrentCalls => maximumConcurrentCalls;
 
         public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
-            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>([new("test.parallel", "1.0.0", "Test", "test", true)]);
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>([new("test.parallel", "Test", "test", true)]);
 
         public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input, CancellationToken cancellationToken = default)
         {

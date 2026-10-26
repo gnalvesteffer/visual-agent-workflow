@@ -38,6 +38,35 @@
                     <span>@label</span>
                 </button>
                 @if (activity is not null) { <p class="vaw-node-activity" role="status">@activity</p> }
+                @if (node.Type == NodeTypes.Agent && AgentMetrics(nodeId) is { } metrics)
+                {
+                    <div class="vaw-agent-metrics" aria-label="Agent usage statistics">
+                        @if (metrics.ResponseCount == 0)
+                        {
+                            <span>Waiting for usage</span>
+                        }
+                        else
+                        {
+                            <span>Tokens · @metrics.InputTokens.ToString("N0") in / @metrics.OutputTokens.ToString("N0") out</span>
+                            @if (metrics.ContextWindowTokens is { } contextWindow && metrics.LatestInputTokens is { } contextInput)
+                            {
+                                var percent = Math.Clamp((int)Math.Round(contextInput * 100d / contextWindow), 0, 100);
+                                <label>Context · @contextInput.ToString("N0") / @contextWindow.ToString("N0") (@percent%)
+                                    <progress max="100" value="@percent" aria-label="Latest prompt context usage"></progress>
+                                </label>
+                            }
+                            @if (metrics.CostIsComplete && metrics.ResponseCount > 0)
+                            {
+                                <span>Estimated cost · $@metrics.EstimatedCost.ToString("0.000000")</span>
+                            }
+                            else
+                            {
+                                <span>Cost estimate · unavailable (configure prices and token usage)</span>
+                            }
+                            @if (metrics.ModelId is { Length: > 0 } modelId) { <small>@modelId</small> }
+                        }
+                    </div>
+                }
                 @if (BranchPort(nodeId) is { } chosenPort) { <p class="vaw-help">Selected output: @chosenPort</p> }
             </NodeContent>
             <NodeInspector Context="inspected">
@@ -248,6 +277,120 @@
             return $"{description}: {id[(id.LastIndexOf('.') + 1)..]}";
         return description;
     }
+
+    private sealed record AgentUsageStatistics(long InputTokens, long OutputTokens, int ResponseCount,
+        long? LatestInputTokens, int? ContextWindowTokens, decimal EstimatedCost, bool CostIsComplete, string? ModelId);
+
+    private AgentUsageStatistics? AgentMetrics(string nodeId)
+    {
+        if (Snapshot?.Header.Definition.Nodes.GetValueOrDefault(nodeId)?.Type != NodeTypes.Agent) return null;
+        var invocation = RootEvents.LastOrDefault(evt => evt.NodeId == nodeId && evt.Kind == ExecutionEventKinds.NodeStarted)?.InvocationId;
+        if (invocation is null) return null;
+
+        var agentStarts = RootEvents.Where(evt => evt.NodeId == nodeId && evt.Kind == ExecutionEventKinds.AgentStarted &&
+            (evt.InvocationId == invocation || IsDelegatedInvocation(evt, invocation))).ToArray();
+        var providers = agentStarts.Where(evt => evt.InvocationId is not null)
+            .ToDictionary(evt => evt.InvocationId!.Value, ProviderUsageFromAgentStart);
+        var responses = RootEvents.Where(evt => evt.NodeId == nodeId && evt.Kind == ExecutionEventKinds.ModelResponded &&
+            evt.InvocationId is { } responseInvocation && providers.ContainsKey(responseInvocation)).ToArray();
+        if (responses.Length == 0)
+        {
+            var rootProvider = providers.GetValueOrDefault(invocation.Value);
+            return rootProvider is null ? null : new(0, 0, 0, null, rootProvider.ContextWindowTokens, 0, false, rootProvider.ModelId);
+        }
+
+        long inputTokens = 0;
+        long outputTokens = 0;
+        long? latestInputTokens = null;
+        int? contextWindow = null;
+        decimal estimatedCost = 0;
+        var costComplete = true;
+        string? modelId = null;
+        foreach (var response in responses)
+        {
+            var provider = providers[response.InvocationId!.Value];
+            modelId = ModelIdFromResponse(response) ?? provider?.ModelId ?? modelId;
+            if (!TryGetUsage(response.Data, out var input, out var output))
+            {
+                costComplete = false;
+                continue;
+            }
+
+            inputTokens = checked(inputTokens + input);
+            outputTokens = checked(outputTokens + output);
+            latestInputTokens = input;
+            contextWindow = provider?.ContextWindowTokens;
+            if (provider is not null && provider.InputCostPerMillionTokens is { } inputRate && provider.OutputCostPerMillionTokens is { } outputRate)
+                estimatedCost += input * inputRate / 1_000_000m + output * outputRate / 1_000_000m;
+            else
+                costComplete = false;
+        }
+
+        return new(inputTokens, outputTokens, responses.Length, latestInputTokens, contextWindow, estimatedCost, costComplete, modelId);
+    }
+
+    private sealed record ProviderUsage(int? ContextWindowTokens, decimal? InputCostPerMillionTokens,
+        decimal? OutputCostPerMillionTokens, string? ModelId);
+
+    private static ProviderUsage? ProviderUsageFromAgentStart(ExecutionEvent evt)
+    {
+        if (!TryParse(evt.Data, out var root) || !TryGet(root, "provider", out var provider)) return null;
+        var context = TryGet(provider, "ContextWindowTokens", out var contextElement) &&
+            contextElement.ValueKind == JsonValueKind.Number && contextElement.TryGetInt32(out var contextValue)
+                ? contextValue : (int?)null;
+        var inputRate = TryGet(provider, "InputCostPerMillionTokens", out var inputElement) &&
+            inputElement.ValueKind == JsonValueKind.Number && inputElement.TryGetDecimal(out var inputValue)
+                ? inputValue : (decimal?)null;
+        var outputRate = TryGet(provider, "OutputCostPerMillionTokens", out var outputElement) &&
+            outputElement.ValueKind == JsonValueKind.Number && outputElement.TryGetDecimal(out var outputValue)
+                ? outputValue : (decimal?)null;
+        var model = TryGet(provider, "ModelId", out var modelElement) && modelElement.ValueKind == JsonValueKind.String
+            ? modelElement.GetString() : null;
+        return new(context, inputRate, outputRate, model);
+    }
+
+    private static bool TryGetUsage(string? data, out long inputTokens, out long outputTokens)
+    {
+        inputTokens = outputTokens = 0;
+        if (!TryParse(data, out var root) || !TryGet(root, "usage", out var usage) ||
+            !TryGet(usage, "InputTokenCount", out var input) || !input.TryGetInt64(out inputTokens) ||
+            !TryGet(usage, "OutputTokenCount", out var output) || !output.TryGetInt64(out outputTokens))
+            return false;
+        return inputTokens >= 0 && outputTokens >= 0;
+    }
+
+    private static string? ModelIdFromResponse(ExecutionEvent evt) =>
+        TryParse(evt.Data, out var root) && TryGet(root, "ModelId", out var model) && model.ValueKind == JsonValueKind.String
+            ? model.GetString() : null;
+
+    private static bool TryParse(string? json, out JsonElement root)
+    {
+        root = default;
+        if (string.IsNullOrWhiteSpace(json)) return false;
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            root = document.RootElement.Clone();
+            return true;
+        }
+        catch (JsonException) { return false; }
+    }
+
+    private static bool TryGet(JsonElement element, string name, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (!property.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
+                value = property.Value;
+                return true;
+            }
+        }
+        value = default;
+        return false;
+    }
+
     private string? BranchPort(string id)
     {
         var decision = RootEvents.LastOrDefault(e => e.NodeId == id && e.Kind == ExecutionEventKinds.BranchSelected);

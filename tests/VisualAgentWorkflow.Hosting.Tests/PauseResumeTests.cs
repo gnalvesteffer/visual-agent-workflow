@@ -11,7 +11,7 @@ public sealed class PauseResumeTests : IDisposable
     private FileRunJournal Journal => new(directory);
     private LocalWorkflowRuntime Runtime(IAgentNodeExecutor? agents = null) => new(Journal, NullLogger<LocalWorkflowRuntime>.Instance, agents: agents);
     private static WorkflowDefinition WithAgent() => WorkflowEditing.ReplaceNode(WorkflowTemplates.Create("uppercase-reverse"), "step-1",
-        new(NodeTypes.Agent, "1.0.0", Agent: new("controlled-test", "1.0", "", [])));
+        new(NodeTypes.Agent, "1.0.0", Agent: new("controlled-test", "", [])));
 
     private static async Task<RunSnapshot> WaitFor(LocalWorkflowRuntime runtime, Guid id, Func<RunSnapshot, bool> condition)
     {

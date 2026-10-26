@@ -96,7 +96,7 @@ public sealed class CheckpointRecoveryTests : IDisposable
         var store = Store();
         await using var runtime = new CheckpointWorkflowHost(store);
         var external = WorkflowEditing.ReplaceNode(WorkflowTemplates.Create("uppercase"), "step-1",
-            new(NodeTypes.Agent, "1.0.0", Agent: new("absent", "1", "instructions", [])));
+            new(NodeTypes.Agent, "1.0.0", Agent: new("absent", "instructions", [])));
         var mcp = WorkflowEditing.ReplaceNode(WorkflowTemplates.Create("uppercase"), "step-1",
             new(NodeTypes.McpTool, "1.0.0", new("fixture", new string('0', 64))));
         foreach (var definition in new[] { external, mcp, GraphEditing.InsertApprovalBefore(mcp, "step-1") })

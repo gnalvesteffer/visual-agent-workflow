@@ -63,7 +63,7 @@ def check(browser, screenshots):
     # A browser reload loses its UI instance, not the backend pause/continuation.
     ready(); select(first_id)
     page.get_by_role("button",name="Resume selected run",exact=True).click()
-    viewer.get_by_role("button",name="output core.output Completed",exact=True).click()
+    viewer.locator('li[data-node-id="output"] button.vaw-node-drag').click()
     expect(viewer.get_by_role("region",name="Selected node payloads").locator("pre").last).to_have_text("ESUAP IPA")
     finished=get(f"/api/runs/{first_id}")
     assert finished["header"]["revisionId"]==paused["header"]["revisionId"]
@@ -87,7 +87,7 @@ def check(browser, screenshots):
     assert not any(e["kind"]=="node.started" for e in get(f"/api/runs/{ui_id}")["events"])
     ready(); select(ui_id)
     page.get_by_role("button",name="Resume selected run",exact=True).click()
-    viewer.get_by_role("button",name="output core.output Completed",exact=True).click()
+    viewer.locator('li[data-node-id="output"] button.vaw-node-drag').click()
     expect(viewer.get_by_role("region",name="Selected node payloads").locator("pre").last).to_have_text("ESUAP IU")
 
     # Cancellation is available while paused and must not require a resume.
@@ -138,7 +138,7 @@ def check(browser, screenshots):
     if screenshots:
         viewer.screenshot(path=str(screenshots/"paused-run.png"))
     page.get_by_role("button",name="Resume selected run",exact=True).click()
-    viewer.get_by_role("button",name="output core.output Completed",exact=True).click()
+    viewer.locator('li[data-node-id="output"] button.vaw-node-drag').click()
     expect(viewer.get_by_role("region",name="Selected node payloads").locator("pre").last).to_have_text("ESUAP DEHSILBUP")
     recorded=get(f"/api/runs/{published_ui_id}")
     pause_sequence=next(e["sequence"] for e in recorded["events"] if e["kind"]=="run.paused")

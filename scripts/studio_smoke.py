@@ -162,7 +162,7 @@ def agent_check():
     definition = get("/api/templates/default")
     definition["schemaVersion"] = "1.2"
     definition["nodes"]["step-1"] = {"type": "core.agent", "typeVersion": "1.0.0", "agent": {
-        "providerId": provider["providerId"], "providerVersion": provider["version"],
+        "providerId": provider["providerId"],
         "instructions": "Use only the assigned tool.",
         "tools": [{"bindingId": reverse["bindingId"], "contractHash": reverse["contractHash"]}]}}
     definition["nodes"]["step-2"]["type"] = "core.text.uppercase"
@@ -213,7 +213,7 @@ def browser_check(executable):
             expect(start).to_be_enabled()
             page.get_by_role("textbox", name="Input", exact=True).fill("browser proof")
             start.click()
-            page.get_by_role("button", name="output core.output Completed", exact=True).click()
+            page.locator('li[data-node-id="output"] button.vaw-node-drag').click()
             inspector = page.get_by_role("region", name="Selected node payloads")
             expect(inspector.locator("pre").last).to_have_text("FOORP RESWORB")
             page.get_by_role("button", name="Previous event", exact=True).click()
@@ -304,7 +304,7 @@ def designer_check(browser):
     workbench(designer).get_by_text("Published and activated version 2.", exact=True).wait_for()
     workbench(designer).get_by_label("Published run input", exact=True).fill("abc")
     workbench(designer).get_by_role("button", name="Run selected version", exact=True).click()
-    page.get_by_role("button", name="output core.output Completed", exact=True).click()
+    page.locator('li[data-node-id="output"] button.vaw-node-drag').click()
     expect(page.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("CBA")
     version_select = workbench(designer).get_by_label("Published version", exact=True)
     version_one = version_select.locator("option").evaluate_all("options => options.find(o => o.textContent.startsWith('Version 1 ')).value")
@@ -377,7 +377,7 @@ def mcp_designer_check(browser):
     workbench(designer).get_by_text("Published and activated version 1.", exact=True).wait_for()
     workbench(designer).get_by_label("Published run input", exact=True).fill("abc")
     workbench(designer).get_by_role("button", name="Run selected version", exact=True).click()
-    page.get_by_role("button", name="output core.output Completed", exact=True).click()
+    page.locator('li[data-node-id="output"] button.vaw-node-drag').click()
     expect(page.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("cba")
     viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
     viewer.get_by_text("Recorded events at this position", exact=False).click()
@@ -410,7 +410,7 @@ def agent_designer_check(browser):
     workbench(designer).get_by_text("Published and activated version 1.", exact=True).wait_for()
     workbench(designer).get_by_label("Published run input", exact=True).fill("abc")
     workbench(designer).get_by_role("button", name="Run selected version", exact=True).click()
-    page.get_by_role("button", name="output core.output Completed", exact=True).click()
+    page.locator('li[data-node-id="output"] button.vaw-node-drag').click()
     expect(page.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("cba")
     viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
     viewer.get_by_text("Recorded events at this position", exact=False).click()

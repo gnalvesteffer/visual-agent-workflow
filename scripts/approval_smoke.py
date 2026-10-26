@@ -112,7 +112,7 @@ def check(browser, screenshots):
         screenshots.mkdir(parents=True, exist_ok=True)
         viewer.screenshot(path=str(screenshots / "pending-approval.png"))
     review.get_by_role("button", name="Approve recorded action", exact=True).click()
-    viewer.get_by_role("button", name="output core.output Completed", exact=True).click()
+    viewer.locator('li[data-node-id="output"] button.vaw-node-drag').click()
     expect(viewer.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("cba wolla :tnega omeD")
     finished = wait_status(first_id, "completed")
     tool = next(e for e in finished["events"] if e["kind"] == "tool.authorized")

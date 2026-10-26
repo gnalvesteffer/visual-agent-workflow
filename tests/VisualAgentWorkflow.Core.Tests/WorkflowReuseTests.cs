@@ -89,12 +89,12 @@ public sealed class WorkflowReuseTests
         var request = new ToolBindingRequest("customer.read", new string('a', 64));
         source = source with { Nodes = source.Nodes
             .SetItem("step-0", new(NodeTypes.McpTool, "1.0.0", request))
-            .SetItem("step-1", new(NodeTypes.Agent, "1.0.0", Agent: new("host-provider", "2.0", "Instructions", [request]))) };
+            .SetItem("step-1", new(NodeTypes.Agent, "1.0.0", Agent: new("host-provider", "Instructions", [request]))) };
         var inserted = WorkflowReuse.Insert(Definition("target"), WorkflowLayout.Create(Definition("target")), "input",
             new(1, WorkflowRevision.Create(source, "test")), WorkflowLayout.Create(source));
         var imported = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(inserted.Definition, inserted.Layout));
         Assert.Contains(new PackageRequirement("mcp-tool", request.BindingId, "", request.ContractHash), imported.Requirements);
-        Assert.Contains(new PackageRequirement("agent-provider", "host-provider", "2.0"), imported.Requirements);
+        Assert.Contains(new PackageRequirement("agent-provider", "host-provider", ""), imported.Requirements);
         Assert.Equal(1, imported.Requirements.Count(r => r.Kind == "mcp-tool"));
         Assert.DoesNotContain("grants", WorkflowJson.Serialize(inserted.Definition));
         Assert.Equal(request, inserted.Definition.Nodes.Values.Single(n => n.Type == NodeTypes.McpTool).Tool);
@@ -106,8 +106,8 @@ public sealed class WorkflowReuseTests
         var skill = WorkflowSkill.Create("specialist-skill", "1", "Specialist", "Be exact.");
         var source = Definition() with { SchemaVersion = "1.11" };
         var profile = AgentProfile.Create("specialist", "1", "Specialist", "A child agent.",
-            "host-provider", "2.0", "Follow the skill.", [], [skill]);
-        var originalAgent = new AgentConfiguration("host-provider", "2.0", "Delegate deliberately.", [])
+            "host-provider", "Follow the skill.", [], [skill]);
+        var originalAgent = new AgentConfiguration("host-provider", "Delegate deliberately.", [])
         { Delegates = [new(profile.Id, profile.Version, profile.ContentHash!)] };
         source = source with
         {
@@ -136,7 +136,7 @@ public sealed class WorkflowReuseTests
         Assert.DoesNotContain("origin", WorkflowJson.Serialize(source));
         var inserted = WorkflowReuse.Insert(source, WorkflowLayout.Create(source), "input", new(1, WorkflowRevision.Create(source, "test")), WorkflowLayout.Create(source));
         var id = inserted.Definition.Nodes.First(p => p.Value.Origin is not null).Key;
-        var replaced = WorkflowEditing.ReplaceNode(inserted.Definition, id, new(NodeTypes.Agent, "1.0.0", Agent: new("demo", "1", "", [])));
+        var replaced = WorkflowEditing.ReplaceNode(inserted.Definition, id, new(NodeTypes.Agent, "1.0.0", Agent: new("demo", "", [])));
         Assert.Equal("1.3", replaced.SchemaVersion);
         WorkflowValidator.ThrowIfInvalid(replaced);
         Assert.Throws<ArgumentException>(() => WorkflowJson.Serialize(inserted.Definition with { SchemaVersion = "1.0" }));

@@ -87,7 +87,7 @@ def check(browser, screenshots):
         workbench(designer).get_by_role("button", name="Run selected version", exact=True).click()
         if previous_header:
             expect(viewer.locator(".vaw-run-header small")).not_to_have_text(previous_header)
-        viewer.get_by_role("button", name="output core.output Completed", exact=True).click()
+        viewer.locator('li[data-node-id="output"] button.vaw-node-drag').click()
         expect(viewer.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text(output)
         expect(viewer.get_by_text("Selected output: " + port, exact=True)).to_be_visible()
         selected = page.locator(".vaw-history button[aria-pressed='true'] small").inner_text()

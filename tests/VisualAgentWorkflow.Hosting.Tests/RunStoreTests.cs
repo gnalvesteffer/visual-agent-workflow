@@ -156,7 +156,7 @@ public sealed class RunStoreTests : IDisposable
         var agent = definition.Nodes["step-1"] with
         {
             Type = NodeTypes.Agent,
-            Agent = new AgentConfiguration("test.provider", "1.0", "Answer the request.", [])
+            Agent = new AgentConfiguration("test.provider", "Answer the request.", [])
             { ReasoningEffort = AgentReasoningEffort.Off }
         };
         var validCurrent = definition with

@@ -45,7 +45,7 @@ def check(browser, base_url):
     designer.get_by_role("button", name="Run selected version", exact=True).click()
     history = page.locator(".vaw-history button[aria-pressed='true'] small")
     expect(history).to_be_visible(timeout=30_000)
-    output = page.get_by_role("button", name="output core.output Completed", exact=True)
+    output = page.locator('li[data-node-id="output"]')
     expect(output).to_be_visible(timeout=30_000)
     selected = page.locator(".vaw-history button[aria-pressed='true'] small").inner_text()
     summaries = page.request.get(base_url + "/api/runs").json()

@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 
 namespace VisualAgentWorkflow.Core;
 
-public sealed record AgentConfiguration(string ProviderId, string ProviderVersion, string Instructions, ImmutableArray<ToolBindingRequest> Tools)
+public sealed record AgentConfiguration(string ProviderId, string Instructions, ImmutableArray<ToolBindingRequest> Tools)
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public PromptTemplate? UserMessage { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<SkillReference>? Skills { get; init; }
@@ -23,7 +23,7 @@ public sealed record AgentConfiguration(string ProviderId, string ProviderVersio
 
 /// <summary>A portable, immutable specialist-agent preset. Host registrations still resolve providers and authorize tools.</summary>
 public sealed record AgentProfile(string Id, string Version, string Name, string Description, string ProviderId,
-    string ProviderVersion, string Instructions, ImmutableArray<ToolBindingRequest> Tools)
+    string Instructions, ImmutableArray<ToolBindingRequest> Tools)
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<WorkflowSkill>? Skills { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public AgentReasoningEffort? ReasoningEffort { get; init; }
@@ -32,11 +32,11 @@ public sealed record AgentProfile(string Id, string Version, string Name, string
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ContentHash { get; init; }
 
     public static AgentProfile Create(string id, string version, string name, string description, string providerId,
-        string providerVersion, string instructions, ImmutableArray<ToolBindingRequest> tools,
+        string instructions, ImmutableArray<ToolBindingRequest> tools,
         ImmutableArray<WorkflowSkill>? skills = null, AgentReasoningEffort? reasoningEffort = null, int? maxOutputTokens = null,
         ImmutableArray<string>? channels = null)
     {
-        var profile = new AgentProfile(id, version, name, description, providerId, providerVersion, instructions, tools)
+        var profile = new AgentProfile(id, version, name, description, providerId, instructions, tools)
         { Skills = skills, ReasoningEffort = reasoningEffort, MaxOutputTokens = maxOutputTokens, Channels = channels };
         var content = System.Text.Json.JsonSerializer.Serialize(profile with { ContentHash = null });
         return profile with { ContentHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(content))) };
@@ -70,8 +70,9 @@ public static class AgentTotalTokenLimits
 public static class AgentExecutionLimits
 {
     public const int DefaultMaximumTurns = 8;
-    public const int MinimumTurns = 1;
-    public const int MaximumTurns = 16;
+    public const int UnlimitedTurns = -1;
+
+    public static bool IsValidMaximumTurns(int value) => value == UnlimitedTurns || value >= 1;
     public const int MinimumTimeoutSeconds = 1;
     public const int MaximumTimeoutSeconds = 120;
 }
@@ -140,9 +141,15 @@ public static class PromptRendering
         return text.ToString();
     }
 }
-public sealed record AgentProviderDescriptor(string ProviderId, string Version, string DisplayName, string ModelId, bool IsDeterministic)
+public sealed record AgentProviderDescriptor(string ProviderId, string DisplayName, string ModelId, bool IsDeterministic)
 {
     public bool SupportsReasoningEffort { get; init; }
+    /// <summary>Optional model context size supplied by the trusted provider host.</summary>
+    public int? ContextWindowTokens { get; init; }
+    /// <summary>Optional USD per million input tokens, for a labeled cost estimate.</summary>
+    public decimal? InputCostPerMillionTokens { get; init; }
+    /// <summary>Optional USD per million output tokens, for a labeled cost estimate.</summary>
+    public decimal? OutputCostPerMillionTokens { get; init; }
 }
 
 public interface IAgentProviderCatalog

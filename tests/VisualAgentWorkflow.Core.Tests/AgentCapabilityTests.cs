@@ -13,7 +13,7 @@ public class AgentCapabilityTests
             new Dictionary<string, NodeDefinition>
             {
                 ["input"] = new(NodeTypes.Input, "1.0.0"),
-                ["step-1"] = new(NodeTypes.Agent, "1.0.0", Agent: new("demo.scripted", "1.0.0", "Answer briefly.", [])),
+                ["step-1"] = new(NodeTypes.Agent, "1.0.0", Agent: new("demo.scripted", "Answer briefly.", [])),
                 ["output"] = new(NodeTypes.Output, "1.0.0")
             }.ToImmutableSortedDictionary(),
             new Dictionary<string, ConnectionDefinition>
@@ -108,7 +108,7 @@ public class AgentCapabilityTests
     }
 
     [Fact]
-    public void AgentTurnAndTimeoutLimitsAreVersionedAndBounded()
+    public void AgentTurnLimitAllowsUnlimitedOrAnyPositiveCountAndRejectsNonpositiveValues()
     {
         var skill = WorkflowSkill.Create("math", "1.0", "Arithmetic", "Return a single number.");
         var baseline = Definition(skill);
@@ -125,9 +125,13 @@ public class AgentCapabilityTests
         Assert.Equal(serialized, WorkflowJson.Serialize(WorkflowJson.Deserialize(serialized)));
         Assert.Contains(WorkflowValidator.Validate(configured with { SchemaVersion = "1.20" }), issue => issue.Code == "agent.maxTurns");
         Assert.Contains(WorkflowValidator.Validate(configured with { SchemaVersion = "1.20" }), issue => issue.Code == "agent.timeout");
-        Assert.Contains(WorkflowValidator.Validate(configured with { Nodes = configured.Nodes.SetItem("step-1",
-            configured.Nodes["step-1"] with { Agent = configured.Nodes["step-1"].Agent! with { MaxTurns = AgentExecutionLimits.MaximumTurns + 1 } }) }),
-            issue => issue.Code == "agent.maxTurns");
+        foreach (var turns in new[] { AgentExecutionLimits.UnlimitedTurns, 17, int.MaxValue })
+            Assert.Empty(WorkflowValidator.Validate(configured with { Nodes = configured.Nodes.SetItem("step-1",
+                configured.Nodes["step-1"] with { Agent = configured.Nodes["step-1"].Agent! with { MaxTurns = turns } }) }));
+        foreach (var turns in new[] { 0, -2 })
+            Assert.Contains(WorkflowValidator.Validate(configured with { Nodes = configured.Nodes.SetItem("step-1",
+                configured.Nodes["step-1"] with { Agent = configured.Nodes["step-1"].Agent! with { MaxTurns = turns } }) }),
+                issue => issue.Code == "agent.maxTurns");
         Assert.Contains(WorkflowValidator.Validate(configured with { Nodes = configured.Nodes.SetItem("step-1",
             configured.Nodes["step-1"] with { Agent = configured.Nodes["step-1"].Agent! with { TimeoutSeconds = 0 } }) }),
             issue => issue.Code == "agent.timeout");
@@ -198,7 +202,7 @@ public class AgentCapabilityTests
         var skill = WorkflowSkill.Create("math", "1.0", "Arithmetic", "Return a single number.");
         var definition = Definition(skill);
         var profile = AgentProfile.Create("calculator", "2.0", "Calculator", "Performs arithmetic.",
-            "demo.scripted", "1.0.0", "Use the assigned skill.", [], [skill], AgentReasoningEffort.Off, 512, ["research", "review"]);
+            "demo.scripted", "Use the assigned skill.", [], [skill], AgentReasoningEffort.Off, 512, ["research", "review"]);
         var agent = definition.Nodes["step-1"].Agent! with
         { Delegates = [new(profile.Id, profile.Version, profile.ContentHash!)] };
         definition = definition with

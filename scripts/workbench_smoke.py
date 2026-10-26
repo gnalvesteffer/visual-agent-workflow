@@ -20,7 +20,7 @@ def prompt_template_check(page, designer):
     definition["schemaVersion"] = "1.7"
     definition["parameters"] = {"customer": {"displayName": "Customer", "defaultValue": "Ada"}}
     definition["nodes"]["step-1"] = {"type": "core.agent", "typeVersion": "1.0.0", "agent": {
-        "providerId": "demo.scripted", "providerVersion": "1.0.0", "instructions": "Answer briefly.", "tools": []}}
+        "providerId": "demo.scripted", "instructions": "Answer briefly.", "tools": []}}
     details = designer.get_by_text("Import / export definition", exact=True).locator("..")
     if not details.evaluate("element => element.open"):
         details.locator("summary").click()
@@ -544,7 +544,7 @@ def check(browser, screenshots):
     designer.get_by_label("Published run input",exact=True).fill("Agent workflow")
     designer.get_by_role("button",name="Run selected version",exact=True).click()
     viewer=page.get_by_role("region",name="Workflow run viewer",exact=True)
-    viewer.get_by_role("button",name="output core.output Completed",exact=True).click()
+    viewer.locator('li[data-node-id="output"] button.vaw-node-drag').click()
     expect(viewer.get_by_role("region",name="Selected node payloads").locator("pre").last).to_have_text("wolfkrow tnegA")
     assert not designer.is_visible()
     viewer.get_by_role("button",name="Fullscreen graph",exact=True).click()

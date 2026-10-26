@@ -108,7 +108,7 @@ def check(browser, screenshots):
     workbench(designer).get_by_label("Published run input",exact=True).fill("abc")
     workbench(designer).get_by_role("button",name="Run selected version",exact=True).click()
     viewer = page.get_by_role("region",name="Workflow run viewer",exact=True)
-    viewer.get_by_role("button",name="output core.output Completed",exact=True).click()
+    viewer.locator('li[data-node-id="output"] button.vaw-node-drag').click()
     expect(viewer.get_by_role("region",name="Selected node payloads").locator("pre").last).to_have_text("ABC")
     revision_id = get("/api/workflows/"+target_id+"/revisions")[0]["revision"]["revisionId"]
     package_api = get("/api/revisions/"+revision_id+"/package")

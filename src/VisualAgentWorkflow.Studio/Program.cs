@@ -138,14 +138,16 @@ app.MapGet("/api/tool-bindings", async (IToolBindingCatalog catalog, Cancellatio
     Results.Ok(await catalog.ListBindingsAsync(cancellationToken)));
 app.MapGet("/api/agent-providers", async (IAgentProviderCatalog catalog) => Results.Ok(await catalog.ListProvidersAsync()));
 app.MapGet("/api/settings/model-providers", (StudioModelProviderStore store) => Results.Ok(store.List()));
-app.MapDelete("/api/settings/model-providers/{providerId}/{version}", (string providerId, string version, StudioModelProviderStore store) =>
-    store.Delete(providerId, version) ? Results.NoContent() : Results.NotFound());
+app.MapDelete("/api/settings/model-providers/{providerId}", (string providerId, StudioModelProviderStore store) =>
+    store.Delete(providerId) ? Results.NoContent() : Results.NotFound());
 app.MapPost("/api/settings/model-providers", (AddModelProviderRequest request, StudioModelProviderStore store) =>
 {
     try
     {
-        store.Add(request.ProviderId, request.Version, request.DisplayName, request.Model, request.Endpoint,
-            request.TimeoutSeconds, request.ApiKey, request.AllowInsecureHttp, removeApiKey: request.RemoveApiKey);
+        store.Save(request.ProviderId, request.DisplayName, request.Model, request.Endpoint,
+            request.TimeoutSeconds, request.ApiKey, request.AllowInsecureHttp, removeApiKey: request.RemoveApiKey,
+            contextWindowTokens: request.ContextWindowTokens, inputCostPerMillionTokens: request.InputCostPerMillionTokens,
+            outputCostPerMillionTokens: request.OutputCostPerMillionTokens);
         return Results.Ok(store.List());
     }
     catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
@@ -243,4 +245,6 @@ public sealed record StartRunRequest(JsonElement Definition, string? Input)
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record ApprovalDecisionRequest(string? ActionHash, bool? Approve);
 
-public sealed record AddModelProviderRequest(string ProviderId, string Version, string DisplayName, string Model, string Endpoint, int TimeoutSeconds, string ApiKey, bool AllowInsecureHttp, bool RemoveApiKey);
+public sealed record AddModelProviderRequest(string ProviderId, string DisplayName, string Model, string Endpoint,
+    int TimeoutSeconds, string ApiKey, bool AllowInsecureHttp, bool RemoveApiKey, int? ContextWindowTokens = null,
+    decimal? InputCostPerMillionTokens = null, decimal? OutputCostPerMillionTokens = null);

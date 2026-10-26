@@ -101,7 +101,7 @@ public partial class WorkflowEditor
                     !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));
             if (Definition.SchemaVersion == WorkflowSchemaVersions.AgentGraphFunctionTools)
                 explicitEntries.AddRange(Providers.Select(provider => new WorkflowNodeLibraryEntry(
-                    ProviderKey(provider), provider.DisplayName, "Agents", $"Agent node · {provider.ProviderId} {provider.Version}",
+                    ProviderKey(provider), provider.DisplayName, "Agents", $"Agent node · {provider.ModelId}",
                     !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));
             return explicitEntries;
         }
@@ -136,7 +136,7 @@ public partial class WorkflowEditor
             new("terminate", "Terminate workflow", "Flow", "Add an unconnected success or failure exit", canCreate && Definition.Nodes.Values.Count(node => node.Type == NodeTypes.Terminate) < 16),
             new("approval", "Approval", "Flow", "Select an MCP tool to require exact-action review", !hasLoop && textPath && selected is not null && Definition.Nodes.TryGetValue(selected, out var selectedDefinition) && selectedDefinition.Type == NodeTypes.McpTool && !GuardedTool(selected))
         ];
-        entries.AddRange(Providers.Select(p => new WorkflowNodeLibraryEntry(ProviderKey(p), p.DisplayName, "Agents", $"{p.ModelId} · {p.Version}", canCreate)));
+        entries.AddRange(Providers.Select(p => new WorkflowNodeLibraryEntry(ProviderKey(p), p.DisplayName, "Agents", p.ModelId, canCreate)));
         entries.AddRange(Bindings.Select(b => new WorkflowNodeLibraryEntry(ToolKey(b), b.DisplayName, "MCP tools", "Host-registered tool; node grants still apply", canCreate)));
         return entries;
     }

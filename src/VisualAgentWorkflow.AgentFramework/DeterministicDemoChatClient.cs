@@ -8,7 +8,7 @@ namespace VisualAgentWorkflow.AgentFramework;
 public sealed class DeterministicDemoChatClient : IChatClient
 {
     public static AgentProviderRegistration Registration() => new(
-        new("demo.scripted", "1.0.0", "Deterministic demo agent", "scripted-text-v1", true), () => new DeterministicDemoChatClient());
+        new("demo.scripted", "Deterministic demo agent", "scripted-text-v1", true), () => new DeterministicDemoChatClient());
 
     public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
     {

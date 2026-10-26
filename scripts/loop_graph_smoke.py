@@ -45,7 +45,7 @@ def check(browser, base_url):
     designer.get_by_text("Published and activated version 1.", exact=True).wait_for()
     designer.get_by_label("Published run input", exact=True).fill("continue")
     designer.get_by_role("button", name="Run selected version", exact=True).click()
-    output = page.get_by_role("button", name="output core.output Completed", exact=True)
+    output = page.locator('li[data-node-id="output"]')
     expect(output).to_be_visible(timeout=30_000)
     viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
     selected = page.locator(".vaw-history button[aria-pressed='true'] small").inner_text()
@@ -68,7 +68,7 @@ def check(browser, base_url):
     )
     expect(page.locator(f".vaw-node[data-node-id='{loop_id}'] .vaw-node-activity")).to_contain_text("Iteration 1 of 2")
     viewer.get_by_role("button", name="Follow latest", exact=True).click()
-    viewer.get_by_role("button", name="output core.output Completed", exact=True).click()
+    viewer.locator('li[data-node-id="output"] button.vaw-node-drag').click()
     expect(viewer.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("CONTINUE")
 
     page.get_by_role("button", name="Designer", exact=True).click()

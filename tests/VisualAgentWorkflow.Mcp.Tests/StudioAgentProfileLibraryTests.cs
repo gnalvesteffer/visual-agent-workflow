@@ -13,7 +13,7 @@ public sealed class StudioAgentProfileLibraryTests
         try
         {
             var profile = AgentProfile.Create("summarizer", "1.0.0", "Summarizer", "Summarizes source text.",
-                "demo.scripted", "1.0.0", "Return a brief summary.", [], channels: ["research"]);
+                "demo.scripted", "Return a brief summary.", [], channels: ["research"]);
             var firstLibrary = new StudioAgentProfileLibrary(directory);
             firstLibrary.Add(profile, "Writing/Review");
 
@@ -24,7 +24,7 @@ public sealed class StudioAgentProfileLibraryTests
             Assert.Equal("Writing/Review", saved.Folder);
             Assert.Throws<ArgumentException>(() => reloadedLibrary.Add(profile, "Other"));
             var invalidChannel = AgentProfile.Create("invalid-channel", "1", "Invalid", "Bad channel ID.",
-                "demo.scripted", "1.0.0", "Instructions.", [], channels: ["Research Channel"]);
+                "demo.scripted", "Instructions.", [], channels: ["Research Channel"]);
             Assert.Throws<ArgumentException>(() => reloadedLibrary.Add(invalidChannel, "Other"));
 
             Assert.True(reloadedLibrary.Move(profile.Id, profile.Version, "Research"));

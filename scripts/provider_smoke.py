@@ -132,20 +132,26 @@ def check(dotnet, browser_executable):
                     new_workflow_fixture(designer)
                     expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Unsaved changes")
                     workflow_id = workbench(designer).locator(".vaw-definition-status strong").inner_text()
-                    inspect_control(designer, "Operation for step-1").get_by_label("Operation for step-1",exact=True).select_option("agent:openai.fixture:1.0.0")
+                    inspect_control(designer, "Operation for step-1").get_by_label("Operation for step-1",exact=True).select_option("agent:openai.fixture")
                     expect(workbench(designer).get_by_text("External model: fixture-model.",exact=False)).to_be_visible()
                     instructions = inspect_control(designer, "Agent instructions for step-1").get_by_label("Agent instructions for step-1",exact=True)
                     instructions.fill("Local protocol test instructions"); instructions.press("Tab")
                     inspect_control(designer, "Assign demo.reverse to step-1").get_by_label("Assign demo.reverse to step-1",exact=True).check()
+                    turns = inspect_control(designer, "Maximum model turns for step-1").get_by_label("Maximum model turns for step-1",exact=True)
+                    turns.fill("17"); turns.press("Tab")
+                    turns.fill("-1"); turns.press("Tab")
                     workbench(designer).get_by_role("button",name="Save draft",exact=True).click()
                     workbench(designer).get_by_text("Draft saved.",exact=True).wait_for()
+                    configured_draft = get(f"/api/workflows/{workflow_id}")["definition"]
+                    assert configured_draft["schemaVersion"] == "1.21"
+                    assert configured_draft["nodes"]["step-1"]["agent"]["maxTurns"] == -1
                     workbench(designer).get_by_role("button",name="Publish & activate",exact=True).click()
                     workbench(designer).get_by_text("Published and activated version 1.",exact=True).wait_for()
                     revision = get(f"/api/workflows/{workflow_id}/revisions")[0]["revision"]
                     workbench(designer).get_by_label("Published run input",exact=True).fill("abc")
                     workbench(designer).get_by_role("button",name="Run selected version",exact=True).click()
                     viewer = page.get_by_role("region",name="Workflow run viewer",exact=True)
-                    viewer.get_by_role("button",name="output core.output Completed",exact=True).click()
+                    viewer.locator('li[data-node-id="output"] button.vaw-node-drag').click()
                     expect(viewer.get_by_role("region",name="Selected node payloads").locator("pre").last).to_have_text("Protocol fixture: cba")
                     runs = get("/api/runs")
                     recorded = next(r for r in runs if r["header"]["revisionId"] == revision["revisionId"])
@@ -202,17 +208,27 @@ def check(dotnet, browser_executable):
                 assert final["output"]=="Protocol fixture: service input"
                 assert final["revisionId"]==manifest["revisionId"]
                 assert key not in result.stdout and key not in result.stderr
+            changed_model = dict(env)
+            changed_model[prefix+"Model"] = "fixture-model-after-edit"
+            edited = subprocess.run([dotnet,str(ROOT/"samples/WorkflowService/bin/Release/net10.0/WorkflowService.dll"),"direct",
+                str(directory/"agent.deployment.json"),str(directory/"edited-model"),"same workflow revision"],env=changed_model,cwd=ROOT,
+                capture_output=True,text=True,timeout=15)
+            assert edited.returncode == 0, edited.stderr
+            edited_result = json.loads(edited.stdout.splitlines()[-1])
+            assert edited_result["revisionId"] == manifest["revisionId"]
+            assert state["calls"][-1]["model"] == "fixture-model-after-edit"
+            assert key not in edited.stdout and key not in edited.stderr
+
             calls_before_rejection = len(state["calls"])
-            for setting, value in (("Version", "2.0.0"), ("Enabled", "false")):
-                changed = dict(env)
-                changed[prefix+setting] = value
-                journal = directory / ("rejected-"+setting)
-                rejected = subprocess.run([dotnet,str(ROOT/"samples/WorkflowService/bin/Release/net10.0/WorkflowService.dll"),"direct",
-                    str(directory/"agent.deployment.json"),str(journal),"must not execute"],env=changed,cwd=ROOT,capture_output=True,text=True,timeout=15)
-                assert rejected.returncode == 1
-                assert not journal.exists()
-                assert len(state["calls"]) == calls_before_rejection
-                assert key not in rejected.stderr
+            changed = dict(env)
+            changed[prefix+"Enabled"] = "false"
+            journal = directory / "rejected-disabled-provider"
+            rejected = subprocess.run([dotnet,str(ROOT/"samples/WorkflowService/bin/Release/net10.0/WorkflowService.dll"),"direct",
+                str(directory/"agent.deployment.json"),str(journal),"must not execute"],env=changed,cwd=ROOT,capture_output=True,text=True,timeout=15)
+            assert rejected.returncode == 1
+            assert not journal.exists()
+            assert len(state["calls"]) == calls_before_rejection
+            assert key not in rejected.stderr
         finally:
             if process:
                 stop(process)

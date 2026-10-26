@@ -51,7 +51,7 @@ public class WorkflowEditingTests
         var initial = WorkflowParameterEditing.Add(Empty() with { SchemaVersion = "1.19" }, "model", "Model", "small");
         var skill = WorkflowSkill.Create("research", "1.0.0", "Research", "Use concise, cited answers.");
         var profile = AgentProfile.Create("researcher", "1.0.0", "Researcher", "Research specialist.",
-            "test-provider", "1.0.0", "Research the question.", []);
+            "test-provider", "Research the question.", []);
         var updated = WorkflowParameterEditing.Add(initial, "locale", "Locale", "en") with
         {
             Skills = ImmutableSortedDictionary<string, WorkflowSkill>.Empty.Add(skill.Id + "@" + skill.Version, skill),

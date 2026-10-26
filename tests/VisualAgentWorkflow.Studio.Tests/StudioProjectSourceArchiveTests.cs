@@ -28,7 +28,7 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
         await Assert.IsAssignableFrom<IWorkflowDesignCatalog>(workspace.Catalog).SaveDesignAsync(definition, layout, 0);
         workspace.Skills.Add("source-check", "1.0.0", "Source check", "Confirm source requirements.", "Research");
         workspace.AgentProfiles.Add(AgentProfile.Create("review-agent", "1.0.0", "Review agent", "A portable profile.",
-            "demo.scripted", "1.0.0", "Review the request.", ImmutableArray<ToolBindingRequest>.Empty), "Agents");
+            "demo.scripted", "Review the request.", ImmutableArray<ToolBindingRequest>.Empty), "Agents");
         workspace.Functions.Add(AppendSuffixFunction(), "Text/Formatting");
 
         var first = await StudioProjectSourceArchive.CreateAsync(workspace);
@@ -97,7 +97,7 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
         await Assert.IsAssignableFrom<IWorkflowDesignCatalog>(sourceWorkspace.Catalog).SaveDesignAsync(definition, layout, 0);
         sourceWorkspace.Skills.Add("source-check", "1.0.0", "Source check", "Confirm source requirements.", "Research");
         sourceWorkspace.AgentProfiles.Add(AgentProfile.Create("review-agent", "1.0.0", "Review agent", "A portable profile.",
-            "demo.scripted", "1.0.0", "Review the request.", ImmutableArray<ToolBindingRequest>.Empty), "Agents");
+            "demo.scripted", "Review the request.", ImmutableArray<ToolBindingRequest>.Empty), "Agents");
         sourceWorkspace.Functions.Add(AppendSuffixFunction(), "Text/Formatting");
         var archive = await StudioProjectSourceArchive.CreateAsync(sourceWorkspace);
 

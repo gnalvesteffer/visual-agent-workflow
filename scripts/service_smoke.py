@@ -97,10 +97,10 @@ def check(dotnet):
         def missing_provider(package):
             package["definition"]["schemaVersion"] = "1.2"
             package["definition"]["nodes"]["transform"] = {"type":"core.agent","typeVersion":"1.0.0", "agent":{
-                "providerId":"absent","providerVersion":"1.0.0","instructions":"fixture","tools":[]}}
+                "providerId":"absent","instructions":"fixture","tools":[]}}
             package["requirements"] = [r for r in package["requirements"] if r["kind"] != "mcp-tool" and r["id"] != "core.mcp-tool"]
             package["requirements"] += [{"kind":"node","id":"core.agent","version":"1.0.0"},
-                                         {"kind":"agent-provider","id":"absent","version":"1.0.0"}]
+                                         {"kind":"agent-provider","id":"absent","version":""}]
 
         for name, change, error_type in (("missing-tool", missing_tool, "InvalidOperationException"), ("drift", drift, "ToolContractMismatchException"), ("missing-provider", missing_provider, "InvalidOperationException")):
             path = deployment_variant(name, change_package=change)

@@ -72,7 +72,7 @@ public sealed class StudioAgentProfileLibrary : IAgentProfileLibrary
 
     private static bool IsIntact(AgentProfile? profile) => profile is not null &&
         profile.ContentHash == AgentProfile.Create(profile.Id, profile.Version, profile.Name, profile.Description,
-            profile.ProviderId, profile.ProviderVersion, profile.Instructions, profile.Tools, profile.Skills,
+            profile.ProviderId, profile.Instructions, profile.Tools, profile.Skills,
             profile.ReasoningEffort, profile.MaxOutputTokens, profile.Channels).ContentHash;
 
     private static void Validate(AgentProfile profile, string folder)
@@ -82,7 +82,6 @@ public sealed class StudioAgentProfileLibrary : IAgentProfileLibrary
             string.IsNullOrWhiteSpace(profile.Name) || profile.Name.Length > 128 ||
             string.IsNullOrWhiteSpace(profile.Description) || profile.Description.Length > 512 ||
             string.IsNullOrWhiteSpace(profile.ProviderId) || profile.ProviderId.Length > 128 ||
-            string.IsNullOrWhiteSpace(profile.ProviderVersion) || profile.ProviderVersion.Length > 64 ||
             string.IsNullOrWhiteSpace(profile.Instructions) || profile.Instructions.Length > 8192 ||
             profile.Tools.IsDefault || profile.Tools.Length > 8 || profile.Skills is { Length: > 8 } ||
             profile.Channels is { } channels && (channels.IsDefault || channels.Length > 8 ||

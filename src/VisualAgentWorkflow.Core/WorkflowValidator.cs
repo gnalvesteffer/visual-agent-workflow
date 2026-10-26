@@ -118,14 +118,13 @@ public static class WorkflowValidator
         foreach (var (key, profile) in profiles)
         {
             var expected = profile is null ? null : AgentProfile.Create(profile.Id, profile.Version, profile.Name, profile.Description,
-                profile.ProviderId, profile.ProviderVersion, profile.Instructions, profile.Tools, profile.Skills,
+                profile.ProviderId, profile.Instructions, profile.Tools, profile.Skills,
                 profile.ReasoningEffort, profile.MaxOutputTokens, profile.Channels);
             if (profile is null || key != profile.Id + "@" + profile.Version || !ValidParameterId(profile.Id) ||
                 string.IsNullOrWhiteSpace(profile.Version) || profile.Version.Length > 64 ||
                 string.IsNullOrWhiteSpace(profile.Name) || profile.Name.Length > 128 ||
                 string.IsNullOrWhiteSpace(profile.Description) || profile.Description.Length > 512 ||
                 string.IsNullOrWhiteSpace(profile.ProviderId) || profile.ProviderId.Length > 128 ||
-                string.IsNullOrWhiteSpace(profile.ProviderVersion) || profile.ProviderVersion.Length > 64 ||
                 string.IsNullOrWhiteSpace(profile.Instructions) || profile.Instructions.Length > 8192 ||
                 profile.Tools.IsDefault || profile.Tools.Length > 8 || profile.Tools.Any(tool => tool is null || !ValidBinding(tool)) ||
                 profile.Tools.Select(tool => tool.BindingId).Distinct(StringComparer.Ordinal).Count() != profile.Tools.Length ||
@@ -137,7 +136,7 @@ public static class WorkflowValidator
                 profile.ReasoningEffort is { } profileEffort && !Enum.IsDefined(profileEffort) ||
                 profile.MaxOutputTokens is { } outputTokens && outputTokens is < AgentOutputTokenLimits.Minimum or > AgentOutputTokenLimits.Maximum ||
                 profile.ContentHash != expected?.ContentHash)
-                Error("agentProfile.definition", $"agentProfiles.{key}", "A profile needs a valid identity, bounded instructions, pinned provider/tool/skill requirements and a matching content hash.");
+                Error("agentProfile.definition", $"agentProfiles.{key}", "A profile needs a valid identity, bounded instructions, a model connection ID, pinned tool/skill requirements and a matching content hash.");
         }
 
         var incoming = definition.Nodes.Keys.ToDictionary(id => id, _ => 0);
@@ -314,10 +313,9 @@ public static class WorkflowValidator
             {
                 if (definition.SchemaVersion is not ("1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools)) Error("node.schema", $"nodes.{id}", "Agent nodes require schema 1.2 or later.");
                 if (node.Agent is not { } agent || string.IsNullOrWhiteSpace(agent.ProviderId) || agent.ProviderId.Length > 128 ||
-                    string.IsNullOrWhiteSpace(agent.ProviderVersion) || agent.ProviderVersion.Length > 64 ||
                     agent.Instructions is null || agent.Instructions.Length > 8192 || agent.Tools.IsDefault || agent.Tools.Length > 8 ||
                     agent.Tools.Any(t => t is null || !ValidBinding(t)) || agent.Tools.Select(t => t.BindingId).Distinct(StringComparer.Ordinal).Count() != agent.Tools.Length)
-                    Error("agent.configuration", $"nodes.{id}.agent", "An agent requires a provider/version, bounded instructions, and up to eight unique tool requirements.");
+                    Error("agent.configuration", $"nodes.{id}.agent", "An agent requires a model connection ID, bounded instructions, and up to eight unique tool requirements.");
                 if (node.Agent is { } configured)
                 {
                     if (configured.UserMessage is { } template)
@@ -347,8 +345,8 @@ public static class WorkflowValidator
                         (definition.SchemaVersion is not ("1.22" or WorkflowSchemaVersions.AgentGraphFunctionTools) || maxTotalTokens is < AgentTotalTokenLimits.Minimum or > AgentTotalTokenLimits.Maximum))
                         Error("agent.totalTokens", $"nodes.{id}.agent.maxTotalTokens", $"Maximum total tokens require schema 1.22 and a value from {AgentTotalTokenLimits.Minimum} to {AgentTotalTokenLimits.Maximum}.");
                     if (configured.MaxTurns is { } maxTurns &&
-                        (definition.SchemaVersion is not ("1.21" or "1.22" or WorkflowSchemaVersions.AgentGraphFunctionTools) || maxTurns is < AgentExecutionLimits.MinimumTurns or > AgentExecutionLimits.MaximumTurns))
-                        Error("agent.maxTurns", $"nodes.{id}.agent.maxTurns", $"Maximum turns require schema 1.21 or later and a value from {AgentExecutionLimits.MinimumTurns} to {AgentExecutionLimits.MaximumTurns}.");
+                        (definition.SchemaVersion is not ("1.21" or "1.22" or WorkflowSchemaVersions.AgentGraphFunctionTools) || !AgentExecutionLimits.IsValidMaximumTurns(maxTurns)))
+                        Error("agent.maxTurns", $"nodes.{id}.agent.maxTurns", "Maximum turns require schema 1.21 or later and must be -1 (unlimited) or a positive integer.");
                     if (configured.TimeoutSeconds is { } timeoutSeconds &&
                         (definition.SchemaVersion is not ("1.21" or "1.22" or WorkflowSchemaVersions.AgentGraphFunctionTools) || timeoutSeconds is < AgentExecutionLimits.MinimumTimeoutSeconds or > AgentExecutionLimits.MaximumTimeoutSeconds))
                         Error("agent.timeout", $"nodes.{id}.agent.timeoutSeconds", $"Agent timeout requires schema 1.21 or later and a value from {AgentExecutionLimits.MinimumTimeoutSeconds} to {AgentExecutionLimits.MaximumTimeoutSeconds} seconds.");

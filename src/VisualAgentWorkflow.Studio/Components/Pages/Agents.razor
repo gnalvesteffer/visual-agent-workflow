@@ -21,7 +21,7 @@
                 <h3>@item.Profile.Name <small>@item.Profile.Version</small></h3>
                 <p><code>@item.Profile.Id</code> · @(string.IsNullOrWhiteSpace(item.Folder) ? "Unfiled" : item.Folder) · @item.Profile.ContentHash![..8]</p>
                 <p>@item.Profile.Description</p>
-                <p>@item.Profile.ProviderId · @item.Profile.ProviderVersion · @item.Profile.Tools.Length MCP tools · @(item.Profile.Skills?.Length ?? 0) skills · @(item.Profile.Channels?.Length ?? 0) channels</p>
+                <p>Model connection · @item.Profile.ProviderId · @item.Profile.Tools.Length MCP tools · @(item.Profile.Skills?.Length ?? 0) skills · @(item.Profile.Channels?.Length ?? 0) channels</p>
                 @if (item.Profile.Channels is { Length: > 0 }) { <p>Coordination channels: @string.Join(", ", item.Profile.Channels)</p> }
                 <details><summary>View system instructions</summary><pre>@item.Profile.Instructions</pre></details>
                 <label>Folder <input aria-label="Folder for @item.Profile.Id @item.Profile.Version" value="@item.Folder" @onchange="args => Move(item, args)" /></label>
@@ -41,7 +41,7 @@
             <label class="vaw-provider-form-wide">Delegate description <textarea required @bind="description" maxlength="512" rows="2" placeholder="When should the parent agent ask this specialist for help?" /></label>
             <label>Model provider
                 <select @bind="providerKey" required>
-                    @foreach (var provider in providers) { <option value="@($"{provider.ProviderId}@{provider.Version}")">@provider.DisplayName · @provider.ModelId</option> }
+                    @foreach (var provider in providers) { <option value="@provider.ProviderId">@provider.DisplayName · @provider.ModelId</option> }
                 </select>
             </label>
             <label>Reasoning effort
@@ -106,7 +106,7 @@
             providers = await ProviderCatalog.ListProvidersAsync();
             tools = await ToolCatalog.ListBindingsAsync();
             skills = SkillLibrary.List();
-            providerKey = providers.FirstOrDefault() is { } provider ? $"{provider.ProviderId}@{provider.Version}" : "";
+            providerKey = providers.FirstOrDefault()?.ProviderId ?? "";
         }
         catch (Exception exception) { error = exception.Message; }
     }
@@ -126,7 +126,7 @@
     {
         try
         {
-            var provider = providers.Single(item => $"{item.ProviderId}@{item.Version}" == providerKey);
+            var provider = providers.Single(item => item.ProviderId == providerKey);
             var profileTools = tools.Where(tool => selectedTools.Contains(tool.BindingId))
                 .Select(tool => new ToolBindingRequest(tool.BindingId, tool.ContractHash) { DescriptionHash = tool.DescriptionHash }).ToImmutableArray();
             var profileSkills = skills.Where(item => selectedSkills.Contains(item.Skill.Id + "@" + item.Skill.Version))
@@ -138,7 +138,7 @@
             if (effort is not null && !provider.SupportsReasoningEffort)
                 throw new ArgumentException("The selected provider does not advertise reasoning effort support.");
             var profile = AgentProfile.Create(id.Trim(), version.Trim(), name.Trim(), description.Trim(), provider.ProviderId,
-                provider.Version, instructions, profileTools, profileSkills, effort, maxOutputTokens,
+                instructions, profileTools, profileSkills, effort, maxOutputTokens,
                 profileChannels.IsEmpty ? null : profileChannels);
             Library.Add(profile, folder.Trim());
             message = "Agent profile version saved.";
@@ -152,7 +152,7 @@
     {
         id = item.Profile.Id; version = item.Profile.Version + ".1"; name = item.Profile.Name;
         description = item.Profile.Description; instructions = item.Profile.Instructions; folder = item.Folder;
-        providerKey = $"{item.Profile.ProviderId}@{item.Profile.ProviderVersion}";
+        providerKey = item.Profile.ProviderId;
         reasoning = item.Profile.ReasoningEffort?.ToString() ?? "";
         maxOutputTokens = item.Profile.MaxOutputTokens;
         channelsText = string.Join(Environment.NewLine, item.Profile.Channels ?? []);

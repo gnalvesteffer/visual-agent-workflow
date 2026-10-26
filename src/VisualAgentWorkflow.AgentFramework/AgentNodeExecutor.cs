@@ -20,9 +20,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         Volatile.Write(ref registrations, Index(providers));
 
     private static IReadOnlyDictionary<string, AgentProviderRegistration> Index(IEnumerable<AgentProviderRegistration> providers) =>
-        providers.ToDictionary(provider => Key(provider.Descriptor.ProviderId, provider.Descriptor.Version), StringComparer.Ordinal);
-
-    private static string Key(string providerId, string version) => $"{providerId}\0{version}";
+        providers.ToDictionary(provider => provider.Descriptor.ProviderId, StringComparer.Ordinal);
 
     private static JsonDocument ChannelSchema(ImmutableArray<string> channels, bool includeMessage)
     {
@@ -98,8 +96,8 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         AgentTokenBudget? sharedTokenBudget = null)
     {
         var tokenBudget = sharedTokenBudget ?? (configuration.MaxTotalTokens is { } maximumTokens ? new AgentTokenBudget(maximumTokens) : null);
-        if (!Volatile.Read(ref registrations).TryGetValue(Key(configuration.ProviderId, configuration.ProviderVersion), out var provider))
-            throw new InvalidOperationException("The pinned agent provider is unavailable.");
+        if (!Volatile.Read(ref registrations).TryGetValue(configuration.ProviderId, out var provider))
+            throw new InvalidOperationException($"Agent connection '{configuration.ProviderId}' is unavailable.");
         var reasoningEffort = configuration.ReasoningEffortParameterId is { } parameterId && invocation.Parameters is { } values
             ? values.GetValueOrDefault(parameterId) switch
             {
@@ -348,8 +346,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                                 eventData = data
                             }))
                     };
-                    var childConfiguration = new AgentConfiguration(profile.ProviderId, profile.ProviderVersion,
-                        profile.Instructions, profile.Tools)
+                    var childConfiguration = new AgentConfiguration(profile.ProviderId, profile.Instructions, profile.Tools)
                     {
                         Skills = profile.Skills?.Select(skill => new SkillReference(skill.Id, skill.Version, skill.ContentHash)).ToImmutableArray(),
                         ReasoningEffort = profile.ReasoningEffort,
@@ -480,11 +477,14 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                         }));
                 }
             }
-            var maximumTurns = configuration.MaxTurns ?? AgentExecutionLimits.DefaultMaximumTurns;
-            using var client = new FunctionInvokingChatClient(new RecordingClient(provider.Create(), invocation, maximumTurns,
+            var configuredMaximumTurns = configuration.MaxTurns ?? AgentExecutionLimits.DefaultMaximumTurns;
+            var executionMaximumTurns = configuredMaximumTurns == AgentExecutionLimits.UnlimitedTurns
+                ? int.MaxValue
+                : configuredMaximumTurns;
+            using var client = new FunctionInvokingChatClient(new RecordingClient(provider.Create(), invocation, executionMaximumTurns,
                 tokenBudget, response => lastFinishReason = response.FinishReason?.ToString() ?? ""))
             {
-                MaximumIterationsPerRequest = maximumTurns,
+                MaximumIterationsPerRequest = executionMaximumTurns,
                 MaximumConsecutiveErrorsPerRequest = 1,
                 AllowConcurrentInvocation = false,
                 IncludeDetailedErrors = false

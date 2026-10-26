@@ -16,14 +16,13 @@ public sealed class OpenAIProviderTests
     private static OpenAIProviderOptions Options(TimeSpan? timeout = null) => new()
     {
         ProviderId = "openai.fixture",
-        Version = "1.0.0",
         Model = "fixture-model",
         InvocationTimeout = timeout ?? TimeSpan.FromSeconds(30)
     };
     private static WorkflowRevision Revision(ToolBindingRequest? tool = null, int? maxOutputTokens = null)
     {
         var graph = WorkflowEditing.ReplaceNode(WorkflowTemplates.Create("uppercase"), "step-1",
-            new(NodeTypes.Agent, "1.0.0", Agent: new("openai.fixture", "1.0.0", "Fixture instructions", tool is null ? [] : [tool])));
+            new(NodeTypes.Agent, "1.0.0", Agent: new("openai.fixture", "Fixture instructions", tool is null ? [] : [tool])));
         if (maxOutputTokens is { } limit)
             graph = graph with
             {
@@ -195,7 +194,7 @@ public sealed class OpenAIProviderTests
     public void UnsafeEndpointSettingsAreRejectedWithoutNetwork(string endpoint)
     {
         Assert.Throws<ArgumentException>(() => OpenAIProviders.Create(new()
-        { ProviderId = "openai.fixture", Version = "1.0.0", Model = "fixture-model", Endpoint = new(endpoint) }, () => Key));
+        { ProviderId = "openai.fixture", Model = "fixture-model", Endpoint = new(endpoint) }, () => Key));
     }
 
     [Fact]
@@ -204,7 +203,6 @@ public sealed class OpenAIProviderTests
         var registration = OpenAIProviders.Create(new()
         {
             ProviderId = "unsloth.local",
-            Version = "1.0.0",
             DisplayName = "Unsloth",
             Model = "served-model",
             Endpoint = new("http://192.168.12.217:8888/v1"),

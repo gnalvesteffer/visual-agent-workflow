@@ -496,7 +496,7 @@ For this project, the distinction maps to two separate implementation choices:
 | Callable workflow/node | Runtime provenance, independent versioning, approval scope, retry behavior, or observability matters. | Stable reference plus pinned revision and explicit input/output contract. |
 | Authoring template/macro | The goal is editor convenience and expansion into the current graph. | Template identity/version plus deterministic expansion and a clear record of the expanded result. |
 
-Do not call an unversioned graph fragment a reusable workflow. If an agent, MCP tool, provider, approval, or external side effect is involved, prefer a callable version-pinned unit so audit and playback can identify what actually ran. Reuse should reduce graph complexity without hiding permissions or changing the meaning of the surrounding graph.
+Do not call an unversioned graph fragment a reusable workflow. If an agent, MCP tool, approval, or external side effect is involved, prefer a callable version-pinned unit so audit and playback can identify which graph implementation ran. Model connections are host configuration addressed by stable IDs; run evidence records the current model descriptor without pinning mutable endpoint configuration into the workflow. Reuse should reduce graph complexity without hiding permissions or changing the meaning of the surrounding graph.
 
 ### Collapse, call, and expand are different abstractions
 
