@@ -135,6 +135,63 @@
     --vaw-graph-color-grid: #c2c4d01c;
 }
 
+/* Neon Glow: dark blue-black surfaces with cyan structure and restrained magenta detail. */
+:root[data-vaw-theme="neon"] .vaw-app {
+    --vaw-color-scheme: dark;
+    --vaw-color-canvas: #090d18;
+    --vaw-color-surface: #111a2a;
+    --vaw-color-control: #172338;
+    --vaw-color-control-hover: #1f3049;
+    --vaw-color-text: #e7f3ff;
+    --vaw-color-muted: #b4c5dc;
+    --vaw-color-border: #263b57;
+    --vaw-color-control-border: #58708e;
+    --vaw-color-focus: #60f6ff;
+    --vaw-color-accent: #60f6ff;
+    --vaw-color-primary: #006e80;
+    --vaw-color-on-primary: #ffffff;
+    --vaw-color-selected: #173248;
+    --vaw-color-success: #69f5bb;
+    --vaw-color-error: #ff7299;
+    --vaw-color-error-text: #ffc0d1;
+    --vaw-color-warning: #ffd36e;
+    --vaw-color-danger-surface: #35172c;
+    --vaw-color-info-surface: #122b3d;
+    --vaw-color-code: #f0a4ff;
+    --vaw-graph-color-canvas: #0a101d;
+    --vaw-graph-color-surface: #111a2a;
+    --vaw-graph-color-control: #172338;
+    --vaw-graph-color-text: #e7f3ff;
+    --vaw-graph-color-muted: #b4c5dc;
+    --vaw-graph-color-border: #263b57;
+    --vaw-graph-color-control-border: #58708e;
+    --vaw-graph-color-focus: #60f6ff;
+    --vaw-graph-color-accent: #60f6ff;
+    --vaw-graph-color-primary: #006e80;
+    --vaw-graph-color-success: #69f5bb;
+    --vaw-graph-color-error: #ff7299;
+    --vaw-graph-color-warning: #ffd36e;
+    --vaw-graph-color-grid: #60f6ff17;
+    background-image: radial-gradient(48rem 20rem at 86% -8rem, #60f6ff08, transparent 72%);
+}
+
+:root[data-vaw-theme="neon"] .vaw-app .vaw-primary:not(:disabled) {
+    box-shadow: 0 0 0 1px #60f6ff24, 0 0 12px #60f6ff20;
+}
+
+:root[data-vaw-theme="neon"] .vaw-app .vaw-node-drag[aria-pressed="true"],
+:root[data-vaw-theme="neon"] .vaw-app .vaw-node-multi-selected article {
+    box-shadow: 0 0 14px #60f6ff24;
+}
+
+:root[data-vaw-theme="neon"] .vaw-studio-navigation a[aria-current="page"] {
+    box-shadow: inset 0 -2px #60f6ff;
+}
+
+:root[data-vaw-theme="neon"] .vaw-app :where(button, input, select, textarea, a, summary):focus-visible {
+    box-shadow: 0 0 0 2px #60f6ff30;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .vaw-app *, .vaw-app *::before, .vaw-app *::after {
         scroll-behavior: auto !important;
