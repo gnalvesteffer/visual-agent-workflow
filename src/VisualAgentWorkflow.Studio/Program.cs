@@ -105,6 +105,8 @@ app.UseStaticFiles();
 app.UseAntiforgery();
 app.MapWorkflowEndpoints();
 app.MapWorkflowEndpoints("/api/projects/{projectId}");
+app.MapGet("/api/projects/{projectId}/source.zip", async (StudioProjectWorkspace workspace, CancellationToken cancellationToken) =>
+    Results.File(await StudioProjectSourceArchive.CreateAsync(workspace, cancellationToken), "application/zip", "project-source.vawsrc.zip"));
 app.MapGet("/api/tool-bindings", async (IToolBindingCatalog catalog, CancellationToken cancellationToken) =>
     Results.Ok(await catalog.ListBindingsAsync(cancellationToken)));
 app.MapGet("/api/agent-providers", async (IAgentProviderCatalog catalog) => Results.Ok(await catalog.ListProvidersAsync()));

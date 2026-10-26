@@ -30,6 +30,7 @@
                 @if (!project.IsArchived)
                 {
                     <a class="vaw-button-link" href="/projects/@project.Id">Open project</a>
+                    <a class="vaw-button-link" href="/api/projects/@project.Id/source.zip">Download source snapshot</a>
                     @if (project.Id != StudioProjectStore.DefaultProjectId)
                     {
                         <button type="button" class="vaw-danger-quiet" @onclick="() => SetArchived(project, true)">Archive project</button>
