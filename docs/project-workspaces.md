@@ -53,7 +53,7 @@ Migration from the current SQLite-backed catalog must preserve stable workflow/a
 
 ### Catalog-to-folder cutover contract
 
-Cutover migrates the **current editable source snapshot**: each workflow's current draft definition and layout plus the current skill, agent-profile, and graph-function assets with their IDs, versions, and content hashes. It does not migrate SQLite workflow revision/audit history, publication history or pointers, prior run evidence, or Git history. The original catalog and host run store remain outside the folder as local recovery data; the migration UI must state this scope before proceeding. The bounded ZIP import path is not the migration primitive because it creates a new catalog project, omits those histories, and applies archive size limits.
+Cutover migrates the **current editable source snapshot**: each workflow's current draft definition and layout plus the current skill, agent-profile, and graph-function assets with their IDs, versions, and content hashes. It does not migrate SQLite workflow revision/audit history, publication history or pointers, prior run evidence, or Git history. The CLI and user guide state this scope; the original catalog and host run store remain outside the folder as local recovery data. The bounded ZIP import path is not the migration primitive because it creates a new catalog project, omits those histories, and applies archive size limits.
 
 The command runs with Studio stopped. An exclusive lock prevents a second Studio host from opening the same data directory while capture or activation is in progress:
 
