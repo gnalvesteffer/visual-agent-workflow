@@ -51,7 +51,7 @@ public static class WorkflowParameterEditing
             throw new ArgumentException("The parameter does not exist.", nameof(parameterId));
         var node = definition.Nodes.TryGetValue(nodeId, out var value) ? value : throw new ArgumentException("The node does not exist.", nameof(nodeId));
         if (node.Type != NodeTypes.WorkflowValue) throw new ArgumentException("Only workflow value nodes can reference a parameter.", nameof(nodeId));
-        var outputType = definition.SchemaVersion == WorkflowSchemaVersions.IntegerGraph
+        var outputType = definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph
             ? WorkflowParameterGraphTypes.DataType(parameters[parameterId])
             : null;
         return Checked(definition, definition with
@@ -66,13 +66,13 @@ public static class WorkflowParameterEditing
         var parameters = definition.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
         if (!parameters.TryGetValue(id, out var parameter)) throw new ArgumentException("The parameter does not exist.", nameof(id));
         var updated = parameter with { DefaultValue = defaultValue, Type = type, Choices = type == "choice" ? choices : null };
-        return Checked(definition, definition with { SchemaVersion = definition.SchemaVersion is "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph ? definition.SchemaVersion : "1.8", Parameters = parameters.SetItem(id, updated) });
+        return Checked(definition, definition with { SchemaVersion = definition.SchemaVersion is "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph ? definition.SchemaVersion : "1.8", Parameters = parameters.SetItem(id, updated) });
     }
 
     private static string Schema(WorkflowDefinition definition) => definition.SchemaVersion is
         "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or
         "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" or "1.25" or
-        "1.26" or "1.27" or "1.28" or "1.29" or "1.30" or WorkflowSchemaVersions.IntegerGraph
+        "1.26" or "1.27" or "1.28" or "1.29" or "1.30" or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph
             ? definition.SchemaVersion
             : "1.6";
 

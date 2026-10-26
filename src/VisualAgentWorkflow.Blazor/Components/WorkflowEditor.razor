@@ -95,6 +95,22 @@
                 <button type="button" @onclick="EnableIntegerGraphPreview" disabled="@Disabled">Enable integer graph values</button>
             </section>
         }
+        @if (CanCreateConfigurableParallelGraph)
+        {
+            <section class="vaw-library-note" aria-label="Configurable parallel graph">
+                <strong>Parallel agent workflow</strong>
+                <p class="vaw-help">Replace this blank graph with a configurable fan-out and barrier. Choose 2–8 branches; each branch starts at its own anchor, and the join returns a named JSON result.</p>
+                <label>Number of branches
+                    <select aria-label="Number of parallel branches" @bind="configurableParallelBranchCount">
+                        @for (var branchCount = ParallelBranchLimits.MinimumBranches; branchCount <= ParallelGraphLimits.MaximumExplicitBranches; branchCount++)
+                        {
+                            <option value="@branchCount">@branchCount branches</option>
+                        }
+                    </select>
+                </label>
+                <button type="button" @onclick="CreateConfigurableParallelGraph" disabled="@Disabled">Create parallel workflow</button>
+            </section>
+        }
         <WorkflowNodeLibrary Entries="LibraryEntries()" Disabled="Disabled" OnSelected="key => AddLibraryNode(key)" />
         <p class="vaw-help">Click to add an unconnected node. Connect its pins when ready; use a wire menu to explicitly insert into a path.</p>
         <p class="vaw-insertion-hint">@InsertionDescription(null)</p>
@@ -310,7 +326,21 @@
                     }
                     else if (node.Type == NodeTypes.ParallelFork)
                     {
-                        <p>Starts both branches concurrently with the same input. Connect each output to its matching branch anchor. A branch failure fails the workflow; side effects already performed by another branch are not rolled back.</p>
+                        <p>Starts every configured branch concurrently with the same input. Each branch output must reach its matching join input. A branch failure fails the workflow; side effects already performed by another branch are not rolled back.</p>
+                        @if (Definition.SchemaVersion == WorkflowSchemaVersions.ConfigurableParallelGraph && node.ParallelFork is { } forkConfiguration)
+                        {
+                            <fieldset aria-label="Parallel branch labels">
+                                <legend>Branch labels</legend>
+                                @foreach (var branch in forkConfiguration.Branches)
+                                {
+                                    <label>@branch.Id
+                                        <input aria-label="Label for branch @branch.Id" value="@branch.Label" maxlength="@ParallelBranchLimits.MaximumLabelLength"
+                                               @onchange="args => Edit(() => GraphEditing.RenameConfigurableParallelBranch(Definition, id, branch.Id, args.Value?.ToString() ?? string.Empty))" disabled="@Disabled" />
+                                    </label>
+                                }
+                                <p class="vaw-help">Labels change pin captions only. Stable branch IDs keep existing connections intact.</p>
+                            </fieldset>
+                        }
                         @if (pendingParallelBlockRemoval == id)
                         {
                             <section aria-label="Confirm parallel block removal">
@@ -332,7 +362,14 @@
                     }
                     else if (node.Type == NodeTypes.ParallelJoin)
                     {
-                        <p>Waits until both named branches finish, then emits a JSON object with <code>branch_1</code> and <code>branch_2</code> values. Use a JSON selector to continue with one value as text.</p>
+                        @if (Definition.SchemaVersion == WorkflowSchemaVersions.ConfigurableParallelGraph && node.ParallelJoin is { } configurableJoin)
+                        {
+                            <p>Waits for @configurableJoin.BranchIds.Length named branch results, then emits them as a JSON object keyed by stable branch ID.</p>
+                        }
+                        else
+                        {
+                            <p>Waits until both named branches finish, then emits a JSON object with <code>branch_1</code> and <code>branch_2</code> values. Use a JSON selector to continue with one value as text.</p>
+                        }
                     }
                     else if (node.Type == NodeTypes.Condition && !ReadOnly)
                     {
@@ -362,7 +399,7 @@
                     }
                     else if (node.Type == NodeTypes.WorkflowValue)
                     {
-                        var parameterChoices = ParameterDefinitions.Where(pair => Definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph || WorkflowParameterGraphTypes.DataType(pair.Value) is not null).ToDictionary(pair => pair.Key, pair => pair.Value);
+                        var parameterChoices = ParameterDefinitions.Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph) || WorkflowParameterGraphTypes.DataType(pair.Value) is not null).ToDictionary(pair => pair.Key, pair => pair.Value);
                         @if (!ReadOnly && parameterChoices.Count > 0)
                         {
                             <label>Workflow parameter
@@ -937,9 +974,9 @@
         if (value == NodeTypes.WorkflowValue)
         {
             var parameterId = ParameterDefinitions
-                .Where(pair => Definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph || WorkflowParameterGraphTypes.DataType(pair.Value) is not null)
+                .Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph) || WorkflowParameterGraphTypes.DataType(pair.Value) is not null)
                 .Select(pair => pair.Key).FirstOrDefault();
-            var outputType = Definition.SchemaVersion == WorkflowSchemaVersions.IntegerGraph && parameterId is not null
+            var outputType = (Definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph) && parameterId is not null
                 ? WorkflowParameterGraphTypes.DataType(ParameterDefinitions[parameterId])
                 : null;
             return new(NodeTypes.WorkflowValue, "1.0.0") { ParameterId = parameterId, OutputDataType = outputType };

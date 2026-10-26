@@ -90,6 +90,87 @@ public static class GraphEditing
         return definition with { SchemaVersion = WorkflowSchemaVersions.IntegerGraph };
     }
 
+    /// <summary>Inserts a named configurable parallel fan-out and barrier after the workflow input.</summary>
+    public static WorkflowDefinition CreateConfigurableParallelGraph(WorkflowDefinition definition, int branchCount)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph || branchCount is < ParallelBranchLimits.MinimumBranches or > ParallelGraphLimits.MaximumExplicitBranches)
+            throw new ArgumentException($"Choose {ParallelBranchLimits.MinimumBranches}–{ParallelGraphLimits.MaximumExplicitBranches} branches on a schema 1.31 integer graph.", nameof(branchCount));
+        WorkflowValidator.ThrowIfInvalid(definition);
+
+        var input = definition.Nodes.GetValueOrDefault(definition.EntryNodeId);
+        var outputEntry = definition.Nodes.SingleOrDefault(entry => entry.Value.Type == NodeTypes.Output);
+        if (input?.Type != NodeTypes.Input || outputEntry.Value is null ||
+            definition.ExecutionConnections is not { } executionConnections || definition.Nodes.Count > 256 - branchCount - 2)
+            throw new ArgumentException("Create a configurable parallel region on a valid integer graph.", nameof(definition));
+        var entryRoute = executionConnections.SingleOrDefault(edge => edge.Value.Source.NodeId == definition.EntryNodeId);
+        if (entryRoute.Value is null || !definition.Nodes.TryGetValue(entryRoute.Value.Target.NodeId, out var firstNode) ||
+            firstNode.Type is not (NodeTypes.Agent or NodeTypes.BooleanBranch))
+            throw new ArgumentException("The workflow input must activate an Agent or Boolean Branch before adding the parallel region.", nameof(definition));
+        var outputData = definition.Connections.SingleOrDefault(edge => edge.Value.Target.NodeId == outputEntry.Key && edge.Value.Target.PortId == "in");
+        if (outputData.Value is null || outputData.Value.Source != new PortReference(definition.EntryNodeId, "out"))
+            throw new ArgumentException("The workflow Output must still use the input text as its result before adding the parallel region.", nameof(definition));
+
+        var forkId = NewId("parallel-fork");
+        var joinId = NewId("parallel-join");
+        var branches = ImmutableArray.CreateBuilder<ParallelBranchDescriptor>(branchCount);
+        var nodes = definition.Nodes.Add(forkId, new(NodeTypes.ParallelFork, "1.0.0"));
+        var execution = executionConnections.Remove(entryRoute.Key);
+
+        for (var index = 1; index <= branchCount; index++)
+        {
+            var branchId = $"branch_{index}";
+            var anchorId = NewId("parallel-branch");
+            branches.Add(new(branchId, $"Branch {index}", anchorId));
+            nodes = nodes.Add(anchorId, new(NodeTypes.ParallelBranch, "1.0.0")
+            {
+                ParallelBranch = new(forkId, branchId)
+            });
+            execution = execution
+                .Add(NewId("link"), new(new(forkId, ParallelBranchLimits.PinId(branchId)), new(anchorId, "execute"), "execution"))
+                .Add(NewId("link"), new(new(anchorId, "then"), new(joinId, ParallelBranchLimits.PinId(branchId)), "execution"));
+        }
+
+        var branchDescriptors = branches.ToImmutable();
+        nodes = nodes
+            .Add(joinId, new(NodeTypes.ParallelJoin, "1.0.0")
+            {
+                ParallelJoin = new(forkId, [.. branchDescriptors.Select(branch => branch.Id)])
+            })
+            .SetItem(outputEntry.Key, outputEntry.Value with { OutputDataType = "json" });
+        execution = execution
+            .Add(NewId("link"), new(new(definition.EntryNodeId, "then"), new(forkId, "execute"), "execution"))
+            .Add(NewId("link"), new(new(joinId, "then"), entryRoute.Value.Target, "execution"));
+        var result = definition with
+        {
+            SchemaVersion = WorkflowSchemaVersions.ConfigurableParallelGraph,
+            Nodes = nodes.SetItem(forkId, nodes[forkId] with { ParallelFork = new(branchDescriptors) }),
+            Connections = definition.Connections.Remove(outputData.Key).Add(NewId("link"), new(new(joinId, "out"), new(outputEntry.Key, "in"), "data")),
+            ExecutionConnections = execution
+        };
+        return Checked(result);
+    }
+
+    public static WorkflowDefinition RenameConfigurableParallelBranch(WorkflowDefinition definition, string forkNodeId,
+        string branchId, string label)
+    {
+        if (definition.SchemaVersion != WorkflowSchemaVersions.ConfigurableParallelGraph ||
+            !ParallelBranchLimits.IsValidId(branchId) || string.IsNullOrWhiteSpace(label) ||
+            label.Length > ParallelBranchLimits.MaximumLabelLength ||
+            !definition.Nodes.TryGetValue(forkNodeId, out var fork) || fork.Type != NodeTypes.ParallelFork || fork.ParallelFork is not { } configuration)
+            throw new ArgumentException("Choose an existing configurable branch and enter a label of 1–64 characters.", nameof(branchId));
+
+        if (!configuration.Branches.Any(branch => branch.Id == branchId))
+            throw new ArgumentException("The branch no longer exists.", nameof(branchId));
+        var renamed = configuration.Branches
+            .Select(branch => branch.Id == branchId ? branch with { Label = label.Trim() } : branch)
+            .ToImmutableArray();
+        return Checked(definition with
+        {
+            Nodes = definition.Nodes.SetItem(forkNodeId, fork with { ParallelFork = configuration with { Branches = renamed } })
+        });
+    }
+
     /// <summary>Adds a configured node without connecting it. Incomplete topology remains an editable draft.</summary>
     public static WorkflowDefinition AddUnconnectedNode(WorkflowDefinition definition, NodeDefinition node)
     {
@@ -167,7 +248,8 @@ public static class GraphEditing
         if (!definition.Nodes.TryGetValue(sourceId, out var source) || !definition.Nodes.TryGetValue(targetId, out var target))
             throw new ArgumentException("Choose pins on existing nodes.");
         var sourcePort = WorkflowPorts.Explicit(source).SingleOrDefault(port => port.Direction == WorkflowPortDirection.Output && port.Id == sourcePortId);
-        if (sourcePort is not null && target.Type == NodeTypes.Output && definition.SchemaVersion == WorkflowSchemaVersions.IntegerGraph)
+        if (sourcePort is not null && target.Type == NodeTypes.Output &&
+            (definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph))
             target = target with { OutputDataType = sourcePort.Kind == WorkflowPortKind.Data ? sourcePort.DataType : target.OutputDataType };
         var targetPort = WorkflowPorts.Explicit(target).SingleOrDefault(port => port.Direction == WorkflowPortDirection.Input && port.Id == targetPortId);
         if (sourcePort is null || targetPort is null || sourcePort.Kind != targetPort.Kind || sourcePort.DataType != targetPort.DataType)
