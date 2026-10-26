@@ -508,6 +508,7 @@ button.vaw-project-tree-file { cursor: pointer; }
 .vaw-project-tree-legend { margin-block: .75rem 0; line-height: 1.5; }
 .vaw-folder-workflow-editor { min-inline-size: 0; }
 .vaw-folder-workflow-editor > .vaw-settings-section-heading { margin-block-end: .75rem; }
+.vaw-folder-skill-editor > .vaw-provider-form { padding: 0; }
 .vaw-source-mode-note { display: flex; flex-wrap: wrap; gap: .5rem .8rem; margin-block: 1rem; border-inline-start: 3px solid var(--vaw-color-focus); padding: .8rem 1rem; background: var(--vaw-color-surface); color: var(--vaw-color-muted); }
 .vaw-source-mode-note strong { color: var(--vaw-color-text); }
 .vaw-provider-form textarea { display: block; inline-size: 100%; min-block-size: 7rem; margin-block-start: .4rem; border: 1px solid var(--vaw-color-control-border); border-radius: .3rem; padding: .55rem .75rem; background: var(--vaw-color-canvas); color: var(--vaw-color-text); font: inherit; font-weight: 400; resize: vertical; }

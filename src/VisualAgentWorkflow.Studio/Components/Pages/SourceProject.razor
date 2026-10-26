@@ -11,7 +11,7 @@
         <div>
             <p class="vaw-settings-kicker">WORKFLOW STUDIO</p>
             <h1>Open a project folder</h1>
-            <p class="vaw-settings-intro">Edit workflow source files in place. Git owns source history; this editor does not publish revisions or store run history in the project.</p>
+            <p class="vaw-settings-intro">Edit workflow drafts and create skill revisions in place. Git owns source history; this editor does not publish catalog versions or store run history in the project.</p>
         </div>
         @if (manifest is not null)
         {
@@ -28,7 +28,7 @@
         @if (manifest is not null)
         {
             <p class="vaw-help"><strong>@manifest.ProjectName</strong> · <code>@openDirectory</code> · @manifest.Files.Length indexed files</p>
-            <p class="vaw-help">The editor reads only files listed in <code>@StudioProjectSourceArchive.ManifestFileName</code>. Workflow files open in the graph editor; reusable assets are visible in the tree but remain read-only in folder mode.</p>
+            <p class="vaw-help">The editor reads only files listed in <code>@StudioProjectSourceArchive.ManifestFileName</code>. Workflow drafts and new skill revisions save directly to the folder; agent presets and graph functions are read-only here.</p>
         }
         @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
         @if (message is not null) { <p role="status">@message</p> }
@@ -36,7 +36,7 @@
 
     @if (manifest is not null && source is not null)
     {
-        <section class="vaw-settings-section vaw-source-workspace" aria-label="Project explorer and workflow editor">
+        <section class="vaw-settings-section vaw-source-workspace" aria-label="Project explorer and project editor">
             <aside class="vaw-project-explorer" aria-label="Project explorer">
                 <header><h2>Project explorer</h2><span>@manifest.Files.Length files</span></header>
                 @if (manifest.Files.IsEmpty)
@@ -49,24 +49,52 @@
                         @foreach (var node in fileTree)
                         {
                             <li @key="node.Name + node.File?.Path">
-                                <ProjectFileTreeItem Node="@node" SelectedPath="@(openedWorkflow?.RelativePath)"
-                                    WorkflowNames="@workflowNames" CanOpenWorkflows="@(!busy && !dirty)" OnOpenWorkflow="@OpenWorkflow" />
+                                <ProjectFileTreeItem Node="@node" SelectedPath="@(openedWorkflow?.RelativePath ?? openedSkill?.RelativePath)"
+                                    WorkflowNames="@workflowNames" CanOpenFiles="@(!busy && !dirty && !skillFormDirty)"
+                                    OnOpenWorkflow="@OpenWorkflow" OnOpenSkill="@OpenSkill" />
                             </li>
                         }
                     </ul>
                     <p class="vaw-project-tree-legend">W Workflow · S Skill · A Agent preset · F Graph function</p>
                 }
-                @if (dirty) { <p class="vaw-help">Save the current workflow before opening another file.</p> }
+                @if (dirty || skillFormDirty) { <p class="vaw-help">Save or discard the current edits before opening another file.</p> }
             </aside>
 
-            <section class="vaw-folder-workflow-editor" aria-label="Workflow source editor">
+            <section class="vaw-folder-workflow-editor" aria-label="Project source editor">
                 <div class="vaw-settings-section-heading">
-                    <div><h2>Workflow editor</h2><p>Workflow drafts save directly to content-addressed source files. A stale edit is rejected if the project changed since it was loaded.</p></div>
-                    <button type="button" class="vaw-primary" @onclick="CreateWorkflow" disabled="@(busy || dirty)">New workflow</button>
+                    <div><h2>@EditorTitle</h2><p>@EditorDescription</p></div>
+                    <div class="vaw-provider-actions">
+                        <button type="button" class="vaw-secondary" @onclick="CreateSkill" disabled="@(busy || dirty || skillFormDirty)">New skill</button>
+                        <button type="button" class="vaw-primary" @onclick="CreateWorkflow" disabled="@(busy || dirty || skillFormDirty)">New workflow</button>
+                    </div>
                 </div>
                 @if (openedWorkflow is null)
                 {
-                    <p class="vaw-empty-state">Select a workflow in the project tree, or create a new one.</p>
+                    @if (openedSkill is not null || creatingNewSkill)
+                    {
+                        <section class="vaw-folder-skill-editor" aria-label="Skill source editor">
+                            @if (openedSkill is not null)
+                            {
+                                <p class="vaw-definition-status"><strong>Base revision</strong> <code>@($"{openedSkill.Item.Skill.Id}@{openedSkill.Item.Skill.Version}")</code> · @openedSkill.ContentHash[..8]</p>
+                            }
+                            <form class="vaw-provider-form" @onsubmit="SaveSkill" @onsubmit:preventDefault>
+                                <label>Skill ID <input required @bind="skillId" @bind:event="oninput" @bind:after="MarkSkillFormDirty" disabled="@(openedSkill is not null)" maxlength="64" /></label>
+                                <label>New version <input required @bind="skillVersion" @bind:event="oninput" @bind:after="MarkSkillFormDirty" maxlength="64" /></label>
+                                <label>Name <input required @bind="skillName" @bind:event="oninput" @bind:after="MarkSkillFormDirty" maxlength="128" /></label>
+                                <label>Folder <input @bind="skillFolder" @bind:event="oninput" @bind:after="MarkSkillFormDirty" maxlength="256" placeholder="Research/Review" /></label>
+                                <label class="vaw-provider-form-wide">Instructions <textarea required @bind="skillInstructions" @bind:event="oninput" @bind:after="MarkSkillFormDirty" maxlength="8192" rows="10"></textarea></label>
+                                <p class="vaw-provider-form-note vaw-provider-form-wide">Saving adds an immutable revision to the project. Older workflow references and skill files remain unchanged.</p>
+                                <div class="vaw-provider-form-actions vaw-provider-form-wide">
+                                    <button type="submit" class="vaw-primary" disabled="@(busy || !skillFormDirty)">Save source skill version</button>
+                                    <button type="button" class="vaw-secondary" @onclick="CancelSkillEdit" disabled="@busy">Discard changes</button>
+                                </div>
+                            </form>
+                        </section>
+                    }
+                    else
+                    {
+                        <p class="vaw-empty-state">Select a workflow or skill in the project tree, or create one.</p>
+                    }
                 }
                 else if (definition is not null && layout is not null)
                 {
@@ -83,7 +111,7 @@
 
         <section class="vaw-source-mode-note" aria-label="Source project editing limits">
             <strong>Folder editing is separate from Studio catalog projects.</strong>
-            <span>This slice edits workflow definition/layout files only. It does not write to the SQLite catalog, publish versions, or expose project-local run/audit data. Multiple open folders and editing skills, agent presets, and graph functions directly from this tree remain planned.</span>
+            <span>This editor writes workflow and skill source files directly to the folder without mirroring them into the SQLite catalog. It does not publish catalog versions or store project-local run/audit data. Agent presets and graph functions remain read-only; multiple open folders are still planned.</span>
         </section>
     }
 </main>
@@ -94,9 +122,19 @@
     private StudioProjectManifest? manifest;
     private IReadOnlyList<StudioProjectFileTreeNode> fileTree = [];
     private StudioFolderWorkflowSource? source;
+    private StudioFolderSkillSource? skillSource;
     private List<StudioFolderWorkflow> workflows = [];
     private IReadOnlyDictionary<string, string> workflowNames = new Dictionary<string, string>();
     private StudioFolderWorkflow? openedWorkflow;
+    private StudioFolderSkill? openedSkill;
+    private string sourceManifestHash = "";
+    private string skillId = "";
+    private string skillVersion = "1.0.0";
+    private string skillName = "";
+    private string skillFolder = "";
+    private string skillInstructions = "";
+    private bool creatingNewSkill;
+    private bool skillFormDirty;
     private WorkflowDefinition? definition;
     private WorkflowLayout? layout;
     private IReadOnlyList<ToolBindingDescriptor> bindings = [];
@@ -105,6 +143,12 @@
     private bool busy;
     private string? error;
     private string? message;
+    private string EditorTitle => openedWorkflow is not null ? "Workflow editor" : openedSkill is not null || creatingNewSkill ? "Skill editor" : "Project editor";
+    private string EditorDescription => openedWorkflow is not null
+        ? "Workflow drafts save directly to source files. A stale edit is rejected if the project changed since it was loaded."
+        : openedSkill is not null || creatingNewSkill
+            ? "Skill text saves as a new immutable project revision. A stale project edit is rejected."
+            : "Select a source file to edit. Agent presets and graph functions are currently read-only.";
 
     protected override async Task OnInitializedAsync()
     {
@@ -122,11 +166,14 @@
             var canonicalDirectory = Path.GetFullPath(directoryPath);
             var (loadedManifest, _) = StudioProjectSourceDirectory.Read(canonicalDirectory);
             var loadedSource = new StudioFolderWorkflowSource(canonicalDirectory);
+            var loadedSkillSource = new StudioFolderSkillSource(canonicalDirectory);
             var loadedWorkflows = loadedSource.List().ToList();
             openDirectory = canonicalDirectory;
             manifest = loadedManifest;
             fileTree = StudioProjectFileTree.Build(loadedManifest.Files);
             source = loadedSource;
+            skillSource = loadedSkillSource;
+            sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(loadedManifest);
             workflows = loadedWorkflows;
             workflowNames = ToWorkflowNames(loadedWorkflows);
             dirty = false;
@@ -138,10 +185,14 @@
             manifest = null;
             fileTree = [];
             source = null;
+            skillSource = null;
             workflows = [];
             openedWorkflow = null;
             definition = null;
             layout = null;
+            openedSkill = null;
+            creatingNewSkill = false;
+            skillFormDirty = false;
             error = exception.Message;
         }
         finally { busy = false; }
@@ -149,9 +200,23 @@
 
     private Task OpenWorkflow(string workflowId)
     {
-        if (dirty || busy) return Task.CompletedTask;
+        if (dirty || skillFormDirty || busy) return Task.CompletedTask;
         SetWorkflow(workflows.SingleOrDefault(workflow => workflow.WorkflowId == workflowId));
         error = null; message = null;
+        return Task.CompletedTask;
+    }
+
+    private Task OpenSkill(StudioProjectFile file)
+    {
+        if (dirty || skillFormDirty || busy || skillSource is null) return Task.CompletedTask;
+        openedSkill = skillSource.List().SingleOrDefault(skill => skill.RelativePath == file.Path);
+        openedWorkflow = null;
+        definition = null;
+        layout = null;
+        creatingNewSkill = false;
+        if (openedSkill is not null) LoadSkillRevision(openedSkill);
+        error = null;
+        message = null;
         return Task.CompletedTask;
     }
 
@@ -160,6 +225,9 @@
         var id = "workflow-" + Guid.NewGuid().ToString("N");
         var created = WorkflowTemplates.Create("uppercase-reverse") with { WorkflowId = id, DisplayName = "Untitled workflow" };
         openedWorkflow = new(id, "Untitled workflow", "", "", created, WorkflowLayout.Create(created));
+        openedSkill = null;
+        creatingNewSkill = false;
+        skillFormDirty = false;
         definition = created;
         layout = openedWorkflow.Layout;
         dirty = true;
@@ -195,6 +263,7 @@
             workflows = source.List().ToList();
             workflowNames = ToWorkflowNames(workflows);
             manifest = StudioProjectSourceDirectory.Read(openDirectory!).Manifest;
+            sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(manifest);
             fileTree = StudioProjectFileTree.Build(manifest.Files);
             dirty = false;
             message = $"Saved {saved.RelativePath}.";
@@ -206,9 +275,81 @@
         finally { busy = false; }
     }
 
+    private void CreateSkill()
+    {
+        openedWorkflow = null;
+        definition = null;
+        layout = null;
+        openedSkill = null;
+        creatingNewSkill = true;
+        skillFormDirty = false;
+        skillId = "";
+        skillVersion = "1.0.0";
+        skillName = "";
+        skillFolder = "";
+        skillInstructions = "";
+        error = null;
+        message = null;
+    }
+
+    private void MarkSkillFormDirty() => skillFormDirty = true;
+
+    private void LoadSkillRevision(StudioFolderSkill skill)
+    {
+        skillId = skill.Item.Skill.Id;
+        skillVersion = skill.Item.Skill.Version + ".1";
+        skillName = skill.Item.Skill.Name;
+        skillFolder = skill.Item.Folder;
+        skillInstructions = skill.Item.Skill.Instructions;
+        skillFormDirty = false;
+    }
+
+    private void CancelSkillEdit()
+    {
+        if (openedSkill is null)
+        {
+            creatingNewSkill = false;
+        }
+        else
+        {
+            LoadSkillRevision(openedSkill);
+        }
+        skillFormDirty = false;
+        error = null;
+        message = "Skill edits discarded.";
+    }
+
+    private void SaveSkill()
+    {
+        if (skillSource is null || !skillFormDirty) return;
+        busy = true;
+        error = null;
+        try
+        {
+            var saved = skillSource.SaveNewVersion(skillId.Trim(), skillVersion.Trim(), skillName.Trim(),
+                skillInstructions, skillFolder.Trim(), sourceManifestHash);
+            var refreshedProject = StudioProjectSourceDirectory.Read(openDirectory!);
+            manifest = refreshedProject.Manifest;
+            sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(manifest);
+            fileTree = StudioProjectFileTree.Build(manifest.Files);
+            openedSkill = saved;
+            creatingNewSkill = false;
+            LoadSkillRevision(saved);
+            message = $"Saved skill revision {saved.Item.Skill.Id}@{saved.Item.Skill.Version}.";
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        {
+            error = exception.Message;
+        }
+        finally { busy = false; }
+    }
+
     private void SetWorkflow(StudioFolderWorkflow? workflow)
     {
         openedWorkflow = workflow;
+        openedSkill = null;
+        creatingNewSkill = false;
+        skillFormDirty = false;
         definition = workflow?.Definition;
         layout = workflow?.Layout;
         dirty = false;

@@ -7,15 +7,18 @@ recorded development runs. Run studio_smoke.py separately for the full editor fl
 from workbench_browser import workbench, inspect_control, show_runs
 
 import argparse
+import hashlib
+import json
 import re
 import os
+import tempfile
 import time
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
 
 BASE = os.environ.get("VAW_STUDIO_BASE_URL", "http://127.0.0.1:5099")
-THEMES = ("dark", "light", "vs-code-dark-plus", "solarized-dark", "nord", "monokai", "github-dark", "github-light", "dracula", "high-contrast")
+THEMES = ("dark", "light", "vs-code-dark-plus", "solarized-dark", "nord", "monokai", "github-dark", "github-light", "dracula", "high-contrast", "neon")
 
 
 def luminance(rgb):
@@ -94,6 +97,44 @@ def check(browser, screenshots):
         section_left = agent_section.bounding_box()["x"]
         title_left = agent_section.locator(":scope > h2").bounding_box()["x"]
         assert title_left - section_left >= 12, "Section titles must align to the shared content inset"
+
+        with tempfile.TemporaryDirectory(prefix="vaw-ui-skill-") as project_directory:
+            project_path = Path(project_directory) / "source-project"
+            project_path.mkdir()
+            (project_path / "vaw.project.json").write_text(json.dumps({
+                "formatVersion": "1.0",
+                "projectId": "ui-skill-project",
+                "projectName": "UI skill project",
+                "files": [],
+            }, indent=2) + "\n", encoding="utf-8")
+            page.goto(BASE + "/source-project", wait_until="networkidle")
+            page.get_by_label("Absolute folder path", exact=True).fill(str(project_path))
+            page.get_by_role("button", name="Open folder", exact=True).click()
+            expect(page.get_by_role("heading", name="Project editor", exact=True)).to_be_visible()
+            page.get_by_role("button", name="New skill", exact=True).click()
+            page.get_by_label("Skill ID", exact=True).fill("ui-skill")
+            page.get_by_label("New version", exact=True).fill("1.0.0")
+            page.get_by_label("Name", exact=True).fill("UI skill")
+            page.get_by_label("Folder", exact=True).fill("Quality/Review")
+            page.get_by_label("Instructions", exact=True).fill("Check each finding.")
+            page.get_by_role("button", name="Save source skill version", exact=True).click()
+            expect(page.get_by_role("status")).to_contain_text("Saved skill revision ui-skill@1.0.0.")
+            first_manifest = json.loads((project_path / "vaw.project.json").read_text(encoding="utf-8"))
+            assert [(entry["id"], entry["version"]) for entry in first_manifest["files"]] == [("ui-skill", "1.0.0")]
+
+            page.locator('.vaw-project-tree-file[aria-label^="Edit skill "]').first.click()
+            expect(page.get_by_label("New version", exact=True)).to_have_value("1.0.0.1")
+            page.get_by_label("Instructions", exact=True).fill("Check each finding and cite evidence.")
+            page.get_by_role("button", name="Save source skill version", exact=True).click()
+            expect(page.get_by_role("status")).to_contain_text("Saved skill revision ui-skill@1.0.0.1.")
+            second_manifest = json.loads((project_path / "vaw.project.json").read_text(encoding="utf-8"))
+            assert [(entry["id"], entry["version"]) for entry in second_manifest["files"]] == [
+                ("ui-skill", "1.0.0"), ("ui-skill", "1.0.0.1")
+            ]
+            for entry in second_manifest["files"]:
+                content = (project_path / entry["path"]).read_bytes()
+                assert hashlib.sha256(content).hexdigest() == entry["sha256"], "Skill revisions must be indexed by their content hash"
+            assert b"Check each finding." in (project_path / first_manifest["files"][0]["path"]).read_bytes(), "Editing a skill must preserve its prior revision"
 
         page.goto(BASE)
         theme_picker = page.get_by_label("Color theme", exact=True)

@@ -71,7 +71,7 @@ public sealed class StudioSkillLibrary : ISkillLibrary
         items = updated;
     }
 
-    private static void Validate(string id, string version, string name, string instructions, string folder)
+    internal static void Validate(string id, string version, string name, string instructions, string folder)
     {
         if (string.IsNullOrWhiteSpace(id) || id.Length > 64 || id.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '-' and not '_' and not '.') ||
             string.IsNullOrWhiteSpace(version) || version.Length > 64 || version.Contains('@') ||

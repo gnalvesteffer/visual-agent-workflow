@@ -47,8 +47,12 @@ public static class StudioProjectSourceArchive
         }
 
         foreach (var item in workspace.Skills.List())
+        {
+            var json = SerializeSkillAsset(item);
+            var contentHash = ComputeContentHash(System.Text.Encoding.UTF8.GetBytes(json));
             Add(sourceFiles, assetEntries, "skill", item.Skill.Id, item.Skill.Version,
-                AssetPath("skills", item.Skill.Id, item.Skill.Version), JsonSerializer.Serialize(item, JsonOptions));
+                SkillAssetPath(item.Skill.Id, item.Skill.Version, contentHash), json);
+        }
         foreach (var item in workspace.AgentProfiles.List())
             Add(sourceFiles, assetEntries, "agent-profile", item.Profile.Id, item.Profile.Version,
                 AssetPath("agents", item.Profile.Id, item.Profile.Version), JsonSerializer.Serialize(item, JsonOptions));
@@ -191,6 +195,33 @@ public static class StudioProjectSourceArchive
         return $"workflows/{safeId}-{idHash}-{contentHash[..16].ToLowerInvariant()}.json";
     }
 
+    public static string SkillAssetPath(string id, string version, string contentHash)
+    {
+        if (contentHash is null || contentHash.Length != 64 || !contentHash.All(Uri.IsHexDigit))
+            throw new ArgumentException("A SHA-256 content hash is required.", nameof(contentHash));
+        var basePath = AssetPath("skills", id, version);
+        return basePath[..^5] + "-" + contentHash.ToLowerInvariant() + ".json";
+    }
+
+    public static string SerializeSkillAsset(SkillLibraryItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        return JsonSerializer.Serialize(item, JsonOptions).Replace("\r\n", "\n", StringComparison.Ordinal);
+    }
+
+    public static SkillLibraryItem DeserializeSkillAsset(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length is <= 0 or > MaximumFileBytes)
+            throw new InvalidDataException("Project skill size is outside the supported limit.");
+        using var document = JsonDocument.Parse(bytes.ToArray(), new JsonDocumentOptions { MaxDepth = 32 });
+        RejectDuplicateProperties(document.RootElement);
+        return JsonSerializer.Deserialize<SkillLibraryItem>(bytes, JsonOptions)
+            ?? throw new InvalidDataException("Project skill is empty.");
+    }
+
+    public static string ComputeManifestHash(StudioProjectManifest manifest) =>
+        ComputeContentHash(System.Text.Encoding.UTF8.GetBytes(SerializeManifest(manifest)));
+
     public static string ComputeContentHash(ReadOnlySpan<byte> content) => Hash(content.ToArray());
 
     public static StudioProjectManifest DeserializeManifest(ReadOnlySpan<byte> bytes)
@@ -278,7 +309,7 @@ public static class StudioProjectSourceArchive
         {
             case "skill":
             {
-                var item = JsonSerializer.Deserialize<SkillLibraryItem>(content, JsonOptions);
+                var item = DeserializeSkillAsset(content);
                 if (item?.Skill is not { } skill || skill != WorkflowSkill.Create(skill.Id, skill.Version, skill.Name, skill.Instructions) ||
                     skill.Id != file.Id || skill.Version != file.Version || !ValidFolder(item.Folder))
                     throw new InvalidDataException($"Project skill '{file.Path}' is invalid or does not match its manifest entry.");

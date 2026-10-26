@@ -241,6 +241,42 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
     }
 
     [Fact]
+    public void FolderSkillSource_SavesImmutableVersionWithoutChangingCatalogAndRejectsStaleManifest()
+    {
+        var folder = Path.Combine(directory, "folder-skills");
+        var originalItem = new SkillLibraryItem(
+            WorkflowSkill.Create("review", "1.0.0", "Review", "Check the original requirements."), "Research");
+        var originalContent = Encoding.UTF8.GetBytes(StudioProjectSourceArchive.SerializeSkillAsset(originalItem));
+        var originalHash = StudioProjectSourceArchive.ComputeContentHash(originalContent);
+        var originalPath = StudioProjectSourceArchive.SkillAssetPath("review", "1.0.0", originalHash);
+        var originalFile = new StudioProjectFile("skill", "review", "1.0.0", originalPath, originalHash);
+        var initialManifest = new StudioProjectManifest("1.0", "folder-skills", "Folder skills", [originalFile]);
+        StudioProjectSourceDirectory.Write(folder, initialManifest, new Dictionary<string, byte[]> { [originalPath] = originalContent });
+
+        var source = new StudioFolderSkillSource(folder);
+        var library = new StudioSkillLibrary(Path.Combine(directory, "catalog-skills"));
+        var expectedManifestHash = StudioProjectSourceArchive.ComputeManifestHash(initialManifest);
+        var saved = source.SaveNewVersion("review", "2.0.0", "Review", "Check updated requirements.", "Research",
+            expectedManifestHash);
+
+        var versions = source.List();
+        Assert.Equal(new[] { "1.0.0", "2.0.0" }, versions.Select(skill => skill.Item.Skill.Version).OrderBy(version => version));
+        Assert.Equal(originalContent, File.ReadAllBytes(Path.Combine(folder, originalPath)));
+        Assert.NotEqual(originalPath, saved.RelativePath);
+        Assert.Equal(saved.ContentHash, StudioProjectSourceArchive.ComputeContentHash(
+            File.ReadAllBytes(Path.Combine(folder, saved.RelativePath))));
+        Assert.Equal(saved.Item.Skill, WorkflowSkill.Create("review", "2.0.0", "Review", "Check updated requirements."));
+        Assert.Empty(library.List());
+
+        var currentManifestBytes = File.ReadAllBytes(Path.Combine(folder, StudioProjectSourceArchive.ManifestFileName));
+        Assert.Throws<StudioFolderSkillConflictException>(() => source.SaveNewVersion("review", "3.0.0", "Review",
+            "A stale edit.", "Research", expectedManifestHash));
+        Assert.Equal(currentManifestBytes, File.ReadAllBytes(Path.Combine(folder, StudioProjectSourceArchive.ManifestFileName)));
+        Assert.Throws<ArgumentException>(() => source.SaveNewVersion("review", "2.0.0", "Review",
+            "Duplicate revision.", "Research", StudioProjectSourceArchive.ComputeManifestHash(StudioProjectSourceDirectory.Read(folder).Manifest)));
+    }
+
+    [Fact]
     public void DeserializeManifest_RejectsDuplicateProperties()
     {
         var json = """

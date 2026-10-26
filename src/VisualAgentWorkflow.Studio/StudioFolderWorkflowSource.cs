@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Text;
 using VisualAgentWorkflow.Core;
@@ -14,8 +13,6 @@ public sealed class StudioFolderWorkflowConflictException(string sourcePath)
 /// <summary>Reads and saves draft workflow files as project source, without catalog publication history.</summary>
 public sealed class StudioFolderWorkflowSource(string projectDirectory)
 {
-    private static readonly ConcurrentDictionary<string, object> DirectoryLocks = new(
-        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private readonly string root = Path.GetFullPath(projectDirectory);
 
     public IReadOnlyList<StudioFolderWorkflow> List()
@@ -34,7 +31,7 @@ public sealed class StudioFolderWorkflowSource(string projectDirectory)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(layout);
-        var gate = DirectoryLocks.GetOrAdd(root, static _ => new object());
+        var gate = StudioFolderSourceWriter.LockFor(root);
         lock (gate) return SaveLocked(definition, layout, expectedContentHash);
     }
 
@@ -66,72 +63,13 @@ public sealed class StudioFolderWorkflowSource(string projectDirectory)
         updatedFiles.Add(relativePath, bytes);
         _ = StudioProjectSourceArchive.CreateArchive(updatedManifest, updatedFiles);
 
-        var absoluteAssetPath = StudioProjectSourceDirectory.ResolvePath(root, relativePath);
-        WriteContentAddressedFile(absoluteAssetPath, bytes, contentHash);
-
-        var manifestPath = Path.Combine(root, StudioProjectSourceArchive.ManifestFileName);
-        var originalManifestBytes = Encoding.UTF8.GetBytes(StudioProjectSourceArchive.SerializeManifest(manifest));
-        EnsureCurrentProject(StudioProjectSourceArchive.ComputeContentHash(originalManifestBytes));
-        var writtenAsset = StudioProjectSourceDirectory.ReadBounded(absoluteAssetPath,
-            StudioProjectSourceArchive.MaximumFileBytes, "A project source file exceeds the supported size.");
-        if (StudioProjectSourceArchive.ComputeContentHash(writtenAsset) != contentHash)
-            throw new StudioFolderWorkflowConflictException(definition.WorkflowId);
-        var updatedManifestBytes = Encoding.UTF8.GetBytes(StudioProjectSourceArchive.SerializeManifest(updatedManifest));
-        ReplaceManifestAtomically(manifestPath, updatedManifestBytes);
+        StudioFolderSourceWriter.PublishImmutableAsset(root, StudioProjectSourceArchive.ComputeManifestHash(manifest),
+            updatedManifest, relativePath, bytes, contentHash,
+            sourcePath => new StudioFolderWorkflowConflictException(sourcePath));
 
         // Leave old content-addressed source files in place. A reader that loaded the previous
         // manifest immediately before the atomic pointer swap may still be opening that asset.
         return ToWorkflow(file, bytes);
-    }
-
-    private void EnsureCurrentProject(string expectedManifestHash)
-    {
-        var (currentManifest, _) = StudioProjectSourceDirectory.Read(root);
-        var normalized = Encoding.UTF8.GetBytes(StudioProjectSourceArchive.SerializeManifest(currentManifest));
-        if (StudioProjectSourceArchive.ComputeContentHash(normalized) != expectedManifestHash)
-            throw new StudioFolderWorkflowConflictException("project manifest");
-    }
-
-    private void WriteContentAddressedFile(string destination, byte[] content, string expectedHash)
-    {
-        var parent = Path.GetDirectoryName(destination)!;
-        StudioProjectSourceDirectory.EnsureSafeDirectories(root, parent);
-        if (File.Exists(destination))
-        {
-            StudioProjectSourceDirectory.RejectPathLinks(root, destination);
-            var existing = StudioProjectSourceDirectory.ReadBounded(destination,
-                StudioProjectSourceArchive.MaximumFileBytes, "A project source file exceeds the supported size.");
-            if (StudioProjectSourceArchive.ComputeContentHash(existing) != expectedHash)
-                throw new InvalidDataException("A content-addressed project source path contains different content.");
-            return;
-        }
-
-        var temporary = destination + ".tmp-" + Guid.NewGuid().ToString("N");
-        try
-        {
-            using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                output.Write(content);
-            File.Move(temporary, destination);
-        }
-        finally
-        {
-            if (File.Exists(temporary)) File.Delete(temporary);
-        }
-    }
-
-    private static void ReplaceManifestAtomically(string manifestPath, byte[] content)
-    {
-        var temporary = manifestPath + ".tmp-" + Guid.NewGuid().ToString("N");
-        try
-        {
-            using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                output.Write(content);
-            File.Move(temporary, manifestPath, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(temporary)) File.Delete(temporary);
-        }
     }
 
     private static StudioFolderWorkflow ToWorkflow(StudioProjectFile file, byte[] content)
