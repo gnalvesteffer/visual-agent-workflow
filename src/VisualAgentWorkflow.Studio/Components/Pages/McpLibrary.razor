@@ -14,7 +14,7 @@
         {
             <article class="vaw-provider-card" @key="server.Id">
                 <h3>@server.Name</h3><p><code>@server.Id</code> · @(string.IsNullOrEmpty(server.Folder) ? "Unfiled" : server.Folder)</p>
-                <p>@server.Endpoint · @server.EnabledTools.Count enabled tools</p>
+                <p>@ConnectionSummary(server) · @server.EnabledTools.Count enabled tools</p>
                 <ul>@foreach (var tool in server.EnabledTools) { <li>@server.Id.@tool</li> }</ul>
                 <button type="button" @onclick="() => Edit(server)">Edit connection and tools</button>
                 <button type="button" class="vaw-danger-quiet" @onclick="() => Delete(server)">Delete server</button>
@@ -23,13 +23,47 @@
     </section>
     <section class="vaw-settings-section" aria-label="MCP server setup">
         <h2>@(editing ? "Edit MCP server" : "Connect MCP server")</h2>
-        <p>Use a Streamable HTTP endpoint. HTTPS is required except for localhost. A bearer token, if supplied, stays encrypted in this Studio.</p>
+        <p>Choose Streamable HTTP or a local stdio process. HTTP credentials and stdio environment values stay encrypted in this Studio.</p>
         <div class="vaw-provider-form">
             <label>Server ID <input @bind="id" maxlength="64" disabled="@editing" placeholder="research" /></label>
             <label>Display name <input @bind="name" maxlength="128" placeholder="Research tools" /></label>
             <label>Folder <input @bind="folder" maxlength="256" placeholder="Research/Search" /></label>
-            <label class="vaw-provider-form-wide">MCP endpoint <input @bind="endpoint" type="url" placeholder="http://127.0.0.1:3000/mcp" /></label>
-            <label class="vaw-provider-form-wide">Bearer token <input @bind="token" type="password" autocomplete="new-password" placeholder="Optional; blank keeps the saved token when editing" /></label>
+            <label class="vaw-provider-form-wide">Connection type
+                <select @bind="transport">
+                    <option value="Http">Streamable HTTP</option>
+                    <option value="Stdio">Local process (stdio)</option>
+                </select>
+            </label>
+            @if (transport == StudioMcpTransport.Http)
+            {
+                <label class="vaw-provider-form-wide">MCP endpoint <input @bind="endpoint" type="url" placeholder="https://server.example/mcp or http://127.0.0.1:8080/mcp" /></label>
+                <label class="vaw-provider-form-wide">Bearer token <input @bind="token" type="password" autocomplete="new-password" placeholder="Optional; blank keeps the saved token when editing" /></label>
+                <p class="vaw-help vaw-provider-form-wide">HTTPS is required for remote servers. Plain HTTP is limited to loopback addresses.</p>
+            }
+            else
+            {
+                <aside class="vaw-source-mode-note vaw-provider-form-wide" aria-label="Local MCP process warning">
+                    <strong>Local process access</strong>
+                    <span>This starts a program with the same OS-user privileges as Studio. It is not sandboxed. Configure only commands you trust. VAW does not use a shell or inherit Studio's environment secrets.</span>
+                </aside>
+                <label class="vaw-provider-form-wide">Executable <input @bind="command" maxlength="1024" placeholder="npx, node, dotnet, python" /></label>
+                <label class="vaw-provider-form-wide">Arguments <textarea @bind="argumentsText" rows="5" placeholder="One argument per line&#10;-y&#10;&#64;brave/brave-search-mcp-server&#10;--transport&#10;stdio"></textarea></label>
+                <p class="vaw-help vaw-provider-form-wide">Each line is passed as one argument; values are not interpreted by a shell. Do not put secrets in arguments.</p>
+                <label class="vaw-provider-form-wide">Working directory <input @bind="workingDirectory" placeholder="Optional absolute path" /></label>
+                <fieldset class="vaw-provider-form-wide">
+                    <legend>Process environment</legend>
+                    <p class="vaw-help">VAW provides a small set of system variables needed to start programs, then adds only the variables below. Values are encrypted in Studio settings and never included in workflows.</p>
+                    @foreach (var variable in environmentVariables)
+                    {
+                        <div class="vaw-mcp-environment-row" @key="variable">
+                            <label>Variable name <input @bind="variable.Name" maxlength="128" placeholder="BRAVE_API_KEY" /></label>
+                            <label>Value <input @bind="variable.Value" type="password" autocomplete="new-password" placeholder="@(variable.Saved ? "Saved securely · blank keeps current value" : "Value")" /></label>
+                            <button type="button" aria-label="Remove environment variable" @onclick="() => RemoveEnvironmentVariable(variable)">Remove</button>
+                        </div>
+                    }
+                    <button type="button" @onclick="AddEnvironmentVariable">Add environment variable</button>
+                </fieldset>
+            }
             <button type="button" @onclick="Discover" disabled="@busy">@(busy ? "Discovering…" : "Discover tools")</button>
             @if (discovered.Count > 0)
             {
@@ -71,6 +105,11 @@
     private string folder = "";
     private string endpoint = "";
     private string token = "";
+    private StudioMcpTransport transport = StudioMcpTransport.Http;
+    private string command = "";
+    private string argumentsText = "";
+    private string workingDirectory = "";
+    private List<EnvironmentVariableRow> environmentVariables = [];
     private bool editing;
     private bool busy;
     private string? error;
@@ -83,11 +122,12 @@
         busy = true; error = null; message = null;
         try
         {
-            discovered = await Library.DiscoverAsync(endpoint.Trim(), token, id.Trim());
+            discovered = await Library.DiscoverAsync(BuildDraft());
             selected.IntersectWith(discovered.Where(tool => tool.IsSupported).Select(tool => tool.Name));
             message = $"Discovered {discovered.Count} tools: {discovered.Count(tool => tool.IsSupported)} supported and {discovered.Count(tool => !tool.IsSupported)} excluded.";
         }
         catch (ArgumentException exception) { error = exception.Message; discovered = []; }
+        catch (IOException) { error = "The MCP server process or connection failed. Check the command and server output."; discovered = []; }
         catch (Exception) { error = "Could not connect or discover tools. Check the endpoint, token and server logs."; discovered = []; }
         finally { busy = false; }
     }
@@ -95,13 +135,40 @@
     { if (args.Value is true) selected.Add(tool); else selected.Remove(tool); }
     private void Save()
     {
-        try { Library.Save(id.Trim(), name.Trim(), folder.Trim(), endpoint.Trim(), token, selected.ToArray()); Reset(); message = "MCP server saved. Refresh tools in the designer to assign them."; error = null; }
+        try { Library.Save(BuildDraft(), selected.ToArray()); Reset(); message = "MCP server saved. Refresh tools in the designer to assign them."; error = null; }
         catch (ArgumentException exception) { error = exception.Message; }
     }
     private void Edit(StudioMcpServerView server)
-    { id = server.Id; name = server.Name; folder = server.Folder; endpoint = server.Endpoint; token = ""; selected = server.EnabledTools.ToHashSet(StringComparer.Ordinal); discovered = []; editing = true; message = "Rediscover tools before saving this connection."; }
+    {
+        id = server.Id; name = server.Name; folder = server.Folder; endpoint = server.Endpoint; token = "";
+        transport = server.Transport; command = server.Command; argumentsText = string.Join(Environment.NewLine, server.Arguments);
+        workingDirectory = server.WorkingDirectory;
+        environmentVariables = server.EnvironmentVariableNames.Select(variable => new EnvironmentVariableRow { Name = variable, Saved = true }).ToList();
+        selected = server.EnabledTools.ToHashSet(StringComparer.Ordinal); discovered = []; editing = true;
+        message = "Rediscover tools before saving this connection.";
+    }
     private void Delete(StudioMcpServerView server)
     { Library.Delete(server.Id); if (id == server.Id) Reset(); message = "Server removed. Existing workflow bindings now require a compatible host registration."; }
     private void Reset()
-    { id = ""; name = ""; folder = ""; endpoint = ""; token = ""; selected.Clear(); discovered = []; editing = false; }
+    { id = ""; name = ""; folder = ""; endpoint = ""; token = ""; transport = StudioMcpTransport.Http; command = ""; argumentsText = ""; workingDirectory = ""; environmentVariables = []; selected.Clear(); discovered = []; editing = false; }
+
+    private StudioMcpConnectionDraft BuildDraft() => new(id.Trim(), name.Trim(), folder.Trim(), transport,
+        endpoint.Trim(), token, command.Trim(), argumentsText.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(argument => argument.TrimEnd('\r')).ToArray(),
+        workingDirectory.Trim(), environmentVariables.Where(variable => !string.IsNullOrWhiteSpace(variable.Name))
+            .ToDictionary(variable => variable.Name.Trim(), variable => variable.Value, StringComparer.Ordinal));
+
+    private void AddEnvironmentVariable() => environmentVariables.Add(new());
+    private void RemoveEnvironmentVariable(EnvironmentVariableRow variable) => environmentVariables.Remove(variable);
+
+    private static string ConnectionSummary(StudioMcpServerView server) => server.Transport == StudioMcpTransport.Stdio
+        ? $"stdio · {server.Command} · {server.Arguments.Count} arguments · {server.EnvironmentVariableNames.Count} environment values"
+        : server.Endpoint;
+
+    private sealed class EnvironmentVariableRow
+    {
+        public string Name { get; set; } = "";
+        public string Value { get; set; } = "";
+        public bool Saved { get; set; }
+    }
 }

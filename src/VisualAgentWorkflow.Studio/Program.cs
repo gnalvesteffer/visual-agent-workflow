@@ -34,7 +34,7 @@ builder.Services.AddRazorComponents().AddInteractiveServerComponents()
 var builtInTools = DemoMcpServer.ForCurrentExecutable();
 var studioToolPolicy = new StudioToolPolicy();
 builder.Services.AddSingleton(studioToolPolicy);
-builder.Services.AddSingleton(new McpToolBroker(builtInTools, studioToolPolicy));
+builder.Services.AddSingleton(new McpToolBroker(builtInTools, studioToolPolicy, TimeSpan.FromSeconds(30)));
 builder.Services.AddSingleton<StudioMcpLibrary>(services => new StudioMcpLibrary(studioDataDirectory,
     services.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>(),
     services.GetRequiredService<McpToolBroker>(), studioToolPolicy, builtInTools));

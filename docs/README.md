@@ -30,7 +30,7 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Pause and resume](run-control.md) | Cooperative boundaries, controls, audit, process ownership and restart limitations |
 | [Workflow API](workflow-api.md) | Local development API and concurrency contracts |
 | [Workflow parameters](workflow-parameters.md) | Schema 1.6 string parameters, run overrides, persisted evidence, and current limits |
-| [Agent capability libraries](agent-capability-libraries.md) | Implemented text-only skill and Streamable HTTP MCP slice, plus proposed richer agent authoring |
+| [Agent capability libraries](agent-capability-libraries.md) | Implemented text-only skills and Streamable HTTP/stdio MCP connections, plus richer agent authoring |
 | [Agent profiles and delegation](agent-profiles.md) | Versioned specialist profiles, bounded delegate calls, dependency packaging, and audit scope |
 | [Reusable workflows](reusable-workflows.md) | Version-pinned expansion, provenance, package validation, and limitations |
 | [Graph editor](graph-editor.md) | Canvas controls, layout schema, versioning, and research references |

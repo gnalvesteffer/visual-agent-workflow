@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.DataProtection;
 using ModelContextProtocol.Client;
 using VisualAgentWorkflow.Core;
@@ -6,16 +7,47 @@ using VisualAgentWorkflow.Mcp;
 
 namespace VisualAgentWorkflow.Studio;
 
+public enum StudioMcpTransport { Http, Stdio }
+
+public sealed record StudioMcpConnectionDraft(string Id, string Name, string Folder, StudioMcpTransport Transport,
+    string Endpoint, string BearerToken, string Command, IReadOnlyList<string> Arguments,
+    string WorkingDirectory, IReadOnlyDictionary<string, string> EnvironmentVariables);
+
 public sealed record StudioMcpServer(string Id, string Name, string Folder, string Endpoint,
-    string ProtectedBearerToken, IReadOnlyList<string> EnabledTools);
+    string ProtectedBearerToken, IReadOnlyList<string> EnabledTools)
+{
+    public StudioMcpTransport Transport { get; init; }
+    public string Command { get; init; } = "";
+    public IReadOnlyList<string> Arguments { get; init; } = [];
+    public string WorkingDirectory { get; init; } = "";
+    public IReadOnlyList<string> EnvironmentVariableNames { get; init; } = [];
+    public string ProtectedEnvironmentVariables { get; init; } = "";
+}
+
 public sealed record StudioMcpServerView(string Id, string Name, string Folder, string Endpoint, bool HasToken,
-    IReadOnlyList<string> EnabledTools);
+    IReadOnlyList<string> EnabledTools)
+{
+    public StudioMcpTransport Transport { get; init; }
+    public string Command { get; init; } = "";
+    public IReadOnlyList<string> Arguments { get; init; } = [];
+    public string WorkingDirectory { get; init; } = "";
+    public IReadOnlyList<string> EnvironmentVariableNames { get; init; } = [];
+}
+
 public sealed record StudioMcpToolView(string Name, string BindingId, string ContractHash, string InputSummary,
     string Description, string DescriptionHash, bool IsSupported = true, string? RejectionReason = null);
 
-/// <summary>Operator-owned Studio connections. Only logical tool identities enter workflow definitions.</summary>
+/// <summary>Operator-owned MCP connections. Only logical tool identities enter workflow definitions.</summary>
 public sealed class StudioMcpLibrary
 {
+    private const int MaximumArgumentCount = 64;
+    private const int MaximumArgumentLength = 4096;
+    private const int MaximumEnvironmentVariables = 64;
+    private const int MaximumEnvironmentValueLength = 8192;
+    private const int ConnectionTimeoutSeconds = 30;
+    private const int ProcessShutdownTimeoutSeconds = 3;
+    private static readonly Regex EnvironmentName = new("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.CultureInvariant);
+
     private readonly object gate = new();
     private readonly string path;
     private readonly IDataProtector protector;
@@ -34,32 +66,36 @@ public sealed class StudioMcpLibrary
         this.policy = policy;
         this.builtIn = builtIn;
         servers = File.Exists(path) ? JsonSerializer.Deserialize<List<StudioMcpServer>>(File.ReadAllText(path)) ?? [] : [];
-        foreach (var server in servers) Validate(server.Id, server.Name, server.Folder, server.Endpoint);
+        foreach (var server in servers)
+            Validate(server.Id, server.Name, server.Folder, Draft(server, ""));
         Refresh();
     }
 
     public IReadOnlyList<StudioMcpServerView> List()
     {
         lock (gate) return servers.Select(server => new StudioMcpServerView(server.Id, server.Name, server.Folder,
-            server.Endpoint, server.ProtectedBearerToken.Length > 0, server.EnabledTools.ToArray())).ToArray();
+            server.Endpoint, server.ProtectedBearerToken.Length > 0, server.EnabledTools.ToArray())
+        {
+            Transport = server.Transport,
+            Command = server.Command,
+            Arguments = server.Arguments.ToArray(),
+            WorkingDirectory = server.WorkingDirectory,
+            EnvironmentVariableNames = server.EnvironmentVariableNames.ToArray()
+        }).ToArray();
     }
 
-    public async Task<IReadOnlyList<StudioMcpToolView>> DiscoverAsync(string endpoint, string bearerToken,
-        string serverId, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<StudioMcpToolView>> DiscoverAsync(string endpoint, string bearerToken,
+        string serverId, CancellationToken cancellationToken = default) =>
+        DiscoverAsync(new(serverId, serverId, "", StudioMcpTransport.Http, endpoint, bearerToken, "", [], "",
+            new Dictionary<string, string>()), cancellationToken);
+
+    public async Task<IReadOnlyList<StudioMcpToolView>> DiscoverAsync(StudioMcpConnectionDraft draft,
+        CancellationToken cancellationToken = default)
     {
-        Validate(serverId, serverId, "", endpoint);
-        if (bearerToken.Length == 0)
-        {
-            lock (gate)
-            {
-                var stored = servers.SingleOrDefault(server => server.Id == serverId);
-                if (stored is not null && stored.ProtectedBearerToken.Length > 0)
-                    bearerToken = protector.Unprotect(stored.ProtectedBearerToken);
-            }
-        }
+        Validate(draft.Id, draft.Name, draft.Folder, draft);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(TimeSpan.FromSeconds(10));
-        await using var client = await Connect(endpoint, bearerToken, serverId, deadline.Token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(ConnectionTimeoutSeconds));
+        await using var client = await Connect(draft, deadline.Token);
         var tools = await client.ListToolsAsync(cancellationToken: deadline.Token);
         return tools.Select(tool =>
         {
@@ -70,23 +106,48 @@ public sealed class StudioMcpLibrary
                 schemaReason is null ? null : $"Schema: {schemaReason}",
                 descriptionReason is null ? null : $"Description: {descriptionReason}"
             }.Where(value => value is not null));
-            return new StudioMcpToolView(tool.Name, serverId + "." + tool.Name, ToolContractHash.Compute(tool),
+            return new StudioMcpToolView(tool.Name, draft.Id + "." + tool.Name, ToolContractHash.Compute(tool),
                 schemaReason is null ? McpToolInputSchemas.Summarize(tool.JsonSchema) : "Input schema not supported",
                 tool.Description?.Trim() ?? "", descriptionReason is null ? McpToolDescription.ComputeHash(tool.Description) : "",
                 reason.Length == 0, reason.Length == 0 ? null : reason);
         }).ToArray();
     }
 
-    public void Save(string id, string name, string folder, string endpoint, string bearerToken, IReadOnlyList<string> enabledTools)
+    public void Save(string id, string name, string folder, string endpoint, string bearerToken,
+        IReadOnlyList<string> enabledTools) =>
+        Save(new(id, name, folder, StudioMcpTransport.Http, endpoint, bearerToken, "", [], "",
+            new Dictionary<string, string>()), enabledTools);
+
+    public void Save(StudioMcpConnectionDraft draft, IReadOnlyList<string> enabledTools)
     {
-        Validate(id, name, folder, endpoint);
-        if (enabledTools.Count > 64 || enabledTools.Any(tool => !ValidId(tool)) || enabledTools.Distinct(StringComparer.Ordinal).Count() != enabledTools.Count)
+        Validate(draft.Id, draft.Name, draft.Folder, draft);
+        if (enabledTools.Count > 64 || enabledTools.Any(tool => !ValidId(tool)) ||
+            enabledTools.Distinct(StringComparer.Ordinal).Count() != enabledTools.Count)
             throw new ArgumentException("Choose up to 64 distinct discovered tools.");
         lock (gate)
         {
-            var prior = servers.SingleOrDefault(server => server.Id == id);
-            var protectedToken = bearerToken.Length > 0 ? protector.Protect(bearerToken) : prior?.ProtectedBearerToken ?? "";
-            var updated = servers.Where(server => server.Id != id).Append(new(id, name, folder, endpoint, protectedToken, enabledTools.ToArray())).ToList();
+            var prior = servers.SingleOrDefault(server => server.Id == draft.Id);
+            var environment = draft.Transport == StudioMcpTransport.Stdio
+                ? ResolveEnvironmentVariables(draft, prior)
+                : new Dictionary<string, string>(StringComparer.Ordinal);
+            var protectedToken = draft.Transport == StudioMcpTransport.Http
+                ? draft.BearerToken.Length > 0 ? protector.Protect(draft.BearerToken) : prior?.ProtectedBearerToken ?? ""
+                : "";
+            var protectedEnvironment = environment.Count == 0 ? "" :
+                protector.Protect(JsonSerializer.Serialize(environment.OrderBy(item => item.Key, StringComparer.Ordinal)
+                    .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal)));
+            var updatedServer = new StudioMcpServer(draft.Id, draft.Name, draft.Folder,
+                draft.Transport == StudioMcpTransport.Http ? draft.Endpoint : "", protectedToken,
+                enabledTools.ToArray())
+            {
+                Transport = draft.Transport,
+                Command = draft.Transport == StudioMcpTransport.Stdio ? draft.Command : "",
+                Arguments = draft.Transport == StudioMcpTransport.Stdio ? draft.Arguments.ToArray() : [],
+                WorkingDirectory = draft.Transport == StudioMcpTransport.Stdio ? draft.WorkingDirectory : "",
+                EnvironmentVariableNames = environment.Keys.Order(StringComparer.Ordinal).ToArray(),
+                ProtectedEnvironmentVariables = protectedEnvironment
+            };
+            var updated = servers.Where(server => server.Id != draft.Id).Append(updatedServer).ToList();
             Persist(updated);
         }
     }
@@ -115,32 +176,132 @@ public sealed class StudioMcpLibrary
     {
         var configured = servers.SelectMany(server => server.EnabledTools.Select(tool =>
             new McpToolRegistration(server.Id + "." + tool, server.Name + " · " + tool, server.Id, tool,
-                token => Connect(server.Endpoint, server.ProtectedBearerToken.Length == 0 ? "" : protector.Unprotect(server.ProtectedBearerToken), server.Id, token))
-            { AllowInvocation = true }));
+                token => Connect(server, token)) { AllowInvocation = true }));
         var registrations = builtIn.Concat(configured).ToArray();
         broker.ReplaceRegistrations(registrations);
         policy.Replace(registrations.Select(registration => registration.BindingId));
     }
 
-    private static async Task<McpClient> Connect(string endpoint, string token, string name, CancellationToken cancellationToken)
+    private async Task<McpClient> Connect(StudioMcpServer server, CancellationToken cancellationToken)
+    {
+        var draft = Draft(server, server.ProtectedBearerToken.Length == 0
+            ? "" : protector.Unprotect(server.ProtectedBearerToken)) with
+        { EnvironmentVariables = ReadEnvironmentVariables(server) };
+        return await Connect(draft, cancellationToken);
+    }
+
+    private async Task<McpClient> Connect(StudioMcpConnectionDraft draft, CancellationToken cancellationToken)
+    {
+        if (draft.Transport == StudioMcpTransport.Stdio)
+        {
+            var prior = FindServer(draft.Id);
+            var environment = StdioClientTransportOptions.GetDefaultEnvironmentVariables();
+            foreach (var pair in ResolveEnvironmentVariables(draft, prior)) environment[pair.Key] = pair.Value;
+            return await CreateStdioClient(draft, environment, cancellationToken);
+        }
+
+        var saved = FindServer(draft.Id);
+        var bearerToken = string.IsNullOrEmpty(draft.BearerToken) && saved is not null &&
+                          !string.IsNullOrEmpty(saved.ProtectedBearerToken)
+            ? protector.Unprotect(saved.ProtectedBearerToken)
+            : draft.BearerToken;
+        return await ConnectHttp(draft with { BearerToken = bearerToken }, cancellationToken);
+    }
+
+    private static Task<McpClient> CreateStdioClient(StudioMcpConnectionDraft draft,
+        IReadOnlyDictionary<string, string?> environment, CancellationToken cancellationToken)
+    {
+        var transport = new StdioClientTransport(new StdioClientTransportOptions
+        {
+            Name = $"VAW local MCP · {draft.Id}",
+            Command = draft.Command,
+            Arguments = draft.Arguments.ToList(),
+            WorkingDirectory = string.IsNullOrWhiteSpace(draft.WorkingDirectory) ? null : draft.WorkingDirectory,
+            InheritEnvironmentVariables = false,
+            EnvironmentVariables = environment.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal),
+            ShutdownTimeout = TimeSpan.FromSeconds(ProcessShutdownTimeoutSeconds)
+        });
+        return McpClient.CreateAsync(transport,
+            new McpClientOptions { ProtocolVersion = "2025-11-25" }, cancellationToken: cancellationToken);
+    }
+
+    private static async Task<McpClient> ConnectHttp(StudioMcpConnectionDraft draft, CancellationToken cancellationToken)
     {
         var options = new HttpClientTransportOptions
         {
-            Endpoint = new Uri(endpoint), Name = name, TransportMode = HttpTransportMode.StreamableHttp,
-            ConnectionTimeout = TimeSpan.FromSeconds(10),
-            AdditionalHeaders = string.IsNullOrEmpty(token) ? null : new Dictionary<string, string> { ["Authorization"] = "Bearer " + token }
+            Endpoint = new Uri(draft.Endpoint), Name = draft.Name, TransportMode = HttpTransportMode.StreamableHttp,
+            ConnectionTimeout = TimeSpan.FromSeconds(ConnectionTimeoutSeconds),
+            AdditionalHeaders = string.IsNullOrEmpty(draft.BearerToken) ? null :
+                new Dictionary<string, string> { ["Authorization"] = "Bearer " + draft.BearerToken }
         };
         return await McpClient.CreateAsync(new HttpClientTransport(options),
             new McpClientOptions { ProtocolVersion = "2025-11-25" }, cancellationToken: cancellationToken);
     }
 
-    private static void Validate(string id, string name, string folder, string endpoint)
+    private IReadOnlyDictionary<string, string> ResolveEnvironmentVariables(StudioMcpConnectionDraft draft,
+        StudioMcpServer? prior)
     {
-        if (!ValidId(id) || string.IsNullOrWhiteSpace(name) || name.Length > 128 || folder.Length > 256 ||
-            !Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) ||
-            uri.Scheme != Uri.UriSchemeHttps && (uri.Scheme != Uri.UriSchemeHttp || !uri.IsLoopback) ||
-            !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Fragment))
-            throw new ArgumentException("Use a safe server ID, name, and an HTTPS or loopback HTTP endpoint.");
+        var existing = prior is null ? new Dictionary<string, string>(StringComparer.Ordinal) : ReadEnvironmentVariables(prior);
+        return draft.EnvironmentVariables.ToDictionary(pair => pair.Key,
+            pair => string.IsNullOrEmpty(pair.Value) && existing.TryGetValue(pair.Key, out var saved) ? saved : pair.Value,
+            StringComparer.Ordinal);
+    }
+
+    private IReadOnlyDictionary<string, string> ReadEnvironmentVariables(StudioMcpServer server)
+    {
+        if (string.IsNullOrEmpty(server.ProtectedEnvironmentVariables)) return new Dictionary<string, string>(StringComparer.Ordinal);
+        var json = protector.Unprotect(server.ProtectedEnvironmentVariables);
+        return JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? new Dictionary<string, string>(StringComparer.Ordinal);
+    }
+
+    private StudioMcpServer? FindServer(string id)
+    {
+        lock (gate) return servers.SingleOrDefault(server => server.Id == id);
+    }
+
+    private static StudioMcpConnectionDraft Draft(StudioMcpServer server, string bearerToken) =>
+        new(server.Id, server.Name, server.Folder, server.Transport, server.Endpoint, bearerToken,
+            server.Command, server.Arguments, server.WorkingDirectory, new Dictionary<string, string>());
+
+    private static void Validate(string id, string name, string folder, StudioMcpConnectionDraft connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        var commonInvalid = !ValidId(id) || string.IsNullOrWhiteSpace(name) || name.Length > 128 ||
+            folder.Length > 256;
+        if (commonInvalid) throw new ArgumentException("Use a safe server ID, name, and folder.");
+
+        switch (connection.Transport)
+        {
+            case StudioMcpTransport.Http:
+                if (!Uri.TryCreate(connection.Endpoint, UriKind.Absolute, out var uri) ||
+                    uri.Scheme != Uri.UriSchemeHttps && (uri.Scheme != Uri.UriSchemeHttp || !uri.IsLoopback) ||
+                    !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Fragment) ||
+                    connection.BearerToken.Contains('\0'))
+                    throw new ArgumentException("Use an HTTPS or loopback HTTP endpoint without user information or a fragment.");
+                break;
+            case StudioMcpTransport.Stdio:
+                ValidateStdio(connection);
+                break;
+            default:
+                throw new ArgumentException("Choose a supported MCP transport.");
+        }
+    }
+
+    private static void ValidateStdio(StudioMcpConnectionDraft connection)
+    {
+        if (string.IsNullOrWhiteSpace(connection.Command) || connection.Command.Length > 1024 ||
+            connection.Command.Contains('\0') || connection.Arguments is null ||
+            connection.Arguments.Count > MaximumArgumentCount || connection.Arguments.Any(argument =>
+                argument is null || argument.Length > MaximumArgumentLength || argument.Contains('\0')))
+            throw new ArgumentException("Enter an executable and up to 64 arguments, each no longer than 4,096 characters.");
+        if (!string.IsNullOrWhiteSpace(connection.WorkingDirectory) &&
+            (!Path.IsPathFullyQualified(connection.WorkingDirectory) || !Directory.Exists(connection.WorkingDirectory)))
+            throw new ArgumentException("The working directory must be an existing absolute path.");
+        if (connection.EnvironmentVariables is null || connection.EnvironmentVariables.Count > MaximumEnvironmentVariables ||
+            connection.EnvironmentVariables.Any(pair => !EnvironmentName.IsMatch(pair.Key) ||
+                pair.Value is null || pair.Value.Length > MaximumEnvironmentValueLength || pair.Value.Contains('\0')) ||
+            connection.EnvironmentVariables.Keys.Distinct(StringComparer.OrdinalIgnoreCase).Count() != connection.EnvironmentVariables.Count)
+            throw new ArgumentException("Use up to 64 unique environment names with values no longer than 8,192 characters.");
     }
 
     private static bool ValidId(string value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 64 &&
