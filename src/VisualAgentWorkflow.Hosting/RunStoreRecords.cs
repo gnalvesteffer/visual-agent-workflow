@@ -15,7 +15,12 @@ internal static class RunStoreRecords
         if (input.Length > 16_384) throw new ArgumentException("Run input exceeds 16,384 characters.", nameof(input));
         parameters ??= WorkflowParameters.Resolve(revision.Definition, null);
         var header = new RunHeader(Guid.NewGuid(), revision.RevisionId, revision.ParentRevisionId, revision.Author,
-            revision.CreatedAt, revision.ContentHash, revision.Definition, input) { Parameters = parameters };
+            revision.CreatedAt, revision.ContentHash, revision.Definition, input)
+        {
+            Parameters = parameters,
+            Layout = revision.Layout,
+            SourceProvenance = revision.SourceProvenance
+        };
         return new(header, []);
     }
 
@@ -46,6 +51,19 @@ internal static class RunStoreRecords
             string.IsNullOrWhiteSpace(snapshot.Header.Author) || snapshot.Header.Input is null || snapshot.Header.Input.Length > 16_384 ||
             !WorkflowJson.MatchesHash(snapshot.Header.Definition, snapshot.Header.ContentHash))
             throw new InvalidDataException("Run header identity/content mismatch.");
+        if (snapshot.Header.SourceProvenance is { } provenance)
+        {
+            if (snapshot.Header.Layout is null || provenance.SourceKind is not ("folder" or "restore-point") ||
+                string.IsNullOrWhiteSpace(provenance.ProjectId) || provenance.ProjectId.Length > 80 ||
+                provenance.WorkflowId != snapshot.Header.Definition.WorkflowId ||
+                !IsSha256(provenance.ManifestHash) || !IsSha256(provenance.AssetHash) || !IsSha256(provenance.LayoutHash) ||
+                !MatchesLayoutHash(snapshot.Header.Layout, snapshot.Header.Definition, provenance.LayoutHash) ||
+                (provenance.SourceKind == "restore-point") != (provenance.SnapshotContentHash is not null) ||
+                provenance.SnapshotContentHash is { } snapshotHash && !IsSha256(snapshotHash))
+                throw new InvalidDataException("Run source provenance does not match its captured definition and layout.");
+        }
+        else if (snapshot.Header.Layout is not null)
+            throw new InvalidDataException("Run layout requires source provenance.");
         // This is immutable historical evidence. Do not reapply today's workflow validator to a
         // definition that was captured when the run was accepted; new runs are strictly validated
         // through WorkflowRevision.Create before they reach the store.
@@ -66,4 +84,13 @@ internal static class RunStoreRecords
 
     private static bool IsTerminal(string kind) => kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Terminated or ExecutionEventKinds.Failed or
         ExecutionEventKinds.Cancelled or ExecutionEventKinds.Interrupted;
+
+    private static bool IsSha256(string value) => value is { Length: 64 } && value.All(character =>
+        character is >= '0' and <= '9' or >= 'a' and <= 'f');
+
+    private static bool MatchesLayoutHash(WorkflowLayout layout, WorkflowDefinition definition, string hash)
+    {
+        try { return WorkflowLayoutJson.MatchesHash(layout, definition, hash); }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or NullReferenceException) { return false; }
+    }
 }

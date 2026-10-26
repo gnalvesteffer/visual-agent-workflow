@@ -8,7 +8,17 @@ public sealed record RunHeader(Guid RunId, Guid RevisionId, Guid? ParentRevision
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ImmutableSortedDictionary<string, string>? Parameters { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WorkflowLayout? Layout { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WorkflowRunProvenance? SourceProvenance { get; init; }
 }
+
+/// <summary>Host-owned identity for the immutable project source captured when a run was admitted.</summary>
+public sealed record WorkflowRunProvenance(string SourceKind, string ProjectId, string WorkflowId,
+    string ManifestHash, string AssetHash, string LayoutHash, string? SnapshotContentHash = null);
 
 public sealed record RunSnapshot(RunHeader Header, ImmutableArray<ExecutionEvent> Events)
 {

@@ -5,6 +5,9 @@
 @inject IAgentProviderCatalog ProviderCatalog
 @inject StudioProjectStore ProjectStore
 @inject StudioProjectSnapshotStore SnapshotStore
+@inject StudioFolderWorkflowRunner FolderRunner
+@inject VisualAgentWorkflow.Hosting.LocalWorkflowRuntime Runtime
+@inject ILogger<ProjectFolderEditor> Logger
 
 <section id="@PanelId" class="vaw-project-folder-editor" role="tabpanel" aria-labelledby="@TabId"
     aria-label="Project folder editor" hidden="@(!IsActive)" aria-hidden="@(!IsActive)">
@@ -77,6 +80,10 @@
                             </div>
                             <div class="vaw-provider-actions">
                                 <button type="button" class="vaw-secondary" @onclick="() => PreviewSnapshot(snapshot.Id)" disabled="@(busy || !snapshot.IsValid || HasUnsavedEdits || externalSourceChanged)">Preview restore</button>
+                                @if (openedWorkflow is not null)
+                                {
+                                    <button type="button" class="vaw-secondary" @onclick="() => RunRestorePoint(snapshot.Id)" disabled="@(!CanRunRestorePoint || !snapshot.IsValid)">Test selected workflow</button>
+                                }
                                 <button type="button" class="vaw-danger-quiet" @onclick="() => RequestSnapshotDelete(snapshot.Id)" disabled="@busy">@(deleteSnapshotId == snapshot.Id ? "Confirm delete point" : "Delete point")</button>
                             </div>
                         </li>
@@ -223,6 +230,50 @@
                 else if (definition is not null && layout is not null)
                 {
                     <p class="vaw-definition-status"><strong>@WorkflowName(definition)</strong> <code>@definition.WorkflowId</code> · @(dirty ? "Unsaved changes" : "Source saved")</p>
+                    <section class="vaw-settings-section vaw-folder-run" aria-label="Run saved workflow">
+                        <div class="vaw-settings-section-heading"><div><h3>Run saved workflow</h3><p>Runs the exact saved source in the host runtime. Run history stays in Studio data, outside this project.</p></div></div>
+                        <label>Workflow input <textarea @bind="runInput" rows="3" maxlength="16384" disabled="@folderRunActive"></textarea></label>
+                        @if (definition.Parameters is { Count: > 0 } runParameterDefinitions)
+                        {
+                            <fieldset class="vaw-folder-run-parameters"><legend>Run parameters</legend>
+                                @foreach (var (parameterId, parameter) in runParameterDefinitions)
+                                {
+                                    <label @key="parameterId">@(string.IsNullOrWhiteSpace(parameter.DisplayName) ? parameterId : parameter.DisplayName)
+                                        @if (parameter.Type == "choice" && parameter.Choices is { } choices)
+                                        {
+                                            <select value="@RunParameterValue(parameterId)" @onchange="args => SetRunParameter(parameterId, args.Value?.ToString())" disabled="@folderRunActive">
+                                                @foreach (var choice in choices) { <option value="@choice">@choice</option> }
+                                            </select>
+                                        }
+                                        else if (parameter.Type == "boolean")
+                                        {
+                                            <select value="@RunParameterValue(parameterId)" @onchange="args => SetRunParameter(parameterId, args.Value?.ToString())" disabled="@folderRunActive">
+                                                <option value="true">True</option><option value="false">False</option>
+                                            </select>
+                                        }
+                                        else
+                                        {
+                                            <input value="@RunParameterValue(parameterId)" @oninput="args => SetRunParameter(parameterId, args.Value?.ToString())" disabled="@folderRunActive" />
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(parameter.Description)) { <small>@parameter.Description</small> }
+                                    </label>
+                                }
+                            </fieldset>
+                        }
+                        @if (dirty) { <p class="vaw-help">Save your edits before running. Runs always use the saved source.</p> }
+                        @if (externalSourceChanged) { <p class="vaw-error">Reload the externally changed project before running this workflow.</p> }
+                        <div class="vaw-provider-actions">
+                            <button type="button" class="vaw-primary" @onclick="RunSavedWorkflow" disabled="@(!CanRunSavedWorkflow)">@(folderRunActive ? "Running…" : "Run saved workflow")</button>
+                            @if (folderRunActive && folderRun is not null) { <button type="button" class="vaw-secondary" @onclick="CancelFolderRun">Cancel run</button> }
+                        </div>
+                        @if (folderRunError is not null) { <p role="alert" class="vaw-error">@folderRunError</p> }
+                        @if (folderRun is not null)
+                        {
+                            <p class="vaw-definition-status">Run @folderRun.Header.RunId · @folderRun.Status · source <code>@folderRun.Header.SourceProvenance?.AssetHash[..12]</code></p>
+                            <WorkflowRunViewer Snapshot="folderRun" Layout="folderRun.Header.Layout" />
+                        }
+                        <p class="vaw-help">Inputs and parameter values are recorded as run evidence; do not enter secrets.</p>
+                    </section>
                     <WorkflowEditor @key="definition.WorkflowId" ProjectId="folder-project" Definition="definition" DefinitionChanged="DefinitionChanged"
                         Layout="layout" LayoutChanged="LayoutChanged" Bindings="bindings" Providers="providers" SkillLibrary="skillSource"
                         AgentProfileLibrary="profileSource" FunctionCatalog="graphFunctionCatalog">
@@ -299,6 +350,16 @@
     private IReadOnlyList<AgentProviderDescriptor> providers = [];
     private bool dirty;
     private bool busy;
+    private string runInput = "";
+    private Dictionary<string, string> runParameters = new(StringComparer.Ordinal);
+    private RunSnapshot? folderRun;
+    private bool folderRunActive;
+    private string? folderRunError;
+    private CancellationTokenSource? folderRunPolling;
+    private bool CanRunSavedWorkflow => !busy && !dirty && !externalSourceChanged && !folderRunActive && openedWorkflow is not null &&
+        definition is not null && layout is not null && WorkflowValidator.Validate(definition).IsEmpty;
+    private bool CanRunRestorePoint => !busy && !dirty && !folderRunActive && openedWorkflow is not null && definition is not null &&
+        WorkflowValidator.Validate(definition).IsEmpty;
     private bool externalSourceChanged;
     private string? externalSourceProblem;
     private FileSystemWatcher? sourceWatcher;
@@ -359,6 +420,7 @@
         }
         catch (Exception exception) when (exception is KeyNotFoundException or InvalidOperationException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
         {
+            Logger.LogError(exception, "Could not load folder-backed project {ProjectId} from {ProjectPath}", ProjectId, directoryPath);
             ClearProjectFolder();
             error = exception.Message;
             loadedProjectId = null;
@@ -638,6 +700,7 @@
     public async ValueTask DisposeAsync()
     {
         disposed = true;
+        folderRunPolling?.Cancel();
         await StopSourceMonitorAsync();
     }
 
@@ -1080,6 +1143,10 @@
 
     private void SetWorkflow(StudioFolderWorkflow? workflow)
     {
+        folderRunPolling?.Cancel();
+        folderRun = null;
+        folderRunError = null;
+        folderRunActive = false;
         openedWorkflow = workflow;
         openedSkill = null;
         openedProfile = null;
@@ -1093,7 +1160,69 @@
         profileBeingEdited = null;
         definition = workflow?.Definition;
         layout = workflow?.Layout;
+        runInput = "";
+        runParameters = workflow?.Definition.Parameters?.ToDictionary(parameter => parameter.Key,
+            parameter => parameter.Value.DefaultValue, StringComparer.Ordinal) ?? new(StringComparer.Ordinal);
         dirty = false;
+    }
+
+    private string RunParameterValue(string parameterId) => runParameters.GetValueOrDefault(parameterId, "");
+
+    private void SetRunParameter(string parameterId, string? value) => runParameters[parameterId] = value ?? "";
+
+    private async Task RunSavedWorkflow()
+    {
+        if (!CanRunSavedWorkflow || openedWorkflow is null || openDirectory is null || manifest is null) return;
+        await StartFolderRun(() => FolderRunner.StartSavedAsync(openDirectory, manifest!.ProjectId, openedWorkflow.WorkflowId,
+            sourceManifestHash, openedWorkflow.ContentHash, runInput, RunParameters()));
+    }
+
+    private async Task RunRestorePoint(string snapshotContentHash)
+    {
+        if (!CanRunRestorePoint || openedWorkflow is null || openDirectory is null) return;
+        await StartFolderRun(() => FolderRunner.StartRestorePointAsync(openDirectory, manifest!.ProjectId,
+            openedWorkflow.WorkflowId, snapshotContentHash, runInput, RunParameters()));
+    }
+
+    private IReadOnlyDictionary<string, string>? RunParameters() => runParameters.Count == 0
+        ? null : new Dictionary<string, string>(runParameters, StringComparer.Ordinal);
+
+    private async Task StartFolderRun(Func<Task<RunSnapshot>> start)
+    {
+        folderRunError = null;
+        folderRunActive = true;
+        folderRunPolling?.Cancel();
+        folderRunPolling?.Dispose();
+        folderRunPolling = new CancellationTokenSource();
+        var cancellationToken = folderRunPolling.Token;
+        try
+        {
+            folderRun = await start();
+            await InvokeAsync(StateHasChanged);
+            while (!folderRun.IsTerminal)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
+                folderRun = await Runtime.GetRunAsync(folderRun.Header.RunId) ?? folderRun;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is ArgumentException or IOException or InvalidDataException or InvalidOperationException or KeyNotFoundException or System.Text.Json.JsonException)
+        {
+            folderRunError = exception.Message;
+        }
+        finally
+        {
+            folderRunActive = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task CancelFolderRun()
+    {
+        if (folderRun is null || !folderRunActive) return;
+        try { await Runtime.CancelRunAsync(folderRun.Header.RunId); }
+        catch (KeyNotFoundException) { }
     }
 
     private static string WorkflowName(WorkflowDefinition value) => string.IsNullOrWhiteSpace(value.DisplayName) ? value.WorkflowId : value.DisplayName;

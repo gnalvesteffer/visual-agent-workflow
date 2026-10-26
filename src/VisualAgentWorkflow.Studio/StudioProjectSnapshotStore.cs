@@ -6,6 +6,8 @@ public sealed record StudioProjectSnapshot(string Id, DateTimeOffset CreatedAtUt
     long ArchiveBytes, bool IsValid, string? Problem);
 public sealed record StudioProjectSnapshotPreview(string Id, string CurrentManifestHash, string SnapshotManifestHash,
     int AddedFiles, int RemovedFiles, int ChangedFiles);
+public sealed record StudioProjectSourceSnapshot(string ArchiveContentHash, StudioProjectManifest Manifest,
+    IReadOnlyDictionary<string, byte[]> Files);
 
 /// <summary>Stores validated, local-only project restore points under the ignored project sidecar.</summary>
 public sealed class StudioProjectSnapshotStore
@@ -15,6 +17,15 @@ public sealed class StudioProjectSnapshotStore
     private const string SnapshotDirectoryName = "snapshots";
     private const string SnapshotExtension = ".vawsrc.zip";
     private const int MaximumSnapshotBytes = StudioProjectSourceArchive.MaximumArchiveBytes + 1024 * 1024;
+
+    /// <summary>Loads one validated, content-addressed restore point fully into memory for isolated inspection or execution.</summary>
+    public StudioProjectSourceSnapshot ReadSourceSnapshot(string projectDirectory, string snapshotContentHash)
+    {
+        ValidateSnapshotId(snapshotContentHash);
+        var root = Path.GetFullPath(projectDirectory);
+        var (manifest, files) = ReadSnapshot(root, snapshotContentHash);
+        return new(snapshotContentHash, manifest, files);
+    }
     public IReadOnlyList<StudioProjectSnapshot> List(string projectDirectory)
     {
         var root = Path.GetFullPath(projectDirectory);

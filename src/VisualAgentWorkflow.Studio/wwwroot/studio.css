@@ -531,6 +531,11 @@ button.vaw-project-tree-file { cursor: pointer; }
 .vaw-project-tree-file-name { min-inline-size: 0; overflow-wrap: anywhere; }
 .vaw-project-tree-legend { margin-block: .75rem 0; line-height: 1.5; }
 .vaw-project-snapshots { margin-block-end: 1rem; }
+.vaw-folder-run { margin-block: 1rem; }
+.vaw-folder-run > label { display: grid; gap: .4rem; max-inline-size: 56rem; margin-block: .75rem; }
+.vaw-folder-run-parameters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: .75rem; border: 1px solid var(--vaw-color-border); border-radius: .35rem; padding: .75rem; }
+.vaw-folder-run-parameters label { display: grid; gap: .35rem; min-inline-size: 0; }
+.vaw-folder-run-parameters small { color: var(--vaw-color-muted); }
 .vaw-snapshot-list { display: grid; gap: .5rem; margin: .75rem 0; padding: 0; list-style: none; }
 .vaw-snapshot-list > li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; border: 1px solid var(--vaw-color-border); border-radius: .35rem; padding: .65rem .75rem; }
 .vaw-snapshot-list > li > div:first-child { display: flex; flex-wrap: wrap; align-items: baseline; gap: .45rem .8rem; min-inline-size: 0; }

@@ -10,6 +10,12 @@ public sealed record WorkflowRevision
     public WorkflowDefinition Definition { get; }
     public string ContentHash { get; }
 
+    /// <summary>Optional authoring provenance for runs started from a local source workspace.</summary>
+    public WorkflowRunProvenance? SourceProvenance { get; init; }
+
+    /// <summary>Optional captured presentation layout. It never affects executable content hashing.</summary>
+    public WorkflowLayout? Layout { get; init; }
+
     private WorkflowRevision(WorkflowDefinition definition, string author, Guid? parentRevisionId)
         : this(Guid.NewGuid(), definition, author, parentRevisionId, DateTimeOffset.UtcNow) { }
 

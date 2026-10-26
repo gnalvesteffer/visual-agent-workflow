@@ -80,6 +80,7 @@ builder.Services.AddSingleton(new StudioOpenWorkspaceStore(studioDataDirectory, 
 builder.Services.AddSingleton<StudioProjectSnapshotStore>();
 builder.Services.AddScoped<StudioProjectWorkspace>(services => new StudioProjectWorkspace(studioDataDirectory,
     services.GetRequiredService<StudioProjectStore>(), services.GetRequiredService<LocalWorkflowRuntime>()));
+builder.Services.AddScoped<StudioFolderWorkflowRunner>();
 var runStoreKind = builder.Configuration["WorkflowStudio:RunStore"] ?? "file";
 if (runStoreKind == "sqlite")
     builder.Services.AddSingleton<IWorkflowRunStore>(_ => new SqliteWorkflowRunStore(Path.Combine(studioDataDirectory, "runs.sqlite3")));

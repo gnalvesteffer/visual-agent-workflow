@@ -7,8 +7,8 @@ namespace VisualAgentWorkflow.Studio;
 public sealed record StudioFolderWorkflow(string WorkflowId, string DisplayName, string ContentHash,
     string RelativePath, WorkflowDefinition Definition, WorkflowLayout Layout);
 
-public sealed class StudioFolderWorkflowConflictException(string sourcePath)
-    : IOException($"Project source '{sourcePath}' changed in the project folder. Reload it before saving.");
+public sealed class StudioFolderWorkflowConflictException(string sourcePath, string? action = null)
+    : IOException(action ?? $"Project source '{sourcePath}' changed in the project folder. Reload it before saving.");
 
 /// <summary>Reads and saves draft workflow files as project source, without catalog publication history.</summary>
 public sealed class StudioFolderWorkflowSource(string projectDirectory)
