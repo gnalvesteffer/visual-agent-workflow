@@ -13,6 +13,43 @@ namespace VisualAgentWorkflow.Hosting.Tests;
 public sealed class GraphCanvasRenderingTests
 {
     [Fact]
+    public async Task AgentConnectionIsNotReportedUnavailableWhileProviderChoicesAreLoading()
+    {
+        var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.2" };
+        var definition = baseline with
+        {
+            EntryNodeId = "step-1",
+            Nodes = baseline.Nodes.SetItem("step-1", new(NodeTypes.Agent, "1.0.0",
+                Agent: new("connection.current", null, "Answer the question.", [])))
+        };
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+
+        var loadingHtml = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<WorkflowEditor>(ParameterView.FromDictionary(
+                new Dictionary<string, object?>
+                {
+                    [nameof(WorkflowEditor.Definition)] = definition,
+                    [nameof(WorkflowEditor.ProviderChoicesLoading)] = true
+                }));
+            return component.ToHtmlString();
+        });
+
+        Assert.Contains("Loading model connections", loadingHtml);
+        Assert.DoesNotContain("Model connection unavailable: connection.current", loadingHtml);
+
+        var completedHtml = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<WorkflowEditor>(ParameterView.FromDictionary(
+                new Dictionary<string, object?> { [nameof(WorkflowEditor.Definition)] = definition }));
+            return component.ToHtmlString();
+        });
+
+        Assert.Contains("Model connection unavailable: connection.current", completedHtml);
+    }
+
+    [Fact]
     public async Task RunningAgentNodeShowsRecordedUsageContextAndEstimatedCost()
     {
         var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.2" };

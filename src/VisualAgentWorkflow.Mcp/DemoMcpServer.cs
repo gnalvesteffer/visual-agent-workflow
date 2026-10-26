@@ -15,12 +15,13 @@ namespace VisualAgentWorkflow.Mcp;
 public static class DemoMcpServer
 {
     private const string ProtocolVersion = "2025-11-25";
+    public const string LatestProtocolVersion = "2026-07-28";
 
-    public static async Task RunAsync()
+    public static async Task RunAsync(string protocolVersion = ProtocolVersion)
     {
         var builder = Host.CreateApplicationBuilder();
         builder.Logging.ClearProviders();
-        builder.Services.AddMcpServer(options => options.ProtocolVersion = ProtocolVersion)
+        builder.Services.AddMcpServer(options => options.ProtocolVersion = protocolVersion)
             .WithStdioServerTransport().WithTools<TextTools>();
         await builder.Build().RunAsync();
     }

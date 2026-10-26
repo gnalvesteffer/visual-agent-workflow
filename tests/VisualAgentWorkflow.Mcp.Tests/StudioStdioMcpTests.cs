@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
+using ModelContextProtocol.Client;
 using VisualAgentWorkflow.Blazor;
 using VisualAgentWorkflow.Core;
 using VisualAgentWorkflow.Mcp;
@@ -83,6 +84,49 @@ public sealed class StudioStdioMcpTests : IDisposable
         Assert.DoesNotContain("vaw-command-that-does-not-exist", result.Error, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task StdioConnectionNegotiatesTheCurrentDiscoverProtocol()
+    {
+        var services = new ServiceCollection();
+        services.AddDataProtection();
+        using var serviceProvider = services.BuildServiceProvider();
+        var protection = serviceProvider.GetRequiredService<IDataProtectionProvider>();
+        var policy = new StudioToolPolicy();
+        var broker = new McpToolBroker([], policy, TimeSpan.FromSeconds(20));
+        var library = new StudioMcpLibrary(directory, protection, broker, policy, []);
+        var draft = new StudioMcpConnectionDraft("stdio-modern", "Modern stdio fixture", "Tests", StudioMcpTransport.Stdio,
+            "", "", DotnetExecutable(), [StudioExecutable(), "--mcp-demo-server-2026"], "",
+            new Dictionary<string, string>());
+
+        var legacyTransport = new StdioClientTransport(new StdioClientTransportOptions
+        {
+            Name = "Pinned legacy protocol negative control",
+            Command = draft.Command,
+            Arguments = draft.Arguments.ToList(),
+            InheritEnvironmentVariables = false,
+            EnvironmentVariables = new Dictionary<string, string?> { ["DOTNET_ROOT"] = DotnetRoot() }
+        });
+        var legacyFailure = await Assert.ThrowsAnyAsync<Exception>(() => McpClient.CreateAsync(legacyTransport,
+            new McpClientOptions { ProtocolVersion = "2025-11-25" }));
+        Assert.Contains("initialize", legacyFailure.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("2026-07-28", legacyFailure.ToString(), StringComparison.Ordinal);
+
+        var discovered = await library.DiscoverAsync(draft);
+        var reverse = Assert.Single(discovered, tool => tool.Name == "reverse");
+        Assert.True(reverse.IsSupported, reverse.RejectionReason);
+
+        library.Save(draft, ["reverse"]);
+        var definition = WorkflowEditing.ReplaceNode(WorkflowTemplates.Create("uppercase"), "step-1",
+            new(NodeTypes.McpTool, "1.0.0", new ToolBindingRequest(reverse.BindingId, reverse.ContractHash)
+                { DescriptionHash = reverse.DescriptionHash }));
+        var revision = WorkflowRevision.Create(definition, "modern stdio integration");
+        var invocation = new NodeInvocationContext(Guid.NewGuid(), revision, "step-1", Guid.NewGuid(),
+            (_, _) => ValueTask.CompletedTask);
+        await using var scope = broker.OpenScope(invocation);
+
+        Assert.Equal("elpmis", await scope.InvokeAsync("stdio-modern.reverse", "simple"));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
@@ -90,9 +134,13 @@ public sealed class StudioStdioMcpTests : IDisposable
 
     private static string DotnetExecutable()
     {
+        return Path.Combine(DotnetRoot(), OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+    }
+
+    private static string DotnetRoot()
+    {
         var runtime = new DirectoryInfo(RuntimeEnvironment.GetRuntimeDirectory());
-        var dotnetRoot = runtime.Parent!.Parent!.Parent!;
-        return Path.Combine(dotnetRoot.FullName, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+        return runtime.Parent!.Parent!.Parent!.FullName;
     }
 
     private static string StudioExecutable()

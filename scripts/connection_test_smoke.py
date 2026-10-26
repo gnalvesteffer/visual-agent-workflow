@@ -165,8 +165,19 @@ def run(dotnet, browser_executable, mcp_only=False):
                         expect(provider_card.get_by_role("status")).to_contain_text("Connection succeeded")
                         saved_providers = json.dumps(request_json(base, "/api/settings/model-providers"))
                         assert "openai.primary" in saved_providers and key not in saved_providers
+                        provider_catalog = request_json(base, "/api/agent-providers")
+                        assert any(item["providerId"] == "openai.primary" and item["modelId"] == "fixture-model"
+                                   for item in provider_catalog), \
+                            f"A saved model connection must be exposed by the agent provider catalog: {provider_catalog}"
                         assert len(state["requests"]) == 2
 
+                        # Verify the same saved connection reaches the actual project editor,
+                        # not just the settings store or its test-request path.
+                        page.goto(base + "/projects/default")
+                        page.get_by_role("heading", name="Workflow designer", exact=True).wait_for()
+                        page.locator("select[aria-label='New node operation'] option[value='agent:openai.primary']").first.wait_for(state="attached")
+
+                        page.goto(base + "/settings")
                         provider_card.get_by_role("button", name="Edit connection", exact=True).click()
                         expect(page.get_by_role("heading", name="Edit model connection", exact=True)).to_be_visible()
                         expect(page.get_by_label("Model ID", exact=False)).to_have_value("fixture-model")

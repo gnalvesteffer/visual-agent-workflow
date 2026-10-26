@@ -471,8 +471,10 @@
                                 @if (node.Tool is { } pinned && !Bindings.Any(b => BindingMatches(pinned, b)))
                                 { <option value="@NodeKey(node)">Pinned MCP binding @ToolBindingStatus(pinned): @pinned.BindingId</option> }
                                 @foreach (var binding in Bindings) { <option @key="ToolKey(binding)" value="@ToolKey(binding)">@binding.DisplayName</option> }
-                                @if (node.Agent is { } pinnedAgent && !Providers.Any(p => p.ProviderId == pinnedAgent.ProviderId))
-                                { <option value="@NodeKey(node)">Model connection unavailable: @pinnedAgent.ProviderId</option> }
+                                @if (node.Agent is { } pinnedAgent && ProviderChoicesLoading && !Providers.Any(p => p.ProviderId == pinnedAgent.ProviderId))
+                                { <option value="@NodeKey(node)">Loading model connections…</option> }
+                                else if (node.Agent is { } unavailableAgent && !Providers.Any(p => p.ProviderId == unavailableAgent.ProviderId))
+                                { <option value="@NodeKey(node)">Model connection unavailable: @unavailableAgent.ProviderId</option> }
                                 @if (!GuardedTool(id))
                                 { @foreach (var provider in Providers) { <option @key="ProviderKey(provider)" value="@ProviderKey(provider)">@provider.DisplayName</option> } }
                             </select>
@@ -713,6 +715,7 @@
     }
     [Parameter] public IReadOnlyList<ToolBindingDescriptor> Bindings { get; set; } = [];
     [Parameter] public IReadOnlyList<AgentProviderDescriptor> Providers { get; set; } = [];
+    [Parameter] public bool ProviderChoicesLoading { get; set; }
     [Parameter] public ISkillLibrary? SkillLibrary { get; set; }
     [Parameter] public IAgentProfileLibrary? AgentProfileLibrary { get; set; }
     [Parameter] public IGraphFunctionCatalog? FunctionCatalog { get; set; }

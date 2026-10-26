@@ -273,8 +273,13 @@ public sealed class StudioMcpLibrary
             EnvironmentVariables = environment.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal),
             ShutdownTimeout = TimeSpan.FromSeconds(ProcessShutdownTimeoutSeconds)
         });
-        return McpClient.CreateAsync(transport,
-            new McpClientOptions { ProtocolVersion = "2025-11-25" }, cancellationToken: cancellationToken);
+        // Prefer the current MCP protocol while retaining SDK fallback to initialize-capable
+        // servers. Pinning 2025-11-25 here made newer servers fail with "initialize is not
+        // available" after they moved to the 2026-07-28 discover/per-request-metadata protocol.
+        return McpClient.CreateAsync(transport, new McpClientOptions
+        {
+            InitializationTimeout = TimeSpan.FromSeconds(ConnectionTimeoutSeconds)
+        }, cancellationToken: cancellationToken);
     }
 
     private static async Task<McpClient> ConnectHttp(StudioMcpConnectionDraft draft, CancellationToken cancellationToken)

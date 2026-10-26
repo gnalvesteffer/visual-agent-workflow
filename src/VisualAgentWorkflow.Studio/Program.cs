@@ -9,6 +9,12 @@ using VisualAgentWorkflow.Studio;
 using VisualAgentWorkflow.Mcp;
 using VisualAgentWorkflow.AgentFramework;
 
+if (args.Contains("--mcp-demo-server-2026", StringComparer.Ordinal))
+{
+    await DemoMcpServer.RunAsync(DemoMcpServer.LatestProtocolVersion);
+    return;
+}
+
 if (args.Contains("--mcp-demo-server", StringComparer.Ordinal))
 {
     await DemoMcpServer.RunAsync();
