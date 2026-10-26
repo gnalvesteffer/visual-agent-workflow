@@ -127,7 +127,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         var configuredTimeout = configuration.TimeoutSeconds is { } timeoutSeconds
             ? TimeSpan.FromSeconds(timeoutSeconds)
             : provider.InvocationTimeout;
-        var effectiveTimeout = configuredTimeout <= provider.InvocationTimeout ? configuredTimeout : provider.InvocationTimeout;
+        var effectiveTimeout = configuredTimeout;
         deadline.Start(effectiveTimeout);
         await Record(ExecutionEventKinds.AgentStarted, new
         {

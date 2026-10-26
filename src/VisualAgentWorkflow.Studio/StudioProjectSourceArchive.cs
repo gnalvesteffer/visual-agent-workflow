@@ -203,6 +203,16 @@ public static class StudioProjectSourceArchive
         return basePath[..^5] + "-" + contentHash.ToLowerInvariant() + ".json";
     }
 
+    public static string VersionedAssetPath(string directory, string id, string version, string contentHash)
+    {
+        if (directory is not ("agents" or "functions"))
+            throw new ArgumentException("A supported project asset directory is required.", nameof(directory));
+        if (contentHash is null || contentHash.Length != 64 || !contentHash.All(Uri.IsHexDigit))
+            throw new ArgumentException("A SHA-256 content hash is required.", nameof(contentHash));
+        var basePath = AssetPath(directory, id, version);
+        return basePath[..^5] + "-" + contentHash.ToLowerInvariant() + ".json";
+    }
+
     public static string SerializeSkillAsset(SkillLibraryItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
@@ -217,6 +227,38 @@ public static class StudioProjectSourceArchive
         RejectDuplicateProperties(document.RootElement);
         return JsonSerializer.Deserialize<SkillLibraryItem>(bytes, JsonOptions)
             ?? throw new InvalidDataException("Project skill is empty.");
+    }
+
+    public static string SerializeAgentProfileAsset(AgentProfileLibraryItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        return JsonSerializer.Serialize(item, JsonOptions).Replace("\r\n", "\n", StringComparison.Ordinal);
+    }
+
+    public static AgentProfileLibraryItem DeserializeAgentProfileAsset(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length is <= 0 or > MaximumFileBytes)
+            throw new InvalidDataException("Project agent profile size is outside the supported limit.");
+        using var document = JsonDocument.Parse(bytes.ToArray(), new JsonDocumentOptions { MaxDepth = 32 });
+        RejectDuplicateProperties(document.RootElement);
+        return JsonSerializer.Deserialize<AgentProfileLibraryItem>(bytes, JsonOptions)
+            ?? throw new InvalidDataException("Project agent profile is empty.");
+    }
+
+    public static string SerializeGraphFunctionAsset(GraphFunctionCatalogEntry item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        return JsonSerializer.Serialize(item, JsonOptions).Replace("\r\n", "\n", StringComparison.Ordinal);
+    }
+
+    public static GraphFunctionCatalogEntry DeserializeGraphFunctionAsset(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length is <= 0 or > MaximumFileBytes)
+            throw new InvalidDataException("Project graph function size is outside the supported limit.");
+        using var document = JsonDocument.Parse(bytes.ToArray(), new JsonDocumentOptions { MaxDepth = 64 });
+        RejectDuplicateProperties(document.RootElement);
+        return JsonSerializer.Deserialize<GraphFunctionCatalogEntry>(bytes, JsonOptions)
+            ?? throw new InvalidDataException("Project graph function is empty.");
     }
 
     public static string ComputeManifestHash(StudioProjectManifest manifest) =>
@@ -317,17 +359,18 @@ public static class StudioProjectSourceArchive
             }
             case "agent-profile":
             {
-                var item = JsonSerializer.Deserialize<AgentProfileLibraryItem>(content, JsonOptions);
+                var item = DeserializeAgentProfileAsset(content);
                 if (item?.Profile is not { } profile || profile.Id != file.Id || profile.Version != file.Version ||
                     !ValidFolder(item.Folder) || profile.ContentHash != AgentProfile.Create(profile.Id, profile.Version,
                         profile.Name, profile.Description, profile.ProviderId, profile.ProviderVersion, profile.Instructions,
-                        profile.Tools, profile.Skills, profile.ReasoningEffort, profile.MaxOutputTokens, profile.Channels).ContentHash)
+                        profile.Tools, profile.Skills, profile.ReasoningEffort, profile.MaxOutputTokens, profile.Channels).ContentHash ||
+                    !IsValidAgentProfile(profile, item.Folder))
                     throw new InvalidDataException($"Project agent profile '{file.Path}' is invalid or does not match its manifest entry.");
                 break;
             }
             case "graph-function":
             {
-                var item = JsonSerializer.Deserialize<GraphFunctionCatalogEntry>(content, JsonOptions);
+                var item = DeserializeGraphFunctionAsset(content);
                 if (item?.Function is not { } function ||
                     !int.TryParse(file.Version, System.Globalization.CultureInfo.InvariantCulture, out var version) ||
                     function.Definition.FunctionId != file.Id || function.Definition.Version != version ||
@@ -337,6 +380,16 @@ public static class StudioProjectSourceArchive
                 break;
             }
         }
+    }
+
+    private static bool IsValidAgentProfile(AgentProfile profile, string folder)
+    {
+        try
+        {
+            StudioAgentProfileLibrary.Validate(profile, folder);
+            return true;
+        }
+        catch (ArgumentException) { return false; }
     }
 
     private static bool ValidFolder(string? folder) => folder is not null && folder.Length <= 256 &&

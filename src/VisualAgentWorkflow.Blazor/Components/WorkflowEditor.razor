@@ -480,7 +480,7 @@
                             <label>Agent timeout in seconds
                                 <input aria-label="Agent timeout in seconds for @id" type="number" min="1" step="1" value="@agent.TimeoutSeconds" placeholder="Host default" @onchange="args => AgentTimeout(id, args)" disabled="@Disabled" />
                             </label>
-                            <p class="vaw-help">Any positive whole number of seconds. Blank uses the model connection's timeout; the connection timeout remains the hard upper bound.</p>
+                            <p class="vaw-help">Any positive whole number of seconds. This node timeout takes priority over the model connection default. Blank uses the connection timeout.</p>
                         }
                         else
                         {

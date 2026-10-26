@@ -277,6 +277,40 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
     }
 
     [Fact]
+    public void FolderAgentProfileSource_SavesImmutableProfileAndExposesItOnlyToFolderConsumers()
+    {
+        var folder = Path.Combine(directory, "folder-agent-profiles");
+        var manifest = new StudioProjectManifest("1.0", "folder-agents", "Folder agents", []);
+        StudioProjectSourceDirectory.Write(folder, manifest, new Dictionary<string, byte[]>());
+        var source = new StudioFolderAgentProfileSource(folder);
+        var catalog = new StudioAgentProfileLibrary(Path.Combine(directory, "catalog-agent-profiles"));
+        var original = AgentProfile.Create("review-agent", "1.0.0", "Review agent", "Reviews a request.",
+            "model.primary", providerVersion: null, "Review the supplied request.", ImmutableArray<ToolBindingRequest>.Empty,
+            ImmutableArray<WorkflowSkill>.Empty);
+        var first = source.SaveNewVersion(original, "Agents/Review", StudioProjectSourceArchive.ComputeManifestHash(manifest));
+
+        var revised = AgentProfile.Create("review-agent", "2.0.0", "Review agent", "Reviews and summarizes a request.",
+            "model.primary", providerVersion: null, "Review the supplied request and return a concise summary.", ImmutableArray<ToolBindingRequest>.Empty,
+            ImmutableArray<WorkflowSkill>.Empty);
+        var second = source.SaveNewVersion(revised, "Agents/Review", StudioProjectSourceArchive.ComputeManifestHash(
+            StudioProjectSourceDirectory.Read(folder).Manifest));
+        var (currentManifest, currentFiles) = StudioProjectSourceDirectory.Read(folder);
+
+        Assert.Equal(new[] { "1.0.0", "2.0.0" }, source.List().Select(profile => profile.Item.Profile.Version).OrderBy(version => version));
+        Assert.NotEqual(first.RelativePath, second.RelativePath);
+        Assert.Contains(currentManifest.Files, file => file.Path == first.RelativePath);
+        Assert.Equal(second.ContentHash, StudioProjectSourceArchive.ComputeContentHash(currentFiles[second.RelativePath]));
+        Assert.Contains(((IAgentProfileLibrary)source).List(), item => item.Profile.ContentHash == second.Item.Profile.ContentHash);
+        Assert.Empty(catalog.List());
+        Assert.Throws<ArgumentException>(() => source.SaveNewVersion(revised, "Agents/Review",
+            StudioProjectSourceArchive.ComputeManifestHash(currentManifest)));
+        Assert.Throws<StudioFolderAgentProfileConflictException>(() => source.SaveNewVersion(
+            AgentProfile.Create("review-agent", "3.0.0", "Review agent", "Stale write.", "model.primary", null,
+                "Review the supplied request.", ImmutableArray<ToolBindingRequest>.Empty),
+            "Agents/Review", StudioProjectSourceArchive.ComputeManifestHash(manifest)));
+    }
+
+    [Fact]
     public void DeserializeManifest_RejectsDuplicateProperties()
     {
         var json = """

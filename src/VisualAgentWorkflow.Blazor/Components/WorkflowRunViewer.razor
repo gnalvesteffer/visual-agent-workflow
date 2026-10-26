@@ -41,20 +41,10 @@
                 @if (node.Type == NodeTypes.Agent && AgentMetrics(nodeId) is { } metrics)
                 {
                     <div class="vaw-agent-metrics" aria-label="Agent usage statistics">
-                        @if (metrics.ResponseCount == 0)
-                        {
-                            <span>Waiting for usage</span>
-                        }
+                        @if (metrics.ResponseCount == 0) { <span>Waiting for provider usage</span> }
                         else
                         {
                             <span>Tokens · @metrics.InputTokens.ToString("N0") in / @metrics.OutputTokens.ToString("N0") out</span>
-                            @if (metrics.ContextWindowTokens is { } contextWindow && metrics.LatestInputTokens is { } contextInput)
-                            {
-                                var percent = Math.Clamp((int)Math.Round(contextInput * 100d / contextWindow), 0, 100);
-                                <label>Context · @contextInput.ToString("N0") / @contextWindow.ToString("N0") (@percent%)
-                                    <progress max="100" value="@percent" aria-label="Latest prompt context usage"></progress>
-                                </label>
-                            }
                             @if (metrics.CostIsComplete && metrics.ResponseCount > 0)
                             {
                                 <span>Estimated cost · $@metrics.EstimatedCost.ToString("0.000000")</span>
@@ -63,8 +53,26 @@
                             {
                                 <span>Cost estimate · unavailable (configure prices and token usage)</span>
                             }
-                            @if (metrics.ModelId is { Length: > 0 } modelId) { <small>@modelId</small> }
                         }
+                        @if (metrics.ContextWindowTokens is { } contextWindow && metrics.LatestInputTokens is { } contextInput)
+                        {
+                            var percent = Math.Clamp((int)Math.Round(contextInput * 100d / contextWindow), 0, 100);
+                            <label>@(metrics.ModelRequestInFlight ? "Last completed context" : "Context") · @contextInput.ToString("N0") / @contextWindow.ToString("N0") (@percent%)
+                                <progress max="100" value="@percent" aria-label="Latest provider-reported prompt context usage"></progress>
+                            </label>
+                        }
+                        else if (metrics.ContextWindowTokens is { } configuredWindow)
+                        {
+                            <span>Context window · @configuredWindow.ToString("N0") tokens; prompt usage pending</span>
+                        }
+                        else
+                        {
+                            <span>Context window · not configured in this model connection</span>
+                        }
+                        @if (metrics.ModelRequestInFlight) { <span>Model request in progress · current usage updates when it responds</span> }
+                        <span>Host context compactions · @metrics.CompactionCount</span>
+                        <small>Provider-internal compactions are not observable.</small>
+                        @if (metrics.ModelId is { Length: > 0 } modelId) { <small>@modelId</small> }
                     </div>
                 }
                 @if (BranchPort(nodeId) is { } chosenPort) { <p class="vaw-help">Selected output: @chosenPort</p> }
@@ -279,7 +287,8 @@
     }
 
     private sealed record AgentUsageStatistics(long InputTokens, long OutputTokens, int ResponseCount,
-        long? LatestInputTokens, int? ContextWindowTokens, decimal EstimatedCost, bool CostIsComplete, string? ModelId);
+        long? LatestInputTokens, int? ContextWindowTokens, decimal EstimatedCost, bool CostIsComplete, string? ModelId,
+        bool ModelRequestInFlight, int CompactionCount);
 
     private AgentUsageStatistics? AgentMetrics(string nodeId)
     {
@@ -291,12 +300,18 @@
             (evt.InvocationId == invocation || IsDelegatedInvocation(evt, invocation))).ToArray();
         var providers = agentStarts.Where(evt => evt.InvocationId is not null)
             .ToDictionary(evt => evt.InvocationId!.Value, ProviderUsageFromAgentStart);
-        var responses = RootEvents.Where(evt => evt.NodeId == nodeId && evt.Kind == ExecutionEventKinds.ModelResponded &&
+        var modelEvents = RootEvents.Where(evt => evt.NodeId == nodeId &&
             evt.InvocationId is { } responseInvocation && providers.ContainsKey(responseInvocation)).ToArray();
+        var responses = modelEvents.Where(evt => evt.Kind == ExecutionEventKinds.ModelResponded).ToArray();
+        var requests = modelEvents.Where(evt => evt.Kind == ExecutionEventKinds.ModelRequested).ToArray();
+        var responseCallIds = responses.Select(ModelCallId).Where(id => id is not null).ToHashSet(StringComparer.Ordinal);
+        var requestInFlight = requests.Any(request => ModelCallId(request) is { } callId && !responseCallIds.Contains(callId));
+        var compactionCount = modelEvents.Count(evt => evt.Kind == ExecutionEventKinds.AgentContextCompacted);
         if (responses.Length == 0)
         {
             var rootProvider = providers.GetValueOrDefault(invocation.Value);
-            return rootProvider is null ? null : new(0, 0, 0, null, rootProvider.ContextWindowTokens, 0, false, rootProvider.ModelId);
+            return rootProvider is null ? null : new(0, 0, 0, null, rootProvider.ContextWindowTokens, 0, false,
+                rootProvider.ModelId, requestInFlight, compactionCount);
         }
 
         long inputTokens = 0;
@@ -326,8 +341,13 @@
                 costComplete = false;
         }
 
-        return new(inputTokens, outputTokens, responses.Length, latestInputTokens, contextWindow, estimatedCost, costComplete, modelId);
+        return new(inputTokens, outputTokens, responses.Length, latestInputTokens, contextWindow, estimatedCost, costComplete,
+            modelId, requestInFlight, compactionCount);
     }
+
+    private static string? ModelCallId(ExecutionEvent evt) =>
+        TryParse(evt.Data, out var root) && TryGet(root, "modelCallId", out var callId) && callId.ValueKind == JsonValueKind.String
+            ? callId.GetString() : null;
 
     private sealed record ProviderUsage(int? ContextWindowTokens, decimal? InputCostPerMillionTokens,
         decimal? OutputCostPerMillionTokens, string? ModelId);

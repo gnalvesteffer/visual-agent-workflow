@@ -75,7 +75,7 @@ public sealed class StudioAgentProfileLibrary : IAgentProfileLibrary
             profile.ProviderId, profile.ProviderVersion, profile.Instructions, profile.Tools, profile.Skills,
             profile.ReasoningEffort, profile.MaxOutputTokens, profile.Channels).ContentHash;
 
-    private static void Validate(AgentProfile profile, string folder)
+    internal static void Validate(AgentProfile profile, string folder)
     {
         if (profile is null || !IsIntact(profile) || string.IsNullOrWhiteSpace(profile.Id) || profile.Id.Length > 64 ||
             string.IsNullOrWhiteSpace(profile.Version) || profile.Version.Length > 64 || profile.Version.Contains('@') ||

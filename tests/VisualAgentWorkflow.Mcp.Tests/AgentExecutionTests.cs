@@ -63,20 +63,20 @@ public class AgentExecutionTests
     }
 
     [Fact]
-    public async Task AgentTimeoutCanExceedFormer120SecondLimitWithinConnectionMaximum()
+    public async Task AgentTimeoutOverridesShorterModelConnectionDefault()
     {
         var baseline = Revision().Definition;
         var node = baseline.Nodes["step-1"];
         var definition = baseline with
         {
             SchemaVersion = "1.21",
-            Nodes = baseline.Nodes.SetItem("step-1", node with { Agent = node.Agent! with { TimeoutSeconds = 150 } })
+            Nodes = baseline.Nodes.SetItem("step-1", node with { Agent = node.Agent! with { TimeoutSeconds = 300 } })
         };
         var events = new List<ExecutionEvent>();
         var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
         var provider = DeterministicDemoChatClient.Registration() with
         {
-            InvocationTimeout = TimeSpan.FromSeconds(180),
+            InvocationTimeout = TimeSpan.FromSeconds(120),
             Create = () => new CallbackClient((_, _, _) => Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "complete"))
                 { FinishReason = ChatFinishReason.Stop }))
         };
@@ -87,7 +87,7 @@ public class AgentExecutionTests
 
         Assert.Equal("complete", result);
         using var started = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentStarted).Data!);
-        Assert.Equal(150, started.RootElement.GetProperty("timeoutSeconds").GetDouble());
+        Assert.Equal(300, started.RootElement.GetProperty("timeoutSeconds").GetDouble());
     }
 
     [Fact]

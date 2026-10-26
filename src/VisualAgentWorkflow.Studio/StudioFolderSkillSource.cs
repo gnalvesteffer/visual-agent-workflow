@@ -10,7 +10,7 @@ public sealed class StudioFolderSkillConflictException(string sourcePath)
     : IOException($"Project source '{sourcePath}' changed in the project folder. Reload it before saving.");
 
 /// <summary>Reads and adds immutable skill revisions directly to a project folder without catalog writes.</summary>
-public sealed class StudioFolderSkillSource(string projectDirectory)
+public sealed class StudioFolderSkillSource(string projectDirectory) : ISkillLibrary
 {
     private readonly string root = Path.GetFullPath(projectDirectory);
 
@@ -24,6 +24,8 @@ public sealed class StudioFolderSkillSource(string projectDirectory)
             .ThenBy(skill => skill.Item.Skill.Version, StringComparer.Ordinal)
             .ToArray();
     }
+
+    IReadOnlyList<SkillLibraryItem> ISkillLibrary.List() => List().Select(skill => skill.Item).ToArray();
 
     public StudioFolderSkill SaveNewVersion(string id, string version, string name, string instructions, string folder,
         string expectedManifestHash)

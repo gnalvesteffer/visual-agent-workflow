@@ -7,7 +7,7 @@
             {
                 <li @key="child.Name + child.File?.Path">
                     <ProjectFileTreeItem Node="@child" SelectedPath="@SelectedPath" WorkflowNames="@WorkflowNames"
-                        CanOpenFiles="@CanOpenFiles" OnOpenWorkflow="@OnOpenWorkflow" OnOpenSkill="@OnOpenSkill" />
+                        CanOpenFiles="@CanOpenFiles" OnOpenWorkflow="@OnOpenWorkflow" OnOpenSkill="@OnOpenSkill" OnOpenAgentProfile="@OnOpenAgentProfile" />
                 </li>
             }
         </ul>
@@ -33,6 +33,16 @@ else if (Node.File is { Kind: "skill" } skillFile)
         <span class="vaw-project-tree-file-name">@Node.Name</span>
     </button>
 }
+else if (Node.File is { Kind: "agent-profile" } profileFile)
+{
+    var selected = profileFile.Path == SelectedPath;
+    <button type="button" class="vaw-project-tree-file @(selected ? "is-selected" : "")"
+            aria-current="@(selected ? "page" : "false")" aria-label="@($"Edit agent profile {Node.Name}")" title="@profileFile.Path"
+            disabled="@(!CanOpenFiles)" @onclick="() => OnOpenAgentProfile.InvokeAsync(profileFile)">
+        <span class="vaw-project-tree-icon" aria-hidden="true">A</span>
+        <span class="vaw-project-tree-file-name">@Node.Name</span>
+    </button>
+}
 else if (Node.File is { } readOnlyFile)
 {
     <span class="vaw-project-tree-file is-read-only" aria-label="@($"{AssetLabel(readOnlyFile.Kind)} {Node.Name}, read only")"
@@ -49,6 +59,7 @@ else if (Node.File is { } readOnlyFile)
     [Parameter] public bool CanOpenFiles { get; set; }
     [Parameter] public EventCallback<string> OnOpenWorkflow { get; set; }
     [Parameter] public EventCallback<StudioProjectFile> OnOpenSkill { get; set; }
+    [Parameter] public EventCallback<StudioProjectFile> OnOpenAgentProfile { get; set; }
 
     private static string AssetIcon(string kind) => kind switch
     {
@@ -63,7 +74,7 @@ else if (Node.File is { } readOnlyFile)
     private static string ReadOnlyMessage(string kind) => kind switch
     {
         "skill" => "Skill files are editable as new immutable revisions.",
-        "agent-profile" => "Agent preset files are visible but not editable in folder mode yet.",
+        "agent-profile" => "Agent profile revisions are editable as new immutable source versions.",
         "graph-function" => "Graph function files are visible but not editable in folder mode yet.",
         _ => "This project asset is visible but not editable in folder mode yet."
     };

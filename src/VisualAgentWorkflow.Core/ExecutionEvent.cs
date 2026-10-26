@@ -73,4 +73,5 @@ public static class ExecutionEventKinds
     public const string AgentGraphFunctionFailed = "agent.graph-function.failed";
     public const string ModelRequested = "model.requested";
     public const string ModelResponded = "model.responded";
+    public const string AgentContextCompacted = "agent.context_compacted";
 }
