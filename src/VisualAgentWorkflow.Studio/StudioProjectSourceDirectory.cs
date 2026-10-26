@@ -14,13 +14,27 @@ public static class StudioProjectSourceDirectory
 
         var manifestPath = Path.Combine(root, StudioProjectSourceArchive.ManifestFileName);
         RejectReparsePoint(manifestPath);
-        var manifest = StudioProjectSourceArchive.DeserializeManifest(ReadBounded(manifestPath));
+        var manifestBytes = ReadBounded(manifestPath, StudioProjectSourceArchive.MaximumFileBytes,
+            "The project manifest exceeds the supported size.");
+        var manifest = StudioProjectSourceArchive.DeserializeManifest(manifestBytes);
+        long totalBytes = manifestBytes.Length;
         var files = new SortedDictionary<string, byte[]>(StringComparer.Ordinal);
         foreach (var asset in manifest.Files)
         {
             var assetPath = ResolvePath(root, asset.Path);
             RejectPathLinks(root, assetPath);
-            files.Add(asset.Path, ReadBounded(assetPath));
+            var assetInfo = new FileInfo(assetPath);
+            if (!assetInfo.Exists) throw new InvalidDataException($"Required project source file '{asset.Path}' is missing.");
+            if (assetInfo.Length > StudioProjectSourceArchive.MaximumFileBytes)
+                throw new InvalidDataException("A project source file exceeds the supported size.");
+            if (totalBytes + assetInfo.Length > StudioProjectSourceArchive.MaximumArchiveBytes)
+                throw new InvalidDataException("Project source folder exceeds the supported aggregate size.");
+
+            var remainingBytes = StudioProjectSourceArchive.MaximumArchiveBytes - checked((int)totalBytes);
+            var content = ReadBounded(assetPath, Math.Min(StudioProjectSourceArchive.MaximumFileBytes, remainingBytes),
+                "Project source folder exceeds the supported aggregate size.");
+            totalBytes += content.Length;
+            files.Add(asset.Path, content);
         }
 
         var validationArchive = StudioProjectSourceArchive.CreateArchive(manifest, files);
@@ -56,7 +70,7 @@ public static class StudioProjectSourceDirectory
         }
     }
 
-    private static string ResolvePath(string root, string relativePath)
+    internal static string ResolvePath(string root, string relativePath)
     {
         var candidate = Path.GetFullPath(Path.Combine(root,
             relativePath.Replace('/', Path.DirectorySeparatorChar)));
@@ -66,7 +80,7 @@ public static class StudioProjectSourceDirectory
         return candidate;
     }
 
-    private static void RejectPathLinks(string root, string path)
+    internal static void RejectPathLinks(string root, string path)
     {
         var relative = Path.GetRelativePath(root, path);
         var current = root;
@@ -77,21 +91,42 @@ public static class StudioProjectSourceDirectory
         }
     }
 
+    internal static void EnsureSafeDirectories(string root, string directory)
+    {
+        var relative = Path.GetRelativePath(root, directory);
+        if (Path.IsPathRooted(relative) || relative == ".." || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            throw new InvalidDataException("A project source directory resolves outside the project folder.");
+        var current = root;
+        foreach (var segment in relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, segment);
+            if (Directory.Exists(current)) RejectReparsePoint(current);
+            else Directory.CreateDirectory(current);
+        }
+    }
+
     private static void RejectReparsePoint(string path)
     {
         if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
             throw new InvalidDataException("Project source files must not be symbolic links or reparse points.");
     }
 
-    private static byte[] ReadBounded(string path)
+    internal static byte[] ReadBounded(string path, int maximumBytes, string sizeError)
     {
         var info = new FileInfo(path);
         if (!info.Exists) throw new InvalidDataException($"Required project source file '{Path.GetFileName(path)}' is missing.");
-        if (info.Length is <= 0 or > StudioProjectSourceArchive.MaximumFileBytes)
-            throw new InvalidDataException("A project source file exceeds the supported size.");
-        using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        using var output = new MemoryStream((int)info.Length);
-        input.CopyTo(output);
+        if (info.Length <= 0 || info.Length > maximumBytes) throw new InvalidDataException(sizeError);
+        using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        var openedLength = input.Length;
+        if (openedLength <= 0 || openedLength > maximumBytes) throw new InvalidDataException(sizeError);
+        using var output = new MemoryStream((int)openedLength);
+        var buffer = new byte[64 * 1024];
+        int read;
+        while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            if (output.Length + read > maximumBytes) throw new InvalidDataException(sizeError);
+            output.Write(buffer, 0, read);
+        }
         if (output.Length != info.Length) throw new InvalidDataException("A project source file changed while it was being read.");
         return output.ToArray();
     }

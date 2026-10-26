@@ -2,11 +2,11 @@
 
 ## Current implementation
 
-Studio currently offers a local project registry and project selection. Workflows live in a project-scoped SQLite catalog; skills, agent profiles, and graph functions use JSON catalogs. The project registry and catalog roots are under the Studio data directory. This is a local single-operator prototype, not a portable folder/Git project format.
+Studio offers a local project registry and project selection for catalog-backed projects. Those workflows live in a project-scoped SQLite catalog; skills, agent profiles, and graph functions use JSON catalogs under the Studio data directory. This is a local single-operator prototype, not a full portable folder/Git workspace. A separate single-root folder mode now edits manifest-indexed workflow source files directly, as described below.
 
 The Projects page offers **Download source snapshot** and **Import as new project**. The deterministic `.vawsrc.zip` contains a versioned `vaw.project.json` index with stable IDs and SHA-256 for each ordinary JSON asset. Workflow files use a source-only definition/layout format that accepts disconnected drafts; skills, agent profiles, and graph functions are separate JSON assets. The bounded archive reader rejects unsafe or case-colliding paths, duplicate manifest entries, unlisted/missing files, hash mismatches, and oversized content without extracting files. Import validates all content before creating a new project, then restores definitions/layouts and reusable assets. It does not overwrite or merge into an existing project. Tests verify deterministic export, round trips, and isolated project import.
 
-The Studio also has a bounded source-directory reader/writer for the same manifest and asset format. It validates directory content through the archive contract, rejects symbolic links/reparse points and oversized files, writes a `.gitignore` for `.vaw/`, and refuses to overwrite an existing destination. This is a tested format adapter only: the Studio UI and active catalogs still read and write the local SQLite/JSON catalogs, and opening a folder as a live project is not implemented yet.
+The Studio has a bounded source-directory reader/writer for the same manifest and asset format. It validates directory content through the archive contract, rejects symbolic links/reparse points and oversized files, writes a `.gitignore` for `.vaw/`, and refuses to overwrite an existing destination. The **Open folder** page now opens one explicitly entered absolute path, lists manifest-indexed files, and edits workflow definition/layout source directly. Workflow source uses immutable content-addressed JSON files and an atomically replaced manifest pointer; stale manifest/workflow hashes reject a save. Old content-addressed files are retained so concurrent readers of an earlier manifest can finish. This is a single-root vertical slice: the page does not yet provide a hierarchical tree, remember roots, watch external edits, or edit skills, agent profiles, and graph functions. It does not publish catalog revisions or run workflows. The editor still uses the host's provider/MCP catalogs to populate agent configuration. Runs remain in the host-level run store.
 
 The first access to the deterministic Default Project copies a legacy workflow database with SQLite backup and copies legacy JSON libraries, preserving the source files. Existing tests verify migrated workflow definitions, revision IDs and hashes, layouts, generations, head/active pointers, audit order, and skills. Model-provider and MCP registrations, endpoints, protected credentials, grants, and run history are host-wide. Project selection does not authorize runtime capabilities.
 
@@ -39,7 +39,7 @@ Studio keeps its configurable run store in app-local host data outside portable 
 
 ## Consumer artifact
 
-The current `.vawsrc.zip` is a project source snapshot, not a consumer-installable package. Studio does not yet open/extract a project folder or make exported files its canonical live authoring source. Importing creates a separate project; it does not update an existing project or connect it to an extracted Git folder. Subsequent edits in that imported project's live Studio catalog do not update the original archive or extracted copy.
+The current `.vawsrc.zip` is a project source snapshot, not a consumer-installable package. The folder editor treats manifest-indexed files as source for its single-root workflow editing slice, while existing catalog-backed projects still use their local catalog. Importing a ZIP creates a separate catalog-backed project; it does not connect that project to an extracted Git folder.
 
 The later consumer artifact (proposed extension `.vawpkg`) should be built from validated project source. It contains the project manifest, selected workflow files, exact required graph-function/skill/profile snapshots, and a dependency manifest with format versions, content hashes, node/provider/MCP requirements, and unresolved logical binding IDs. It excludes `.vaw/`, Git metadata, endpoints, credentials, grants, and run history. A consumer application installs the artifact into its own deployment/release mechanism and resolves implementations, provider clients, MCP servers, credentials, and authorization under its own host policy. The archive is not a NuGet package and does not install executable assemblies.
 
@@ -53,10 +53,10 @@ Migration from the current SQLite-backed catalog must preserve stable workflow/a
 
 ## Roadmap sequence
 
-1. Define and test deterministic project-file schemas, manifest validation, source snapshot build/import, stable IDs, and content hashes. Consumer package dependency manifests remain separate work.
-2. Convert the project catalogs to folder-backed source with a single authority rule and safe migration from the current local catalogs.
-3. Add a workspace that opens multiple project directories, an expandable file tree, file watching, atomic saves, and clear external-change/conflict diagnostics.
+1. Define and test deterministic project-file schemas, manifest validation, source snapshot build/import, stable IDs, and content hashes. **Done for schema 1.0 and the first workflow-source editor.**
+2. Extend folder-backed authoring to all project assets while preserving a single authority rule; define an explicit migration/cutover from the current local catalogs.
+3. Add remembered multiple roots, an expandable file tree, external file watching, atomic saves, and clear external-change/conflict diagnostics. The current path entry is intentionally single-root and does not watch for external Git/editor edits.
 4. Add optional ignored `.vaw/` snapshots and restore/test selection, proving that deleting the sidecar does not affect project validity.
 5. Build the ZIP consumer artifact and prove clean consumer installation/execution with host-supplied dependencies and policy.
 
-The current registry/catalog tests do not prove Git merge behavior, portable project interchange, safe arbitrary-folder access, or consumer installation.
+The source editor uses validated manifest-listed paths and requires an explicitly entered local folder path. This local Development-only host is not an authenticated production file service. The current implementation does not prove Git merge behavior, multi-process compare-and-swap against arbitrary external editors, consumer installation, or a complete migration from local catalogs.

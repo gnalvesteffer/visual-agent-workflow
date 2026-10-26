@@ -1,0 +1,228 @@
+@page "/source-project"
+@rendermode InteractiveServer
+@using VisualAgentWorkflow.Blazor
+@inject IToolBindingCatalog ToolCatalog
+@inject IAgentProviderCatalog ProviderCatalog
+
+<PageTitle>Project folder · Visual Agent Workflow</PageTitle>
+<StudioNavigation ShowProjectSelector="false" />
+<main class="vaw-provider-settings vaw-source-project">
+    <header class="vaw-settings-heading">
+        <div>
+            <p class="vaw-settings-kicker">WORKFLOW STUDIO</p>
+            <h1>Open a project folder</h1>
+            <p class="vaw-settings-intro">Edit workflow source files in place. Git owns source history; this editor does not publish revisions or store run history in the project.</p>
+        </div>
+        @if (manifest is not null)
+        {
+            <span class="vaw-provider-state"><span aria-hidden="true"></span>Source folder open</span>
+        }
+    </header>
+
+    <section class="vaw-settings-section" aria-label="Project folder location">
+        <h2>Project folder location</h2>
+        <form class="vaw-project-create" @onsubmit="OpenProject" @onsubmit:preventDefault>
+            <label>Absolute folder path <input @bind="directoryPath" autocomplete="off" placeholder="/home/me/projects/my-workflow or C:\projects\my-workflow" /></label>
+            <button type="submit" class="vaw-primary" disabled="@busy">@(busy ? "Opening…" : "Open folder")</button>
+        </form>
+        @if (manifest is not null)
+        {
+            <p class="vaw-help"><strong>@manifest.ProjectName</strong> · <code>@openDirectory</code> · @manifest.Files.Length indexed files</p>
+            <p class="vaw-help">The editor reads only files listed in <code>@StudioProjectSourceArchive.ManifestFileName</code>. Skills, agent presets, and graph functions are listed as files but are not edited in this first folder-editor slice.</p>
+        }
+        @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
+        @if (message is not null) { <p role="status">@message</p> }
+    </section>
+
+    @if (manifest is not null && source is not null)
+    {
+        <section class="vaw-settings-section" aria-label="Project files">
+            <h2>Project files</h2>
+            @if (manifest.Files.IsEmpty)
+            {
+                <p class="vaw-empty-state">This folder has no indexed workflow or asset files yet. Create a workflow to add the first source file.</p>
+            }
+            else
+            {
+                <ul class="vaw-source-file-list">
+                    @foreach (var file in manifest.Files.OrderBy(file => file.Path, StringComparer.Ordinal))
+                    {
+                        <li @key="file.Path"><code>@file.Path</code><span>@FileKindLabel(file.Kind)</span></li>
+                    }
+                </ul>
+            }
+        </section>
+
+        <section class="vaw-settings-section" aria-label="Folder workflows">
+            <div class="vaw-settings-section-heading">
+                <div><h2>Workflows</h2><p>Drafts are saved directly to content-addressed JSON source files. A stale edit is rejected if the source changed since it was loaded.</p></div>
+                <button type="button" class="vaw-primary" @onclick="CreateWorkflow" disabled="@(busy || dirty)">New workflow</button>
+            </div>
+            @if (workflows.Count == 0 && openedWorkflow is null)
+            {
+                <p class="vaw-empty-state">No workflow source files are indexed yet.</p>
+            }
+            else
+            {
+                <label>Workflow to edit
+                    <select aria-label="Workflow to edit" value="@(openedWorkflow?.WorkflowId ?? "")" @onchange="SelectWorkflow" disabled="@(busy || dirty)">
+                        @foreach (var workflow in workflows)
+                        {
+                            <option value="@workflow.WorkflowId">@workflow.DisplayName · @workflow.WorkflowId</option>
+                        }
+                        @if (openedWorkflow is { } newWorkflow && workflows.All(item => item.WorkflowId != newWorkflow.WorkflowId))
+                        {
+                            <option value="@newWorkflow.WorkflowId">@newWorkflow.DisplayName · New</option>
+                        }
+                    </select>
+                </label>
+                @if (openedWorkflow is not null && definition is not null && layout is not null)
+                {
+                    <p class="vaw-definition-status"><strong>@WorkflowName(definition)</strong> <code>@definition.WorkflowId</code> · @(dirty ? "Unsaved changes" : "Source saved")</p>
+                    <WorkflowEditor @key="definition.WorkflowId" ProjectId="folder-project" Definition="definition" DefinitionChanged="DefinitionChanged"
+                        Layout="layout" LayoutChanged="LayoutChanged" Bindings="bindings" Providers="providers">
+                        <EditorActions>
+                            <button type="button" data-graph-save class="vaw-primary" @onclick="SaveWorkflow" disabled="@(busy || !dirty)">Save source file</button>
+                        </EditorActions>
+                    </WorkflowEditor>
+                }
+            }
+        </section>
+
+        <section class="vaw-source-mode-note" aria-label="Source project editing limits">
+            <strong>Folder editing is separate from Studio catalog projects.</strong>
+            <span>This slice edits workflow definition/layout files only. It does not write to the SQLite catalog, publish versions, or expose project-local run/audit data. Multi-folder workspaces, a hierarchical tree, and source editing for reusable assets remain in the roadmap.</span>
+        </section>
+    }
+</main>
+
+@code {
+    private string directoryPath = "";
+    private string? openDirectory;
+    private StudioProjectManifest? manifest;
+    private StudioFolderWorkflowSource? source;
+    private List<StudioFolderWorkflow> workflows = [];
+    private StudioFolderWorkflow? openedWorkflow;
+    private WorkflowDefinition? definition;
+    private WorkflowLayout? layout;
+    private IReadOnlyList<ToolBindingDescriptor> bindings = [];
+    private IReadOnlyList<AgentProviderDescriptor> providers = [];
+    private bool dirty;
+    private bool busy;
+    private string? error;
+    private string? message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        bindings = await ToolCatalog.ListBindingsAsync();
+        providers = await ProviderCatalog.ListProvidersAsync();
+    }
+
+    private void OpenProject()
+    {
+        busy = true;
+        error = null;
+        message = null;
+        try
+        {
+            var canonicalDirectory = Path.GetFullPath(directoryPath);
+            var (loadedManifest, _) = StudioProjectSourceDirectory.Read(canonicalDirectory);
+            var loadedSource = new StudioFolderWorkflowSource(canonicalDirectory);
+            var loadedWorkflows = loadedSource.List().ToList();
+            openDirectory = canonicalDirectory;
+            manifest = loadedManifest;
+            source = loadedSource;
+            workflows = loadedWorkflows;
+            dirty = false;
+            SetWorkflow(workflows.FirstOrDefault());
+            message = $"Opened {loadedManifest.ProjectName}.";
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        {
+            manifest = null;
+            source = null;
+            workflows = [];
+            openedWorkflow = null;
+            definition = null;
+            layout = null;
+            error = exception.Message;
+        }
+        finally { busy = false; }
+    }
+
+    private void SelectWorkflow(ChangeEventArgs args)
+    {
+        var selected = workflows.SingleOrDefault(workflow => workflow.WorkflowId == args.Value?.ToString());
+        SetWorkflow(selected);
+        error = null;
+        message = null;
+    }
+
+    private void CreateWorkflow()
+    {
+        var id = "workflow-" + Guid.NewGuid().ToString("N");
+        var created = WorkflowTemplates.Create("uppercase-reverse") with { WorkflowId = id, DisplayName = "Untitled workflow" };
+        openedWorkflow = new(id, "Untitled workflow", "", "", created, WorkflowLayout.Create(created));
+        definition = created;
+        layout = openedWorkflow.Layout;
+        dirty = true;
+        error = null;
+        message = "New workflow draft. Save it to add its source file to the project.";
+    }
+
+    private Task DefinitionChanged(WorkflowDefinition value)
+    {
+        definition = value;
+        dirty = true;
+        return Task.CompletedTask;
+    }
+
+    private Task LayoutChanged(WorkflowLayout value)
+    {
+        layout = value;
+        dirty = true;
+        return Task.CompletedTask;
+    }
+
+    private void SaveWorkflow()
+    {
+        if (source is null || definition is null || layout is null || openedWorkflow is null) return;
+        busy = true;
+        error = null;
+        try
+        {
+            var saved = source.Save(definition, layout, string.IsNullOrEmpty(openedWorkflow.ContentHash) ? null : openedWorkflow.ContentHash);
+            openedWorkflow = saved;
+            definition = saved.Definition;
+            layout = saved.Layout;
+            workflows = source.List().ToList();
+            manifest = StudioProjectSourceDirectory.Read(openDirectory!).Manifest;
+            dirty = false;
+            message = $"Saved {saved.RelativePath}.";
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        {
+            error = exception.Message;
+        }
+        finally { busy = false; }
+    }
+
+    private void SetWorkflow(StudioFolderWorkflow? workflow)
+    {
+        openedWorkflow = workflow;
+        definition = workflow?.Definition;
+        layout = workflow?.Layout;
+        dirty = false;
+    }
+
+    private static string FileKindLabel(string kind) => kind switch
+    {
+        "workflow" => "Workflow",
+        "skill" => "Skill",
+        "agent-profile" => "Agent preset",
+        "graph-function" => "Graph function",
+        _ => kind
+    };
+
+    private static string WorkflowName(WorkflowDefinition value) => string.IsNullOrWhiteSpace(value.DisplayName) ? value.WorkflowId : value.DisplayName;
+}

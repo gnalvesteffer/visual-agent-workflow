@@ -39,11 +39,12 @@ def check(browser, screenshots):
             ("/projects/default/skills", "Skills"),
             ("/projects/default/functions", "Functions"),
             ("/projects", "Projects"),
+            ("/source-project", "Open folder"),
             ("/mcp", "MCP library"),
             ("/settings", "Models"),
             ("/observe", "Observe"),
         )
-        expected_links = ["Workflow", "Agents", "Skills", "Functions", "Projects", "MCP library", "Models", "Observe"]
+        expected_links = ["Workflow", "Agents", "Skills", "Functions", "Projects", "Open folder", "MCP library", "Models", "Observe"]
         for route, active_page in routes:
             response = page.goto(BASE + route, wait_until="networkidle")
             assert response and response.status == 200, f"Studio page failed to load: {route}"

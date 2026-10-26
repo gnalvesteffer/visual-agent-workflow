@@ -166,6 +166,61 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
     }
 
     [Fact]
+    public void SourceDirectory_Read_RejectsAggregateContentBeforeLoadingAllAssets()
+    {
+        const int assetBytes = StudioProjectSourceArchive.MaximumFileBytes;
+        var content = new byte[assetBytes];
+        var hash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(content));
+        var files = Enumerable.Range(0, 11)
+            .Select(index => new StudioProjectFile("skill", $"skill-{index}", "1.0.0",
+                $"skills/skill-{index}/1.0.0.json", hash))
+            .ToImmutableArray();
+        var manifest = new StudioProjectManifest("1.0", "large-project", "Large project", files);
+        var folder = Path.Combine(directory, "oversized-folder");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, StudioProjectSourceArchive.ManifestFileName),
+            StudioProjectSourceArchive.SerializeManifest(manifest));
+        foreach (var asset in files)
+        {
+            var path = Path.Combine(folder, asset.Path);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, content);
+        }
+
+        var error = Assert.Throws<InvalidDataException>(() => StudioProjectSourceDirectory.Read(folder));
+
+        Assert.Equal("Project source folder exceeds the supported aggregate size.", error.Message);
+    }
+
+    [Fact]
+    public void FolderWorkflowSource_SavesHashAddressedDraftAndRejectsStaleEdits()
+    {
+        var folder = Path.Combine(directory, "folder-workflow");
+        StudioProjectSourceDirectory.Write(folder,
+            new StudioProjectManifest("1.0", "folder-project", "Folder project", []),
+            new Dictionary<string, byte[]>());
+        var source = new StudioFolderWorkflowSource(folder);
+        var initial = WorkflowTemplates.Create("uppercase-reverse") with { WorkflowId = "folder-workflow" };
+        var initialLayout = WorkflowLayout.Create(initial);
+
+        var firstSave = source.Save(initial, initialLayout, expectedContentHash: null);
+        var editedDefinition = initial with { DisplayName = "Edited in folder" };
+        var editedLayout = initialLayout with
+        {
+            Nodes = initialLayout.Nodes.SetItem("input", initialLayout.Nodes["input"] with { Position = new GraphPoint(240, 180) })
+        };
+        var secondSave = source.Save(editedDefinition, editedLayout, firstSave.ContentHash);
+
+        Assert.Equal("Edited in folder", Assert.Single(source.List()).Definition.DisplayName);
+        Assert.Equal(WorkflowLayoutJson.Serialize(editedLayout, editedDefinition),
+            WorkflowLayoutJson.Serialize(Assert.Single(source.List()).Layout, editedDefinition));
+        Assert.NotEqual(firstSave.ContentHash, secondSave.ContentHash);
+        Assert.NotEqual(firstSave.RelativePath, secondSave.RelativePath);
+        Assert.Throws<StudioFolderWorkflowConflictException>(() => source.Save(initial, initialLayout, firstSave.ContentHash));
+        Assert.Equal(secondSave.ContentHash, Assert.Single(source.List()).ContentHash);
+    }
+
+    [Fact]
     public void DeserializeManifest_RejectsDuplicateProperties()
     {
         var json = """

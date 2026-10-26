@@ -28,6 +28,11 @@
             <button type="submit" class="vaw-primary">Import as new project</button>
         </form>
     </section>
+    <section class="vaw-settings-section" aria-label="Open a project folder">
+        <h2>Open a Git project folder</h2>
+        <p>Open a validated source folder directly in the graph editor. Folder edits save back to the source files; the legacy catalog publish and revision controls are not used in this mode.</p>
+        <a class="vaw-primary vaw-button-link" href="/source-project">Open project folder</a>
+    </section>
     <section class="vaw-settings-section" aria-label="Your projects">
         <h2>Your projects</h2>
         @foreach (var project in ProjectStore.List())

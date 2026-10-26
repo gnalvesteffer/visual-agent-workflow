@@ -2,19 +2,23 @@
 @inject NavigationManager Navigation
 
 <nav class="vaw-studio-navigation" aria-label="Studio navigation">
-    <label class="vaw-project-picker">Project
-        <select aria-label="Current project" value="@ProjectWorkspace.CurrentProjectId" @onchange="ChangeProject">
-            @foreach (var project in ProjectWorkspace.Projects.Where(project => !project.IsArchived))
-            {
-                <option value="@project.Id">@project.Name</option>
-            }
-        </select>
-    </label>
+    @if (ShowProjectSelector)
+    {
+        <label class="vaw-project-picker">Project
+            <select aria-label="Current project" value="@ProjectWorkspace.CurrentProjectId" @onchange="ChangeProject">
+                @foreach (var project in ProjectWorkspace.Projects.Where(project => !project.IsArchived))
+                {
+                    <option value="@project.Id">@project.Name</option>
+                }
+            </select>
+        </label>
+    }
     <a href="/projects/@ProjectWorkspace.CurrentProjectId" aria-current="@(ActivePage == "workflow" ? "page" : null)">Workflow</a>
     <a href="/projects/@ProjectWorkspace.CurrentProjectId/agents" aria-current="@(ActivePage == "agents" ? "page" : null)">Agents</a>
     <a href="/projects/@ProjectWorkspace.CurrentProjectId/skills" aria-current="@(ActivePage == "skills" ? "page" : null)">Skills</a>
     <a href="/projects/@ProjectWorkspace.CurrentProjectId/functions" aria-current="@(ActivePage == "functions" ? "page" : null)">Functions</a>
     <a href="/projects" aria-current="@(ActivePage == "projects" ? "page" : null)">Projects</a>
+    <a href="/source-project" aria-current="@(ActivePage == "source-project" ? "page" : null)">Open folder</a>
     <a href="/mcp" aria-current="@(ActivePage == "mcp" ? "page" : null)">MCP library</a>
     <a href="/settings" aria-current="@(ActivePage == "models" ? "page" : null)">Models</a>
     <a href="/observe" aria-current="@(ActivePage == "observe" ? "page" : null)">Observe</a>
@@ -22,12 +26,15 @@
 </nav>
 
 @code {
+    [Parameter] public bool ShowProjectSelector { get; set; } = true;
+
     private string ActivePage
     {
         get
         {
             var path = new Uri(Navigation.Uri).AbsolutePath.Trim('/');
             if (path == "projects") return "projects";
+            if (path == "source-project") return "source-project";
             if (path == "mcp") return "mcp";
             if (path == "settings") return "models";
             if (path == "observe") return "observe";

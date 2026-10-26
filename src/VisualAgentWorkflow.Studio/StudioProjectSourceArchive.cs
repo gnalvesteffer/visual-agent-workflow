@@ -43,7 +43,7 @@ public static class StudioProjectSourceArchive
                 : null;
             var json = SerializeWorkflowSource(draft.Definition, layout ?? WorkflowLayout.Create(draft.Definition));
             Add(sourceFiles, assetEntries, "workflow", draft.Definition.WorkflowId, "draft",
-                AssetPath("workflows", draft.Definition.WorkflowId, "draft"), json);
+                WorkflowDraftPath(draft.Definition.WorkflowId, Hash(System.Text.Encoding.UTF8.GetBytes(json))), json);
         }
 
         foreach (var item in workspace.Skills.List())
@@ -181,6 +181,17 @@ public static class StudioProjectSourceArchive
         ValidateManifest(manifest);
         return JsonSerializer.Serialize(manifest, JsonOptions);
     }
+
+    public static string WorkflowDraftPath(string workflowId, string contentHash)
+    {
+        if (!ValidAssetId(workflowId) || contentHash is null || contentHash.Length != 64 || !contentHash.All(Uri.IsHexDigit))
+            throw new ArgumentException("A safe workflow ID and SHA-256 content hash are required.");
+        var safeId = Segment(workflowId);
+        var idHash = Hash(System.Text.Encoding.UTF8.GetBytes(workflowId))[..8];
+        return $"workflows/{safeId}-{idHash}-{contentHash[..16].ToLowerInvariant()}.json";
+    }
+
+    public static string ComputeContentHash(ReadOnlySpan<byte> content) => Hash(content.ToArray());
 
     public static StudioProjectManifest DeserializeManifest(ReadOnlySpan<byte> bytes)
     {
