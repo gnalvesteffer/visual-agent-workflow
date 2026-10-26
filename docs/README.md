@@ -15,6 +15,7 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Exact-action approvals](approvals.md) | Exact MCP action review, nested call-path binding, attribution, controls and process ownership |
 | [Conditional graphs](conditional-graphs.md) | Schema 1.4 predicates, typed string ports, exclusive merges, authoring and actual-path evidence |
 | [Parallel graphs](parallel-graphs.md) | Schema 1.14 bounded two-branch fork/barrier join, JSON result, concurrency and failure limits |
+| [Parallel agent collaboration](parallel-agent-collaboration.md) | Proposed new-schema shared channels, one rendezvous, deterministic snapshots, failure and audit contract |
 | [Bounded loop graphs](loop-graphs.md) | Schema 1.17 single-loop body, predicate, hard iteration cap, audit events, and authoring limits |
 | [Workflow termination](workflow-termination.md) | Schema 1.18 successful no-result exits and runtime/audit behavior |
 | [Nested workflow calls](nested-workflows.md) | Schema 1.19 pinned child workflows, scoped approvals/audit events, limits, and authoring behavior |
