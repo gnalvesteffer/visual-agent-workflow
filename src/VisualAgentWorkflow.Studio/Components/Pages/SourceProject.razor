@@ -1,6 +1,7 @@
 @page "/source-project"
 @page "/source-project/folder/{FolderProjectId}"
 @rendermode InteractiveServer
+@implements IAsyncDisposable
 @using VisualAgentWorkflow.Blazor
 @using System.Collections.Immutable
 @inject IToolBindingCatalog ToolCatalog
@@ -36,6 +37,22 @@
         }
         @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
         @if (message is not null) { <p role="status">@message</p> }
+        @if (externalSourceChanged)
+        {
+            <aside class="vaw-error vaw-source-change" role="alert">
+                <strong>The project folder changed outside Studio.</strong>
+                <p>Your current editor contents are preserved. Review or reload the validated folder snapshot before continuing.</p>
+                @if (externalSourceProblem is not null) { <p>@externalSourceProblem</p> }
+                @if (HasUnsavedEdits)
+                {
+                    <button type="button" class="vaw-secondary" @onclick="DiscardAndReloadFolder" disabled="@busy">Discard local edits and reload folder</button>
+                }
+                else
+                {
+                    <button type="button" class="vaw-secondary" @onclick="ReloadFolder" disabled="@busy">Reload project files</button>
+                }
+            </aside>
+        }
     </section>
 
     @if (manifest is not null && source is not null)
@@ -174,7 +191,7 @@
 
         <section class="vaw-source-mode-note" aria-label="Source project editing limits">
             <strong>Folder editing is separate from Studio catalog projects.</strong>
-            <span>This editor writes workflow, skill, agent-profile, and graph-function source files directly to the folder without mirroring them into the SQLite catalog. A profile stores logical provider and MCP requirements only; the host supplies endpoints, credentials, and grants. It does not publish catalog versions or store project-local run/audit data. Multiple open folders are still planned.</span>
+            <span>This editor writes workflow, skill, agent-profile, and graph-function source files directly to the folder without mirroring them into the SQLite catalog. It checks for external file changes and preserves unsaved editor contents until you explicitly discard them. A profile stores logical provider and MCP requirements only; the host supplies endpoints, credentials, and grants. It does not publish catalog versions or store project-local run/audit data. Multiple open folders are still planned.</span>
         </section>
     }
 </main>
@@ -233,6 +250,15 @@
     private IReadOnlyList<AgentProviderDescriptor> providers = [];
     private bool dirty;
     private bool busy;
+    private bool externalSourceChanged;
+    private string? externalSourceProblem;
+    private FileSystemWatcher? sourceWatcher;
+    private CancellationTokenSource? sourceMonitorCancellation;
+    private SemaphoreSlim? sourceMonitorSignal;
+    private Task? sourceMonitorTask;
+    private string? sourceMonitorRoot;
+    private long sourceMonitorGeneration;
+    private bool disposed;
     private bool HasUnsavedEdits => dirty || skillFormDirty || profileFormDirty || graphFunctionDirty;
     private string? error;
     private string? message;
@@ -253,14 +279,14 @@
         providers = await ProviderCatalog.ListProvidersAsync();
     }
 
-    protected override Task OnParametersSetAsync()
+    protected override async Task OnParametersSetAsync()
     {
         if (!string.IsNullOrWhiteSpace(FolderProjectId))
         {
             try
             {
                 directoryPath = ProjectStore.FolderProjectPath(FolderProjectId);
-                LoadProjectFolder(directoryPath);
+                await LoadProjectFolderAsync(directoryPath);
             }
             catch (Exception exception) when (exception is KeyNotFoundException or InvalidOperationException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
             {
@@ -268,7 +294,6 @@
                 error = exception.Message;
             }
         }
-        return Task.CompletedTask;
     }
 
     private void OpenProject()
@@ -291,7 +316,7 @@
         finally { busy = false; }
     }
 
-    private void LoadProjectFolder(string folder)
+    private async Task LoadProjectFolderAsync(string folder)
     {
         var canonicalDirectory = Path.GetFullPath(folder);
         var (loadedManifest, _) = StudioProjectSourceDirectory.Read(canonicalDirectory);
@@ -313,8 +338,137 @@
         workflowNames = ToWorkflowNames(loadedWorkflows);
         dirty = false;
         SetWorkflow(workflows.FirstOrDefault());
+        externalSourceChanged = false;
+        externalSourceProblem = null;
+        await StartSourceMonitorAsync(canonicalDirectory);
         error = null;
         message = $"Opened {loadedManifest.ProjectName}.";
+    }
+
+    private Task ReloadFolder() => ReloadFolder(discardLocalEdits: false);
+
+    private Task DiscardAndReloadFolder() => ReloadFolder(discardLocalEdits: true);
+
+    private async Task ReloadFolder(bool discardLocalEdits)
+    {
+        if (openDirectory is null || busy || HasUnsavedEdits && !discardLocalEdits) return;
+        busy = true;
+        try
+        {
+            await LoadProjectFolderAsync(openDirectory);
+            message = "Reloaded the latest validated project files.";
+            error = null;
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        {
+            externalSourceChanged = true;
+            externalSourceProblem = "Studio could not validate the current folder. Correct the folder contents before reloading.";
+            error = exception.Message;
+        }
+        finally { busy = false; }
+    }
+
+    private async Task StartSourceMonitorAsync(string root)
+    {
+        if (sourceMonitorTask is not null && string.Equals(sourceMonitorRoot, root, StringComparison.Ordinal)) return;
+        await StopSourceMonitorAsync();
+        var generation = ++sourceMonitorGeneration;
+        var cancellation = new CancellationTokenSource();
+        var signal = new SemaphoreSlim(0, 1);
+        sourceMonitorCancellation = cancellation;
+        sourceMonitorSignal = signal;
+        sourceMonitorRoot = root;
+        try
+        {
+            var watcher = new FileSystemWatcher(root)
+            {
+                IncludeSubdirectories = true,
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size
+            };
+            watcher.Changed += (_, _) => SignalSourceMonitor(signal);
+            watcher.Created += (_, _) => SignalSourceMonitor(signal);
+            watcher.Deleted += (_, _) => SignalSourceMonitor(signal);
+            watcher.Renamed += (_, _) => SignalSourceMonitor(signal);
+            watcher.Error += (_, _) => SignalSourceMonitor(signal);
+            watcher.EnableRaisingEvents = true;
+            sourceWatcher = watcher;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or System.Security.SecurityException)
+        {
+            externalSourceProblem = "File notifications are unavailable for this folder. Studio will check for changes periodically.";
+        }
+        sourceMonitorTask = MonitorSourceFolderAsync(root, generation, signal, cancellation.Token);
+    }
+
+    private static void SignalSourceMonitor(SemaphoreSlim signal)
+    {
+        try { signal.Release(); }
+        catch (SemaphoreFullException) { }
+        catch (ObjectDisposedException) { }
+    }
+
+    private async Task MonitorSourceFolderAsync(string root, long generation, SemaphoreSlim signal, CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await signal.WaitAsync(TimeSpan.FromSeconds(20), cancellationToken);
+                await Task.Delay(TimeSpan.FromMilliseconds(350), cancellationToken);
+                while (signal.Wait(0)) { }
+                await InvokeAsync(() => ReconcileSourceFolderAsync(root, generation));
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested) { }
+        catch (InvalidOperationException) when (disposed) { }
+    }
+
+    private Task ReconcileSourceFolderAsync(string root, long generation)
+    {
+        if (disposed || generation != sourceMonitorGeneration || !string.Equals(openDirectory, root, StringComparison.Ordinal))
+            return Task.CompletedTask;
+        try
+        {
+            var (currentManifest, _) = StudioProjectSourceDirectory.Read(root);
+            externalSourceChanged = StudioProjectSourceArchive.ComputeManifestHash(currentManifest) != sourceManifestHash;
+            externalSourceProblem = null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        {
+            externalSourceChanged = true;
+            externalSourceProblem = "Studio cannot validate the current project snapshot. Your editor contents are preserved.";
+        }
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private async Task StopSourceMonitorAsync()
+    {
+        sourceMonitorGeneration++;
+        sourceWatcher?.Dispose();
+        sourceWatcher = null;
+        var cancellation = sourceMonitorCancellation;
+        var signal = sourceMonitorSignal;
+        var task = sourceMonitorTask;
+        sourceMonitorCancellation = null;
+        sourceMonitorSignal = null;
+        sourceMonitorTask = null;
+        sourceMonitorRoot = null;
+        cancellation?.Cancel();
+        if (task is not null)
+        {
+            try { await task; }
+            catch (OperationCanceledException) { }
+        }
+        signal?.Dispose();
+        cancellation?.Dispose();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true;
+        await StopSourceMonitorAsync();
     }
 
     private void ClearProjectFolder()
