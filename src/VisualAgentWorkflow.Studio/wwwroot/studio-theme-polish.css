@@ -1,0 +1,155 @@
+/* Standalone Studio refinements. Keep graph presentation and embedded component styles independent. */
+.vaw-app {
+    background-image:
+        radial-gradient(ellipse 72rem 30rem at 50% -22rem, color-mix(in srgb, var(--vaw-color-accent) 7%, transparent), transparent 72%),
+        linear-gradient(180deg, color-mix(in srgb, var(--vaw-color-surface) 35%, var(--vaw-color-canvas)), var(--vaw-color-canvas) 34rem);
+    background-attachment: fixed;
+    font-size: 0.9375rem;
+    line-height: 1.45;
+}
+
+.vaw-app :where(h1, h2, h3, h4) {
+    letter-spacing: -0.018em;
+    line-height: 1.22;
+}
+
+.vaw-studio-navigation {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--vaw-color-surface) 90%, var(--vaw-color-accent) 10%), var(--vaw-color-surface));
+    border-bottom-color: color-mix(in srgb, var(--vaw-color-border) 78%, var(--vaw-color-accent) 22%);
+}
+
+/* GitHub Dark: cool neutral surfaces and a restrained blue focus color. */
+:root[data-vaw-theme="github-dark"] .vaw-app {
+    --vaw-color-scheme: dark;
+    --vaw-color-canvas: #0d1117;
+    --vaw-color-surface: #161b22;
+    --vaw-color-control: #21262d;
+    --vaw-color-control-hover: #30363d;
+    --vaw-color-text: #e6edf3;
+    --vaw-color-muted: #9da7b3;
+    --vaw-color-border: #30363d;
+    --vaw-color-control-border: #484f58;
+    --vaw-color-focus: #58a6ff;
+    --vaw-color-accent: #58a6ff;
+    --vaw-color-primary: #0969da;
+    --vaw-color-on-primary: #ffffff;
+    --vaw-color-selected: #122d4c;
+    --vaw-color-success: #3fb950;
+    --vaw-color-error: #ff7b72;
+    --vaw-color-error-text: #ffb8b2;
+    --vaw-color-warning: #d29922;
+    --vaw-color-danger-surface: #351c1f;
+    --vaw-color-info-surface: #13263a;
+    --vaw-color-code: #a5d6ff;
+    --vaw-graph-color-canvas: #0d1117;
+    --vaw-graph-color-surface: #161b22;
+    --vaw-graph-color-control: #21262d;
+    --vaw-graph-color-text: #e6edf3;
+    --vaw-graph-color-muted: #9da7b3;
+    --vaw-graph-color-border: #30363d;
+    --vaw-graph-color-control-border: #484f58;
+    --vaw-graph-color-focus: #58a6ff;
+    --vaw-graph-color-accent: #58a6ff;
+    --vaw-graph-color-primary: #0969da;
+    --vaw-graph-color-success: #3fb950;
+    --vaw-graph-color-error: #ff7b72;
+    --vaw-graph-color-warning: #d29922;
+    --vaw-graph-color-grid: #9da7b31a;
+}
+
+/* GitHub Light: soft neutral canvas with ink-like text and familiar link blue. */
+:root[data-vaw-theme="github-light"] .vaw-app {
+    --vaw-color-scheme: light;
+    --vaw-color-canvas: #f6f8fa;
+    --vaw-color-surface: #ffffff;
+    --vaw-color-control: #f6f8fa;
+    --vaw-color-control-hover: #eaeef2;
+    --vaw-color-text: #1f2328;
+    --vaw-color-muted: #59636e;
+    --vaw-color-border: #d1d9e0;
+    --vaw-color-control-border: #818b98;
+    --vaw-color-focus: #0969da;
+    --vaw-color-accent: #0969da;
+    --vaw-color-primary: #0969da;
+    --vaw-color-on-primary: #ffffff;
+    --vaw-color-selected: #ddf4ff;
+    --vaw-color-success: #1a7f37;
+    --vaw-color-error: #cf222e;
+    --vaw-color-error-text: #82071e;
+    --vaw-color-warning: #7d4e00;
+    --vaw-color-danger-surface: #ffebe9;
+    --vaw-color-info-surface: #ddf4ff;
+    --vaw-color-code: #6639ba;
+    --vaw-graph-color-canvas: #f6f8fa;
+    --vaw-graph-color-surface: #ffffff;
+    --vaw-graph-color-control: #eaeef2;
+    --vaw-graph-color-text: #1f2328;
+    --vaw-graph-color-muted: #59636e;
+    --vaw-graph-color-border: #d1d9e0;
+    --vaw-graph-color-control-border: #818b98;
+    --vaw-graph-color-focus: #0969da;
+    --vaw-graph-color-accent: #0969da;
+    --vaw-graph-color-primary: #0969da;
+    --vaw-graph-color-success: #1a7f37;
+    --vaw-graph-color-error: #cf222e;
+    --vaw-graph-color-warning: #7d4e00;
+    --vaw-graph-color-grid: #59636e20;
+}
+
+/* Dracula: the recognizable cool purple canvas, with contrast kept on text surfaces. */
+:root[data-vaw-theme="dracula"] .vaw-app {
+    --vaw-color-scheme: dark;
+    --vaw-color-canvas: #282a36;
+    --vaw-color-surface: #343746;
+    --vaw-color-control: #3a3d4f;
+    --vaw-color-control-hover: #44475a;
+    --vaw-color-text: #f8f8f2;
+    --vaw-color-muted: #c2c4d0;
+    --vaw-color-border: #44475a;
+    --vaw-color-control-border: #777b91;
+    --vaw-color-focus: #8be9fd;
+    --vaw-color-accent: #8be9fd;
+    --vaw-color-primary: #44475a;
+    --vaw-color-on-primary: #ffffff;
+    --vaw-color-selected: #44475a;
+    --vaw-color-success: #50fa7b;
+    --vaw-color-error: #ff6e6e;
+    --vaw-color-error-text: #ffb8b8;
+    --vaw-color-warning: #f1fa8c;
+    --vaw-color-danger-surface: #492f3b;
+    --vaw-color-info-surface: #343746;
+    --vaw-color-code: #ffb86c;
+    --vaw-graph-color-canvas: #282a36;
+    --vaw-graph-color-surface: #343746;
+    --vaw-graph-color-control: #3a3d4f;
+    --vaw-graph-color-text: #f8f8f2;
+    --vaw-graph-color-muted: #c2c4d0;
+    --vaw-graph-color-border: #44475a;
+    --vaw-graph-color-control-border: #777b91;
+    --vaw-graph-color-focus: #8be9fd;
+    --vaw-graph-color-accent: #8be9fd;
+    --vaw-graph-color-primary: #44475a;
+    --vaw-graph-color-success: #50fa7b;
+    --vaw-graph-color-error: #ff6e6e;
+    --vaw-graph-color-warning: #f1fa8c;
+    --vaw-graph-color-grid: #c2c4d01c;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .vaw-app *, .vaw-app *::before, .vaw-app *::after {
+        scroll-behavior: auto !important;
+    }
+}
+
+:root[data-vaw-theme="high-contrast"] .vaw-app {
+    background-image: none;
+}
+
+:root[data-vaw-theme="high-contrast"] .vaw-studio-navigation {
+    background: var(--vaw-color-canvas);
+}
+
+@media (forced-colors: active) {
+    .vaw-app { background-image: none; }
+    .vaw-studio-navigation { background: Canvas; }
+}

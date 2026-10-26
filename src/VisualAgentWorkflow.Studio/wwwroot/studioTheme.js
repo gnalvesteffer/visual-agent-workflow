@@ -1,6 +1,6 @@
 (() => {
     const key = 'visual-agent-workflow.theme';
-    const themes = new Set(['dark', 'light', 'vs-code-dark-plus', 'solarized-dark', 'nord', 'monokai', 'high-contrast']);
+    const themes = new Set(['dark', 'light', 'vs-code-dark-plus', 'solarized-dark', 'nord', 'monokai', 'github-dark', 'github-light', 'dracula', 'high-contrast']);
     const root = document.documentElement;
 
     const read = () => {

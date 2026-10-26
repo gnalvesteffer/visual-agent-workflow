@@ -1,0 +1,67 @@
+@if (Node.IsDirectory)
+{
+    <details class="vaw-project-tree-directory" open>
+        <summary><span class="vaw-project-tree-icon" aria-hidden="true">▾</span>@Node.Name</summary>
+        <ul>
+            @foreach (var child in Node.Children)
+            {
+                <li @key="child.Name + child.File?.Path">
+                    <ProjectFileTreeItem Node="@child" SelectedPath="@SelectedPath" WorkflowNames="@WorkflowNames"
+                        CanOpenWorkflows="@CanOpenWorkflows" OnOpenWorkflow="@OnOpenWorkflow" />
+                </li>
+            }
+        </ul>
+    </details>
+}
+else if (Node.File is { Kind: "workflow" } file)
+{
+    var selected = file.Path == SelectedPath;
+    <button type="button" class="vaw-project-tree-file @(selected ? "is-selected" : "")"
+            aria-current="@(selected ? "page" : "false")" aria-label="@($"Open workflow {WorkflowLabel(file)}")" title="@file.Path"
+            disabled="@(!CanOpenWorkflows)" @onclick="() => OnOpenWorkflow.InvokeAsync(file.Id)">
+        <span class="vaw-project-tree-icon" aria-hidden="true">W</span>
+        <span class="vaw-project-tree-file-name">@WorkflowLabel(file)</span>
+    </button>
+}
+else if (Node.File is { } readOnlyFile)
+{
+    <span class="vaw-project-tree-file is-read-only" aria-label="@($"{AssetLabel(readOnlyFile.Kind)} {Node.Name}, read only")"
+          title="@ReadOnlyMessage(readOnlyFile.Kind)">
+        <span class="vaw-project-tree-icon" aria-hidden="true">@AssetIcon(readOnlyFile.Kind)</span>
+        <span class="vaw-project-tree-file-name">@Node.Name</span>
+    </span>
+}
+
+@code {
+    [Parameter, EditorRequired] public StudioProjectFileTreeNode Node { get; set; } = null!;
+    [Parameter] public string? SelectedPath { get; set; }
+    [Parameter] public IReadOnlyDictionary<string, string> WorkflowNames { get; set; } = new Dictionary<string, string>();
+    [Parameter] public bool CanOpenWorkflows { get; set; }
+    [Parameter] public EventCallback<string> OnOpenWorkflow { get; set; }
+
+    private static string AssetIcon(string kind) => kind switch
+    {
+        "skill" => "S",
+        "agent-profile" => "A",
+        "graph-function" => "F",
+        _ => "·"
+    };
+
+    private string WorkflowLabel(StudioProjectFile file) => WorkflowNames.GetValueOrDefault(file.Id, Node.Name);
+
+    private static string ReadOnlyMessage(string kind) => kind switch
+    {
+        "skill" => "Skill files are visible but not editable in folder mode yet.",
+        "agent-profile" => "Agent preset files are visible but not editable in folder mode yet.",
+        "graph-function" => "Graph function files are visible but not editable in folder mode yet.",
+        _ => "This project asset is visible but not editable in folder mode yet."
+    };
+
+    private static string AssetLabel(string kind) => kind switch
+    {
+        "skill" => "Skill",
+        "agent-profile" => "Agent preset",
+        "graph-function" => "Graph function",
+        _ => "Project asset"
+    };
+}

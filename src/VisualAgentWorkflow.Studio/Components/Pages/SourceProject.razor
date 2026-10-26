@@ -28,7 +28,7 @@
         @if (manifest is not null)
         {
             <p class="vaw-help"><strong>@manifest.ProjectName</strong> · <code>@openDirectory</code> · @manifest.Files.Length indexed files</p>
-            <p class="vaw-help">The editor reads only files listed in <code>@StudioProjectSourceArchive.ManifestFileName</code>. Skills, agent presets, and graph functions are listed as files but are not edited in this first folder-editor slice.</p>
+            <p class="vaw-help">The editor reads only files listed in <code>@StudioProjectSourceArchive.ManifestFileName</code>. Workflow files open in the graph editor; reusable assets are visible in the tree but remain read-only in folder mode.</p>
         }
         @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
         @if (message is not null) { <p role="status">@message</p> }
@@ -36,47 +36,39 @@
 
     @if (manifest is not null && source is not null)
     {
-        <section class="vaw-settings-section" aria-label="Project files">
-            <h2>Project files</h2>
-            @if (manifest.Files.IsEmpty)
-            {
-                <p class="vaw-empty-state">This folder has no indexed workflow or asset files yet. Create a workflow to add the first source file.</p>
-            }
-            else
-            {
-                <ul class="vaw-source-file-list">
-                    @foreach (var file in manifest.Files.OrderBy(file => file.Path, StringComparer.Ordinal))
-                    {
-                        <li @key="file.Path"><code>@file.Path</code><span>@FileKindLabel(file.Kind)</span></li>
-                    }
-                </ul>
-            }
-        </section>
+        <section class="vaw-settings-section vaw-source-workspace" aria-label="Project explorer and workflow editor">
+            <aside class="vaw-project-explorer" aria-label="Project explorer">
+                <header><h2>Project explorer</h2><span>@manifest.Files.Length files</span></header>
+                @if (manifest.Files.IsEmpty)
+                {
+                    <p class="vaw-empty-state">No indexed files. Create a workflow to add the first source file.</p>
+                }
+                else
+                {
+                    <ul class="vaw-project-tree">
+                        @foreach (var node in fileTree)
+                        {
+                            <li @key="node.Name + node.File?.Path">
+                                <ProjectFileTreeItem Node="@node" SelectedPath="@(openedWorkflow?.RelativePath)"
+                                    WorkflowNames="@workflowNames" CanOpenWorkflows="@(!busy && !dirty)" OnOpenWorkflow="@OpenWorkflow" />
+                            </li>
+                        }
+                    </ul>
+                    <p class="vaw-project-tree-legend">W Workflow · S Skill · A Agent preset · F Graph function</p>
+                }
+                @if (dirty) { <p class="vaw-help">Save the current workflow before opening another file.</p> }
+            </aside>
 
-        <section class="vaw-settings-section" aria-label="Folder workflows">
-            <div class="vaw-settings-section-heading">
-                <div><h2>Workflows</h2><p>Drafts are saved directly to content-addressed JSON source files. A stale edit is rejected if the source changed since it was loaded.</p></div>
-                <button type="button" class="vaw-primary" @onclick="CreateWorkflow" disabled="@(busy || dirty)">New workflow</button>
-            </div>
-            @if (workflows.Count == 0 && openedWorkflow is null)
-            {
-                <p class="vaw-empty-state">No workflow source files are indexed yet.</p>
-            }
-            else
-            {
-                <label>Workflow to edit
-                    <select aria-label="Workflow to edit" value="@(openedWorkflow?.WorkflowId ?? "")" @onchange="SelectWorkflow" disabled="@(busy || dirty)">
-                        @foreach (var workflow in workflows)
-                        {
-                            <option value="@workflow.WorkflowId">@workflow.DisplayName · @workflow.WorkflowId</option>
-                        }
-                        @if (openedWorkflow is { } newWorkflow && workflows.All(item => item.WorkflowId != newWorkflow.WorkflowId))
-                        {
-                            <option value="@newWorkflow.WorkflowId">@newWorkflow.DisplayName · New</option>
-                        }
-                    </select>
-                </label>
-                @if (openedWorkflow is not null && definition is not null && layout is not null)
+            <section class="vaw-folder-workflow-editor" aria-label="Workflow source editor">
+                <div class="vaw-settings-section-heading">
+                    <div><h2>Workflow editor</h2><p>Workflow drafts save directly to content-addressed source files. A stale edit is rejected if the project changed since it was loaded.</p></div>
+                    <button type="button" class="vaw-primary" @onclick="CreateWorkflow" disabled="@(busy || dirty)">New workflow</button>
+                </div>
+                @if (openedWorkflow is null)
+                {
+                    <p class="vaw-empty-state">Select a workflow in the project tree, or create a new one.</p>
+                }
+                else if (definition is not null && layout is not null)
                 {
                     <p class="vaw-definition-status"><strong>@WorkflowName(definition)</strong> <code>@definition.WorkflowId</code> · @(dirty ? "Unsaved changes" : "Source saved")</p>
                     <WorkflowEditor @key="definition.WorkflowId" ProjectId="folder-project" Definition="definition" DefinitionChanged="DefinitionChanged"
@@ -86,12 +78,12 @@
                         </EditorActions>
                     </WorkflowEditor>
                 }
-            }
+            </section>
         </section>
 
         <section class="vaw-source-mode-note" aria-label="Source project editing limits">
             <strong>Folder editing is separate from Studio catalog projects.</strong>
-            <span>This slice edits workflow definition/layout files only. It does not write to the SQLite catalog, publish versions, or expose project-local run/audit data. Multi-folder workspaces, a hierarchical tree, and source editing for reusable assets remain in the roadmap.</span>
+            <span>This slice edits workflow definition/layout files only. It does not write to the SQLite catalog, publish versions, or expose project-local run/audit data. Multiple open folders and editing skills, agent presets, and graph functions directly from this tree remain planned.</span>
         </section>
     }
 </main>
@@ -100,8 +92,10 @@
     private string directoryPath = "";
     private string? openDirectory;
     private StudioProjectManifest? manifest;
+    private IReadOnlyList<StudioProjectFileTreeNode> fileTree = [];
     private StudioFolderWorkflowSource? source;
     private List<StudioFolderWorkflow> workflows = [];
+    private IReadOnlyDictionary<string, string> workflowNames = new Dictionary<string, string>();
     private StudioFolderWorkflow? openedWorkflow;
     private WorkflowDefinition? definition;
     private WorkflowLayout? layout;
@@ -131,8 +125,10 @@
             var loadedWorkflows = loadedSource.List().ToList();
             openDirectory = canonicalDirectory;
             manifest = loadedManifest;
+            fileTree = StudioProjectFileTree.Build(loadedManifest.Files);
             source = loadedSource;
             workflows = loadedWorkflows;
+            workflowNames = ToWorkflowNames(loadedWorkflows);
             dirty = false;
             SetWorkflow(workflows.FirstOrDefault());
             message = $"Opened {loadedManifest.ProjectName}.";
@@ -140,6 +136,7 @@
         catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
         {
             manifest = null;
+            fileTree = [];
             source = null;
             workflows = [];
             openedWorkflow = null;
@@ -150,12 +147,12 @@
         finally { busy = false; }
     }
 
-    private void SelectWorkflow(ChangeEventArgs args)
+    private Task OpenWorkflow(string workflowId)
     {
-        var selected = workflows.SingleOrDefault(workflow => workflow.WorkflowId == args.Value?.ToString());
-        SetWorkflow(selected);
-        error = null;
-        message = null;
+        if (dirty || busy) return Task.CompletedTask;
+        SetWorkflow(workflows.SingleOrDefault(workflow => workflow.WorkflowId == workflowId));
+        error = null; message = null;
+        return Task.CompletedTask;
     }
 
     private void CreateWorkflow()
@@ -196,7 +193,9 @@
             definition = saved.Definition;
             layout = saved.Layout;
             workflows = source.List().ToList();
+            workflowNames = ToWorkflowNames(workflows);
             manifest = StudioProjectSourceDirectory.Read(openDirectory!).Manifest;
+            fileTree = StudioProjectFileTree.Build(manifest.Files);
             dirty = false;
             message = $"Saved {saved.RelativePath}.";
         }
@@ -215,14 +214,8 @@
         dirty = false;
     }
 
-    private static string FileKindLabel(string kind) => kind switch
-    {
-        "workflow" => "Workflow",
-        "skill" => "Skill",
-        "agent-profile" => "Agent preset",
-        "graph-function" => "Graph function",
-        _ => kind
-    };
-
     private static string WorkflowName(WorkflowDefinition value) => string.IsNullOrWhiteSpace(value.DisplayName) ? value.WorkflowId : value.DisplayName;
+    private static IReadOnlyDictionary<string, string> ToWorkflowNames(IEnumerable<StudioFolderWorkflow> items) =>
+        items.ToDictionary(item => item.WorkflowId, item => string.IsNullOrWhiteSpace(item.DisplayName) ? item.WorkflowId : item.DisplayName,
+            StringComparer.Ordinal);
 }

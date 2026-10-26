@@ -14,7 +14,7 @@ from pathlib import Path
 from playwright.sync_api import expect, sync_playwright
 
 BASE = os.environ.get("VAW_STUDIO_BASE_URL", "http://127.0.0.1:5099")
-THEMES = ("dark", "light", "vs-code-dark-plus", "solarized-dark", "nord", "monokai", "high-contrast")
+THEMES = ("dark", "light", "vs-code-dark-plus", "solarized-dark", "nord", "monokai", "github-dark", "github-light", "dracula", "high-contrast")
 
 
 def luminance(rgb):
@@ -63,6 +63,11 @@ def check(browser, screenshots):
             expect(navigation.locator('a[aria-current="page"]')).to_have_text(active_page)
             assert abs(navigation.bounding_box()["width"] - page.viewport_size["width"]) < 1, f"Mobile navigation must span the viewport on {route}"
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), f"The page must not create horizontal scrolling on mobile: {route}"
+            if route in ("/projects", "/source-project"):
+                overflow = page.locator(".vaw-project-create input").evaluate_all("""inputs => inputs
+                    .filter(input => input.getBoundingClientRect().right > innerWidth + 1)
+                    .map(input => input.getAttribute('aria-label') || input.type || input.outerHTML)""")
+                assert not overflow, f"Project form fields must fit the page on mobile: {route}: {overflow}"
 
         page.goto(BASE + "/projects/default/functions", wait_until="networkidle")
         page.wait_for_function("document.querySelector('.vaw-graph-editor')?.dataset.ready === 'true'")

@@ -63,6 +63,26 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
     }
 
     [Fact]
+    public void ProjectFileTree_GroupsManifestFilesAndSortsFoldersBeforeFiles()
+    {
+        var tree = StudioProjectFileTree.Build(
+        [
+            new("skill", "research", "1.0.0", "skills/research/1.0.0.json", new string('a', 64)),
+            new("workflow", "workflow-z", "draft", "workflows/z.json", new string('b', 64)),
+            new("workflow", "workflow-a", "draft", "workflows/a.json", new string('c', 64)),
+            new("graph-function", "text.format", "1.0.0", "functions/text/format.json", new string('d', 64))
+        ]);
+
+        Assert.Equal(["functions", "skills", "workflows"], tree.Select(node => node.Name));
+        Assert.Equal("text", tree[0].Children[0].Name);
+        Assert.Equal("format.json", tree[0].Children[0].Children[0].Name);
+        Assert.Equal("a.json", tree[2].Children[0].Name);
+        Assert.Equal("z.json", tree[2].Children[1].Name);
+        Assert.Equal("graph-function", tree[0].Children[0].Children[0].File?.Kind);
+        Assert.Equal("skill", tree[1].Children[0].Children[0].File?.Kind);
+    }
+
+    [Fact]
     public async Task ImportAsNewProject_RestoresWorkflowAndReusableAssetsIntoAnIsolatedProject()
     {
         var sourceStore = new StudioProjectStore(Path.Combine(directory, "source"));

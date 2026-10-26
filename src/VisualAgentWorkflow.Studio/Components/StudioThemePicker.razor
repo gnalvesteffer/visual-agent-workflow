@@ -9,6 +9,9 @@
         <option value="solarized-dark">Solarized Dark</option>
         <option value="nord">Nord</option>
         <option value="monokai">Monokai</option>
+        <option value="github-dark">GitHub Dark</option>
+        <option value="github-light">GitHub Light</option>
+        <option value="dracula">Dracula</option>
         <option value="high-contrast">High Contrast</option>
     </select>
 </label>
@@ -28,7 +31,7 @@
     private async Task ChangeTheme(ChangeEventArgs args)
     {
         var theme = args.Value?.ToString();
-        if (theme is not ("dark" or "light" or "vs-code-dark-plus" or "solarized-dark" or "nord" or "monokai" or "high-contrast")) return;
+        if (theme is not ("dark" or "light" or "vs-code-dark-plus" or "solarized-dark" or "nord" or "monokai" or "github-dark" or "github-light" or "dracula" or "high-contrast")) return;
         selectedTheme = theme;
         await JavaScript.InvokeVoidAsync("vawStudioTheme.set", theme);
     }
