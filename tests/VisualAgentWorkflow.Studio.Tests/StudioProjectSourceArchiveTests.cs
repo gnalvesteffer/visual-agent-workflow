@@ -63,6 +63,64 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
     }
 
     [Fact]
+    public async Task ImportAsNewProject_RestoresWorkflowAndReusableAssetsIntoAnIsolatedProject()
+    {
+        var sourceStore = new StudioProjectStore(Path.Combine(directory, "source"));
+        var sourceProject = sourceStore.Create("Portable source");
+        var sourceData = Path.Combine(directory, "source");
+        var sourceRuntime = new LocalWorkflowRuntime(new FileRunJournal(Path.Combine(sourceData, "runs")),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<LocalWorkflowRuntime>.Instance);
+        var sourceWorkspace = new StudioProjectWorkspace(sourceData, sourceStore, sourceRuntime);
+        sourceWorkspace.Select(sourceProject.Id);
+        var definition = WorkflowTemplates.Create("uppercase-reverse") with { WorkflowId = "workflow-imported" };
+        var layout = WorkflowLayout.Create(definition);
+        await Assert.IsAssignableFrom<IWorkflowDesignCatalog>(sourceWorkspace.Catalog).SaveDesignAsync(definition, layout, 0);
+        sourceWorkspace.Skills.Add("source-check", "1.0.0", "Source check", "Confirm source requirements.", "Research");
+        sourceWorkspace.AgentProfiles.Add(AgentProfile.Create("review-agent", "1.0.0", "Review agent", "A portable profile.",
+            "demo.scripted", "1.0.0", "Review the request.", ImmutableArray<ToolBindingRequest>.Empty), "Agents");
+        sourceWorkspace.Functions.Add(AppendSuffixFunction(), "Text/Formatting");
+        var archive = await StudioProjectSourceArchive.CreateAsync(sourceWorkspace);
+
+        var targetData = Path.Combine(directory, "target");
+        var targetStore = new StudioProjectStore(targetData);
+        var targetJournal = new FileRunJournal(Path.Combine(targetData, "runs"));
+        var targetRuntime = new LocalWorkflowRuntime(targetJournal,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<LocalWorkflowRuntime>.Instance);
+        var targetWorkspace = new StudioProjectWorkspace(targetData, targetStore, targetRuntime);
+        var imported = await StudioProjectSourceArchive.ImportAsNewProjectAsync(archive, targetStore, targetWorkspace);
+
+        Assert.Equal("Portable source", imported.Name);
+        Assert.Equal(imported.Id, targetWorkspace.CurrentProjectId);
+        Assert.NotEqual(sourceProject.Id, imported.Id);
+        Assert.Contains(targetWorkspace.Skills.List(), item => item.Skill.Id == "source-check" && item.Folder == "Research");
+        Assert.Contains(targetWorkspace.AgentProfiles.List(), item => item.Profile.Id == "review-agent" && item.Folder == "Agents");
+        Assert.Contains(targetWorkspace.Functions.List(), item => item.Function.Definition.FunctionId == "text.append-suffix");
+        var restored = await Assert.IsAssignableFrom<IWorkflowDesignCatalog>(targetWorkspace.Catalog).GetDesignAsync(definition.WorkflowId);
+        Assert.NotNull(restored);
+        Assert.Equal(WorkflowLayoutJson.Serialize(layout, definition), WorkflowLayoutJson.Serialize(restored.Layout, definition));
+        Assert.Empty(targetJournal.List());
+    }
+
+    [Fact]
+    public async Task ImportAsNewProject_RejectsInvalidArchiveBeforeCreatingProject()
+    {
+        var content = Encoding.UTF8.GetBytes("{}\n");
+        var asset = new StudioProjectFile("workflow", "workflow-1", "draft", "workflows/workflow-1.json", new string('0', 64));
+        var manifest = new StudioProjectManifest("1.0", "project-1", "Rejected import", [asset]);
+        var archive = CreateZip(StudioProjectSourceArchive.SerializeManifest(manifest), (asset.Path, content));
+        var projectStore = new StudioProjectStore(directory);
+        var runtime = new LocalWorkflowRuntime(new FileRunJournal(Path.Combine(directory, "runs")),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<LocalWorkflowRuntime>.Instance);
+        var workspace = new StudioProjectWorkspace(directory, projectStore, runtime);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            StudioProjectSourceArchive.ImportAsNewProjectAsync(archive, projectStore, workspace));
+
+        Assert.Single(projectStore.List());
+        Assert.Equal(StudioProjectStore.DefaultProjectId, workspace.CurrentProjectId);
+    }
+
+    [Fact]
     public void Read_RejectsContentHashMismatchAndUnsafeManifestPaths()
     {
         var content = Encoding.UTF8.GetBytes("{}\n");

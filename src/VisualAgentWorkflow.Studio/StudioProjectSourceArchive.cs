@@ -112,6 +112,70 @@ public static class StudioProjectSourceArchive
         return (manifest, files);
     }
 
+    /// <summary>Imports a validated source snapshot as a new local project. Run history and host settings are not imported.</summary>
+    public static async Task<StudioProject> ImportAsNewProjectAsync(ReadOnlyMemory<byte> archive,
+        StudioProjectStore store, StudioProjectWorkspace workspace, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(workspace);
+
+        // Parse and validate the complete archive before creating any project state.
+        var (manifest, files) = Read(archive);
+        var workflows = new List<StudioWorkflowSource>();
+        var skills = new List<SkillLibraryItem>();
+        var profiles = new List<AgentProfileLibraryItem>();
+        var functions = new List<GraphFunctionCatalogEntry>();
+        foreach (var file in manifest.Files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var content = files[file.Path];
+            switch (file.Kind)
+            {
+                case "workflow": workflows.Add(DeserializeWorkflowSource(content)); break;
+                case "skill": skills.Add(JsonSerializer.Deserialize<SkillLibraryItem>(content, JsonOptions)!); break;
+                case "agent-profile": profiles.Add(JsonSerializer.Deserialize<AgentProfileLibraryItem>(content, JsonOptions)!); break;
+                case "graph-function": functions.Add(JsonSerializer.Deserialize<GraphFunctionCatalogEntry>(content, JsonOptions)!); break;
+            }
+        }
+
+        var project = store.Create(manifest.ProjectName);
+        var previousProjectId = workspace.CurrentProjectId;
+        try
+        {
+            workspace.Select(project.Id);
+            foreach (var source in workflows)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (workspace.Catalog is not IWorkflowDesignCatalog designs)
+                    throw new InvalidOperationException("The selected workflow catalog does not support workflow layouts.");
+                await designs.SaveDesignAsync(source.Definition, source.Layout, 0).WaitAsync(cancellationToken);
+            }
+            foreach (var item in skills)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                workspace.Skills.Add(item.Skill.Id, item.Skill.Version, item.Skill.Name, item.Skill.Instructions, item.Folder);
+            }
+            foreach (var item in profiles)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                workspace.AgentProfiles.Add(item.Profile, item.Folder);
+            }
+            foreach (var item in functions)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                workspace.Functions.Add(item.Function.Definition, item.Folder);
+            }
+            return project;
+        }
+        catch
+        {
+            // A new imported project must never become the selected workspace after a failed import.
+            store.SetArchived(project.Id, true);
+            workspace.Select(previousProjectId);
+            throw;
+        }
+    }
+
     public static string SerializeManifest(StudioProjectManifest manifest)
     {
         ValidateManifest(manifest);

@@ -19,6 +19,16 @@
         </form>
         @if (message is not null) { <p role="status">@message</p> }
         @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
+        @if (ImportError is not null) { <p role="alert" class="vaw-error">Source import failed: @ImportError</p> }
+    </section>
+    <section class="vaw-settings-section" aria-label="Import project source">
+        <h2>Import a source snapshot</h2>
+        <p>Import a <code>.vawsrc.zip</code> into a new project. The archive is validated before anything is added. Run history, provider credentials, MCP endpoints, and permissions are not included.</p>
+        <form class="vaw-project-create" action="/api/projects/import" method="post" enctype="multipart/form-data">
+            <AntiforgeryToken />
+            <label>Project source archive <input type="file" name="sourceArchive" accept=".zip,application/zip" required /></label>
+            <button type="submit" class="vaw-primary">Import as new project</button>
+        </form>
     </section>
     <section class="vaw-settings-section" aria-label="Your projects">
         <h2>Your projects</h2>
@@ -46,6 +56,9 @@
 </main>
 
 @code {
+    [SupplyParameterFromQuery(Name = "importError")]
+    public string? ImportError { get; set; }
+
     private string name = "";
     private string? message;
     private string? error;

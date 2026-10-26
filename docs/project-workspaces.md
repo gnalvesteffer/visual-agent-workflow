@@ -4,7 +4,7 @@
 
 Studio currently offers a local project registry and project selection. Workflows live in a project-scoped SQLite catalog; skills, agent profiles, and graph functions use JSON catalogs. The project registry and catalog roots are under the Studio data directory. This is a local single-operator prototype, not a portable folder/Git project format.
 
-The Projects page now offers **Download source snapshot**. It exports a deterministic `.vawsrc.zip` containing a versioned `vaw.project.json` index with stable IDs and SHA-256 for each ordinary JSON asset. Workflow files use a source-only definition/layout format that accepts disconnected drafts; skills, agent profiles, and graph functions are separate JSON assets. The bounded archive reader rejects unsafe or case-colliding paths, duplicate manifest entries, unlisted/missing files, hash mismatches, and oversized content without extracting files. Tests verify deterministic output and workflow/layout round trips.
+The Projects page offers **Download source snapshot** and **Import as new project**. The deterministic `.vawsrc.zip` contains a versioned `vaw.project.json` index with stable IDs and SHA-256 for each ordinary JSON asset. Workflow files use a source-only definition/layout format that accepts disconnected drafts; skills, agent profiles, and graph functions are separate JSON assets. The bounded archive reader rejects unsafe or case-colliding paths, duplicate manifest entries, unlisted/missing files, hash mismatches, and oversized content without extracting files. Import validates all content before creating a new project, then restores definitions/layouts and reusable assets. It does not overwrite or merge into an existing project. Tests verify deterministic export, round trips, and isolated project import.
 
 The first access to the deterministic Default Project copies a legacy workflow database with SQLite backup and copies legacy JSON libraries, preserving the source files. Existing tests verify migrated workflow definitions, revision IDs and hashes, layouts, generations, head/active pointers, audit order, and skills. Model-provider and MCP registrations, endpoints, protected credentials, grants, and run history are host-wide. Project selection does not authorize runtime capabilities.
 
@@ -37,7 +37,7 @@ Studio keeps its configurable run store in app-local host data outside portable 
 
 ## Consumer artifact
 
-The current `.vawsrc.zip` is a project source snapshot, not a consumer-installable package. Studio does not yet open/extract a project folder, import a changed snapshot, or make the exported files its canonical live authoring source. Users can inspect/extract the JSON snapshot and place it under external Git, but future edits in the current Studio catalog will not update that extracted copy.
+The current `.vawsrc.zip` is a project source snapshot, not a consumer-installable package. Studio does not yet open/extract a project folder or make exported files its canonical live authoring source. Importing creates a separate project; it does not update an existing project or connect it to an extracted Git folder. Subsequent edits in that imported project's live Studio catalog do not update the original archive or extracted copy.
 
 The later consumer artifact (proposed extension `.vawpkg`) should be built from validated project source. It contains the project manifest, selected workflow files, exact required graph-function/skill/profile snapshots, and a dependency manifest with format versions, content hashes, node/provider/MCP requirements, and unresolved logical binding IDs. It excludes `.vaw/`, Git metadata, endpoints, credentials, grants, and run history. A consumer application installs the artifact into its own deployment/release mechanism and resolves implementations, provider clients, MCP servers, credentials, and authorization under its own host policy. The archive is not a NuGet package and does not install executable assemblies.
 
@@ -51,7 +51,7 @@ Migration from the current SQLite-backed catalog must preserve stable workflow/a
 
 ## Roadmap sequence
 
-1. Define and test deterministic project-file schemas, manifest validation, package build/round-trip, stable IDs, and content hashes.
+1. Define and test deterministic project-file schemas, manifest validation, source snapshot build/import, stable IDs, and content hashes. Consumer package dependency manifests remain separate work.
 2. Convert the project catalogs to folder-backed source with a single authority rule and safe migration from the current local catalogs.
 3. Add a workspace that opens multiple project directories, an expandable file tree, file watching, atomic saves, and clear external-change/conflict diagnostics.
 4. Add optional ignored `.vaw/` snapshots and restore/test selection, proving that deleting the sidecar does not affect project validity.

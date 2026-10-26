@@ -22,6 +22,8 @@ var studioPort = builder.Configuration.GetValue<int?>("WorkflowStudio:Port") ?? 
 if (studioPort is < 1 or > 65535) throw new InvalidOperationException("Invalid Studio port.");
 builder.WebHost.UseUrls($"http://127.0.0.1:{studioPort}");
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 1_048_576);
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+    options.MultipartBodyLengthLimit = StudioProjectSourceArchive.MaximumArchiveBytes + 1024 * 1024);
 var studioDataDirectory = Path.GetFullPath(builder.Configuration["WorkflowStudio:DataDirectory"] ?? Path.Combine(builder.Environment.ContentRootPath, ".local"));
 var projectStore = new StudioProjectStore(studioDataDirectory);
 builder.Services.AddDataProtection();
@@ -107,6 +109,31 @@ app.MapWorkflowEndpoints();
 app.MapWorkflowEndpoints("/api/projects/{projectId}");
 app.MapGet("/api/projects/{projectId}/source.zip", async (StudioProjectWorkspace workspace, CancellationToken cancellationToken) =>
     Results.File(await StudioProjectSourceArchive.CreateAsync(workspace, cancellationToken), "application/zip", "project-source.vawsrc.zip"));
+app.MapPost("/api/projects/import", async (HttpContext context, StudioProjectStore store,
+    StudioProjectWorkspace workspace, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>()?.MaxRequestBodySize =
+            StudioProjectSourceArchive.MaximumArchiveBytes + 1024 * 1024;
+        await context.RequestServices.GetRequiredService<Microsoft.AspNetCore.Antiforgery.IAntiforgery>()
+            .ValidateRequestAsync(context);
+        var request = context.Request;
+        var form = await request.ReadFormAsync(cancellationToken);
+        var upload = form.Files.GetFile("sourceArchive");
+        if (upload is null || upload.Length is <= 0 or > StudioProjectSourceArchive.MaximumArchiveBytes)
+            return Results.Redirect("/projects?importError=Choose%20a%20source%20archive%20up%20to%2032%20MiB.");
+        await using var input = upload.OpenReadStream();
+        using var contents = new MemoryStream();
+        await input.CopyToAsync(contents, cancellationToken);
+        var project = await StudioProjectSourceArchive.ImportAsNewProjectAsync(contents.ToArray(), store, workspace, cancellationToken);
+        return Results.Redirect($"/projects/{Uri.EscapeDataString(project.Id)}");
+    }
+    catch (Exception exception) when (exception is InvalidDataException or ArgumentException or InvalidOperationException)
+    {
+        return Results.Redirect($"/projects?importError={Uri.EscapeDataString(exception.Message)}");
+    }
+});
 app.MapGet("/api/tool-bindings", async (IToolBindingCatalog catalog, CancellationToken cancellationToken) =>
     Results.Ok(await catalog.ListBindingsAsync(cancellationToken)));
 app.MapGet("/api/agent-providers", async (IAgentProviderCatalog catalog) => Results.Ok(await catalog.ListProvidersAsync()));
