@@ -330,15 +330,25 @@
                         @if (Definition.SchemaVersion == WorkflowSchemaVersions.ConfigurableParallelGraph && node.ParallelFork is { } forkConfiguration)
                         {
                             <fieldset aria-label="Parallel branch labels">
-                                <legend>Branch labels</legend>
-                                @foreach (var branch in forkConfiguration.Branches)
+                                <legend>Branch order, labels, and count</legend>
+                                @for (var branchIndex = 0; branchIndex < forkConfiguration.Branches.Length; branchIndex++)
                                 {
+                                    var branch = forkConfiguration.Branches[branchIndex];
                                     <label>@branch.Id
                                         <input aria-label="Label for branch @branch.Id" value="@branch.Label" maxlength="@ParallelBranchLimits.MaximumLabelLength"
                                                @onchange="args => Edit(() => GraphEditing.RenameConfigurableParallelBranch(Definition, id, branch.Id, args.Value?.ToString() ?? string.Empty))" disabled="@Disabled" />
                                     </label>
+                                    <button type="button" aria-label="Move branch @branch.Id up" disabled="@(Disabled || branchIndex == 0)"
+                                            @onclick="() => MoveConfigurableParallelBranch(id, branch.Id, -1)">Move up</button>
+                                    <button type="button" aria-label="Move branch @branch.Id down" disabled="@(Disabled || branchIndex == forkConfiguration.Branches.Length - 1)"
+                                            @onclick="() => MoveConfigurableParallelBranch(id, branch.Id, 1)">Move down</button>
+                                    <button type="button" aria-label="Remove empty branch @branch.Id" disabled="@(Disabled || !CanRemoveEmptyConfigurableParallelBranch(id, branch))"
+                                            title="Remove the branch's Agent nodes first; populated branch work is preserved."
+                                            @onclick="() => RemoveEmptyConfigurableParallelBranch(id, branch.Id)">Remove empty branch</button>
                                 }
-                                <p class="vaw-help">Labels change pin captions only. Stable branch IDs keep existing connections intact.</p>
+                                <button type="button" aria-label="Add parallel branch" disabled="@(Disabled || forkConfiguration.Branches.Length >= ParallelGraphLimits.MaximumExplicitBranches || Definition.Nodes.Count >= 256)"
+                                        @onclick="() => AddConfigurableParallelBranch(id)">Add branch</button>
+                                <p class="vaw-help">Labels change pin captions only. Reordering preserves stable IDs and connections. Remove Agent nodes from a branch before removing that empty branch.</p>
                             </fieldset>
                         }
                         @if (pendingParallelBlockRemoval == id)
@@ -1252,7 +1262,8 @@
         return ReplaceProcessing(id, node with { Agent = node.Agent! with { Tools = node.Agent!.Tools.RemoveAll(t => t.BindingId == bindingId) } });
     });
 
-    private async Task Edit(Func<WorkflowDefinition> edit, GraphContextRequest? placement = null, PortReference? insertion = null)
+    private async Task Edit(Func<WorkflowDefinition> edit, GraphContextRequest? placement = null, PortReference? insertion = null,
+        string? preserveSelection = null)
     {
         if (ReadOnly || Disabled) return;
         try
@@ -1260,7 +1271,8 @@
             error = null;
             var next = edit();
             var added = next.Nodes.Keys.Where(id => !Definition.Nodes.ContainsKey(id)).ToArray();
-            if (added.Length > 0) selectedNode = added.FirstOrDefault(id => next.Nodes[id].Type == NodeTypes.ParallelFork) ?? added.FirstOrDefault(id => next.Nodes[id].Type is NodeTypes.Condition or NodeTypes.Approval) ?? added[0];
+            if (preserveSelection is not null && next.Nodes.ContainsKey(preserveSelection)) selectedNode = preserveSelection;
+            else if (added.Length > 0) selectedNode = added.FirstOrDefault(id => next.Nodes[id].Type == NodeTypes.ParallelFork) ?? added.FirstOrDefault(id => next.Nodes[id].Type is NodeTypes.Condition or NodeTypes.Approval) ?? added[0];
             var nextLayout = PlaceAddedNodes(next, EffectiveLayout.Reconcile(next), added, placement, insertion);
             if (GraphEdited.HasDelegate) await GraphEdited.InvokeAsync(new(next, nextLayout));
             else

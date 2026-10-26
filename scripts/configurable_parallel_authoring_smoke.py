@@ -69,6 +69,29 @@ def check(browser):
     assert stored["nodes"][fork_id]["parallelFork"]["branches"][1]["id"] == "branch_2"
     assert stored["nodes"][fork_id]["parallelFork"]["branches"][1]["label"] == "Review"
 
+    designer.get_by_role("button", name="Add parallel branch", exact=True).click()
+    designer.get_by_role("button", name="Move branch branch_4 up", exact=True).click()
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    stored = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()["draft"]["definition"]
+    assert [item["id"] for item in stored["nodes"][fork_id]["parallelFork"]["branches"]] == ["branch_1", "branch_2", "branch_4", "branch_3"]
+    assert stored["nodes"][fork_id]["parallelFork"]["branches"][2]["label"] == "Branch 4"
+    designer.get_by_role("button", name="Move branch branch_4 down", exact=True).click()
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    stored = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()["draft"]["definition"]
+    assert [item["id"] for item in stored["nodes"][fork_id]["parallelFork"]["branches"]] == ["branch_1", "branch_2", "branch_3", "branch_4"], stored["nodes"][fork_id]["parallelFork"]["branches"]
+    designer.get_by_role("button", name="Remove empty branch branch_4", exact=True).click()
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    stored = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()["draft"]["definition"]
+    assert [item["id"] for item in stored["nodes"][fork_id]["parallelFork"]["branches"]] == ["branch_1", "branch_2", "branch_3"], stored["nodes"][fork_id]["parallelFork"]["branches"]
+    designer.get_by_role("button", name="Undo edit", exact=True).click()
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    restored_branch = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()["draft"]["definition"]
+    assert [item["id"] for item in restored_branch["nodes"][fork_id]["parallelFork"]["branches"]] == ["branch_1", "branch_2", "branch_3", "branch_4"]
+    designer.get_by_role("button", name="Redo edit", exact=True).click()
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    stored = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()["draft"]["definition"]
+    assert [item["id"] for item in stored["nodes"][fork_id]["parallelFork"]["branches"]] == ["branch_1", "branch_2", "branch_3"]
+
     canvas = designer.locator(".vaw-graph-editor")
     expect(canvas.locator(f"li[data-node-id='{fork_id}'] [data-socket='branch.branch_1']")).to_be_visible()
     expect(canvas.locator(f"li[data-node-id='{fork_id}'] [data-socket='branch.branch_3']")).to_be_visible()
@@ -105,7 +128,7 @@ def check(browser):
     restored = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()["draft"]["definition"]
     assert restored["schemaVersion"] == "1.32"
     assert not errors, errors
-    print("Studio selected a branch count, saved stable pins and labels, ran the three-way graph, and removed/undid the block.")
+    print("Studio created, reordered, removed, and undo/redid a branch; saved stable labels and pins; ran the graph; and removed/undid the block.")
     page.close()
 
 

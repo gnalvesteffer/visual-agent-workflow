@@ -171,6 +171,110 @@ public static class GraphEditing
         });
     }
 
+    /// <summary>Adds an empty, fully connected branch to an existing configurable parallel region.</summary>
+    public static WorkflowDefinition AddConfigurableParallelBranch(WorkflowDefinition definition, string forkNodeId)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var (fork, forkConfiguration, joinId, join, joinConfiguration) = ConfigurableParallelRegion(definition, forkNodeId);
+        if (forkConfiguration.Branches.Length >= ParallelGraphLimits.MaximumExplicitBranches)
+            throw new ArgumentException($"A parallel region can have at most {ParallelGraphLimits.MaximumExplicitBranches} branches.", nameof(forkNodeId));
+        if (definition.Nodes.Count >= 256)
+            throw new ArgumentException("The graph has reached its 256-node limit.", nameof(definition));
+
+        var usedIds = forkConfiguration.Branches.Select(branch => branch.Id).ToHashSet(StringComparer.Ordinal);
+        var number = 1;
+        while (usedIds.Contains($"branch_{number}")) number++;
+        var branchId = $"branch_{number}";
+        var anchorId = NewId("parallel-branch");
+        var branch = new ParallelBranchDescriptor(branchId, $"Branch {number}", anchorId);
+        var forkBranches = forkConfiguration.Branches.Add(branch);
+        var joinBranches = joinConfiguration.BranchIds.Add(branchId);
+        var nodes = definition.Nodes
+            .Add(anchorId, new NodeDefinition(NodeTypes.ParallelBranch, "1.0.0")
+            {
+                ParallelBranch = new(forkNodeId, branchId)
+            })
+            .SetItem(forkNodeId, fork with { ParallelFork = forkConfiguration with { Branches = forkBranches } })
+            .SetItem(joinId, join with { ParallelJoin = joinConfiguration with { BranchIds = joinBranches } });
+        var execution = definition.ExecutionConnections!
+            .Add(NewId("link"), new(new(forkNodeId, ParallelBranchLimits.PinId(branchId)), new(anchorId, "execute"), "execution"))
+            .Add(NewId("link"), new(new(anchorId, "then"), new(joinId, ParallelBranchLimits.PinId(branchId)), "execution"));
+        return Checked(definition with { Nodes = nodes, ExecutionConnections = execution });
+    }
+
+    /// <summary>Moves one branch in presentation order while preserving its stable identity and all wires.</summary>
+    public static WorkflowDefinition MoveConfigurableParallelBranch(WorkflowDefinition definition, string forkNodeId,
+        string branchId, int offset)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        WorkflowValidator.ThrowIfInvalid(definition);
+        if (offset is not (-1 or 1)) throw new ArgumentOutOfRangeException(nameof(offset), "Move a branch one position up or down.");
+        var (fork, forkConfiguration, joinId, join, joinConfiguration) = ConfigurableParallelRegion(definition, forkNodeId);
+        var branches = forkConfiguration.Branches;
+        var index = Array.FindIndex(branches.ToArray(), branch => branch.Id == branchId);
+        var destination = index + offset;
+        if (index < 0 || destination < 0 || destination >= branches.Length)
+            throw new ArgumentException("Choose a branch that can move in that direction.", nameof(branchId));
+
+        var reordered = branches.SetItem(index, branches[destination]).SetItem(destination, branches[index]);
+        var reorderedIds = joinConfiguration.BranchIds.SetItem(index, joinConfiguration.BranchIds[destination])
+            .SetItem(destination, joinConfiguration.BranchIds[index]);
+        var nodes = definition.Nodes
+            .SetItem(forkNodeId, fork with { ParallelFork = forkConfiguration with { Branches = reordered } })
+            .SetItem(joinId, join with { ParallelJoin = joinConfiguration with { BranchIds = reorderedIds } });
+        return Checked(definition with { Nodes = nodes });
+    }
+
+    /// <summary>Removes an empty branch without deleting or disconnecting any branch work.</summary>
+    public static WorkflowDefinition RemoveEmptyConfigurableParallelBranch(WorkflowDefinition definition, string forkNodeId,
+        string branchId)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var (fork, forkConfiguration, joinId, join, joinConfiguration) = ConfigurableParallelRegion(definition, forkNodeId);
+        var branches = forkConfiguration.Branches;
+        var index = Array.FindIndex(branches.ToArray(), branch => branch.Id == branchId);
+        if (index < 0) throw new ArgumentException("Choose an existing parallel branch.", nameof(branchId));
+        if (branches.Length <= ParallelBranchLimits.MinimumBranches)
+            throw new ArgumentException($"A parallel region must keep at least {ParallelBranchLimits.MinimumBranches} branches.", nameof(branchId));
+
+        var descriptor = branches[index];
+        var execution = definition.ExecutionConnections!;
+        var anchorRoute = execution.Values.Single(edge => edge.Source.NodeId == descriptor.AnchorNodeId);
+        if (anchorRoute.Target.NodeId != joinId || anchorRoute.Target.PortId != ParallelBranchLimits.PinId(branchId))
+            throw new ArgumentException("Remove this branch's Agent nodes before removing the branch. Branch work is preserved.", nameof(branchId));
+        _ = execution.Single(edge => edge.Value.Source.NodeId == forkNodeId &&
+            edge.Value.Source.PortId == ParallelBranchLimits.PinId(branchId));
+        _ = execution.Single(edge => edge.Value.Target.NodeId == joinId &&
+            edge.Value.Target.PortId == ParallelBranchLimits.PinId(branchId));
+        var remaining = branches.RemoveAt(index);
+        var remainingJoinIds = joinConfiguration.BranchIds.RemoveAt(index);
+        var nodes = definition.Nodes.Remove(descriptor.AnchorNodeId)
+            .SetItem(forkNodeId, fork with { ParallelFork = forkConfiguration with { Branches = remaining } })
+            .SetItem(joinId, join with { ParallelJoin = joinConfiguration with { BranchIds = remainingJoinIds } });
+        var updatedExecution = execution.RemoveRange(execution.Where(edge =>
+            edge.Value.Source.NodeId == forkNodeId && edge.Value.Source.PortId == ParallelBranchLimits.PinId(branchId) ||
+            edge.Value.Source.NodeId == descriptor.AnchorNodeId ||
+            edge.Value.Target.NodeId == descriptor.AnchorNodeId ||
+            edge.Value.Target.NodeId == joinId && edge.Value.Target.PortId == ParallelBranchLimits.PinId(branchId))
+            .Select(edge => edge.Key));
+        return Checked(definition with { Nodes = nodes, ExecutionConnections = updatedExecution });
+    }
+
+    private static (NodeDefinition Fork, ParallelForkConfiguration ForkConfiguration, string JoinId, NodeDefinition Join,
+        ParallelJoinConfiguration JoinConfiguration) ConfigurableParallelRegion(WorkflowDefinition definition, string forkNodeId)
+    {
+        if (definition.SchemaVersion != WorkflowSchemaVersions.ConfigurableParallelGraph ||
+            !definition.Nodes.TryGetValue(forkNodeId, out var fork) || fork.Type != NodeTypes.ParallelFork ||
+            fork.ParallelFork is not { } forkConfiguration || definition.ExecutionConnections is null)
+            throw new ArgumentException("Choose a configurable parallel fork in a schema 1.32 graph.", nameof(forkNodeId));
+        var joinEntry = definition.Nodes.SingleOrDefault(entry => entry.Value.Type == NodeTypes.ParallelJoin);
+        if (joinEntry.Value?.ParallelJoin is not { } joinConfiguration || joinConfiguration.ForkNodeId != forkNodeId)
+            throw new ArgumentException("The selected fork has no matching join.", nameof(forkNodeId));
+        return (fork, forkConfiguration, joinEntry.Key, joinEntry.Value, joinConfiguration);
+    }
+
     /// <summary>Adds a configured node without connecting it. Incomplete topology remains an editable draft.</summary>
     public static WorkflowDefinition AddUnconnectedNode(WorkflowDefinition definition, NodeDefinition node)
     {

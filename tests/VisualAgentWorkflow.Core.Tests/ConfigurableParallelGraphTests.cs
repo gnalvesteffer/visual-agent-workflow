@@ -68,6 +68,92 @@ public sealed class ConfigurableParallelGraphTests
     }
 
     [Fact]
+    public void AddingABranchAtomicallyAddsItsAnchorAndMatchingForkAndJoinPins()
+    {
+        var definition = Definition(3);
+        var added = GraphEditing.AddConfigurableParallelBranch(definition, "fork");
+        var fork = added.Nodes["fork"].ParallelFork!;
+        var join = added.Nodes["join"].ParallelJoin!;
+        var branch = Assert.Single(fork.Branches, item => item.Id == "branch_1");
+
+        Assert.True(fork.Branches.Select(item => item.Id).SequenceEqual(new[] { "research", "review", "write", "branch_1" }));
+        Assert.True(join.BranchIds.SequenceEqual(new[] { "research", "review", "write", "branch_1" }));
+        Assert.Equal(new ParallelBranchConfiguration("fork", "branch_1"), added.Nodes[branch.AnchorNodeId].ParallelBranch);
+        Assert.Contains(added.ExecutionConnections!.Values, edge => edge.Source == new PortReference("fork", "branch.branch_1") && edge.Target == new PortReference(branch.AnchorNodeId, "execute"));
+        Assert.Contains(added.ExecutionConnections.Values, edge => edge.Source == new PortReference(branch.AnchorNodeId, "then") && edge.Target == new PortReference("join", "branch.branch_1"));
+        Assert.Empty(WorkflowValidator.Validate(added));
+        Assert.Equal(3, definition.Nodes["fork"].ParallelFork!.Branches.Length);
+    }
+
+    [Fact]
+    public void AddingBranchesStopsAtTheEightBranchLimit()
+    {
+        var definition = Definition(3);
+        for (var index = 0; index < 5; index++) definition = GraphEditing.AddConfigurableParallelBranch(definition, "fork");
+
+        Assert.Equal(ParallelGraphLimits.MaximumExplicitBranches, definition.Nodes["fork"].ParallelFork!.Branches.Length);
+        Assert.Throws<ArgumentException>(() => GraphEditing.AddConfigurableParallelBranch(definition, "fork"));
+    }
+
+    [Fact]
+    public void ReorderingABranchPreservesItsIdentityPinsAndConnections()
+    {
+        var definition = Definition(3);
+        var execution = definition.ExecutionConnections;
+        var reordered = GraphEditing.MoveConfigurableParallelBranch(definition, "fork", "write", -1);
+
+        Assert.True(reordered.Nodes["fork"].ParallelFork!.Branches.Select(branch => branch.Id)
+            .SequenceEqual(new[] { "research", "write", "review" }));
+        Assert.True(reordered.Nodes["join"].ParallelJoin!.BranchIds.SequenceEqual(new[] { "research", "write", "review" }));
+        Assert.Equal(execution, reordered.ExecutionConnections);
+        Assert.Contains("branch.write", WorkflowPorts.ExplicitExecutionOutputs(reordered.Nodes["fork"]));
+        Assert.Empty(WorkflowValidator.Validate(reordered));
+    }
+
+    [Fact]
+    public void EmptyBranchCanBeRemovedWithoutChangingSurvivingBranchPins()
+    {
+        var definition = Definition(3);
+        var execution = definition.ExecutionConnections!
+            .Remove("research-agent")
+            .Remove("agent-research-join")
+            .Add("research-join", Execution("research", "then", "join", "branch.research"));
+        var emptyPath = definition with
+        {
+            Nodes = definition.Nodes.Remove("agent-research"),
+            ExecutionConnections = execution
+        };
+        Assert.Empty(WorkflowValidator.Validate(emptyPath));
+
+        var removed = GraphEditing.RemoveEmptyConfigurableParallelBranch(emptyPath, "fork", "research");
+
+        Assert.True(removed.Nodes["fork"].ParallelFork!.Branches.Select(branch => branch.Id)
+            .SequenceEqual(new[] { "review", "write" }));
+        Assert.True(removed.Nodes["join"].ParallelJoin!.BranchIds.SequenceEqual(new[] { "review", "write" }));
+        Assert.DoesNotContain("research", removed.Nodes.Keys);
+        Assert.Contains("branch.review", WorkflowPorts.ExplicitExecutionOutputs(removed.Nodes["fork"]));
+        Assert.Contains("branch.write", WorkflowPorts.ExplicitExecutionInputs(removed.Nodes["join"]));
+        Assert.Empty(WorkflowValidator.Validate(removed));
+    }
+
+    [Fact]
+    public void PopulatedBranchAndMinimumBranchCountCannotBeRemoved()
+    {
+        var populated = Definition(3);
+        Assert.Throws<ArgumentException>(() => GraphEditing.RemoveEmptyConfigurableParallelBranch(populated, "fork", "research"));
+        Assert.Equal(3, populated.Nodes["fork"].ParallelFork!.Branches.Length);
+
+        var execution = populated.ExecutionConnections!
+            .Remove("research-agent")
+            .Remove("agent-research-join")
+            .Add("research-join", Execution("research", "then", "join", "branch.research"));
+        var emptyPath = populated with { Nodes = populated.Nodes.Remove("agent-research"), ExecutionConnections = execution };
+        var minimumRegion = GraphEditing.RemoveEmptyConfigurableParallelBranch(emptyPath, "fork", "research");
+        Assert.Equal(2, minimumRegion.Nodes["fork"].ParallelFork!.Branches.Length);
+        Assert.Throws<ArgumentException>(() => GraphEditing.RemoveEmptyConfigurableParallelBranch(minimumRegion, "fork", "review"));
+    }
+
+    [Fact]
     public void TypedParameterEditsPreserveTheConfigurableParallelSchema()
     {
         var definition = GraphEditing.CreateConfigurableParallelGraph(IntegerBranchGraph(), 3);

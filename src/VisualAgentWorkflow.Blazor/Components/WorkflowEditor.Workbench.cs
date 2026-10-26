@@ -93,6 +93,24 @@ public partial class WorkflowEditor
     }
     private Task CreateConfigurableParallelGraph() => Edit(() =>
         GraphEditing.CreateConfigurableParallelGraph(Definition, configurableParallelBranchCount));
+    private Task AddConfigurableParallelBranch(string forkNodeId) => Edit(() =>
+        GraphEditing.AddConfigurableParallelBranch(Definition, forkNodeId), preserveSelection: forkNodeId);
+    private Task MoveConfigurableParallelBranch(string forkNodeId, string branchId, int offset) => Edit(() =>
+        GraphEditing.MoveConfigurableParallelBranch(Definition, forkNodeId, branchId, offset));
+    private Task RemoveEmptyConfigurableParallelBranch(string forkNodeId, string branchId) => Edit(() =>
+        GraphEditing.RemoveEmptyConfigurableParallelBranch(Definition, forkNodeId, branchId));
+    private bool CanRemoveEmptyConfigurableParallelBranch(string forkNodeId, ParallelBranchDescriptor branch)
+    {
+        if (Definition.SchemaVersion != WorkflowSchemaVersions.ConfigurableParallelGraph ||
+            !Definition.Nodes.TryGetValue(forkNodeId, out var fork) || fork.ParallelFork is not { } configuration ||
+            configuration.Branches.Length <= ParallelBranchLimits.MinimumBranches || Definition.ExecutionConnections is not { } execution)
+            return false;
+        var join = Definition.Nodes.SingleOrDefault(entry => entry.Value.Type == NodeTypes.ParallelJoin);
+        if (join.Value is null) return false;
+        var routes = execution.Values.Where(edge => edge.Source.NodeId == branch.AnchorNodeId).ToArray();
+        return routes.Length == 1 && routes[0].Target.NodeId == join.Key &&
+            routes[0].Target.PortId == ParallelBranchLimits.PinId(branch.Id);
+    }
 
     private IReadOnlyList<WorkflowNodeLibraryEntry> LibraryEntries(GraphContextRequest? context = null)
     {
