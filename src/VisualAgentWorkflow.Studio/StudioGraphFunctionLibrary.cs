@@ -81,7 +81,7 @@ public sealed class StudioGraphFunctionLibrary : IGraphFunctionCatalog
         GraphFunctionJson.Validate(configuration.Definition).IsEmpty &&
         configuration.ContentHash == GraphFunctionJson.ComputeHash(configuration.Definition);
 
-    private static void Validate(GraphFunctionDefinition function, string folder)
+    internal static void Validate(GraphFunctionDefinition function, string folder)
     {
         ArgumentNullException.ThrowIfNull(function);
         var issues = GraphFunctionJson.Validate(function);

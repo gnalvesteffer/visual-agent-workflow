@@ -48,3 +48,5 @@ The checkpoint process smoke also checks saved/completed reconciliation metadata
 `python3 scripts/workbench_smoke.py --browser-executable /usr/bin/chromium --screenshots /tmp/workbench` validates the canvas-first creation/fullscreen path. Existing configuration suites import an explicit three-node fixture; the workbench suite tests actual blank drafts and library creation. The .NET MCP test assembly limits collection concurrency to two because it launches real stdio subprocesses; a high CPU count is not a reason to launch unbounded fixture hosts.
 
 `python3 scripts/folder_profile_smoke.py --base-url http://127.0.0.1:5099 --browser-executable /usr/bin/chromium` verifies profile creation and revision loading in an open project folder, including when the Studio has no matching model connection configured. It uses a temporary project directory and writes no project data into the repository.
+
+The folder graph-function smoke uses scripts/folder_function_smoke.py with the same temporary-project and browser setup as the profile smoke; it checks immutable source saves and revision loading without writing into the repository.

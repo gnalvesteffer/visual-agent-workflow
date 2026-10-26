@@ -12,7 +12,7 @@
         <div>
             <p class="vaw-settings-kicker">WORKFLOW STUDIO</p>
             <h1>Open a project folder</h1>
-            <p class="vaw-settings-intro">Edit workflow drafts and create immutable skill and agent-profile revisions in place. Git owns source history; this editor does not publish catalog versions or store run history in the project.</p>
+            <p class="vaw-settings-intro">Edit workflow drafts and create immutable skill, agent-profile, and graph-function revisions in place. Git owns source history; this editor does not publish catalog versions or store run history in the project.</p>
         </div>
         @if (manifest is not null)
         {
@@ -29,7 +29,7 @@
         @if (manifest is not null)
         {
             <p class="vaw-help"><strong>@manifest.ProjectName</strong> · <code>@openDirectory</code> · @manifest.Files.Length indexed files</p>
-            <p class="vaw-help">The editor reads only files listed in <code>@StudioProjectSourceArchive.ManifestFileName</code>. Workflow drafts and immutable skill and agent-profile revisions save directly to this folder. Provider connections and MCP credentials remain host-owned.</p>
+            <p class="vaw-help">The editor reads only files listed in <code>@StudioProjectSourceArchive.ManifestFileName</code>. Workflow drafts and immutable skill, agent-profile, and graph-function revisions save directly to this folder. Provider connections and MCP credentials remain host-owned.</p>
         }
         @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
         @if (message is not null) { <p role="status">@message</p> }
@@ -50,24 +50,25 @@
                         @foreach (var node in fileTree)
                         {
                             <li @key="node.Name + node.File?.Path">
-                                <ProjectFileTreeItem Node="@node" SelectedPath="@(openedWorkflow?.RelativePath ?? openedSkill?.RelativePath ?? openedProfile?.RelativePath)"
-                                    WorkflowNames="@workflowNames" CanOpenFiles="@(!busy && !dirty && !skillFormDirty && !profileFormDirty)"
-                                    OnOpenWorkflow="@OpenWorkflow" OnOpenSkill="@OpenSkill" OnOpenAgentProfile="@OpenAgentProfile" />
+                                <ProjectFileTreeItem Node="@node" SelectedPath="@(openedWorkflow?.RelativePath ?? openedSkill?.RelativePath ?? openedProfile?.RelativePath ?? openedGraphFunction?.RelativePath)"
+                                    WorkflowNames="@workflowNames" CanOpenFiles="@(!busy && !HasUnsavedEdits)"
+                                    OnOpenWorkflow="@OpenWorkflow" OnOpenSkill="@OpenSkill" OnOpenAgentProfile="@OpenAgentProfile" OnOpenGraphFunction="@OpenGraphFunction" />
                             </li>
                         }
                     </ul>
                     <p class="vaw-project-tree-legend">W Workflow · S Skill · A Agent preset · F Graph function</p>
                 }
-                @if (dirty || skillFormDirty || profileFormDirty) { <p class="vaw-help">Save or discard the current edits before opening another file.</p> }
+                @if (HasUnsavedEdits) { <p class="vaw-help">Save or discard the current edits before opening another file.</p> }
             </aside>
 
             <section class="vaw-folder-workflow-editor" aria-label="Project source editor">
                 <div class="vaw-settings-section-heading">
                     <div><h2>@EditorTitle</h2><p>@EditorDescription</p></div>
                     <div class="vaw-provider-actions">
-                        <button type="button" class="vaw-secondary" @onclick="CreateProfile" disabled="@(busy || dirty || skillFormDirty || profileFormDirty)">New agent profile</button>
-                        <button type="button" class="vaw-secondary" @onclick="CreateSkill" disabled="@(busy || dirty || skillFormDirty || profileFormDirty)">New skill</button>
-                        <button type="button" class="vaw-primary" @onclick="CreateWorkflow" disabled="@(busy || dirty || skillFormDirty || profileFormDirty)">New workflow</button>
+                        <button type="button" class="vaw-secondary" @onclick="CreateProfile" disabled="@(busy || HasUnsavedEdits)">New agent profile</button>
+                        <button type="button" class="vaw-secondary" @onclick="CreateSkill" disabled="@(busy || HasUnsavedEdits)">New skill</button>
+                        <button type="button" class="vaw-secondary" @onclick="CreateGraphFunction" disabled="@(busy || HasUnsavedEdits)">New graph function</button>
+                        <button type="button" class="vaw-primary" @onclick="CreateWorkflow" disabled="@(busy || HasUnsavedEdits)">New workflow</button>
                     </div>
                 </div>
                 @if (openedWorkflow is null)
@@ -143,9 +144,15 @@
                             </form>
                         </section>
                     }
+                    else if (graphFunctionCatalog is not null && (openedGraphFunction is not null || creatingNewGraphFunction))
+                    {
+                        <ProjectGraphFunctionEditor @key="graphFunctionEditorGeneration" Source="graphFunctionCatalog"
+                            ExpectedManifestHash="@sourceManifestHash" Asset="@openedGraphFunction"
+                            Saved="OnGraphFunctionSaved" DirtyChanged="OnGraphFunctionDirtyChanged" Discarded="CancelGraphFunctionEdit" />
+                    }
                     else
                     {
-                        <p class="vaw-empty-state">Select a workflow, skill, or agent profile in the project tree, or create one.</p>
+                        <p class="vaw-empty-state">Select a workflow, skill, agent profile, or graph function in the project tree, or create one.</p>
                     }
                 }
                 else if (definition is not null && layout is not null)
@@ -153,7 +160,7 @@
                     <p class="vaw-definition-status"><strong>@WorkflowName(definition)</strong> <code>@definition.WorkflowId</code> · @(dirty ? "Unsaved changes" : "Source saved")</p>
                     <WorkflowEditor @key="definition.WorkflowId" ProjectId="folder-project" Definition="definition" DefinitionChanged="DefinitionChanged"
                         Layout="layout" LayoutChanged="LayoutChanged" Bindings="bindings" Providers="providers" SkillLibrary="skillSource"
-                        AgentProfileLibrary="profileSource" FunctionCatalog="functionCatalog">
+                        AgentProfileLibrary="profileSource" FunctionCatalog="graphFunctionCatalog">
                         <EditorActions>
                             <button type="button" data-graph-save class="vaw-primary" @onclick="SaveWorkflow" disabled="@(busy || !dirty)">Save source file</button>
                         </EditorActions>
@@ -164,7 +171,7 @@
 
         <section class="vaw-source-mode-note" aria-label="Source project editing limits">
             <strong>Folder editing is separate from Studio catalog projects.</strong>
-            <span>This editor writes workflow, skill, and agent-profile source files directly to the folder without mirroring them into the SQLite catalog. A profile stores logical provider and MCP requirements only; the host supplies endpoints, credentials, and grants. It does not publish catalog versions or store project-local run/audit data. Graph functions remain read-only; multiple open folders are still planned.</span>
+            <span>This editor writes workflow, skill, agent-profile, and graph-function source files directly to the folder without mirroring them into the SQLite catalog. A profile stores logical provider and MCP requirements only; the host supplies endpoints, credentials, and grants. It does not publish catalog versions or store project-local run/audit data. Multiple open folders are still planned.</span>
         </section>
     }
 </main>
@@ -177,12 +184,16 @@
     private StudioFolderWorkflowSource? source;
     private StudioFolderSkillSource? skillSource;
     private StudioFolderAgentProfileSource? profileSource;
-    private StudioFolderGraphFunctionCatalog? functionCatalog;
+    private StudioFolderGraphFunctionCatalog? graphFunctionCatalog;
     private List<StudioFolderWorkflow> workflows = [];
     private IReadOnlyDictionary<string, string> workflowNames = new Dictionary<string, string>();
     private StudioFolderWorkflow? openedWorkflow;
     private StudioFolderSkill? openedSkill;
     private StudioFolderAgentProfile? openedProfile;
+    private StudioFolderGraphFunction? openedGraphFunction;
+    private bool creatingNewGraphFunction;
+    private bool graphFunctionDirty;
+    private int graphFunctionEditorGeneration;
     private string sourceManifestHash = "";
     private string skillId = "";
     private string skillVersion = "1.0.0";
@@ -217,6 +228,7 @@
     private IReadOnlyList<AgentProviderDescriptor> providers = [];
     private bool dirty;
     private bool busy;
+    private bool HasUnsavedEdits => dirty || skillFormDirty || profileFormDirty || graphFunctionDirty;
     private string? error;
     private string? message;
     private string EditorTitle => openedWorkflow is not null ? "Workflow editor" : openedProfile is not null || creatingNewProfile ? "Agent profile editor" : openedSkill is not null || creatingNewSkill ? "Skill editor" : "Project editor";
@@ -226,7 +238,9 @@
             ? "Skill text saves as a new immutable project revision. A stale project edit is rejected."
             : openedProfile is not null || creatingNewProfile
                 ? "Profile settings save as an immutable project revision; provider and MCP services remain host-owned."
-                : "Select a source file to edit. Graph functions are currently read-only.";
+                : openedGraphFunction is not null || creatingNewGraphFunction
+                    ? "Pure graph functions are edited visually and saved as immutable project revisions."
+                    : "Select a source file to edit. Graph function revisions can be created from the project.";
 
     protected override async Task OnInitializedAsync()
     {
@@ -246,7 +260,7 @@
             var loadedSource = new StudioFolderWorkflowSource(canonicalDirectory);
             var loadedSkillSource = new StudioFolderSkillSource(canonicalDirectory);
             var loadedProfileSource = new StudioFolderAgentProfileSource(canonicalDirectory);
-            var loadedFunctionCatalog = new StudioFolderGraphFunctionCatalog(canonicalDirectory);
+            var loadedGraphFunctionCatalog = new StudioFolderGraphFunctionCatalog(canonicalDirectory);
             var loadedWorkflows = loadedSource.List().ToList();
             openDirectory = canonicalDirectory;
             manifest = loadedManifest;
@@ -254,7 +268,7 @@
             source = loadedSource;
             skillSource = loadedSkillSource;
             profileSource = loadedProfileSource;
-            functionCatalog = loadedFunctionCatalog;
+            graphFunctionCatalog = loadedGraphFunctionCatalog;
             projectSkills = loadedSkillSource.List().Select(skill => skill.Item).ToArray();
             sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(loadedManifest);
             workflows = loadedWorkflows;
@@ -270,7 +284,7 @@
             source = null;
             skillSource = null;
             profileSource = null;
-            functionCatalog = null;
+            graphFunctionCatalog = null;
             projectSkills = [];
             workflows = [];
             openedWorkflow = null;
@@ -278,6 +292,9 @@
             layout = null;
             openedSkill = null;
             openedProfile = null;
+            openedGraphFunction = null;
+            creatingNewGraphFunction = false;
+            graphFunctionDirty = false;
             creatingNewSkill = false;
             creatingNewProfile = false;
             skillFormDirty = false;
@@ -289,7 +306,7 @@
 
     private Task OpenWorkflow(string workflowId)
     {
-        if (dirty || skillFormDirty || profileFormDirty || busy) return Task.CompletedTask;
+        if (HasUnsavedEdits || busy) return Task.CompletedTask;
         SetWorkflow(workflows.SingleOrDefault(workflow => workflow.WorkflowId == workflowId));
         error = null; message = null;
         return Task.CompletedTask;
@@ -297,9 +314,12 @@
 
     private Task OpenSkill(StudioProjectFile file)
     {
-        if (dirty || skillFormDirty || profileFormDirty || busy || skillSource is null) return Task.CompletedTask;
+        if (HasUnsavedEdits || busy || skillSource is null) return Task.CompletedTask;
         openedSkill = skillSource.List().SingleOrDefault(skill => skill.RelativePath == file.Path);
         openedProfile = null;
+        openedGraphFunction = null;
+        creatingNewGraphFunction = false;
+        graphFunctionDirty = false;
         openedWorkflow = null;
         definition = null;
         layout = null;
@@ -315,10 +335,13 @@
 
     private Task OpenAgentProfile(StudioProjectFile file)
     {
-        if (dirty || skillFormDirty || profileFormDirty || busy || profileSource is null) return Task.CompletedTask;
+        if (HasUnsavedEdits || busy || profileSource is null) return Task.CompletedTask;
         openedProfile = profileSource.List().SingleOrDefault(profile => profile.RelativePath == file.Path);
         openedWorkflow = null;
         openedSkill = null;
+        openedGraphFunction = null;
+        creatingNewGraphFunction = false;
+        graphFunctionDirty = false;
         definition = null;
         layout = null;
         creatingNewSkill = false;
@@ -330,6 +353,83 @@
         return Task.CompletedTask;
     }
 
+    private Task OpenGraphFunction(StudioProjectFile file)
+    {
+        if (HasUnsavedEdits || busy || graphFunctionCatalog is null) return Task.CompletedTask;
+        openedGraphFunction = graphFunctionCatalog.ListAssets().SingleOrDefault(function => function.RelativePath == file.Path);
+        openedWorkflow = null;
+        openedSkill = null;
+        openedProfile = null;
+        definition = null;
+        layout = null;
+        creatingNewSkill = false;
+        creatingNewProfile = false;
+        creatingNewGraphFunction = false;
+        skillFormDirty = false;
+        profileFormDirty = false;
+        graphFunctionDirty = true;
+        graphFunctionEditorGeneration++;
+        error = null;
+        message = null;
+        return Task.CompletedTask;
+    }
+
+    private void CreateGraphFunction()
+    {
+        openedWorkflow = null;
+        openedSkill = null;
+        openedProfile = null;
+        openedGraphFunction = null;
+        definition = null;
+        layout = null;
+        creatingNewSkill = false;
+        creatingNewProfile = false;
+        creatingNewGraphFunction = true;
+        skillFormDirty = false;
+        profileFormDirty = false;
+        graphFunctionDirty = true;
+        graphFunctionEditorGeneration++;
+        error = null;
+        message = null;
+    }
+
+    private Task OnGraphFunctionDirtyChanged(bool value)
+    {
+        graphFunctionDirty = value;
+        return Task.CompletedTask;
+    }
+
+    private void OnGraphFunctionSaved(StudioFolderGraphFunction saved)
+    {
+        RefreshProjectSource();
+        openedWorkflow = null;
+        openedSkill = null;
+        openedProfile = null;
+        openedGraphFunction = saved;
+        creatingNewGraphFunction = false;
+        graphFunctionDirty = false;
+        message = $"Saved graph function revision {saved.Item.Function.Definition.FunctionId}@{saved.Item.Function.Definition.Version}.";
+        error = null;
+    }
+
+    private void CancelGraphFunctionEdit()
+    {
+        if (openedGraphFunction is null)
+        {
+            creatingNewGraphFunction = false;
+            graphFunctionDirty = false;
+            message = "Graph function changes discarded.";
+        }
+        else
+        {
+            graphFunctionDirty = false;
+            openedGraphFunction = null;
+            graphFunctionEditorGeneration++;
+            message = "Graph function edits discarded.";
+        }
+        error = null;
+    }
+
     private void CreateWorkflow()
     {
         var id = "workflow-" + Guid.NewGuid().ToString("N");
@@ -337,10 +437,13 @@
         openedWorkflow = new(id, "Untitled workflow", "", "", created, WorkflowLayout.Create(created));
         openedSkill = null;
         openedProfile = null;
+        openedGraphFunction = null;
+        creatingNewGraphFunction = false;
         creatingNewSkill = false;
         creatingNewProfile = false;
         skillFormDirty = false;
         profileFormDirty = false;
+        graphFunctionDirty = false;
         definition = created;
         layout = openedWorkflow.Layout;
         dirty = true;
@@ -392,6 +495,7 @@
     {
         openedWorkflow = null;
         openedProfile = null;
+        openedGraphFunction = null;
         definition = null;
         layout = null;
         openedSkill = null;
@@ -404,6 +508,8 @@
         skillInstructions = "";
         creatingNewProfile = false;
         profileFormDirty = false;
+        creatingNewGraphFunction = false;
+        graphFunctionDirty = false;
         profileBeingEdited = null;
         selectedProfileTools.Clear();
         selectedProfileSkills.Clear();
@@ -415,11 +521,14 @@
     {
         openedWorkflow = null;
         openedSkill = null;
+        openedGraphFunction = null;
         openedProfile = null;
         definition = null;
         layout = null;
         creatingNewSkill = false;
+        creatingNewGraphFunction = false;
         skillFormDirty = false;
+        graphFunctionDirty = false;
         profileBeingEdited = null;
         creatingNewProfile = true;
         profileFormDirty = false;
@@ -605,10 +714,13 @@
         openedWorkflow = workflow;
         openedSkill = null;
         openedProfile = null;
+        openedGraphFunction = null;
         creatingNewSkill = false;
         creatingNewProfile = false;
+        creatingNewGraphFunction = false;
         skillFormDirty = false;
         profileFormDirty = false;
+        graphFunctionDirty = false;
         profileBeingEdited = null;
         definition = workflow?.Definition;
         layout = workflow?.Layout;

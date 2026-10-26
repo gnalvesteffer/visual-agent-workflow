@@ -1,0 +1,363 @@
+@using System.Collections.Immutable
+@using VisualAgentWorkflow.Blazor
+@using VisualAgentWorkflow.Core
+
+<section class="vaw-function-editor" aria-label="Project graph function editor">
+    @if (Asset is not null)
+    {
+        <p class="vaw-definition-status"><strong>Base revision</strong> <code>@($"{Asset.Item.Function.Definition.FunctionId}@{Asset.Item.Function.Definition.Version}")</code> · @Asset.ContentHash[..8]</p>
+    }
+    <div class="vaw-function-metadata">
+        <label>Function ID <input required maxlength="128" value="@functionId" @oninput="args => SetMetadata(args, value => functionId = value)" disabled="@(Asset is not null)" /></label>
+        <label>New version <input type="number" min="1" value="@version" @oninput="args => SetVersion(args)" /></label>
+        <label>Display name <input required maxlength="160" value="@displayName" @oninput="args => SetMetadata(args, value => displayName = value)" /></label>
+        <label>Folder <input maxlength="256" placeholder="Text/Formatting" value="@folder" @oninput="args => SetMetadata(args, value => folder = value)" /></label>
+        <label class="vaw-provider-form-wide">Description <textarea rows="2" maxlength="2000" value="@description" @oninput="args => SetMetadata(args, value => description = value)" /></label>
+    </div>
+
+    <details class="vaw-function-interface" open>
+        <summary>Function interface <span class="vaw-help">@inputPorts.Count inputs · @outputPorts.Count outputs</span></summary>
+        <div class="vaw-layout-columns">
+            <section aria-label="Function inputs"><h3>Inputs</h3>
+                @foreach (var (portId, port) in inputPorts)
+                {
+                    <div class="vaw-function-port" @key="portId"><label>@portId name <input value="@port.DisplayName" maxlength="160" @onchange="args => RenamePort(true, portId, args)" /></label><label>Type <select value="@port.DataType" @onchange="args => UpdatePortType(true, portId, args)"><option value="string">String</option><option value="boolean">Boolean</option></select></label><button type="button" class="vaw-danger-quiet" aria-label="Remove input @port.DisplayName" @onclick="() => RemovePort(true, portId)">Remove</button></div>
+                }
+                <div class="vaw-function-add-port"><label>Input ID <input maxlength="128" @bind="newInputId" /></label><label>Name <input maxlength="160" @bind="newInputName" /></label><label>Type <select @bind="newInputType"><option value="string">String</option><option value="boolean">Boolean</option></select></label><button type="button" class="vaw-secondary" @onclick="() => AddPort(true)">Add input</button></div>
+            </section>
+            <section aria-label="Function outputs"><h3>Outputs</h3>
+                @foreach (var (portId, port) in outputPorts)
+                {
+                    <div class="vaw-function-port" @key="portId"><label>@portId name <input value="@port.DisplayName" maxlength="160" @onchange="args => RenamePort(false, portId, args)" /></label><label>Type <select value="@port.DataType" @onchange="args => UpdatePortType(false, portId, args)"><option value="string">String</option><option value="boolean">Boolean</option></select></label><button type="button" class="vaw-danger-quiet" aria-label="Remove output @port.DisplayName" @onclick="() => RemovePort(false, portId)">Remove</button></div>
+                }
+                <div class="vaw-function-add-port"><label>Output ID <input maxlength="128" @bind="newOutputId" /></label><label>Name <input maxlength="160" @bind="newOutputName" /></label><label>Type <select @bind="newOutputType"><option value="string">String</option><option value="boolean">Boolean</option></select></label><button type="button" class="vaw-secondary" @onclick="() => AddPort(false)">Add output</button></div>
+            </section>
+        </div>
+    </details>
+
+    <WorkflowGraphCanvas Definition="editor" Layout="layout" LayoutChanged="LayoutChanged" ConnectionRequested="Connect" ConnectionDisconnectRequested="Disconnect" DeleteNodeRequested="RemoveNode" SelectedNodeId="selectedNode" SelectedNodeIdChanged="SelectNode" EnableContextMenu="false" NodesLabel="Function graph nodes">
+        <ToolbarContent><span class="vaw-help">Pure dataflow · source saves create immutable revisions</span></ToolbarContent>
+        <NodeLibrary>
+            <h3>Function nodes</h3>
+            <p class="vaw-help">Add a node, then drag a wire between matching typed pins.</p>
+            <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.StringConstant)">String constant</button>
+            <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.TextConcat)">Concatenate text</button>
+            <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.StringEquals)">Compare strings</button>
+            <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.BooleanConstant)">Boolean constant</button>
+            <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.BooleanNot)">Boolean NOT</button>
+        </NodeLibrary>
+        <NodeContent Context="nodeId">
+            @if (editor.Nodes.TryGetValue(nodeId, out var node) && node.Type == NodeTypes.StringConstant) { <span>@(node.StringConstant?.Value ?? "")</span> }
+            else if (node?.Type == NodeTypes.BooleanConstant) { <span>@(node.BooleanConstant?.Value == true ? "True" : "False")</span> }
+            else if (node?.Type == NodeTypes.FunctionInput) { <span>Interface input · @node.OutputDataType</span> }
+            else if (node?.Type == NodeTypes.FunctionOutput) { <span>Interface output · @node.InputDataType</span> }
+            else if (node is not null) { <span>@NodeDescription(node)</span> }
+        </NodeContent>
+        <NodeInspector Context="nodeId">
+            @if (editor.Nodes.TryGetValue(nodeId, out var node) && node.Type == NodeTypes.StringConstant)
+            { <label>Constant value <textarea rows="4" maxlength="16384" value="@node.StringConstant?.Value" @onchange="args => SetStringConstant(nodeId, args)" /></label> }
+            else if (node?.Type == NodeTypes.BooleanConstant)
+            { <label>Constant value <select value="@node.BooleanConstant?.Value.ToString().ToLowerInvariant()" @onchange="args => SetBooleanConstant(nodeId, args)"><option value="true">True</option><option value="false">False</option></select></label> }
+            else if (node?.Type is NodeTypes.FunctionInput or NodeTypes.FunctionOutput)
+            { <p class="vaw-help">This boundary is part of the function's declared interface. Change its name or type above.</p> }
+            else { <p class="vaw-help">This node is deterministic and has no additional settings.</p> }
+            <button type="button" class="vaw-danger-quiet" @onclick="() => RemoveNode(nodeId)">Remove node</button>
+        </NodeInspector>
+    </WorkflowGraphCanvas>
+
+    @if (!functionIssues.IsEmpty)
+    {
+        <section class="vaw-graph-issues" aria-label="Function validation issues"><h3>Resolve these issues before saving</h3><ul>@foreach (var issue in functionIssues) { <li><strong>@issue.Path</strong> · @issue.Message</li> }</ul></section>
+    }
+    @if (error is not null) { <p class="vaw-error" role="alert">@error</p> }
+    <p class="vaw-provider-form-note">Saving adds an immutable versioned graph function directly to this project. Workflows embedding older snapshots remain unchanged.</p>
+    <div class="vaw-provider-form-actions">
+        <button type="button" class="vaw-primary" @onclick="Save" disabled="@(!functionIssues.IsEmpty || !dirty)">Save graph function revision</button>
+        <button type="button" class="vaw-secondary" @onclick="Discard">Discard changes</button>
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public StudioFolderGraphFunctionCatalog Source { get; set; } = null!;
+    [Parameter, EditorRequired] public string ExpectedManifestHash { get; set; } = "";
+    [Parameter] public StudioFolderGraphFunction? Asset { get; set; }
+    [Parameter] public EventCallback<StudioFolderGraphFunction> Saved { get; set; }
+    [Parameter] public EventCallback Discarded { get; set; }
+    [Parameter] public EventCallback<bool> DirtyChanged { get; set; }
+
+    private ImmutableSortedDictionary<string, GraphFunctionPort> inputPorts = ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal);
+    private ImmutableSortedDictionary<string, GraphFunctionPort> outputPorts = ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal);
+    private WorkflowDefinition editor = default!;
+    private WorkflowLayout layout = default!;
+    private string functionId = "";
+    private int version = 1;
+    private string displayName = "";
+    private string description = "";
+    private string folder = "";
+    private string newInputId = "input";
+    private string newInputName = "Input";
+    private string newInputType = "string";
+    private string newOutputId = "result";
+    private string newOutputName = "Result";
+    private string newOutputType = "string";
+    private string? selectedNode;
+    private string? error;
+    private bool dirty;
+    private ImmutableArray<ValidationIssue> functionIssues => GraphFunctionJson.Validate(BuildFunction());
+
+    protected override void OnParametersSet()
+    {
+        if (editor is not null) return;
+        if (Asset is null) NewFunction();
+        else LoadForNewRevision(Asset.Item);
+    }
+
+    private void NewFunction()
+    {
+        var savedIds = Source.List().Select(item => item.Function.Definition.FunctionId).ToHashSet(StringComparer.Ordinal);
+        var suffix = 1;
+        functionId = "text.append-suffix";
+        displayName = "Append suffix";
+        while (savedIds.Contains(functionId))
+        {
+            suffix++;
+            functionId = $"text.append-suffix-{suffix}";
+            displayName = $"Append suffix {suffix}";
+        }
+        version = 1;
+        description = "Appends a fixed suffix to text.";
+        folder = "Text";
+        inputPorts = ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal).Add("text", new("Text", "string"));
+        outputPorts = ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal).Add("result", new("Result", "string"));
+        var input = new NodeDefinition(NodeTypes.FunctionInput, "1.0.0") { FunctionPortId = "text", OutputDataType = "string" };
+        var constant = new NodeDefinition(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("!") };
+        var concat = new NodeDefinition(NodeTypes.TextConcat, "1.0.0");
+        var output = new NodeDefinition(NodeTypes.FunctionOutput, "1.0.0") { FunctionPortId = "result", InputDataType = "string" };
+        editor = Draft(new Dictionary<string, NodeDefinition> { ["input"] = input, ["suffix"] = constant, ["concat"] = concat, ["output"] = output },
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["argument"] = new(new("input", "out"), new("concat", "left"), "data"),
+                ["suffix"] = new(new("suffix", "out"), new("concat", "right"), "data"),
+                ["result"] = new(new("concat", "out"), new("output", "in"), "data")
+            });
+        layout = WorkflowLayout.Create(editor);
+        SetBoundaryLabels();
+        selectedNode = "input";
+        dirty = true;
+    }
+
+    private void LoadForNewRevision(GraphFunctionCatalogEntry item)
+    {
+        var definition = item.Function.Definition;
+        functionId = definition.FunctionId;
+        version = definition.Version + 1;
+        displayName = definition.DisplayName;
+        description = definition.Description;
+        folder = item.Folder;
+        inputPorts = definition.Inputs;
+        outputPorts = definition.Outputs;
+        editor = Draft(definition.Nodes, definition.Connections);
+        layout = WorkflowLayout.Create(editor);
+        SetBoundaryLabels();
+        selectedNode = WorkflowGraph.DisplayOrder(editor).FirstOrDefault();
+        dirty = true;
+    }
+
+    private static WorkflowDefinition Draft(IReadOnlyDictionary<string, NodeDefinition> nodes,
+        IReadOnlyDictionary<string, ConnectionDefinition> connections) => new(WorkflowSchemaVersions.PureGraphFunctions,
+            "function-editor", nodes.Keys.First(), nodes.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            connections.ToImmutableSortedDictionary(StringComparer.Ordinal));
+
+    private GraphFunctionDefinition BuildFunction() => new(functionId.Trim(), version, displayName.Trim(), description.Trim(), inputPorts, outputPorts, editor.Nodes, editor.Connections);
+
+    private void SetMetadata(ChangeEventArgs args, Action<string> update)
+    {
+        update(args.Value?.ToString() ?? "");
+        MarkDirty();
+    }
+
+    private void SetVersion(ChangeEventArgs args)
+    {
+        if (int.TryParse(args.Value?.ToString(), out var selectedVersion)) version = selectedVersion;
+        MarkDirty();
+    }
+
+    private Task AddValueNode(string type)
+    {
+        if (editor.Nodes.Count >= GraphFunctionLimits.MaximumNodes) { error = "The function graph is at its 64-node limit."; return Task.CompletedTask; }
+        var node = type switch
+        {
+            NodeTypes.StringConstant => new NodeDefinition(type, "1.0.0") { StringConstant = new("") },
+            NodeTypes.BooleanConstant => new NodeDefinition(type, "1.0.0") { BooleanConstant = new(false) },
+            _ => new NodeDefinition(type, "1.0.0")
+        };
+        var previousNodeIds = editor.Nodes.Keys.ToHashSet(StringComparer.Ordinal);
+        editor = GraphEditing.AddUnconnectedNode(editor, node);
+        layout = layout.Reconcile(editor);
+        selectedNode = editor.Nodes.Keys.First(id => !previousNodeIds.Contains(id));
+        MarkDirty();
+        error = null;
+        return Task.CompletedTask;
+    }
+
+    private Task AddPort(bool isInput)
+    {
+        var portId = (isInput ? newInputId : newOutputId).Trim();
+        var portName = (isInput ? newInputName : newOutputName).Trim();
+        var type = isInput ? newInputType : newOutputType;
+        var ports = isInput ? inputPorts : outputPorts;
+        if (ports.Count >= 16) { error = "Functions support at most 16 inputs and 16 outputs."; return Task.CompletedTask; }
+        if (string.IsNullOrWhiteSpace(portId) || portId.Length > GraphFunctionLimits.MaximumIdLength ||
+            portId.Any(character => !(char.IsAsciiLetterOrDigit(character) || character is '-' or '_')))
+        { error = "Port IDs use letters, numbers, dashes, or underscores, up to 128 characters."; return Task.CompletedTask; }
+        if (string.IsNullOrWhiteSpace(portName) || portName.Length > GraphFunctionLimits.MaximumDisplayNameLength)
+        { error = "Enter a port name of 1–160 characters."; return Task.CompletedTask; }
+        if (ports.ContainsKey(portId)) { error = "That port ID already exists."; return Task.CompletedTask; }
+        var nodeId = $"{(isInput ? "input" : "output")}-{Guid.NewGuid():N}";
+        var node = isInput
+            ? new NodeDefinition(NodeTypes.FunctionInput, "1.0.0") { FunctionPortId = portId, OutputDataType = type }
+            : new NodeDefinition(NodeTypes.FunctionOutput, "1.0.0") { FunctionPortId = portId, InputDataType = type };
+        editor = editor with { Nodes = editor.Nodes.Add(nodeId, node) };
+        if (isInput) inputPorts = inputPorts.Add(portId, new(portName, type)); else outputPorts = outputPorts.Add(portId, new(portName, type));
+        var reconciled = layout.Reconcile(editor);
+        layout = reconciled with { Nodes = reconciled.Nodes.SetItem(nodeId, reconciled.Nodes[nodeId] with { Label = portName }) };
+        selectedNode = nodeId;
+        MarkDirty();
+        error = null;
+        return Task.CompletedTask;
+    }
+
+    private Task RenamePort(bool isInput, string portId, ChangeEventArgs args)
+    {
+        var name = args.Value?.ToString()?.Trim() ?? "";
+        var ports = isInput ? inputPorts : outputPorts;
+        if (!ports.TryGetValue(portId, out var port)) return Task.CompletedTask;
+        if (isInput) inputPorts = ports.SetItem(portId, port with { DisplayName = name }); else outputPorts = ports.SetItem(portId, port with { DisplayName = name });
+        SetBoundaryLabels();
+        MarkDirty();
+        return Task.CompletedTask;
+    }
+
+    private Task UpdatePortType(bool isInput, string portId, ChangeEventArgs args)
+    {
+        var type = args.Value?.ToString() ?? "string";
+        if (type is not ("string" or "boolean")) return Task.CompletedTask;
+        var ports = isInput ? inputPorts : outputPorts;
+        if (!ports.TryGetValue(portId, out var port)) return Task.CompletedTask;
+        if (isInput) inputPorts = ports.SetItem(portId, port with { DataType = type }); else outputPorts = ports.SetItem(portId, port with { DataType = type });
+        var nodeType = isInput ? NodeTypes.FunctionInput : NodeTypes.FunctionOutput;
+        var boundary = editor.Nodes.FirstOrDefault(pair => pair.Value.Type == nodeType && pair.Value.FunctionPortId == portId);
+        if (boundary.Value is not null)
+            editor = editor with { Nodes = editor.Nodes.SetItem(boundary.Key, isInput ? boundary.Value with { OutputDataType = type } : boundary.Value with { InputDataType = type }) };
+        MarkDirty();
+        return Task.CompletedTask;
+    }
+
+    private void SetBoundaryLabels()
+    {
+        var nodes = layout.Nodes;
+        foreach (var (id, node) in editor.Nodes)
+        {
+            var portName = node.Type == NodeTypes.FunctionInput && node.FunctionPortId is { } inputId && inputPorts.TryGetValue(inputId, out var input)
+                ? input.DisplayName : node.Type == NodeTypes.FunctionOutput && node.FunctionPortId is { } outputId && outputPorts.TryGetValue(outputId, out var output) ? output.DisplayName : null;
+            if (portName is not null && nodes.TryGetValue(id, out var presentation)) nodes = nodes.SetItem(id, presentation with { Label = portName });
+        }
+        layout = layout with { Nodes = nodes };
+    }
+
+    private Task RemovePort(bool isInput, string portId)
+    {
+        var nodeType = isInput ? NodeTypes.FunctionInput : NodeTypes.FunctionOutput;
+        var boundary = editor.Nodes.FirstOrDefault(pair => pair.Value.Type == nodeType && pair.Value.FunctionPortId == portId).Key;
+        if (boundary is not null) RemoveNode(boundary);
+        if (isInput) inputPorts = inputPorts.Remove(portId); else outputPorts = outputPorts.Remove(portId);
+        MarkDirty();
+        error = null;
+        return Task.CompletedTask;
+    }
+
+    private Task Connect((string SourceId, string SourcePort, string TargetId, string TargetPort) pins)
+    {
+        try { editor = GraphEditing.ConnectPins(editor, pins.SourceId, pins.SourcePort, pins.TargetId, pins.TargetPort); layout = layout.Reconcile(editor); error = null; MarkDirty(); }
+        catch (ArgumentException exception) { error = exception.Message; }
+        return Task.CompletedTask;
+    }
+
+    private Task Disconnect(string connectionId)
+    {
+        editor = GraphEditing.Disconnect(editor, connectionId); layout = layout.Reconcile(editor); error = null; MarkDirty();
+        return Task.CompletedTask;
+    }
+
+    private Task RemoveNode(string id)
+    {
+        if (!editor.Nodes.TryGetValue(id, out var node)) return Task.CompletedTask;
+        editor = editor with
+        {
+            Nodes = editor.Nodes.Remove(id),
+            Connections = editor.Connections.RemoveRange(editor.Connections.Where(edge => edge.Value.Source.NodeId == id || edge.Value.Target.NodeId == id).Select(edge => edge.Key))
+        };
+        if (node.Type == NodeTypes.FunctionInput && node.FunctionPortId is { } inputId) inputPorts = inputPorts.Remove(inputId);
+        if (node.Type == NodeTypes.FunctionOutput && node.FunctionPortId is { } outputId) outputPorts = outputPorts.Remove(outputId);
+        layout = layout.Reconcile(editor);
+        selectedNode = WorkflowGraph.DisplayOrder(editor).FirstOrDefault();
+        error = null;
+        MarkDirty();
+        return Task.CompletedTask;
+    }
+
+    private Task SelectNode(string id) { selectedNode = id; return Task.CompletedTask; }
+    private Task LayoutChanged(WorkflowLayout changed) { layout = changed; MarkDirty(); return Task.CompletedTask; }
+
+    private Task SetStringConstant(string id, ChangeEventArgs args)
+    {
+        editor = editor with { Nodes = editor.Nodes.SetItem(id, editor.Nodes[id] with { StringConstant = new(args.Value?.ToString() ?? "") }) };
+        MarkDirty();
+        return Task.CompletedTask;
+    }
+
+    private Task SetBooleanConstant(string id, ChangeEventArgs args)
+    {
+        var value = bool.TryParse(args.Value?.ToString(), out var parsed) && parsed;
+        editor = editor with { Nodes = editor.Nodes.SetItem(id, editor.Nodes[id] with { BooleanConstant = new(value) }) };
+        MarkDirty();
+        return Task.CompletedTask;
+    }
+
+    private static string NodeDescription(NodeDefinition node) => node.Type switch
+    {
+        NodeTypes.TextConcat => "Join left + right",
+        NodeTypes.StringEquals => "Ordinal string equality",
+        NodeTypes.BooleanNot => "Invert Boolean value",
+        _ => "Pure function node"
+    };
+
+    private async Task Save()
+    {
+        if (version == int.MaxValue)
+        {
+            error = "Graph function version cannot be incremented further.";
+            return;
+        }
+        try
+        {
+            var saved = Source.SaveNewVersion(BuildFunction(), folder.Trim(), ExpectedManifestHash);
+            version++;
+            dirty = false;
+            error = null;
+            await DirtyChanged.InvokeAsync(false);
+            await Saved.InvokeAsync(saved);
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or InvalidOperationException)
+        { error = exception.Message; }
+    }
+
+    private Task Discard() => Discarded.InvokeAsync();
+
+    private void MarkDirty()
+    {
+        if (dirty) return;
+        dirty = true;
+        _ = DirtyChanged.InvokeAsync(true);
+    }
+}

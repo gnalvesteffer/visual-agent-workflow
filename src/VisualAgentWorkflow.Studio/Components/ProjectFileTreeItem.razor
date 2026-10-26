@@ -7,7 +7,7 @@
             {
                 <li @key="child.Name + child.File?.Path">
                     <ProjectFileTreeItem Node="@child" SelectedPath="@SelectedPath" WorkflowNames="@WorkflowNames"
-                        CanOpenFiles="@CanOpenFiles" OnOpenWorkflow="@OnOpenWorkflow" OnOpenSkill="@OnOpenSkill" OnOpenAgentProfile="@OnOpenAgentProfile" />
+                        CanOpenFiles="@CanOpenFiles" OnOpenWorkflow="@OnOpenWorkflow" OnOpenSkill="@OnOpenSkill" OnOpenAgentProfile="@OnOpenAgentProfile" OnOpenGraphFunction="@OnOpenGraphFunction" />
                 </li>
             }
         </ul>
@@ -43,6 +43,16 @@ else if (Node.File is { Kind: "agent-profile" } profileFile)
         <span class="vaw-project-tree-file-name">@Node.Name</span>
     </button>
 }
+else if (Node.File is { Kind: "graph-function" } graphFunctionFile)
+{
+    var selected = graphFunctionFile.Path == SelectedPath;
+    <button type="button" class="vaw-project-tree-file @(selected ? "is-selected" : "")"
+            aria-current="@(selected ? "page" : "false")" aria-label="@($"Edit graph function {Node.Name}")" title="@graphFunctionFile.Path"
+            disabled="@(!CanOpenFiles)" @onclick="() => OnOpenGraphFunction.InvokeAsync(graphFunctionFile)">
+        <span class="vaw-project-tree-icon" aria-hidden="true">F</span>
+        <span class="vaw-project-tree-file-name">@Node.Name</span>
+    </button>
+}
 else if (Node.File is { } readOnlyFile)
 {
     <span class="vaw-project-tree-file is-read-only" aria-label="@($"{AssetLabel(readOnlyFile.Kind)} {Node.Name}, read only")"
@@ -60,6 +70,7 @@ else if (Node.File is { } readOnlyFile)
     [Parameter] public EventCallback<string> OnOpenWorkflow { get; set; }
     [Parameter] public EventCallback<StudioProjectFile> OnOpenSkill { get; set; }
     [Parameter] public EventCallback<StudioProjectFile> OnOpenAgentProfile { get; set; }
+    [Parameter] public EventCallback<StudioProjectFile> OnOpenGraphFunction { get; set; }
 
     private static string AssetIcon(string kind) => kind switch
     {
@@ -75,7 +86,7 @@ else if (Node.File is { } readOnlyFile)
     {
         "skill" => "Skill files are editable as new immutable revisions.",
         "agent-profile" => "Agent profile revisions are editable as new immutable source versions.",
-        "graph-function" => "Graph function files are visible but not editable in folder mode yet.",
+        "graph-function" => "Graph function revisions are editable as new immutable source versions.",
         _ => "This project asset is visible but not editable in folder mode yet."
     };
 
