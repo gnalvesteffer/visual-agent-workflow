@@ -80,6 +80,16 @@ public static class GraphEditing
         return definition with { SchemaVersion = WorkflowSchemaVersions.AgentGraphFunctionTools };
     }
 
+    /// <summary>Upgrades a valid agent graph to typed Int64 graph values and arithmetic.</summary>
+    public static WorkflowDefinition EnableIntegerGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.AgentExecutionRoutes || definition.ExecutionConnections is null)
+            throw new ArgumentException("Enable the agent graph schema before adding typed integer values.", nameof(definition));
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition with { SchemaVersion = WorkflowSchemaVersions.IntegerGraph };
+    }
+
     /// <summary>Adds a configured node without connecting it. Incomplete topology remains an editable draft.</summary>
     public static WorkflowDefinition AddUnconnectedNode(WorkflowDefinition definition, NodeDefinition node)
     {
@@ -91,7 +101,8 @@ public static class GraphEditing
             NodeTypes.Condition => "condition", NodeTypes.Terminate => "terminate", NodeTypes.Merge => "merge",
             NodeTypes.Agent => "agent", NodeTypes.McpTool => "mcp", NodeTypes.StringConstant => "constant", NodeTypes.TextConcat => "concat",
             NodeTypes.StringEquals => "equals", NodeTypes.BooleanBranch => "branch",
-            NodeTypes.BooleanConstant => "boolean", NodeTypes.BooleanNot => "not", _ => node.Type
+            NodeTypes.BooleanConstant => "boolean", NodeTypes.BooleanNot => "not", NodeTypes.IntegerConstant => "integer",
+            NodeTypes.IntegerAdd => "add", NodeTypes.IntegerEquals => "integer-equals", _ => node.Type
         };
         var id = NewId(prefix);
         return definition with
@@ -156,6 +167,8 @@ public static class GraphEditing
         if (!definition.Nodes.TryGetValue(sourceId, out var source) || !definition.Nodes.TryGetValue(targetId, out var target))
             throw new ArgumentException("Choose pins on existing nodes.");
         var sourcePort = WorkflowPorts.Explicit(source).SingleOrDefault(port => port.Direction == WorkflowPortDirection.Output && port.Id == sourcePortId);
+        if (sourcePort is not null && target.Type == NodeTypes.Output && definition.SchemaVersion == WorkflowSchemaVersions.IntegerGraph)
+            target = target with { OutputDataType = sourcePort.Kind == WorkflowPortKind.Data ? sourcePort.DataType : target.OutputDataType };
         var targetPort = WorkflowPorts.Explicit(target).SingleOrDefault(port => port.Direction == WorkflowPortDirection.Input && port.Id == targetPortId);
         if (sourcePort is null || targetPort is null || sourcePort.Kind != targetPort.Kind || sourcePort.DataType != targetPort.DataType)
             throw new ArgumentException("Connect pins with the same kind and compatible data type.");
@@ -166,7 +179,7 @@ public static class GraphEditing
         if (sourcePort.Kind == WorkflowPortKind.Execution)
         {
             var edges = definition.ExecutionConnections ?? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal);
-            var allowsAlternativeInput = definition.SchemaVersion is WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes &&
+            var allowsAlternativeInput = definition.SchemaVersion is WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph &&
                 target.Type is NodeTypes.BooleanBranch or NodeTypes.Output or NodeTypes.Terminate;
             // Schema 1.26 treats incoming execution edges as mutually exclusive alternatives.
             // Each source pin still chooses only one destination; earlier schemas keep one edge per input.
@@ -178,7 +191,10 @@ public static class GraphEditing
         var data = definition.Connections.RemoveRange(definition.Connections
             .Where(edge => edge.Value.Target.NodeId == targetId && edge.Value.Target.PortId == targetPortId)
             .Select(edge => edge.Key));
-        return definition with { Connections = data.Add(connectionId, connection) };
+        var nodes = target.Type == NodeTypes.Output && sourcePort.Kind == WorkflowPortKind.Data
+            ? definition.Nodes.SetItem(targetId, target with { OutputDataType = sourcePort.DataType })
+            : definition.Nodes;
+        return definition with { Nodes = nodes, Connections = data.Add(connectionId, connection) };
     }
 
     public static WorkflowDefinition InsertConditionalAfter(WorkflowDefinition definition, string sourceId, string portId)
@@ -356,7 +372,7 @@ public static class GraphEditing
     {
         if (!WorkflowDraftEditing.HasOnlyIncompleteTopologyIssues(definition)) WorkflowValidator.ThrowIfInvalid(definition);
         if (!definition.Nodes.TryGetValue(id, out var existing)) throw new ArgumentException("Unknown node.");
-        if (existing.Type == node.Type && existing.Type is NodeTypes.Condition or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.StringConstant or NodeTypes.BooleanConstant)
+        if (existing.Type == node.Type && existing.Type is NodeTypes.Condition or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.StringConstant or NodeTypes.BooleanConstant or NodeTypes.IntegerConstant)
             return WorkflowDraftEditing.ValidateEdit(definition, definition with { Nodes = definition.Nodes.SetItem(id, node) });
         RequireProcessing(existing.Type);
         RequireProcessing(node.Type);

@@ -60,6 +60,8 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public BooleanConstantConfiguration? BooleanConstant { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IntegerConstantConfiguration? IntegerConstant { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public PromptTemplate? TextTemplate { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public LoopConfiguration? Loop { get; init; }
@@ -105,12 +107,15 @@ public static class NodeTypes
     public const string BooleanBranch = "core.branch.boolean";
     public const string BooleanConstant = "core.constant.boolean";
     public const string BooleanNot = "core.boolean.not";
+    public const string IntegerConstant = "core.constant.integer";
+    public const string IntegerAdd = "core.integer.add";
+    public const string IntegerEquals = "core.integer.equals";
     public const string FunctionInput = "core.function.input";
     public const string FunctionOutput = "core.function.output";
     public const string FunctionCall = "core.function.call";
 
     public static bool IsSupported(string? type) =>
-        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin or Loop or LoopBody or Terminate or WorkflowCall or StringConstant or TextConcat or StringEquals or BooleanBranch or BooleanConstant or BooleanNot or FunctionInput or FunctionOutput or FunctionCall;
+        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin or Loop or LoopBody or Terminate or WorkflowCall or StringConstant or TextConcat or StringEquals or BooleanBranch or BooleanConstant or BooleanNot or IntegerConstant or IntegerAdd or IntegerEquals or FunctionInput or FunctionOutput or FunctionCall;
 }
 
 public static class WorkflowSchemaVersions
@@ -123,16 +128,18 @@ public static class WorkflowSchemaVersions
     public const string AgentGraphFunctionTools = "1.28";
     public const string AgentParameterBindings = "1.29";
     public const string AgentExecutionRoutes = "1.30";
+    public const string IntegerGraph = "1.31";
 
-    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph or PureGraphFunctions or AgentGraphFunctionTools or AgentExecutionRoutes;
+    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph or PureGraphFunctions or AgentGraphFunctionTools or AgentExecutionRoutes or IntegerGraph;
 
     public static bool UsesExplicitGraph(WorkflowDefinition definition) =>
         UsesExplicitGraph(definition.SchemaVersion) ||
-        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes && definition.ExecutionConnections is not null;
+        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph && definition.ExecutionConnections is not null;
 }
 
 public sealed record StringConstantConfiguration(string Value);
 public sealed record BooleanConstantConfiguration(bool Value);
+public sealed record IntegerConstantConfiguration(long Value);
 
 public sealed record LoopConfiguration(StringCondition ContinueWhile, int MaximumIterations);
 public sealed record TerminationConfiguration(string Outcome);

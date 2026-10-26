@@ -91,6 +91,49 @@ public sealed class ExplicitGraphExecutionTests
         Assert.Equal(value, data.RootElement.GetProperty("value").GetBoolean());
     }
 
+    [Fact]
+    public async Task Integer_parameter_addition_and_equality_choose_branch_and_record_typed_values()
+    {
+        var definition = IntegerParameterBranchDefinition();
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "test"), "ignored",
+            new Dictionary<string, string> { ["base"] = "41" },
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("42", result.Output);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.BranchSelected && evt.NodeId == "branch" &&
+            evt.Data!.Contains("\"port\":\"true\"", StringComparison.Ordinal));
+        var sum = Assert.Single(events, evt =>
+        {
+            if (evt.Kind != ExecutionEventKinds.DataEvaluated || evt.NodeId != "sum") return false;
+            using var evidence = JsonDocument.Parse(evt.Data!);
+            return evidence.RootElement.GetProperty("activatedByNodeId").GetString() == "branch";
+        });
+        using var sumEvidence = JsonDocument.Parse(sum.Data!);
+        Assert.Equal("integer", sumEvidence.RootElement.GetProperty("dataType").GetString());
+        Assert.Equal(42, sumEvidence.RootElement.GetProperty("value").GetInt64());
+    }
+
+    [Fact]
+    public async Task Integer_addition_overflow_fails_at_the_deterministic_data_node()
+    {
+        var definition = IntegerParameterBranchDefinition();
+        var events = new List<ExecutionEvent>();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "test"), "ignored",
+            new Dictionary<string, string> { ["base"] = long.MaxValue.ToString(System.Globalization.CultureInfo.InvariantCulture) },
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "sum");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "branch");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.BranchSelected);
+    }
+
     [Theory]
     [InlineData(false, false, "failure", true, null, 1)]
     [InlineData(true, false, "success", true, null, 2)]
@@ -299,6 +342,40 @@ public sealed class ExplicitGraphExecutionTests
             ["activate-branch"] = new(new("input", "then"), new("branch", "execute"), "execution"),
             ["true-route"] = new(new("branch", "true"), new("output", "execute"), "execution"),
             ["false-route"] = new(new("branch", "false"), new("terminate", "execute"), "execution")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+    };
+
+    private static WorkflowDefinition IntegerParameterBranchDefinition() => new WorkflowDefinition(
+        WorkflowSchemaVersions.IntegerGraph, "integer-parameter-branch", "input",
+        new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["base"] = new(NodeTypes.WorkflowValue, "1.0.0") { ParameterId = "base", OutputDataType = "integer" },
+            ["one"] = new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) },
+            ["expected"] = new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(42) },
+            ["sum"] = new(NodeTypes.IntegerAdd, "1.0.0"),
+            ["equals"] = new(NodeTypes.IntegerEquals, "1.0.0"),
+            ["branch"] = new(NodeTypes.BooleanBranch, "1.0.0"),
+            ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = "integer" },
+            ["failure"] = new(NodeTypes.Terminate, "1.0.0") { Termination = new(WorkflowTerminationOutcomes.Failure) }
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+        new Dictionary<string, ConnectionDefinition>
+        {
+            ["base-left"] = new(new("base", "out"), new("sum", "left"), "data"),
+            ["one-right"] = new(new("one", "out"), new("sum", "right"), "data"),
+            ["sum-left"] = new(new("sum", "out"), new("equals", "left"), "data"),
+            ["expected-right"] = new(new("expected", "out"), new("equals", "right"), "data"),
+            ["equals-condition"] = new(new("equals", "out"), new("branch", "condition"), "data"),
+            ["sum-output"] = new(new("sum", "out"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+    {
+        Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+            .Add("base", new WorkflowParameterDefinition("Base", "41") { Type = "integer" }),
+        ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+        {
+            ["activate"] = new(new("input", "then"), new("branch", "execute"), "execution"),
+            ["success"] = new(new("branch", "true"), new("output", "execute"), "execution"),
+            ["failure"] = new(new("branch", "false"), new("failure", "execute"), "execution")
         }.ToImmutableSortedDictionary(StringComparer.Ordinal)
     };
 

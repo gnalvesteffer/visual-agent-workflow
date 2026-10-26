@@ -92,8 +92,9 @@ public partial class WorkflowGraphCanvas
         NodeTypes.Loop => "Bounded loop", NodeTypes.LoopBody => "Loop body", NodeTypes.Terminate => "Terminate workflow",
         NodeTypes.WorkflowCall => $"Workflow · {node.WorkflowCall?.WorkflowId} v{node.WorkflowCall?.Version}",
         NodeTypes.StringConstant => "String constant", NodeTypes.TextConcat => "Text concatenation",
+        NodeTypes.IntegerConstant => "Integer constant", NodeTypes.IntegerAdd => "Add integers", NodeTypes.IntegerEquals => "Compare integers",
         NodeTypes.StringEquals => "Compare strings", NodeTypes.BooleanBranch => "Boolean Branch",
-        NodeTypes.BooleanConstant => "Boolean constant", NodeTypes.BooleanNot => "Boolean NOT",
+        NodeTypes.BooleanConstant => "Boolean constant", NodeTypes.BooleanNot => "Boolean NOT", NodeTypes.WorkflowValue => "Workflow value",
         NodeTypes.FunctionInput => "Function input", NodeTypes.FunctionOutput => "Function output",
         NodeTypes.FunctionCall => node.GraphFunction?.Definition.DisplayName is { Length: > 0 } name
             ? $"Function · {name} v{node.GraphFunction.Definition.Version}" : "Pure function",
@@ -112,8 +113,8 @@ public partial class WorkflowGraphCanvas
         node.Type == NodeTypes.Loop ? "Bounded loop" : node.Type == NodeTypes.LoopBody ? "Loop body" : node.Type == NodeTypes.Terminate ? "Successful exit · no result" :
         node.Type == NodeTypes.WorkflowCall ? "Pinned workflow call" : node.Type == NodeTypes.FunctionCall ? "Pure function" :
         node.Type is NodeTypes.FunctionInput or NodeTypes.FunctionOutput ? "Function boundary" :
-        node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals ? "Pure value" :
-        node.Type == NodeTypes.BooleanBranch ? "Boolean routing" : node.Type is NodeTypes.BooleanConstant or NodeTypes.BooleanNot ? "Pure value" :
+        node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals ? "Pure value" :
+        node.Type == NodeTypes.BooleanBranch ? "Boolean routing" : node.Type is NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.WorkflowValue ? "Pure value" :
         node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform";
 
     protected override void OnParametersSet()

@@ -111,9 +111,9 @@ public static class GraphFunctionJson
         foreach (var (id, node) in function.Nodes)
         {
             if (node is null || node.Type is not (NodeTypes.FunctionInput or NodeTypes.FunctionOutput or NodeTypes.StringConstant or
-                NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot))
+                NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals))
             {
-                Error("function.node.unsupported", $"graphFunction.definition.nodes.{id}", "Function bodies support only function boundaries and deterministic string/Boolean value nodes.");
+                Error("function.node.unsupported", $"graphFunction.definition.nodes.{id}", "Function bodies support only function boundaries and deterministic string, Boolean, and integer value nodes.");
                 continue;
             }
 
@@ -139,6 +139,8 @@ public static class GraphFunctionJson
                 Error("function.constant", $"graphFunction.definition.nodes.{id}.stringConstant", "String constants must be configured and limited to 16,384 characters.");
             if (node.Type == NodeTypes.BooleanConstant && node.BooleanConstant is null)
                 Error("function.constant", $"graphFunction.definition.nodes.{id}.booleanConstant", "Boolean constants must have an explicit value.");
+            if (node.Type == NodeTypes.IntegerConstant && node.IntegerConstant is null)
+                Error("function.constant", $"graphFunction.definition.nodes.{id}.integerConstant", "Integer constants must have an explicit signed 64-bit value.");
         }
 
         foreach (var (id, port) in function.Inputs)
@@ -233,6 +235,9 @@ public static class GraphFunctionJson
                     NodeTypes.TextConcat when portId == "out" => new GraphFunctionEvaluation("string", Concatenate(nodeId), []),
                     NodeTypes.StringEquals when portId == "out" => new GraphFunctionEvaluation("boolean",
                         string.Equals(ResolveInput(nodeId, "left", "string").Value as string, ResolveInput(nodeId, "right", "string").Value as string, StringComparison.Ordinal), []),
+                    NodeTypes.IntegerConstant when portId == "out" => new GraphFunctionEvaluation("integer", node.IntegerConstant!.Value, []),
+                    NodeTypes.IntegerAdd when portId == "out" => new GraphFunctionEvaluation("integer", AddIntegers(nodeId), []),
+                    NodeTypes.IntegerEquals when portId == "out" => new GraphFunctionEvaluation("boolean", IntegersEqual(nodeId), []),
                     NodeTypes.BooleanConstant when portId == "out" => new GraphFunctionEvaluation("boolean", node.BooleanConstant!.Value, []),
                     NodeTypes.BooleanNot when portId == "out" => new GraphFunctionEvaluation("boolean", !(ResolveInput(nodeId, "value", "boolean").Value as bool? ?? throw new InvalidOperationException("Boolean NOT requires a Boolean input.")), []),
                     _ => throw new InvalidOperationException("The function data source is not a supported pure value node.")
@@ -265,6 +270,24 @@ public static class GraphFunctionJson
                 throw new InvalidOperationException("Function text concatenation exceeds 16,384 characters.");
             return string.Concat(left, right);
         }
+
+        long AddIntegers(string nodeId)
+        {
+            var left = ResolveInput(nodeId, "left", "integer").Value;
+            var right = ResolveInput(nodeId, "right", "integer").Value;
+            if (left is not long leftInteger || right is not long rightInteger)
+                throw new InvalidOperationException("Integer addition requires Int64 inputs.");
+            return checked(leftInteger + rightInteger);
+        }
+
+        bool IntegersEqual(string nodeId)
+        {
+            var left = ResolveInput(nodeId, "left", "integer").Value;
+            var right = ResolveInput(nodeId, "right", "integer").Value;
+            if (left is not long leftInteger || right is not long rightInteger)
+                throw new InvalidOperationException("Integer equality requires Int64 inputs.");
+            return leftInteger == rightInteger;
+        }
     }
 
     private static void ValidatePorts(ImmutableSortedDictionary<string, GraphFunctionPort> ports, string kind,
@@ -277,8 +300,8 @@ public static class GraphFunctionJson
                 error("function.port.id", $"graphFunction.definition.{kind}.{id}", "Function port IDs must use letters, digits, '_' or '-' and fit within 128 characters.");
             if (port is null || string.IsNullOrWhiteSpace(port.DisplayName) || port.DisplayName.Length > GraphFunctionLimits.MaximumDisplayNameLength)
                 error("function.port.name", $"graphFunction.definition.{kind}.{id}.displayName", "Function port names must contain 1–160 characters.");
-            if (port is not null && port.DataType is not ("string" or "boolean"))
-                error("function.port.type", $"graphFunction.definition.{kind}.{id}.dataType", "This version supports only string and Boolean function ports.");
+            if (port is not null && port.DataType is not ("string" or "boolean" or "integer"))
+                error("function.port.type", $"graphFunction.definition.{kind}.{id}.dataType", "This version supports only string, Boolean, and signed 64-bit integer function ports.");
         }
     }
 
@@ -296,6 +319,7 @@ public static class GraphFunctionJson
     {
         NodeTypes.FunctionOutput when node.FunctionPortId is { } id && function.Outputs.TryGetValue(id, out var output) => [new("in", node.InputDataType ?? output.DataType)],
         NodeTypes.TextConcat or NodeTypes.StringEquals => [new("left", "string"), new("right", "string")],
+        NodeTypes.IntegerAdd or NodeTypes.IntegerEquals => [new("left", "integer"), new("right", "integer")],
         NodeTypes.BooleanNot => [new("value", "boolean")],
         _ => []
     };
@@ -304,7 +328,8 @@ public static class GraphFunctionJson
     {
         NodeTypes.FunctionInput when node.FunctionPortId is { } id && function.Inputs.TryGetValue(id, out var input) => [new("out", node.OutputDataType ?? input.DataType)],
         NodeTypes.StringConstant or NodeTypes.TextConcat => [new("out", "string")],
-        NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", "boolean")],
+        NodeTypes.IntegerConstant or NodeTypes.IntegerAdd => [new("out", "integer")],
+        NodeTypes.StringEquals or NodeTypes.IntegerEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", "boolean")],
         _ => []
     };
 
@@ -317,11 +342,12 @@ public static class GraphFunctionJson
             node.GraphFunction is not null;
         return hasCommonConfiguration || node.Type switch
         {
-            NodeTypes.FunctionInput => node.StringConstant is not null || node.BooleanConstant is not null || node.InputDataType is not null,
-            NodeTypes.FunctionOutput => node.StringConstant is not null || node.BooleanConstant is not null || node.OutputDataType is not null,
-            NodeTypes.StringConstant => node.FunctionPortId is not null || node.BooleanConstant is not null || node.InputDataType is not null || node.OutputDataType is not null,
-            NodeTypes.BooleanConstant => node.FunctionPortId is not null || node.StringConstant is not null || node.InputDataType is not null || node.OutputDataType is not null,
-            _ => node.FunctionPortId is not null || node.StringConstant is not null || node.BooleanConstant is not null || node.InputDataType is not null || node.OutputDataType is not null
+            NodeTypes.FunctionInput => node.StringConstant is not null || node.BooleanConstant is not null || node.IntegerConstant is not null || node.InputDataType is not null,
+            NodeTypes.FunctionOutput => node.StringConstant is not null || node.BooleanConstant is not null || node.IntegerConstant is not null || node.OutputDataType is not null,
+            NodeTypes.StringConstant => node.FunctionPortId is not null || node.BooleanConstant is not null || node.IntegerConstant is not null || node.InputDataType is not null || node.OutputDataType is not null,
+            NodeTypes.BooleanConstant => node.FunctionPortId is not null || node.StringConstant is not null || node.IntegerConstant is not null || node.InputDataType is not null || node.OutputDataType is not null,
+            NodeTypes.IntegerConstant => node.FunctionPortId is not null || node.StringConstant is not null || node.BooleanConstant is not null || node.InputDataType is not null || node.OutputDataType is not null,
+            _ => node.FunctionPortId is not null || node.StringConstant is not null || node.BooleanConstant is not null || node.IntegerConstant is not null || node.InputDataType is not null || node.OutputDataType is not null
         };
     }
 

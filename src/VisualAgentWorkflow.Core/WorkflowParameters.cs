@@ -86,3 +86,14 @@ public static class WorkflowParameters
         }
     }
 }
+
+public static class WorkflowParameterGraphTypes
+{
+    public static string? DataType(WorkflowParameterDefinition parameter) => (parameter.Type ?? "string") switch
+    {
+        "string" or "choice" => "string",
+        "boolean" => "boolean",
+        "integer" => "integer",
+        _ => null
+    };
+}

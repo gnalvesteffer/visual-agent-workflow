@@ -34,6 +34,7 @@ public static class WorkflowPorts
         NodeTypes.Output => [new("in", node.OutputDataType ?? "string")],
         NodeTypes.TextConcat => [new("left", "string"), new("right", "string")],
         NodeTypes.StringEquals => [new("left", "string"), new("right", "string")],
+        NodeTypes.IntegerAdd or NodeTypes.IntegerEquals => [new("left", "integer"), new("right", "integer")],
         NodeTypes.BooleanBranch => [new("condition", "boolean")],
         NodeTypes.BooleanNot => [new("value", "boolean")],
         NodeTypes.FunctionCall when node.GraphFunction?.Definition?.Inputs is { } inputs => [.. inputs.Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))],
@@ -44,8 +45,10 @@ public static class WorkflowPorts
     {
         NodeTypes.FunctionInput => [new("out", node.OutputDataType ?? "string")],
         NodeTypes.Input or NodeTypes.StringConstant or NodeTypes.TextConcat => [new("out", "string")],
+        NodeTypes.IntegerConstant or NodeTypes.IntegerAdd => [new("out", "integer")],
+        NodeTypes.WorkflowValue => [new("out", node.OutputDataType ?? "string")],
         NodeTypes.Agent => [new("out", node.Agent?.RequireStructuredResult == true ? "json" : "string")],
-        NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", "boolean")],
+        NodeTypes.StringEquals or NodeTypes.IntegerEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", "boolean")],
         NodeTypes.FunctionCall when node.GraphFunction?.Definition?.Outputs is { } outputs => [.. outputs.Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))],
         _ => []
     };

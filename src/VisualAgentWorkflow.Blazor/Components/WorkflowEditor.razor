@@ -87,6 +87,14 @@
                 <button type="button" @onclick="EnableAgentGraphFunctionToolsPreview" disabled="@Disabled">Enable agent function tools</button>
             </section>
         }
+        @if (CanUpgradeIntegerGraph)
+        {
+            <section class="vaw-library-note" aria-label="Integer graph values">
+                <strong>Integer graph values</strong>
+                <p class="vaw-help">Upgrade this valid agent graph to use typed Int64 parameters and constants, checked addition, and integer equality in both workflows and reusable functions.</p>
+                <button type="button" @onclick="EnableIntegerGraphPreview" disabled="@Disabled">Enable integer graph values</button>
+            </section>
+        }
         <WorkflowNodeLibrary Entries="LibraryEntries()" Disabled="Disabled" OnSelected="key => AddLibraryNode(key)" />
         <p class="vaw-help">Click to add an unconnected node. Connect its pins when ready; use a wire menu to explicitly insert into a path.</p>
         <p class="vaw-insertion-hint">@InsertionDescription(null)</p>
@@ -354,7 +362,7 @@
                     }
                     else if (node.Type == NodeTypes.WorkflowValue)
                     {
-                        var parameterChoices = ParameterDefinitions;
+                        var parameterChoices = ParameterDefinitions.Where(pair => Definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph || WorkflowParameterGraphTypes.DataType(pair.Value) is not null).ToDictionary(pair => pair.Key, pair => pair.Value);
                         @if (!ReadOnly && parameterChoices.Count > 0)
                         {
                             <label>Workflow parameter
@@ -364,7 +372,18 @@
                             </label>
                         }
                         else if (node.ParameterId is { } parameterId && parameterChoices.TryGetValue(parameterId, out var parameter))
-                        { <p>@parameter.DisplayName · @parameterId</p><p class="vaw-help">Passes this value onward, replacing the incoming string.</p> }
+                        { <p>@parameter.DisplayName · @parameterId · @(WorkflowParameterGraphTypes.DataType(parameter) ?? "string")</p><p class="vaw-help">Passes the declared parameter value and type onward, replacing the incoming value.</p> }
+                    }
+                    else if (node.Type == NodeTypes.IntegerConstant)
+                    {
+                        <label>Integer value
+                            <input aria-label="Integer constant for @id" type="text" inputmode="numeric" pattern="-?[0-9]+" value="@node.IntegerConstant?.Value" @onchange="args => ChangeIntegerConstant(id, args)" disabled="@Disabled" />
+                        </label>
+                        <p class="vaw-help">Signed 64-bit integer. Arithmetic uses checked overflow and fails the run if the result is out of range.</p>
+                    }
+                    else if (node.Type is NodeTypes.IntegerAdd or NodeTypes.IntegerEquals)
+                    {
+                        <p>@(node.Type == NodeTypes.IntegerAdd ? "Adds two signed 64-bit integers." : "Returns true when both signed 64-bit integers are equal.")</p>
                     }
                     else if (node.Type == NodeTypes.Merge)
                     {
@@ -684,6 +703,9 @@
         NodeTypes.BooleanBranch => "Route by Boolean value",
         NodeTypes.BooleanConstant => node.BooleanConstant?.Value == true ? "True" : "False",
         NodeTypes.BooleanNot => "Invert Boolean value",
+        NodeTypes.IntegerConstant => $"Integer · {node.IntegerConstant?.Value}",
+        NodeTypes.IntegerAdd => "Checked integer addition",
+        NodeTypes.IntegerEquals => "Integer equality",
         NodeTypes.FunctionCall => node.GraphFunction is { } function
             ? $"{function.Definition.Inputs.Count} typed inputs · {function.Definition.Outputs.Count} typed outputs · pinned v{function.Definition.Version}"
             : "Graph function snapshot unavailable",
@@ -902,6 +924,10 @@
         if (value == NodeTypes.BooleanConstant)
             return new(NodeTypes.BooleanConstant, "1.0.0") { BooleanConstant = existing?.BooleanConstant ?? new(false) };
         if (value == NodeTypes.BooleanNot) return new(NodeTypes.BooleanNot, "1.0.0");
+        if (value == NodeTypes.IntegerConstant)
+            return new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = existing?.IntegerConstant ?? new(0) };
+        if (value == NodeTypes.IntegerAdd) return new(NodeTypes.IntegerAdd, "1.0.0");
+        if (value == NodeTypes.IntegerEquals) return new(NodeTypes.IntegerEquals, "1.0.0");
         if (value == NodeTypes.JsonSelectString)
             return new(NodeTypes.JsonSelectString, "1.0.0") { JsonPropertySelection = existing?.JsonPropertySelection ?? new("/name") };
         if (value == NodeTypes.JsonProject)
@@ -909,7 +935,15 @@
         if (value == NodeTypes.TextTemplate)
             return new(NodeTypes.TextTemplate, "1.0.0") { TextTemplate = existing?.TextTemplate ?? new([new("input", "")]) };
         if (value == NodeTypes.WorkflowValue)
-            return new(NodeTypes.WorkflowValue, "1.0.0") { ParameterId = ParameterDefinitions.Keys.FirstOrDefault() };
+        {
+            var parameterId = ParameterDefinitions
+                .Where(pair => Definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph || WorkflowParameterGraphTypes.DataType(pair.Value) is not null)
+                .Select(pair => pair.Key).FirstOrDefault();
+            var outputType = Definition.SchemaVersion == WorkflowSchemaVersions.IntegerGraph && parameterId is not null
+                ? WorkflowParameterGraphTypes.DataType(ParameterDefinitions[parameterId])
+                : null;
+            return new(NodeTypes.WorkflowValue, "1.0.0") { ParameterId = parameterId, OutputDataType = outputType };
+        }
         if (FunctionCatalog?.List().FirstOrDefault(item => FunctionKey(item.Function) == value) is { } function)
             return new(NodeTypes.FunctionCall, "1.0.0") { GraphFunction = function.Function };
         var provider = Providers.SingleOrDefault(p => ProviderKey(p) == value);
@@ -925,6 +959,14 @@
 
     private Task ChangeBooleanConstant(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
         Definition.Nodes[id] with { BooleanConstant = new(bool.TryParse(args.Value?.ToString(), out var value) && value) }));
+
+    private Task ChangeIntegerConstant(string id, ChangeEventArgs args) => Edit(() =>
+    {
+        if (!long.TryParse(args.Value?.ToString(), System.Globalization.NumberStyles.AllowLeadingSign,
+                System.Globalization.CultureInfo.InvariantCulture, out var value))
+            throw new ArgumentException("Enter a whole number from -9,223,372,036,854,775,808 to 9,223,372,036,854,775,807.");
+        return GraphEditing.ReplaceNode(Definition, id, Definition.Nodes[id] with { IntegerConstant = new(value) });
+    });
 
     private Task Instructions(string id, ChangeEventArgs args) => Edit(() => ReplaceProcessing(id,
         Definition.Nodes[id] with { Agent = Definition.Nodes[id].Agent! with { Instructions = args.Value?.ToString() ?? "" } }));

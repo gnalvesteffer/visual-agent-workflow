@@ -130,4 +130,39 @@ public sealed class GraphFunctionTests
         Assert.Contains(GraphFunctionJson.Validate(mismatched), issue => issue.Code == "function.port.type");
         Assert.Contains(WorkflowPorts.Explicit(inputNode), port => port.Id == "out" && port.DataType == "boolean");
     }
+
+    [Fact]
+    public void Integer_function_adds_signed_64_bit_values_and_fails_deterministically_on_overflow()
+    {
+        var function = IncrementIntegerFunction();
+        Assert.Empty(GraphFunctionJson.Validate(function));
+        var inputs = new Dictionary<string, GraphFunctionEvaluation>
+        {
+            ["value"] = new("integer", long.MaxValue - 1, [])
+        };
+
+        var result = GraphFunctionJson.Evaluate(function, inputs, "result", () => 1);
+
+        Assert.Equal("integer", result.DataType);
+        Assert.Equal(long.MaxValue, result.Value);
+        Assert.Throws<OverflowException>(() => GraphFunctionJson.Evaluate(function,
+            new Dictionary<string, GraphFunctionEvaluation> { ["value"] = new("integer", long.MaxValue, []) },
+            "result", () => 1));
+    }
+
+    private static GraphFunctionDefinition IncrementIntegerFunction() => new(
+        "integer.increment", 1, "Increment integer", "Adds one to a signed 64-bit integer.",
+        ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("value", new("Value", "integer")),
+        ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("result", new("Result", "integer")),
+        ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input", new(NodeTypes.FunctionInput, "1.0.0") { FunctionPortId = "value", OutputDataType = "integer" })
+            .Add("one", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(1) })
+            .Add("sum", new(NodeTypes.IntegerAdd, "1.0.0"))
+            .Add("output", new(NodeTypes.FunctionOutput, "1.0.0") { FunctionPortId = "result", InputDataType = "integer" }),
+        ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("left", new(new("input", "out"), new("sum", "left"), "data"))
+            .Add("right", new(new("one", "out"), new("sum", "right"), "data"))
+            .Add("result", new(new("sum", "out"), new("output", "in"), "data")));
 }

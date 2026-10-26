@@ -51,7 +51,14 @@ public static class WorkflowParameterEditing
             throw new ArgumentException("The parameter does not exist.", nameof(parameterId));
         var node = definition.Nodes.TryGetValue(nodeId, out var value) ? value : throw new ArgumentException("The node does not exist.", nameof(nodeId));
         if (node.Type != NodeTypes.WorkflowValue) throw new ArgumentException("Only workflow value nodes can reference a parameter.", nameof(nodeId));
-        return Checked(definition, definition with { SchemaVersion = Schema(definition), Nodes = definition.Nodes.SetItem(nodeId, node with { ParameterId = parameterId }) });
+        var outputType = definition.SchemaVersion == WorkflowSchemaVersions.IntegerGraph
+            ? WorkflowParameterGraphTypes.DataType(parameters[parameterId])
+            : null;
+        return Checked(definition, definition with
+        {
+            SchemaVersion = Schema(definition),
+            Nodes = definition.Nodes.SetItem(nodeId, node with { ParameterId = parameterId, OutputDataType = outputType })
+        });
     }
 
     public static WorkflowDefinition SetType(WorkflowDefinition definition, string id, string type, string defaultValue, ImmutableArray<string>? choices = null)
@@ -59,31 +66,15 @@ public static class WorkflowParameterEditing
         var parameters = definition.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
         if (!parameters.TryGetValue(id, out var parameter)) throw new ArgumentException("The parameter does not exist.", nameof(id));
         var updated = parameter with { DefaultValue = defaultValue, Type = type, Choices = type == "choice" ? choices : null };
-        return Checked(definition, definition with { SchemaVersion = definition.SchemaVersion is "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes ? definition.SchemaVersion : "1.8", Parameters = parameters.SetItem(id, updated) });
+        return Checked(definition, definition with { SchemaVersion = definition.SchemaVersion is "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph ? definition.SchemaVersion : "1.8", Parameters = parameters.SetItem(id, updated) });
     }
 
-    private static string Schema(WorkflowDefinition definition) => definition.SchemaVersion switch
-    {
-        WorkflowSchemaVersions.AgentParameterBindings => WorkflowSchemaVersions.AgentParameterBindings,
-        WorkflowSchemaVersions.AgentGraphFunctionTools => WorkflowSchemaVersions.AgentGraphFunctionTools,
-        "1.22" => "1.22",
-        "1.21" => "1.21",
-        "1.20" => "1.20",
-        "1.19" => "1.19",
-        "1.18" => "1.18",
-        "1.17" => "1.17",
-        "1.16" => "1.16",
-        "1.15" => "1.15",
-        "1.14" => "1.14",
-        "1.13" => "1.13",
-        "1.12" => "1.12",
-        "1.11" => "1.11",
-        "1.10" => "1.10",
-        "1.9" => "1.9",
-        "1.8" => "1.8",
-        "1.7" => "1.7",
-        _ => "1.6"
-    };
+    private static string Schema(WorkflowDefinition definition) => definition.SchemaVersion is
+        "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or
+        "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" or "1.25" or
+        "1.26" or "1.27" or "1.28" or "1.29" or "1.30" or WorkflowSchemaVersions.IntegerGraph
+            ? definition.SchemaVersion
+            : "1.6";
 
     private static WorkflowDefinition Checked(WorkflowDefinition source, WorkflowDefinition definition) => WorkflowDraftEditing.ValidateEdit(source, definition);
 }

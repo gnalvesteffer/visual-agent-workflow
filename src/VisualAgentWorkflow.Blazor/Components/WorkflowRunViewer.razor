@@ -88,7 +88,7 @@
             <section class="vaw-inspector" aria-label="Selected node payloads">
                 <h3>@(string.IsNullOrWhiteSpace(Presentation.Nodes[inspected].Label) ? WorkflowGraphCanvas.FriendlyName(Snapshot.Header.Definition.Nodes[inspected]) : Presentation.Nodes[inspected].Label)</h3>
                 <p>Invocation: @(started?.InvocationId?.ToString() ?? "Not recorded at this position")</p>
-                @if (node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat)
+                @if (node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals or NodeTypes.WorkflowValue)
                 {
                     <h4>Evaluated value</h4><pre>@(dataEvaluation is null ? "Not evaluated at this position" : EvaluatedValue(dataEvaluation))</pre>
                     @if (dataEvaluation?.ConnectionId is { } dataConnection) { <p>Delivered on @dataConnection</p> }

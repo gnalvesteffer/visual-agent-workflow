@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Microsoft.Agents.AI.Workflows;
+using System.Globalization;
 using System.Text.Json;
 using VisualAgentWorkflow.Core;
 
@@ -148,7 +149,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath)
     {
         var definition = revision.Definition;
-        var dataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(definition) ? new ExplicitGraphDataEvaluator(definition, input) : null;
+        var dataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(definition) ? new ExplicitGraphDataEvaluator(definition, input, parameters) : null;
         var executors = definition.Nodes.ToDictionary(
             n => n.Key,
             n => new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, dataEvaluator, emit, gate, null, rootRevision, workflowPath));
@@ -220,6 +221,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
     }
 
     private sealed record ExplicitGraphValue(string DataType, object Value);
+    private sealed class GraphDataEvaluationException(string nodeId, string message, Exception innerException)
+        : InvalidOperationException(message, innerException)
+    {
+        public string NodeId { get; } = nodeId;
+    }
     private sealed record EvaluatedDataValue(string NodeId, string PortId, string DataType, object Value, string? ConnectionId,
         object? FunctionEvidence = null);
     private sealed record DataInputEvaluation(ExplicitGraphValue Result, ImmutableArray<EvaluatedDataValue> Evaluations);
@@ -227,7 +233,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         IReadOnlyDictionary<string, object> Inputs, ImmutableArray<GraphFunctionValueEvidence> EvaluatedValues);
 
     /// <summary>Evaluates only bounded, pure explicit-graph data nodes in one activation context.</summary>
-    private sealed class ExplicitGraphDataEvaluator(WorkflowDefinition definition, string input)
+    private sealed class ExplicitGraphDataEvaluator(WorkflowDefinition definition, string input,
+        IReadOnlyDictionary<string, string>? parameters)
     {
         private int functionNodeVisits;
         private readonly Dictionary<(string NodeId, string PortId), GraphFunctionAudit> functionAudits = [];
@@ -269,22 +276,35 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     evaluated.Add(new(nodeId, outputPort, runtimeValue.DataType, runtimeValue.Value, connectionId));
                     return runtimeValue;
                 }
-                var result = node.Type switch
+                ExplicitGraphValue result;
+                try
                 {
+                    result = node.Type switch
+                    {
                     NodeTypes.Input when outputPort == "out" => new ExplicitGraphValue("string", input),
+                    NodeTypes.WorkflowValue when outputPort == "out" => ResolveParameter(node),
                     NodeTypes.StringConstant when outputPort == "out" => new ExplicitGraphValue("string", node.StringConstant!.Value),
                     NodeTypes.TextConcat when outputPort == "out" => new ExplicitGraphValue("string", Concatenate(nodeId, "left", "right", evaluated, cache, active)),
                     NodeTypes.StringEquals when outputPort == "out" => new ExplicitGraphValue("boolean",
                         string.Equals(ResolveStringInput(nodeId, "left", evaluated, cache, active),
                             ResolveStringInput(nodeId, "right", evaluated, cache, active), StringComparison.Ordinal)),
+                    NodeTypes.IntegerConstant when outputPort == "out" => new ExplicitGraphValue("integer", node.IntegerConstant!.Value),
+                    NodeTypes.IntegerAdd when outputPort == "out" => new ExplicitGraphValue("integer", AddIntegers(nodeId, evaluated, cache, active)),
+                    NodeTypes.IntegerEquals when outputPort == "out" => new ExplicitGraphValue("boolean", IntegersEqual(nodeId, evaluated, cache, active)),
                     NodeTypes.BooleanConstant when outputPort == "out" => new ExplicitGraphValue("boolean",
                         node.BooleanConstant?.Value ?? throw new InvalidOperationException("The Boolean constant is not configured.")),
                     NodeTypes.BooleanNot when outputPort == "out" => new ExplicitGraphValue("boolean",
                         !ResolveBooleanInput(nodeId, "value", evaluated, cache, active)),
                     NodeTypes.FunctionCall when node.GraphFunction is { } function && function.Definition.Outputs.TryGetValue(outputPort, out var output) =>
                         EvaluateFunction(nodeId, outputPort, output.DataType, function, evaluated, cache, active),
-                    _ => throw new InvalidOperationException("The data source is not a supported pure value node.")
-                };
+                        _ => throw new InvalidOperationException("The data source is not a supported pure value node.")
+                    };
+                }
+                catch (OverflowException exception) when (node.Type == NodeTypes.IntegerAdd)
+                {
+                    throw new GraphDataEvaluationException(nodeId,
+                        "Integer addition exceeded the signed 64-bit range.", exception);
+                }
                 if (result.DataType == "string" && ((string)result.Value).Length > 16_384)
                     throw new InvalidOperationException("Pure data output exceeds 16,384 characters.");
                 cache.Add(key, result);
@@ -337,6 +357,55 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if ((long)left.Length + right.Length > 16_384)
                 throw new InvalidOperationException("Text concatenation exceeds 16,384 characters.");
             return string.Concat(left, right);
+        }
+
+        private ExplicitGraphValue ResolveParameter(NodeDefinition node)
+        {
+            if (node.ParameterId is not { } parameterId || parameters is null || !parameters.TryGetValue(parameterId, out var value) ||
+                definition.Parameters is not { } declared || !declared.TryGetValue(parameterId, out var parameter))
+                throw new InvalidOperationException("The workflow parameter value is unavailable.");
+            if (definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph)
+                return new("string", value);
+            var dataType = WorkflowParameterGraphTypes.DataType(parameter);
+            if (dataType is null || node.OutputDataType is { } expectedType && expectedType != dataType)
+                throw new InvalidOperationException("The workflow parameter has an unsupported graph data type.");
+            object parsed = dataType switch
+            {
+                "integer" when long.TryParse(value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var integer) => integer,
+                "boolean" when bool.TryParse(value, out var boolean) => boolean,
+                "string" => value,
+                _ => throw new InvalidOperationException("The workflow parameter value is invalid.")
+            };
+            return new(dataType, parsed);
+        }
+
+        private long AddIntegers(string nodeId,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            var left = ResolveIntegerInput(nodeId, "left", evaluated, cache, active);
+            var right = ResolveIntegerInput(nodeId, "right", evaluated, cache, active);
+            return checked(left + right);
+        }
+
+        private bool IntegersEqual(string nodeId,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active) =>
+            ResolveIntegerInput(nodeId, "left", evaluated, cache, active) ==
+            ResolveIntegerInput(nodeId, "right", evaluated, cache, active);
+
+        private long ResolveIntegerInput(string nodeId, string inputPort,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            var edge = definition.Connections.Single(connection => connection.Value.Target.NodeId == nodeId && connection.Value.Target.PortId == inputPort);
+            var value = ResolveOutput(edge.Value.Source.NodeId, edge.Value.Source.PortId, edge.Key, evaluated, cache, active);
+            if (value.DataType != "integer" || value.Value is not long integer)
+                throw new InvalidOperationException("The pure data input requires a signed 64-bit integer.");
+            return integer;
         }
 
         private string ResolveStringInput(string nodeId, string inputPort,
@@ -489,8 +558,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     message = outputEvaluation.Result.DataType switch
                     {
                         "string" when outputEvaluation.Result.Value is string outputValue => outputValue,
+                        "integer" when outputEvaluation.Result.Value is long integerValue => integerValue.ToString(CultureInfo.InvariantCulture),
+                        "boolean" when outputEvaluation.Result.Value is bool booleanValue => booleanValue ? "true" : "false",
                         "json" when outputEvaluation.Result.Value is JsonElement jsonValue && jsonValue.ValueKind == JsonValueKind.Object => jsonValue.GetRawText(),
-                        _ => throw new InvalidOperationException("An Output node requires a string or bounded JSON object value.")
+                        _ => throw new InvalidOperationException("An Output node requires a string, integer, Boolean, or bounded JSON object value.")
                     };
                 }
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.BooleanBranch)
@@ -630,6 +701,12 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             catch (JsonProjectionContractException exception)
             {
                 await Emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, exception.Message);
+                throw;
+            }
+            catch (GraphDataEvaluationException exception)
+            {
+                await Emit(ExecutionEventKinds.NodeFailed, exception.NodeId, invocation, null, exception.Message);
+                await Emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, "Node execution failed while evaluating a connected data value.");
                 throw;
             }
             catch
