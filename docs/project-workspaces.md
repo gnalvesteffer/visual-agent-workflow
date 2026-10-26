@@ -51,6 +51,16 @@ The target has no project-local in-app revision history. Users use Git branches,
 
 Migration from the current SQLite-backed catalog must preserve stable workflow/asset IDs and produce ordinary source files. Existing audit/revision data may be retained in local `.vaw/` history for recovery and old run inspection, but it is not copied into project source or represented as Git history. There must be one clear source-of-truth rule at each migration phase; avoid unsignaled dual writes.
 
+### Catalog-to-folder cutover contract
+
+Cutover migrates the **current editable source snapshot**: each workflow's current draft definition and layout plus the current skill, agent-profile, and graph-function assets with their IDs, versions, and content hashes. It does not migrate SQLite workflow revision/audit history, publication history or pointers, prior run evidence, or Git history. The original catalog and host run store remain outside the folder as local recovery data; the migration UI must state this scope before proceeding. The bounded ZIP import path is not the migration primitive because it creates a new catalog project, omits those histories, and applies archive size limits.
+
+The source catalog must be held stable for capture. Materialize into a new sibling staging directory, validate it with the same bounded project-source reader, and compare the resulting manifest and assets with the captured IDs, layouts, and hashes. Only after validation may Studio publish the generated folder and atomically switch a durable project-to-folder source mapping. A migration journal must let startup recover an interruption between folder publication and mapping activation without deleting user-authored files. Until mapping activation, the catalog stays authoritative and writable; afterward, the folder is the only editable project authority and the original catalog is frozen/read-only. Do not dual-write.
+
+Rollback to the old catalog is safe only while the folder manifest still matches the cutover hash. Once folder edits occur, returning to the stale catalog requires explicit reconciliation or a new catalog materialized from the selected folder state; it must never silently discard folder edits. Existing folder mode still has a documented cross-process manifest compare-and-replace race, so activation and later writes must not claim protection against arbitrary simultaneous Git/editor processes. Provider endpoints, credentials, MCP grants, and run/audit storage remain host-owned throughout.
+
+The cutover is not implemented until Studio routes its project selector, editor handoffs, and project-scoped APIs through the persisted folder mapping, including interruption recovery and enforcement of the single-authority rule. Until then, **Open folder** remains a separate source-editing mode and catalog-backed projects remain independent.
+
 ## Roadmap sequence
 
 1. Define and test deterministic project-file schemas, manifest validation, source snapshot build/import, stable IDs, and content hashes. **Done for schema 1.0 and the first workflow/skill source editors.**
