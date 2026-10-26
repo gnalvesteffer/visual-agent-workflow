@@ -166,7 +166,7 @@ public static class GraphEditing
         if (sourcePort.Kind == WorkflowPortKind.Execution)
         {
             var edges = definition.ExecutionConnections ?? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal);
-            var allowsAlternativeInput = definition.SchemaVersion is WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings &&
+            var allowsAlternativeInput = definition.SchemaVersion is WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes &&
                 target.Type is NodeTypes.BooleanBranch or NodeTypes.Output or NodeTypes.Terminate;
             // Schema 1.26 treats incoming execution edges as mutually exclusive alternatives.
             // Each source pin still chooses only one destination; earlier schemas keep one edge per input.

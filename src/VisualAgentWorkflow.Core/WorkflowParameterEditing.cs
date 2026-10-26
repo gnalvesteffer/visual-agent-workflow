@@ -59,7 +59,7 @@ public static class WorkflowParameterEditing
         var parameters = definition.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
         if (!parameters.TryGetValue(id, out var parameter)) throw new ArgumentException("The parameter does not exist.", nameof(id));
         var updated = parameter with { DefaultValue = defaultValue, Type = type, Choices = type == "choice" ? choices : null };
-        return Checked(definition, definition with { SchemaVersion = definition.SchemaVersion is "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings ? definition.SchemaVersion : "1.8", Parameters = parameters.SetItem(id, updated) });
+        return Checked(definition, definition with { SchemaVersion = definition.SchemaVersion is "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes ? definition.SchemaVersion : "1.8", Parameters = parameters.SetItem(id, updated) });
     }
 
     private static string Schema(WorkflowDefinition definition) => definition.SchemaVersion switch

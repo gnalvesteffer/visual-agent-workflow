@@ -181,6 +181,44 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         WorkflowApprovalPermit? Approval = null, string DataType = "string", int LoopIteration = 0,
         bool TerminationSignal = false, bool FailureSignal = false);
 
+    private sealed class AgentRouteSelectionState(ImmutableArray<AgentExecutionRoute> routes)
+    {
+        private readonly object sync = new();
+        private int proposals;
+        private string? selectedRouteId;
+        private string? invalidReason;
+
+        public bool HasProposed { get { lock (sync) return proposals > 0; } }
+
+        public bool Propose(string routeId)
+        {
+            lock (sync)
+            {
+                proposals++;
+                if (proposals != 1) invalidReason = "The agent proposed more than one execution route.";
+                else if (!routes.Any(route => route.Id == routeId)) invalidReason = "The agent proposed an undeclared execution route.";
+                else selectedRouteId = routeId;
+                return invalidReason is null;
+            }
+        }
+
+        public string Commit()
+        {
+            lock (sync)
+            {
+                if (proposals == 0) invalidReason = "The agent did not select an execution route.";
+                if (invalidReason is not null || selectedRouteId is null)
+                    throw new InvalidOperationException($"{invalidReason ?? "The agent did not select exactly one execution route."} The provider must support function calling for routed agents.");
+                return selectedRouteId;
+            }
+        }
+
+        public string RejectionReason
+        {
+            get { lock (sync) return invalidReason ?? (proposals == 0 ? "No execution route was proposed." : "The proposed route was discarded because the agent did not complete successfully."); }
+        }
+    }
+
     private sealed record ExplicitGraphValue(string DataType, object Value);
     private sealed record EvaluatedDataValue(string NodeId, string PortId, string DataType, object Value, string? ConnectionId,
         object? FunctionEvidence = null);
@@ -387,6 +425,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             string? incomingPort = null;
             DataInputEvaluation? outputEvaluation = null;
             DataInputEvaluation? branchEvaluation = null;
+            var configuredAgentRoutes = node.Type == NodeTypes.Agent ? node.Agent?.Routes : null;
+            var routeSelection = configuredAgentRoutes is { IsDefaultOrEmpty: false } routes
+                ? new AgentRouteSelectionState(routes)
+                : null;
+            string? agentRouteId = null;
             if (received.SourceNode is not null && received.TerminationSignal)
             {
                 if (node.Type != NodeTypes.Output || !revision.Definition.Nodes.TryGetValue(received.SourceNode, out var sourceNode) ||
@@ -480,6 +523,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                             (kind, data) => Emit(kind, Id, invocation, null, data))
                         {
                             Parameters = parameters,
+                            ProposeAgentRoute = routeSelection is null ? null : async routeId =>
+                            {
+                                await Emit(ExecutionEventKinds.AgentRouteProposed, Id, invocation, null, JsonSerializer.Serialize(new { routeId }));
+                                if (!routeSelection.Propose(routeId))
+                                    await Emit(ExecutionEventKinds.AgentRouteRejected, Id, invocation, null,
+                                        JsonSerializer.Serialize(new { routeId, reason = routeSelection.RejectionReason }));
+                            },
                             RecordWithInvocation = (eventInvocationId, kind, data) => Emit(kind, Id, eventInvocationId, null, data)
                         }, message, cancellationToken),
                     _ => throw new InvalidOperationException("Unsupported executor type.")
@@ -492,6 +542,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         : result;
                     dataEvaluator!.SetRuntimeOutput(Id, "out", structuredResult ? "json" : "string", runtimeValue);
                 }
+                if (routeSelection is not null) agentRouteId = routeSelection.Commit();
                 WorkflowApprovalPermit? permit = null;
                 if (node.Type == NodeTypes.Approval)
                 {
@@ -509,7 +560,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     if (permit.TargetInvocationId != action.TargetInvocationId || permit.ActionHash != action.ComputeHash() || permit.RequestId == Guid.Empty)
                         throw new InvalidOperationException("The approval permit does not match the recorded action.");
                 }
-                var port = "out";
+                var port = agentRouteId is null ? "out" : AgentExecutionRouteLimits.PinId(agentRouteId);
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Input) port = "then";
                 if (node.Type == NodeTypes.BooleanBranch)
                 {
@@ -546,6 +597,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 }
                 if (!internalTerminationHandoff)
                     await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null,
+                        routeSelection is not null ? JsonSerializer.Serialize(new { routeId = agentRouteId, port }) :
                         node.Type == NodeTypes.Loop ? JsonSerializer.Serialize(new { port, iteration = received.LoopIteration, maximumIterations = node.Loop!.MaximumIterations }) :
                         node.Type == NodeTypes.WorkflowCall && childOutcome!.Failed ? "Nested workflow ended at a failure termination." :
                         node.Type == NodeTypes.WorkflowCall && childOutcome!.Terminated ? "Nested workflow terminated successfully." :
@@ -565,6 +617,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 var failureSignal = node.Termination?.Outcome == WorkflowTerminationOutcomes.Failure ||
                     received.FailureSignal || childOutcome?.Failed == true;
                 var terminated = node.Type == NodeTypes.Terminate || received.TerminationSignal || childOutcome?.Terminated == true;
+                if (routeSelection is not null)
+                    await Emit(ExecutionEventKinds.AgentRouteCommitted, Id, invocation, null, JsonSerializer.Serialize(new { routeId = agentRouteId, port }));
                 return new(result, internalTerminationHandoff ? received.SourceNode : Id, terminated ? "terminated" : port, permit, outputType, nextLoopIteration,
                     terminated, failureSignal);
             }
@@ -580,6 +634,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             }
             catch
             {
+                if (routeSelection is not null)
+                {
+                    await Emit(ExecutionEventKinds.AgentRouteRejected, Id, invocation, null,
+                        JsonSerializer.Serialize(new { reason = routeSelection.RejectionReason }));
+                    if (routeSelection.HasProposed)
+                        await Emit(ExecutionEventKinds.AgentRouteDiscarded, Id, invocation, null,
+                            JsonSerializer.Serialize(new { reason = "The agent did not complete successfully." }));
+                }
                 await Emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, "Node execution failed.");
                 throw;
             }

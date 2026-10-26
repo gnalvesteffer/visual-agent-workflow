@@ -40,6 +40,8 @@ public sealed record NodeInvocationContext(Guid RunId, WorkflowRevision Revision
     public Func<Guid, string, string?, ValueTask>? RecordWithInvocation { get; init; }
     /// <summary>Trusted broker callback used only to narrow scoped extension capability requests.</summary>
     public Func<NodeInvocationContext, INodeToolScope>? OpenToolScope { get; init; }
+    /// <summary>Runtime-owned latch for one model-proposed Agent execution route.</summary>
+    public Func<string, ValueTask>? ProposeAgentRoute { get; init; }
 
     public ValueTask RecordEventAsync(string kind, string? data) => RecordEventForAsync(InvocationId, kind, data);
 

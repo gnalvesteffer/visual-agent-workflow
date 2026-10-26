@@ -63,6 +63,163 @@ public class AgentExecutionTests
     }
 
     [Fact]
+    public async Task AgentSelectsOnlyAnAuthoredExecutionPinAfterItsToolCallCompletes()
+    {
+        var definition = AgentRouteWorkflow();
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var calls = 0;
+        var provider = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient((_, options, _) =>
+            {
+                Assert.Contains(options!.Tools!, tool => tool.Name == "select_route");
+                return Task.FromResult(++calls == 1
+                    ? new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                        [new FunctionCallContent("route-call", "select_route", new Dictionary<string, object?> { ["route_id"] = "answer" })]))
+                    : new ChatResponse(new ChatMessage(ChatRole.Assistant, "42")) { FinishReason = ChatFinishReason.Stop });
+            })
+        };
+        var events = new List<ExecutionEvent>();
+
+        var output = await new WorkflowRunner(broker, new AgentNodeExecutor([provider], broker)).ExecuteAsync(
+            Guid.NewGuid(), WorkflowRevision.Create(definition, "routes"), "What is 6 times 7?",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("42", output);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentRouteProposed && evt.Data!.Contains("answer", StringComparison.Ordinal));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentRouteCommitted && evt.Data!.Contains("answer", StringComparison.Ordinal));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated && evt.ConnectionId == "execution:use-answer");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated && evt.ConnectionId == "execution:use-review");
+    }
+
+    [Fact]
+    public async Task AgentWithoutRouteSelectionFailsWithoutDispatchingAnyRoute()
+    {
+        var definition = AgentRouteWorkflow();
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var provider = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient((_, _, _) => Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "42"))
+                { FinishReason = ChatFinishReason.Stop }))
+        };
+        var events = new List<ExecutionEvent>();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(broker, new AgentNodeExecutor([provider], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "routes"), "question",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentRouteRejected);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated &&
+            evt.ConnectionId is "execution:use-answer" or "execution:use-review");
+    }
+
+    [Theory]
+    [InlineData("undeclared", null)]
+    [InlineData("answer", "review")]
+    public async Task AgentWithUnknownOrMultipleRouteSelectionsFailsClosed(string firstRoute, string? secondRoute)
+    {
+        var definition = AgentRouteWorkflow();
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var responses = 0;
+        var provider = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient((_, _, _) =>
+            {
+                var response = responses++;
+                if (response == 0 || response == 1 && secondRoute is not null)
+                {
+                    var route = response == 0 ? firstRoute : secondRoute!;
+                    return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                        [new FunctionCallContent($"route-call-{response}", "select_route", new Dictionary<string, object?> { ["route_id"] = route })])));
+                }
+
+                return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "42"))
+                    { FinishReason = ChatFinishReason.Stop });
+            })
+        };
+        var events = new List<ExecutionEvent>();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(broker, new AgentNodeExecutor([provider], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "routes"), "question",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentRouteRejected);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated &&
+            evt.ConnectionId is "execution:use-answer" or "execution:use-review");
+    }
+
+    [Fact]
+    public async Task AgentRouteProposedBeforeProviderFailureIsDiscardedWithoutDispatch()
+    {
+        var definition = AgentRouteWorkflow();
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var calls = 0;
+        var provider = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient((_, _, _) =>
+            {
+                if (++calls == 1)
+                    return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                        [new FunctionCallContent("route-call", "select_route", new Dictionary<string, object?> { ["route_id"] = "answer" })])));
+                throw new InvalidOperationException("Provider failed after the route proposal.");
+            })
+        };
+        var events = new List<ExecutionEvent>();
+
+        await Assert.ThrowsAnyAsync<Exception>(() => new WorkflowRunner(broker, new AgentNodeExecutor([provider], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "routes"), "question",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentRouteDiscarded);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated &&
+            evt.ConnectionId is "execution:use-answer" or "execution:use-review");
+    }
+
+    private static WorkflowDefinition AgentRouteWorkflow()
+    {
+        var agent = new AgentConfiguration("demo.scripted", null, "Choose an authored route.", [])
+        {
+            Routes = [new("answer", "Answer", "Return the requested answer."), new("review", "Review", "Request a review.")]
+        };
+        return new WorkflowDefinition(WorkflowSchemaVersions.AgentExecutionRoutes, "agent-routes", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["agent"] = new(NodeTypes.Agent, "1.0.0", Agent: agent),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["agent-output"] = new(new("agent", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["activate-agent"] = new(new("input", "then"), new("agent", "execute"), "execution"),
+                ["use-answer"] = new(new("agent", AgentExecutionRouteLimits.PinId("answer")), new("output", "execute"), "execution"),
+                ["use-review"] = new(new("agent", AgentExecutionRouteLimits.PinId("review")), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+        };
+    }
+
+    [Fact]
+    public void RemovingAnAgentRouteLeavesItsOldExecutionEdgeAsAValidationIssue()
+    {
+        var definition = AgentRouteWorkflow();
+        var agent = definition.Nodes["agent"];
+        var updated = definition with { Nodes = definition.Nodes.SetItem("agent", agent with
+        {
+            Agent = agent.Agent! with { Routes = [agent.Agent!.Routes!.Value[0]] }
+        }) };
+
+        Assert.Contains(WorkflowValidator.Validate(updated), issue => issue.Path == "executionConnections.use-review");
+        var draftJson = WorkflowJson.SerializeDraft(updated);
+        var restoredDraft = WorkflowJson.DeserializeDraft(draftJson);
+        Assert.Contains(WorkflowValidator.Validate(restoredDraft), issue => issue.Path == "executionConnections.use-review");
+        Assert.Equal(WorkflowJson.ComputeDraftHash(updated), WorkflowJson.ComputeDraftHash(restoredDraft));
+    }
+
+    [Fact]
     public async Task AgentTimeoutOverridesShorterModelConnectionDefault()
     {
         var baseline = Revision().Definition;

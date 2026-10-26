@@ -58,11 +58,11 @@
                                 <div class="vaw-socket-row">
                                     <div class="vaw-input-ports">
                                 @foreach (var port in ports.Where(port => port.Direction == WorkflowPortDirection.Input))
-                                { <span class="vaw-socket-label vaw-socket-input"><span class="vaw-socket @(port.Kind == WorkflowPortKind.Execution ? "vaw-socket-execution" : "")" data-socket="@port.Id" data-socket-kind="@port.Kind.ToString().ToLowerInvariant()" data-socket-type="@(port.DataType ?? "execution")" title="@($"{port.Id} · {port.DataType ?? "execution"} input")" aria-hidden="true"></span>@port.Id · @(port.DataType ?? "execution")</span> }
+                                { <span class="vaw-socket-label vaw-socket-input"><span class="vaw-socket @(port.Kind == WorkflowPortKind.Execution ? "vaw-socket-execution" : "")" data-socket="@port.Id" data-socket-kind="@port.Kind.ToString().ToLowerInvariant()" data-socket-type="@(port.DataType ?? "execution")" title="@($"{port.DisplayName ?? port.Id} · {port.DataType ?? "execution"} input")" aria-hidden="true"></span>@(port.DisplayName ?? port.Id) · @(port.DataType ?? "execution")</span> }
                                     </div>
                                     <div class="vaw-output-ports">
                                 @foreach (var port in ports.Where(port => port.Direction == WorkflowPortDirection.Output))
-                                { <span class="vaw-socket-label vaw-socket-output">@port.Id · @(port.DataType ?? "execution")<span class="vaw-socket @(port.Kind == WorkflowPortKind.Execution ? "vaw-socket-execution" : "")" data-socket="@port.Id" data-socket-kind="@port.Kind.ToString().ToLowerInvariant()" data-socket-type="@(port.DataType ?? "execution")" title="@($"{port.Id} · {port.DataType ?? "execution"} output")" aria-hidden="true"></span></span> }
+                                { <span class="vaw-socket-label vaw-socket-output">@(port.DisplayName ?? port.Id) · @(port.DataType ?? "execution")<span class="vaw-socket @(port.Kind == WorkflowPortKind.Execution ? "vaw-socket-execution" : "")" data-socket="@port.Id" data-socket-kind="@port.Kind.ToString().ToLowerInvariant()" data-socket-type="@(port.DataType ?? "execution")" title="@($"{port.DisplayName ?? port.Id} · {port.DataType ?? "execution"} output")" aria-hidden="true"></span></span> }
                                     </div>
                                 </div>
                                 @if (!string.IsNullOrWhiteSpace(presentation.Comment))

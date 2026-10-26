@@ -23,6 +23,7 @@ public sealed record AgentConfiguration(string ProviderId,
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<AgentProfileReference>? Delegates { get; init; }
     /// <summary>Exact immutable pure graph-function revisions this agent may invoke as tools.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<GraphFunctionConfiguration>? GraphFunctionTools { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<AgentExecutionRoute>? Routes { get; init; }
 }
 
 /// <summary>A portable, immutable specialist-agent preset. Host registrations still resolve providers and authorize tools.</summary>
@@ -53,6 +54,18 @@ public sealed record AgentProfile(string Id, string Version, string Name, string
         var content = System.Text.Json.JsonSerializer.Serialize(profile with { ContentHash = null });
         return profile with { ContentHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(content))) };
     }
+}
+
+/// <summary>A stable model-selectable execution route authored on an Agent node.</summary>
+public sealed record AgentExecutionRoute(string Id, string Label, string Description);
+
+public static class AgentExecutionRouteLimits
+{
+    public const int MaximumRoutes = 16;
+    public const int MaximumIdLength = 64;
+    public const int MaximumLabelLength = 128;
+    public const int MaximumDescriptionLength = 512;
+    public static string PinId(string routeId) => $"route.{routeId}";
 }
 
 public sealed record AgentProfileReference(string Id, string Version, string ContentHash);

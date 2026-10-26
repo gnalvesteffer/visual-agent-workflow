@@ -77,6 +77,14 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         {"type":"object","properties":{"status":{"type":"string","enum":["success","failure"]},"payload":{"type":"string","minLength":2,"maxLength":16384,"description":"A JSON object encoded as text; it must fit the node's bounded result payload limit."}},"required":["status","payload"],"additionalProperties":false}
         """);
 
+    private static JsonDocument AgentRouteSchema(ImmutableArray<AgentExecutionRoute> routes) => JsonDocument.Parse(JsonSerializer.Serialize(new
+    {
+        type = "object",
+        properties = new { route_id = new { type = "string", @enum = routes.Select(route => route.Id).ToArray() } },
+        required = new[] { "route_id" },
+        additionalProperties = false
+    }));
+
     private static string RequiredString(AIFunctionArguments arguments, string name) =>
         arguments.TryGetValue(name, out var value) && value is string text
             ? text
@@ -302,6 +310,19 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                         return ValueTask.FromResult<string>("Structured result accepted.");
                     }));
             }
+            if (configuration.Routes is { IsDefaultOrEmpty: false } routes)
+            {
+                if (invocation.ProposeAgentRoute is null)
+                    throw new InvalidOperationException("The workflow runtime does not support Agent execution routes.");
+                using var routeSchema = AgentRouteSchema(routes);
+                functions.Add(new BoundMcpFunction("select_route",
+                    "Select exactly one authored workflow execution route after completing the task. This does not invoke the route; the workflow runtime activates it only after the agent finishes successfully.",
+                    routeSchema.RootElement.Clone(), async (arguments, _) =>
+                    {
+                        await invocation.ProposeAgentRoute(RequiredString(arguments, "route_id"));
+                        return "Route selection recorded. Continue only if more work is required, then finish the task.";
+                    }));
+            }
             if (channelAccess is { } channels)
             {
                 var channelIds = channels.Board.ChannelsFor(channels.Profile);
@@ -512,9 +533,10 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                 UseProvidedChatClientAsIs = true,
             ChatOptions = new ChatOptions
             {
-                Instructions = configuration.RequireStructuredResult == true
-                    ? instructions + "\n\nThis node requires a structured result. Call submit_result exactly once with status success or failure and a JSON object payload. Free-form text alone does not complete the task."
-                    : instructions,
+                Instructions = string.Join("\n\n", new[] { instructions,
+                    configuration.RequireStructuredResult == true ? "This node requires a structured result. Call submit_result exactly once with status success or failure and a JSON object payload. Free-form text alone does not complete the task." : null,
+                    configuration.Routes is { IsDefaultOrEmpty: false } ? "This node requires exactly one call to select_route using the route that best fits the completed task. Route names are authored workflow choices; never invent a route." : null
+                }.Where(part => !string.IsNullOrWhiteSpace(part))),
                 Tools = functions,
                 MaxOutputTokens = maximumOutputTokens,
                 Reasoning = reasoningEffort is { } effort

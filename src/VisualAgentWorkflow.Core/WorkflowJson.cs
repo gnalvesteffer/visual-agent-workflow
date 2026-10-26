@@ -49,7 +49,7 @@ public static class WorkflowJson
         var issues = WorkflowValidator.Validate(definition);
         var draftableTopologyIssues = new HashSet<string>(StringComparer.Ordinal)
         {
-            "workflow.degree", "graph.degree", "graph.unreachable", "graph.cycle", "data.degree", "data.unused"
+            "workflow.degree", "graph.degree", "graph.unreachable", "graph.cycle", "data.degree", "data.unused", "execution.port"
         };
         var blockingIssue = issues.FirstOrDefault(issue => !draftableTopologyIssues.Contains(issue.Code));
         if (blockingIssue is not null)

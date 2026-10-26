@@ -60,6 +60,10 @@ public static class ExecutionEventKinds
     public const string ToolUncertain = "tool.outcome-unknown";
     public const string AgentStarted = "agent.started";
     public const string AgentCompleted = "agent.completed";
+    public const string AgentRouteProposed = "agent.route.proposed";
+    public const string AgentRouteRejected = "agent.route.rejected";
+    public const string AgentRouteCommitted = "agent.route.committed";
+    public const string AgentRouteDiscarded = "agent.route.discarded";
     public const string AgentFailed = "agent.failed";
     public const string AgentLimitExceeded = "agent.limit_exceeded";
     public const string AgentOutcome = "agent.outcome";

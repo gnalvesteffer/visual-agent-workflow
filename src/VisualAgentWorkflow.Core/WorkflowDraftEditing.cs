@@ -5,7 +5,7 @@ internal static class WorkflowDraftEditing
 {
     private static readonly HashSet<string> IncompleteTopologyIssues = new(StringComparer.Ordinal)
     {
-        "workflow.degree", "graph.degree", "graph.unreachable", "graph.cycle", "data.degree", "data.unused"
+        "workflow.degree", "graph.degree", "graph.unreachable", "graph.cycle", "data.degree", "data.unused", "execution.port"
     };
 
     public static bool HasOnlyIncompleteTopologyIssues(WorkflowDefinition definition)
