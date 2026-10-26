@@ -15,7 +15,32 @@ if (args.Contains("--mcp-demo-server", StringComparer.Ordinal))
     return;
 }
 
-var builder = WebApplication.CreateBuilder(args);
+var migrationArgumentIndex = Array.IndexOf(args, "--migrate-project-to-folder");
+string? migrationProjectId = null;
+string? migrationDestination = null;
+var hostArguments = args;
+if (migrationArgumentIndex >= 0)
+{
+    if (migrationArgumentIndex + 2 >= args.Length)
+        throw new ArgumentException("Usage: --migrate-project-to-folder <project-id> <new-folder>");
+    migrationProjectId = args[migrationArgumentIndex + 1];
+    migrationDestination = args[migrationArgumentIndex + 2];
+    hostArguments = args.Take(migrationArgumentIndex).Concat(args.Skip(migrationArgumentIndex + 3)).ToArray();
+}
+
+var builder = WebApplication.CreateBuilder(hostArguments);
+var studioDataDirectory = Path.GetFullPath(builder.Configuration["WorkflowStudio:DataDirectory"] ?? Path.Combine(builder.Environment.ContentRootPath, ".local"));
+if (migrationProjectId is not null)
+{
+    Console.WriteLine($"Migrating project '{migrationProjectId}' to {migrationDestination}.");
+    Console.WriteLine("Only current editable drafts and reusable assets are copied. Workflow history, publications, run evidence, credentials, and host permissions stay in Studio data.");
+    var migrated = await StudioProjectMigration.MigrateToFolderAsync(studioDataDirectory, migrationProjectId,
+        migrationDestination!);
+    Console.WriteLine($"Migrated '{migrated.Name}' ({migrated.Id}) to {migrated.FolderPath}.");
+    Console.WriteLine("The Studio data and run history remain in the configured data directory. Restart Studio to edit the folder project.");
+    return;
+}
+
 if (!builder.Environment.IsDevelopment())
     throw new InvalidOperationException("This unauthenticated prototype may run only in Development. Production hosting is not implemented.");
 var studioPort = builder.Configuration.GetValue<int?>("WorkflowStudio:Port") ?? 5099;
@@ -24,8 +49,10 @@ builder.WebHost.UseUrls($"http://127.0.0.1:{studioPort}");
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 1_048_576);
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
     options.MultipartBodyLengthLimit = StudioProjectSourceArchive.MaximumArchiveBytes + 1024 * 1024);
-var studioDataDirectory = Path.GetFullPath(builder.Configuration["WorkflowStudio:DataDirectory"] ?? Path.Combine(builder.Environment.ContentRootPath, ".local"));
+
+using var studioHostLock = StudioProjectMigration.AcquireHostLock(studioDataDirectory);
 var projectStore = new StudioProjectStore(studioDataDirectory);
+StudioProjectMigration.Recover(studioDataDirectory, projectStore);
 builder.Services.AddDataProtection();
 builder.Services.AddRazorComponents().AddInteractiveServerComponents()
     // Bound JSON editing can duplicate field text in a Blazor event. Keep transport bounded
@@ -131,6 +158,33 @@ app.Use(async (context, next) =>
 
         try { context.RequestServices.GetRequiredService<StudioProjectWorkspace>().Select(selectedProject); }
         catch (KeyNotFoundException) { context.Response.StatusCode = StatusCodes.Status404NotFound; return; }
+    }
+    else
+    {
+        var defaultProject = context.RequestServices.GetRequiredService<StudioProjectStore>()
+            .GetActive(StudioProjectStore.DefaultProjectId);
+        if (defaultProject.IsFolderBacked)
+        {
+            var folderEditor = $"/source-project/folder/{Uri.EscapeDataString(defaultProject.Id)}";
+            if (context.Request.Path.Value is "/" or "/agents" or "/skills" or "/functions")
+            {
+                context.Response.Redirect(folderEditor);
+                return;
+            }
+            if (context.Request.Path.StartsWithSegments("/api/workflows") ||
+                context.Request.Path.StartsWithSegments("/api/revisions") ||
+                context.Request.Path.StartsWithSegments("/api/runs"))
+            {
+                context.Response.StatusCode = StatusCodes.Status409Conflict;
+                await context.Response.WriteAsJsonAsync(new
+                {
+                    error = "The default project is folder-backed. Catalog authoring and execution APIs are not available for folder projects yet.",
+                    projectId = defaultProject.Id,
+                    editor = folderEditor
+                });
+                return;
+            }
+        }
     }
     await next();
 });

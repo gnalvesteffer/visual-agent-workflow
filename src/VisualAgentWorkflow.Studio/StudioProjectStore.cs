@@ -88,6 +88,33 @@ public sealed class StudioProjectStore
         }
     }
 
+    /// <summary>Switches an existing stopped-Studio project to its validated folder source while preserving its ID.</summary>
+    internal StudioProject SetFolderSource(string id, string folderPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(folderPath);
+        var canonicalPath = Path.GetFullPath(folderPath);
+        lock (gate)
+        {
+            var index = projects.FindIndex(project => project.Id == id && !project.IsArchived);
+            if (index < 0) throw new KeyNotFoundException("The project does not exist or is archived.");
+            EnsureFolderPathAvailable(id, canonicalPath);
+            var updated = projects.ToList();
+            updated[index] = updated[index] with { FolderPath = canonicalPath };
+            Save(updated);
+            return updated[index];
+        }
+    }
+
+    internal void EnsureFolderPathAvailable(string id, string folderPath)
+    {
+        var canonicalPath = Path.GetFullPath(folderPath);
+        lock (gate)
+        {
+            if (projects.Any(project => project.Id != id && project.FolderPath is not null && PathComparer.Equals(project.FolderPath, canonicalPath)))
+                throw new InvalidOperationException("Another project already uses this folder.");
+        }
+    }
+
     public bool SetArchived(string id, bool archived)
     {
         if (id == DefaultProjectId && archived) throw new ArgumentException("The default project cannot be archived.", nameof(id));
@@ -139,31 +166,39 @@ public sealed class StudioProjectWorkspace
     private readonly StudioProjectStore store;
     private readonly LocalWorkflowRuntime runtime;
     private readonly Dictionary<string, ProjectAssets> cache = new(StringComparer.Ordinal);
-    private ProjectAssets current;
+    private string currentProjectId;
+    private ProjectAssets? current;
 
     public StudioProjectWorkspace(string studioDataDirectory, StudioProjectStore store, LocalWorkflowRuntime runtime)
     {
         this.studioDataDirectory = Path.GetFullPath(studioDataDirectory);
         this.store = store;
         this.runtime = runtime;
-        current = Resolve(StudioProjectStore.DefaultProjectId);
+        currentProjectId = StudioProjectStore.DefaultProjectId;
+        if (!store.GetActive(currentProjectId).IsFolderBacked)
+            current = Resolve(currentProjectId);
     }
 
     public IReadOnlyList<StudioProject> Projects => store.List();
-    public string CurrentProjectId => current.Project.Id;
-    public string CurrentProjectName => current.Project.Name;
-    public IWorkflowCatalog Catalog => current.Catalog;
-    public IWorkflowClient Client => current.Client;
-    public StudioSkillLibrary Skills => current.Skills;
-    public StudioAgentProfileLibrary AgentProfiles => current.AgentProfiles;
-    public StudioGraphFunctionLibrary Functions => current.Functions;
-    public bool IsReadOnly => current.Project.IsArchived;
+    public string CurrentProjectId => currentProjectId;
+    public string CurrentProjectName => store.GetActive(currentProjectId).Name;
+    public IWorkflowCatalog Catalog => RequireCatalogProject().Catalog;
+    public IWorkflowClient Client => RequireCatalogProject().Client;
+    public StudioSkillLibrary Skills => RequireCatalogProject().Skills;
+    public StudioAgentProfileLibrary AgentProfiles => RequireCatalogProject().AgentProfiles;
+    public StudioGraphFunctionLibrary Functions => RequireCatalogProject().Functions;
+    public bool IsReadOnly => store.GetActive(currentProjectId).IsArchived;
 
     public void Select(string? projectId)
     {
         var id = string.IsNullOrWhiteSpace(projectId) ? StudioProjectStore.DefaultProjectId : projectId;
-        current = Resolve(id);
+        var project = store.GetActive(id);
+        currentProjectId = id;
+        current = project.IsFolderBacked ? null : Resolve(id);
     }
+
+    private ProjectAssets RequireCatalogProject() => current ??
+        throw new InvalidOperationException("The selected project is folder-backed and has no catalog workspace.");
 
     private ProjectAssets Resolve(string id)
     {

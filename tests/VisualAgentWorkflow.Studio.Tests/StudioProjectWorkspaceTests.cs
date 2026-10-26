@@ -1,4 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Collections.Immutable;
+using System.Text.Json;
 using VisualAgentWorkflow.Blazor;
 using VisualAgentWorkflow.Core;
 using VisualAgentWorkflow.Hosting;
@@ -47,6 +49,121 @@ public sealed class StudioProjectWorkspaceTests : IDisposable
         var reopenedFolder = reopenedStore.RegisterFolderSource(folder, "Research");
         Assert.False(reopenedFolder.IsArchived);
         Assert.False(Directory.Exists(Path.Combine(directory, "studio", "projects", registered.Id)));
+    }
+
+    [Fact]
+    public async Task OfflineCutover_PreservesProjectIdentityAndPublishesValidatedSourceFolder()
+    {
+        Directory.CreateDirectory(directory);
+        var store = new StudioProjectStore(Path.Combine(directory, "studio"));
+        var project = store.Create("Cutover project");
+        var runtime = new LocalWorkflowRuntime(new FileRunJournal(Path.Combine(directory, "studio", "runs")),
+            NullLogger<LocalWorkflowRuntime>.Instance);
+        var workspace = new StudioProjectWorkspace(Path.Combine(directory, "studio"), store, runtime);
+        workspace.Select(project.Id);
+        var definition = WorkflowTemplates.Create("uppercase-reverse") with { WorkflowId = "cutover-workflow" };
+        var layout = WorkflowLayout.Create(definition);
+        await Assert.IsAssignableFrom<IWorkflowDesignCatalog>(workspace.Catalog).SaveDesignAsync(definition, layout, 0);
+        workspace.Skills.Add("cutover-skill", "1.0.0", "Cutover skill", "Review source.", "Review");
+
+        var destination = Path.Combine(directory, "portable-project");
+        var migrated = await StudioProjectMigration.MigrateToFolderAsync(Path.Combine(directory, "studio"), project.Id, destination);
+        var reopenedStore = new StudioProjectStore(Path.Combine(directory, "studio"));
+        var (manifest, files) = StudioProjectSourceDirectory.Read(destination);
+
+        Assert.Equal(project.Id, migrated.Id);
+        Assert.Equal(project.Id, manifest.ProjectId);
+        Assert.Equal(Path.GetFullPath(destination), reopenedStore.FolderProjectPath(project.Id));
+        Assert.Contains(manifest.Files, item => item.Kind == "workflow" && item.Id == definition.WorkflowId);
+        Assert.Contains(manifest.Files, item => item.Kind == "skill" && item.Id == "cutover-skill");
+        Assert.Contains(files.Keys, path => path.StartsWith("workflows/", StringComparison.Ordinal));
+        Assert.True(File.Exists(Path.Combine(directory, "studio", "projects", project.Id, "workflows.db")),
+            "The original catalog remains available as local recovery data.");
+        Assert.False(File.Exists(Path.Combine(directory, "studio", "project-cutover.json")));
+    }
+
+    [Fact]
+    public async Task Workspace_NavigationCanOpenWhenDefaultProjectIsFolderBacked()
+    {
+        var dataDirectory = Path.Combine(directory, "studio");
+        var folder = Path.Combine(directory, "folder-project");
+        Directory.CreateDirectory(directory);
+        _ = new StudioProjectStore(dataDirectory);
+        _ = await StudioProjectMigration.MigrateToFolderAsync(dataDirectory, StudioProjectStore.DefaultProjectId, folder);
+
+        var workspace = new StudioProjectWorkspace(dataDirectory, new StudioProjectStore(dataDirectory),
+            new LocalWorkflowRuntime(new FileRunJournal(Path.Combine(directory, "runs")), NullLogger<LocalWorkflowRuntime>.Instance));
+
+        Assert.Equal(StudioProjectStore.DefaultProjectId, workspace.CurrentProjectId);
+        Assert.Equal("Default Project", workspace.CurrentProjectName);
+        Assert.Throws<InvalidOperationException>(() => _ = workspace.Catalog);
+    }
+
+    [Fact]
+    public async Task OfflineCutover_RejectsFolderAlreadyRegisteredToAnotherProjectBeforePublishing()
+    {
+        var dataDirectory = Path.Combine(directory, "studio");
+        var destination = Path.Combine(directory, "existing-folder-registration");
+        Directory.CreateDirectory(directory);
+        var store = new StudioProjectStore(dataDirectory);
+        _ = store.RegisterFolderSource(destination, "Existing folder project");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => StudioProjectMigration.MigrateToFolderAsync(
+            dataDirectory, StudioProjectStore.DefaultProjectId, destination));
+
+        Assert.False(Directory.Exists(destination));
+        Assert.False(File.Exists(Path.Combine(dataDirectory, "project-cutover.json")));
+    }
+
+    [Fact]
+    public void StudioHostLock_PreventsConcurrentHostOrMaintenanceProcess()
+    {
+        Directory.CreateDirectory(directory);
+        using var first = StudioProjectMigration.AcquireHostLock(directory);
+        Assert.Throws<InvalidOperationException>(() => StudioProjectMigration.AcquireHostLock(directory));
+        first.Dispose();
+        using var next = StudioProjectMigration.AcquireHostLock(directory);
+    }
+
+    [Fact]
+    public void CutoverRecovery_CompletesValidatedStagingBeforeWorkspaceStartup()
+    {
+        var dataDirectory = Path.Combine(directory, "studio");
+        var store = new StudioProjectStore(dataDirectory);
+        var project = store.Create("Recovery project");
+        var destination = Path.Combine(directory, "recovered-project");
+        var staging = Path.Combine(directory, ".vaw-cutover-recovery");
+        var manifest = new StudioProjectManifest(StudioProjectSourceArchive.FormatVersion, project.Id, project.Name,
+            ImmutableArray<StudioProjectFile>.Empty);
+        StudioProjectSourceDirectory.Write(staging, manifest, new Dictionary<string, byte[]>());
+        var manifestHash = StudioProjectSourceArchive.ComputeManifestHash(manifest);
+        File.WriteAllText(Path.Combine(dataDirectory, "project-cutover.json"), JsonSerializer.Serialize(new
+        {
+            projectId = project.Id,
+            destination,
+            stagingDirectory = staging,
+            manifestHash
+        }));
+
+        StudioProjectMigration.Recover(dataDirectory, store);
+
+        Assert.Equal(Path.GetFullPath(destination), new StudioProjectStore(dataDirectory).FolderProjectPath(project.Id));
+        Assert.True(Directory.Exists(destination));
+        Assert.False(Directory.Exists(staging));
+        Assert.False(File.Exists(Path.Combine(dataDirectory, "project-cutover.json")));
+    }
+
+    [Fact]
+    public void CutoverRecovery_RejectsMalformedJournalBeforeTouchingProjectMapping()
+    {
+        var dataDirectory = Path.Combine(directory, "studio");
+        var store = new StudioProjectStore(dataDirectory);
+        var project = store.Create("Journal project");
+        File.WriteAllText(Path.Combine(dataDirectory, "project-cutover.json"),
+            $$"""{"projectId":"{{project.Id}}","destination":null,"stagingDirectory":null,"manifestHash":null}""");
+
+        Assert.Throws<InvalidDataException>(() => StudioProjectMigration.Recover(dataDirectory, store));
+        Assert.False(store.GetActive(project.Id).IsFolderBacked);
     }
 
     [Fact]
