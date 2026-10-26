@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using System.Reflection;
 using VisualAgentWorkflow.Blazor;
 using VisualAgentWorkflow.Blazor.Components;
 using VisualAgentWorkflow.Core;
@@ -55,6 +56,83 @@ public sealed class ComponentLifecycleTests
     }
 
     [Fact]
+    public async Task StudioRendersWorkflowDesignerBeforeRunHistoryFinishesLoading()
+    {
+        using var services = Services();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var pendingHistory = new TaskCompletionSource<IReadOnlyList<RunSnapshot>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var client = new TestClient(() => pendingHistory.Task);
+        var root = await renderer.Dispatcher.InvokeAsync(() => renderer.BeginRenderingComponent<WorkflowStudio>(Parameters(
+            (nameof(WorkflowStudio.Client), client),
+            (nameof(WorkflowStudio.Catalog), new TestCatalog("fast-editor")))));
+
+        await root.QuiescenceTask.WaitAsync(TimeSpan.FromSeconds(3));
+        var html = await renderer.Dispatcher.InvokeAsync(root.ToHtmlString);
+
+        Assert.Contains("Workflow designer", html);
+        Assert.Contains("fast-editor", html);
+        Assert.False(pendingHistory.Task.IsCompleted);
+    }
+
+    [Fact]
+    public async Task DesignerShowsChoiceLoadingWithoutDiscoveringDuringStaticRender()
+    {
+        using var services = Services();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var pendingTools = new TaskCompletionSource<IReadOnlyList<ToolBindingDescriptor>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var catalog = new TestCatalog("choices-pending");
+        var client = new TestClient(() => Task.FromResult<IReadOnlyList<RunSnapshot>>([]));
+        var toolListCalls = 0;
+        var root = await renderer.Dispatcher.InvokeAsync(() => renderer.BeginRenderingComponent<WorkflowDesigner>(Parameters(
+            (nameof(WorkflowDesigner.Catalog), catalog),
+            (nameof(WorkflowDesigner.Client), client),
+            (nameof(WorkflowDesigner.ToolCatalog), new TestTools(() =>
+            {
+                Interlocked.Increment(ref toolListCalls);
+                return pendingTools.Task;
+            })))));
+
+        await root.QuiescenceTask.WaitAsync(TimeSpan.FromSeconds(3));
+        var loadingHtml = await renderer.Dispatcher.InvokeAsync(root.ToHtmlString);
+
+        Assert.Contains("choices-pending", loadingHtml);
+        Assert.Contains("Loading MCP tool choices", loadingHtml);
+        Assert.False(pendingTools.Task.IsCompleted);
+        Assert.Equal(0, toolListCalls);
+    }
+
+    [Fact]
+    public async Task McpChoiceFailureDoesNotHideModelConnections()
+    {
+        using var services = Services();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        WorkflowDesigner? component = null;
+        var root = await renderer.Dispatcher.InvokeAsync(() => renderer.BeginRenderingComponent<CaptureHost<WorkflowDesigner>>(Parameters(
+            (nameof(CaptureHost<WorkflowDesigner>.ChildParameters), new Dictionary<string, object?>
+            {
+                [nameof(WorkflowDesigner.Catalog)] = new TestCatalog("independent-choices"),
+                [nameof(WorkflowDesigner.Client)] = new TestClient(() => Task.FromResult<IReadOnlyList<RunSnapshot>>([])),
+                [nameof(WorkflowDesigner.ToolCatalog)] = new TestTools(() => throw new InvalidOperationException("MCP unavailable")),
+                [nameof(WorkflowDesigner.AgentCatalog)] = new TestAgents()
+            }),
+            (nameof(CaptureHost<WorkflowDesigner>.Capture), (Action<WorkflowDesigner>)(value => component = value)))));
+        Assert.NotNull(component);
+
+        await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var type = typeof(WorkflowDesigner);
+            var binding = type.GetField("binding", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(component);
+            var load = (Task)type.GetMethod("Choices", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(component, [binding])!;
+            await load;
+        });
+
+        var html = await renderer.Dispatcher.InvokeAsync(root.ToHtmlString);
+        Assert.Contains("Provider that loaded", html);
+        Assert.Contains("Could not load MCP tools", html);
+        Assert.DoesNotContain("Could not load model connections", html);
+    }
+
+    [Fact]
     public async Task DesignerIgnoresOldCatalogAfterContextChange()
     {
         using var services = Services();
@@ -78,7 +156,7 @@ public sealed class ComponentLifecycleTests
     }
 
     [Fact]
-    public async Task ReplacingToolCatalogIgnoresLateChoicesAndPreservesDraft()
+    public async Task ReplacingToolCatalogDuringStaticRenderDoesNotStartDiscovery()
     {
         using var services = Services();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
@@ -96,13 +174,14 @@ public sealed class ComponentLifecycleTests
         Assert.NotNull(component);
         var current = new TestTools(() => Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([Tool("Current choice")]));
         await renderer.Dispatcher.InvokeAsync(() => component.SetParametersAsync(Parameters((nameof(WorkflowDesigner.ToolCatalog), current))));
-        pending.SetResult([Tool("Stale choice")]);
         await root.QuiescenceTask.WaitAsync(TimeSpan.FromSeconds(5));
         var html = await renderer.Dispatcher.InvokeAsync(root.ToHtmlString);
-        Assert.Contains("Current choice", html);
+        Assert.Contains("Loading MCP tool choices", html);
+        Assert.False(pending.Task.IsCompleted);
+        Assert.Equal("preserved-workflow", catalog.Draft.Definition.WorkflowId);
         Assert.DoesNotContain("Stale choice", html);
         Assert.Contains("preserved-workflow", html);
-        Assert.Equal(2, catalog.ListCalls); // Initial selection and metadata; no definition reload for a tool catalog update.
+        Assert.Equal(2, catalog.ListCalls); // Initial selection and metadata only; discovery does not reload the draft.
     }
 
     [Fact]
@@ -178,6 +257,13 @@ public sealed class ComponentLifecycleTests
     private sealed class TestTools(Func<Task<IReadOnlyList<ToolBindingDescriptor>>> list) : IToolBindingCatalog
     {
         public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default) => list();
+    }
+
+    private sealed class TestAgents : IAgentProviderCatalog
+    {
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("provider.test", "Provider that loaded", "test-model", false)]);
     }
 
     private sealed class TestClient(Func<Task<IReadOnlyList<RunSnapshot>>> list) : IPublishedWorkflowClient

@@ -49,16 +49,30 @@ public sealed class McpToolBroker : INodeToolBroker
 
     public async Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default)
     {
-        var results = new List<ToolBindingDescriptor>();
-        foreach (var registration in Volatile.Read(ref registrations).Values.Where(r => r.ReadOnly || r.AllowInvocation))
+        var serverGroups = Volatile.Read(ref registrations).Values
+            .Where(registration => registration.ReadOnly || registration.AllowInvocation)
+            .GroupBy(registration => (registration.ServerId, registration.Connect))
+            .ToArray();
+
+        var serverResults = await Task.WhenAll(serverGroups.Select(group => ListServerBindingsAsync(
+            group.ToArray(), cancellationToken)));
+        return serverResults.SelectMany(bindings => bindings).ToArray();
+    }
+
+    private async Task<IReadOnlyList<ToolBindingDescriptor>> ListServerBindingsAsync(
+        IReadOnlyList<McpToolRegistration> registrationsForServer, CancellationToken cancellationToken)
+    {
+        var representative = registrationsForServer[0];
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(timeout);
+        await using var client = await representative.Connect(deadline.Token);
+        var tools = await client.ListToolsAsync(cancellationToken: deadline.Token);
+
+        return registrationsForServer.Select(registration =>
         {
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            deadline.CancelAfter(timeout);
-            await using var client = await registration.Connect(deadline.Token);
-            var tool = await FindTool(client, registration, deadline.Token);
-            results.Add(Describe(registration, tool));
-        }
-        return results;
+            var tool = FindTool(tools, registration);
+            return Describe(registration, tool);
+        }).ToArray();
     }
 
     public INodeToolScope OpenScope(NodeInvocationContext invocation)
@@ -74,6 +88,11 @@ public sealed class McpToolBroker : INodeToolBroker
     private static async Task<McpClientTool> FindTool(McpClient client, McpToolRegistration registration, CancellationToken cancellationToken)
     {
         var tools = await client.ListToolsAsync(cancellationToken: cancellationToken);
+        return FindTool(tools, registration);
+    }
+
+    private static McpClientTool FindTool(IList<McpClientTool> tools, McpToolRegistration registration)
+    {
         var tool = tools.SingleOrDefault(t => t.Name == registration.ToolName)
             ?? throw new ToolInvocationException("The registered tool is unavailable.");
         McpInputSchema.Validate(tool.JsonSchema);

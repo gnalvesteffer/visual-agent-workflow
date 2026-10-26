@@ -1,4 +1,5 @@
 @implements IAsyncDisposable
+@attribute [StreamRendering]
 
 <section class="vaw-studio">
     <header class="vaw-studio-header">
@@ -37,7 +38,7 @@
             }
             <p class="vaw-help">Runs keep their state when you close the editor.</p>
             <h2>Recorded runs</h2>
-            <button type="button" @onclick="Refresh" disabled="@(!interactive)">Refresh history</button>
+            <button type="button" @onclick="Refresh" disabled="@(!interactive || historyLoading)">Refresh history</button>
             <label>Filter recorded runs <input aria-label="Filter recorded runs" @bind="runFilter" @bind:event="oninput" placeholder="Workflow, status or run ID" /></label>
             <ul class="vaw-history">
                 @foreach (var run in runs.Where(MatchesRunFilter).Take(50))
@@ -54,6 +55,8 @@
         <section class="vaw-main" aria-label="Workflow workspace">
             @if (historyError is not null) { <p role="alert" class="vaw-error">@historyError</p> }
             @if (actionError is not null) { <p role="alert" class="vaw-error">@actionError</p> }
+            @if (workspaceView == "run" && historyLoading)
+            { <p class="vaw-help" role="status" aria-live="polite">Loading recorded run history… The workflow editor is already available.</p> }
             <nav class="vaw-workspace-views" aria-label="Workspace views">
                 @if (Catalog is not null && Client is IPublishedWorkflowClient)
                 { <button type="button" aria-pressed="@(workspaceView == "designer" ? "true" : "false")" @onclick="ShowDesigner" disabled="@(!interactive)">Designer</button> }

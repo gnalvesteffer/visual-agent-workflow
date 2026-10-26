@@ -1,4 +1,5 @@
 @implements IAsyncDisposable
+@attribute [StreamRendering]
 
 <section class="vaw-designer" aria-label="Workflow designer">
     <header class="vaw-section-header"><div><h2>Workflow designer</h2>
@@ -253,6 +254,22 @@
             <ul>@foreach (var entry in audit) { <li @key="entry.Sequence">@entry.Timestamp.ToString("u") · @entry.Actor · @entry.Kind · generation @entry.Generation</li> }</ul>
         </details>
     }
+    else if (loadingWorkflow)
+    {
+        <div class="vaw-editor-loading" role="status" aria-live="polite">
+            <span class="vaw-editor-loading-indicator" aria-hidden="true"></span>
+            <div><strong>Opening workflow editor…</strong><p>Loading this project's saved workflows and graph layout.</p></div>
+        </div>
+    }
+    @if (choicesLoading)
+    {
+        @if (mcpChoicesLoading)
+        { <p class="vaw-editor-choice-status" role="status" aria-live="polite"><span class="vaw-editor-loading-indicator" aria-hidden="true"></span>Loading MCP tool choices. You can continue editing while they load.</p> }
+        @if (providerChoicesLoading)
+        { <p class="vaw-editor-choice-status" role="status" aria-live="polite"><span class="vaw-editor-loading-indicator" aria-hidden="true"></span>Loading model connection choices. You can continue editing while they load.</p> }
+    }
+    @if (mcpChoicesError is not null) { <p role="alert" class="vaw-error">@mcpChoicesError</p> }
+    @if (providerChoicesError is not null) { <p role="alert" class="vaw-error">@providerChoicesError</p> }
     @if (message is not null) { <p role="status">@message</p> }
     @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
     </fieldset>

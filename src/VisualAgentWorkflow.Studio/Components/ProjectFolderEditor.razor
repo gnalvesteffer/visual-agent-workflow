@@ -31,6 +31,10 @@
         }
         @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
         @if (message is not null) { <p role="status">@message</p> }
+        @if (mcpChoicesLoading) { <p class="vaw-editor-choice-status" role="status" aria-live="polite">Loading MCP tools for agent profiles and graph editors. Project files remain available.</p> }
+        @if (providerChoicesLoading) { <p class="vaw-editor-choice-status" role="status" aria-live="polite">Loading model connections for agent profiles and graph editors. Project files remain available.</p> }
+        @if (mcpChoicesError is not null) { <p role="alert" class="vaw-error">@mcpChoicesError</p> }
+        @if (providerChoicesError is not null) { <p role="alert" class="vaw-error">@providerChoicesError</p> }
         <section class="vaw-settings-section vaw-project-release" aria-label="Build a consumer release">
             <div class="vaw-settings-section-heading">
                 <div><h2>Build consumer package</h2><p>Select saved, executable workflows to include in a portable <code>.vawpkg</code>. Reusable assets embedded in those workflows travel with them; model connections, MCP endpoints, credentials, and grants stay with the consuming host.</p></div>
@@ -348,6 +352,10 @@
     private WorkflowLayout? layout;
     private IReadOnlyList<ToolBindingDescriptor> bindings = [];
     private IReadOnlyList<AgentProviderDescriptor> providers = [];
+    private bool mcpChoicesLoading;
+    private bool providerChoicesLoading;
+    private string? mcpChoicesError;
+    private string? providerChoicesError;
     private bool dirty;
     private bool busy;
     private string runInput = "";
@@ -386,10 +394,48 @@
                     ? "Pure graph functions are edited visually and saved as immutable project revisions."
                     : "Select a source file to edit. Graph function revisions can be created from the project.";
 
-    protected override async Task OnInitializedAsync()
+    protected override Task OnInitializedAsync()
     {
-        bindings = await ToolCatalog.ListBindingsAsync();
-        providers = await ProviderCatalog.ListProvidersAsync();
+        mcpChoicesLoading = true;
+        providerChoicesLoading = true;
+        _ = LoadMcpChoicesAsync();
+        _ = LoadProviderChoicesAsync();
+        return Task.CompletedTask;
+    }
+
+    private async Task LoadMcpChoicesAsync()
+    {
+        try { bindings = await ToolCatalog.ListBindingsAsync(); }
+        catch
+        {
+            if (!disposed) mcpChoicesError = "Could not load MCP tools. Project source remains editable; return to the MCP library and retry discovery.";
+        }
+        finally
+        {
+            mcpChoicesLoading = false;
+            if (!disposed) await RenderChoiceStatusAsync();
+        }
+    }
+
+    private async Task LoadProviderChoicesAsync()
+    {
+        try { providers = await ProviderCatalog.ListProvidersAsync(); }
+        catch
+        {
+            if (!disposed) providerChoicesError = "Could not load model connections. Project source remains editable; check Studio settings and retry.";
+        }
+        finally
+        {
+            providerChoicesLoading = false;
+            if (!disposed) await RenderChoiceStatusAsync();
+        }
+    }
+
+    private async Task RenderChoiceStatusAsync()
+    {
+        try { await InvokeAsync(StateHasChanged); }
+        catch (InvalidOperationException) when (disposed) { }
+        catch (ObjectDisposedException) { }
     }
 
     protected override async Task OnParametersSetAsync()

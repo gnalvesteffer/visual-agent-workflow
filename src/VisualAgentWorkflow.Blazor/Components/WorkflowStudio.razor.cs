@@ -29,6 +29,7 @@ public partial class WorkflowStudio
     private bool starting;
     private bool startPaused;
     private bool controllingRun;
+    private bool historyLoading;
     private bool interactive;
     private bool disposed;
     private string? historyError;
@@ -51,6 +52,7 @@ public partial class WorkflowStudio
         contextLifetime?.Dispose();
         contextLifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         contextToken = contextLifetime.Token;
+        historyLoading = true;
         selectionVersion++;
         runs = [];
         workspaceView = Catalog is not null && Client is IPublishedWorkflowClient ? "designer" : "run";
@@ -61,7 +63,21 @@ public partial class WorkflowStudio
         starting = false; startPaused = false; controllingRun = false;
         operation = "uppercase-reverse";
         input = "Hello, workflows!";
-        await RefreshHistory();
+        _ = LoadInitialHistoryAsync(Client, clientVersion);
+    }
+
+    private async Task LoadInitialHistoryAsync(IWorkflowClient client, long version)
+    {
+        try { await RefreshHistory(); }
+        finally
+        {
+            if (Current(client, version))
+            {
+                historyLoading = false;
+                try { await InvokeAsync(StateHasChanged); }
+                catch (ObjectDisposedException) { }
+            }
+        }
     }
 
     protected override void OnAfterRender(bool firstRender)
@@ -82,13 +98,21 @@ public partial class WorkflowStudio
         try
         {
             while (await timer.WaitForNextTickAsync(lifetime.Token))
-                await InvokeAsync(async () => { if (await RefreshHistory()) StateHasChanged(); });
+                await InvokeAsync(async () =>
+                {
+                    if (!historyLoading && await RefreshHistory()) StateHasChanged();
+                });
         }
         catch (OperationCanceledException) when (disposed) { }
         catch (ObjectDisposedException) when (disposed) { }
     }
 
-    private async Task Refresh() => await RefreshHistory();
+    private async Task Refresh()
+    {
+        historyLoading = true;
+        try { await RefreshHistory(); }
+        finally { historyLoading = false; }
+    }
 
     private async Task<bool> RefreshHistory()
     {

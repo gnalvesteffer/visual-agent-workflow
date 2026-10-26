@@ -74,6 +74,12 @@
 .vaw-definition-status code { margin-inline-start: var(--vaw-space-2); color: var(--vaw-muted); font-size: 0.75rem; }
 .vaw-empty-state { border-inline-start: 3px solid var(--vaw-accent); padding-inline-start: var(--vaw-space-4); }
 .vaw-empty-state p { margin-block-end: 0; color: var(--vaw-muted); font-size: 0.875rem; }
+.vaw-editor-loading { display: flex; align-items: center; gap: var(--vaw-space-3); min-block-size: 8rem; border: 1px solid var(--vaw-border); border-radius: var(--vaw-panel-radius); padding: var(--vaw-space-6); background: var(--vaw-surface); }
+.vaw-editor-loading p { margin: var(--vaw-space-1) 0 0; color: var(--vaw-muted); font-size: .875rem; }
+.vaw-editor-choice-status { display: flex; align-items: center; gap: var(--vaw-space-2); color: var(--vaw-muted); font-size: .8125rem; }
+.vaw-editor-loading-indicator { flex: 0 0 auto; inline-size: 1rem; block-size: 1rem; border: 2px solid var(--vaw-border); border-block-start-color: var(--vaw-accent); border-radius: 50%; animation: vaw-editor-spin .85s linear infinite; }
+@keyframes vaw-editor-spin { to { transform: rotate(1turn); } }
+@media (prefers-reduced-motion: reduce) { .vaw-editor-loading-indicator { animation: none; border-inline-end-color: var(--vaw-accent); } }
 
 @container vaw-studio (min-width: 55rem) {
     .vaw-workspace { grid-template-columns: 15rem minmax(0, 1fr); }

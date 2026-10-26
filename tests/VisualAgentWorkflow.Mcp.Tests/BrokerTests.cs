@@ -67,6 +67,26 @@ public class BrokerTests
     }
 
     [Fact]
+    public async Task ListingManyToolsUsesOneConnectionAndOneToolDiscoveryPerServer()
+    {
+        var connectionCount = 0;
+        var original = Registrations();
+        var originalConnect = original[0].Connect;
+        Assert.All(original, registration => Assert.Equal(originalConnect, registration.Connect));
+        Func<CancellationToken, Task<ModelContextProtocol.Client.McpClient>> connect = async cancellationToken =>
+        {
+            Interlocked.Increment(ref connectionCount);
+            return await originalConnect(cancellationToken);
+        };
+        var registrations = original.Select(registration => registration with { Connect = connect });
+
+        var bindings = await CreateBroker(registrations).ListBindingsAsync();
+
+        Assert.Equal(5, bindings.Count);
+        Assert.Equal(1, connectionCount);
+    }
+
+    [Fact]
     public void NestedArraySchemasNormalizeAndRejectUnsupportedOrUnboundedShapes()
     {
         using var schema = JsonDocument.Parse("""

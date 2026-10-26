@@ -24,6 +24,8 @@ public partial class WorkflowDesigner
     private CancellationTokenSource? choicesLifetime;
     private IToolBindingCatalog? loadedTools;
     private IAgentProviderCatalog? loadedAgents;
+    private IToolBindingCatalog? requestedTools;
+    private IAgentProviderCatalog? requestedAgents;
     private long choicesVersion;
     private bool disposed;
     private IReadOnlyList<ToolBindingDescriptor> bindings = [];
@@ -48,6 +50,12 @@ public partial class WorkflowDesigner
     private bool dirty => definition is not null && DesignHash != savedHash;
     private bool busy;
     private bool interactive;
+    private bool loadingWorkflow = true;
+    private bool mcpChoicesLoading;
+    private bool providerChoicesLoading;
+    private bool choicesLoading => mcpChoicesLoading || providerChoicesLoading;
+    private string? mcpChoicesError;
+    private string? providerChoicesError;
     private string? error;
     private string? message;
     private string jsonText = "";
@@ -103,7 +111,14 @@ public partial class WorkflowDesigner
         if (binding is not null && ReferenceEquals(binding.Catalog, Catalog) && ReferenceEquals(binding.Client, Client))
         {
             if (!ReferenceEquals(loadedTools, ToolCatalog) || !ReferenceEquals(loadedAgents, AgentCatalog))
-                await Choices(binding);
+            {
+                if (ReferenceEquals(requestedTools, ToolCatalog) && ReferenceEquals(requestedAgents, AgentCatalog))
+                    return;
+                mcpChoicesLoading = ToolCatalog is not null;
+                providerChoicesLoading = AgentCatalog is not null;
+                mcpChoicesError = null; providerChoicesError = null;
+                if (interactive) _ = LoadChoicesAndRenderAsync(binding);
+            }
             return;
         }
 
@@ -114,21 +129,35 @@ public partial class WorkflowDesigner
         previous?.Dispose();
         definition = null; layout = null; previewLayout = null; layoutHash = null; definitionHash = null; savedHash = null;
         workflows = []; versions = []; audit = []; bindings = []; providers = [];
+        loadingWorkflow = true;
+        mcpChoicesLoading = ToolCatalog is not null;
+        providerChoicesLoading = AgentCatalog is not null;
+        mcpChoicesError = null; providerChoicesError = null;
         preview = null; selectedRevisionId = null; activeRevisionId = null;
         undo.Clear(); redo.Clear(); jsonText = ""; runInput = "Hello, workflows!"; runParameters.Clear(); startPublishedPaused = false; busy = false;
-        loadedTools = null; loadedAgents = null; ResetReuse();
+        loadedTools = null; loadedAgents = null; requestedTools = null; requestedAgents = null; ResetReuse();
         await Perform(async current =>
         {
             var drafts = await current.Catalog.ListDraftsAsync().WaitAsync(current.Token);
             if (!Current(current)) return;
             if (drafts.Count > 0) await Load(drafts[0], current); else NewWorkflow();
-            if (Current(current)) await Choices(current);
+            if (Current(current))
+            {
+                loadingWorkflow = false;
+                if (interactive) _ = LoadChoicesAndRenderAsync(current);
+            }
         });
+        if (Current(binding)) loadingWorkflow = false;
     }
 
     protected override void OnAfterRender(bool firstRender)
     {
-        if (firstRender && !disposed) { interactive = true; StateHasChanged(); }
+        if (firstRender && !disposed)
+        {
+            interactive = true;
+            if (binding is not null && choicesLoading) _ = LoadChoicesAndRenderAsync(binding);
+            StateHasChanged();
+        }
     }
 
     private bool Current(Binding current) => !disposed && ReferenceEquals(binding, current);
@@ -211,25 +240,90 @@ public partial class WorkflowDesigner
     {
         var tools = ToolCatalog;
         var agents = AgentCatalog;
-        loadedTools = tools; loadedAgents = agents;
+        requestedTools = tools;
+        requestedAgents = agents;
         var version = ++choicesVersion;
         choicesLifetime?.Cancel();
         choicesLifetime?.Dispose();
         choicesLifetime = CancellationTokenSource.CreateLinkedTokenSource(current.Token);
         var token = choicesLifetime.Token;
+        mcpChoicesLoading = tools is not null;
+        providerChoicesLoading = agents is not null;
+        mcpChoicesError = null; providerChoicesError = null;
+        var bindingsTask = tools is null
+            ? Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([])
+            : StartChoiceLoad(() => tools.ListBindingsAsync(token).WaitAsync(token));
+        var providersTask = agents is null
+            ? Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>([])
+            : StartChoiceLoad(() => agents.ListProvidersAsync().WaitAsync(token));
+        await Task.WhenAll(
+            LoadToolChoicesAsync(bindingsTask, tools, current, version, token),
+            LoadProviderChoicesAsync(providersTask, agents, current, version, token));
+    }
+
+    private async Task LoadToolChoicesAsync(Task<IReadOnlyList<ToolBindingDescriptor>> pending,
+        IToolBindingCatalog? catalog, Binding current, long version, CancellationToken token)
+    {
         try
         {
-            IReadOnlyList<ToolBindingDescriptor> newBindings = tools is null ? [] : await tools.ListBindingsAsync(token).WaitAsync(token);
-            IReadOnlyList<AgentProviderDescriptor> newProviders = agents is null ? [] : await agents.ListProvidersAsync().WaitAsync(token);
+            var result = await pending;
             if (!Current(current) || version != choicesVersion) return;
-            bindings = newBindings; providers = newProviders;
+            bindings = result; loadedTools = catalog;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch
         {
             if (Current(current) && version == choicesVersion)
-                error = "Could not load node provider choices. The current draft is preserved; retry the provider catalog.";
+                mcpChoicesError = "Could not load MCP tools. The workflow remains editable; use Refresh MCP tools to retry.";
         }
+        finally
+        {
+            if (Current(current) && version == choicesVersion) mcpChoicesLoading = false;
+            await RenderChoiceStatusAsync();
+        }
+    }
+
+    private async Task LoadProviderChoicesAsync(Task<IReadOnlyList<AgentProviderDescriptor>> pending,
+        IAgentProviderCatalog? catalog, Binding current, long version, CancellationToken token)
+    {
+        try
+        {
+            var result = await pending;
+            if (!Current(current) || version != choicesVersion) return;
+            providers = result; loadedAgents = catalog;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch
+        {
+            if (Current(current) && version == choicesVersion)
+                providerChoicesError = "Could not load model connections. Check Studio settings and retry the provider list.";
+        }
+        finally
+        {
+            if (Current(current) && version == choicesVersion) providerChoicesLoading = false;
+            await RenderChoiceStatusAsync();
+        }
+    }
+
+    private static Task<T> StartChoiceLoad<T>(Func<Task<T>> load)
+    {
+        try { return load(); }
+        catch (Exception exception) { return Task.FromException<T>(exception); }
+    }
+
+    private async Task RenderChoiceStatusAsync()
+    {
+        if (disposed) return;
+        try { await InvokeAsync(StateHasChanged); }
+        catch (ObjectDisposedException) { }
+    }
+
+    private async Task LoadChoicesAndRenderAsync(Binding current)
+    {
+        await Choices(current);
+        if (!Current(current)) return;
+        try { await InvokeAsync(StateHasChanged); }
+        catch (ObjectDisposedException) { }
     }
 
     private void Changed(WorkflowDefinition next)
@@ -374,7 +468,7 @@ public partial class WorkflowDesigner
     private Task RefreshTools() => Perform(async current =>
     {
         await Choices(current);
-        if (Current(current) && error is null) message = "MCP tool catalog refreshed. Existing contracts remain pinned.";
+        if (Current(current) && mcpChoicesError is null) message = "MCP tool catalog refreshed. Existing contracts remain pinned.";
     });
 
     private Task Import() => Perform(_ =>
