@@ -1,6 +1,8 @@
 @page "/projects"
 @rendermode InteractiveServer
 @inject StudioProjectStore ProjectStore
+@inject StudioOpenWorkspaceStore OpenWorkspace
+@inject NavigationManager Navigation
 
 <PageTitle>Projects · Visual Agent Workflow</PageTitle>
 <StudioNavigation />
@@ -46,7 +48,14 @@
                 }
                 @if (!project.IsArchived)
                 {
-                    <a class="vaw-button-link" href="@(project.IsFolderBacked ? $"/source-project/folder/{Uri.EscapeDataString(project.Id)}" : $"/projects/{Uri.EscapeDataString(project.Id)}")">Open project</a>
+                    @if (project.IsFolderBacked)
+                    {
+                        <button type="button" class="vaw-button-link" @onclick="() => OpenFolderProject(project.Id)">Open project</button>
+                    }
+                    else
+                    {
+                        <a class="vaw-button-link" href="/projects/@project.Id">Open project</a>
+                    }
                     <a class="vaw-button-link" href="/api/projects/@project.Id/source.zip">Download source snapshot</a>
                     @if (project.Id != StudioProjectStore.DefaultProjectId)
                     {
@@ -87,5 +96,18 @@
         ProjectStore.SetArchived(project.Id, archived);
         message = archived ? $"Archived {project.Name}. Its data is retained." : $"Restored {project.Name}.";
         error = null;
+    }
+
+    private void OpenFolderProject(string projectId)
+    {
+        try
+        {
+            OpenWorkspace.Open(projectId);
+            Navigation.NavigateTo($"/source-project/folder/{Uri.EscapeDataString(projectId)}");
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or KeyNotFoundException or IOException)
+        {
+            error = exception.Message;
+        }
     }
 }

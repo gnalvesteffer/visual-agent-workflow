@@ -1,4 +1,5 @@
 @inject StudioProjectWorkspace ProjectWorkspace
+@inject StudioOpenWorkspaceStore OpenWorkspace
 @inject NavigationManager Navigation
 
 <nav class="vaw-studio-navigation" aria-label="Studio navigation">
@@ -23,11 +24,16 @@
     <a data-vaw-route-link href="/settings" aria-current="@(ActivePage == "models" ? "page" : null)">Models</a>
     <a data-vaw-route-link href="/observe" aria-current="@(ActivePage == "observe" ? "page" : null)">Observe</a>
     <StudioThemePicker />
+    @if (projectSelectError is not null)
+    {
+        <span class="vaw-navigation-error" role="status">@projectSelectError</span>
+    }
 </nav>
 
 @code {
     [Parameter] public bool ShowProjectSelector { get; set; } = true;
     [Parameter] public string? ProjectId { get; set; }
+    private string? projectSelectError;
 
     private string SelectedProjectId => ProjectId ?? ProjectWorkspace.CurrentProjectId;
     private StudioProject SelectedProject => ProjectWorkspace.Projects.Single(project => project.Id == SelectedProjectId);
@@ -59,12 +65,25 @@
     private void ChangeProject(ChangeEventArgs args)
     {
         var projectId = args.Value?.ToString();
-        if (!string.IsNullOrWhiteSpace(projectId))
+        if (string.IsNullOrWhiteSpace(projectId)) return;
+        try
         {
             var project = ProjectWorkspace.Projects.Single(item => item.Id == projectId);
-            Navigation.NavigateTo(project.IsFolderBacked
-                ? $"/source-project/folder/{Uri.EscapeDataString(projectId)}"
-                : $"/projects/{Uri.EscapeDataString(projectId)}", forceLoad: true);
+            if (project.IsFolderBacked)
+            {
+                OpenWorkspace.Open(projectId);
+                if (!new Uri(Navigation.Uri).AbsolutePath.StartsWith("/source-project", StringComparison.Ordinal))
+                    Navigation.NavigateTo($"/source-project/folder/{Uri.EscapeDataString(projectId)}");
+            }
+            else
+            {
+                Navigation.NavigateTo($"/projects/{Uri.EscapeDataString(projectId)}");
+            }
+            projectSelectError = null;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or KeyNotFoundException or IOException)
+        {
+            projectSelectError = exception.Message;
         }
     }
 }

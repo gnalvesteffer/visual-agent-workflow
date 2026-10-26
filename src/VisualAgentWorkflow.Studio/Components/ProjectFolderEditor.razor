@@ -1,0 +1,922 @@
+@implements IAsyncDisposable
+@using VisualAgentWorkflow.Blazor
+@using System.Collections.Immutable
+@inject IToolBindingCatalog ToolCatalog
+@inject IAgentProviderCatalog ProviderCatalog
+@inject StudioProjectStore ProjectStore
+
+<section id="@PanelId" class="vaw-project-folder-editor" role="tabpanel" aria-labelledby="@TabId"
+    aria-label="Project folder editor" hidden="@(!IsActive)" aria-hidden="@(!IsActive)">
+    @if (manifest is not null)
+    {
+        <header class="vaw-project-tab-heading">
+            <div><h2>@manifest.ProjectName</h2><p><code>@openDirectory</code> · @manifest.Files.Length indexed files</p></div>
+            <span class="vaw-provider-state"><span aria-hidden="true"></span>Folder open</span>
+        </header>
+        @if (externalSourceChanged)
+        {
+            <aside class="vaw-error vaw-source-change" role="alert">
+                <strong>The project folder changed outside Studio.</strong>
+                <p>Your current editor contents are preserved. Review or reload the validated folder snapshot before continuing.</p>
+                @if (externalSourceProblem is not null) { <p>@externalSourceProblem</p> }
+                @if (HasUnsavedEdits)
+                { <button type="button" class="vaw-secondary" @onclick="DiscardAndReloadFolder" disabled="@busy">Discard local edits and reload folder</button> }
+                else
+                { <button type="button" class="vaw-secondary" @onclick="ReloadFolder" disabled="@busy">Reload project files</button> }
+            </aside>
+        }
+        @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
+        @if (message is not null) { <p role="status">@message</p> }
+    }
+    @if (manifest is not null && source is not null)
+    {
+        <section class="vaw-settings-section vaw-source-workspace" aria-label="Project explorer and project editor">
+            <aside class="vaw-project-explorer" aria-label="Project explorer">
+                <header><h2>Project explorer</h2><span>@manifest.Files.Length files</span></header>
+                @if (manifest.Files.IsEmpty)
+                {
+                    <p class="vaw-empty-state">No indexed files. Create a workflow to add the first source file.</p>
+                }
+                else
+                {
+                    <ul class="vaw-project-tree">
+                        @foreach (var node in fileTree)
+                        {
+                            <li @key="node.Name + node.File?.Path">
+                                <ProjectFileTreeItem Node="@node" SelectedPath="@(openedWorkflow?.RelativePath ?? openedSkill?.RelativePath ?? openedProfile?.RelativePath ?? openedGraphFunction?.RelativePath)"
+                                    WorkflowNames="@workflowNames" CanOpenFiles="@(!busy && !HasUnsavedEdits)"
+                                    OnOpenWorkflow="@OpenWorkflow" OnOpenSkill="@OpenSkill" OnOpenAgentProfile="@OpenAgentProfile" OnOpenGraphFunction="@OpenGraphFunction" />
+                            </li>
+                        }
+                    </ul>
+                    <p class="vaw-project-tree-legend">W Workflow · S Skill · A Agent preset · F Graph function</p>
+                }
+                @if (HasUnsavedEdits) { <p class="vaw-help">Save or discard the current edits before opening another file.</p> }
+            </aside>
+
+            <section class="vaw-folder-workflow-editor" aria-label="Project source editor">
+                <div class="vaw-settings-section-heading">
+                    <div><h2>@EditorTitle</h2><p>@EditorDescription</p></div>
+                    <div class="vaw-provider-actions">
+                        <button type="button" class="vaw-secondary" @onclick="CreateProfile" disabled="@(busy || HasUnsavedEdits)">New agent profile</button>
+                        <button type="button" class="vaw-secondary" @onclick="CreateSkill" disabled="@(busy || HasUnsavedEdits)">New skill</button>
+                        <button type="button" class="vaw-secondary" @onclick="CreateGraphFunction" disabled="@(busy || HasUnsavedEdits)">New graph function</button>
+                        <button type="button" class="vaw-primary" @onclick="CreateWorkflow" disabled="@(busy || HasUnsavedEdits)">New workflow</button>
+                    </div>
+                </div>
+                @if (openedWorkflow is null)
+                {
+                    @if (openedProfile is not null || creatingNewProfile)
+                    {
+                        <section class="vaw-folder-skill-editor" aria-label="Agent profile source editor">
+                            @if (openedProfile is not null)
+                            {
+                                <p class="vaw-definition-status"><strong>Base revision</strong> <code>@($"{openedProfile.Item.Profile.Id}@{openedProfile.Item.Profile.Version}")</code> · @openedProfile.ContentHash[..8]</p>
+                            }
+                            <form class="vaw-provider-form" @onsubmit="SaveProfile" @onsubmit:preventDefault>
+                                <label>Profile ID <input required @bind="profileId" @bind:event="oninput" @bind:after="MarkProfileFormDirty" disabled="@(openedProfile is not null)" maxlength="64" /></label>
+                                <label>New version <input required @bind="profileVersion" @bind:event="oninput" @bind:after="MarkProfileFormDirty" maxlength="64" /></label>
+                                <label>Name <input required @bind="profileName" @bind:event="oninput" @bind:after="MarkProfileFormDirty" maxlength="128" /></label>
+                                <label>Folder <input @bind="profileFolder" @bind:event="oninput" @bind:after="MarkProfileFormDirty" maxlength="256" placeholder="Research/Review" /></label>
+                                <label class="vaw-provider-form-wide">Delegate description <textarea required @bind="profileDescription" @bind:event="oninput" @bind:after="MarkProfileFormDirty" maxlength="512" rows="2" /></label>
+                                <label>Model connection ID
+                                    <input list="profile-provider-options" @bind="profileProviderId" @bind:event="oninput" @bind:after="MarkProfileFormDirty" required placeholder="model.primary" />
+                                    <datalist id="profile-provider-options">
+                                        @foreach (var provider in providers) { <option value="@provider.ProviderId" label="@($"{provider.DisplayName} · {provider.ModelId}")"></option> }
+                                    </datalist>
+                                </label>
+                                @if (!string.IsNullOrEmpty(profileProviderId) && !providers.Any(provider => provider.ProviderId == profileProviderId))
+                                { <p class="vaw-help vaw-provider-form-wide">This connection is not configured in this Studio host. The profile retains its stable ID; the consuming host must resolve it before execution.</p> }
+                                <label>Reasoning effort
+                                    <select @bind="profileReasoning" @bind:after="MarkProfileFormDirty"><option value="">Provider default</option><option value="Off">Off</option><option value="Low">Low</option><option value="Medium">Medium</option><option value="High">High</option></select>
+                                </label>
+                                <label>Maximum output tokens <input type="number" min="@AgentOutputTokenLimits.Minimum" max="@AgentOutputTokenLimits.Maximum" @bind="profileMaxOutputTokens" @bind:after="MarkProfileFormDirty" /></label>
+                                <label class="vaw-provider-form-wide">Coordination channels <textarea @bind="profileChannelsText" @bind:event="oninput" @bind:after="MarkProfileFormDirty" maxlength="600" rows="3" placeholder="research&#10;review" /></label>
+                                <label class="vaw-provider-form-wide">System instructions <textarea required @bind="profileInstructions" @bind:event="oninput" @bind:after="MarkProfileFormDirty" maxlength="8192" rows="6" /></label>
+                                <fieldset class="vaw-provider-form-wide"><legend>Allowed MCP tools</legend>
+                                    <p class="vaw-help">These are logical tool requirements. The consuming host still owns server connections, credentials, and grants.</p>
+                                    @foreach (var tool in bindings)
+                                    { <label @key="tool.BindingId"><input type="checkbox" checked="@selectedProfileTools.Contains(tool.BindingId)" @onchange="args => ToggleProfileTool(tool, args)" />@tool.DisplayName · @tool.BindingId</label> }
+                                    @foreach (var tool in unavailableProfileTools)
+                                    { <p class="vaw-help">Unavailable host binding retained: <code>@tool.BindingId</code> · contract @tool.ContractHash[..8]</p> }
+                                </fieldset>
+                                <fieldset class="vaw-provider-form-wide"><legend>Project skills</legend>
+                                    <p class="vaw-help">Selected skill revisions are embedded in this immutable profile snapshot.</p>
+                                    @foreach (var item in projectSkills)
+                                    { <label @key="item.Skill.Id + item.Skill.Version"><input type="checkbox" checked="@selectedProfileSkills.Contains(item.Skill.Id + "@" + item.Skill.Version)" @onchange="args => ToggleProfileSkill(item, args)" />@item.Skill.Name · @item.Skill.Version</label> }
+                                    @if (projectSkills.Count == 0) { <p>No skills in this project yet.</p> }
+                                    @foreach (var skill in unavailableProfileSkills)
+                                    { <p class="vaw-help">Unavailable project skill retained: <code>@skill.Id@skill.Version</code></p> }
+                                </fieldset>
+                                <p class="vaw-provider-form-note vaw-provider-form-wide">Saving adds an immutable profile revision to the project. Existing workflow and profile snapshots remain unchanged; no provider connection or MCP grant is copied.</p>
+                                <div class="vaw-provider-form-actions vaw-provider-form-wide">
+                                    <button type="submit" class="vaw-primary" disabled="@(busy || !profileFormDirty || string.IsNullOrWhiteSpace(profileProviderId))">Save source profile version</button>
+                                    <button type="button" class="vaw-secondary" @onclick="CancelProfileEdit" disabled="@busy">Discard changes</button>
+                                </div>
+                            </form>
+                        </section>
+                    }
+                    else if (openedSkill is not null || creatingNewSkill)
+                    {
+                        <section class="vaw-folder-skill-editor" aria-label="Skill source editor">
+                            @if (openedSkill is not null)
+                            {
+                                <p class="vaw-definition-status"><strong>Base revision</strong> <code>@($"{openedSkill.Item.Skill.Id}@{openedSkill.Item.Skill.Version}")</code> · @openedSkill.ContentHash[..8]</p>
+                            }
+                            <form class="vaw-provider-form" @onsubmit="SaveSkill" @onsubmit:preventDefault>
+                                <label>Skill ID <input required @bind="skillId" @bind:event="oninput" @bind:after="MarkSkillFormDirty" disabled="@(openedSkill is not null)" maxlength="64" /></label>
+                                <label>New version <input required @bind="skillVersion" @bind:event="oninput" @bind:after="MarkSkillFormDirty" maxlength="64" /></label>
+                                <label>Name <input required @bind="skillName" @bind:event="oninput" @bind:after="MarkSkillFormDirty" maxlength="128" /></label>
+                                <label>Folder <input @bind="skillFolder" @bind:event="oninput" @bind:after="MarkSkillFormDirty" maxlength="256" placeholder="Research/Review" /></label>
+                                <label class="vaw-provider-form-wide">Instructions <textarea required @bind="skillInstructions" @bind:event="oninput" @bind:after="MarkSkillFormDirty" maxlength="8192" rows="10"></textarea></label>
+                                <p class="vaw-provider-form-note vaw-provider-form-wide">Saving adds an immutable revision to the project. Older workflow references and skill files remain unchanged.</p>
+                                <div class="vaw-provider-form-actions vaw-provider-form-wide">
+                                    <button type="submit" class="vaw-primary" disabled="@(busy || !skillFormDirty)">Save source skill version</button>
+                                    <button type="button" class="vaw-secondary" @onclick="CancelSkillEdit" disabled="@busy">Discard changes</button>
+                                </div>
+                            </form>
+                        </section>
+                    }
+                    else if (graphFunctionCatalog is not null && (openedGraphFunction is not null || creatingNewGraphFunction))
+                    {
+                        <ProjectGraphFunctionEditor @key="graphFunctionEditorGeneration" Source="graphFunctionCatalog"
+                            ExpectedManifestHash="@sourceManifestHash" Asset="@openedGraphFunction"
+                            Saved="OnGraphFunctionSaved" DirtyChanged="OnGraphFunctionDirtyChanged" Discarded="CancelGraphFunctionEdit" />
+                    }
+                    else
+                    {
+                        <p class="vaw-empty-state">Select a workflow, skill, agent profile, or graph function in the project tree, or create one.</p>
+                    }
+                }
+                else if (definition is not null && layout is not null)
+                {
+                    <p class="vaw-definition-status"><strong>@WorkflowName(definition)</strong> <code>@definition.WorkflowId</code> · @(dirty ? "Unsaved changes" : "Source saved")</p>
+                    <WorkflowEditor @key="definition.WorkflowId" ProjectId="folder-project" Definition="definition" DefinitionChanged="DefinitionChanged"
+                        Layout="layout" LayoutChanged="LayoutChanged" Bindings="bindings" Providers="providers" SkillLibrary="skillSource"
+                        AgentProfileLibrary="profileSource" FunctionCatalog="graphFunctionCatalog">
+                        <EditorActions>
+                            <button type="button" data-graph-save class="vaw-primary" @onclick="SaveWorkflow" disabled="@(busy || !dirty)">Save source file</button>
+                        </EditorActions>
+                    </WorkflowEditor>
+                }
+            </section>
+        </section>
+    }
+
+</section>
+@code {
+    [Parameter, EditorRequired] public string ProjectId { get; set; } = "";
+    [Parameter, EditorRequired] public string PanelId { get; set; } = "";
+    [Parameter, EditorRequired] public string TabId { get; set; } = "";
+    [Parameter] public bool IsActive { get; set; }
+    [Parameter] public EventCallback<bool> DirtyChanged { get; set; }
+
+    private string directoryPath = "";
+    private string? openDirectory;
+    private StudioProjectManifest? manifest;
+    private IReadOnlyList<StudioProjectFileTreeNode> fileTree = [];
+    private StudioFolderWorkflowSource? source;
+    private StudioFolderSkillSource? skillSource;
+    private StudioFolderAgentProfileSource? profileSource;
+    private StudioFolderGraphFunctionCatalog? graphFunctionCatalog;
+    private List<StudioFolderWorkflow> workflows = [];
+    private IReadOnlyDictionary<string, string> workflowNames = new Dictionary<string, string>();
+    private StudioFolderWorkflow? openedWorkflow;
+    private StudioFolderSkill? openedSkill;
+    private StudioFolderAgentProfile? openedProfile;
+    private StudioFolderGraphFunction? openedGraphFunction;
+    private bool creatingNewGraphFunction;
+    private bool graphFunctionDirty;
+    private int graphFunctionEditorGeneration;
+    private string sourceManifestHash = "";
+    private string skillId = "";
+    private string skillVersion = "1.0.0";
+    private string skillName = "";
+    private string skillFolder = "";
+    private string skillInstructions = "";
+    private bool creatingNewSkill;
+    private bool skillFormDirty;
+    private string profileId = "";
+    private string profileVersion = "1.0.0";
+    private string profileName = "";
+    private string profileFolder = "";
+    private string profileDescription = "";
+    private string profileProviderId = "";
+    private string profileInstructions = "";
+    private string profileReasoning = "";
+    private int? profileMaxOutputTokens;
+    private string profileChannelsText = "";
+    private AgentProfile? profileBeingEdited;
+    private readonly HashSet<string> selectedProfileTools = new(StringComparer.Ordinal);
+    private readonly HashSet<string> selectedProfileSkills = new(StringComparer.Ordinal);
+    private bool creatingNewProfile;
+    private bool profileFormDirty;
+    private IReadOnlyList<SkillLibraryItem> projectSkills = [];
+    private IReadOnlyList<ToolBindingRequest> unavailableProfileTools => (profileBeingEdited?.Tools ?? [])
+        .Where(tool => !bindings.Any(available => available.BindingId == tool.BindingId)).ToArray();
+    private IReadOnlyList<WorkflowSkill> unavailableProfileSkills => (profileBeingEdited?.Skills ?? [])
+        .Where(skill => !projectSkills.Any(available => available.Skill.Id == skill.Id && available.Skill.Version == skill.Version)).ToArray();
+    private WorkflowDefinition? definition;
+    private WorkflowLayout? layout;
+    private IReadOnlyList<ToolBindingDescriptor> bindings = [];
+    private IReadOnlyList<AgentProviderDescriptor> providers = [];
+    private bool dirty;
+    private bool busy;
+    private bool externalSourceChanged;
+    private string? externalSourceProblem;
+    private FileSystemWatcher? sourceWatcher;
+    private CancellationTokenSource? sourceMonitorCancellation;
+    private SemaphoreSlim? sourceMonitorSignal;
+    private Task? sourceMonitorTask;
+    private string? sourceMonitorRoot;
+    private long sourceMonitorGeneration;
+    private bool disposed;
+    public bool HasUnsavedEdits => dirty || skillFormDirty || profileFormDirty || graphFunctionDirty;
+    private string? loadedProjectId;
+    private bool wasActive;
+    private bool? lastReportedDirty;
+    private string? error;
+    private string? message;
+    private string EditorTitle => openedWorkflow is not null ? "Workflow editor" : openedProfile is not null || creatingNewProfile ? "Agent profile editor" : openedSkill is not null || creatingNewSkill ? "Skill editor" : "Project editor";
+    private string EditorDescription => openedWorkflow is not null
+        ? "Workflow drafts save directly to source files. A stale edit is rejected if the project changed since it was loaded."
+        : openedSkill is not null || creatingNewSkill
+            ? "Skill text saves as a new immutable project revision. A stale project edit is rejected."
+            : openedProfile is not null || creatingNewProfile
+                ? "Profile settings save as an immutable project revision; provider and MCP services remain host-owned."
+                : openedGraphFunction is not null || creatingNewGraphFunction
+                    ? "Pure graph functions are edited visually and saved as immutable project revisions."
+                    : "Select a source file to edit. Graph function revisions can be created from the project.";
+
+    protected override async Task OnInitializedAsync()
+    {
+        bindings = await ToolCatalog.ListBindingsAsync();
+        providers = await ProviderCatalog.ListProvidersAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!IsActive)
+        {
+            if (wasActive) await StopSourceMonitorAsync();
+            wasActive = false;
+            return;
+        }
+
+        try
+        {
+            var newlyActive = !wasActive;
+            if (!string.Equals(loadedProjectId, ProjectId, StringComparison.Ordinal))
+            {
+                directoryPath = ProjectStore.FolderProjectPath(ProjectId);
+                await LoadProjectFolderAsync(directoryPath);
+                loadedProjectId = ProjectId;
+            }
+            else if (newlyActive && openDirectory is not null)
+            {
+                await ReconcileSourceSnapshotAsync();
+            }
+
+            if (openDirectory is not null) await StartSourceMonitorAsync(openDirectory);
+            wasActive = true;
+        }
+        catch (Exception exception) when (exception is KeyNotFoundException or InvalidOperationException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        {
+            ClearProjectFolder();
+            error = exception.Message;
+            loadedProjectId = null;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (lastReportedDirty == HasUnsavedEdits) return;
+        lastReportedDirty = HasUnsavedEdits;
+        await DirtyChanged.InvokeAsync(HasUnsavedEdits);
+    }
+
+    private async Task ReconcileSourceSnapshotAsync()
+    {
+        if (openDirectory is null) return;
+        try
+        {
+            var (currentManifest, _) = StudioProjectSourceDirectory.Read(openDirectory);
+            externalSourceChanged = StudioProjectSourceArchive.ComputeManifestHash(currentManifest) != sourceManifestHash;
+            externalSourceProblem = null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        {
+            externalSourceChanged = true;
+            externalSourceProblem = "Studio could not validate the current project snapshot. Your editor contents are preserved.";
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadProjectFolderAsync(string folder)
+    {
+        var canonicalDirectory = Path.GetFullPath(folder);
+        var (loadedManifest, _) = StudioProjectSourceDirectory.Read(canonicalDirectory);
+        var loadedSource = new StudioFolderWorkflowSource(canonicalDirectory);
+        var loadedSkillSource = new StudioFolderSkillSource(canonicalDirectory);
+        var loadedProfileSource = new StudioFolderAgentProfileSource(canonicalDirectory);
+        var loadedGraphFunctionCatalog = new StudioFolderGraphFunctionCatalog(canonicalDirectory);
+        var loadedWorkflows = loadedSource.List().ToList();
+        openDirectory = canonicalDirectory;
+        manifest = loadedManifest;
+        fileTree = StudioProjectFileTree.Build(loadedManifest.Files);
+        source = loadedSource;
+        skillSource = loadedSkillSource;
+        profileSource = loadedProfileSource;
+        graphFunctionCatalog = loadedGraphFunctionCatalog;
+        projectSkills = loadedSkillSource.List().Select(skill => skill.Item).ToArray();
+        sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(loadedManifest);
+        workflows = loadedWorkflows;
+        workflowNames = ToWorkflowNames(loadedWorkflows);
+        dirty = false;
+        SetWorkflow(workflows.FirstOrDefault());
+        externalSourceChanged = false;
+        externalSourceProblem = null;
+        error = null;
+        message = $"Opened {loadedManifest.ProjectName}.";
+    }
+
+    private Task ReloadFolder() => ReloadFolder(discardLocalEdits: false);
+
+    private Task DiscardAndReloadFolder() => ReloadFolder(discardLocalEdits: true);
+
+    private async Task ReloadFolder(bool discardLocalEdits)
+    {
+        if (openDirectory is null || busy || HasUnsavedEdits && !discardLocalEdits) return;
+        busy = true;
+        try
+        {
+            await LoadProjectFolderAsync(openDirectory);
+            message = "Reloaded the latest validated project files.";
+            error = null;
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        {
+            externalSourceChanged = true;
+            externalSourceProblem = "Studio could not validate the current folder. Correct the folder contents before reloading.";
+            error = exception.Message;
+        }
+        finally { busy = false; }
+    }
+
+    private async Task StartSourceMonitorAsync(string root)
+    {
+        if (sourceMonitorTask is not null && string.Equals(sourceMonitorRoot, root, StringComparison.Ordinal)) return;
+        await StopSourceMonitorAsync();
+        var generation = ++sourceMonitorGeneration;
+        var cancellation = new CancellationTokenSource();
+        var signal = new SemaphoreSlim(0, 1);
+        sourceMonitorCancellation = cancellation;
+        sourceMonitorSignal = signal;
+        sourceMonitorRoot = root;
+        try
+        {
+            var watcher = new FileSystemWatcher(root)
+            {
+                IncludeSubdirectories = true,
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size
+            };
+            watcher.Changed += (_, _) => SignalSourceMonitor(signal);
+            watcher.Created += (_, _) => SignalSourceMonitor(signal);
+            watcher.Deleted += (_, _) => SignalSourceMonitor(signal);
+            watcher.Renamed += (_, _) => SignalSourceMonitor(signal);
+            watcher.Error += (_, _) => SignalSourceMonitor(signal);
+            watcher.EnableRaisingEvents = true;
+            sourceWatcher = watcher;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or System.Security.SecurityException)
+        {
+            externalSourceProblem = "File notifications are unavailable for this folder. Studio will check for changes periodically.";
+        }
+        sourceMonitorTask = MonitorSourceFolderAsync(root, generation, signal, cancellation.Token);
+    }
+
+    private static void SignalSourceMonitor(SemaphoreSlim signal)
+    {
+        try { signal.Release(); }
+        catch (SemaphoreFullException) { }
+        catch (ObjectDisposedException) { }
+    }
+
+    private async Task MonitorSourceFolderAsync(string root, long generation, SemaphoreSlim signal, CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await signal.WaitAsync(TimeSpan.FromSeconds(20), cancellationToken);
+                await Task.Delay(TimeSpan.FromMilliseconds(350), cancellationToken);
+                while (signal.Wait(0)) { }
+                await InvokeAsync(() => ReconcileSourceFolderAsync(root, generation));
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested) { }
+        catch (InvalidOperationException) when (disposed) { }
+    }
+
+    private Task ReconcileSourceFolderAsync(string root, long generation)
+    {
+        if (disposed || !IsActive || generation != sourceMonitorGeneration || !string.Equals(openDirectory, root, StringComparison.Ordinal))
+            return Task.CompletedTask;
+        try
+        {
+            var (currentManifest, _) = StudioProjectSourceDirectory.Read(root);
+            externalSourceChanged = StudioProjectSourceArchive.ComputeManifestHash(currentManifest) != sourceManifestHash;
+            externalSourceProblem = null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        {
+            externalSourceChanged = true;
+            externalSourceProblem = "Studio cannot validate the current project snapshot. Your editor contents are preserved.";
+        }
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private async Task StopSourceMonitorAsync()
+    {
+        sourceMonitorGeneration++;
+        sourceWatcher?.Dispose();
+        sourceWatcher = null;
+        var cancellation = sourceMonitorCancellation;
+        var signal = sourceMonitorSignal;
+        var task = sourceMonitorTask;
+        sourceMonitorCancellation = null;
+        sourceMonitorSignal = null;
+        sourceMonitorTask = null;
+        sourceMonitorRoot = null;
+        cancellation?.Cancel();
+        if (task is not null)
+        {
+            try { await task; }
+            catch (OperationCanceledException) { }
+        }
+        signal?.Dispose();
+        cancellation?.Dispose();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true;
+        await StopSourceMonitorAsync();
+    }
+
+    private void ClearProjectFolder()
+    {
+        openDirectory = null;
+        manifest = null;
+        fileTree = [];
+        source = null;
+        skillSource = null;
+        profileSource = null;
+        graphFunctionCatalog = null;
+        projectSkills = [];
+        workflows = [];
+        openedWorkflow = null;
+        definition = null;
+        layout = null;
+        openedSkill = null;
+        openedProfile = null;
+        openedGraphFunction = null;
+        creatingNewGraphFunction = false;
+        graphFunctionDirty = false;
+        creatingNewSkill = false;
+        creatingNewProfile = false;
+        skillFormDirty = false;
+        profileFormDirty = false;
+        dirty = false;
+    }
+
+    private Task OpenWorkflow(string workflowId)
+    {
+        if (HasUnsavedEdits || busy) return Task.CompletedTask;
+        SetWorkflow(workflows.SingleOrDefault(workflow => workflow.WorkflowId == workflowId));
+        error = null; message = null;
+        return Task.CompletedTask;
+    }
+
+    private Task OpenSkill(StudioProjectFile file)
+    {
+        if (HasUnsavedEdits || busy || skillSource is null) return Task.CompletedTask;
+        openedSkill = skillSource.List().SingleOrDefault(skill => skill.RelativePath == file.Path);
+        openedProfile = null;
+        openedGraphFunction = null;
+        creatingNewGraphFunction = false;
+        graphFunctionDirty = false;
+        openedWorkflow = null;
+        definition = null;
+        layout = null;
+        creatingNewProfile = false;
+        profileFormDirty = false;
+        profileBeingEdited = null;
+        creatingNewSkill = false;
+        if (openedSkill is not null) LoadSkillRevision(openedSkill);
+        error = null;
+        message = null;
+        return Task.CompletedTask;
+    }
+
+    private Task OpenAgentProfile(StudioProjectFile file)
+    {
+        if (HasUnsavedEdits || busy || profileSource is null) return Task.CompletedTask;
+        openedProfile = profileSource.List().SingleOrDefault(profile => profile.RelativePath == file.Path);
+        openedWorkflow = null;
+        openedSkill = null;
+        openedGraphFunction = null;
+        creatingNewGraphFunction = false;
+        graphFunctionDirty = false;
+        definition = null;
+        layout = null;
+        creatingNewSkill = false;
+        skillFormDirty = false;
+        creatingNewProfile = false;
+        if (openedProfile is not null) LoadProfileRevision(openedProfile);
+        error = null;
+        message = null;
+        return Task.CompletedTask;
+    }
+
+    private Task OpenGraphFunction(StudioProjectFile file)
+    {
+        if (HasUnsavedEdits || busy || graphFunctionCatalog is null) return Task.CompletedTask;
+        openedGraphFunction = graphFunctionCatalog.ListAssets().SingleOrDefault(function => function.RelativePath == file.Path);
+        openedWorkflow = null;
+        openedSkill = null;
+        openedProfile = null;
+        definition = null;
+        layout = null;
+        creatingNewSkill = false;
+        creatingNewProfile = false;
+        creatingNewGraphFunction = false;
+        skillFormDirty = false;
+        profileFormDirty = false;
+        graphFunctionDirty = true;
+        graphFunctionEditorGeneration++;
+        error = null;
+        message = null;
+        return Task.CompletedTask;
+    }
+
+    private void CreateGraphFunction()
+    {
+        openedWorkflow = null;
+        openedSkill = null;
+        openedProfile = null;
+        openedGraphFunction = null;
+        definition = null;
+        layout = null;
+        creatingNewSkill = false;
+        creatingNewProfile = false;
+        creatingNewGraphFunction = true;
+        skillFormDirty = false;
+        profileFormDirty = false;
+        graphFunctionDirty = true;
+        graphFunctionEditorGeneration++;
+        error = null;
+        message = null;
+    }
+
+    private Task OnGraphFunctionDirtyChanged(bool value)
+    {
+        graphFunctionDirty = value;
+        return Task.CompletedTask;
+    }
+
+    private void OnGraphFunctionSaved(StudioFolderGraphFunction saved)
+    {
+        RefreshProjectSource();
+        openedWorkflow = null;
+        openedSkill = null;
+        openedProfile = null;
+        openedGraphFunction = saved;
+        creatingNewGraphFunction = false;
+        graphFunctionDirty = false;
+        message = $"Saved graph function revision {saved.Item.Function.Definition.FunctionId}@{saved.Item.Function.Definition.Version}.";
+        error = null;
+    }
+
+    private void CancelGraphFunctionEdit()
+    {
+        if (openedGraphFunction is null)
+        {
+            creatingNewGraphFunction = false;
+            graphFunctionDirty = false;
+            message = "Graph function changes discarded.";
+        }
+        else
+        {
+            graphFunctionDirty = false;
+            openedGraphFunction = null;
+            graphFunctionEditorGeneration++;
+            message = "Graph function edits discarded.";
+        }
+        error = null;
+    }
+
+    private void CreateWorkflow()
+    {
+        var id = "workflow-" + Guid.NewGuid().ToString("N");
+        var created = WorkflowTemplates.Create("uppercase-reverse") with { WorkflowId = id, DisplayName = "Untitled workflow" };
+        openedWorkflow = new(id, "Untitled workflow", "", "", created, WorkflowLayout.Create(created));
+        openedSkill = null;
+        openedProfile = null;
+        openedGraphFunction = null;
+        creatingNewGraphFunction = false;
+        creatingNewSkill = false;
+        creatingNewProfile = false;
+        skillFormDirty = false;
+        profileFormDirty = false;
+        graphFunctionDirty = false;
+        definition = created;
+        layout = openedWorkflow.Layout;
+        dirty = true;
+        error = null;
+        message = "New workflow draft. Save it to add its source file to the project.";
+    }
+
+    private Task DefinitionChanged(WorkflowDefinition value)
+    {
+        definition = value;
+        dirty = true;
+        return Task.CompletedTask;
+    }
+
+    private Task LayoutChanged(WorkflowLayout value)
+    {
+        layout = value;
+        dirty = true;
+        return Task.CompletedTask;
+    }
+
+    private void SaveWorkflow()
+    {
+        if (source is null || definition is null || layout is null || openedWorkflow is null) return;
+        busy = true;
+        error = null;
+        try
+        {
+            var saved = source.Save(definition, layout, string.IsNullOrEmpty(openedWorkflow.ContentHash) ? null : openedWorkflow.ContentHash);
+            openedWorkflow = saved;
+            definition = saved.Definition;
+            layout = saved.Layout;
+            workflows = source.List().ToList();
+            workflowNames = ToWorkflowNames(workflows);
+            manifest = StudioProjectSourceDirectory.Read(openDirectory!).Manifest;
+            sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(manifest);
+            fileTree = StudioProjectFileTree.Build(manifest.Files);
+            dirty = false;
+            message = $"Saved {saved.RelativePath}.";
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        {
+            error = exception.Message;
+        }
+        finally { busy = false; }
+    }
+
+    private void CreateSkill()
+    {
+        openedWorkflow = null;
+        openedProfile = null;
+        openedGraphFunction = null;
+        definition = null;
+        layout = null;
+        openedSkill = null;
+        creatingNewSkill = true;
+        skillFormDirty = false;
+        skillId = "";
+        skillVersion = "1.0.0";
+        skillName = "";
+        skillFolder = "";
+        skillInstructions = "";
+        creatingNewProfile = false;
+        profileFormDirty = false;
+        creatingNewGraphFunction = false;
+        graphFunctionDirty = false;
+        profileBeingEdited = null;
+        selectedProfileTools.Clear();
+        selectedProfileSkills.Clear();
+        error = null;
+        message = null;
+    }
+
+    private void CreateProfile()
+    {
+        openedWorkflow = null;
+        openedSkill = null;
+        openedGraphFunction = null;
+        openedProfile = null;
+        definition = null;
+        layout = null;
+        creatingNewSkill = false;
+        creatingNewGraphFunction = false;
+        skillFormDirty = false;
+        graphFunctionDirty = false;
+        profileBeingEdited = null;
+        creatingNewProfile = true;
+        profileFormDirty = false;
+        profileId = "";
+        profileVersion = "1.0.0";
+        profileName = "";
+        profileFolder = "";
+        profileDescription = "";
+        profileProviderId = providers.FirstOrDefault()?.ProviderId ?? "";
+        profileInstructions = "";
+        profileReasoning = "";
+        profileMaxOutputTokens = null;
+        profileChannelsText = "";
+        selectedProfileTools.Clear();
+        selectedProfileSkills.Clear();
+        error = null;
+        message = null;
+    }
+
+    private void MarkSkillFormDirty() => skillFormDirty = true;
+
+    private void LoadSkillRevision(StudioFolderSkill skill)
+    {
+        skillId = skill.Item.Skill.Id;
+        skillVersion = skill.Item.Skill.Version + ".1";
+        skillName = skill.Item.Skill.Name;
+        skillFolder = skill.Item.Folder;
+        skillInstructions = skill.Item.Skill.Instructions;
+        skillFormDirty = false;
+    }
+
+    private void LoadProfileRevision(StudioFolderAgentProfile profile)
+    {
+        var value = profile.Item.Profile;
+        profileBeingEdited = value;
+        profileId = value.Id;
+        profileVersion = NextVersion(value.Version);
+        profileName = value.Name;
+        profileFolder = profile.Item.Folder;
+        profileDescription = value.Description;
+        profileProviderId = value.ProviderId;
+        profileInstructions = value.Instructions;
+        profileReasoning = value.ReasoningEffort?.ToString() ?? "";
+        profileMaxOutputTokens = value.MaxOutputTokens;
+        profileChannelsText = string.Join("\n", value.Channels ?? []);
+        selectedProfileTools.Clear();
+        foreach (var tool in value.Tools.Where(tool => bindings.Any(available => available.BindingId == tool.BindingId)))
+            selectedProfileTools.Add(tool.BindingId);
+        selectedProfileSkills.Clear();
+        foreach (var skill in value.Skills ?? [])
+            if (projectSkills.Any(available => available.Skill.Id == skill.Id && available.Skill.Version == skill.Version))
+                selectedProfileSkills.Add(skill.Id + "@" + skill.Version);
+        profileFormDirty = false;
+    }
+
+    private static string NextVersion(string version)
+    {
+        var parts = version.Split('.');
+        if (parts.Length == 3 && parts.All(part => int.TryParse(part, out _)) &&
+            int.TryParse(parts[2], out var patch) && patch < int.MaxValue)
+            return $"{parts[0]}.{parts[1]}.{patch + 1}";
+        return version + ".1";
+    }
+
+    private void MarkProfileFormDirty() => profileFormDirty = true;
+
+    private void ToggleProfileTool(ToolBindingDescriptor tool, ChangeEventArgs args)
+    {
+        if (args.Value is true) selectedProfileTools.Add(tool.BindingId);
+        else selectedProfileTools.Remove(tool.BindingId);
+        profileFormDirty = true;
+    }
+
+    private void ToggleProfileSkill(SkillLibraryItem item, ChangeEventArgs args)
+    {
+        var key = item.Skill.Id + "@" + item.Skill.Version;
+        if (args.Value is true) selectedProfileSkills.Add(key);
+        else selectedProfileSkills.Remove(key);
+        profileFormDirty = true;
+    }
+
+    private void CancelProfileEdit()
+    {
+        if (openedProfile is null) creatingNewProfile = false;
+        else LoadProfileRevision(openedProfile);
+        profileFormDirty = false;
+        error = null;
+        message = "Agent profile edits discarded.";
+    }
+
+    private void SaveProfile()
+    {
+        if (profileSource is null || !profileFormDirty) return;
+        busy = true;
+        error = null;
+        try
+        {
+            var selectedTools = bindings.Where(tool => selectedProfileTools.Contains(tool.BindingId))
+                .Select(tool => new ToolBindingRequest(tool.BindingId, tool.ContractHash) { DescriptionHash = tool.DescriptionHash });
+            var profileTools = selectedTools.Concat(unavailableProfileTools)
+                .DistinctBy(tool => tool.BindingId).ToImmutableArray();
+            var selectedSkills = projectSkills.Where(item => selectedProfileSkills.Contains(item.Skill.Id + "@" + item.Skill.Version))
+                .Select(item => item.Skill);
+            var profileSkills = selectedSkills.Concat(unavailableProfileSkills)
+                .DistinctBy(skill => skill.Id + "@" + skill.Version).ToImmutableArray();
+            var channels = profileChannelsText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(channel => channel.TrimEnd('\r')).Distinct(StringComparer.Ordinal).ToImmutableArray();
+            if (channels.Length > 8) throw new ArgumentException("An agent profile can join up to eight coordination channels.");
+            var effort = Enum.TryParse<AgentReasoningEffort>(profileReasoning, out var selectedEffort)
+                ? selectedEffort : (AgentReasoningEffort?)null;
+            var provider = providers.SingleOrDefault(item => item.ProviderId == profileProviderId);
+            if (effort is not null && provider is not null && !provider.SupportsReasoningEffort)
+                throw new ArgumentException("The selected provider does not advertise reasoning effort support.");
+            var profile = AgentProfile.Create(profileId.Trim(), profileVersion.Trim(), profileName.Trim(), profileDescription.Trim(),
+                profileProviderId.Trim(), profileBeingEdited?.ProviderVersion, profileInstructions, profileTools, profileSkills,
+                effort, profileMaxOutputTokens, channels.IsEmpty ? null : channels);
+            var saved = profileSource.SaveNewVersion(profile, profileFolder.Trim(), sourceManifestHash);
+            RefreshProjectSource();
+            openedProfile = saved;
+            creatingNewProfile = false;
+            LoadProfileRevision(saved);
+            message = $"Saved agent profile revision {saved.Item.Profile.Id}@{saved.Item.Profile.Version}.";
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        {
+            error = exception.Message;
+        }
+        finally { busy = false; }
+    }
+
+    private void RefreshProjectSource()
+    {
+        var (loadedManifest, _) = StudioProjectSourceDirectory.Read(openDirectory!);
+        manifest = loadedManifest;
+        sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(loadedManifest);
+        fileTree = StudioProjectFileTree.Build(loadedManifest.Files);
+        projectSkills = skillSource!.List().Select(skill => skill.Item).ToArray();
+    }
+
+    private void CancelSkillEdit()
+    {
+        if (openedSkill is null)
+        {
+            creatingNewSkill = false;
+        }
+        else
+        {
+            LoadSkillRevision(openedSkill);
+        }
+        skillFormDirty = false;
+        error = null;
+        message = "Skill edits discarded.";
+    }
+
+    private void SaveSkill()
+    {
+        if (skillSource is null || !skillFormDirty) return;
+        busy = true;
+        error = null;
+        try
+        {
+            var saved = skillSource.SaveNewVersion(skillId.Trim(), skillVersion.Trim(), skillName.Trim(),
+                skillInstructions, skillFolder.Trim(), sourceManifestHash);
+            var refreshedProject = StudioProjectSourceDirectory.Read(openDirectory!);
+            manifest = refreshedProject.Manifest;
+            sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(manifest);
+            fileTree = StudioProjectFileTree.Build(manifest.Files);
+            projectSkills = skillSource.List().Select(skill => skill.Item).ToArray();
+            openedSkill = saved;
+            creatingNewSkill = false;
+            LoadSkillRevision(saved);
+            message = $"Saved skill revision {saved.Item.Skill.Id}@{saved.Item.Skill.Version}.";
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        {
+            error = exception.Message;
+        }
+        finally { busy = false; }
+    }
+
+    private void SetWorkflow(StudioFolderWorkflow? workflow)
+    {
+        openedWorkflow = workflow;
+        openedSkill = null;
+        openedProfile = null;
+        openedGraphFunction = null;
+        creatingNewSkill = false;
+        creatingNewProfile = false;
+        creatingNewGraphFunction = false;
+        skillFormDirty = false;
+        profileFormDirty = false;
+        graphFunctionDirty = false;
+        profileBeingEdited = null;
+        definition = workflow?.Definition;
+        layout = workflow?.Layout;
+        dirty = false;
+    }
+
+    private static string WorkflowName(WorkflowDefinition value) => string.IsNullOrWhiteSpace(value.DisplayName) ? value.WorkflowId : value.DisplayName;
+    private static IReadOnlyDictionary<string, string> ToWorkflowNames(IEnumerable<StudioFolderWorkflow> items) =>
+        items.ToDictionary(item => item.WorkflowId, item => string.IsNullOrWhiteSpace(item.DisplayName) ? item.WorkflowId : item.DisplayName,
+            StringComparer.Ordinal);
+}

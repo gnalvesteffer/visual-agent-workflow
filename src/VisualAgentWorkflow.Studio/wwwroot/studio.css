@@ -486,6 +486,30 @@
 .vaw-project-create input:focus-visible { border-color: var(--vaw-color-focus); outline: 2px solid var(--vaw-color-focus); outline-offset: 1px; }
 .vaw-button-link { display: inline-flex; align-items: center; margin: .25rem .5rem .25rem 0; padding: .55rem .75rem; border: 1px solid var(--vaw-border-strong, #52606d); border-radius: .35rem; color: var(--vaw-text, #e6edf3); text-decoration: none; }
 .vaw-source-project { max-inline-size: 76rem; }
+.vaw-open-project-workspace { max-inline-size: none; }
+.vaw-project-open-panel { margin-block-end: .85rem; padding: .85rem 1rem; }
+.vaw-project-open-panel > .vaw-help { margin-block: .55rem 0; }
+.vaw-project-tabs { min-inline-size: 0; }
+.vaw-project-tab-list { display: flex; gap: .2rem; overflow-x: auto; border-block-end: 1px solid var(--vaw-color-border); padding-inline: .35rem; scrollbar-width: thin; }
+.vaw-project-tab { display: inline-flex; flex: 0 0 auto; align-items: stretch; gap: .15rem; border: 1px solid transparent; border-block-end: 0; border-radius: .35rem .35rem 0 0; background: transparent; }
+.vaw-project-tab.is-active { border-color: var(--vaw-color-border); background: var(--vaw-color-surface); }
+.vaw-project-tab button { min-block-size: 2.6rem; border: 0; padding: .45rem .7rem; background: transparent; color: var(--vaw-color-text); font: inherit; cursor: pointer; }
+.vaw-project-tab [role="tab"] { display: inline-flex; align-items: center; gap: .5rem; }
+.vaw-project-tab code { color: var(--vaw-color-warning, #d79a3e); font-size: .72rem; }
+.vaw-project-tab-close { inline-size: 2rem; color: var(--vaw-color-muted) !important; font-size: 1.2rem !important; }
+.vaw-project-tab button:hover { background: var(--vaw-color-control-hover); }
+.vaw-project-tab :focus-visible { outline: 2px solid var(--vaw-color-focus); outline-offset: -2px; }
+.vaw-project-folder-editor { min-inline-size: 0; padding-block-start: .9rem; }
+.vaw-project-folder-editor[hidden] { display: none !important; }
+.vaw-project-tab-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-block-end: .8rem; }
+.vaw-project-tab-heading h2 { margin: 0; font-size: 1.15rem; }
+.vaw-project-tab-heading p { margin: .3rem 0 0; color: var(--vaw-color-muted); font-size: .8rem; overflow-wrap: anywhere; }
+.vaw-project-empty-workspace { padding: 1.25rem; }
+.vaw-project-close-backdrop { position: fixed; z-index: 2000; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgb(0 0 0 / .56); }
+.vaw-project-close-dialog { inline-size: min(32rem, 100%); border: 1px solid var(--vaw-color-border); border-radius: .5rem; padding: 1.25rem; background: var(--vaw-color-surface); box-shadow: 0 1rem 3rem rgb(0 0 0 / .28); }
+.vaw-project-close-dialog h2 { margin-block: 0 .5rem; font-size: 1.15rem; }
+.vaw-project-close-dialog p { color: var(--vaw-color-muted); line-height: 1.5; }
+.vaw-navigation-error { flex-basis: 100%; color: var(--vaw-color-danger, #b42318); font-size: .8rem; }
 .vaw-source-workspace { display: grid; grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr); align-items: start; gap: 1rem; }
 .vaw-project-explorer { position: sticky; inset-block-start: 1rem; min-inline-size: 0; max-block-size: calc(100vh - 2rem); overflow: auto; border: 1px solid var(--vaw-color-border); border-radius: .4rem; padding: .75rem; background: var(--vaw-color-surface); }
 .vaw-project-explorer > header { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; margin-block-end: .65rem; }
