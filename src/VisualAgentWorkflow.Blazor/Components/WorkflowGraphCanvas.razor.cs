@@ -72,13 +72,13 @@ public partial class WorkflowGraphCanvas
     }
     private static string PointsJson(WirePresentation route) => JsonSerializer.Serialize(route.Points, JsonOptions);
     private WirePresentation Route(string id) => Layout.Wires.GetValueOrDefault(id) ?? new("curve", []);
-    private IEnumerable<CanvasConnection> CanvasConnections => WorkflowSchemaVersions.UsesExplicitGraph(Definition.SchemaVersion)
+    private IEnumerable<CanvasConnection> CanvasConnections => WorkflowSchemaVersions.UsesExplicitGraph(Definition)
         ? Definition.Connections.Select(edge => new CanvasConnection($"data:{edge.Key}", edge.Value, "data"))
             .Concat((Definition.ExecutionConnections ?? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
                 .Select(edge => new CanvasConnection($"execution:{edge.Key}", edge.Value, "execution")))
         : Definition.Connections.Select(edge => new CanvasConnection(edge.Key, edge.Value, "data"));
     private CanvasConnection? FindConnection(string? id) => id is null ? null : CanvasConnections.FirstOrDefault(edge => edge.Id == id);
-    private ImmutableArray<WorkflowPortDescriptor> Ports(NodeDefinition node) => WorkflowSchemaVersions.UsesExplicitGraph(Definition.SchemaVersion)
+    private ImmutableArray<WorkflowPortDescriptor> Ports(NodeDefinition node) => WorkflowSchemaVersions.UsesExplicitGraph(Definition)
         ? WorkflowPorts.Explicit(node)
         : [.. WorkflowPorts.Inputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType)),
            .. WorkflowPorts.Outputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType))];

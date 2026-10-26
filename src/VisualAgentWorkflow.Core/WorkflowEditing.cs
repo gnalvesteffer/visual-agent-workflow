@@ -115,7 +115,7 @@ public static class WorkflowEditing
     }
 
     internal static string SchemaFor(WorkflowDefinition definition, NodeDefinition node) =>
-        WorkflowSchemaVersions.UsesExplicitGraph(definition.SchemaVersion) ? definition.SchemaVersion :
+        WorkflowSchemaVersions.UsesExplicitGraph(definition) ? definition.SchemaVersion :
         node.Type == NodeTypes.WorkflowCall ? definition.SchemaVersion is "1.22" or "1.21" or "1.20" ? definition.SchemaVersion : "1.19" :
         node.Type == NodeTypes.Terminate ? definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" ? definition.SchemaVersion : "1.18" :
         node.Type is NodeTypes.Condition or NodeTypes.Merge ? definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" or "1.8" or "1.7" or "1.6" or "1.5" or "1.4" ? definition.SchemaVersion : "1.4" :

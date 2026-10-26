@@ -121,8 +121,13 @@ public static class WorkflowSchemaVersions
     public const string BooleanTopologyGraph = "1.26";
     public const string PureGraphFunctions = "1.27";
     public const string AgentGraphFunctionTools = "1.28";
+    public const string AgentParameterBindings = "1.29";
 
     public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph or PureGraphFunctions or AgentGraphFunctionTools;
+
+    public static bool UsesExplicitGraph(WorkflowDefinition definition) =>
+        UsesExplicitGraph(definition.SchemaVersion) ||
+        definition.SchemaVersion == AgentParameterBindings && definition.ExecutionConnections is not null;
 }
 
 public sealed record StringConstantConfiguration(string Value);

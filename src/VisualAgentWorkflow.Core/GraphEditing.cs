@@ -104,7 +104,7 @@ public static class GraphEditing
     /// <summary>Reconnects pins in an editable draft. Structural validation remains visible until every issue is fixed.</summary>
     public static WorkflowDefinition ConnectPins(WorkflowDefinition definition, string sourceId, string sourcePortId, string targetId, string targetPortId)
     {
-        if (WorkflowSchemaVersions.UsesExplicitGraph(definition.SchemaVersion))
+        if (WorkflowSchemaVersions.UsesExplicitGraph(definition))
             return ConnectExplicitPins(definition, sourceId, sourcePortId, targetId, targetPortId);
 
         if (!definition.Nodes.TryGetValue(sourceId, out var source) || !definition.Nodes.TryGetValue(targetId, out var target))
@@ -166,7 +166,7 @@ public static class GraphEditing
         if (sourcePort.Kind == WorkflowPortKind.Execution)
         {
             var edges = definition.ExecutionConnections ?? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal);
-            var allowsAlternativeInput = definition.SchemaVersion is WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools &&
+            var allowsAlternativeInput = definition.SchemaVersion is WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings &&
                 target.Type is NodeTypes.BooleanBranch or NodeTypes.Output or NodeTypes.Terminate;
             // Schema 1.26 treats incoming execution edges as mutually exclusive alternatives.
             // Each source pin still chooses only one destination; earlier schemas keep one edge per input.
@@ -367,7 +367,7 @@ public static class GraphEditing
     public static WorkflowDefinition RemoveNode(WorkflowDefinition definition, string id)
     {
         if (!definition.Nodes.TryGetValue(id, out var requestedNode)) throw new ArgumentException("Unknown node.", nameof(id));
-        if (WorkflowSchemaVersions.UsesExplicitGraph(definition.SchemaVersion))
+        if (WorkflowSchemaVersions.UsesExplicitGraph(definition))
         {
             if (requestedNode.Type is NodeTypes.Input or NodeTypes.Output)
                 throw new ArgumentException("Input and output boundary nodes cannot be removed independently.", nameof(id));

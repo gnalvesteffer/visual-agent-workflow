@@ -148,12 +148,12 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath)
     {
         var definition = revision.Definition;
-        var dataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(definition.SchemaVersion) ? new ExplicitGraphDataEvaluator(definition, input) : null;
+        var dataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(definition) ? new ExplicitGraphDataEvaluator(definition, input) : null;
         var executors = definition.Nodes.ToDictionary(
             n => n.Key,
             n => new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, dataEvaluator, emit, gate, null, rootRevision, workflowPath));
         var builder = new WorkflowBuilder(executors[definition.EntryNodeId]);
-        var executionEdges = WorkflowSchemaVersions.UsesExplicitGraph(definition.SchemaVersion)
+        var executionEdges = WorkflowSchemaVersions.UsesExplicitGraph(definition)
             ? definition.ExecutionConnections!.Values
             : definition.Connections.Values;
         foreach (var edge in executionEdges)
@@ -395,7 +395,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             }
             else if (received.SourceNode is not null)
             {
-                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition.SchemaVersion))
+                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition))
                 {
                     var incoming = revision.Definition.ExecutionConnections!.Single(edge => edge.Value.Source.NodeId == received.SourceNode &&
                         edge.Value.Source.PortId == received.SourcePort && edge.Value.Target.NodeId == Id);
@@ -440,7 +440,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (!internalTerminationHandoff) await Emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, message);
             try
             {
-                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition.SchemaVersion) && node.Type == NodeTypes.Output && !internalTerminationHandoff)
+                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Output && !internalTerminationHandoff)
                 {
                     outputEvaluation = dataEvaluator!.ResolveInput(Id, "in");
                     message = outputEvaluation.Result.DataType switch
@@ -450,7 +450,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         _ => throw new InvalidOperationException("An Output node requires a string or bounded JSON object value.")
                     };
                 }
-                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition.SchemaVersion) && node.Type == NodeTypes.BooleanBranch)
+                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.BooleanBranch)
                     branchEvaluation = dataEvaluator!.ResolveBranchCondition(Id);
                 foreach (var value in (outputEvaluation ?? branchEvaluation)?.Evaluations ?? [])
                     await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
@@ -484,7 +484,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         }, message, cancellationToken),
                     _ => throw new InvalidOperationException("Unsupported executor type.")
                 };
-                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition.SchemaVersion) && node.Type == NodeTypes.Agent)
+                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Agent)
                 {
                     var structuredResult = node.Agent?.RequireStructuredResult == true;
                     object runtimeValue = structuredResult
@@ -510,7 +510,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         throw new InvalidOperationException("The approval permit does not match the recorded action.");
                 }
                 var port = "out";
-                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition.SchemaVersion) && node.Type == NodeTypes.Input) port = "then";
+                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Input) port = "then";
                 if (node.Type == NodeTypes.BooleanBranch)
                 {
                     var condition = branchEvaluation!.Result;
@@ -561,7 +561,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 }
                 var outputType = node.Type == NodeTypes.Terminate ? "string" : node.Type == NodeTypes.Output ? received.DataType :
                     node.Type == NodeTypes.Agent && node.Agent?.RequireStructuredResult == true ? "json" :
-                    WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition.SchemaVersion) ? "string" : WorkflowPorts.Outputs(node).Single(output => output.Id == port).DataType;
+                    WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) ? "string" : WorkflowPorts.Outputs(node).Single(output => output.Id == port).DataType;
                 var failureSignal = node.Termination?.Outcome == WorkflowTerminationOutcomes.Failure ||
                     received.FailureSignal || childOutcome?.Failed == true;
                 var terminated = node.Type == NodeTypes.Terminate || received.TerminationSignal || childOutcome?.Terminated == true;

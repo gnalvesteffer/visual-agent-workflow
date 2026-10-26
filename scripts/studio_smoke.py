@@ -8,12 +8,13 @@ from workbench_browser import workbench, inspect_control, new_workflow_fixture, 
 
 import argparse
 import json
+import os
 import time
 import uuid
 import urllib.error
 import urllib.request
 
-BASE = "http://127.0.0.1:5099"
+BASE = os.environ.get("VAW_STUDIO_BASE_URL", "http://127.0.0.1:5099")
 
 
 def request(path, body=None, headers=None, method=None):
@@ -304,7 +305,10 @@ def designer_check(browser):
     workbench(designer).get_by_text("Published and activated version 2.", exact=True).wait_for()
     workbench(designer).get_by_label("Published run input", exact=True).fill("abc")
     workbench(designer).get_by_role("button", name="Run selected version", exact=True).click()
-    page.locator('li[data-node-id="output"] button.vaw-node-drag').click()
+    workbench(designer)
+    output_node = page.locator('li[data-node-id="output"] button.vaw-node-drag')
+    output_node.scroll_into_view_if_needed()
+    output_node.click()
     expect(page.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("CBA")
     version_select = workbench(designer).get_by_label("Published version", exact=True)
     version_one = version_select.locator("option").evaluate_all("options => options.find(o => o.textContent.startsWith('Version 1 ')).value")
@@ -376,9 +380,23 @@ def mcp_designer_check(browser):
     workbench(designer).get_by_role("button", name="Publish & activate", exact=True).click()
     workbench(designer).get_by_text("Published and activated version 1.", exact=True).wait_for()
     workbench(designer).get_by_label("Published run input", exact=True).fill("abc")
+    previous_run_ids = {run["header"]["runId"] for run in get("/api/runs")}
     workbench(designer).get_by_role("button", name="Run selected version", exact=True).click()
-    page.locator('li[data-node-id="output"] button.vaw-node-drag').click()
-    expect(page.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("cba")
+    deadline = time.monotonic() + 15
+    while True:
+        new_runs = [run for run in get("/api/runs") if run["header"]["runId"] not in previous_run_ids]
+        if new_runs:
+            run_id = new_runs[0]["header"]["runId"]
+            break
+        assert time.monotonic() < deadline, "Studio did not start the published workflow run"
+        time.sleep(0.05)
+    while True:
+        recorded = get("/api/runs/" + run_id)
+        if recorded["isTerminal"]:
+            break
+        assert time.monotonic() < deadline, "Workflow run did not finish"
+        time.sleep(0.05)
+    assert recorded["status"] == "completed" and recorded["events"][-1]["data"] == "cba"
     viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
     viewer.get_by_text("Recorded events at this position", exact=False).click()
     viewer.get_by_role("cell", name="tool.completed", exact=True).wait_for()
@@ -403,28 +421,58 @@ def agent_designer_check(browser):
     workbench(designer).get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for()
     workflow_id = workbench(designer).get_by_label("Saved workflow", exact=True).input_value()
     inspect_control(designer, "Operation for step-1").get_by_label("Operation for step-1", exact=True).select_option(label="Deterministic demo agent")
-    inspect_control(designer, "Agent instructions for step-1").get_by_label("Agent instructions for step-1", exact=True).fill("Use only assigned tools; return their output.")
-    inspect_control(designer, "Assign demo.reverse to step-1").get_by_role("checkbox", name="Assign demo.reverse to step-1", exact=True).check()
+    inspect_control(designer, "Agent instructions for step-1").get_by_label("Agent instructions for step-1", exact=True).fill("Respond concisely.")
+    parameters = workbench(designer).locator("details.vaw-parameter-editor")
+    parameters.locator("summary").click()
+    parameters.get_by_label("Parameter ID", exact=True).fill("response-limit")
+    parameters.get_by_label("Display name", exact=True).fill("Response token cap")
+    parameters.get_by_label("Default value", exact=True).fill("2048")
+    parameters.get_by_role("button", name="Add parameter", exact=True).click()
+    # Blazor's dynamically generated legend text is not exposed as a stable
+    # accessible name in every Playwright/browser combination; the fieldset
+    # is keyed by parameter ID and its only select is the parameter type.
+    parameters.locator("fieldset").last.locator("select").select_option("integer")
+    inspect_control(designer, "Output token limit source for step-1").get_by_label("Output token limit source for step-1", exact=True).select_option(label="Workflow input: Response token cap")
     workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
     workbench(designer).get_by_role("button", name="Publish & activate", exact=True).click()
     workbench(designer).get_by_text("Published and activated version 1.", exact=True).wait_for()
     workbench(designer).get_by_label("Published run input", exact=True).fill("abc")
+    previous_run_ids = {run["header"]["runId"] for run in get("/api/runs")}
     workbench(designer).get_by_role("button", name="Run selected version", exact=True).click()
-    page.locator('li[data-node-id="output"] button.vaw-node-drag').click()
-    expect(page.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("cba")
+    deadline = time.monotonic() + 15
+    while True:
+        new_runs = [run for run in get("/api/runs") if run["header"]["runId"] not in previous_run_ids]
+        if new_runs:
+            run_id = new_runs[0]["header"]["runId"]
+            break
+        assert time.monotonic() < deadline, "Studio did not start the agent workflow run"
+        time.sleep(0.05)
+    while True:
+        recorded = get("/api/runs/" + run_id)
+        if recorded["isTerminal"]:
+            break
+        assert time.monotonic() < deadline, "Agent workflow run did not finish"
+        time.sleep(0.05)
+    assert recorded["status"] == "completed" and recorded["events"][-1]["data"] == "Demo agent: abc"
+    agent_started = next(event for event in recorded["events"] if event["kind"] == "agent.started")
+    model_requested = next(event for event in recorded["events"] if event["kind"] == "model.requested")
+    assert json.loads(agent_started["data"])["maxOutputTokens"] == 2048
+    assert json.loads(model_requested["data"])["maxOutputTokens"] == 2048
     viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
     viewer.get_by_text("Recorded events at this position", exact=False).click()
-    expect(viewer.get_by_role("cell", name="model.responded", exact=True)).to_have_count(2)
+    expect(viewer.get_by_role("cell", name="model.responded", exact=True)).to_have_count(1)
     page.reload()
     expect(workbench(designer).get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
     workbench(designer).get_by_label("Saved workflow", exact=True).select_option(workflow_id)
-    expect(inspect_control(designer, "Assign demo.reverse to step-1").get_by_role("checkbox", name="Assign demo.reverse to step-1", exact=True)).to_be_checked()
-    expect(inspect_control(designer, "Agent instructions for step-1").get_by_label("Agent instructions for step-1", exact=True)).to_have_value("Use only assigned tools; return their output.")
-    assert get("/api/workflows/" + workflow_id)["definition"]["schemaVersion"] == "1.2"
+    expect(inspect_control(designer, "Agent instructions for step-1").get_by_label("Agent instructions for step-1", exact=True)).to_have_value("Respond concisely.")
+    expect(inspect_control(designer, "Output token limit source for step-1").get_by_label("Output token limit source for step-1", exact=True)).to_have_value("parameter:response-limit")
+    saved_definition = get("/api/workflows/" + workflow_id)["definition"]
+    assert saved_definition["schemaVersion"] == "1.29"
+    assert saved_definition["nodes"]["step-1"]["agent"]["maxOutputTokensParameterId"] == "response-limit"
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), "Agent editor mobile overflow"
     page.close()
-    print("Browser agent instructions, node tool assignment, published execution, model evidence, and reload passed.")
+    print("Browser agent instructions, workflow parameter binding, published execution limits, model evidence, and reload passed.")
 
 
 if __name__ == "__main__":

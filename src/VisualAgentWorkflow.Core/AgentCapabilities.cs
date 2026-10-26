@@ -14,7 +14,9 @@ public sealed record AgentConfiguration(string ProviderId,
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public AgentReasoningEffort? ReasoningEffort { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ReasoningEffortParameterId { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? MaxOutputTokens { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? MaxOutputTokensParameterId { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? MaxTotalTokens { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? MaxTotalTokensParameterId { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? MaxTurns { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? TimeoutSeconds { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? RequireStructuredResult { get; init; }

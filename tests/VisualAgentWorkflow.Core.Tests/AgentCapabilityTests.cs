@@ -164,6 +164,68 @@ public class AgentCapabilityTests
     }
 
     [Fact]
+    public void AgentTokenControlsCanBindOnlyToBoundedIntegerWorkflowParameters()
+    {
+        var baseline = Definition(WorkflowSkill.Create("math", "1", "Arithmetic", "Return a number."));
+        var node = baseline.Nodes["step-1"];
+        var configured = baseline with
+        {
+            SchemaVersion = WorkflowSchemaVersions.AgentParameterBindings,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("context", new("Context", "local"))
+                .Add("response-limit", new("Response limit", "2048") { Type = "integer" })
+                .Add("agent-budget", new("Agent budget", "8192") { Type = "integer" }),
+            Nodes = baseline.Nodes.SetItem("step-1", node with { Agent = node.Agent! with
+            {
+                MaxOutputTokensParameterId = "response-limit",
+                MaxTotalTokensParameterId = "agent-budget"
+            } }),
+            Connections = baseline.Connections.Remove("first"),
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("activate-agent", new(new("input", "then"), new("step-1", "execute"), "execution"))
+                .Add("complete-agent", new(new("step-1", "out"), new("output", "execute"), "execution"))
+        };
+
+        Assert.Empty(WorkflowValidator.Validate(configured));
+        var serialized = WorkflowJson.Serialize(configured);
+        Assert.Equal(serialized, WorkflowJson.Serialize(WorkflowJson.Deserialize(serialized)));
+        var defaults = WorkflowParameters.Resolve(configured, null)!;
+        Assert.Equal("2048", defaults["response-limit"]);
+        Assert.Equal("8192", defaults["agent-budget"]);
+        var overrides = WorkflowParameters.Resolve(configured, new Dictionary<string, string>
+        { ["response-limit"] = "4096", ["agent-budget"] = "16000" })!;
+        Assert.Equal("4096", overrides["response-limit"]);
+        Assert.Equal("16000", overrides["agent-budget"]);
+
+        Assert.Throws<ArgumentException>(() => WorkflowParameters.Resolve(configured,
+            new Dictionary<string, string> { ["response-limit"] = "0" }));
+        Assert.Throws<ArgumentException>(() => WorkflowParameters.Resolve(configured,
+            new Dictionary<string, string> { ["agent-budget"] = (AgentTotalTokenLimits.Maximum + 1).ToString() }));
+        Assert.Contains(WorkflowValidator.Validate(configured with { SchemaVersion = WorkflowSchemaVersions.AgentGraphFunctionTools }),
+            issue => issue.Code == "agent.outputTokens.parameter");
+        Assert.Contains(WorkflowValidator.Validate(configured with { Parameters = configured.Parameters!.SetItem("response-limit",
+            configured.Parameters["response-limit"] with { Type = "string" }) }), issue => issue.Code == "agent.outputTokens.parameter");
+        Assert.Contains(WorkflowValidator.Validate(configured with { Parameters = configured.Parameters!.SetItem("response-limit",
+            configured.Parameters["response-limit"] with { DefaultValue = "0" }) }), issue => issue.Code == "agent.outputTokens.parameter");
+        Assert.Contains(WorkflowValidator.Validate(configured with { Nodes = configured.Nodes.SetItem("step-1",
+            node with { Agent = node.Agent! with { MaxOutputTokens = 1024, MaxOutputTokensParameterId = "response-limit" } }) }),
+            issue => issue.Code == "agent.outputTokens.parameter");
+
+        Assert.Throws<ArgumentException>(() => WorkflowParameterEditing.Remove(configured, "agent-budget"));
+
+        var legacyLinear = baseline with
+        {
+            SchemaVersion = WorkflowSchemaVersions.AgentParameterBindings,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("context", new("Context", "local"))
+                .Add("response-limit", new("Response limit", "2048") { Type = "integer" }),
+            Nodes = baseline.Nodes.SetItem("step-1", node with { Agent = node.Agent! with { MaxOutputTokensParameterId = "response-limit" } })
+        };
+        Assert.Empty(WorkflowValidator.Validate(legacyLinear));
+        Assert.False(WorkflowSchemaVersions.UsesExplicitGraph(legacyLinear));
+    }
+
+    [Fact]
     public void PromptTemplateCodecPreservesReferencesAndEscapesLiteralTokens()
     {
         var parameters = new Dictionary<string, WorkflowParameterDefinition>

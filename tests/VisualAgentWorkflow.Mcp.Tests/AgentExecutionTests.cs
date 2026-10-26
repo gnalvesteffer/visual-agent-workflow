@@ -129,6 +129,54 @@ public class AgentExecutionTests
     }
 
     [Fact]
+    public async Task AgentTokenLimitsResolveWorkflowOverridesBeforeModelDispatch()
+    {
+        var baseline = Revision().Definition;
+        var agentNode = baseline.Nodes["step-1"];
+        var definition = baseline with
+        {
+            SchemaVersion = WorkflowSchemaVersions.AgentParameterBindings,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("response-limit", new("Response limit", "2048") { Type = "integer" })
+                .Add("agent-budget", new("Agent budget", "8192") { Type = "integer" }),
+            Nodes = baseline.Nodes.SetItem("step-1", agentNode with { Agent = agentNode.Agent! with
+            {
+                MaxOutputTokensParameterId = "response-limit",
+                MaxTotalTokensParameterId = "agent-budget"
+            } })
+        };
+        int? requestedOutputTokens = null;
+        var registration = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient((_, options, _) =>
+            {
+                requestedOutputTokens = options?.MaxOutputTokens;
+                return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "answer"))
+                {
+                    FinishReason = ChatFinishReason.Stop,
+                    Usage = new UsageDetails { InputTokenCount = 3, OutputTokenCount = 1, TotalTokenCount = 4 }
+                });
+            })
+        };
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+        var events = new List<ExecutionEvent>();
+
+        await new WorkflowRunner(broker, new AgentNodeExecutor([registration], broker)).ExecuteWithParametersAsync(
+            Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "question",
+            new Dictionary<string, string> { ["response-limit"] = "4096", ["agent-budget"] = "8000" },
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal(4096, requestedOutputTokens);
+        using var started = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentStarted).Data!);
+        Assert.Equal(4096, started.RootElement.GetProperty("maxOutputTokens").GetInt32());
+        Assert.Equal(8000, started.RootElement.GetProperty("maxTotalTokens").GetInt32());
+        using var request = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested).Data!);
+        Assert.Equal(4096, request.RootElement.GetProperty("maxOutputTokens").GetInt32());
+        Assert.Throws<ArgumentException>(() => WorkflowParameters.Resolve(definition,
+            new Dictionary<string, string> { ["response-limit"] = "0" }));
+    }
+
+    [Fact]
     public async Task AgentTurnLimitIsRecordedAndPassedToTheFrameworkLoop()
     {
         var baseline = Revision().Definition;

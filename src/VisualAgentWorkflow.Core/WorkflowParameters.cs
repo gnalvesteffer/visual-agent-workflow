@@ -42,7 +42,9 @@ public static class WorkflowParameters
                 throw new ArgumentException($"Value for workflow parameter '{id}' does not match its {parameter.Type ?? "string"} type.", nameof(overrides));
             resolved.Add(id, NormalizeValue(parameter, value));
         }
-        return resolved.ToImmutable();
+        var values = resolved.ToImmutable();
+        ValidateAgentLimits(definition, values);
+        return values;
     }
 
     public static bool IsValidValue(WorkflowParameterDefinition parameter, string value) => (parameter.Type ?? "string") switch
@@ -61,4 +63,26 @@ public static class WorkflowParameters
         "number" when decimal.TryParse(value, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var number) => number.ToString("G29", CultureInfo.InvariantCulture),
         _ => value
     };
+
+    private static void ValidateAgentLimits(WorkflowDefinition definition, IReadOnlyDictionary<string, string> values)
+    {
+        foreach (var (nodeId, node) in definition.Nodes)
+        {
+            var agent = node?.Agent;
+            if (agent is null) continue;
+            ValidateBoundLimit(agent.MaxOutputTokensParameterId, AgentOutputTokenLimits.Minimum, AgentOutputTokenLimits.Maximum,
+                "Maximum output tokens", nodeId);
+            ValidateBoundLimit(agent.MaxTotalTokensParameterId, AgentTotalTokenLimits.Minimum, AgentTotalTokenLimits.Maximum,
+                "Maximum total tokens", nodeId);
+        }
+
+        void ValidateBoundLimit(string? parameterId, int minimum, int maximum, string setting, string nodeId)
+        {
+            if (parameterId is null) return;
+            if (!values.TryGetValue(parameterId, out var value) ||
+                !int.TryParse(value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var parsed) ||
+                parsed < minimum || parsed > maximum)
+                throw new ArgumentException($"Workflow parameter '{parameterId}' for {setting} on agent '{nodeId}' must be from {minimum} to {maximum}.", nameof(values));
+        }
+    }
 }

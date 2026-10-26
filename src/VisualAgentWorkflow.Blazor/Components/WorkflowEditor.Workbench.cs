@@ -7,10 +7,10 @@ namespace VisualAgentWorkflow.Blazor.Components;
 public partial class WorkflowEditor
 {
     private string? insertionConnection;
-    private bool UseGraphRemoval => WorkflowSchemaVersions.UsesExplicitGraph(Definition.SchemaVersion) || UsesGraphEditing || WorkflowValidator.Validate(Definition).Any(issue =>
+    private bool UseGraphRemoval => WorkflowSchemaVersions.UsesExplicitGraph(Definition) || UsesGraphEditing || WorkflowValidator.Validate(Definition).Any(issue =>
         issue.Code is "graph.degree" or "workflow.degree" or "graph.unreachable" or "graph.cycle" or "workflow.terminals");
     private ImmutableArray<WorkflowPort> SelectedOutputs => selectedNode is { } id && Definition.Nodes.TryGetValue(id, out var node)
-        ? WorkflowSchemaVersions.UsesExplicitGraph(Definition.SchemaVersion)
+        ? WorkflowSchemaVersions.UsesExplicitGraph(Definition)
             ? [.. WorkflowPorts.Explicit(node).Where(port => port.Direction == WorkflowPortDirection.Output)
                 .Select(port => new WorkflowPort(port.Id, port.DataType ?? "execution"))]
             : WorkflowPorts.Outputs(node)
@@ -24,7 +24,7 @@ public partial class WorkflowEditor
             : Definition.Connections.GetValueOrDefault(connectionId);
         if (edge is not null)
         {
-            insertionConnection = WorkflowSchemaVersions.UsesExplicitGraph(Definition.SchemaVersion) ? null : id;
+            insertionConnection = WorkflowSchemaVersions.UsesExplicitGraph(Definition) ? null : id;
             selectedNode = edge.Source.NodeId;
             selectedPort = edge.Source.PortId;
         }
@@ -35,7 +35,7 @@ public partial class WorkflowEditor
     {
         // Only a command opened directly on a wire is an explicit insert operation.
         // A selected node or previously selected wire must never make a library click auto-connect.
-        var connection = WorkflowSchemaVersions.UsesExplicitGraph(Definition.SchemaVersion) ? null : context?.ConnectionId;
+        var connection = WorkflowSchemaVersions.UsesExplicitGraph(Definition) ? null : context?.ConnectionId;
         if (connection is not null && Definition.Connections.TryGetValue(connection, out var edge)) return edge.Source;
         return null;
     }
@@ -75,7 +75,7 @@ public partial class WorkflowEditor
                 new(NodeTypes.StringConstant, "String constant", "Values", "A literal text value; evaluated only when a data input needs it", !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
                 new(NodeTypes.TextConcat, "Concatenate text", "Values", "Join two text inputs without activating a node", !ReadOnly && !Disabled && Definition.Nodes.Count < 256)
             ];
-        if (Definition.SchemaVersion is WorkflowSchemaVersions.ExplicitBranchGraph or WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools)
+        if (WorkflowSchemaVersions.UsesExplicitGraph(Definition) && Definition.SchemaVersion is WorkflowSchemaVersions.ExplicitBranchGraph or WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings)
         {
             var explicitEntries = new List<WorkflowNodeLibraryEntry>
             {
@@ -83,23 +83,23 @@ public partial class WorkflowEditor
                 new(NodeTypes.TextConcat, "Concatenate text", "Values", "Join two string inputs deterministically", !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
                 new(NodeTypes.StringEquals, "Compare strings", "Values", "Compare strings using ordinal, case-sensitive equality", !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
                 new(NodeTypes.BooleanBranch, "Boolean Branch", "Flow", "Choose exactly one execution route from a Boolean data input", !ReadOnly && !Disabled && Definition.Nodes.Count < 256 &&
-                    (Definition.SchemaVersion is WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools
+                    (Definition.SchemaVersion is WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings
                         ? Definition.Nodes.Values.Count(node => node.Type == NodeTypes.BooleanBranch) < 8
                         : Definition.Nodes.Values.All(node => node.Type != NodeTypes.BooleanBranch))),
                 new("terminate", "Terminate workflow", "Flow", "End this route with a successful or failed result", !ReadOnly && !Disabled && Definition.Nodes.Count < 256 &&
-                    Definition.Nodes.Values.Count(node => node.Type == NodeTypes.Terminate) < (Definition.SchemaVersion is WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools ? 16 : 1))
+                    Definition.Nodes.Values.Count(node => node.Type == NodeTypes.Terminate) < (Definition.SchemaVersion is WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings ? 16 : 1))
             };
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools)
+            if (Definition.SchemaVersion is WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings)
             {
                 explicitEntries.Insert(0, new(NodeTypes.BooleanConstant, "Boolean constant", "Values", "Provide a literal true or false value", !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
                 explicitEntries.Insert(1, new(NodeTypes.BooleanNot, "Boolean NOT", "Values", "Invert a Boolean value without converting its type", !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
             }
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools)
+            if (Definition.SchemaVersion is WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings)
                 explicitEntries.AddRange((FunctionCatalog?.List() ?? []).Select(entry => new WorkflowNodeLibraryEntry(
                     FunctionKey(entry.Function), $"Function · {entry.Function.Definition.DisplayName} v{entry.Function.Definition.Version}",
                     "Functions", $"{entry.Function.Definition.Inputs.Count} inputs · {entry.Function.Definition.Outputs.Count} outputs · snapshot pinned on insert",
                     !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));
-            if (Definition.SchemaVersion == WorkflowSchemaVersions.AgentGraphFunctionTools)
+            if (Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings)
                 explicitEntries.AddRange(Providers.Select(provider => new WorkflowNodeLibraryEntry(
                     ProviderKey(provider), provider.DisplayName, "Agents", $"Agent node · {provider.ModelId}",
                     !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));

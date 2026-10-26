@@ -13,7 +13,7 @@ public static class WorkflowTerminationEditing
 
         var updated = definition with
         {
-            SchemaVersion = WorkflowSchemaVersions.UsesExplicitGraph(definition.SchemaVersion) || definition.SchemaVersion is "1.22" or "1.21"
+            SchemaVersion = WorkflowSchemaVersions.UsesExplicitGraph(definition) || definition.SchemaVersion is "1.22" or "1.21"
                 ? definition.SchemaVersion : "1.20",
             Nodes = definition.Nodes.SetItem(nodeId, node with { Termination = new(outcome) })
         };

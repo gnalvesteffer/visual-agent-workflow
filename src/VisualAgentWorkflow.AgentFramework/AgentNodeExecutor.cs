@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -81,6 +82,15 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             ? text
             : throw new InvalidOperationException($"A string value for {name} is required.");
 
+    private static int? ResolveAgentLimit(string? parameterId, int? staticValue, IReadOnlyDictionary<string, string>? parameters)
+    {
+        if (parameterId is null) return staticValue;
+        if (parameters is null || !parameters.TryGetValue(parameterId, out var value) ||
+            !int.TryParse(value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var resolved))
+            throw new InvalidOperationException($"Agent limit parameter '{parameterId}' is unavailable or invalid.");
+        return resolved;
+    }
+
     public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
         Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(Volatile.Read(ref registrations).Values.Select(r => r.Descriptor).ToArray());
 
@@ -96,7 +106,11 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         string input, bool allowDelegation, CancellationToken cancellationToken, AgentCoordinationChannelAccess? channelAccess = null,
         AgentTokenBudget? sharedTokenBudget = null)
     {
-        var tokenBudget = sharedTokenBudget ?? (configuration.MaxTotalTokens is { } maximumTokens ? new AgentTokenBudget(maximumTokens) : null);
+        var maximumOutputTokens = ResolveAgentLimit(configuration.MaxOutputTokensParameterId,
+            configuration.MaxOutputTokens ?? AgentOutputTokenLimits.LegacyDefault, invocation.Parameters);
+        var maximumTotalTokens = ResolveAgentLimit(configuration.MaxTotalTokensParameterId,
+            configuration.MaxTotalTokens, invocation.Parameters);
+        var tokenBudget = sharedTokenBudget ?? (maximumTotalTokens is { } maximumTokens ? new AgentTokenBudget(maximumTokens) : null);
         if (!Volatile.Read(ref registrations).TryGetValue(configuration.ProviderId, out var provider))
             throw new InvalidOperationException($"Agent connection '{configuration.ProviderId}' is unavailable.");
         var reasoningEffort = configuration.ReasoningEffortParameterId is { } parameterId && invocation.Parameters is { } values
@@ -135,7 +149,9 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             timeoutSeconds = effectiveTimeout.TotalSeconds,
             configuredTimeoutSeconds = configuration.TimeoutSeconds,
             maximumTurns = configuration.MaxTurns ?? AgentExecutionLimits.DefaultMaximumTurns,
-            maxOutputTokens = configuration.MaxOutputTokens ?? AgentOutputTokenLimits.LegacyDefault,
+            maxOutputTokens = maximumOutputTokens,
+            maxOutputTokensParameterId = configuration.MaxOutputTokensParameterId,
+            maxTotalTokensParameterId = configuration.MaxTotalTokensParameterId,
             maxTotalTokens = tokenBudget?.Maximum,
             structuredResultRequired = configuration.RequireStructuredResult == true,
             reasoningEffort,
@@ -500,7 +516,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                     ? instructions + "\n\nThis node requires a structured result. Call submit_result exactly once with status success or failure and a JSON object payload. Free-form text alone does not complete the task."
                     : instructions,
                 Tools = functions,
-                MaxOutputTokens = configuration.MaxOutputTokens ?? AgentOutputTokenLimits.LegacyDefault,
+                MaxOutputTokens = maximumOutputTokens,
                 Reasoning = reasoningEffort is { } effort
                     ? new ReasoningOptions { Effort = effort switch
                     {

@@ -4,6 +4,8 @@ Schema 1.6 adds portable string parameters for workflow-specific configuration. 
 
 Typed parameters do not add mutable variables or arbitrary object ports. Every value must be treated as non-secret because local run histories record it in plaintext. Schema 1.8 can expose a choice parameter as an agent's reasoning-effort setting, limited to `default`, `low`, `medium`, and `high`; provider support is checked at runtime. Schema 1.7 also supports deterministic `core.text.template` nodes: ordered literal, incoming-text and declared-parameter parts build one bounded string without expression evaluation. Referenced parameters are copied and remapped when a reusable workflow containing a template node is inserted.
 
+Schema 1.29 also lets an Agent node bind **Maximum output tokens** and **Maximum total tokens** to integer workflow parameters. Choose the source in that node's settings; the setting cannot have both a static value and a parameter binding. Its parameter default is used when a run supplies no override. Output-token values must be 1–16,384 and apply to each model response. Total-token values must be 1–100,000 and retain the existing scope across that agent invocation and its delegated profiles. Invalid defaults prevent publishing; invalid run overrides are rejected before execution is admitted. The model connection, tools, skills, endpoint and grants remain outside workflow parameters. Provider-reported aggregate usage is not a guaranteed billing cap. Schema 1.29 preserves the workflow's existing execution semantics: legacy linear definitions remain linear, while a definition carrying explicit execution connections continues to use the explicit graph scheduler.
+
 ## Definition contract
 
 The optional `parameters` property is an object keyed by parameter ID. IDs contain 1–64 ASCII letters, digits, dashes, or underscores. A definition may contain at most 64 parameters; display names are 1–128 characters, descriptions are at most 512 characters, defaults are bounded at 16,384 characters, and combined IDs/names/descriptions/defaults are bounded at 128,000 characters to remain inside the workflow JSON size limit. Descriptions are optional, omitted when empty, and shown as authoring/run-form help; they do not affect validation or execution. The optional `type` field defaults to `string`. Choice parameters require 1–32 unique values, each at most 128 characters.
@@ -46,6 +48,8 @@ The optional `parameters` property is an object keyed by parameter ID. IDs conta
 ```
 
 Legacy workflow schemas continue to omit `parameters` and `parameterId` when unused; optional parameter fields remain omitted for the old string form, preserving canonical hashes. Editing helpers upgrade definitions to the minimum schema when adding new features and preserve newer schema versions through graph edits. Reusable workflow insertion copies parameters referenced by inserted value nodes, text-template nodes, agent prompts, and agent settings, then remaps conflicting IDs.
+
+The optional Agent fields `maxOutputTokensParameterId` and `maxTotalTokensParameterId` are available only in schema 1.29. They refer to declared `integer` parameter IDs. Definition validation checks each parameter's default against the specific bound setting; run admission repeats that range check on the resolved value. A generic integer parameter has no range metadata, so the Agent setting itself owns the range and the run form may accept an override that admission subsequently rejects.
 
 ## Resolve, execute, and replay
 

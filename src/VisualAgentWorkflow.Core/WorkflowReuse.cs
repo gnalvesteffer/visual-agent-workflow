@@ -74,6 +74,7 @@ public static class WorkflowReuse
         var parameterMap = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var parameterId in steps.SelectMany(id => new[] { source.Nodes[id].ParameterId }
             .Concat(source.Nodes[id].Agent?.UserMessage?.Parts.Where(part => part.Kind == "parameter").Select(part => part.Value) ?? [])
+            .Concat(new[] { source.Nodes[id].Agent?.ReasoningEffortParameterId, source.Nodes[id].Agent?.MaxOutputTokensParameterId, source.Nodes[id].Agent?.MaxTotalTokensParameterId })
             .Concat(source.Nodes[id].TextTemplate?.Parts.Where(part => part.Kind == "parameter").Select(part => part.Value) ?? []))
             .Where(id => id is not null).Distinct(StringComparer.Ordinal))
         {
@@ -126,15 +127,22 @@ public static class WorkflowReuse
                 ParameterId = sourceNode.ParameterId is { } parameterId ? parameterMap[parameterId] : null,
                 TextTemplate = sourceNode.TextTemplate is { } textTemplate ? new(textTemplate.Parts.Select(part =>
                     part.Kind == "parameter" ? part with { Value = parameterMap[part.Value] } : part).ToImmutableArray()) : null,
-                Agent = sourceNode.Agent is { UserMessage: { } prompt } agent ? agent with
-                { UserMessage = new(prompt.Parts.Select(part => part.Kind == "parameter" ? part with { Value = parameterMap[part.Value] } : part).ToImmutableArray()) } : sourceNode.Agent,
+                Agent = sourceNode.Agent is { } agent ? agent with
+                {
+                    UserMessage = agent.UserMessage is { } prompt
+                        ? new(prompt.Parts.Select(part => part.Kind == "parameter" ? part with { Value = parameterMap[part.Value] } : part).ToImmutableArray())
+                        : null,
+                    ReasoningEffortParameterId = agent.ReasoningEffortParameterId is { } reasoningParameter ? parameterMap[reasoningParameter] : null,
+                    MaxOutputTokensParameterId = agent.MaxOutputTokensParameterId is { } outputParameter ? parameterMap[outputParameter] : null,
+                    MaxTotalTokensParameterId = agent.MaxTotalTokensParameterId is { } totalParameter ? parameterMap[totalParameter] : null
+                } : null,
                 Origin = new(source.WorkflowId, published.Revision.RevisionId, published.Version, published.Revision.ContentHash, id)
             });
         }
         order.InsertRange(position + 1, steps.Select(id => ids[id]));
         var definition = WorkflowEditing.Reconnect(target with
         {
-            SchemaVersion = target.SchemaVersion == "1.22" || source.SchemaVersion == "1.22" ? "1.22" : target.SchemaVersion == "1.21" || source.SchemaVersion == "1.21" ? "1.21" : target.SchemaVersion == "1.20" || source.SchemaVersion == "1.20" ? "1.20" : target.SchemaVersion == "1.19" || source.SchemaVersion == "1.19" ? "1.19" : target.SchemaVersion == "1.18" || source.SchemaVersion == "1.18" ? "1.18" : target.SchemaVersion == "1.17" || source.SchemaVersion == "1.17" ? "1.17" : target.SchemaVersion == "1.16" || source.SchemaVersion == "1.16" ? "1.16" : target.SchemaVersion == "1.15" || source.SchemaVersion == "1.15" ? "1.15" : target.SchemaVersion == "1.14" || source.SchemaVersion == "1.14" ? "1.14" : target.SchemaVersion == "1.13" || source.SchemaVersion == "1.13" ? "1.13" : target.SchemaVersion == "1.12" || source.SchemaVersion == "1.12" ? "1.12" : target.SchemaVersion == "1.11" || source.SchemaVersion == "1.11" ? "1.11" : target.SchemaVersion == "1.10" || source.SchemaVersion == "1.10" ? "1.10" : target.SchemaVersion == "1.9" || source.SchemaVersion == "1.9" ? "1.9" :
+            SchemaVersion = target.SchemaVersion == WorkflowSchemaVersions.AgentParameterBindings || source.SchemaVersion == WorkflowSchemaVersions.AgentParameterBindings ? WorkflowSchemaVersions.AgentParameterBindings : target.SchemaVersion == "1.22" || source.SchemaVersion == "1.22" ? "1.22" : target.SchemaVersion == "1.21" || source.SchemaVersion == "1.21" ? "1.21" : target.SchemaVersion == "1.20" || source.SchemaVersion == "1.20" ? "1.20" : target.SchemaVersion == "1.19" || source.SchemaVersion == "1.19" ? "1.19" : target.SchemaVersion == "1.18" || source.SchemaVersion == "1.18" ? "1.18" : target.SchemaVersion == "1.17" || source.SchemaVersion == "1.17" ? "1.17" : target.SchemaVersion == "1.16" || source.SchemaVersion == "1.16" ? "1.16" : target.SchemaVersion == "1.15" || source.SchemaVersion == "1.15" ? "1.15" : target.SchemaVersion == "1.14" || source.SchemaVersion == "1.14" ? "1.14" : target.SchemaVersion == "1.13" || source.SchemaVersion == "1.13" ? "1.13" : target.SchemaVersion == "1.12" || source.SchemaVersion == "1.12" ? "1.12" : target.SchemaVersion == "1.11" || source.SchemaVersion == "1.11" ? "1.11" : target.SchemaVersion == "1.10" || source.SchemaVersion == "1.10" ? "1.10" : target.SchemaVersion == "1.9" || source.SchemaVersion == "1.9" ? "1.9" :
                 target.SchemaVersion == "1.8" || source.SchemaVersion == "1.8" ? "1.8" :
                 target.SchemaVersion == "1.7" || source.SchemaVersion == "1.7" ? "1.7" :
                 target.SchemaVersion == "1.6" || parameterMap.Count > 0 ? "1.6" : "1.3",
