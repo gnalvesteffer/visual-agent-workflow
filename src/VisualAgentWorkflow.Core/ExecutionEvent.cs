@@ -36,6 +36,11 @@ public static class ExecutionEventKinds
     public const string LoopIterationCompleted = "loop.iteration.completed";
     public const string LoopStopped = "loop.stopped";
     public const string ParallelJoinProgress = "parallel.join.progress";
+    internal const string ParallelCollaborationMessageSent = "parallel.collaboration.message.sent";
+    internal const string ParallelCollaborationMessagesRead = "parallel.collaboration.messages.read";
+    internal const string ParallelCollaborationArrival = "parallel.collaboration.arrival";
+    internal const string ParallelCollaborationReleased = "parallel.collaboration.released";
+    internal const string ParallelCollaborationAborted = "parallel.collaboration.aborted";
     public const string Transfer = "connection.received";
     public const string ExecutionActivated = "execution.activated";
     public const string DataEvaluated = "data.evaluated";

@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <InternalsVisibleTo Include="VisualAgentWorkflow.AgentFramework.Tests" />
     <PackageReference Include="Microsoft.Agents.AI.Workflows" />
     <ProjectReference Include="../VisualAgentWorkflow.Core/VisualAgentWorkflow.Core.csproj" />
   </ItemGroup>

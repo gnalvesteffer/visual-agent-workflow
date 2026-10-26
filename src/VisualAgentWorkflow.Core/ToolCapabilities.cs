@@ -42,6 +42,14 @@ public sealed record NodeInvocationContext(Guid RunId, WorkflowRevision Revision
     public Func<NodeInvocationContext, INodeToolScope>? OpenToolScope { get; init; }
     /// <summary>Runtime-owned latch for one model-proposed Agent execution route.</summary>
     public Func<string, ValueTask>? ProposeAgentRoute { get; init; }
+    /// <summary>Internal test-plan grant for one graph-level collaboration phase; never serialized.</summary>
+    internal IReadOnlyList<string>? CollaborationSendChannels { get; init; }
+    /// <summary>Internal test-plan grant for one graph-level collaboration phase; never serialized.</summary>
+    internal IReadOnlyList<string>? CollaborationReadChannels { get; init; }
+    /// <summary>Runtime-scoped publish callback; missing access means the agent has no channel capability.</summary>
+    internal Func<string, string, CancellationToken, ValueTask<string>>? CollaborationSend { get; init; }
+    /// <summary>Runtime-scoped immutable snapshot read callback; missing access means no read capability.</summary>
+    internal Func<string, CancellationToken, ValueTask<string>>? CollaborationRead { get; init; }
 
     public ValueTask RecordEventAsync(string kind, string? data) => RecordEventForAsync(InvocationId, kind, data);
 

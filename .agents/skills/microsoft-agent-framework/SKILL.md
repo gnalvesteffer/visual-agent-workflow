@@ -26,6 +26,8 @@ Select provider clients through host configuration/DI. Keep model credentials se
 
 - Use the selected version's streaming/event APIs and preserve run, executor, invocation, attempt, and message correlation through translation. Check actual event payloads; completion events alone do not prove edge traversal.
 - Keep browser/circuit cancellation separate from explicit run cancellation. Check ownership and disposal of agents, clients, streams, and long-lived runs.
+- `StreamingRun.WatchStreamAsync(cancellationToken)` cancellation ends observation only; it does not cancel workflow execution. Use `StreamingRun.CancelRunAsync()` when the host intends to stop the run. Test cancellation with the explicit run-control API and verify no downstream effects occur after cancellation.
+- `WorkflowBuilder.AddFanInBarrierEdge` holds source messages until every configured source has emitted, then delivers them to the target in a later superstep. `IWorkflowContext.SendMessageAsync` queues messages for the next superstep and can target only a connected executor. Verify fan-out filters and failure/cancellation behavior against the pinned package before using this topology for rendezvous semantics.
 - Verify human requests/tool approvals and continuation with persisted identities and state. Do not assume a default in-memory session store survives restart.
 - Distinguish in-process execution, checkpointing, and durable hosting. Confirm which integration and storage support the required recovery behavior; framework checkpoint support does not establish safe external retries.
 - Treat observability traces as diagnostic evidence, not an automatic substitute for the persisted audit/event contract. Check sensitive-data capture settings before enabling telemetry.

@@ -1,1 +1,7 @@
-<Project Sdk="Microsoft.NET.Sdk" />
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <InternalsVisibleTo Include="VisualAgentWorkflow.AgentFramework" />
+    <InternalsVisibleTo Include="VisualAgentWorkflow.Core.Tests" />
+    <InternalsVisibleTo Include="VisualAgentWorkflow.AgentFramework.Tests" />
+  </ItemGroup>
+</Project>

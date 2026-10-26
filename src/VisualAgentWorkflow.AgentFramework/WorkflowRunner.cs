@@ -12,6 +12,7 @@ public sealed record WorkflowExecutionResult(string? Output, bool Terminated, bo
 /// <summary>Translates the supported string workflow into actual Agent Framework executors and edges.</summary>
 public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null)
 {
+    internal ParallelCollaborationTestPlan? CollaborationTestPlan { get; init; }
     public async Task<string> ExecuteAsync(Guid runId, WorkflowRevision revision, string input,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default) =>
         (await ExecuteCoreAsync(runId, revision, input, null, record, null, cancellationToken)).Output ?? string.Empty;
@@ -60,12 +61,21 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         Func<ExecutionEvent, ValueTask> record, IWorkflowExecutionGate? gate, CancellationToken cancellationToken,
         WorkflowRevision? rootRevision = null, ImmutableArray<WorkflowApprovalScope> workflowPath = default)
     {
+        var callerCancellationToken = cancellationToken;
+        using var collaborationTimeout = CollaborationTestPlan?.Timeout is { } timeout
+            ? new CancellationTokenSource(timeout)
+            : null;
+        using var linkedCancellation = collaborationTimeout is null
+            ? null
+            : CancellationTokenSource.CreateLinkedTokenSource(callerCancellationToken, collaborationTimeout.Token);
+        if (linkedCancellation is not null) cancellationToken = linkedCancellation.Token;
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(record);
         if (runId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(runId));
         if (input.Length > 16_384) throw new ArgumentException("Input exceeds 16,384 characters.", nameof(input));
         WorkflowValidator.ThrowIfInvalid(revision.Definition);
+        CollaborationTestPlan?.Validate(revision.Definition);
         var resolvedParameters = WorkflowParameters.Resolve(revision.Definition, parameters);
         rootRevision ??= revision;
         workflowPath = workflowPath.IsDefault ? [] : workflowPath;
@@ -84,7 +94,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             finally { recordGate.Release(); }
         }
 
-        var workflow = BuildWorkflow(runId, revision, input, resolvedParameters, Emit, gate, rootRevision, workflowPath);
+        var collaborationRuntime = CollaborationTestPlan is null ? null :
+            new ParallelCollaborationTestRuntime(runId, CollaborationTestPlan, Emit);
+        var workflow = BuildWorkflow(runId, revision, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
+            CollaborationTestPlan, collaborationRuntime);
 
         await Emit(ExecutionEventKinds.Started);
         try
@@ -96,6 +109,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 : InProcessExecution.Default;
             await using var run = await execution.RunStreamingAsync(workflow,
                 new GraphMessage(input, null, null, DataType: inputType), cancellationToken: cancellationToken);
+            using var cancellationRegistration = collaborationRuntime is null
+                ? default
+                : cancellationToken.Register(static state => _ = CancelStreamingRunAsync((StreamingRun)state!), run);
             GraphMessage? output = null;
             await foreach (var evt in run.WatchStreamAsync(cancellationToken))
             {
@@ -127,15 +143,30 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            if (collaborationTimeout?.IsCancellationRequested == true && !callerCancellationToken.IsCancellationRequested)
+            {
+                if (collaborationRuntime is not null) await collaborationRuntime.AbortAsync("The collaboration region timed out.");
+                await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed.");
+                throw new TimeoutException("The collaboration test-plan timeout elapsed.");
+            }
+            if (collaborationRuntime is not null) await collaborationRuntime.AbortAsync("Workflow execution was cancelled.");
             await Emit(ExecutionEventKinds.Cancelled);
             throw;
         }
         catch
         {
+            if (collaborationRuntime is not null) await collaborationRuntime.AbortAsync("A collaboration member or workflow node failed.");
             // Do not copy arbitrary exception messages or provider internals into captured payloads.
             await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed.");
             throw;
         }
+    }
+
+    private static async Task CancelStreamingRunAsync(StreamingRun run)
+    {
+        try { await run.CancelRunAsync(); }
+        catch (ObjectDisposedException) { }
+        catch (InvalidOperationException) { }
     }
 
     private Workflow BuildWorkflow(Guid runId, WorkflowRevision revision, string input,
@@ -147,13 +178,15 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
     private Workflow BuildWorkflow(Guid runId, WorkflowRevision revision, string input,
         IReadOnlyDictionary<string, string>? parameters,
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate,
-        WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath)
+        WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath,
+        ParallelCollaborationTestPlan? collaborationPlan = null,
+        ParallelCollaborationTestRuntime? collaborationRuntime = null)
     {
         var definition = revision.Definition;
         var dataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(definition) ? new ExplicitGraphDataEvaluator(definition, input, parameters) : null;
         var executors = definition.Nodes.ToDictionary(
             n => n.Key,
-            n => new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, dataEvaluator, emit, gate, null, rootRevision, workflowPath));
+            n => new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, dataEvaluator, emit, gate, null, rootRevision, workflowPath, collaborationPlan, collaborationRuntime));
         var builder = new WorkflowBuilder(executors[definition.EntryNodeId]);
         var executionEdges = WorkflowSchemaVersions.UsesExplicitGraph(definition)
             ? definition.ExecutionConnections!.Values
@@ -161,8 +194,23 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         foreach (var edge in executionEdges)
         {
             if (definition.Nodes[edge.Target.NodeId].Type == NodeTypes.ParallelJoin) continue;
+            if (collaborationPlan is not null && collaborationPlan.Branches.Any(branch =>
+                branch.PublishAgentNodeId == edge.Source.NodeId && branch.ReadAgentNodeId == edge.Target.NodeId)) continue;
             builder.AddEdge<GraphMessage>(executors[edge.Source.NodeId], executors[edge.Target.NodeId], message =>
                 message?.SourceNode == edge.Source.NodeId && message.SourcePort == edge.Source.PortId);
+        }
+        if (collaborationPlan is not null && collaborationRuntime is not null)
+        {
+            var rendezvous = new ParallelCollaborationRendezvousExecutor(
+                $"__collaboration_{collaborationPlan.ForkNodeId}_{collaborationPlan.JoinNodeId}", collaborationPlan, collaborationRuntime);
+            var publishExecutors = collaborationPlan.Branches.Select(branch => (ExecutorBinding)executors[branch.PublishAgentNodeId]);
+            builder.AddFanInBarrierEdge(publishExecutors, rendezvous);
+            foreach (var branch in collaborationPlan.Branches)
+            {
+                var branchId = branch.BranchId;
+                builder.AddEdge<GraphMessage>(rendezvous, (ExecutorBinding)executors[branch.ReadAgentNodeId],
+                    message => message?.CollaborationTargetBranchId == branchId);
+            }
         }
         foreach (var join in definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.ParallelJoin))
         {
@@ -182,7 +230,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
     private sealed record GraphMessage(string Text, string? SourceNode, string? SourcePort,
         WorkflowApprovalPermit? Approval = null, string DataType = "string", int LoopIteration = 0,
         bool TerminationSignal = false, bool FailureSignal = false,
-        Guid? ParallelActivationId = null, string? ParallelBranchId = null, string? ParallelForkNodeId = null);
+        Guid? ParallelActivationId = null, string? ParallelBranchId = null, string? ParallelForkNodeId = null,
+        string? CollaborationTargetBranchId = null, bool CollaborationTransition = false);
 
     private sealed class AgentRouteSelectionState(ImmutableArray<AgentExecutionRoute> routes)
     {
@@ -233,6 +282,147 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
     private sealed record DataInputEvaluation(ExplicitGraphValue Result, ImmutableArray<EvaluatedDataValue> Evaluations);
     private sealed record GraphFunctionAudit(string FunctionId, int Version, string ContentHash, string OutputId,
         IReadOnlyDictionary<string, object> Inputs, ImmutableArray<GraphFunctionValueEvidence> EvaluatedValues);
+
+    private sealed class ParallelCollaborationTestRuntime(
+        Guid runId,
+        ParallelCollaborationTestPlan plan,
+        Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit)
+    {
+        private readonly object sync = new();
+        private ParallelCollaborationExchange? exchange;
+        private bool abortRecorded;
+
+        public void Begin(Guid activationId)
+        {
+            lock (sync)
+            {
+                if (exchange is not null) throw new InvalidOperationException("A collaboration test plan supports one fork activation per run.");
+                exchange = new(runId, activationId, plan.Branches.Select(branch => branch.BranchId), plan.Channels);
+            }
+        }
+
+        public async ValueTask<string> PublishAsync(string nodeId, string branchId, string channel, string content,
+            Guid invocationId, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!plan.Branches.Any(branch => branch.BranchId == branchId && branch.PublishAgentNodeId == nodeId))
+                throw new InvalidOperationException("This agent has no collaboration publish grant.");
+            var sent = RequireExchange().Send(branchId, channel, content);
+            var data = JsonSerializer.Serialize(new { sent.Sequence, sent.BranchId, sent.Channel, sent.Content });
+            await emit(ExecutionEventKinds.ParallelCollaborationMessageSent, nodeId, invocationId, channel, data, null);
+            return data;
+        }
+
+        public async ValueTask<string> ReadAsync(string nodeId, string branchId, string channel,
+            Guid invocationId, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!plan.Branches.Any(branch => branch.BranchId == branchId && branch.ReadAgentNodeId == nodeId))
+                throw new InvalidOperationException("This agent has no collaboration read grant.");
+            var messages = RequireExchange().ReadSnapshot(branchId, channel);
+            var data = JsonSerializer.Serialize(messages);
+            await emit(ExecutionEventKinds.ParallelCollaborationMessagesRead, nodeId, invocationId, channel, data, null);
+            return data;
+        }
+
+        public async ValueTask<ParallelCollaborationArrival> ArriveAsync(string branchId, Guid invocationId)
+        {
+            var arrival = RequireExchange().Arrive(branchId);
+            await emit(ExecutionEventKinds.ParallelCollaborationArrival, null, invocationId, "collaboration:arrival",
+                JsonSerializer.Serialize(new { plan.ForkNodeId, plan.JoinNodeId, branchId, arrival.ArrivedCount, arrival.ParticipantCount, arrival.Released }), null);
+            if (arrival.Released)
+            {
+                var releaseData = JsonSerializer.Serialize(new
+                {
+                    plan.ForkNodeId,
+                    plan.JoinNodeId,
+                    regionInvocationId = RequireExchange().RegionInvocationId,
+                    snapshot = arrival.Snapshot
+                });
+                await emit(ExecutionEventKinds.ParallelCollaborationReleased, null, invocationId,
+                    "collaboration:snapshot", releaseData, null);
+            }
+            return arrival;
+        }
+
+        public async ValueTask AbortAsync(string reason)
+        {
+            lock (sync)
+            {
+                if (abortRecorded || exchange is null) return;
+                exchange.Abort(reason);
+                abortRecorded = true;
+                reason = exchange.AbortReason ?? reason;
+            }
+            await emit(ExecutionEventKinds.ParallelCollaborationAborted, null,
+                exchange!.RegionInvocationId, "collaboration:abort",
+                JsonSerializer.Serialize(new { plan.ForkNodeId, plan.JoinNodeId, regionInvocationId = exchange.RegionInvocationId, reason }), null);
+        }
+
+        private ParallelCollaborationExchange RequireExchange() => exchange ??
+            throw new InvalidOperationException("The collaboration exchange has not been activated by its fork.");
+    }
+
+    private sealed class ParallelCollaborationRendezvousExecutor : Executor<GraphMessage, GraphMessage>
+    {
+        private readonly string executorId;
+        private readonly ParallelCollaborationTestPlan plan;
+        private readonly ParallelCollaborationTestRuntime runtime;
+        private readonly object sync = new();
+        private readonly Dictionary<string, GraphMessage> arrivals = new(StringComparer.Ordinal);
+        private bool releaseStarted;
+
+        public ParallelCollaborationRendezvousExecutor(string id, ParallelCollaborationTestPlan plan,
+            ParallelCollaborationTestRuntime runtime) : base(id, declareCrossRunShareable: true)
+        {
+            executorId = id;
+            this.plan = plan;
+            this.runtime = runtime;
+        }
+
+        public override async ValueTask<GraphMessage> HandleAsync(GraphMessage message, IWorkflowContext context,
+            CancellationToken cancellationToken = default)
+        {
+            var branchId = message.ParallelBranchId ?? throw new InvalidOperationException("A collaboration arrival has no stable branch ID.");
+            var expected = plan.Branches.SingleOrDefault(branch => branch.BranchId == branchId);
+            if (expected is null || message.SourceNode != expected.PublishAgentNodeId ||
+                message.ParallelForkNodeId != plan.ForkNodeId || message.ParallelActivationId is null)
+                throw new InvalidOperationException("The collaboration rendezvous received an unexpected branch message.");
+
+            var release = false;
+            lock (sync)
+            {
+                if (!arrivals.TryAdd(branchId, message)) throw new InvalidOperationException("A collaboration branch arrived more than once.");
+                if (arrivals.Count == plan.Branches.Length)
+                {
+                    if (releaseStarted) throw new InvalidOperationException("The collaboration rendezvous released more than once.");
+                    releaseStarted = true;
+                    release = true;
+                }
+            }
+            if (!release) return message with { SourceNode = executorId, SourcePort = "pending" };
+
+            if (plan.BeforeRelease is not null) await plan.BeforeRelease(cancellationToken);
+            var allArrivals = plan.Branches.Select(branch => arrivals[branch.BranchId]).ToArray();
+            ParallelCollaborationArrival arrival = default!;
+            foreach (var branch in plan.Branches)
+                arrival = await runtime.ArriveAsync(branch.BranchId, message.ParallelActivationId is { } activation ? activation : Guid.Empty);
+            if (!arrival.Released) throw new InvalidOperationException("All collaboration arrivals did not produce a release snapshot.");
+
+            foreach (var branch in plan.Branches)
+            {
+                var source = allArrivals.Single(item => item.ParallelBranchId == branch.BranchId);
+                await context.SendMessageAsync(source with
+                {
+                    SourceNode = executorId,
+                    SourcePort = $"branch.{branch.BranchId}",
+                    CollaborationTargetBranchId = branch.BranchId,
+                    CollaborationTransition = true
+                }, branch.ReadAgentNodeId, cancellationToken);
+            }
+            return message with { SourceNode = executorId, SourcePort = "released" };
+        }
+    }
 
     /// <summary>Evaluates only bounded, pure explicit-graph data nodes in one activation context.</summary>
     private sealed class ExplicitGraphDataEvaluator(WorkflowDefinition definition, string input,
@@ -457,7 +647,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         IAgentNodeExecutor? agents,
         ExplicitGraphDataEvaluator? dataEvaluator,
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> record, IWorkflowExecutionGate? gate,
-        string? scopeId, WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath)
+        string? scopeId, WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath,
+        ParallelCollaborationTestPlan? collaborationPlan = null,
+        ParallelCollaborationTestRuntime? collaborationRuntime = null)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -515,10 +707,20 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             {
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition))
                 {
-                    var incoming = revision.Definition.ExecutionConnections!.Single(edge => edge.Value.Source.NodeId == received.SourceNode &&
-                        edge.Value.Source.PortId == received.SourcePort && edge.Value.Target.NodeId == Id);
-                    await Emit(ExecutionEventKinds.ExecutionActivated, Id, invocation, $"execution:{incoming.Key}");
-                    incomingPort = incoming.Value.Target.PortId;
+                    if (received.CollaborationTransition && collaborationPlan is not null &&
+                        collaborationPlan.Branches.Any(branch => branch.ReadAgentNodeId == Id && branch.BranchId == received.CollaborationTargetBranchId))
+                    {
+                        incomingPort = "execute";
+                        await Emit(ExecutionEventKinds.ExecutionActivated, Id, invocation,
+                            $"collaboration:{received.CollaborationTargetBranchId}");
+                    }
+                    else
+                    {
+                        var incoming = revision.Definition.ExecutionConnections!.Single(edge => edge.Value.Source.NodeId == received.SourceNode &&
+                            edge.Value.Source.PortId == received.SourcePort && edge.Value.Target.NodeId == Id);
+                        await Emit(ExecutionEventKinds.ExecutionActivated, Id, invocation, $"execution:{incoming.Key}");
+                        incomingPort = incoming.Value.Target.PortId;
+                    }
                 }
                 else
                 {
@@ -622,7 +824,15 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                                     await Emit(ExecutionEventKinds.AgentRouteRejected, Id, invocation, null,
                                         JsonSerializer.Serialize(new { routeId, reason = routeSelection.RejectionReason }));
                             },
-                            RecordWithInvocation = (eventInvocationId, kind, data) => Emit(kind, Id, eventInvocationId, null, data)
+                            RecordWithInvocation = (eventInvocationId, kind, data) => Emit(kind, Id, eventInvocationId, null, data),
+                            CollaborationSendChannels = CollaborationChannels(Id, received.ParallelBranchId, publish: true),
+                            CollaborationReadChannels = CollaborationChannels(Id, received.ParallelBranchId, publish: false),
+                            CollaborationSend = collaborationRuntime is null || received.ParallelBranchId is not { } publishBranch ||
+                                CollaborationChannels(Id, publishBranch, publish: true) is null ? null :
+                                (channel, content, token) => collaborationRuntime.PublishAsync(Id, publishBranch, channel, content, invocation, token),
+                            CollaborationRead = collaborationRuntime is null || received.ParallelBranchId is not { } readBranch ||
+                                CollaborationChannels(Id, readBranch, publish: false) is null ? null :
+                                (channel, token) => collaborationRuntime.ReadAsync(Id, readBranch, channel, invocation, token)
                         }, message, cancellationToken),
                     _ => throw new InvalidOperationException("Unsupported executor type.")
                 };
@@ -700,6 +910,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 {
                     var configurable = revision.Definition.SchemaVersion == WorkflowSchemaVersions.ConfigurableParallelGraph;
                     var activationId = configurable ? invocation : (Guid?)null;
+                    if (collaborationPlan is not null && collaborationPlan.ForkNodeId == Id)
+                        collaborationRuntime!.Begin(invocation);
                     var outgoingEdges = configurable
                         ? revision.Definition.ExecutionConnections!.Values.Where(edge => edge.Source.NodeId == Id)
                         : revision.Definition.Connections.Values.Where(edge => edge.Source.NodeId == Id);
@@ -758,6 +970,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         private Guid ParallelJoinInvocation()
         {
             lock (parallelJoinSync) return parallelJoinInvocationId ??= Guid.NewGuid();
+        }
+
+        private IReadOnlyList<string>? CollaborationChannels(string nodeId, string? branchId, bool publish)
+        {
+            if (collaborationPlan is null || branchId is null) return null;
+            var branch = collaborationPlan.Branches.SingleOrDefault(candidate => candidate.BranchId == branchId);
+            if (branch is null || (publish ? branch.PublishAgentNodeId : branch.ReadAgentNodeId) != nodeId) return null;
+            return collaborationPlan.Channels;
         }
 
         private async Task<WorkflowExecutionResult> ExecuteWorkflowCall(string input, CancellationToken cancellationToken)

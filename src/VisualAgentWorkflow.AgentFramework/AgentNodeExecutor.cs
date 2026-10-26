@@ -347,6 +347,26 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                         }));
                 }
             }
+            if (invocation.CollaborationSendChannels is { Count: > 0 } sendChannels)
+            {
+                if (invocation.CollaborationSend is null)
+                    throw new InvalidOperationException("The runtime did not provide the assigned collaboration publish capability.");
+                using var schema = ChannelSchema([.. sendChannels], includeMessage: true);
+                functions.Add(new BoundMcpFunction("collaboration_publish",
+                    "Publish a bounded message to a channel assigned to this parallel collaboration branch.",
+                    schema.RootElement.Clone(), async (arguments, token) =>
+                        await invocation.CollaborationSend(RequiredString(arguments, "channel"), RequiredString(arguments, "message"), token)));
+            }
+            if (invocation.CollaborationReadChannels is { Count: > 0 } readChannels)
+            {
+                if (invocation.CollaborationRead is null)
+                    throw new InvalidOperationException("The runtime did not provide the assigned collaboration snapshot capability.");
+                using var schema = ChannelSchema([.. readChannels], includeMessage: false);
+                functions.Add(new BoundMcpFunction("collaboration_read",
+                    "Read the immutable message snapshot captured when every branch reached the collaboration rendezvous.",
+                    schema.RootElement.Clone(), async (arguments, token) =>
+                        await invocation.CollaborationRead(RequiredString(arguments, "channel"), token)));
+            }
             if (allowDelegation && configuration.Delegates is { } delegates)
             {
                 var profiles = invocation.Revision.Definition.AgentProfiles
@@ -373,6 +393,10 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                     {
                         InvocationId = childInvocationId,
                         ToolRequirements = profile.Tools,
+                        CollaborationSendChannels = null,
+                        CollaborationReadChannels = null,
+                        CollaborationSend = null,
+                        CollaborationRead = null,
                         RecordWithInvocation = (eventInvocationId, kind, data) => invocation.RecordEventForAsync(
                             eventInvocationId, kind, JsonSerializer.Serialize(new
                             {

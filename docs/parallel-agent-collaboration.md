@@ -1,6 +1,6 @@
 # Parallel agent collaboration
 
-This document defines the proposed first graph-level collaboration contract. It is a design specification, not an implemented feature; the current schema 1.32 runner does not expose shared channels or synchronization barriers between visible branches.
+This document defines the proposed first graph-level collaboration contract. The Core library contains a tested non-blocking exchange state machine. There is also an internal friend-test-only plan that overlays a one-rendezvous topology on real schema-1.32 definitions and exercises the actual `WorkflowRunner`; it is inaccessible to normal consumers and is never serialized. That adapter proof covers 3- and 8-branch graphs with one active Agent call, publish/read phase grants, targeted release, pre/post-release failure, timeout and cancellation around release, and exact event capture/JSON replay. It uses deterministic fake agents, not live model calls. The normal schema-1.32 runner still does not expose graph-level shared channels or synchronization barriers, and Studio and durable audit/playback presentation are not implemented.
 
 ## First release: one shared rendezvous
 
@@ -26,7 +26,7 @@ The collaboration group names the channel set and exact branch participants. A n
 
 The rendezvous accepts one arrival for each declared branch ID. An arrival parks the branch without holding an execution permit. When every participant arrives, the runtime freezes each channel's ordered message prefix and releases every branch. All post-rendezvous readers receive the same immutable snapshot, regardless of which branch finishes first. Concurrent writes are ordered by the runtime's observed append order; that order is evidence of observation, not a claim about causal order. This first exchange is one-way. Repeated rounds and writes after release require a later schema and a separately specified scheduling contract.
 
-The first version reuses the existing collaboration board's message bounds: 4,000 characters per message, 32 messages per channel, and 64 messages per board. It also bounds snapshot size and persisted read evidence so a large channel set cannot multiply the existing per-message limits without limit. The precise aggregate cap is a schema/host option and must be validated before activation; it is not inferred from the per-message cap.
+The first version reuses the existing collaboration board's message bounds: 4,000 characters per message, 32 messages per channel, and 64 messages per board. The Core exchange primitive caps the serialized immutable snapshot at 16,384 characters, matching the existing parallel-result bound; the workflow schema must preserve that bound in persisted read evidence rather than silently truncating what an agent saw.
 
 ## Failure, limits, and audit
 
@@ -36,7 +36,7 @@ Run evidence records the region and fork activation IDs, stable branch and agent
 
 ## Runtime requirements before release
 
-The runtime must prove that barrier waiters release execution capacity and that a region completes when the host's active-agent limit is below its participant count. Required tests cover all supported branch counts, stable identity across reorder/label edits, one arrival per participant, bypass and duplicate-arrival rejection, isolation across runs and fork activations, membership and phase authorization, identical immutable snapshots for all readers, message and evidence caps, timeout/cancellation/failure without partial output, and playback with inference disabled. Studio must show group membership, phase-appropriate tools, incomplete wiring, current arrivals, and the exact captured snapshot during replay. This feature must remain distinct from the profile-based `team_0` tool, which performs model-directed fan-out inside one agent invocation.
+The raw pinned-framework fixture demonstrates non-blocking fan-in and branch-specific release. The separate runner prototype builds on a valid schema-1.32 graph with a hidden internal plan that identifies each branch's publish and read Agent. It substitutes a runtime rendezvous executor for the authored edge between those two nodes, grants phase callbacks only to the matching Agent, records message/snapshot/arrival/release/abort events, and targets the released branch message back to its corresponding read Agent. Tests prove 3 and 8 branches at a fake Agent concurrency cap of one; the immutable snapshot matches across readers. Pre-phase and post-phase failures, a timeout before and after release, and cancellation before and immediately after release produce no completed/partial join output. Test plan timeout/cancellation hooks are internal and do not change ordinary schema-1.32 execution. The JSON event round-trip checks captured evidence fields and order; it does not establish a durable schema or a collaboration-aware visual graph playback UI. This prototype is evidence for a future public design, not shipped collaboration support. This feature must remain distinct from profile-based `team_0` fan-out.
 
 ## Design review
 
