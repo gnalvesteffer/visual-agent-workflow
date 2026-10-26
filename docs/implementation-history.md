@@ -218,3 +218,7 @@ The single-root source editor now creates immutable, content-addressed agent pro
 ## Agent node execution telemetry and timeout precedence
 
 The run graph shows model token totals, the last completed prompt's context-window usage while a later request remains in flight, cost when provider usage and prices are available, and recorded host context-compaction counts. Provider-internal compaction remains unobservable, and the adapter does not currently enable a host compaction strategy. An agent node timeout now overrides the model connection's default timeout; blank node settings use the connection timeout. Regression tests cover the 300-second node override over a 120-second connection default, in-flight context labeling, observed compaction counting, and unconfigured context metadata.
+
+## Registered folder projects in Studio navigation
+
+Opening a validated Git folder now records its canonical path in the local Studio project registry. The project selector and Projects list reopen registered folder roots in the source editor, and the folder's project-specific source snapshot can be downloaded. Project-scoped catalog APIs return HTTP 409 for folder-backed project IDs rather than silently selecting catalog storage. Folder-backed publishing and workflow execution are still unavailable; catalog migration and multi-root workspace support remain roadmap items. Regression tests cover idempotent folder registration, registry persistence, and isolation from catalog storage.

@@ -28,6 +28,28 @@ public sealed class StudioProjectWorkspaceTests : IDisposable
     }
 
     [Fact]
+    public void FolderProjectRegistration_IsIdempotentAndDoesNotCreateCatalogStorage()
+    {
+        Directory.CreateDirectory(directory);
+        var folder = Path.Combine(directory, "source");
+        Directory.CreateDirectory(folder);
+        var store = new StudioProjectStore(Path.Combine(directory, "studio"));
+
+        var registered = store.RegisterFolderSource(folder, "Research");
+        var duplicate = store.RegisterFolderSource(Path.Combine(folder, "."), "Different display name");
+        var reopenedStore = new StudioProjectStore(Path.Combine(directory, "studio"));
+
+        Assert.True(registered.IsFolderBacked);
+        Assert.Equal(registered.Id, duplicate.Id);
+        Assert.Equal(Path.GetFullPath(folder), reopenedStore.FolderProjectPath(registered.Id));
+        Assert.Throws<InvalidOperationException>(() => reopenedStore.ProjectDirectory(registered.Id));
+        Assert.True(reopenedStore.SetArchived(registered.Id, true));
+        var reopenedFolder = reopenedStore.RegisterFolderSource(folder, "Research");
+        Assert.False(reopenedFolder.IsArchived);
+        Assert.False(Directory.Exists(Path.Combine(directory, "studio", "projects", registered.Id)));
+    }
+
+    [Fact]
     public async Task FirstWorkspaceOpen_MigratesLegacyWorkflowAndSkillCatalogsToDefaultProject()
     {
         Directory.CreateDirectory(directory);

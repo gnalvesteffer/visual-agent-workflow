@@ -4,7 +4,10 @@ using VisualAgentWorkflow.Hosting;
 
 namespace VisualAgentWorkflow.Studio;
 
-public sealed record StudioProject(string Id, string Name, DateTimeOffset CreatedAt, bool IsArchived);
+public sealed record StudioProject(string Id, string Name, DateTimeOffset CreatedAt, bool IsArchived, string? FolderPath = null)
+{
+    public bool IsFolderBacked => FolderPath is not null;
+}
 
 /// <summary>Local Studio project metadata. Projects organize authoring files; they do not grant host capabilities.</summary>
 public sealed class StudioProjectStore
@@ -19,7 +22,8 @@ public sealed class StudioProjectStore
         Directory.CreateDirectory(studioDataDirectory);
         path = Path.Combine(studioDataDirectory, "projects.json");
         projects = File.Exists(path) ? JsonSerializer.Deserialize<List<StudioProject>>(File.ReadAllText(path)) ?? [] : [];
-        if (projects.Any(project => project is null || !ValidId(project.Id) || string.IsNullOrWhiteSpace(project.Name) || project.Name.Length > 80) ||
+        if (projects.Any(project => project is null || !ValidId(project.Id) || string.IsNullOrWhiteSpace(project.Name) || project.Name.Length > 80 ||
+                project.FolderPath is { } folderPath && (!Path.IsPathFullyQualified(folderPath) || Path.GetFullPath(folderPath) != folderPath)) ||
             projects.Select(project => project.Id).Distinct(StringComparer.Ordinal).Count() != projects.Count)
             throw new InvalidDataException("The Studio project catalog contains an invalid project.");
         if (projects.All(project => project.Id != DefaultProjectId))
@@ -56,6 +60,34 @@ public sealed class StudioProjectStore
         }
     }
 
+    public StudioProject RegisterFolderSource(string folderPath, string name)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(folderPath);
+        name = name?.Trim() ?? "";
+        if (name.Length is < 1 or > 80 || name.Any(char.IsControl))
+            throw new ArgumentException("The folder project name must contain between 1 and 80 printable characters.", nameof(name));
+        var canonicalPath = Path.GetFullPath(folderPath);
+        lock (gate)
+        {
+            var existing = projects.SingleOrDefault(project => project.FolderPath is not null &&
+                PathComparer.Equals(project.FolderPath, canonicalPath));
+            if (existing is not null)
+            {
+                if (existing.IsArchived)
+                {
+                    var reactivated = existing with { IsArchived = false };
+                    Save(projects.Select(project => project.Id == existing.Id ? reactivated : project).ToList());
+                    return reactivated;
+                }
+                return existing;
+            }
+            var project = new StudioProject("folder-" + Guid.NewGuid().ToString("N"), name,
+                DateTimeOffset.UtcNow, false, canonicalPath);
+            Save([.. projects, project]);
+            return project;
+        }
+    }
+
     public bool SetArchived(string id, bool archived)
     {
         if (id == DefaultProjectId && archived) throw new ArgumentException("The default project cannot be archived.", nameof(id));
@@ -75,9 +107,18 @@ public sealed class StudioProjectStore
 
     public string ProjectDirectory(string id)
     {
-        _ = GetActive(id);
+        var project = GetActive(id);
+        if (project.IsFolderBacked) throw new InvalidOperationException("Folder-backed projects store source in their selected folder.");
         return Path.Combine(Path.GetDirectoryName(path)!, "projects", id);
     }
+
+    public string FolderProjectPath(string id)
+    {
+        var project = GetActive(id);
+        return project.FolderPath ?? throw new InvalidOperationException("The selected project is not folder-backed.");
+    }
+
+    private static StringComparer PathComparer => OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
     private void Save(List<StudioProject> updated)
     {

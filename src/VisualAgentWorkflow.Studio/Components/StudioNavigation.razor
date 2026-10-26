@@ -5,7 +5,7 @@
     @if (ShowProjectSelector)
     {
         <label class="vaw-project-picker">Project
-            <select aria-label="Current project" value="@ProjectWorkspace.CurrentProjectId" @onchange="ChangeProject">
+            <select aria-label="Current project" value="@SelectedProjectId" @onchange="ChangeProject">
                 @foreach (var project in ProjectWorkspace.Projects.Where(project => !project.IsArchived))
                 {
                     <option value="@project.Id">@project.Name</option>
@@ -13,10 +13,10 @@
             </select>
         </label>
     }
-    <a data-vaw-route-link href="/projects/@ProjectWorkspace.CurrentProjectId" aria-current="@(ActivePage == "workflow" ? "page" : null)">Workflow</a>
-    <a data-vaw-route-link href="/projects/@ProjectWorkspace.CurrentProjectId/agents" aria-current="@(ActivePage == "agents" ? "page" : null)">Agents</a>
-    <a data-vaw-route-link href="/projects/@ProjectWorkspace.CurrentProjectId/skills" aria-current="@(ActivePage == "skills" ? "page" : null)">Skills</a>
-    <a data-vaw-route-link href="/projects/@ProjectWorkspace.CurrentProjectId/functions" aria-current="@(ActivePage == "functions" ? "page" : null)">Functions</a>
+    <a data-vaw-route-link href="@ProjectRoute" aria-current="@(ActivePage == "workflow" ? "page" : null)">Workflow</a>
+    <a data-vaw-route-link href="@ProjectAssetRoute("agents")" aria-current="@(ActivePage == "agents" ? "page" : null)">Agents</a>
+    <a data-vaw-route-link href="@ProjectAssetRoute("skills")" aria-current="@(ActivePage == "skills" ? "page" : null)">Skills</a>
+    <a data-vaw-route-link href="@ProjectAssetRoute("functions")" aria-current="@(ActivePage == "functions" ? "page" : null)">Functions</a>
     <a data-vaw-route-link href="/projects" aria-current="@(ActivePage == "projects" ? "page" : null)">Projects</a>
     <a data-vaw-route-link href="/source-project" aria-current="@(ActivePage == "source-project" ? "page" : null)">Open folder</a>
     <a data-vaw-route-link href="/mcp" aria-current="@(ActivePage == "mcp" ? "page" : null)">MCP library</a>
@@ -27,6 +27,17 @@
 
 @code {
     [Parameter] public bool ShowProjectSelector { get; set; } = true;
+    [Parameter] public string? ProjectId { get; set; }
+
+    private string SelectedProjectId => ProjectId ?? ProjectWorkspace.CurrentProjectId;
+    private StudioProject SelectedProject => ProjectWorkspace.Projects.Single(project => project.Id == SelectedProjectId);
+    private string ProjectRoute => SelectedProject.IsFolderBacked
+        ? $"/source-project/folder/{Uri.EscapeDataString(SelectedProject.Id)}"
+        : $"/projects/{Uri.EscapeDataString(SelectedProject.Id)}";
+
+    private string ProjectAssetRoute(string asset) => SelectedProject.IsFolderBacked
+        ? ProjectRoute
+        : $"/projects/{Uri.EscapeDataString(SelectedProject.Id)}/{asset}";
 
     private string ActivePage
     {
@@ -49,6 +60,11 @@
     {
         var projectId = args.Value?.ToString();
         if (!string.IsNullOrWhiteSpace(projectId))
-            Navigation.NavigateTo($"/projects/{Uri.EscapeDataString(projectId)}", forceLoad: true);
+        {
+            var project = ProjectWorkspace.Projects.Single(item => item.Id == projectId);
+            Navigation.NavigateTo(project.IsFolderBacked
+                ? $"/source-project/folder/{Uri.EscapeDataString(projectId)}"
+                : $"/projects/{Uri.EscapeDataString(projectId)}", forceLoad: true);
+        }
     }
 }

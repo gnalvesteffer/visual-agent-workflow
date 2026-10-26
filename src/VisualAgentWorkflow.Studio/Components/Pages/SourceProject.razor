@@ -1,12 +1,15 @@
 @page "/source-project"
+@page "/source-project/folder/{FolderProjectId}"
 @rendermode InteractiveServer
 @using VisualAgentWorkflow.Blazor
 @using System.Collections.Immutable
 @inject IToolBindingCatalog ToolCatalog
 @inject IAgentProviderCatalog ProviderCatalog
+@inject StudioProjectStore ProjectStore
+@inject NavigationManager Navigation
 
 <PageTitle>Project folder · Visual Agent Workflow</PageTitle>
-<StudioNavigation ShowProjectSelector="false" />
+<StudioNavigation ProjectId="@FolderProjectId" />
 <main class="vaw-provider-settings vaw-source-project">
     <header class="vaw-settings-heading">
         <div>
@@ -177,6 +180,8 @@
 </main>
 
 @code {
+    [Parameter] public string? FolderProjectId { get; set; }
+
     private string directoryPath = "";
     private string? openDirectory;
     private StudioProjectManifest? manifest;
@@ -248,6 +253,24 @@
         providers = await ProviderCatalog.ListProvidersAsync();
     }
 
+    protected override Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(FolderProjectId))
+        {
+            try
+            {
+                directoryPath = ProjectStore.FolderProjectPath(FolderProjectId);
+                LoadProjectFolder(directoryPath);
+            }
+            catch (Exception exception) when (exception is KeyNotFoundException or InvalidOperationException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+            {
+                ClearProjectFolder();
+                error = exception.Message;
+            }
+        }
+        return Task.CompletedTask;
+    }
+
     private void OpenProject()
     {
         busy = true;
@@ -257,51 +280,67 @@
         {
             var canonicalDirectory = Path.GetFullPath(directoryPath);
             var (loadedManifest, _) = StudioProjectSourceDirectory.Read(canonicalDirectory);
-            var loadedSource = new StudioFolderWorkflowSource(canonicalDirectory);
-            var loadedSkillSource = new StudioFolderSkillSource(canonicalDirectory);
-            var loadedProfileSource = new StudioFolderAgentProfileSource(canonicalDirectory);
-            var loadedGraphFunctionCatalog = new StudioFolderGraphFunctionCatalog(canonicalDirectory);
-            var loadedWorkflows = loadedSource.List().ToList();
-            openDirectory = canonicalDirectory;
-            manifest = loadedManifest;
-            fileTree = StudioProjectFileTree.Build(loadedManifest.Files);
-            source = loadedSource;
-            skillSource = loadedSkillSource;
-            profileSource = loadedProfileSource;
-            graphFunctionCatalog = loadedGraphFunctionCatalog;
-            projectSkills = loadedSkillSource.List().Select(skill => skill.Item).ToArray();
-            sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(loadedManifest);
-            workflows = loadedWorkflows;
-            workflowNames = ToWorkflowNames(loadedWorkflows);
-            dirty = false;
-            SetWorkflow(workflows.FirstOrDefault());
-            message = $"Opened {loadedManifest.ProjectName}.";
+            var project = ProjectStore.RegisterFolderSource(canonicalDirectory, loadedManifest.ProjectName);
+            Navigation.NavigateTo($"/source-project/folder/{Uri.EscapeDataString(project.Id)}", forceLoad: true);
         }
         catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
         {
-            manifest = null;
-            fileTree = [];
-            source = null;
-            skillSource = null;
-            profileSource = null;
-            graphFunctionCatalog = null;
-            projectSkills = [];
-            workflows = [];
-            openedWorkflow = null;
-            definition = null;
-            layout = null;
-            openedSkill = null;
-            openedProfile = null;
-            openedGraphFunction = null;
-            creatingNewGraphFunction = false;
-            graphFunctionDirty = false;
-            creatingNewSkill = false;
-            creatingNewProfile = false;
-            skillFormDirty = false;
-            profileFormDirty = false;
+            ClearProjectFolder();
             error = exception.Message;
         }
         finally { busy = false; }
+    }
+
+    private void LoadProjectFolder(string folder)
+    {
+        var canonicalDirectory = Path.GetFullPath(folder);
+        var (loadedManifest, _) = StudioProjectSourceDirectory.Read(canonicalDirectory);
+        var loadedSource = new StudioFolderWorkflowSource(canonicalDirectory);
+        var loadedSkillSource = new StudioFolderSkillSource(canonicalDirectory);
+        var loadedProfileSource = new StudioFolderAgentProfileSource(canonicalDirectory);
+        var loadedGraphFunctionCatalog = new StudioFolderGraphFunctionCatalog(canonicalDirectory);
+        var loadedWorkflows = loadedSource.List().ToList();
+        openDirectory = canonicalDirectory;
+        manifest = loadedManifest;
+        fileTree = StudioProjectFileTree.Build(loadedManifest.Files);
+        source = loadedSource;
+        skillSource = loadedSkillSource;
+        profileSource = loadedProfileSource;
+        graphFunctionCatalog = loadedGraphFunctionCatalog;
+        projectSkills = loadedSkillSource.List().Select(skill => skill.Item).ToArray();
+        sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(loadedManifest);
+        workflows = loadedWorkflows;
+        workflowNames = ToWorkflowNames(loadedWorkflows);
+        dirty = false;
+        SetWorkflow(workflows.FirstOrDefault());
+        error = null;
+        message = $"Opened {loadedManifest.ProjectName}.";
+    }
+
+    private void ClearProjectFolder()
+    {
+        openDirectory = null;
+        manifest = null;
+        fileTree = [];
+        source = null;
+        skillSource = null;
+        profileSource = null;
+        graphFunctionCatalog = null;
+        projectSkills = [];
+        workflows = [];
+        openedWorkflow = null;
+        definition = null;
+        layout = null;
+        openedSkill = null;
+        openedProfile = null;
+        openedGraphFunction = null;
+        creatingNewGraphFunction = false;
+        graphFunctionDirty = false;
+        creatingNewSkill = false;
+        creatingNewProfile = false;
+        skillFormDirty = false;
+        profileFormDirty = false;
+        dirty = false;
     }
 
     private Task OpenWorkflow(string workflowId)

@@ -98,6 +98,37 @@ app.Use(async (context, next) =>
     var selectedProject = context.Request.RouteValues.TryGetValue("projectId", out var value) ? value?.ToString() : null;
     if (selectedProject is not null)
     {
+        var store = context.RequestServices.GetRequiredService<StudioProjectStore>();
+        StudioProject project;
+        try { project = store.GetActive(selectedProject); }
+        catch (KeyNotFoundException) { context.Response.StatusCode = StatusCodes.Status404NotFound; return; }
+
+        if (project.IsFolderBacked)
+        {
+            var sourceArchive = HttpMethods.IsGet(context.Request.Method) &&
+                string.Equals(context.Request.Path.Value, $"/api/projects/{selectedProject}/source.zip", StringComparison.OrdinalIgnoreCase);
+            if (sourceArchive)
+            {
+                await next();
+                return;
+            }
+
+            if (context.Request.Path.StartsWithSegments("/api"))
+            {
+                context.Response.StatusCode = StatusCodes.Status409Conflict;
+                await context.Response.WriteAsJsonAsync(new
+                {
+                    error = "This project is folder-backed. Catalog publish and execution APIs are not available for folder projects yet.",
+                    projectId = project.Id,
+                    editor = $"/source-project/folder/{Uri.EscapeDataString(project.Id)}"
+                });
+                return;
+            }
+
+            context.Response.Redirect($"/source-project/folder/{Uri.EscapeDataString(project.Id)}");
+            return;
+        }
+
         try { context.RequestServices.GetRequiredService<StudioProjectWorkspace>().Select(selectedProject); }
         catch (KeyNotFoundException) { context.Response.StatusCode = StatusCodes.Status404NotFound; return; }
     }
@@ -107,8 +138,19 @@ app.UseStaticFiles();
 app.UseAntiforgery();
 app.MapWorkflowEndpoints();
 app.MapWorkflowEndpoints("/api/projects/{projectId}");
-app.MapGet("/api/projects/{projectId}/source.zip", async (StudioProjectWorkspace workspace, CancellationToken cancellationToken) =>
-    Results.File(await StudioProjectSourceArchive.CreateAsync(workspace, cancellationToken), "application/zip", "project-source.vawsrc.zip"));
+app.MapGet("/api/projects/{projectId}/source.zip", async (string projectId, StudioProjectStore store,
+    StudioProjectWorkspace workspace, CancellationToken cancellationToken) =>
+{
+    var project = store.GetActive(projectId);
+    byte[] archive;
+    if (project.IsFolderBacked)
+    {
+        var (manifest, files) = StudioProjectSourceDirectory.Read(store.FolderProjectPath(projectId));
+        archive = StudioProjectSourceArchive.CreateArchive(manifest, files);
+    }
+    else archive = await StudioProjectSourceArchive.CreateAsync(workspace, cancellationToken);
+    return Results.File(archive, "application/zip", $"{project.Name}.vawsrc.zip");
+});
 app.MapPost("/api/projects/import", async (HttpContext context, StudioProjectStore store,
     StudioProjectWorkspace workspace, CancellationToken cancellationToken) =>
 {

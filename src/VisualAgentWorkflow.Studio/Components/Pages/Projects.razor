@@ -40,9 +40,13 @@
             <article class="vaw-provider-card" @key="project.Id">
                 <h3>@project.Name @if (project.IsArchived) { <small>Archived</small> }</h3>
                 <p>Created @project.CreatedAt.ToLocalTime().ToString("g")</p>
+                @if (project.IsFolderBacked)
+                {
+                    <p class="vaw-help">Git folder · <code>@project.FolderPath</code></p>
+                }
                 @if (!project.IsArchived)
                 {
-                    <a class="vaw-button-link" href="/projects/@project.Id">Open project</a>
+                    <a class="vaw-button-link" href="@(project.IsFolderBacked ? $"/source-project/folder/{Uri.EscapeDataString(project.Id)}" : $"/projects/{Uri.EscapeDataString(project.Id)}")">Open project</a>
                     <a class="vaw-button-link" href="/api/projects/@project.Id/source.zip">Download source snapshot</a>
                     @if (project.Id != StudioProjectStore.DefaultProjectId)
                     {
