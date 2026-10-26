@@ -530,6 +530,14 @@ button.vaw-project-tree-file { cursor: pointer; }
 .vaw-project-tree-file.is-read-only { color: var(--vaw-color-muted); cursor: default; }
 .vaw-project-tree-file-name { min-inline-size: 0; overflow-wrap: anywhere; }
 .vaw-project-tree-legend { margin-block: .75rem 0; line-height: 1.5; }
+.vaw-project-snapshots { margin-block-end: 1rem; }
+.vaw-snapshot-list { display: grid; gap: .5rem; margin: .75rem 0; padding: 0; list-style: none; }
+.vaw-snapshot-list > li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; border: 1px solid var(--vaw-color-border); border-radius: .35rem; padding: .65rem .75rem; }
+.vaw-snapshot-list > li > div:first-child { display: flex; flex-wrap: wrap; align-items: baseline; gap: .45rem .8rem; min-inline-size: 0; }
+.vaw-snapshot-list code, .vaw-source-restore-preview code { color: var(--vaw-color-muted); font-size: .78rem; }
+.vaw-source-restore-preview { margin-block-start: .8rem; border-inline-start: 3px solid var(--vaw-color-focus); padding: .8rem 1rem; background: var(--vaw-color-surface-raised, var(--vaw-color-canvas)); }
+.vaw-source-restore-preview h3 { margin: 0 0 .5rem; font-size: 1rem; }
+.vaw-source-restore-preview p { margin-block: .4rem; }
 .vaw-folder-workflow-editor { min-inline-size: 0; }
 .vaw-folder-workflow-editor > .vaw-settings-section-heading { margin-block-end: .75rem; }
 .vaw-folder-skill-editor > .vaw-provider-form { padding: 0; }

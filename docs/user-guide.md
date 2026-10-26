@@ -18,6 +18,12 @@ On **Projects**, choose **Download source snapshot** for a deterministic ZIP con
 
 To convert a catalog-backed project into a Git folder, first stop Studio, then run `dotnet run --project src/VisualAgentWorkflow.Studio -- --migrate-project-to-folder <project-id> <new-folder>`. Include `--environment Development` when required by your local launch setup, and configure `WorkflowStudio:DataDirectory`/`WorkflowStudio__DataDirectory` the same way as Studio. The destination parent must exist and the destination folder itself must not. The command preserves the project ID and current editable workflow drafts, layouts, skills, profiles, and graph functions. Published/revision/audit history and run data stay in Studio's data directory; credentials and MCP grants are not copied. Studio and the command share an exclusive data-directory lock; the command fails if a Studio process is still using that directory. If Studio stops during migration, its next startup validates the journal and completes a published migration before opening writable project services.
 
+## Restore a project folder snapshot
+
+In an open folder project, use **Create restore point** after saving or discarding editor changes. Studio validates the complete current manifest and its indexed files, then saves a content-addressed copy under `.vaw/snapshots/`. The first restore point adds `/.vaw/` to the project `.gitignore`, preserving existing ignore rules. A project can hold up to 20 restore points and 256 MiB; Studio does not silently remove old points when the limit is reached.
+
+Choose **Preview restore** to compare the captured manifest with the current source. Studio blocks restore while there are unsaved editor changes or an external folder conflict. Confirm **Restore this project snapshot** to switch the manifest to that validated source state. Studio keeps newer immutable files and unindexed files on disk, so inspect the change in Git afterward. A restore point is for source recovery only; folder-backed workflows cannot be run from snapshots yet. You can delete individual restore points from the list or remove `.vaw/` in your file manager; doing so never changes the project manifest or source files. Corrupt or missing sidecar data disables local restores but does not prevent opening or exporting project source.
+
 ## Build workflows for your own service
 
 Studio can act as an IDE for workflows that your own application will run. You can also embed the designer in your application or use the engine without a designer. These are independent integration choices.

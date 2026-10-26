@@ -77,6 +77,7 @@ builder.Services.AddSingleton<StudioModelProviderStore>(services => new StudioMo
 builder.Services.AddSingleton<IAgentProviderCatalog>(services => { _ = services.GetRequiredService<StudioModelProviderStore>(); return services.GetRequiredService<IAgentNodeExecutor>(); });
 builder.Services.AddSingleton(projectStore);
 builder.Services.AddSingleton(new StudioOpenWorkspaceStore(studioDataDirectory, projectStore));
+builder.Services.AddSingleton<StudioProjectSnapshotStore>();
 builder.Services.AddScoped<StudioProjectWorkspace>(services => new StudioProjectWorkspace(studioDataDirectory,
     services.GetRequiredService<StudioProjectStore>(), services.GetRequiredService<LocalWorkflowRuntime>()));
 var runStoreKind = builder.Configuration["WorkflowStudio:RunStore"] ?? "file";

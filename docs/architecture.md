@@ -45,6 +45,8 @@ Project-owned authoring assets are workflows, skills, agent profiles, and pure g
 
 The folder editor's source save order keeps the manifest as the commit pointer. It validates the project and saves a content-addressed skill/profile/function asset first, rechecks the observed manifest, then atomically replaces that manifest. This is a local single-process conflict check, not a cross-process filesystem transaction.
 
+Manual local restore points use the same validated ZIP contract inside ignored `.vaw/snapshots/`. They include one manifest and exactly its indexed assets, not an arbitrary recursive folder copy. Restore validates the point, adds only missing immutable asset files, checks the source manifest hash shown in the preview, then atomically switches the manifest pointer. Newer and unindexed files remain untouched. Missing or corrupt sidecar data affects restore history only; folder source and exports remain usable. Snapshot data is capped at 20 points and 256 MiB and is never silently pruned. The folder editor cannot execute workflows yet, so a restore point cannot be selected as a test run.
+
 ```mermaid
 sequenceDiagram
     actor Author

@@ -112,6 +112,7 @@ jobs:
           python3 scripts/workbench_smoke.py
           python3 scripts/ui_skill_review.py
           python3 scripts/folder_function_smoke.py
+          python3 scripts/folder_snapshot_smoke.py
           python3 scripts/multi_root_workspace_smoke.py
           python3 scripts/graph_canvas_smoke.py
           python3 scripts/workflow_reuse_smoke.py

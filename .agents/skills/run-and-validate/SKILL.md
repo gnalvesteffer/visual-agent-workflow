@@ -51,4 +51,6 @@ The checkpoint process smoke also checks saved/completed reconciliation metadata
 
 The folder graph-function smoke uses scripts/folder_function_smoke.py with the same temporary-project and browser setup as the profile smoke; it checks immutable source saves and revision loading without writing into the repository.
 
+`python3 scripts/folder_snapshot_smoke.py --browser-executable /usr/bin/chromium` checks local restore-point capture, external change reload, preview, and manifest-pointer restore. It uses a disposable temporary source folder, preserves newer immutable assets, and requires a running Development Studio.
+
 `python3 scripts/folder_change_smoke.py --base-url http://127.0.0.1:5099 --browser-executable /usr/bin/chromium` validates external folder-change detection, clean reload, and preservation of an unsaved workflow until explicit discard-and-reload. It uses a disposable folder and requires a running Development Studio.

@@ -190,6 +190,95 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
     }
 
     [Fact]
+    public void ProjectSnapshot_RestoresTheValidatedManifestWithoutOverwritingUnindexedFiles()
+    {
+        var folder = Path.Combine(directory, "snapshot-project");
+        var first = CreateSkillProject(folder, "1.0.0");
+        var snapshots = new StudioProjectSnapshotStore();
+        var snapshot = snapshots.Create(folder);
+        var unindexedPath = Path.Combine(folder, "notes.txt");
+        File.WriteAllText(unindexedPath, "Keep this unindexed file.");
+
+        var second = new StudioFolderSkillSource(folder).SaveNewVersion("snapshot-skill", "2.0.0",
+            "Snapshot skill", "Second revision.", "", first.ManifestHash);
+        var currentManifestHash = StudioProjectSourceArchive.ComputeManifestHash(
+            StudioProjectSourceDirectory.Read(folder).Manifest);
+        var restored = snapshots.Restore(folder, snapshot.Id, currentManifestHash);
+        var (restoredManifest, restoredFiles) = StudioProjectSourceDirectory.Read(folder);
+
+        Assert.True(restored.IsValid);
+        Assert.Equal(snapshot.ManifestHash, StudioProjectSourceArchive.ComputeManifestHash(restoredManifest));
+        Assert.Contains(restoredManifest.Files, file => file.Id == "snapshot-skill" && file.Version == "1.0.0");
+        Assert.DoesNotContain(restoredManifest.Files, file => file.Id == "snapshot-skill" && file.Version == "2.0.0");
+        Assert.Contains(first.AssetPath, restoredFiles.Keys);
+        Assert.True(File.Exists(Path.Combine(folder, second.RelativePath)));
+        Assert.Equal("Keep this unindexed file.", File.ReadAllText(unindexedPath));
+        Assert.Contains(snapshots.List(folder), item => item.Id == snapshot.Id && item.IsValid);
+    }
+
+    [Fact]
+    public void ProjectSnapshot_RejectsStaleRestorePreviewAndSidecarDeletionDoesNotInvalidateProject()
+    {
+        var folder = Path.Combine(directory, "snapshot-deletion-project");
+        var first = CreateSkillProject(folder, "1.0.0");
+        var snapshots = new StudioProjectSnapshotStore();
+        var snapshot = snapshots.Create(folder);
+        var second = new StudioFolderSkillSource(folder).SaveNewVersion("snapshot-skill", "2.0.0",
+            "Snapshot skill", "Second revision.", "", first.ManifestHash);
+
+        Assert.Throws<IOException>(() => snapshots.Restore(folder, snapshot.Id, first.ManifestHash));
+        Assert.Contains(second.RelativePath, StudioProjectSourceDirectory.Read(folder).Manifest.Files.Select(file => file.Path));
+
+        Directory.Delete(Path.Combine(folder, ".vaw"), recursive: true);
+
+        Assert.Empty(snapshots.List(folder));
+        Assert.Equal("snapshot-deletion-project", StudioProjectSourceDirectory.Read(folder).Manifest.ProjectId);
+        Assert.NotEmpty(StudioProjectSourceArchive.CreateArchive(
+            StudioProjectSourceDirectory.Read(folder).Manifest, StudioProjectSourceDirectory.Read(folder).Files));
+    }
+
+    [Fact]
+    public void ProjectSnapshot_ReportsCorruptSidecarEntriesWithoutInvalidatingSource()
+    {
+        var folder = Path.Combine(directory, "snapshot-corrupt-project");
+        CreateSkillProject(folder, "1.0.0");
+        var snapshots = new StudioProjectSnapshotStore();
+        var snapshot = snapshots.Create(folder);
+        File.WriteAllText(Path.Combine(folder, ".vaw", "snapshots", snapshot.Id + ".vawsrc.zip"), "corrupt");
+
+        var entry = Assert.Single(snapshots.List(folder));
+
+        Assert.False(entry.IsValid);
+        Assert.NotNull(entry.Problem);
+        Assert.Equal("snapshot-corrupt-project", StudioProjectSourceDirectory.Read(folder).Manifest.ProjectId);
+    }
+
+    [Fact]
+    public void ProjectSnapshot_RequiresTheSidecarIgnoreRuleWithoutDiscardingExistingIgnoreRules()
+    {
+        var folder = Path.Combine(directory, "snapshot-ignore-project");
+        var project = CreateSkillProject(folder, "1.0.0");
+        File.WriteAllText(Path.Combine(folder, ".gitignore"), "bin/\nobj/\n");
+
+        new StudioProjectSnapshotStore().Create(folder);
+
+        Assert.Equal("bin/\nobj/\n/.vaw/\n", File.ReadAllText(Path.Combine(folder, ".gitignore")));
+        Assert.True(File.Exists(Path.Combine(folder, project.AssetPath)));
+    }
+
+    private static (string ManifestHash, string AssetPath) CreateSkillProject(string folder, string version)
+    {
+        var content = Encoding.UTF8.GetBytes(StudioProjectSourceArchive.SerializeSkillAsset(
+            new SkillLibraryItem(WorkflowSkill.Create("snapshot-skill", version, "Snapshot skill", "First revision."), "")));
+        var hash = StudioProjectSourceArchive.ComputeContentHash(content);
+        var path = StudioProjectSourceArchive.SkillAssetPath("snapshot-skill", version, hash);
+        var asset = new StudioProjectFile("skill", "snapshot-skill", version, path, hash);
+        var manifest = new StudioProjectManifest("1.0", Path.GetFileName(folder), "Snapshot project", [asset]);
+        StudioProjectSourceDirectory.Write(folder, manifest, new Dictionary<string, byte[]> { [path] = content });
+        return (StudioProjectSourceArchive.ComputeManifestHash(manifest), path);
+    }
+
+    [Fact]
     public void Read_RejectsContentHashMismatchAndUnsafeManifestPaths()
     {
         var content = Encoding.UTF8.GetBytes("{}\n");

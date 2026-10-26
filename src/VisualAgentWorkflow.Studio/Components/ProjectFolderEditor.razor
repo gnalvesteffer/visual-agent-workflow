@@ -4,6 +4,7 @@
 @inject IToolBindingCatalog ToolCatalog
 @inject IAgentProviderCatalog ProviderCatalog
 @inject StudioProjectStore ProjectStore
+@inject StudioProjectSnapshotStore SnapshotStore
 
 <section id="@PanelId" class="vaw-project-folder-editor" role="tabpanel" aria-labelledby="@TabId"
     aria-label="Project folder editor" hidden="@(!IsActive)" aria-hidden="@(!IsActive)">
@@ -27,6 +28,48 @@
         }
         @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
         @if (message is not null) { <p role="status">@message</p> }
+        <section class="vaw-settings-section vaw-project-snapshots" aria-label="Local restore points">
+            <div class="vaw-settings-section-heading">
+                <div><h2>Local restore points</h2><p>Save or restore a validated copy of this project’s indexed source. Restore points stay in ignored <code>.vaw/</code> and never enter exports.</p></div>
+                <button type="button" class="vaw-secondary" @onclick="CreateSnapshot" disabled="@(busy || HasUnsavedEdits || externalSourceChanged)">Create restore point</button>
+            </div>
+            @if (snapshotError is not null) { <p role="status" class="vaw-error">Local restore points are unavailable: @snapshotError Project source remains available.</p> }
+            @if (snapshots.Count == 0 && snapshotError is null) { <p class="vaw-empty-state">No local restore points yet.</p> }
+            @if (snapshots.Count > 0)
+            {
+                <ul class="vaw-snapshot-list">
+                    @foreach (var snapshot in snapshots)
+                    {
+                        <li @key="snapshot.Id">
+                            <div><strong>@snapshot.CreatedAtUtc.ToLocalTime().ToString("g")</strong>
+                                <code>@snapshot.Id[..Math.Min(snapshot.Id.Length, 12)]</code>
+                                <span>@(snapshot.ArchiveBytes / 1024) KB</span>
+                                @if (!snapshot.IsValid) { <span class="vaw-error">Unavailable: @snapshot.Problem</span> }
+                            </div>
+                            <div class="vaw-provider-actions">
+                                <button type="button" class="vaw-secondary" @onclick="() => PreviewSnapshot(snapshot.Id)" disabled="@(busy || !snapshot.IsValid || HasUnsavedEdits || externalSourceChanged)">Preview restore</button>
+                                <button type="button" class="vaw-danger-quiet" @onclick="() => RequestSnapshotDelete(snapshot.Id)" disabled="@busy">@(deleteSnapshotId == snapshot.Id ? "Confirm delete point" : "Delete point")</button>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            }
+            @if (snapshotPreview is { } preview)
+            {
+                <aside class="vaw-source-restore-preview" role="group" aria-label="Restore preview">
+                    <h3>Restore preview</h3>
+                    <p>Current source <code>@preview.CurrentManifestHash[..12]</code> · restore point <code>@preview.SnapshotManifestHash[..12]</code></p>
+                    <p>@preview.AddedFiles files will become indexed, @preview.RemovedFiles will leave the manifest, and @preview.ChangedFiles have changed content.</p>
+                    <p>Restore switches the project manifest after validating and adding any missing immutable files. Newer or unindexed files are kept. No files are merged or deleted.</p>
+                    @if (HasUnsavedEdits || externalSourceChanged)
+                    { <p class="vaw-error">Save or discard edits and reload the current folder before restoring.</p> }
+                    <div class="vaw-provider-actions">
+                        <button type="button" class="vaw-secondary" @onclick="CancelSnapshotPreview">Cancel</button>
+                        <button type="button" class="vaw-danger" @onclick="RestoreSnapshot" disabled="@(busy || HasUnsavedEdits || externalSourceChanged)">Restore this project snapshot</button>
+                    </div>
+                </aside>
+            }
+        </section>
     }
     @if (manifest is not null && source is not null)
     {
@@ -189,6 +232,10 @@
     private bool graphFunctionDirty;
     private int graphFunctionEditorGeneration;
     private string sourceManifestHash = "";
+    private IReadOnlyList<StudioProjectSnapshot> snapshots = [];
+    private StudioProjectSnapshotPreview? snapshotPreview;
+    private string? snapshotError;
+    private string? deleteSnapshotId;
     private string skillId = "";
     private string skillVersion = "1.0.0";
     private string skillName = "";
@@ -330,6 +377,7 @@
         graphFunctionCatalog = loadedGraphFunctionCatalog;
         projectSkills = loadedSkillSource.List().Select(skill => skill.Item).ToArray();
         sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(loadedManifest);
+        RefreshSnapshots();
         workflows = loadedWorkflows;
         workflowNames = ToWorkflowNames(loadedWorkflows);
         dirty = false;
@@ -339,6 +387,102 @@
         error = null;
         message = $"Opened {loadedManifest.ProjectName}.";
     }
+
+    private void RefreshSnapshots()
+    {
+        if (openDirectory is null) return;
+        try
+        {
+            snapshots = SnapshotStore.List(openDirectory);
+            snapshotError = null;
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            snapshots = [];
+            snapshotError = exception.Message;
+        }
+    }
+
+    private void CreateSnapshot()
+    {
+        if (openDirectory is null || HasUnsavedEdits || externalSourceChanged) return;
+        busy = true;
+        snapshotError = null;
+        try
+        {
+            var snapshot = SnapshotStore.Create(openDirectory);
+            RefreshSnapshots();
+            message = $"Created local restore point {snapshot.Id[..12]}.";
+            snapshotPreview = null;
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException or System.Security.SecurityException or System.Text.Json.JsonException)
+        {
+            snapshotError = exception.Message;
+        }
+        finally { busy = false; }
+    }
+
+    private void PreviewSnapshot(string id)
+    {
+        if (openDirectory is null || HasUnsavedEdits || externalSourceChanged) return;
+        try
+        {
+            snapshotPreview = SnapshotStore.Preview(openDirectory, id);
+            deleteSnapshotId = null;
+            snapshotError = null;
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or InvalidDataException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        {
+            snapshotPreview = null;
+            snapshotError = exception.Message;
+            RefreshSnapshots();
+        }
+    }
+
+    private async Task RestoreSnapshot()
+    {
+        if (openDirectory is null || snapshotPreview is not { } preview || HasUnsavedEdits || externalSourceChanged) return;
+        busy = true;
+        try
+        {
+            var restored = SnapshotStore.Restore(openDirectory, preview.Id, preview.CurrentManifestHash);
+            snapshotPreview = null;
+            deleteSnapshotId = null;
+            await LoadProjectFolderAsync(openDirectory);
+            message = $"Restored project source from {restored.Id[..12]}. Review the change in Git.";
+            RefreshSnapshots();
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException or System.Security.SecurityException or System.Text.Json.JsonException)
+        {
+            snapshotError = exception.Message;
+            snapshotPreview = null;
+        }
+        finally { busy = false; }
+    }
+
+    private void RequestSnapshotDelete(string id)
+    {
+        if (deleteSnapshotId != id)
+        {
+            deleteSnapshotId = id;
+            return;
+        }
+        if (openDirectory is null) return;
+        try
+        {
+            SnapshotStore.Delete(openDirectory, id);
+            deleteSnapshotId = null;
+            snapshotPreview = null;
+            RefreshSnapshots();
+            message = "Deleted the selected local restore point. Project source was not changed.";
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            snapshotError = exception.Message;
+        }
+    }
+
+    private void CancelSnapshotPreview() => snapshotPreview = null;
 
     private Task ReloadFolder() => ReloadFolder(discardLocalEdits: false);
 
