@@ -169,25 +169,56 @@
     --vaw-graph-color-error: #ff7299;
     --vaw-graph-color-warning: #ffd36e;
     --vaw-graph-color-grid: #60f6ff17;
-    background-image: radial-gradient(48rem 20rem at 86% -8rem, #60f6ff08, transparent 72%);
+    --vaw-neon-glow-soft: 0 4px 14px #60f6ff32, 0 0 28px #60f6ff18;
+    --vaw-neon-glow-strong: 0 5px 18px #60f6ff52, 0 0 36px #60f6ff30;
+    background-image:
+        radial-gradient(42rem 24rem at 88% 0%, #60f6ff12, transparent 72%),
+        radial-gradient(32rem 20rem at 8% 92%, #d75cff0a, transparent 76%);
 }
 
 :root[data-vaw-theme="neon"] .vaw-app .vaw-primary:not(:disabled) {
-    box-shadow: 0 0 0 1px #60f6ff24, 0 0 12px #60f6ff20;
+    box-shadow: var(--vaw-neon-glow-soft);
 }
 
 :root[data-vaw-theme="neon"] .vaw-app .vaw-node-drag[aria-pressed="true"],
 :root[data-vaw-theme="neon"] .vaw-app .vaw-node-multi-selected article {
-    box-shadow: 0 0 14px #60f6ff24;
+    box-shadow: var(--vaw-neon-glow-strong);
 }
 
 :root[data-vaw-theme="neon"] .vaw-studio-navigation a[aria-current="page"] {
-    box-shadow: inset 0 -2px #60f6ff;
+    box-shadow: inset 0 -2px #60f6ff, 0 4px 14px -8px #60f6ffb8;
+}
+
+:root[data-vaw-theme="neon"] .vaw-app .vaw-ide-activitybar > a.is-active,
+:root[data-vaw-theme="neon"] .vaw-app .vaw-ide-document-tabs a[aria-current="page"],
+:root[data-vaw-theme="neon"] .vaw-app .vaw-file-tab.is-active,
+:root[data-vaw-theme="neon"] .vaw-app .vaw-workflow-document-tab:has([aria-current="page"]),
+:root[data-vaw-theme="neon"] .vaw-app .vaw-explorer-file.is-selected {
+    box-shadow: inset 0 0 0 1px #60f6ff48, 0 0 16px #60f6ff26;
+}
+
+:root[data-vaw-theme="neon"] .vaw-app .vaw-canvas-viewport {
+    box-shadow: inset 0 0 46px #60f6ff0c, 0 0 20px #60f6ff24;
+}
+
+:root[data-vaw-theme="neon"] .vaw-app .vaw-wire {
+    filter: drop-shadow(0 0 3px #60f6ff66);
+}
+
+:root[data-vaw-theme="neon"] .vaw-app .vaw-node-drag:hover,
+:root[data-vaw-theme="neon"] .vaw-app .vaw-node-drag[aria-pressed="true"] {
+    box-shadow: inset 0 0 0 1px #60f6ff62, 0 0 16px #60f6ff30;
+}
+
+:root[data-vaw-theme="neon"] .vaw-app :where(button, a):not(:disabled):hover {
+    box-shadow: var(--vaw-neon-glow-soft);
 }
 
 :root[data-vaw-theme="neon"] .vaw-app :where(button, input, select, textarea, a, summary):focus-visible {
-    box-shadow: 0 0 0 2px #60f6ff30;
+    box-shadow: 0 0 0 2px #60f6ff48, 0 4px 14px #60f6ff46;
 }
+
+:root[data-vaw-theme="neon"] .vaw-ide-titlebar { box-shadow: 0 1px 0 #60f6ff24, 0 5px 18px -14px #60f6ff88; }
 
 @media (prefers-reduced-motion: reduce) {
     .vaw-app *, .vaw-app *::before, .vaw-app *::after {
@@ -557,7 +588,18 @@
 .vaw-output-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-block-end: .5rem; }
 .vaw-workflow-result { margin: 0; }
 .vaw-inspection-document-bar { display: flex; align-items: center; gap: .75rem; padding: .5rem .75rem; border-block-end: 1px solid var(--vaw-border); }
-.vaw-studio-in-ide .vaw-viewer { flex: 1 1 0; min-block-size: 0; overflow: auto; margin: 0; border: 0; border-radius: 0; }
+.vaw-studio-in-ide .vaw-viewer { display: flex; flex: 1 1 0; flex-direction: column; min-block-size: 0; overflow: hidden; margin: 0; border: 0; border-radius: 0; }
+.vaw-studio-in-ide .vaw-viewer > .vaw-run-header { flex: 0 0 auto; margin: 0; padding: .45rem .75rem; }
+.vaw-studio-in-ide .vaw-viewer > .vaw-run-header h2 { margin: 0 0 .15rem; font-size: .9rem; }
+.vaw-studio-in-ide .vaw-viewer > .vaw-run-header > :where(div, p, small) { margin-block: .12rem; font-size: .7rem; }
+.vaw-studio-in-ide .vaw-viewer > .vaw-graph-editor { display: flex; flex: 1 1 0; flex-direction: column; min-block-size: 15rem; max-block-size: none; overflow: hidden; }
+.vaw-studio-in-ide .vaw-viewer > .vaw-graph-editor > .vaw-canvas-toolbar { flex: 0 0 auto; }
+.vaw-studio-in-ide .vaw-viewer .vaw-canvas-workspace { flex: 1 1 0; grid-template-rows: minmax(0, 1fr); min-block-size: 0; }
+.vaw-studio-in-ide .vaw-viewer .vaw-canvas-workspace.vaw-with-properties { grid-template-columns: minmax(0, 1fr) minmax(14rem, 17rem); }
+.vaw-studio-in-ide .vaw-viewer .vaw-canvas-viewport { flex: 1 1 0; block-size: auto; max-block-size: none; min-block-size: 0; }
+.vaw-studio-in-ide .vaw-viewer .vaw-properties { min-block-size: 0; overflow: auto; }
+.vaw-studio-in-ide .vaw-viewer > details { flex: 0 1 24vh; min-block-size: 2rem; max-block-size: 28vh; overflow: auto; margin-block: .35rem 0; }
+.vaw-studio-in-ide .vaw-viewer > .vaw-collaboration-playback { flex: 0 1 20vh; max-block-size: 20vh; overflow: auto; }
 @media (max-width: 62rem) {
     .vaw-document-actions { gap: .2rem; }
     .vaw-studio-in-ide .vaw-document-actions button { padding-inline: .4rem; }
@@ -570,6 +612,8 @@
     .vaw-document-breadcrumb { flex-basis: 1.8rem; }
     .vaw-studio-in-ide .vaw-canvas-workspace.vaw-with-properties { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(12rem, 1fr) minmax(0, 10rem); }
     .vaw-studio-in-ide .vaw-bottom-tray { flex-basis: 9rem; }
+    .vaw-studio-in-ide .vaw-viewer .vaw-canvas-workspace.vaw-with-properties { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 9rem); }
+    .vaw-studio-in-ide .vaw-viewer > details { flex-basis: 18vh; max-block-size: 22vh; }
     .vaw-document-statusbar > :last-child { display: none; }
 }
 .vaw-source-project { display: flex; flex-direction: column; inline-size: 100%; max-inline-size: none; min-block-size: 0; margin: 0; padding: .45rem; overflow: auto; }

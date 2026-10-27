@@ -204,11 +204,16 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             page.wait_for_function("""() => {
                 const canvas = document.querySelector('.vaw-viewer .vaw-canvas-viewport')?.getBoundingClientRect();
                 const nodes = [...document.querySelectorAll('.vaw-viewer .vaw-canvas-world [data-node-id]')];
-                return canvas && nodes.length > 0 && nodes.some(node => {
+                return canvas && canvas.top >= 0 && canvas.bottom <= innerHeight && nodes.length > 0 && nodes.some(node => {
                     const box = node.getBoundingClientRect();
-                    return box.width > 0 && box.height > 0 && box.right > canvas.left && box.left < canvas.right && box.bottom > canvas.top && box.top < canvas.bottom;
+                    return box.width > 0 && box.height > 0 && box.right > canvas.left && box.left < canvas.right && box.bottom > canvas.top && box.top < canvas.bottom && box.bottom <= innerHeight;
                 });
-            }""")
+            }""", timeout=10000)
+            viewer_size = page.locator(".vaw-viewer").evaluate("e => ({height: e.clientHeight, scrollHeight: e.scrollHeight})")
+            assert viewer_size["height"] > 0 and viewer_size["scrollHeight"] <= viewer_size["height"] + 2, (
+                f"IDE run inspector should fit the graph without a tall outer scroll: {viewer_size}"
+            )
+            page.screenshot(path="/tmp/vaw-run-inspector-ide.png")
             page.get_by_role("button", name="Back to workflow", exact=True).click()
 
             collapse = page.get_by_role("button", name="Collapse workflow details")
@@ -235,6 +240,17 @@ def verify(base_url: str, browser_executable: str | None) -> None:
 
             expect(page.get_by_label("Color theme", exact=True)).to_be_enabled()
             scrollbar_track_before = page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--vaw-scrollbar-track').trim()")
+            page.get_by_label("Color theme", exact=True).select_option("neon")
+            neon_styles = page.evaluate("""() => ({
+                canvas: getComputedStyle(document.querySelector('.vaw-canvas-viewport')).boxShadow,
+                wire: getComputedStyle(document.querySelector('.vaw-wire')).filter,
+                selected: getComputedStyle(document.querySelector('.vaw-explorer-file.is-selected')).boxShadow,
+                action: getComputedStyle(document.querySelector('.vaw-primary')).boxShadow
+            })""")
+            assert neon_styles["canvas"] != "none", neon_styles
+            assert neon_styles["wire"].startswith("drop-shadow("), neon_styles
+            assert neon_styles["selected"] != "none" and neon_styles["action"] != "none", neon_styles
+            page.screenshot(path="/tmp/vaw-neon-glow.png")
             page.get_by_label("Color theme", exact=True).select_option("light")
             scrollbar_track_after = page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--vaw-scrollbar-track').trim()")
             assert scrollbar_track_after and scrollbar_track_after != scrollbar_track_before, (
