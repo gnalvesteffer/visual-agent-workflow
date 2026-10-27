@@ -92,14 +92,27 @@ def check(browser, screenshots):
     expect(workbench(designer).get_by_role("spinbutton", name="Node X", exact=True)).to_have_value(str(moved_x))
     expect(workbench(designer).get_by_label("Node comment", exact=True)).to_have_attribute("rows", "6")
     workbench(designer).get_by_label("Node label", exact=True).fill("Normalize input")
-    workbench(designer).get_by_label("Node comment", exact=True).fill("Convert the incoming text before forwarding it.")
+    short_comment = "Short note."
+    workbench(designer).get_by_label("Node comment", exact=True).fill(short_comment)
     workbench(designer).get_by_label("Node comment", exact=True).press("Tab")
     expect(handle).to_contain_text("Normalize input")
-    expect(step.locator(".vaw-node-comment")).to_have_text("Convert the incoming text before forwarding it.")
+    expect(step.locator(".vaw-node-comment")).to_have_text(short_comment)
+    anchor = step.locator(".vaw-tooltip-anchor")
     tooltip = step.locator("[role='tooltip']")
-    step.locator(".vaw-tooltip-anchor").hover()
+    expect(anchor).to_have_attribute("data-tooltip-truncated", "false")
+    expect(anchor).not_to_have_attribute("aria-describedby")
+    anchor.hover()
+    expect(tooltip).not_to_be_visible()
+
+    long_comment = ("This comment is intentionally long enough to exceed the compact node preview and "
+                    "should be available in the full tooltip. " * 3)
+    workbench(designer).get_by_label("Node comment", exact=True).fill(long_comment)
+    workbench(designer).get_by_label("Node comment", exact=True).press("Tab")
+    expect(anchor).to_have_attribute("data-tooltip-truncated", "true")
+    expect(anchor).to_have_attribute("aria-describedby")
+    anchor.hover()
     expect(tooltip).to_be_visible()
-    expect(tooltip).to_have_text("Convert the incoming text before forwarding it.")
+    expect(tooltip).to_have_text(long_comment)
 
     # Membership is explicit; moving the section moves only its nodes in one edit.
     workbench(designer).get_by_label("New section label", exact=True).fill("Text preparation")

@@ -260,6 +260,7 @@ function draw(state) {
     state.world.style.transform = `scale(${zoom}) translate(${state.camera.x}px, ${state.camera.y}px)`;
     updateGrid(state);
     separateReadOnlyNodes(state);
+    updateTooltipState(state.root);
     const world = state.world.getBoundingClientRect();
     const rects = new Map();
     for (const [id, node] of state.nodes) {
@@ -315,6 +316,17 @@ function draw(state) {
             margin + (state.pendingFit.x + state.camera.x) * targetZoom - state.viewport.clientWidth / 2,
             margin + (state.pendingFit.y + state.camera.y) * targetZoom - state.viewport.clientHeight / 2);
         state.pendingFit = null;
+    }
+}
+
+function updateTooltipState(root) {
+    for (const anchor of root.querySelectorAll('[data-tooltip-anchor]')) {
+        const source = anchor.querySelector('.vaw-node-comment');
+        const tooltip = anchor.querySelector('[role="tooltip"]');
+        const truncated = source && (source.scrollHeight > source.clientHeight + 1 || source.scrollWidth > source.clientWidth + 1);
+        anchor.dataset.tooltipTruncated = truncated ? 'true' : 'false';
+        if (truncated && tooltip?.id) anchor.setAttribute('aria-describedby', tooltip.id);
+        else anchor.removeAttribute('aria-describedby');
     }
 }
 
