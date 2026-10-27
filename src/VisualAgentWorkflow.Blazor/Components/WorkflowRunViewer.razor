@@ -43,7 +43,7 @@
                         <span>@label</span>
                     </button>
                     <button type="button" class="vaw-node-events-button" aria-label="View events for @nodeId" @onclick:stopPropagation="true" @onclick="() => OpenNodeEvents(nodeId)">
-                        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 3.5h10v9H3zM5.5 1.5v3M10.5 1.5v3M5 7h6M5 9.5h4" /></svg>
+                        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5.25" /><path d="M8 5v3l2 1.5" /></svg>
                     </button>
                 </div>
                 @if (outcome is not null) { <p class="vaw-node-outcome @(state?.Kind == ExecutionEventKinds.NodeCancelled ? "is-cancelled" : "is-failed")">@outcome</p> }

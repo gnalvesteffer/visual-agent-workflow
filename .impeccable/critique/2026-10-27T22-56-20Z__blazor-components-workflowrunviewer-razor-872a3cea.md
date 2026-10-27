@@ -10,6 +10,7 @@ target_fingerprint: "sha256:ec7534623ff599a68269ab0f1ebdac67a9167c89f44d57b2886e
 target_path: /var/home/xorberax/dev/visual-agent-workflow/src/VisualAgentWorkflow.Blazor/Components/WorkflowRunViewer.razor
 timestamp: 2026-10-27T22-56-20Z
 slug: blazor-components-workflowrunviewer-razor-872a3cea
+closed: true
 ---
 # Design Health Score
 
