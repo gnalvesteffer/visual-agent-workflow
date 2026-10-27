@@ -259,6 +259,7 @@ function draw(state) {
     const zoom = scale(state);
     state.world.style.transform = `scale(${zoom}) translate(${state.camera.x}px, ${state.camera.y}px)`;
     updateGrid(state);
+    separateReadOnlyNodes(state);
     const world = state.world.getBoundingClientRect();
     const rects = new Map();
     for (const [id, node] of state.nodes) {
@@ -314,6 +315,27 @@ function draw(state) {
             margin + (state.pendingFit.x + state.camera.x) * targetZoom - state.viewport.clientWidth / 2,
             margin + (state.pendingFit.y + state.camera.y) * targetZoom - state.viewport.clientHeight / 2);
         state.pendingFit = null;
+    }
+}
+
+function separateReadOnlyNodes(state) {
+    if (state.root.dataset.readOnly !== 'true') return;
+    const columns = new Map();
+    for (const node of state.nodes.values()) {
+        const column = number(node.dataset.x);
+        const nodes = columns.get(column) ?? [];
+        nodes.push(node);
+        columns.set(column, nodes);
+    }
+    for (const nodes of columns.values()) {
+        nodes.sort((left, right) => number(left.dataset.y) - number(right.dataset.y));
+        let nextTop = null;
+        for (const node of nodes) {
+            const canonicalTop = number(node.dataset.y);
+            const top = nextTop === null ? canonicalTop : Math.max(canonicalTop, nextTop);
+            node.style.top = `${top}px`;
+            nextTop = top + node.offsetHeight + 32;
+        }
     }
 }
 

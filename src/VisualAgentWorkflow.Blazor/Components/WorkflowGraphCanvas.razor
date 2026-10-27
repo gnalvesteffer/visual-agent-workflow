@@ -1,6 +1,6 @@
 @implements IAsyncDisposable
 
-<section class="vaw-graph-editor @(CompactReadOnly && ReadOnly ? "vaw-graph-editor-compact" : "")" tabindex="-1" @ref="root" data-context-menu="@(ContextMenu is not null && EnableContextMenu && !Disabled ? "true" : "false")" data-disabled="@(!CanEdit ? "true" : "false")" data-ready="@(ready ? "true" : "false")">
+<section class="vaw-graph-editor @(CompactReadOnly && ReadOnly ? "vaw-graph-editor-compact" : "")" tabindex="-1" @ref="root" data-context-menu="@(ContextMenu is not null && EnableContextMenu && !Disabled ? "true" : "false")" data-disabled="@(!CanEdit ? "true" : "false")" data-read-only="@(ReadOnly ? "true" : "false")" data-ready="@(ready ? "true" : "false")">
     @if (!CompactReadOnly || !ReadOnly)
     {
     <div class="vaw-controls vaw-canvas-toolbar">

@@ -237,6 +237,18 @@ def check(browser, screenshots):
     assert recorded["header"]["layout"] == saved["layout"], "Execution lost the saved graph presentation"
     inspect.click()
     viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
+    expect(viewer.locator(".vaw-graph-editor[data-read-only='true']")).to_be_visible()
+    assert viewer.locator(".vaw-graph-editor").evaluate("""root => {
+        const nodes = [...root.querySelectorAll('li[data-node-id]')].sort((a, b) =>
+            parseFloat(a.style.left) - parseFloat(b.style.left) || parseFloat(a.style.top) - parseFloat(b.style.top));
+        for (let i = 1; i < nodes.length; i++) {
+            const previous = nodes[i - 1], current = nodes[i];
+            if (Math.abs(parseFloat(previous.style.left) - parseFloat(current.style.left)) < 1 &&
+                previous.offsetTop + previous.offsetHeight + 1 > current.offsetTop)
+                return false;
+        }
+        return true;
+    }"""), "Recorded graph nodes overlap vertically"
     viewer.locator('li[data-node-id="output"] button.vaw-node-drag').click()
     expect(viewer.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("FOORP SAVNAC")
     expect(viewer.get_by_role("button", name="Inspect node step-1", exact=True)).to_contain_text("Normalize input")
