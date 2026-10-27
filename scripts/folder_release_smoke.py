@@ -73,9 +73,15 @@ def verify(base_url: str, browser_executable: str | None, dotnet: str) -> None:
             try:
                 response = page.goto(f"{base_url}/source-project", wait_until="networkidle")
                 assert response and response.status == 200, "Project-folder page must load."
+                folder_form = page.locator(".vaw-open-project-details")
+                if folder_form.count() and not folder_form.evaluate("e => e.open"):
+                    folder_form.locator(":scope > summary").click()
                 page.get_by_label("Absolute folder path", exact=True).fill(str(project_directory))
                 page.get_by_role("button", name="Open folder", exact=True).click()
-                expect(page.get_by_text("Opened Folder release smoke project.")).to_be_visible()
+                expect(page.get_by_label("Current project", exact=True).locator("option:checked")).to_have_text("Folder release smoke project")
+                page.get_by_role("button", name="Project tools", exact=True).click()
+                utility = page.locator('details.vaw-project-utility[aria-label="Build a consumer release"]')
+                utility.locator(":scope > summary").click()
                 expect(page.get_by_role("region", name="Build a consumer release")).to_be_visible()
 
                 page.locator('input[name="workflowId"][value="service-pure"]').check()

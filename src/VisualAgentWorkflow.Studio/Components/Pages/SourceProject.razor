@@ -11,7 +11,7 @@
         <div><h1>Project workspace</h1><p class="vaw-settings-intro">Edit portable workflow source files. Run history and host credentials stay outside the project.</p></div>
         @if (openProjectIds.Count > 0)
         {
-            <details class="vaw-open-project-details">
+            <details @key="activeProjectId" class="vaw-open-project-details">
               <summary>Open folder</summary>
               <section class="vaw-settings-section vaw-project-open-panel" aria-label="Open a project folder">
                 <form class="vaw-project-create" @onsubmit="OpenProject" @onsubmit:preventDefault>

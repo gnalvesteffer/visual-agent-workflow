@@ -25,6 +25,9 @@ def verify(base_url, browser_executable):
             page.on('pageerror', lambda error: errors.append(str(error)))
             try:
                 page.goto(base_url + '/source-project', wait_until='networkidle')
+                folder_form = page.locator('.vaw-open-project-details')
+                if folder_form.count() and not folder_form.evaluate('e => e.open'):
+                    folder_form.locator(':scope > summary').click()
                 page.get_by_label('Absolute folder path', exact=True).fill(str(project))
                 page.get_by_role('button', name='Open folder', exact=True).click()
                 page.get_by_role('button', name='Open workflow service-pure.workflow', exact=True).click()

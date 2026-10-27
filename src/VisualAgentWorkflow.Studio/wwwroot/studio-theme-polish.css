@@ -640,3 +640,11 @@
     .vaw-app-shell .vaw-ide-title-actions .vaw-theme-picker > span { display: none; }
     .vaw-app-shell .vaw-ide-title-actions .vaw-theme-picker select { inline-size: 8rem; min-inline-size: 0; }
 }
+
+/* Keep Open Folder attached to the compact project header without shrinking it. */
+.vaw-source-project .vaw-open-project-details { position: relative; flex: 0 0 auto; margin: 0; }
+.vaw-source-project .vaw-open-project-details > summary { min-block-size: 2rem; padding-inline: .5rem; border: 1px solid var(--vaw-color-border); border-radius: .25rem; background: var(--vaw-color-control); color: var(--vaw-color-text); }
+.vaw-source-project .vaw-open-project-details[open] > section { position: absolute; inset-block-start: calc(100% + .3rem); inset-inline-end: 0; z-index: 20; inline-size: min(34rem, calc(100vw - 5rem)); max-block-size: calc(100dvh - 9rem); overflow: auto; box-shadow: 0 10px 28px rgb(0 0 0 / .22); }
+@media (max-width: 48rem) {
+    .vaw-source-project .vaw-open-project-details[open] > section { inset-inline-start: 0; inset-inline-end: auto; }
+}

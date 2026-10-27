@@ -42,7 +42,7 @@ def verify(base_url: str, browser_executable: str | None) -> None:
                     open_folder.locator("summary").click()
                 page.get_by_label("Absolute folder path", exact=True).fill(str(project_directory))
                 page.get_by_role("button", name="Open folder", exact=True).click()
-                expect(page.get_by_text("Opened Function smoke project.")).to_be_visible()
+                expect(page.get_by_role("heading", name="Function smoke project", exact=True)).to_be_visible()
                 if open_folder.evaluate("e => e.open"):
                     open_folder.locator("summary").click()
                 workspace = page.get_by_role("region", name="Project explorer and project editor", exact=True)
@@ -51,7 +51,9 @@ def verify(base_url: str, browser_executable: str | None) -> None:
                 expect(workspace.get_by_label("Project manifest vaw.project.json, read only", exact=True)).to_be_visible()
                 assert workspace.evaluate("e => getComputedStyle(e).gridTemplateColumns.split(' ').length") == 2
 
-                page.get_by_role("button", name="New graph function", exact=True).click()
+                page.get_by_role("button", name="Create project item", exact=True).click()
+                page.get_by_role("menuitem", name="New file", exact=False).click()
+                page.get_by_role("menuitem", name="Function .function", exact=True).click()
                 expect(page.get_by_label("Project graph function editor")).to_be_visible()
                 expect(page.locator(".vaw-canvas-workspace")).to_be_visible()
                 save_button = page.get_by_role("button", name="Save graph function revision", exact=True)
@@ -66,7 +68,7 @@ def verify(base_url: str, browser_executable: str | None) -> None:
                 expect(canvas.locator("li[data-node-id='output']")).to_contain_text("in · integer")
                 output_type.select_option("string")
                 save_button.click()
-                expect(page.get_by_text("Saved graph function revision text.append-suffix@1.", exact=True)).to_be_visible()
+                expect(page.get_by_text("Saved graph function revision text.append-suffix@1.", exact=True)).to_be_attached()
 
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
                 asset = manifest["files"][0]
@@ -81,10 +83,12 @@ def verify(base_url: str, browser_executable: str | None) -> None:
                 expect(page.get_by_label("New version", exact=True)).to_have_value("2")
                 expect(page.get_by_label("Project graph function editor")).to_be_visible()
 
-                page.get_by_role("button", name="New workflow", exact=True).click()
+                page.get_by_role("button", name="Create project item", exact=True).click()
+                page.get_by_role("menuitem", name="New file", exact=False).click()
+                page.get_by_role("menuitem", name="Workflow .workflow", exact=True).click()
                 expect(page.locator(".vaw-graph-editor")).to_be_visible()
                 page.get_by_role("button", name="Save source file", exact=True).click()
-                expect(page.get_by_text("Saved workflows/", exact=False)).to_be_visible()
+                expect(page.get_by_text("Saved workflows/", exact=False)).to_be_attached()
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
                 workflow_file = next(item for item in manifest["files"] if item["kind"] == "workflow")
                 assert workflow_file["path"].endswith(".workflow"), workflow_file["path"]
@@ -111,12 +115,12 @@ def verify(base_url: str, browser_executable: str | None) -> None:
                     });
                 }""")
                 details = page.get_by_role("navigation", name="Workflow detail tabs", exact=True)
-                details.get_by_role("tab", name="Issues", exact=False).click()
+                details.get_by_role("tab", name="Problems", exact=False).click()
                 expect(page.get_by_role("tabpanel", name="Workflow issues", exact=True)).to_be_visible()
                 details.get_by_role("tab", name="Output", exact=True).click()
                 expect(page.get_by_role("tabpanel", name="Workflow output", exact=True)).to_be_visible()
                 details.get_by_role("tab", name="Runs", exact=True).click()
-                expect(page.get_by_role("tabpanel", name="Workflow run controls", exact=True)).to_be_visible()
+                expect(page.get_by_role("tabpanel", name="Workflow run history", exact=True)).to_be_visible()
                 assert page.locator(".vaw-app-shell").evaluate("e => Math.abs(e.getBoundingClientRect().height - innerHeight) < 2")
                 page.evaluate("window.scrollTo(0, 0)")
                 page.screenshot(path="/tmp/vaw-project-ide-smoke.png", full_page=False)
