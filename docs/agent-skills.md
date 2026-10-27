@@ -28,15 +28,8 @@ The structure follows `gnalvesteffer/ai-newspaper`: a project guide plus focused
 | [Audit and playback review](../.agents/skills/audit-playback-review/SKILL.md) | Changing events, audit records, payload capture, reconnect, or historical playback |
 | [Graph experience review](../.agents/skills/graph-experience-review/SKILL.md) | Changing visual authoring, live observation, accessibility, or component embedding |
 | [Blueprint-inspired workflow design](../.agents/skills/blueprint-workflow-design/SKILL.md) | Changing node contracts, typed pins, parameters, agent configuration, reusable workflows, or Blueprint-inspired interactions |
-| [Frontend design](../.agents/skills/frontend-design/SKILL.md) | Visual direction, typography, layout, and screenshot critique; see [local notes and license](../.agents/skills/frontend-design/SOURCE.md) |
-| [Design systems](../.agents/skills/design-systems/SKILL.md) | Theme tokens, component states, visual consistency, and embedding; see [local notes and license](../.agents/skills/design-systems/SOURCE.md) |
-| [CSS](../.agents/skills/css/SKILL.md) | Writing or reviewing CSS layout, responsive behavior, typography, theming, specificity, or stylesheet organization; see [source and license](../.agents/skills/css/SOURCE.md) |
-| [Accessibility](../.agents/skills/better-accessibility/SKILL.md) | WCAG-based keyboard, focus, forms, screen-reader, motion, and zoom review; see [upstream provenance](../.agents/skills/_third-party/jakubkrehel-skills/PROVENANCE.md) |
-| [Color systems](../.agents/skills/better-colors/SKILL.md) | Palette structure, semantic color tokens, color usage, and measured contrast |
-| [Responsive layout](../.agents/skills/better-layout/SKILL.md) | Grouping, alignment, reading order, responsive behavior, and overflow review |
-| [Typography](../.agents/skills/better-typography/SKILL.md) | Type scale, font rendering, line spacing, wrapping, and truncation |
-| [UI polish](../.agents/skills/better-ui/SKILL.md) | Surfaces, shadows, icons, state transitions, and motion details |
-| [Interface writing](../.agents/skills/better-writing/SKILL.md) | Labels, errors, empty states, confirmations, and concise product language |
+| [Impeccable](../.agents/skills/impeccable/SKILL.md) | Primary UI design skill for critique, design planning, visual refinement, accessibility, responsive behavior, performance, interaction polish, and interface writing; see [pinned source, license, and local integration](../.agents/skills/impeccable/SOURCE.md) |
+| [Graph experience review](../.agents/skills/graph-experience-review/SKILL.md) | Project-specific workflow canvas, live run viewer, accessibility, and embedding validation; use alongside Impeccable for UI work |
 | [Version and compatibility review](../.agents/skills/version-compatibility-review/SKILL.md) | Changing definitions, prefabs, schemas, imports, collaboration, dependencies, or releases |
 
 For repository-authored skills, keep `SKILL.md` frontmatter limited to a stable `name` and a descriptive `description` identifying when to use it. Preserve valid upstream metadata in vendored skills, along with their license and pinned provenance. Add scripts only when they exercise a real implemented workflow and have been tested. Update the catalog when skills are added or renamed.

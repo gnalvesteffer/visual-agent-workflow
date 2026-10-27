@@ -31,10 +31,12 @@
         }
         @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
         @if (message is not null) { <p role="status">@message</p> }
-        @if (mcpChoicesLoading) { <p class="vaw-editor-choice-status" role="status" aria-live="polite">Loading MCP tools for agent profiles and graph editors. Project files remain available.</p> }
-        @if (providerChoicesLoading) { <p class="vaw-editor-choice-status" role="status" aria-live="polite">Loading model connections for agent profiles and graph editors. Project files remain available.</p> }
-        @if (mcpChoicesError is not null) { <p role="alert" class="vaw-error">@mcpChoicesError</p> }
-        @if (providerChoicesError is not null) { <p role="alert" class="vaw-error">@providerChoicesError</p> }
+        @if (mcpChoicesLoading) { <p class="vaw-editor-choice-status" role="status" aria-live="polite">Loading MCP tool choices…</p> }
+        @if (providerChoicesLoading) { <p class="vaw-editor-choice-status" role="status" aria-live="polite">Loading model connections…</p> }
+        @if (mcpChoicesError is not null) { <p role="status" class="vaw-editor-choice-warning">@mcpChoicesError</p> }
+        @if (providerChoicesError is not null) { <p role="status" class="vaw-editor-choice-warning">@providerChoicesError</p> }
+        <details class="vaw-project-utility" aria-label="Build a consumer release">
+        <summary>Consumer package</summary>
         <section class="vaw-settings-section vaw-project-release" aria-label="Build a consumer release">
             <div class="vaw-settings-section-heading">
                 <div><h2>Build consumer package</h2><p>Select saved, executable workflows to include in a portable <code>.vawpkg</code>. Reusable assets embedded in those workflows travel with them; model connections, MCP endpoints, credentials, and grants stay with the consuming host.</p></div>
@@ -64,6 +66,9 @@
                 </form>
             }
         </section>
+        </details>
+        <details class="vaw-project-utility" aria-label="Local restore points">
+        <summary>Restore points <span class="vaw-help">@snapshots.Count saved</span></summary>
         <section class="vaw-settings-section vaw-project-snapshots" aria-label="Local restore points">
             <div class="vaw-settings-section-heading">
                 <div><h2>Local restore points</h2><p>Save or restore a validated copy of this project’s indexed source. Restore points stay in ignored <code>.vaw/</code> and never enter exports.</p></div>
@@ -110,30 +115,30 @@
                 </aside>
             }
         </section>
+        </details>
     }
     @if (manifest is not null && source is not null)
     {
         <section class="vaw-settings-section vaw-source-workspace" aria-label="Project explorer and project editor">
             <aside class="vaw-project-explorer" aria-label="Project explorer">
                 <header><h2>Project explorer</h2><span>@manifest.Files.Length files</span></header>
-                @if (manifest.Files.IsEmpty)
-                {
-                    <p class="vaw-empty-state">No indexed files. Create a workflow to add the first source file.</p>
-                }
-                else
-                {
-                    <ul class="vaw-project-tree">
+                <ul class="vaw-project-tree">
+                    @if (manifest.Files.IsEmpty)
+                    { <li><p class="vaw-empty-state">No source files yet. Create a workflow to add the first one.</p></li> }
+                    else
+                    {
                         @foreach (var node in fileTree)
                         {
                             <li @key="node.Name + node.File?.Path">
-                                <ProjectFileTreeItem Node="@node" SelectedPath="@(openedWorkflow?.RelativePath ?? openedSkill?.RelativePath ?? openedProfile?.RelativePath ?? openedGraphFunction?.RelativePath)"
-                                    WorkflowNames="@workflowNames" CanOpenFiles="@(!busy && !HasUnsavedEdits)"
+                                <ProjectFileTreeItem Node="@node" SelectedPath="@SelectedFilePath"
+                                    WorkflowNames="@workflowNames" FileNames="@fileNames" CanOpenFiles="@(!busy && !HasUnsavedEdits)"
                                     OnOpenWorkflow="@OpenWorkflow" OnOpenSkill="@OpenSkill" OnOpenAgentProfile="@OpenAgentProfile" OnOpenGraphFunction="@OpenGraphFunction" />
                             </li>
                         }
-                    </ul>
-                    <p class="vaw-project-tree-legend">W Workflow · S Skill · A Agent preset · F Graph function</p>
-                }
+                    }
+                    <li><span class="vaw-project-tree-file is-read-only" aria-label="Project manifest vaw.project.json, read only" title="Edit this file with your normal source-control tools"><span class="vaw-project-tree-icon" aria-hidden="true">J</span><span class="vaw-project-tree-file-name">vaw.project.json</span></span></li>
+                </ul>
+                @if (!manifest.Files.IsEmpty) { <p class="vaw-project-tree-legend">W Workflow · S Skill · A Agent preset · F Graph function</p> }
                 @if (HasUnsavedEdits) { <p class="vaw-help">Save or discard the current edits before opening another file.</p> }
             </aside>
 
@@ -147,6 +152,21 @@
                         <button type="button" class="vaw-primary" @onclick="CreateWorkflow" disabled="@(busy || HasUnsavedEdits)">New workflow</button>
                     </div>
                 </div>
+                @if (editorTabs.Count > 0)
+                {
+                    <nav class="vaw-file-tabs" aria-label="Open project files">
+                        @foreach (var file in editorTabs)
+                        {
+                            var active = file.Path == SelectedFilePath;
+                            <div class="vaw-file-tab @(active ? "is-active" : null)" @key="file.Path">
+                                <button type="button" role="tab" aria-selected="@(active ? "true" : "false")" aria-label="Open @EditorFileName(file)" @onclick="() => ActivateFile(file)">
+                                    <span class="vaw-file-kind vaw-file-kind-@file.Kind" aria-hidden="true">@FileKindGlyph(file.Kind)</span>@EditorFileName(file)
+                                </button>
+                                <button type="button" class="vaw-file-tab-close" aria-label="Close @EditorFileName(file)" title="Close file" @onclick="() => CloseFileTab(file)">×</button>
+                            </div>
+                        }
+                    </nav>
+                }
                 @if (openedWorkflow is null)
                 {
                     @if (openedProfile is not null || creatingNewProfile)
@@ -234,57 +254,55 @@
                 else if (definition is not null && layout is not null)
                 {
                     <p class="vaw-definition-status"><strong>@WorkflowName(definition)</strong> <code>@definition.WorkflowId</code> · @(dirty ? "Unsaved changes" : "Source saved")</p>
-                    <section class="vaw-settings-section vaw-folder-run" aria-label="Run saved workflow">
-                        <div class="vaw-settings-section-heading"><div><h3>Run saved workflow</h3><p>Runs the exact saved source in the host runtime. Run history stays in Studio data, outside this project.</p></div></div>
-                        <label>Workflow input <textarea @bind="runInput" rows="3" maxlength="16384" disabled="@folderRunActive"></textarea></label>
-                        @if (definition.Parameters is { Count: > 0 } runParameterDefinitions)
-                        {
-                            <fieldset class="vaw-folder-run-parameters"><legend>Run parameters</legend>
-                                @foreach (var (parameterId, parameter) in runParameterDefinitions)
-                                {
-                                    <label @key="parameterId">@(string.IsNullOrWhiteSpace(parameter.DisplayName) ? parameterId : parameter.DisplayName)
-                                        @if (parameter.Type == "choice" && parameter.Choices is { } choices)
-                                        {
-                                            <select value="@RunParameterValue(parameterId)" @onchange="args => SetRunParameter(parameterId, args.Value?.ToString())" disabled="@folderRunActive">
-                                                @foreach (var choice in choices) { <option value="@choice">@choice</option> }
-                                            </select>
-                                        }
-                                        else if (parameter.Type == "boolean")
-                                        {
-                                            <select value="@RunParameterValue(parameterId)" @onchange="args => SetRunParameter(parameterId, args.Value?.ToString())" disabled="@folderRunActive">
-                                                <option value="true">True</option><option value="false">False</option>
-                                            </select>
-                                        }
-                                        else
-                                        {
-                                            <input value="@RunParameterValue(parameterId)" @oninput="args => SetRunParameter(parameterId, args.Value?.ToString())" disabled="@folderRunActive" />
-                                        }
-                                        @if (!string.IsNullOrWhiteSpace(parameter.Description)) { <small>@parameter.Description</small> }
-                                    </label>
-                                }
-                            </fieldset>
-                        }
-                        @if (dirty) { <p class="vaw-help">Save your edits before running. Runs always use the saved source.</p> }
-                        @if (externalSourceChanged) { <p class="vaw-error">Reload the externally changed project before running this workflow.</p> }
-                        <div class="vaw-provider-actions">
-                            <button type="button" class="vaw-primary" @onclick="RunSavedWorkflow" disabled="@(!CanRunSavedWorkflow)">@(folderRunActive ? "Running…" : "Run saved workflow")</button>
-                            @if (folderRunActive && folderRun is not null) { <button type="button" class="vaw-secondary" @onclick="CancelFolderRun">Cancel run</button> }
-                        </div>
-                        @if (folderRunError is not null) { <p role="alert" class="vaw-error">@folderRunError</p> }
-                        @if (folderRun is not null)
-                        {
-                            <p class="vaw-definition-status">Run @folderRun.Header.RunId · @folderRun.Status · source <code>@folderRun.Header.SourceProvenance?.AssetHash[..12]</code></p>
-                            <WorkflowRunViewer Snapshot="folderRun" Layout="folderRun.Header.Layout" />
-                        }
-                        <p class="vaw-help">Inputs and parameter values are recorded as run evidence; do not enter secrets.</p>
-                    </section>
-                    <WorkflowEditor @key="definition.WorkflowId" ProjectId="folder-project" Definition="definition" DefinitionChanged="DefinitionChanged"
+                    <WorkflowEditor @key="definition.WorkflowId" ProjectId="folder-project" Definition="definition" DefinitionChanged="DefinitionChanged" HideNodeLibrary="true"
                         Layout="layout" LayoutChanged="LayoutChanged" Bindings="bindings" Providers="providers" SkillLibrary="skillSource"
                         AgentProfileLibrary="profileSource" FunctionCatalog="graphFunctionCatalog">
                         <EditorActions>
                             <button type="button" data-graph-save class="vaw-primary" @onclick="SaveWorkflow" disabled="@(busy || !dirty)">Save source file</button>
                         </EditorActions>
                     </WorkflowEditor>
+                    <section class="vaw-bottom-tray" aria-label="Workflow runs, issues and output">
+                        <nav aria-label="Workflow detail tabs">
+                            <button type="button" role="tab" aria-selected="@(bottomTab == "runs" ? "true" : "false")" @onclick='() => bottomTab = "runs"'>Runs</button>
+                            <button type="button" role="tab" aria-selected="@(bottomTab == "issues" ? "true" : "false")" @onclick='() => bottomTab = "issues"'>Issues <span class="vaw-bottom-count">@WorkflowValidator.Validate(definition).Length</span></button>
+                            <button type="button" role="tab" aria-selected="@(bottomTab == "output" ? "true" : "false")" @onclick='() => bottomTab = "output"'>Output</button>
+                        </nav>
+                        <section class="vaw-bottom-panel" role="tabpanel" aria-label="Workflow run controls" hidden="@(bottomTab != "runs")">
+                            <div class="vaw-folder-run-controls">
+                                <label>Workflow input <textarea @bind="runInput" rows="2" maxlength="16384" disabled="@folderRunActive"></textarea></label>
+                                @if (definition.Parameters is { Count: > 0 } runParameterDefinitions)
+                                {
+                                    @foreach (var (parameterId, parameter) in runParameterDefinitions)
+                                    {
+                                        <label @key="parameterId">@(string.IsNullOrWhiteSpace(parameter.DisplayName) ? parameterId : parameter.DisplayName)
+                                            @if (parameter.Type == "choice" && parameter.Choices is { } choices)
+                                            { <select value="@RunParameterValue(parameterId)" @onchange="args => SetRunParameter(parameterId, args.Value?.ToString())" disabled="@folderRunActive">@foreach (var choice in choices) { <option value="@choice">@choice</option> }</select> }
+                                            else if (parameter.Type == "boolean")
+                                            { <select value="@RunParameterValue(parameterId)" @onchange="args => SetRunParameter(parameterId, args.Value?.ToString())" disabled="@folderRunActive"><option value="true">True</option><option value="false">False</option></select> }
+                                            else { <input value="@RunParameterValue(parameterId)" @oninput="args => SetRunParameter(parameterId, args.Value?.ToString())" disabled="@folderRunActive" /> }
+                                            @if (!string.IsNullOrWhiteSpace(parameter.Description)) { <small>@parameter.Description</small> }
+                                        </label>
+                                    }
+                                }
+                                <button type="button" class="vaw-primary" @onclick="RunSavedWorkflow" disabled="@(!CanRunSavedWorkflow)">@(folderRunActive ? "Running…" : "Run workflow")</button>
+                                @if (folderRunActive && folderRun is not null) { <button type="button" class="vaw-secondary" @onclick="CancelFolderRun">Cancel run</button> }
+                            </div>
+                            @if (dirty) { <p class="vaw-help">Save your edits before running. Runs use saved source.</p> }
+                            @if (externalSourceChanged) { <p class="vaw-error">Reload the externally changed project before running this workflow.</p> }
+                            @if (folderRunError is not null) { <p role="alert" class="vaw-error">@folderRunError</p> }
+                            @if (folderRun is not null) { <p class="vaw-definition-status">Run @folderRun.Header.RunId · @folderRun.Status</p> }
+                            <p class="vaw-help">Run history is stored by Studio outside the project. Do not enter secrets in workflow inputs.</p>
+                        </section>
+                        <section class="vaw-bottom-panel" role="tabpanel" aria-label="Workflow issues" hidden="@(bottomTab != "issues")">
+                            @if (WorkflowValidator.Validate(definition) is { Length: > 0 } issues)
+                            { <ul class="vaw-bottom-issues">@foreach (var issue in issues) { <li @key="(issue.Path, issue.Code)"><strong>@issue.Path</strong><span>@issue.Message</span></li> }</ul> }
+                            else { <p class="vaw-bottom-empty">No workflow issues. This graph is valid and ready to run.</p> }
+                        </section>
+                        <section class="vaw-bottom-panel" role="tabpanel" aria-label="Workflow output" hidden="@(bottomTab != "output")">
+                            @if (folderRun is not null) { <WorkflowRunViewer Snapshot="folderRun" Layout="folderRun.Header.Layout" /> }
+                            else { <p class="vaw-bottom-empty">Run this workflow to inspect its output and execution evidence.</p> }
+                        </section>
+                    </section>
                 }
             </section>
         </section>
@@ -302,6 +320,7 @@
     private string? openDirectory;
     private StudioProjectManifest? manifest;
     private IReadOnlyList<StudioProjectFileTreeNode> fileTree = [];
+    private readonly List<StudioProjectFile> editorTabs = [];
     private StudioFolderWorkflowSource? source;
     private StudioFolderSkillSource? skillSource;
     private StudioFolderAgentProfileSource? profileSource;
@@ -309,6 +328,7 @@
     private List<StudioFolderWorkflow> workflows = [];
     private readonly HashSet<string> selectedPackageWorkflows = new(StringComparer.Ordinal);
     private IReadOnlyDictionary<string, string> workflowNames = new Dictionary<string, string>();
+    private IReadOnlyDictionary<string, string> fileNames = new Dictionary<string, string>();
     private StudioFolderWorkflow? openedWorkflow;
     private StudioFolderSkill? openedSkill;
     private StudioFolderAgentProfile? openedProfile;
@@ -384,6 +404,8 @@
     private string? error;
     private string? message;
     private string EditorTitle => openedWorkflow is not null ? "Workflow editor" : openedProfile is not null || creatingNewProfile ? "Agent profile editor" : openedSkill is not null || creatingNewSkill ? "Skill editor" : "Project editor";
+    private string bottomTab = "runs";
+    private string? SelectedFilePath => openedWorkflow?.RelativePath ?? openedSkill?.RelativePath ?? openedProfile?.RelativePath ?? openedGraphFunction?.RelativePath;
     private string EditorDescription => openedWorkflow is not null
         ? "Workflow drafts save directly to source files. A stale edit is rejected if the project changed since it was loaded."
         : openedSkill is not null || creatingNewSkill
@@ -518,6 +540,7 @@
         RefreshSnapshots();
         workflows = loadedWorkflows;
         workflowNames = ToWorkflowNames(loadedWorkflows);
+        RefreshFileNames();
         selectedPackageWorkflows.Clear();
         dirty = false;
         SetWorkflow(workflows.FirstOrDefault());
@@ -755,6 +778,7 @@
         openDirectory = null;
         manifest = null;
         fileTree = [];
+        editorTabs.Clear();
         source = null;
         skillSource = null;
         profileSource = null;
@@ -779,7 +803,9 @@
     private Task OpenWorkflow(string workflowId)
     {
         if (HasUnsavedEdits || busy) return Task.CompletedTask;
-        SetWorkflow(workflows.SingleOrDefault(workflow => workflow.WorkflowId == workflowId));
+        var workflow = workflows.SingleOrDefault(item => item.WorkflowId == workflowId);
+        SetWorkflow(workflow);
+        if (workflow is not null) AddEditorTab(manifest!.Files.Single(file => file.Path == workflow.RelativePath));
         error = null; message = null;
         return Task.CompletedTask;
     }
@@ -800,6 +826,7 @@
         profileBeingEdited = null;
         creatingNewSkill = false;
         if (openedSkill is not null) LoadSkillRevision(openedSkill);
+        if (openedSkill is not null) AddEditorTab(file);
         error = null;
         message = null;
         return Task.CompletedTask;
@@ -820,6 +847,7 @@
         skillFormDirty = false;
         creatingNewProfile = false;
         if (openedProfile is not null) LoadProfileRevision(openedProfile);
+        if (openedProfile is not null) AddEditorTab(file);
         error = null;
         message = null;
         return Task.CompletedTask;
@@ -839,8 +867,9 @@
         creatingNewGraphFunction = false;
         skillFormDirty = false;
         profileFormDirty = false;
-        graphFunctionDirty = true;
+        graphFunctionDirty = false;
         graphFunctionEditorGeneration++;
+        if (openedGraphFunction is not null) AddEditorTab(file);
         error = null;
         message = null;
         return Task.CompletedTask;
@@ -848,6 +877,7 @@
 
     private void CreateGraphFunction()
     {
+        editorTabs.Clear();
         openedWorkflow = null;
         openedSkill = null;
         openedProfile = null;
@@ -878,6 +908,7 @@
         openedSkill = null;
         openedProfile = null;
         openedGraphFunction = saved;
+        AddEditorTab(manifest!.Files.Single(file => file.Path == saved.RelativePath));
         creatingNewGraphFunction = false;
         graphFunctionDirty = false;
         message = $"Saved graph function revision {saved.Item.Function.Definition.FunctionId}@{saved.Item.Function.Definition.Version}.";
@@ -904,6 +935,7 @@
 
     private void CreateWorkflow()
     {
+        editorTabs.Clear();
         var id = "workflow-" + Guid.NewGuid().ToString("N");
         var created = WorkflowTemplates.Create("uppercase-reverse") with { WorkflowId = id, DisplayName = "Untitled workflow" };
         openedWorkflow = new(id, "Untitled workflow", "", "", created, WorkflowLayout.Create(created));
@@ -953,6 +985,7 @@
             manifest = StudioProjectSourceDirectory.Read(openDirectory!).Manifest;
             sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(manifest);
             fileTree = StudioProjectFileTree.Build(manifest.Files);
+            AddEditorTab(manifest.Files.Single(file => file.Path == saved.RelativePath));
             dirty = false;
             message = $"Saved {saved.RelativePath}.";
         }
@@ -965,6 +998,7 @@
 
     private void CreateSkill()
     {
+        editorTabs.Clear();
         openedWorkflow = null;
         openedProfile = null;
         openedGraphFunction = null;
@@ -991,6 +1025,7 @@
 
     private void CreateProfile()
     {
+        editorTabs.Clear();
         openedWorkflow = null;
         openedSkill = null;
         openedGraphFunction = null;
@@ -1126,6 +1161,7 @@
             var saved = profileSource.SaveNewVersion(profile, profileFolder.Trim(), sourceManifestHash);
             RefreshProjectSource();
             openedProfile = saved;
+            AddEditorTab(manifest!.Files.Single(file => file.Path == saved.RelativePath));
             creatingNewProfile = false;
             LoadProfileRevision(saved);
             message = $"Saved agent profile revision {saved.Item.Profile.Id}@{saved.Item.Profile.Version}.";
@@ -1144,6 +1180,19 @@
         sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(loadedManifest);
         fileTree = StudioProjectFileTree.Build(loadedManifest.Files);
         projectSkills = skillSource!.List().Select(skill => skill.Item).ToArray();
+        RefreshFileNames();
+    }
+
+    private void RefreshFileNames()
+    {
+        var names = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (skillSource is not null)
+            foreach (var item in skillSource.List()) names[item.RelativePath] = $"{item.Item.Skill.Name}.skill";
+        if (profileSource is not null)
+            foreach (var item in profileSource.List()) names[item.RelativePath] = $"{item.Item.Profile.Name}.agent";
+        if (graphFunctionCatalog is not null)
+            foreach (var item in graphFunctionCatalog.ListAssets()) names[item.RelativePath] = $"{item.Item.Function.Definition.DisplayName}.function";
+        fileNames = names;
     }
 
     private void CancelSkillEdit()
@@ -1176,6 +1225,7 @@
             fileTree = StudioProjectFileTree.Build(manifest.Files);
             projectSkills = skillSource.List().Select(skill => skill.Item).ToArray();
             openedSkill = saved;
+            AddEditorTab(manifest.Files.Single(file => file.Path == saved.RelativePath));
             creatingNewSkill = false;
             LoadSkillRevision(saved);
             message = $"Saved skill revision {saved.Item.Skill.Id}@{saved.Item.Skill.Version}.";
@@ -1206,11 +1256,54 @@
         profileBeingEdited = null;
         definition = workflow?.Definition;
         layout = workflow?.Layout;
+        if (workflow is not null && manifest?.Files.SingleOrDefault(file => file.Path == workflow.RelativePath) is { } file)
+            AddEditorTab(file);
         runInput = "";
         runParameters = workflow?.Definition.Parameters?.ToDictionary(parameter => parameter.Key,
             parameter => parameter.Value.DefaultValue, StringComparer.Ordinal) ?? new(StringComparer.Ordinal);
         dirty = false;
     }
+
+    private void AddEditorTab(StudioProjectFile file)
+    {
+        var existingIndex = editorTabs.FindIndex(item => string.Equals(item.Path, file.Path, StringComparison.Ordinal));
+        if (existingIndex >= 0) editorTabs[existingIndex] = file;
+        else editorTabs.Add(file);
+    }
+
+    private Task ActivateFile(StudioProjectFile file) => file.Kind switch
+    {
+        "workflow" => OpenWorkflow(file.Id),
+        "skill" => OpenSkill(file),
+        "agent-profile" => OpenAgentProfile(file),
+        "graph-function" => OpenGraphFunction(file),
+        _ => Task.CompletedTask
+    };
+
+    private async Task CloseFileTab(StudioProjectFile file)
+    {
+        if (HasUnsavedEdits || busy) return;
+        var wasSelected = string.Equals(file.Path, SelectedFilePath, StringComparison.Ordinal);
+        editorTabs.RemoveAll(item => string.Equals(item.Path, file.Path, StringComparison.Ordinal));
+        if (wasSelected)
+        {
+            if (editorTabs.LastOrDefault() is { } next) await ActivateFile(next);
+            else SetWorkflow(null);
+        }
+    }
+
+    private string EditorFileName(StudioProjectFile file) => file.Kind == "workflow"
+        ? $"{workflowNames.GetValueOrDefault(file.Id, Path.GetFileNameWithoutExtension(file.Path))}.workflow"
+        : fileNames.GetValueOrDefault(file.Path, Path.GetFileName(file.Path));
+
+    private static string FileKindGlyph(string kind) => kind switch
+    {
+        "workflow" => "W",
+        "agent-profile" => "A",
+        "skill" => "S",
+        "graph-function" => "ƒ",
+        _ => "·"
+    };
 
     private string RunParameterValue(string parameterId) => runParameters.GetValueOrDefault(parameterId, "");
 

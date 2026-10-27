@@ -36,8 +36,12 @@
             </div>
         </details>
     }
-    <WorkflowGraphCanvas @ref="canvas" @key="Definition.WorkflowId" Definition="Definition" Layout="EffectiveLayout" LayoutChanged="LayoutEdited" ReadOnly="@(ReadOnly || LayoutReadOnly)" Disabled="Disabled" SelectedNodeId="@selectedNode" SelectedNodeIdChanged="SelectNode" ConnectionSelected="ConnectionSelected" ConnectionDisconnectRequested="id => Edit(() => GraphEditing.Disconnect(Definition, id))" ConnectionRequested="pins => Edit(() => GraphEditing.ConnectPins(Definition, pins.SourceId, pins.SourcePort, pins.TargetId, pins.TargetPort))" ShowNodeLibrary="@(!ReadOnly)" EnableContextMenu="@(!ReadOnly && !Disabled)" NodeCreateRequested="request => AddLibraryNode(request.Key, request.Context)" DeleteNodeRequested="id => RemoveSelected(id)">
-    <ToolbarContent>@EditorActions</ToolbarContent>
+    <WorkflowGraphCanvas @ref="canvas" @key="Definition.WorkflowId" Definition="Definition" Layout="EffectiveLayout" LayoutChanged="LayoutEdited" ReadOnly="@(ReadOnly || LayoutReadOnly)" Disabled="Disabled" SelectedNodeId="@selectedNode" SelectedNodeIdChanged="SelectNode" ConnectionSelected="ConnectionSelected" ConnectionDisconnectRequested="id => Edit(() => GraphEditing.Disconnect(Definition, id))" ConnectionRequested="pins => Edit(() => GraphEditing.ConnectPins(Definition, pins.SourceId, pins.SourcePort, pins.TargetId, pins.TargetPort))" ShowNodeLibrary="@(!ReadOnly && (!HideNodeLibrary || showNodeLibrary))" EnableContextMenu="@(!ReadOnly && !Disabled)" NodeCreateRequested="request => AddLibraryNode(request.Key, request.Context)" DeleteNodeRequested="id => RemoveSelected(id)">
+    <ToolbarContent>
+        @if (HideNodeLibrary)
+        { <button type="button" @onclick="ToggleNodeLibrary">@(showNodeLibrary ? "Hide node library" : "Add node")</button> }
+        @EditorActions
+    </ToolbarContent>
     <NodeLibrary>
         @if (CanUpgradeBlankGraph)
         {
@@ -706,6 +710,9 @@
     [Parameter] public WorkflowLayout? Layout { get; set; }
     [Parameter] public EventCallback<WorkflowLayout> LayoutChanged { get; set; }
     [Parameter] public bool LayoutReadOnly { get; set; }
+    [Parameter] public bool HideNodeLibrary { get; set; }
+    private bool showNodeLibrary;
+    private void ToggleNodeLibrary() => showNodeLibrary = !showNodeLibrary;
     private WorkflowLayout? localLayout;
     private WorkflowLayout EffectiveLayout => Layout ?? localLayout!;
     private Task LayoutEdited(WorkflowLayout value)

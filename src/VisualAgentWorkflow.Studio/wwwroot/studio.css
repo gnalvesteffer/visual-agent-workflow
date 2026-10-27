@@ -313,11 +313,10 @@
 .vaw-back-link span { color: var(--vaw-color-accent); font-size: 1.125rem; }
 .vaw-settings-location { border-inline-start: 1px solid var(--vaw-color-border); padding-inline-start: 1rem; color: var(--vaw-color-muted); }
 
-.vaw-provider-settings { max-inline-size: 76rem; margin-inline: auto; padding: clamp(1rem, 2vw, 1.75rem); }
-.vaw-settings-heading { display: flex; align-items: end; justify-content: space-between; gap: 2rem; margin-block: 1rem 1.5rem; }
-.vaw-settings-kicker { margin: 0 0 .6rem; color: var(--vaw-color-accent); font-size: .75rem; font-weight: 650; letter-spacing: .09em; }
-.vaw-settings-heading h1 { margin: 0; color: var(--vaw-color-text); font-size: clamp(1.8rem, 4vw, 2.45rem); font-weight: 620; letter-spacing: -.035em; line-height: 1.15; }
-.vaw-settings-intro { max-inline-size: 42rem; margin: .75rem 0 0; color: var(--vaw-color-muted); line-height: 1.65; }
+.vaw-provider-settings { max-inline-size: 76rem; margin-inline: auto; padding: 1.25rem clamp(1rem, 2vw, 1.5rem); }
+.vaw-settings-heading { display: flex; align-items: end; justify-content: space-between; gap: 1.5rem; margin-block: .6rem 1.15rem; }
+.vaw-settings-heading h1 { margin: 0; color: var(--vaw-color-text); font-size: 2rem; font-weight: 620; letter-spacing: -.025em; line-height: 1.2; }
+.vaw-settings-intro { max-inline-size: 46rem; margin: .55rem 0 0; color: var(--vaw-color-muted); line-height: 1.5; }
 .vaw-primary, .vaw-secondary, .vaw-danger, .vaw-danger-quiet {
     display: inline-flex;
     align-items: center;
@@ -349,8 +348,30 @@
 }
 .vaw-primary:disabled, .vaw-danger:disabled { opacity: .6; cursor: progress; }
 
-.vaw-settings-section { margin-block: 1rem; border: 1px solid var(--vaw-color-border); border-radius: .45rem; padding: 1.15rem clamp(1rem, 2vw, 1.5rem); background: var(--vaw-color-surface); }
-.vaw-settings-section > .vaw-settings-section-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; margin: -1.15rem calc(-1 * clamp(1rem, 2vw, 1.5rem)) 1.1rem; border-block-end: 1px solid var(--vaw-color-border); padding: 1rem clamp(1rem, 2vw, 1.5rem); }
+.vaw-provider-settings :where(button:not(.vaw-primary):not(.vaw-secondary):not(.vaw-danger):not(.vaw-danger-quiet)) {
+    min-block-size: 2.5rem;
+    border: 1px solid var(--vaw-color-control-border);
+    border-radius: .35rem;
+    padding: .5rem .8rem;
+    background: var(--vaw-color-control);
+    color: var(--vaw-color-text);
+    font: inherit;
+    font-size: .875rem;
+    font-weight: 550;
+    cursor: pointer;
+}
+.vaw-provider-settings :where(button:not(.vaw-primary):not(.vaw-secondary):not(.vaw-danger):not(.vaw-danger-quiet)):hover:not(:disabled) {
+    border-color: var(--vaw-color-focus);
+    background: var(--vaw-color-control-hover);
+}
+.vaw-provider-settings :where(button, input, select, textarea):focus-visible {
+    outline: 2px solid var(--vaw-color-focus);
+    outline-offset: 2px;
+}
+.vaw-provider-settings :where(button:disabled) { cursor: not-allowed; opacity: .58; }
+
+.vaw-settings-section { margin-block: .8rem; border: 1px solid var(--vaw-color-border); border-radius: .35rem; padding: .9rem clamp(.9rem, 1.6vw, 1.2rem); background: var(--vaw-color-surface); }
+.vaw-settings-section > .vaw-settings-section-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; margin: -.9rem calc(-1 * clamp(.9rem, 1.6vw, 1.2rem) ) .8rem; border-block-end: 1px solid var(--vaw-color-border); padding: .8rem clamp(.9rem, 1.6vw, 1.2rem); }
 .vaw-settings-section > .vaw-settings-section-heading h2 { margin: 0; font-size: 1.08rem; font-weight: 620; }
 .vaw-settings-section > .vaw-settings-section-heading p { margin: .35rem 0 0; color: var(--vaw-color-muted); font-size: .875rem; line-height: 1.5; }
 .vaw-settings-section > :where(h2, h3) { margin-block: 0 .55rem; }
@@ -397,6 +418,7 @@
 .vaw-provider-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.15rem 1.25rem; padding: 1.35rem 1.5rem 1.5rem; }
 .vaw-provider-form label { display: block; min-inline-size: 0; color: var(--vaw-color-text); font-size: .875rem; font-weight: 550; }
 .vaw-provider-form input:not([type="checkbox"]) { display: block; inline-size: 100%; min-block-size: 2.8rem; margin-block-start: .4rem; border: 1px solid var(--vaw-color-control-border); border-radius: .3rem; padding: .55rem .75rem; background: var(--vaw-color-canvas); color: var(--vaw-color-text); font: inherit; font-weight: 400; }
+.vaw-provider-form select { display: block; inline-size: 100%; min-block-size: 2.8rem; margin-block-start: .4rem; border: 1px solid var(--vaw-color-control-border); border-radius: .3rem; padding: .55rem .75rem; background: var(--vaw-color-canvas); color: var(--vaw-color-text); font: inherit; font-weight: 400; }
 .vaw-provider-form input::placeholder { color: var(--vaw-color-muted); }
 .vaw-provider-form input:focus-visible { border-color: var(--vaw-color-focus); outline: 2px solid var(--vaw-color-focus); outline-offset: 1px; }
 .vaw-provider-form label small { display: block; margin-block-start: .35rem; color: var(--vaw-color-muted); font-size: .77rem; font-weight: 400; line-height: 1.45; }
@@ -556,6 +578,9 @@ button.vaw-project-tree-file { cursor: pointer; }
 .vaw-source-mode-note { display: flex; flex-wrap: wrap; gap: .5rem .8rem; margin-block: 1rem; border-inline-start: 3px solid var(--vaw-color-focus); padding: .8rem 1rem; background: var(--vaw-color-surface); color: var(--vaw-color-muted); }
 .vaw-source-mode-note strong { color: var(--vaw-color-text); }
 .vaw-provider-form textarea { display: block; inline-size: 100%; min-block-size: 7rem; margin-block-start: .4rem; border: 1px solid var(--vaw-color-control-border); border-radius: .3rem; padding: .55rem .75rem; background: var(--vaw-color-canvas); color: var(--vaw-color-text); font: inherit; font-weight: 400; resize: vertical; }
+.vaw-provider-form fieldset { min-inline-size: 0; border: 1px solid var(--vaw-color-border); border-radius: .35rem; padding: .85rem; }
+.vaw-provider-form fieldset legend { padding-inline: .3rem; color: var(--vaw-color-muted); font-size: .875rem; font-weight: 600; }
+.vaw-provider-form input[type="checkbox"] { inline-size: 1rem; block-size: 1rem; accent-color: var(--vaw-color-accent); }
 .vaw-provider-form textarea:focus-visible { border-color: var(--vaw-color-focus); outline: 2px solid var(--vaw-color-focus); outline-offset: 1px; }
 .vaw-mcp-environment-row { display: grid; grid-template-columns: minmax(10rem, .7fr) minmax(14rem, 1.3fr) auto; align-items: end; gap: .75rem; margin-block: .75rem; }
 .vaw-mcp-environment-row button { margin-block-end: .1rem; }

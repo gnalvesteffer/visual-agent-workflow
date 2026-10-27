@@ -193,7 +193,7 @@ public static class StudioProjectSourceArchive
             throw new ArgumentException("A safe workflow ID and SHA-256 content hash are required.");
         var safeId = Segment(workflowId);
         var idHash = Hash(System.Text.Encoding.UTF8.GetBytes(workflowId))[..8];
-        return $"workflows/{safeId}-{idHash}-{contentHash[..16].ToLowerInvariant()}.json";
+        return $"workflows/{safeId}-{idHash}-{contentHash[..16].ToLowerInvariant()}.workflow";
     }
 
     public static string SkillAssetPath(string id, string version, string contentHash)
@@ -201,7 +201,7 @@ public static class StudioProjectSourceArchive
         if (contentHash is null || contentHash.Length != 64 || !contentHash.All(Uri.IsHexDigit))
             throw new ArgumentException("A SHA-256 content hash is required.", nameof(contentHash));
         var basePath = AssetPath("skills", id, version);
-        return basePath[..^5] + "-" + contentHash.ToLowerInvariant() + ".json";
+        return basePath[..basePath.LastIndexOf('.')] + "-" + contentHash.ToLowerInvariant() + ".skill";
     }
 
     public static string VersionedAssetPath(string directory, string id, string version, string contentHash)
@@ -211,7 +211,8 @@ public static class StudioProjectSourceArchive
         if (contentHash is null || contentHash.Length != 64 || !contentHash.All(Uri.IsHexDigit))
             throw new ArgumentException("A SHA-256 content hash is required.", nameof(contentHash));
         var basePath = AssetPath(directory, id, version);
-        return basePath[..^5] + "-" + contentHash.ToLowerInvariant() + ".json";
+        var extension = directory switch { "agents" => ".agent", "functions" => ".function", _ => throw new ArgumentException("A supported project asset directory is required.", nameof(directory)) };
+        return basePath[..basePath.LastIndexOf('.')] + "-" + contentHash.ToLowerInvariant() + extension;
     }
 
     public static string SerializeSkillAsset(SkillLibraryItem item)
@@ -432,8 +433,9 @@ public static class StudioProjectSourceArchive
     {
         var safeId = Segment(id);
         var safeVersion = Segment(version);
-        var file = directory == "workflows" ? $"{safeId}-{Hash(System.Text.Encoding.UTF8.GetBytes(id))[..8]}.json" :
-            $"{safeId}/{safeVersion}-{Hash(System.Text.Encoding.UTF8.GetBytes(version))[..8]}.json";
+        var extension = directory switch { "skills" => ".skill", "agents" => ".agent", "functions" => ".function", _ => ".json" };
+        var file = directory == "workflows" ? $"{safeId}-{Hash(System.Text.Encoding.UTF8.GetBytes(id))[..8]}{extension}" :
+            $"{safeId}/{safeVersion}-{Hash(System.Text.Encoding.UTF8.GetBytes(version))[..8]}{extension}";
         return $"{directory}/{file}";
     }
 

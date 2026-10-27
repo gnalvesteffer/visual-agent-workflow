@@ -32,7 +32,7 @@ public sealed class StudioFolderGraphFunctionCatalogTests : IDisposable
 
         Assert.Equal("text.append-suffix", listed.Function.Definition.FunctionId);
         Assert.Equal(saved.ContentHash, listedAsset.ContentHash);
-        Assert.Equal("functions/text.append-suffix/1-6b86b273-" + saved.ContentHash + ".json", saved.RelativePath);
+        Assert.Equal("functions/text.append-suffix/1-6b86b273-" + saved.ContentHash + ".function", saved.RelativePath);
         Assert.Equal(saved.RelativePath, StudioProjectSourceDirectory.Read(directory).Manifest.Files.Single().Path);
         Assert.Equal(GraphFunctionJson.ComputeHash(listed.Function.Definition), listed.Function.ContentHash);
         Assert.Equal(WorkflowLayoutJson.Serialize(layout, draft), WorkflowLayoutJson.Serialize(listedAsset.Layout, draft));

@@ -1,15 +1,12 @@
 /* Standalone Studio refinements. Keep graph presentation and embedded component styles independent. */
 .vaw-app {
-    background-image:
-        radial-gradient(ellipse 72rem 30rem at 50% -22rem, color-mix(in srgb, var(--vaw-color-accent) 7%, transparent), transparent 72%),
-        linear-gradient(180deg, color-mix(in srgb, var(--vaw-color-surface) 35%, var(--vaw-color-canvas)), var(--vaw-color-canvas) 34rem);
-    background-attachment: fixed;
+    background-image: none;
     font-size: 0.9375rem;
     line-height: 1.45;
 }
 
 .vaw-app :where(h1, h2, h3, h4) {
-    letter-spacing: -0.018em;
+    letter-spacing: -0.015em;
     line-height: 1.22;
 }
 
@@ -209,4 +206,205 @@
 @media (forced-colors: active) {
     .vaw-app { background-image: none; }
     .vaw-studio-navigation { background: Canvas; }
+}
+
+/* Keep the authoring workbench above the fold so the graph remains the page's focus. */
+.vaw-studio-authoring { padding-block: var(--vaw-space-3); }
+.vaw-studio-authoring .vaw-studio-header { padding-block-end: var(--vaw-space-2); gap: var(--vaw-space-2); }
+.vaw-studio-authoring .vaw-brand-mark { inline-size: 2rem; block-size: 2rem; }
+.vaw-studio-authoring .vaw-studio-header h1 { font-size: 1.25rem; }
+.vaw-studio-authoring .vaw-product-name,
+.vaw-studio-authoring .vaw-studio-description,
+.vaw-studio-authoring .vaw-designer > .vaw-section-header { display: none; }
+.vaw-studio-authoring .vaw-workspace-views { padding-block-end: var(--vaw-space-1); margin-block-end: var(--vaw-space-2); }
+.vaw-studio-authoring .vaw-designer { padding: var(--vaw-space-2); }
+.vaw-studio-authoring .vaw-designer-toolbar { margin-block-end: var(--vaw-space-2); }
+.vaw-studio-authoring .vaw-workflow-identity { margin-block: var(--vaw-space-1); }
+.vaw-studio-authoring .vaw-workflow-identity > label { display: flex; flex: 0 0 auto; align-items: center; gap: var(--vaw-space-2); white-space: nowrap; }
+.vaw-studio-authoring .vaw-workflow-identity > label input { inline-size: min(24rem, 48vw); min-inline-size: 16rem; margin-block-start: 0; }
+.vaw-studio-authoring .vaw-definition-status { margin: 0; }
+@media (max-width: 700px) {
+    .vaw-studio-authoring .vaw-workflow-identity { align-items: start; }
+    .vaw-studio-authoring .vaw-workflow-identity > label { display: block; white-space: normal; }
+    .vaw-studio-authoring .vaw-workflow-identity > label input { inline-size: 100%; }
+}
+
+/* Project authoring follows the approved IDE composition: Explorer, document tabs,
+   graph workspace and a docked run/issue/output panel. */
+.vaw-source-project.vaw-open-project-workspace { padding-block: .35rem 1.25rem; }
+.vaw-source-project .vaw-workspace-page-heading { margin-block: .2rem .55rem; padding-block: .25rem .55rem; }
+.vaw-source-project .vaw-workspace-page-heading h1 { margin: 0; font-size: 1.15rem; }
+.vaw-source-project .vaw-workspace-page-heading p { margin: .12rem 0 0; font-size: .8rem; }
+.vaw-open-project-details { margin-block-end: .5rem; }
+.vaw-open-project-details > summary,
+.vaw-project-utility > summary { display: flex; align-items: center; gap: .5rem; min-block-size: 2rem; color: var(--vaw-color-muted); font-size: .8rem; }
+.vaw-project-open-panel { margin-block: .25rem .6rem; padding: .6rem .75rem; }
+.vaw-project-tabs { border: 1px solid var(--vaw-color-border); background: var(--vaw-color-canvas); }
+.vaw-project-tab-list { background: var(--vaw-color-surface); }
+.vaw-project-tab.is-active { border-block-end: 1px solid var(--vaw-color-canvas); background: var(--vaw-color-canvas); }
+.vaw-project-folder-editor { padding: 0; }
+.vaw-project-tab-heading { margin: 0; padding: .55rem .8rem; border-block-end: 1px solid var(--vaw-color-border); background: var(--vaw-color-surface); }
+.vaw-project-tab-heading h2 { font-size: .92rem; font-weight: 600; }
+.vaw-project-tab-heading p { font-size: .74rem; }
+.vaw-project-tab-heading .vaw-provider-state { white-space: nowrap; font-size: .75rem; }
+.vaw-project-utility { margin: .35rem .65rem 0; border-block-end: 1px solid var(--vaw-color-border); }
+.vaw-project-utility > summary { min-block-size: 1.75rem; padding-inline: .15rem; }
+.vaw-project-utility[open] { padding-block-end: .5rem; }
+.vaw-project-utility > .vaw-settings-section { margin: .2rem 0 0; padding: .5rem .65rem; }
+.vaw-source-workspace { display: grid; grid-template-columns: 15rem minmax(0, 1fr); align-items: stretch; gap: 0; margin: 0; border: 0; border-radius: 0; background: var(--vaw-color-canvas); }
+.vaw-project-explorer { position: sticky; inset-block-start: 0; max-block-size: calc(100dvh - 7rem); border: 0; border-inline-end: 1px solid var(--vaw-color-border); border-radius: 0; padding: .55rem .45rem; background: var(--vaw-color-surface); }
+.vaw-project-explorer > header { padding-inline: .45rem; }
+.vaw-project-explorer h2 { font-size: .72rem; letter-spacing: .045em; text-transform: uppercase; }
+.vaw-project-tree-directory > summary { min-block-size: 1.65rem; font-size: .8rem; font-weight: 500; }
+.vaw-project-tree-file { min-block-size: 1.55rem; padding: .2rem .25rem; font-size: .78rem; }
+.vaw-project-tree-file.is-selected { outline: 0; box-shadow: inset 2px 0 var(--vaw-color-focus); }
+.vaw-project-tree-icon { font-family: var(--vaw-font-mono, ui-monospace, monospace); }
+.vaw-project-tree-legend { display: none; }
+.vaw-folder-workflow-editor { min-inline-size: 0; overflow: hidden; }
+.vaw-folder-workflow-editor > .vaw-settings-section-heading { min-block-size: 2.75rem; margin: 0; padding: .45rem .7rem; border-block-end: 1px solid var(--vaw-color-border); background: var(--vaw-color-surface); }
+.vaw-folder-workflow-editor > .vaw-settings-section-heading h2 { margin: 0; font-size: .9rem; }
+.vaw-folder-workflow-editor > .vaw-settings-section-heading p { display: none; }
+.vaw-folder-workflow-editor > .vaw-settings-section-heading .vaw-provider-actions { gap: .35rem; }
+.vaw-folder-workflow-editor > .vaw-settings-section-heading button { min-block-size: 2rem; padding: .35rem .55rem; font-size: .75rem; }
+.vaw-file-tabs { display: flex; min-inline-size: 0; overflow-x: auto; border-block-end: 1px solid var(--vaw-color-border); background: var(--vaw-color-surface); scrollbar-width: thin; }
+.vaw-file-tab { display: flex; flex: 0 0 auto; min-inline-size: 0; border-inline-end: 1px solid var(--vaw-color-border); background: var(--vaw-color-surface); }
+.vaw-file-tab.is-active { border-block-end: 2px solid var(--vaw-color-focus); background: var(--vaw-color-canvas); }
+.vaw-file-tab button { display: flex; align-items: center; gap: .4rem; min-block-size: 2.2rem; border: 0; border-radius: 0; padding: .35rem .55rem; background: transparent; color: var(--vaw-color-text); font: inherit; font-size: .75rem; cursor: pointer; }
+.vaw-file-tab .vaw-file-tab-close { inline-size: 1.8rem; padding-inline: .3rem; color: var(--vaw-color-muted); font-size: 1rem; }
+.vaw-file-kind { color: var(--vaw-color-focus); font-family: var(--vaw-font-mono, ui-monospace, monospace); font-size: .7rem; font-weight: 700; }
+.vaw-file-kind-agent-profile { color: #b392f0; }
+.vaw-file-kind-skill { color: #53b7ae; }
+.vaw-file-kind-graph-function { color: #d5a858; }
+.vaw-project-folder-editor .vaw-definition-status { margin: .4rem .7rem; font-size: .75rem; }
+.vaw-project-folder-editor .vaw-workflow-editor { margin: 0; }
+.vaw-project-folder-editor .vaw-graph-editor { border: 0; border-radius: 0; }
+.vaw-project-folder-editor .vaw-canvas-toolbar { padding: .4rem .55rem; border-block-end: 1px solid var(--vaw-color-border); background: var(--vaw-color-surface); }
+.vaw-project-folder-editor .vaw-canvas-toolbar > .vaw-help { display: none; }
+.vaw-project-folder-editor .vaw-canvas-viewport { block-size: min(59vh, 48rem); min-block-size: 28rem; }
+.vaw-project-folder-editor .vaw-bottom-tray { margin: 0; border: 0; border-block-start: 1px solid var(--vaw-color-border); border-radius: 0; background: var(--vaw-color-surface); }
+.vaw-project-folder-editor .vaw-bottom-tray > nav { min-block-size: 2.2rem; border: 0; border-block-end: 1px solid var(--vaw-color-border); padding-inline: .45rem; }
+.vaw-project-folder-editor .vaw-bottom-tray > nav button { min-block-size: 2.1rem; border: 0; border-radius: 0; padding: .3rem .65rem; background: transparent; color: var(--vaw-color-muted); font-size: .75rem; }
+.vaw-project-folder-editor .vaw-bottom-tray > nav button[aria-selected="true"] { border-block-end: 2px solid var(--vaw-color-focus); color: var(--vaw-color-text); }
+.vaw-project-folder-editor .vaw-bottom-panel { max-block-size: 18rem; overflow: auto; padding: .55rem .7rem; }
+.vaw-project-folder-editor .vaw-folder-run-controls { display: flex; flex-wrap: wrap; align-items: end; gap: .55rem; }
+.vaw-project-folder-editor .vaw-folder-run-controls label { display: grid; gap: .25rem; min-inline-size: min(15rem, 100%); flex: 1 1 15rem; font-size: .75rem; }
+.vaw-project-folder-editor .vaw-folder-run-controls label:first-child { flex-basis: 20rem; }
+.vaw-project-folder-editor .vaw-folder-run-controls textarea { min-block-size: 2.2rem; }
+.vaw-project-folder-editor .vaw-bottom-empty { margin: .35rem 0; color: var(--vaw-color-muted); font-size: .8rem; }
+.vaw-project-folder-editor .vaw-bottom-issues { margin: 0; }
+@media (max-width: 64rem) {
+    .vaw-source-workspace { grid-template-columns: 12rem minmax(0, 1fr); }
+    .vaw-project-explorer { max-block-size: calc(100dvh - 6rem); }
+}
+@media (max-width: 48rem) {
+    .vaw-source-workspace { grid-template-columns: minmax(0, 1fr); }
+    .vaw-project-explorer { position: static; max-block-size: 14rem; border-block-end: 1px solid var(--vaw-color-border); border-inline-end: 0; }
+    .vaw-folder-workflow-editor > .vaw-settings-section-heading { align-items: start; }
+    .vaw-project-folder-editor .vaw-canvas-viewport { min-block-size: 22rem; block-size: 54vh; }
+}
+
+/* Project folders use a dedicated IDE frame so the graph owns the first screen. */
+.vaw-ide-shell.vaw-provider-settings {
+    display: flex;
+    flex-direction: column;
+    inline-size: 100%;
+    max-inline-size: none;
+    block-size: 100vh;
+    block-size: 100dvh;
+    min-block-size: 0;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: var(--vaw-color-canvas);
+}
+.vaw-app:has(.vaw-ide-shell) { overflow: hidden; }
+.vaw-ide-titlebar {
+    display: flex;
+    align-items: center;
+    gap: .65rem;
+    min-block-size: 2.7rem;
+    padding-inline: .65rem;
+    border-block-end: 1px solid var(--vaw-color-border);
+    background: var(--vaw-color-surface);
+}
+.vaw-ide-brand { display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; border: 0; color: var(--vaw-color-focus); }
+.vaw-ide-brand svg { inline-size: 1.45rem; block-size: 1.45rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.vaw-ide-product-name { color: var(--vaw-color-text); font-size: .8rem; font-weight: 650; white-space: nowrap; }
+.vaw-ide-title-separator { inline-size: 1px; block-size: 1.35rem; background: var(--vaw-color-border); }
+.vaw-ide-project-name { min-inline-size: 0; overflow: hidden; color: var(--vaw-color-text); font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.vaw-ide-title-actions { display: flex; align-items: center; gap: .4rem; margin-inline-start: auto; }
+.vaw-ide-title-actions > a { display: inline-flex; align-items: center; min-block-size: 2rem; padding-inline: .5rem; border: 1px solid transparent; border-radius: .25rem; color: var(--vaw-color-muted); font-size: .74rem; text-decoration: none; }
+.vaw-ide-title-actions > a:hover { border-color: var(--vaw-color-border); background: var(--vaw-color-control-hover); color: var(--vaw-color-text); }
+.vaw-ide-title-actions .vaw-theme-picker { display: flex; align-items: center; gap: .35rem; font-size: .72rem; }
+.vaw-ide-title-actions .vaw-theme-picker select { min-block-size: 2rem; max-inline-size: 10rem; padding-block: .2rem; font-size: .72rem; }
+.vaw-ide-layout { display: grid; grid-template-columns: 3.8rem minmax(0, 1fr); flex: 1 1 0; min-block-size: 0; }
+.vaw-ide-activitybar { display: flex; flex-direction: column; align-items: stretch; gap: .2rem; min-block-size: 0; padding-block: .45rem; border-inline-end: 1px solid var(--vaw-color-border); background: var(--vaw-color-surface); }
+.vaw-ide-activitybar > a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .2rem; min-block-size: 3.35rem; border-inline-start: 2px solid transparent; color: var(--vaw-color-muted); font-size: .59rem; text-decoration: none; }
+.vaw-ide-activitybar > a svg { inline-size: 1.25rem; block-size: 1.25rem; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+.vaw-ide-activitybar > a:hover { color: var(--vaw-color-text); background: var(--vaw-color-control-hover); }
+.vaw-ide-activitybar > a.is-active { border-inline-start-color: var(--vaw-color-focus); color: var(--vaw-color-text); background: var(--vaw-color-selected); }
+.vaw-ide-main { display: flex; flex-direction: column; min-inline-size: 0; min-block-size: 0; overflow: auto; padding: 0 .55rem .55rem; }
+.vaw-ide-main > .vaw-workspace-page-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex: 0 0 auto; min-block-size: 3rem; margin: 0; padding: .35rem .25rem; border-block-end: 1px solid var(--vaw-color-border); }
+.vaw-ide-main > .vaw-workspace-page-heading h1 { margin: 0; font-size: .87rem; font-weight: 600; }
+.vaw-ide-main > .vaw-workspace-page-heading p { margin: .1rem 0 0; font-size: .68rem; }
+.vaw-ide-main .vaw-open-project-details { position: relative; flex: 0 0 auto; margin: 0; }
+.vaw-ide-main .vaw-open-project-details > summary { min-block-size: 2rem; padding-inline: .5rem; border: 1px solid var(--vaw-color-border); border-radius: .25rem; background: var(--vaw-color-control); color: var(--vaw-color-text); }
+.vaw-ide-main .vaw-open-project-details[open] > section { position: absolute; inset-block-start: calc(100% + .3rem); inset-inline-end: 0; z-index: 6; inline-size: min(34rem, calc(100vw - 5rem)); box-shadow: 0 10px 28px rgb(0 0 0 / .22); }
+.vaw-ide-main > .vaw-project-tabs { display: flex; flex: 1 1 0; flex-direction: column; min-block-size: 0; overflow: hidden; border: 0; }
+.vaw-ide-main .vaw-project-tab-list { flex: 0 0 auto; min-block-size: 2.1rem; }
+.vaw-ide-main .vaw-project-folder-editor:not([hidden]) { display: flex; flex: 1 1 0; flex-direction: column; min-block-size: 0; overflow: hidden; }
+.vaw-ide-main .vaw-project-tab-heading { flex: 0 0 auto; min-block-size: 2.55rem; padding: .35rem .7rem; }
+.vaw-ide-main .vaw-project-tab-heading h2 { margin: 0; font-size: .78rem; }
+.vaw-ide-main .vaw-project-tab-heading p { max-inline-size: 70ch; margin: .08rem 0 0; overflow: hidden; font-size: .66rem; text-overflow: ellipsis; white-space: nowrap; }
+.vaw-ide-main .vaw-project-utility { flex: 0 0 auto; margin-block-start: .1rem; }
+.vaw-ide-main .vaw-project-utility > summary { min-block-size: 1.5rem; font-size: .68rem; }
+.vaw-ide-main .vaw-editor-choice-status,
+.vaw-ide-main .vaw-editor-choice-warning { flex: 0 0 auto; margin: .15rem .65rem; color: var(--vaw-color-muted); font-size: .68rem; }
+.vaw-ide-main .vaw-editor-choice-warning { color: var(--vaw-color-warning); }
+.vaw-ide-main .vaw-source-workspace { flex: 1 1 0; min-block-size: 20rem; overflow: hidden; }
+.vaw-ide-main .vaw-project-explorer { position: static; block-size: 100%; max-block-size: none; overflow: auto; }
+.vaw-ide-main .vaw-folder-workflow-editor { display: flex; flex-direction: column; min-block-size: 0; overflow: auto; }
+.vaw-ide-main .vaw-folder-workflow-editor:has(.vaw-workflow-editor) { overflow: hidden; }
+.vaw-ide-main .vaw-file-tabs { flex: 0 0 auto; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-definition-status { flex: 0 0 auto; margin-block: .2rem; font-size: .68rem; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-workflow-editor { display: flex; flex: 1 1 0; flex-direction: column; min-block-size: 0; overflow: hidden; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-parameter-editor { flex: 0 0 auto; margin-block: .1rem; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-graph-editor { display: flex; flex: 1 1 0; flex-direction: column; max-block-size: 100%; min-block-size: 0; overflow: hidden; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-canvas-workspace { flex: 1 1 0; grid-template-rows: minmax(0, 1fr); min-block-size: 0; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-canvas-viewport { flex: 1 1 0; block-size: min(36vh, 32rem); max-block-size: none; min-block-size: 14rem; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-function-editor { display: flex; flex: 1 1 0; flex-direction: column; min-block-size: 0; gap: .55rem; overflow: auto; padding: .65rem; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-function-metadata { flex: 0 0 auto; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .45rem .65rem; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-function-metadata label { font-size: .68rem; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-function-metadata :where(input, textarea) { min-block-size: 2rem; margin-block-start: .2rem; padding: .3rem .45rem; font-size: .72rem; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-function-interface { flex: 0 0 auto; padding-block: .4rem; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-function-interface > summary { font-size: .72rem; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-function-interface .vaw-layout-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; margin-block-start: .45rem; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-function-interface .vaw-layout-columns > section { padding: .55rem; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-function-interface .vaw-function-port { display: flex; align-items: end; gap: .4rem; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-graph-editor { flex: 0 0 auto; min-block-size: 34rem; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-function-editor .vaw-canvas-workspace { min-block-size: 0; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-function-editor .vaw-canvas-viewport { block-size: min(55vh, 42rem); min-block-size: 26rem; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-bottom-tray { flex: 0 0 auto; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-bottom-tray > nav { min-block-size: 1.9rem; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-bottom-tray > nav button { min-block-size: 1.85rem; }
+.vaw-ide-main .vaw-project-folder-editor .vaw-bottom-panel { max-block-size: min(13rem, 22vh); }
+.vaw-ide-main .vaw-project-empty-workspace { flex: 1; margin-block: .6rem; }
+.vaw-ide-shell :where(a, button, summary, select):focus-visible { outline: 2px solid var(--vaw-color-focus); outline-offset: 2px; }
+@media (max-height: 760px) and (min-width: 48.01rem) {
+    .vaw-ide-main .vaw-project-tab-heading { min-block-size: 2.1rem; }
+    .vaw-ide-main .vaw-project-tab-heading p { display: none; }
+    .vaw-ide-main .vaw-project-utility > summary { min-block-size: 1.3rem; }
+    .vaw-ide-main .vaw-project-folder-editor .vaw-canvas-viewport { block-size: 32vh; min-block-size: 13rem; }
+    .vaw-ide-main .vaw-project-folder-editor .vaw-bottom-panel { max-block-size: 7rem; }
+}
+@media (max-width: 48rem) {
+    .vaw-ide-product-name, .vaw-ide-title-separator, .vaw-ide-title-actions > a { display: none; }
+    .vaw-ide-layout { grid-template-columns: 3.2rem minmax(0, 1fr); }
+    .vaw-ide-main { overflow: auto; padding-inline: .25rem; }
+    .vaw-ide-activitybar > a { min-block-size: 2.8rem; font-size: .53rem; }
+    .vaw-ide-main > .vaw-workspace-page-heading { min-block-size: 2.5rem; }
+    .vaw-ide-main .vaw-project-tabs { overflow: visible; }
+    .vaw-ide-main .vaw-project-folder-editor:not([hidden]) { overflow: visible; }
+    .vaw-ide-main .vaw-source-workspace { overflow: visible; }
+    .vaw-ide-main .vaw-folder-workflow-editor { overflow: visible; }
 }

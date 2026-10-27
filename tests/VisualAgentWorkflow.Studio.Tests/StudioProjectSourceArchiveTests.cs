@@ -77,19 +77,30 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
     {
         var tree = StudioProjectFileTree.Build(
         [
-            new("skill", "research", "1.0.0", "skills/research/1.0.0.json", new string('a', 64)),
-            new("workflow", "workflow-z", "draft", "workflows/z.json", new string('b', 64)),
-            new("workflow", "workflow-a", "draft", "workflows/a.json", new string('c', 64)),
-            new("graph-function", "text.format", "1.0.0", "functions/text/format.json", new string('d', 64))
+            new("skill", "research", "1.0.0", "skills/research/1.0.0.skill", new string('a', 64)),
+            new("workflow", "workflow-z", "draft", "workflows/z.workflow", new string('b', 64)),
+            new("workflow", "workflow-a", "draft", "workflows/a.workflow", new string('c', 64)),
+            new("graph-function", "text.format", "1.0.0", "functions/text/format.function", new string('d', 64))
         ]);
 
         Assert.Equal(["functions", "skills", "workflows"], tree.Select(node => node.Name));
         Assert.Equal("text", tree[0].Children[0].Name);
-        Assert.Equal("format.json", tree[0].Children[0].Children[0].Name);
-        Assert.Equal("a.json", tree[2].Children[0].Name);
-        Assert.Equal("z.json", tree[2].Children[1].Name);
+        Assert.Equal("format.function", tree[0].Children[0].Children[0].Name);
+        Assert.Equal("a.workflow", tree[2].Children[0].Name);
+        Assert.Equal("z.workflow", tree[2].Children[1].Name);
         Assert.Equal("graph-function", tree[0].Children[0].Children[0].File?.Kind);
         Assert.Equal("skill", tree[1].Children[0].Children[0].File?.Kind);
+    }
+
+    [Fact]
+    public void GeneratedProjectAssetsUseDescriptiveFileExtensions()
+    {
+        var hash = new string('a', 64);
+
+        Assert.EndsWith(".workflow", StudioProjectSourceArchive.WorkflowDraftPath("support", hash));
+        Assert.EndsWith(".skill", StudioProjectSourceArchive.SkillAssetPath("search", "1.0.0", hash));
+        Assert.EndsWith(".agent", StudioProjectSourceArchive.VersionedAssetPath("agents", "triage", "1.0.0", hash));
+        Assert.EndsWith(".function", StudioProjectSourceArchive.VersionedAssetPath("functions", "normalize", "1.0.0", hash));
     }
 
     [Fact]
