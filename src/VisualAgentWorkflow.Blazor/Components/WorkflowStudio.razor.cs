@@ -212,7 +212,7 @@ public partial class WorkflowStudio
             if (!Current(client, version)) return;
             selectionVersion++;
             snapshot = run; runLayout = null;
-            workspaceView = IdeMode ? "designer" : "run";
+            workspaceView = "run";
             await LoadRunLayout(run, selectionVersion, client, version);
             await RefreshHistory();
         });

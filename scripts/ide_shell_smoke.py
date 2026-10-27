@@ -191,6 +191,8 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             expect(run_dialog).to_be_visible()
             run_dialog.get_by_label("Workflow input", exact=True).fill("Run directly from the saved project source")
             run_dialog.get_by_role("button", name="Run workflow", exact=True).click()
+            expect(page.locator(".vaw-viewer")).to_be_visible()
+            page.get_by_role("button", name="Back to workflow", exact=True).click()
             history = page.get_by_role("region", name="Workflow designer").get_by_label("Workflow run history", exact=True)
             expect(history.locator("tbody tr")).to_have_count(1)
             expect(history.locator("tbody tr")).to_contain_text("completed")

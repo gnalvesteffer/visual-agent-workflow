@@ -14,6 +14,8 @@ Studio connection tests distinguish endpoint errors from stdio executable/proces
 
 ## Work in a workflow document
 
+Starting a saved workflow from **Run workflow** opens the run inspector automatically. Use **Back to workflow** to resume editing; use **Inspect** in the Runs panel to reopen a prior run.
+
 The project workflow editor uses document tabs, a canvas, and a contextual inspector. Choose a workflow in Explorer or an open document tab; Explorer keeps the active file highlighted. The document header provides **Save**, **Run workflow**, and **Workflow settings**. **Run workflow** opens a dialog for test input and typed workflow parameters, then starts the saved workflow with those values; it does not publish or activate a revision. The settings drawer overlays the editor and contains workflow naming, parameters, discard, reuse, and import/export tools without moving the canvas. Create workflows from the Explorer's **workflows** folder context menu. Close a document with its **×** button or middle-click its tab. Closing an unsaved document asks whether to keep it open or discard its edits; closing a clean inactive tab leaves the active editor untouched.
 
 Use **Select** to drag a selection rectangle on empty canvas, or **Pan** to move the view; middle-drag also pans. Click the graph overview to navigate. Selecting a node opens its **Configure** view; **Inputs** and **Outputs** describe its actual typed pins. The inspector scrolls independently of the canvas.

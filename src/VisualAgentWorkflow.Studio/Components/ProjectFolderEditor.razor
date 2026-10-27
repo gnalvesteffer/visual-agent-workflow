@@ -2146,6 +2146,7 @@
         {
             folderRun = await start();
             bottomTab = "runs";
+            folderInspectRun = true;
             if (runDialogOpen) await CloseRunDialog();
             await InvokeAsync(StateHasChanged);
             while (!folderRun.IsTerminal)

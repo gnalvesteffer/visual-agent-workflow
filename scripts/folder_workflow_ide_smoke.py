@@ -51,6 +51,8 @@ def verify(base_url, browser_executable):
                 expect(run_dialog).to_be_visible()
                 run_dialog.get_by_label('Workflow input', exact=True).fill('Hello folder!')
                 run_dialog.get_by_role('button', name='Run workflow', exact=True).click()
+                expect(document.locator('.vaw-viewer')).to_be_visible()
+                document.get_by_role('button', name='Back to workflow', exact=True).click()
                 expect(document.locator('.vaw-ide-run-table')).to_contain_text('completed', timeout=20000)
                 output_tab = document.get_by_role('tab', name='Output', exact=True)
                 output_tab.click()

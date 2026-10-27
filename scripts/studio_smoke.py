@@ -196,7 +196,7 @@ def agent_check():
     print("Framework agent/tool loop, recorded model rounds, denied tool preflight, and no-tool isolation passed (deterministic fixture).")
 
 
-def run_saved_workflow(designer, input_text, expected):
+def run_saved_workflow(page, designer, input_text, expected):
     from playwright.sync_api import expect
     designer.get_by_role("button", name="Run workflow", exact=True).click()
     dialog = designer.locator(".vaw-run-dialog")
@@ -204,6 +204,8 @@ def run_saved_workflow(designer, input_text, expected):
     run = dialog.get_by_role("button", name="Run workflow", exact=True)
     expect(run).to_be_enabled()
     run.click()
+    expect(page.get_by_role("region", name="Workflow run viewer", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Designer", exact=True).click()
     history = designer.get_by_label("Workflow run history", exact=True)
     expect(history.locator('tr[aria-selected="true"]')).to_contain_text("completed", timeout=20000)
     designer.get_by_role("button", name="Output", exact=True).click()
@@ -229,7 +231,7 @@ def browser_check(executable):
             new_workflow_fixture(designer)
             designer.locator("[data-graph-save]").click()
             expect(designer.get_by_role("button", name="Run workflow", exact=True)).to_be_enabled()
-            run_saved_workflow(designer, "browser proof", "BROWSER PROOF")
+            run_saved_workflow(page, designer, "browser proof", "BROWSER PROOF")
             designer.get_by_label("Workflow run history", exact=True).get_by_role("button", name="Inspect run", exact=False).last.click()
             viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
             viewer.get_by_role("button", name="Fit graph", exact=True).click()
@@ -311,7 +313,7 @@ def designer_check(browser):
     workbench(designer).get_by_role("button", name="Redo edit", exact=True).click()
     expect(nodes).to_have_count(3)
     workbench(designer).get_by_role("button", name="Save", exact=True).click()
-    run_saved_workflow(designer, "abc", "ABC")
+    run_saved_workflow(page, designer, "abc", "ABC")
 
     other = browser.new_page(viewport={"width": 1280, "height": 1000})
     other.on("pageerror", lambda error: errors.append(str(error)))
@@ -373,7 +375,7 @@ def mcp_designer_check(browser):
     workbench(designer).get_by_text("MCP binding: demo.reverse", exact=False).wait_for()
     workbench(designer).get_by_role("button", name="Save", exact=True).click()
     previous_run_ids = {run["header"]["runId"] for run in get("/api/runs")}
-    run_saved_workflow(designer, "abc", "cba")
+    run_saved_workflow(page, designer, "abc", "cba")
     deadline = time.monotonic() + 15
     while True:
         new_runs = [run for run in get("/api/runs") if run["header"]["runId"] not in previous_run_ids]
@@ -431,7 +433,7 @@ def agent_designer_check(browser):
     inspect_control(designer, "Output token limit source for step-1").get_by_label("Output token limit source for step-1", exact=True).select_option(label="Workflow input: Response token cap")
     workbench(designer).get_by_role("button", name="Save", exact=True).click()
     previous_run_ids = {run["header"]["runId"] for run in get("/api/runs")}
-    run_saved_workflow(designer, "abc", "Demo agent: abc")
+    run_saved_workflow(page, designer, "abc", "Demo agent: abc")
     deadline = time.monotonic() + 15
     while True:
         new_runs = [run for run in get("/api/runs") if run["header"]["runId"] not in previous_run_ids]
