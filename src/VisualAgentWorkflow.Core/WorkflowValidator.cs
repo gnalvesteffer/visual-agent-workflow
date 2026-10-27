@@ -127,7 +127,7 @@ public static class WorkflowValidator
                 string.IsNullOrWhiteSpace(profile.Description) || profile.Description.Length > 512 ||
                 string.IsNullOrWhiteSpace(profile.ProviderId) || profile.ProviderId.Length > 128 ||
                 string.IsNullOrWhiteSpace(profile.Instructions) || profile.Instructions.Length > 8192 ||
-                profile.Tools.IsDefault || profile.Tools.Length > 8 || profile.Tools.Any(tool => tool is null || !ValidBinding(tool)) ||
+                profile.Tools.IsDefault || profile.Tools.Any(tool => tool is null || !ValidBinding(tool)) ||
                 profile.Tools.Select(tool => tool.BindingId).Distinct(StringComparer.Ordinal).Count() != profile.Tools.Length ||
                 profile.Skills is { } profileSkills && (profileSkills.IsDefault || profileSkills.Length > 8 ||
                     profileSkills.Select(skill => skill is null ? "" : skill.Id + "@" + skill.Version).Distinct(StringComparer.Ordinal).Count() != profileSkills.Length ||
@@ -435,9 +435,9 @@ public static class WorkflowValidator
             {
                 if (definition.SchemaVersion is not ("1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)) Error("node.schema", $"nodes.{id}", "Agent nodes require schema 1.2 or later.");
                 if (node.Agent is not { } agent || string.IsNullOrWhiteSpace(agent.ProviderId) || agent.ProviderId.Length > 128 ||
-                    agent.Instructions is null || agent.Instructions.Length > 8192 || agent.Tools.IsDefault || agent.Tools.Length > 8 ||
+                    agent.Instructions is null || agent.Instructions.Length > 8192 || agent.Tools.IsDefault ||
                     agent.Tools.Any(t => t is null || !ValidBinding(t)) || agent.Tools.Select(t => t.BindingId).Distinct(StringComparer.Ordinal).Count() != agent.Tools.Length)
-                    Error("agent.configuration", $"nodes.{id}.agent", "An agent requires a model connection ID, bounded instructions, and up to eight unique tool requirements.");
+                    Error("agent.configuration", $"nodes.{id}.agent", "An agent requires a model connection ID, bounded instructions, and unique tool requirements.");
                 if (node.Agent is { } configured)
                 {
                     if (configured.Routes is { } routes &&

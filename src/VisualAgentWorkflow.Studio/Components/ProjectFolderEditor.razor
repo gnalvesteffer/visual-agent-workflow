@@ -227,13 +227,14 @@
                 </div>
                 @if (editorTabs.Count > 0)
                 {
-                    <nav class="vaw-file-tabs" aria-label="Open project files">
+                    <nav @ref="fileTabStrip" class="vaw-file-tabs" aria-label="Open project files" aria-description="Scroll horizontally to reach tabs that do not fit. Drag tabs to reorder; press Alt+Shift+Arrow keys on a tab to move it.">
                         @foreach (var file in editorTabs)
                         {
                             var active = file.Path == SelectedFilePath;
-                            <div class="vaw-file-tab @(active ? "is-active" : null)" @key="file.Path" data-vaw-closable-tab @onmousedown="args => CloseFileMiddle(file, args)">
-                                <button type="button" role="tab" aria-selected="@(active ? "true" : "false")" aria-label="Open @EditorFileName(file)" @onclick="() => ActivateFile(file)">
+                            <div class="vaw-file-tab @(active ? "is-active" : null) @(FileTabIsDirty(file) ? "is-dirty" : null) @(draggedFileTabPath == file.Path ? "is-dragging" : null) @(fileDropTargetPath == file.Path ? "is-drop-target" : null)" data-file-tab-path="@file.Path" @ondragstart="() => StartFileTabDrag(file.Path)" @ondragenter="() => fileDropTargetPath = file.Path" @ondragover:preventDefault="true" @ondrop="() => DropFileTab(file.Path)" @ondrop:preventDefault="true" @ondragend="ClearFileTabDrag" @key="file.Path" data-vaw-closable-tab @onmousedown="args => CloseFileMiddle(file, args)">
+                                <button type="button" draggable="true" role="tab" aria-selected="@(active ? "true" : "false")" aria-description="Drag this tab to reorder. Press Alt+Shift+ArrowLeft or ArrowRight to move it." aria-keyshortcuts="Alt+Shift+ArrowLeft Alt+Shift+ArrowRight" @onkeydown="args => ReorderFileTabFromKeyboard(file.Path, args)" aria-label="Open @EditorFileName(file)" @onclick="() => ActivateFile(file)">
                                     <StudioFileIcon Kind="@FileIconKind(file.Kind)" />@EditorFileName(file)
+                                    @if (FileTabIsDirty(file)) { <span class="vaw-file-tab-dirty" role="img" aria-label="Unsaved changes" title="Unsaved changes"></span> }
                                 </button>
                                 <button type="button" class="vaw-file-tab-close" aria-label="Close @EditorFileName(file)" title="Close file" @onclick="() => CloseFileTab(file)">×</button>
                             </div>
@@ -265,7 +266,7 @@
                                     <p id="markdown-editor-help" class="vaw-help">Markdown syntax highlighting · Ctrl+S to save</p>
                                 </div>
                                 <div class="vaw-provider-form-actions">
-                                    <button type="submit" class="vaw-primary" disabled="@(busy || !documentationDirty)">Save Markdown</button>
+                                    <button type="submit" class="vaw-primary" data-vaw-file-save disabled="@(busy || !documentationDirty)">Save Markdown</button>
                                     <button type="button" class="vaw-secondary" @onclick="CancelDocumentationEdit" disabled="@busy">Discard changes</button>
                                 </div>
                             </form>
@@ -315,7 +316,7 @@
                                 </fieldset>
                                 <p class="vaw-provider-form-note vaw-provider-form-wide">Saving adds an immutable profile revision to the project. Existing workflow and profile snapshots remain unchanged; no provider connection or MCP grant is copied.</p>
                                 <div class="vaw-provider-form-actions vaw-provider-form-wide">
-                                    <button type="submit" class="vaw-primary" disabled="@(busy || !profileFormDirty || string.IsNullOrWhiteSpace(profileProviderId))">Save source profile version</button>
+                                    <button type="submit" class="vaw-primary" data-vaw-file-save disabled="@(busy || !profileFormDirty || string.IsNullOrWhiteSpace(profileProviderId))">Save source profile version</button>
                                     <button type="button" class="vaw-secondary" @onclick="CancelProfileEdit" disabled="@busy">Discard changes</button>
                                 </div>
                             </form>
@@ -336,7 +337,7 @@
                                 <label class="vaw-provider-form-wide">Instructions <textarea required @bind="skillInstructions" @bind:event="oninput" @bind:after="MarkSkillFormDirty" maxlength="8192" rows="10"></textarea></label>
                                 <p class="vaw-provider-form-note vaw-provider-form-wide">Saving adds an immutable revision to the project. Older workflow references and skill files remain unchanged.</p>
                                 <div class="vaw-provider-form-actions vaw-provider-form-wide">
-                                    <button type="submit" class="vaw-primary" disabled="@(busy || !skillFormDirty)">Save source skill version</button>
+                                    <button type="submit" class="vaw-primary" data-vaw-file-save disabled="@(busy || !skillFormDirty)">Save source skill version</button>
                                     <button type="button" class="vaw-secondary" @onclick="CancelSkillEdit" disabled="@busy">Discard changes</button>
                                 </div>
                             </form>
@@ -357,7 +358,7 @@
                 {
                     <div class="vaw-studio-in-ide vaw-folder-workflow-document">
                     <header class="vaw-document-breadcrumb"><strong>@openedWorkflow.RelativePath</strong><span class="vaw-document-save-state">@(dirty ? "Unsaved changes" : "Source saved")</span><div class="vaw-document-actions">
-                        <button type="button" data-graph-save @onclick="SaveWorkflow" disabled="@(busy || !dirty)">Save source file</button>
+                        <button type="button" data-graph-save data-vaw-file-save @onclick="SaveWorkflow" disabled="@(busy || !dirty)">Save source file</button>
                         <button type="button" @onclick='() => bottomTab = "test"'>Test input</button>
                         <button type="button" class="vaw-primary" @onclick="RunSavedWorkflow" disabled="@(!CanRunSavedWorkflow)">@(folderRunActive ? "Running…" : "Run workflow")</button>
                         @if (folderRunActive && folderRun is not null) { <button type="button" @onclick="CancelFolderRun">Cancel run</button> }
@@ -470,6 +471,9 @@
     private IReadOnlyList<StudioProjectFileTreeNode> fileTree = [];
     private string projectTreeFilter = "";
     private readonly List<StudioProjectFile> editorTabs = [];
+    private string? draggedFileTabPath;
+    private string? fileDropTargetPath;
+    private ElementReference fileTabStrip;
     private StudioFolderWorkflowSource? source;
     private StudioFolderSkillSource? skillSource;
     private StudioFolderAgentProfileSource? profileSource;
@@ -573,6 +577,15 @@
     private bool projectToolsOpen;
     private bool folderInspectRun;
     private string? SelectedFilePath => openedWorkflow?.RelativePath ?? openedSkill?.RelativePath ?? openedProfile?.RelativePath ?? openedGraphFunction?.RelativePath ?? openedDocumentationPath;
+    private bool FileTabIsDirty(StudioProjectFile file) => file.Path == SelectedFilePath && (file.Kind switch
+    {
+        "workflow" => dirty,
+        "skill" => skillFormDirty,
+        "agent-profile" => profileFormDirty,
+        "graph-function" => graphFunctionDirty,
+        "documentation" => documentationDirty,
+        _ => false
+    });
     private bool MatchesProjectTreeFilter(StudioProjectFileTreeNode node)
     {
         if (string.IsNullOrWhiteSpace(projectTreeFilter)) return true;
@@ -679,6 +692,8 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (IsActive && editorTabs.Count > 0)
+            await JavaScript.InvokeVoidAsync("vawStudioIde.revealActiveTab", fileTabStrip);
         if (IsActive && treeContext is { } menu)
         {
             await JavaScript.InvokeVoidAsync("vawStudioIde.layoutExplorerMenu", treeMenuElement, menu.ClientX, menu.ClientY, focusTreeMenu);
@@ -1972,6 +1987,34 @@
             file.Kind == "workflow" && item.Kind == "workflow" && item.Id == file.Id);
         if (existingIndex >= 0) editorTabs[existingIndex] = file;
         else editorTabs.Add(file);
+    }
+
+    private void StartFileTabDrag(string path) => draggedFileTabPath = path;
+    private void ClearFileTabDrag() { draggedFileTabPath = null; fileDropTargetPath = null; }
+    private void DropFileTab(string targetPath)
+    {
+        if (draggedFileTabPath is { } sourcePath)
+        {
+            var sourceIndex = editorTabs.FindIndex(item => item.Path == sourcePath);
+            var targetIndex = editorTabs.FindIndex(item => item.Path == targetPath);
+            if (sourceIndex >= 0 && targetIndex >= 0 && sourceIndex != targetIndex)
+            {
+                var item = editorTabs[sourceIndex];
+                editorTabs.RemoveAt(sourceIndex);
+                editorTabs.Insert(targetIndex, item);
+            }
+        }
+        ClearFileTabDrag();
+    }
+    private void ReorderFileTabFromKeyboard(string path, KeyboardEventArgs args)
+    {
+        if (!args.AltKey || !args.ShiftKey || args.Key is not ("ArrowLeft" or "ArrowRight")) return;
+        var sourceIndex = editorTabs.FindIndex(item => item.Path == path);
+        var targetIndex = sourceIndex + (args.Key == "ArrowLeft" ? -1 : 1);
+        if (sourceIndex < 0 || targetIndex < 0 || targetIndex >= editorTabs.Count) return;
+        var item = editorTabs[sourceIndex];
+        editorTabs.RemoveAt(sourceIndex);
+        editorTabs.Insert(targetIndex, item);
     }
 
     private Task ActivateFile(StudioProjectFile file) => file.Kind switch

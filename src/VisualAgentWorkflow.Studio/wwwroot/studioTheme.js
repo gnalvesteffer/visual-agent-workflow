@@ -15,7 +15,18 @@
             return themes.has(saved) ? saved : 'dark';
         } catch { return 'dark'; }
     };
-    const apply = () => { root.dataset.vawTheme = read(); };
+    const syncRootScrollbar = () => {
+        const app = document.querySelector('.vaw-app');
+        if (!app) return;
+        const colors = getComputedStyle(app);
+        root.style.setProperty('--vaw-scrollbar-thumb', colors.getPropertyValue('--vaw-color-control-hover').trim());
+        root.style.setProperty('--vaw-scrollbar-track', colors.getPropertyValue('--vaw-color-canvas').trim());
+        root.style.setProperty('--vaw-scrollbar-hover', colors.getPropertyValue('--vaw-color-focus').trim());
+    };
+    const apply = () => {
+        root.dataset.vawTheme = read();
+        requestAnimationFrame(syncRootScrollbar);
+    };
 
     apply();
     window.vawStudioTheme = {
@@ -24,11 +35,20 @@
         set: value => {
             if (!themes.has(value)) return;
             root.dataset.vawTheme = value;
+            syncRootScrollbar();
             try { localStorage.setItem(key, value); } catch { }
         }
     };
     window.vawStudioIde = {
         workflowSelectionListenerInstalled: false,
+        revealActiveTab: strip => {
+            const active = strip?.querySelector('.is-active');
+            if (!active || !strip) return;
+            const activeRect = active.getBoundingClientRect();
+            const stripRect = strip.getBoundingClientRect();
+            if (activeRect.left < stripRect.left) strip.scrollBy({ left: activeRect.left - stripRect.left, behavior: 'auto' });
+            else if (activeRect.right > stripRect.right) strip.scrollBy({ left: activeRect.right - stripRect.right, behavior: 'auto' });
+        },
         subscribeWorkflowSelection: dotNetReference => {
             window.vawStudioIde.workflowSelectionReference = dotNetReference;
             if (window.vawStudioIde.workflowSelectionListenerInstalled) return;
@@ -80,6 +100,7 @@
             if (select.matches(':disabled')) return -1;
             if (![...select.options].some(option => option.value === id)) return 0;
             select.value = id;
+            window.vawStudioIde.applySelectedWorkflow(id);
             select.dispatchEvent(new Event('change', { bubbles: true }));
             return 1;
         },
@@ -128,6 +149,19 @@
         if (openSettings && event.target instanceof Node && !openSettings.contains(event.target)) openSettings.removeAttribute('open');
     }, true);
     document.addEventListener('keydown', event => {
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's' && !event.defaultPrevented) {
+            const editor = event.target instanceof Element ? event.target.closest('.vaw-project-folder-editor') : null;
+            if (editor && !event.target.closest('.monaco-editor, .vaw-graph-editor')) {
+                const save = editor.querySelector('[data-vaw-file-save]:not(:disabled)');
+                if (save) { event.preventDefault(); save.click(); }
+            }
+            const workflow = event.target instanceof Element ? event.target.closest('.vaw-designer-in-ide') : null;
+            if (workflow && !event.target.closest('.vaw-graph-editor')) {
+                const save = workflow.querySelector('[data-graph-save]:not(:disabled)');
+                if (save) { event.preventDefault(); save.click(); }
+            }
+            return;
+        }
         if (event.key !== 'Escape') return;
         const openSettings = document.querySelector('.vaw-host-settings[open]');
         if (!openSettings) return;

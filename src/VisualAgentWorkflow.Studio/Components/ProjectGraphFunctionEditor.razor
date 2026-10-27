@@ -78,7 +78,7 @@
     @if (error is not null) { <p class="vaw-error" role="alert">@error</p> }
     <p class="vaw-provider-form-note">Saving adds an immutable versioned graph function directly to this project. Workflows embedding older snapshots remain unchanged.</p>
     <div class="vaw-provider-form-actions">
-        <button type="button" class="vaw-primary" @onclick="Save" disabled="@(!functionIssues.IsEmpty || !dirty)">Save graph function revision</button>
+        <button type="button" class="vaw-primary" data-vaw-file-save @onclick="Save" disabled="@(!functionIssues.IsEmpty || !dirty)">Save graph function revision</button>
         <button type="button" class="vaw-secondary" @onclick="Discard">Discard changes</button>
     </div>
 </section>

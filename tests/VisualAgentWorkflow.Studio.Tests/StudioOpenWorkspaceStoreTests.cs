@@ -46,6 +46,30 @@ public sealed class StudioOpenWorkspaceStoreTests : IDisposable
     }
 
     [Fact]
+    public void Reorder_PersistsNewTabOrderWithoutChangingSelection()
+    {
+        Directory.CreateDirectory(directory);
+        var dataDirectory = Path.Combine(directory, "studio");
+        var projects = new StudioProjectStore(dataDirectory);
+        var first = AddFolderProject(projects, "First");
+        var second = AddFolderProject(projects, "Second");
+        var third = AddFolderProject(projects, "Third");
+        var store = new StudioOpenWorkspaceStore(dataDirectory, projects);
+        store.Open(first.Id);
+        store.Open(second.Id);
+        store.Open(third.Id);
+        store.Select(second.Id);
+
+        store.Reorder(third.Id, 0);
+
+        Assert.Equal([third.Id, first.Id, second.Id], store.ProjectIds);
+        Assert.Equal(second.Id, store.SelectedProjectId);
+        var reopened = new StudioOpenWorkspaceStore(dataDirectory, new StudioProjectStore(dataDirectory));
+        Assert.Equal([third.Id, first.Id, second.Id], reopened.ProjectIds);
+        Assert.Equal(second.Id, reopened.SelectedProjectId);
+    }
+
+    [Fact]
     public void Open_RejectsCatalogProjectsAndEnforcesMaximumTabCount()
     {
         Directory.CreateDirectory(directory);

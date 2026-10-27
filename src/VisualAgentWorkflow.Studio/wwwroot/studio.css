@@ -1,4 +1,11 @@
 /* Standalone shell and settings page. Embeddable library styles remain in workflow.css. */
+:root { scrollbar-width: thin; scrollbar-color: var(--vaw-scrollbar-thumb, #34383a) var(--vaw-scrollbar-track, #181818); }
+:root::-webkit-scrollbar, .vaw-app *::-webkit-scrollbar { inline-size: .7rem; block-size: .7rem; }
+:root::-webkit-scrollbar-track, .vaw-app *::-webkit-scrollbar-track { background: var(--vaw-scrollbar-track, var(--vaw-color-canvas)); }
+:root::-webkit-scrollbar-thumb, .vaw-app *::-webkit-scrollbar-thumb { border: 2px solid var(--vaw-scrollbar-track, var(--vaw-color-canvas)); border-radius: 1rem; background: var(--vaw-scrollbar-thumb, var(--vaw-color-control-hover)); }
+:root::-webkit-scrollbar-thumb:hover { background: var(--vaw-scrollbar-hover, var(--vaw-scrollbar-thumb)); }
+.vaw-app *::-webkit-scrollbar-thumb:hover { background: var(--vaw-color-focus); }
+.vaw-app * { scrollbar-width: thin; scrollbar-color: var(--vaw-color-control-hover) var(--vaw-color-canvas); }
 .vaw-app {
     --vaw-color-scheme: dark;
     --vaw-color-canvas: #181818;
@@ -512,8 +519,11 @@
 .vaw-project-open-panel { margin-block-end: .85rem; padding: .85rem 1rem; }
 .vaw-project-open-panel > .vaw-help { margin-block: .55rem 0; }
 .vaw-project-tabs { min-inline-size: 0; }
-.vaw-project-tab-list { display: flex; gap: .2rem; overflow-x: auto; border-block-end: 1px solid var(--vaw-color-border); padding-inline: .35rem; scrollbar-width: thin; }
-.vaw-project-tab { display: inline-flex; flex: 0 0 auto; align-items: stretch; gap: .15rem; border: 1px solid transparent; border-block-end: 0; border-radius: .35rem .35rem 0 0; background: transparent; }
+.vaw-project-tab-list { display: flex; gap: .2rem; overflow-x: auto; border-block-end: 1px solid var(--vaw-color-border); padding-inline: .35rem; scrollbar-width: thin; scrollbar-color: var(--vaw-color-control-hover) var(--vaw-color-canvas); overscroll-behavior-inline: contain; }
+.vaw-project-tab { display: inline-flex; flex: 0 0 auto; align-items: stretch; gap: .15rem; border: 1px solid transparent; border-block-end: 0; border-radius: .35rem .35rem 0 0; background: transparent; cursor: grab; }
+.vaw-project-tab.is-dragging, .vaw-file-tab.is-dragging, .vaw-workflow-document-tab.is-dragging { opacity: .48; cursor: grabbing; }
+.vaw-project-tab.is-drop-target, .vaw-file-tab.is-drop-target, .vaw-workflow-document-tab.is-drop-target { box-shadow: inset 2px 0 var(--vaw-color-focus); }
+.vaw-project-tab > [role="tab"], .vaw-workflow-document-tab > button:first-child, .vaw-file-tab > button[role="tab"] { cursor: grab; }
 .vaw-project-tab.is-active { border-color: var(--vaw-color-border); background: var(--vaw-color-surface); }
 .vaw-project-tab button { min-block-size: 2.6rem; border: 0; padding: .45rem .7rem; background: transparent; color: var(--vaw-color-text); font: inherit; cursor: pointer; }
 .vaw-project-tab [role="tab"] { display: inline-flex; align-items: center; gap: .5rem; }

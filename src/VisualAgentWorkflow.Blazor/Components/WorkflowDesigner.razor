@@ -10,13 +10,13 @@
         @if (IdeMode)
         {
             <header class="vaw-document-header">
-                <nav class="vaw-workflow-document-tabs" aria-label="Open workflow documents">
+                <nav @ref="workflowTabStrip" class="vaw-workflow-document-tabs" aria-label="Open workflow documents" aria-description="Scroll horizontally to reach tabs that do not fit. Drag tabs to reorder; press Alt+Shift+Arrow keys on a tab to move it.">
                     @foreach (var id in openWorkflowIds)
                     {
                         var current = id == definition.WorkflowId;
                         var name = current ? WorkflowDisplayName(definition) : workflows.FirstOrDefault(item => item.Definition.WorkflowId == id) is { } opened ? WorkflowDisplayName(opened.Definition) : id;
-                        <div class="vaw-workflow-document-tab @(current ? "is-active" : null)" data-vaw-closable-tab @key="id" @onmousedown="args => CloseWorkflowMiddle(id, args)">
-                        <button type="button" aria-current="@(current ? "page" : null)" disabled="@(!current && dirty)" @onclick="() => current ? Task.CompletedTask : SelectWorkflow(new ChangeEventArgs { Value = id })" title="@name"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="5" height="5" rx="1"/><rect x="12" y="12" width="5" height="5" rx="1"/><path d="M8 5.5h3a2 2 0 0 1 2 2V12" /></svg><span>@(name).workflow</span>@if (current && dirty) { <span class="vaw-document-dirty" aria-label="Unsaved changes"></span> }</button>
+                        <div class="vaw-workflow-document-tab @(current ? "is-active" : null) @(draggedWorkflowTabId == id ? "is-dragging" : null) @(workflowDropTargetId == id ? "is-drop-target" : null)" data-workflow-tab-id="@id" @ondragstart="() => StartWorkflowTabDrag(id)" @ondragenter="() => workflowDropTargetId = id" @ondragover:preventDefault="true" @ondrop="() => DropWorkflowTab(id)" @ondrop:preventDefault="true" @ondragend="ClearWorkflowTabDrag" data-vaw-closable-tab @key="id" @onmousedown="args => CloseWorkflowMiddle(id, args)">
+                        <button type="button" draggable="true" aria-current="@(current ? "page" : null)" aria-description="Drag this tab to reorder. Press Alt+Shift+ArrowLeft or ArrowRight to move it." aria-keyshortcuts="Alt+Shift+ArrowLeft Alt+Shift+ArrowRight" @onkeydown="args => ReorderWorkflowTabFromKeyboard(id, args)" disabled="@(!current && dirty)" @onclick="() => current ? Task.CompletedTask : SelectWorkflow(new ChangeEventArgs { Value = id })" title="@name"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="5" height="5" rx="1"/><rect x="12" y="12" width="5" height="5" rx="1"/><path d="M8 5.5h3a2 2 0 0 1 2 2V12" /></svg><span>@(name).workflow</span>@if (current && dirty) { <span class="vaw-document-dirty" aria-label="Unsaved changes"></span> }</button>
                             <button type="button" class="vaw-workflow-tab-close" aria-label="Close @(name).workflow" title="Close workflow" @onclick="() => RequestCloseWorkflow(id)">×</button>
                         </div>
                     }

@@ -57,6 +57,8 @@ public partial class WorkflowGraphCanvas
     private string? error;
     private string pinHintText = "Drag an output pin to a compatible input pin, or release on empty canvas to create a step.";
     private WorkflowDefinition? orderedDefinition;
+    private WorkflowLayout? lastLayout;
+    private bool revealUpdatedReadOnlyLayout;
     private ImmutableArray<string> Order = [];
     private bool CanEdit => !ReadOnly && !Disabled && LayoutChanged.HasDelegate && !disposed;
     private double Width => Math.Max(1200, Layout.Nodes.Values.Max(p => p.Position.X) + 480);
@@ -146,6 +148,9 @@ public partial class WorkflowGraphCanvas
     protected override void OnParametersSet()
     {
         WorkflowLayoutJson.Validate(Layout, Definition);
+        if (ReadOnly && lastLayout is not null && !ReferenceEquals(lastLayout, Layout))
+            revealUpdatedReadOnlyLayout = true;
+        lastLayout = Layout;
         if (!ReferenceEquals(orderedDefinition, Definition))
         {
             Order = WorkflowGraph.DisplayOrder(Definition);
@@ -181,7 +186,16 @@ public partial class WorkflowGraphCanvas
                 ready = true;
                 StateHasChanged();
             }
-            if (browserSession is not null) await browserSession.InvokeVoidAsync("refresh");
+            if (browserSession is not null)
+            {
+                await browserSession.InvokeVoidAsync("refresh");
+                if (revealUpdatedReadOnlyLayout)
+                {
+                    revealUpdatedReadOnlyLayout = false;
+                    zoom = Math.Clamp(await browserSession.InvokeAsync<double>("fit"), 0.25, 1.5);
+                    StateHasChanged();
+                }
+            }
         }
         catch (JSDisconnectedException) { }
         catch (ObjectDisposedException) when (disposed) { }

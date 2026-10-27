@@ -756,7 +756,7 @@
                                     var assigned = agent.Tools.Any(request => BindingMatches(request, binding));
                                     <div class="vaw-agent-tool-assignment" @key="ToolKey(binding)">
                                         <label><input type="checkbox" aria-label="Assign @binding.BindingId to @id" checked="@assigned"
-                                            @onchange="args => AssignTool(id, binding, args)" disabled="@(Disabled || !assigned && agent.Tools.Length >= 8)" /> @binding.DisplayName</label>
+                                            @onchange="args => AssignTool(id, binding, args)" disabled="@Disabled" /> @binding.DisplayName</label>
                                         <details>
                                             <summary>Tool details</summary>
                                             @if (!string.IsNullOrWhiteSpace(binding.ToolDescription)) { <p>@binding.ToolDescription</p> }

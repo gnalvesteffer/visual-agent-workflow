@@ -4,6 +4,7 @@
 @inject StudioProjectStore ProjectStore
 @inject StudioOpenWorkspaceStore OpenWorkspace
 @inject NavigationManager Navigation
+@inject IJSRuntime JavaScript
 
 <PageTitle>Project workspace · Visual Agent Workflow</PageTitle>
 <main class="vaw-provider-settings vaw-source-project vaw-open-project-workspace">
@@ -43,16 +44,20 @@
     @if (openProjectIds.Count > 0)
     {
         <section class="vaw-project-tabs" aria-label="Open project folders">
-            <div class="vaw-project-tab-list" role="tablist" aria-label="Project folders">
+            <div @ref="projectTabStrip" class="vaw-project-tab-list" role="tablist" aria-label="Project folders" aria-description="Scroll horizontally to reach tabs that do not fit. Drag tabs to reorder; press Alt+Shift+Arrow keys on a tab to move it.">
                 @foreach (var projectId in openProjectIds)
                 {
                     var project = ProjectStore.GetActive(projectId);
                     var selected = projectId == activeProjectId;
-                    <div class="vaw-project-tab @(selected ? "is-active" : null)" @key="projectId" data-vaw-closable-tab @onauxclick="args => CloseProjectAux(projectId, args)">
+                    <div class="vaw-project-tab @(selected ? "is-active" : null) @(draggedProjectTabId == projectId ? "is-dragging" : null) @(projectDropTargetId == projectId ? "is-drop-target" : null)" @key="projectId" @ondragstart="() => StartProjectTabDrag(projectId)" @ondragenter="() => projectDropTargetId = projectId" @ondragover:preventDefault="true" @ondrop="() => DropProjectTab(projectId)" @ondrop:preventDefault="true" @ondragend="ClearProjectTabDrag" data-project-tab-id="@projectId" data-vaw-closable-tab @onauxclick="args => CloseProjectAux(projectId, args)">
                         <button type="button" id="@($"project-tab-{projectId}")" role="tab"
                             aria-controls="@($"project-panel-{projectId}")" aria-selected="@(selected ? "true" : "false")"
                             aria-label="@(dirtyProjects.Contains(projectId) ? $"{project.Name}, unsaved changes" : project.Name)"
                             title="@project.FolderPath"
+                            aria-description="Drag this tab to reorder. Press Alt+Shift+ArrowLeft or ArrowRight to move it."
+                            aria-keyshortcuts="Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"
+                            draggable="true"
+                            @onkeydown="args => ReorderProjectTabFromKeyboard(projectId, args)"
                             @onclick="() => SelectProject(projectId)">
                             <span>@project.Name</span><code aria-hidden="true">@(dirtyProjects.Contains(projectId) ? "●" : "")</code>
                         </button>
@@ -99,6 +104,9 @@
     private string directoryPath = "";
     private string? error;
     private bool busy;
+    private string? draggedProjectTabId;
+    private string? projectDropTargetId;
+    private ElementReference projectTabStrip;
     private string? pendingCloseProjectId;
     private readonly HashSet<string> dirtyProjects = new(StringComparer.Ordinal);
     private IReadOnlyList<string> openProjectIds => OpenWorkspace.ProjectIds;
@@ -120,6 +128,12 @@
         {
             error = exception.Message;
         }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (openProjectIds.Count > 0)
+            await JavaScript.InvokeVoidAsync("vawStudioIde.revealActiveTab", projectTabStrip);
     }
 
     private void OpenProject()
@@ -154,6 +168,25 @@
         {
             error = exception.Message;
         }
+    }
+
+    private void StartProjectTabDrag(string projectId) => draggedProjectTabId = projectId;
+    private void ClearProjectTabDrag() { draggedProjectTabId = null; projectDropTargetId = null; }
+    private void DropProjectTab(string targetId)
+    {
+        if (draggedProjectTabId is { } sourceId)
+        {
+            var targetIndex = openProjectIds.ToList().IndexOf(targetId);
+            if (targetIndex >= 0) OpenWorkspace.Reorder(sourceId, targetIndex);
+        }
+        ClearProjectTabDrag();
+    }
+    private void ReorderProjectTabFromKeyboard(string projectId, KeyboardEventArgs args)
+    {
+        if (!args.AltKey || !args.ShiftKey || args.Key is not ("ArrowLeft" or "ArrowRight")) return;
+        var index = openProjectIds.ToList().IndexOf(projectId);
+        var target = index + (args.Key == "ArrowLeft" ? -1 : 1);
+        if (target >= 0 && target < openProjectIds.Count) OpenWorkspace.Reorder(projectId, target);
     }
 
     private void UpdateDirty(string projectId, bool isDirty)

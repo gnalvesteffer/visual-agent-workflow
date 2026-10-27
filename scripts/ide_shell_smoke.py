@@ -134,6 +134,7 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             workflow_file.click()
             expect(workflow_file).to_have_class("vaw-explorer-file is-selected")
             expect(page.locator(".vaw-explorer-file.is-selected")).to_have_count(1)
+            page.wait_for_function("!document.querySelector('[data-vaw-workflow-selector]')?.disabled")
             selected_by_picker = page.evaluate("""() => {
                 const select = document.querySelector('[data-vaw-workflow-selector]');
                 const option = [...select.options].find(item => item.value !== select.value);
@@ -162,8 +163,21 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             expect(page.get_by_label("Workflow name", exact=True)).to_have_value(workflow_name)
             expect(workflow_file).to_have_attribute("aria-current", "page")
             documents = page.get_by_role("navigation", name="Open workflow documents")
+            workflow_tabs = documents.locator(".vaw-workflow-document-tab")
+            expect(workflow_tabs).to_have_count(2)
+            order_before = workflow_tabs.evaluate_all("tabs => tabs.map(tab => tab.dataset.workflowTabId)")
+            active_before_reorder = documents.locator(".vaw-workflow-document-tab.is-active").get_attribute("data-workflow-tab-id")
+            workflow_tabs.nth(0).locator("button").first.drag_to(workflow_tabs.nth(1))
+            order_after = workflow_tabs.evaluate_all("tabs => tabs.map(tab => tab.dataset.workflowTabId)")
+            assert order_after == list(reversed(order_before)), (order_before, order_after)
+            assert documents.locator(".vaw-workflow-document-tab.is-active").get_attribute("data-workflow-tab-id") == active_before_reorder
+            documents.evaluate("element => element.style.flex = '0 0 135px'")
             documents.get_by_role("button", name="Untitled workflow.workflow", exact=True).click()
             expect(page.locator(".vaw-explorer-file.is-selected")).to_contain_text("Untitled workflow.workflow")
+            assert documents.evaluate("element => element.scrollWidth > element.clientWidth"), "Workflow tabs should scroll horizontally when they do not fit."
+            active_intersection = documents.locator(".vaw-workflow-document-tab.is-active").evaluate("tab => { const a = tab.getBoundingClientRect(), s = tab.parentElement.getBoundingClientRect(); return Math.min(a.right, s.right) - Math.max(a.left, s.left); }")
+            assert active_intersection > 0, f"Switching tabs must reveal the active tab in an overflowing strip: {active_intersection}"
+            documents.evaluate("element => element.style.flex = ''")
             documents.get_by_role("button", name=f"{workflow_name}.workflow", exact=True).click()
             expect(workflow_file).to_have_attribute("aria-current", "page")
             page.screenshot(path="/tmp/vaw-studio-ide.png")
@@ -185,6 +199,16 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             history.get_by_role("button", name="Inspect run", exact=False).click()
             expect(page.locator(".vaw-viewer")).to_be_visible()
             expect(page.locator(".vaw-run-header")).to_contain_text("Latest run status: completed")
+            run_graph_nodes = page.locator(".vaw-viewer .vaw-canvas-world [data-node-id]")
+            expect(run_graph_nodes).to_have_count(2)
+            page.wait_for_function("""() => {
+                const canvas = document.querySelector('.vaw-viewer .vaw-canvas-viewport')?.getBoundingClientRect();
+                const nodes = [...document.querySelectorAll('.vaw-viewer .vaw-canvas-world [data-node-id]')];
+                return canvas && nodes.length > 0 && nodes.some(node => {
+                    const box = node.getBoundingClientRect();
+                    return box.width > 0 && box.height > 0 && box.right > canvas.left && box.left < canvas.right && box.bottom > canvas.top && box.top < canvas.bottom;
+                });
+            }""")
             page.get_by_role("button", name="Back to workflow", exact=True).click()
 
             collapse = page.get_by_role("button", name="Collapse workflow details")
@@ -210,6 +234,12 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             expect(page.get_by_role("button", name="Run workflow", exact=True)).to_be_enabled()
 
             expect(page.get_by_label("Color theme", exact=True)).to_be_enabled()
+            scrollbar_track_before = page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--vaw-scrollbar-track').trim()")
+            page.get_by_label("Color theme", exact=True).select_option("light")
+            scrollbar_track_after = page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--vaw-scrollbar-track').trim()")
+            assert scrollbar_track_after and scrollbar_track_after != scrollbar_track_before, (
+                "Changing the theme should update the browser viewport scrollbar colors."
+            )
             page.get_by_label("Color theme", exact=True).select_option("vs-code-dark-plus")
             expect(page.locator(".vaw-ide-activitybar a[aria-label='MCP library']")).to_have_count(0)
             route_links = (

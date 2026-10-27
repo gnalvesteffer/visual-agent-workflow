@@ -1,12 +1,14 @@
 using Microsoft.AspNetCore.Components.Web;
 using System.Text;
 using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
 using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Blazor.Components;
 
 public partial class WorkflowDesigner
 {
+    [Inject] private IServiceProvider Services { get; set; } = default!;
     private string workflowFilter = "";
     [Parameter, EditorRequired] public IWorkflowCatalog Catalog { get; set; } = default!;
     [Parameter, EditorRequired] public IPublishedWorkflowClient Client { get; set; } = default!;
@@ -61,6 +63,9 @@ public partial class WorkflowDesigner
     private bool bottomTrayExpanded = true;
     private bool documentSettingsOpen;
     private readonly List<string> openWorkflowIds = [];
+    private string? draggedWorkflowTabId;
+    private string? workflowDropTargetId;
+    private ElementReference workflowTabStrip;
     [Parameter] public RenderFragment? RunHistoryContent { get; set; }
     [Parameter] public RenderFragment? OutputContent { get; set; }
     private Task RequestRunInspector() => OpenRunInspector.InvokeAsync();
@@ -176,6 +181,8 @@ public partial class WorkflowDesigner
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (IdeMode && definition is not null && Services.GetService(typeof(IJSRuntime)) is IJSRuntime js)
+            await js.InvokeVoidAsync("vawStudioIde.revealActiveTab", workflowTabStrip);
         if (firstRender && !disposed)
         {
             interactive = true;
@@ -389,6 +396,32 @@ public partial class WorkflowDesigner
     private void Redo() { if (redo.TryPop(out var next)) { undo.Push(new(definition!, layout!)); SetDesign(next.Definition, next.Layout); message = null; } }
 
     private string? pendingCloseWorkflowId;
+
+    private void StartWorkflowTabDrag(string id) => draggedWorkflowTabId = id;
+    private void ClearWorkflowTabDrag() { draggedWorkflowTabId = null; workflowDropTargetId = null; }
+    private void DropWorkflowTab(string targetId)
+    {
+        if (draggedWorkflowTabId is { } sourceId)
+        {
+            var sourceIndex = openWorkflowIds.IndexOf(sourceId);
+            var targetIndex = openWorkflowIds.IndexOf(targetId);
+            if (sourceIndex >= 0 && targetIndex >= 0 && sourceIndex != targetIndex)
+            {
+                openWorkflowIds.RemoveAt(sourceIndex);
+                openWorkflowIds.Insert(targetIndex, sourceId);
+            }
+        }
+        ClearWorkflowTabDrag();
+    }
+    private void ReorderWorkflowTabFromKeyboard(string id, KeyboardEventArgs args)
+    {
+        if (!args.AltKey || !args.ShiftKey || args.Key is not ("ArrowLeft" or "ArrowRight")) return;
+        var sourceIndex = openWorkflowIds.IndexOf(id);
+        var targetIndex = sourceIndex + (args.Key == "ArrowLeft" ? -1 : 1);
+        if (sourceIndex < 0 || targetIndex < 0 || targetIndex >= openWorkflowIds.Count) return;
+        openWorkflowIds.RemoveAt(sourceIndex);
+        openWorkflowIds.Insert(targetIndex, id);
+    }
 
     private Task CloseWorkflowMiddle(string id, Microsoft.AspNetCore.Components.Web.MouseEventArgs args) =>
         args.Button == 1 ? RequestCloseWorkflow(id) : Task.CompletedTask;

@@ -83,7 +83,7 @@ public sealed class StudioAgentProfileLibrary : IAgentProfileLibrary
             string.IsNullOrWhiteSpace(profile.Description) || profile.Description.Length > 512 ||
             string.IsNullOrWhiteSpace(profile.ProviderId) || profile.ProviderId.Length > 128 ||
             string.IsNullOrWhiteSpace(profile.Instructions) || profile.Instructions.Length > 8192 ||
-            profile.Tools.IsDefault || profile.Tools.Length > 8 || profile.Skills is { Length: > 8 } ||
+            profile.Tools.IsDefault || profile.Skills is { Length: > 8 } ||
             profile.Channels is { } channels && (channels.IsDefault || channels.Length > 8 ||
                 channels.Distinct(StringComparer.Ordinal).Count() != channels.Length || channels.Any(channel => !ValidChannel(channel))) ||
             profile.MaxOutputTokens is < AgentOutputTokenLimits.Minimum or > AgentOutputTokenLimits.Maximum ||
@@ -91,7 +91,7 @@ public sealed class StudioAgentProfileLibrary : IAgentProfileLibrary
             profile.Tools.Any(tool => tool is null || !ValidBinding(tool)) ||
             profile.Tools.Select(tool => tool.BindingId).Distinct(StringComparer.Ordinal).Count() != profile.Tools.Length ||
             profile.Skills?.Any(skill => skill is null || skill != WorkflowSkill.Create(skill.Id, skill.Version, skill.Name, skill.Instructions)) == true)
-            throw new ArgumentException("Enter a valid profile with bounded instructions, up to eight unique tools and skills, and up to eight valid coordination-channel IDs.");
+            throw new ArgumentException("Enter a valid profile with bounded instructions, unique tools, up to eight skills, and up to eight valid coordination-channel IDs.");
         ValidateFolder(folder);
     }
 

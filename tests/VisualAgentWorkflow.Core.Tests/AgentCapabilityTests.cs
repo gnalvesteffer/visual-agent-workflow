@@ -48,6 +48,26 @@ public class AgentCapabilityTests
     }
 
     [Fact]
+    public void AgentMayHaveMoreThanEightUniqueTools()
+    {
+        var definition = new WorkflowDefinition("1.2", "many-tools", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["agent"] = new(NodeTypes.Agent, "1.0.0", Agent: new("demo.scripted", null, "Use the available tools.",
+                    Enumerable.Range(0, 12).Select(index => new ToolBindingRequest($"server.tool-{index}", new string((char)('a' + index % 6), 64))).ToImmutableArray())),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["first"] = new(new("input", "out"), new("agent", "in"), "data"),
+                ["last"] = new(new("agent", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary());
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+    }
+
+    [Fact]
     public void UnresolvedSkillOrPromptReferenceCannotBePublished()
     {
         var skill = WorkflowSkill.Create("math", "1.0", "Arithmetic", "Return a single number.");

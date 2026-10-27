@@ -70,6 +70,23 @@ public sealed class StudioOpenWorkspaceStore
         lock (gate) SelectCore(projectId);
     }
 
+    public void Reorder(string projectId, int targetIndex)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
+        lock (gate)
+        {
+            var sourceIndex = projectIds.IndexOf(projectId);
+            if (sourceIndex < 0) throw new InvalidOperationException("Open the project folder before reordering its tab.");
+            if (targetIndex < 0 || targetIndex >= projectIds.Length) throw new ArgumentOutOfRangeException(nameof(targetIndex));
+            if (sourceIndex == targetIndex) return;
+            var reordered = projectIds.ToBuilder();
+            reordered.RemoveAt(sourceIndex);
+            reordered.Insert(targetIndex, projectId);
+            projectIds = reordered.ToImmutable();
+            Save();
+        }
+    }
+
     public string? Close(string projectId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
