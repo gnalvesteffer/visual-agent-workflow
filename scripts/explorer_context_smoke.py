@@ -12,6 +12,11 @@ def blank_click(page, explorer):
     page.mouse.click(box['x'] + box['width'] / 2, box['y'] + box['height'] - 16, button='right')
 
 
+def right_click_at_locator(page, locator):
+    box = locator.bounding_box()
+    page.mouse.click(box['x'] + box['width'] / 2, box['y'] + box['height'] / 2, button='right')
+
+
 def verify(base, executable):
     with tempfile.TemporaryDirectory(prefix='vaw-explorer-context-') as temporary, sync_playwright() as playwright:
         root = Path(temporary)
@@ -43,6 +48,10 @@ def verify(base, executable):
             for action in ('Open', 'Duplicate', 'Copy', 'Rename', 'Delete'):
                 expect(menu.get_by_role('menuitem', name=action, exact=True)).to_be_visible()
             expect(menu.get_by_role('menuitem', name='Refresh Explorer', exact=True)).to_have_count(0)
+            right_click_at_locator(page, explorer.locator('summary').filter(has_text='skills/'))
+            expect(menu.locator('.vaw-tree-menu-heading').first).to_have_text('skills/')
+            right_click_at_locator(page, workflow_file)
+            expect(menu.locator('.vaw-tree-menu-heading').first).to_have_text('Untitled workflow.workflow')
             page.screenshot(path='/tmp/vaw-workflow-context-menu.png')
             menu.get_by_role('menuitem', name='Rename', exact=True).click()
             menu.get_by_label('New workflow name', exact=True).fill('Explorer smoke renamed')

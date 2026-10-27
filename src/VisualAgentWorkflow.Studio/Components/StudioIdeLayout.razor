@@ -86,7 +86,7 @@
         }
         @if (explorerContext is not null)
         {
-            <div class="vaw-tree-menu-backdrop" @onclick="CloseExplorerContext" @onkeydown="ExplorerMenuKey">
+            <div class="vaw-tree-menu-backdrop" @onclick="CloseExplorerContext" @onkeydown="ExplorerMenuKey" @oncontextmenu="OpenContextFromBackdrop" @oncontextmenu:preventDefault="true">
                 <div class="vaw-tree-context-menu" role="menu" aria-label="Project actions" tabindex="-1" @ref="explorerMenuElement" @onclick:stopPropagation="true">
                     @if (contextWorkflow is not null)
                     {
@@ -220,6 +220,21 @@
     {
         OpenExplorerContext(args, "workflows");
         contextWorkflowId = workflow.Definition.WorkflowId;
+    }
+    private async Task OpenContextFromBackdrop(Microsoft.AspNetCore.Components.Web.MouseEventArgs args)
+    {
+        var target = await JavaScript.InvokeAsync<ExplorerContextTarget?>("vawStudioIde.getExplorerContextTargetAt", args.ClientX, args.ClientY);
+        if (target?.Category == "workflow" && target.WorkflowId is { } id && workflows.FirstOrDefault(item => item.Definition.WorkflowId == id) is { } workflow)
+        {
+            OpenWorkflowContext(args, workflow);
+            return;
+        }
+        if (target?.Category is { } category)
+        {
+            OpenExplorerContext(args, category);
+            return;
+        }
+        CloseExplorerContext();
     }
     private void CloseExplorerContext()
     {
@@ -519,6 +534,7 @@
     }
 
     private static string WorkflowName(WorkflowDefinition definition) => string.IsNullOrWhiteSpace(definition.DisplayName) ? definition.WorkflowId : definition.DisplayName;
+    private sealed record ExplorerContextTarget(string Category, string? WorkflowId);
 
     public void Dispose()
     {

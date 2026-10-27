@@ -86,6 +86,25 @@
         hasUnsavedWorkflow: () => {
             const status = document.querySelector('.vaw-document-save-state')?.textContent?.trim();
             return status === 'Unsaved changes' || status === 'Not saved';
+        },
+        getExplorerContextTargetAt: (x, y) => {
+            const backdrop = document.querySelector('.vaw-tree-menu-backdrop');
+            if (!backdrop) return null;
+            const previousVisibility = backdrop.style.visibility;
+            backdrop.style.visibility = 'hidden';
+            try {
+                const target = document.elementFromPoint(x, y);
+                if (!(target instanceof Element)) return null;
+                const explorer = target.closest('.vaw-global-explorer');
+                if (!explorer) return null;
+                const workflow = target.closest('.vaw-explorer-file[data-workflow-id]');
+                if (workflow && explorer.contains(workflow)) return { category: 'workflow', workflowId: workflow.dataset.workflowId };
+                const folder = target.closest('.vaw-explorer-tree details');
+                if (folder && explorer.contains(folder)) return { category: folder.querySelector(':scope > summary')?.textContent?.trim().replace(/\/$/, '') ?? '' };
+                return { category: '' };
+            } finally {
+                backdrop.style.visibility = previousVisibility;
+            }
         }
     };
 
