@@ -834,10 +834,12 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                 toolDeclarations = effectiveOptions?.Tools?.OfType<AIFunctionDeclaration>()
                     .Select(tool => new { tool.Name, tool.Description, inputSchema = tool.JsonSchema }).ToArray()
             });
+            using var usageCapture = ProviderUsageCapture.Begin(modelCallId);
             var response = await InnerClient.GetResponseAsync(snapshot, effectiveOptions, cancellationToken).WaitAsync(cancellationToken);
             var cacheReadTokens = response.Usage?.CachedInputTokenCount;
             var cacheWriteTokens = cacheWriteTokenCount?.Invoke(response) is { } reportedCacheWrite && reportedCacheWrite >= 0
-                ? reportedCacheWrite : (long?)null;
+                ? reportedCacheWrite
+                : response.Usage?.AdditionalCounts?.GetValueOrDefault("cache_write_input_tokens");
             await Record(ExecutionEventKinds.ModelResponded, new
             {
                 modelCallId,
@@ -850,8 +852,9 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                     recordedUsage.OutputTokenCount,
                     recordedUsage.TotalTokenCount,
                     recordedUsage.CachedInputTokenCount,
-                    cacheWriteTokenCount = cacheWriteTokens
-                } : cacheWriteTokens is { } explicitCacheWrite ? new { cacheWriteTokenCount = (long?)explicitCacheWrite } : null,
+                    recordedUsage.ReasoningTokenCount,
+                    cacheWriteInputTokenCount = cacheWriteTokens
+                } : cacheWriteTokens is { } explicitCacheWrite ? new { cacheWriteInputTokenCount = (long?)explicitCacheWrite } : null,
                 messages = Project(response.Messages)
             });
             responseObserved?.Invoke(response);

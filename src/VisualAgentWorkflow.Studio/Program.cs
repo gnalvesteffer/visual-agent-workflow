@@ -287,7 +287,9 @@ app.MapPost("/api/settings/model-providers", (AddModelProviderRequest request, S
         store.Save(request.ProviderId, request.DisplayName, request.Model, request.Endpoint,
             request.TimeoutSeconds, request.ApiKey, request.AllowInsecureHttp, removeApiKey: request.RemoveApiKey,
             contextWindowTokens: request.ContextWindowTokens, inputCostPerMillionTokens: request.InputCostPerMillionTokens,
-            outputCostPerMillionTokens: request.OutputCostPerMillionTokens);
+            outputCostPerMillionTokens: request.OutputCostPerMillionTokens,
+            cacheReadCostPerMillionTokens: request.CacheReadCostPerMillionTokens,
+            cacheWriteCostPerMillionTokens: request.CacheWriteCostPerMillionTokens);
         return Results.Ok(store.List());
     }
     catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
@@ -387,4 +389,5 @@ public sealed record ApprovalDecisionRequest(string? ActionHash, bool? Approve);
 
 public sealed record AddModelProviderRequest(string ProviderId, string DisplayName, string Model, string Endpoint,
     int TimeoutSeconds, string ApiKey, bool AllowInsecureHttp, bool RemoveApiKey, int? ContextWindowTokens = null,
-    decimal? InputCostPerMillionTokens = null, decimal? OutputCostPerMillionTokens = null);
+    decimal? InputCostPerMillionTokens = null, decimal? OutputCostPerMillionTokens = null,
+    decimal? CacheReadCostPerMillionTokens = null, decimal? CacheWriteCostPerMillionTokens = null);

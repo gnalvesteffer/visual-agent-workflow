@@ -61,9 +61,9 @@ public sealed class GraphCanvasRenderingTests
         var events = ImmutableArray.Create(
             new ExecutionEvent(runId, revision.RevisionId, 1, DateTimeOffset.UtcNow, ExecutionEventKinds.NodeStarted, "step-1", invocationId),
             new ExecutionEvent(runId, revision.RevisionId, 2, DateTimeOffset.UtcNow, ExecutionEventKinds.AgentStarted, "step-1", invocationId,
-                Data: """{"provider":{"ModelId":"test-model","ContextWindowTokens":8000,"InputCostPerMillionTokens":1.5,"OutputCostPerMillionTokens":3.0}}"""),
+                Data: """{"provider":{"ModelId":"test-model","ContextWindowTokens":8000,"InputCostPerMillionTokens":1.5,"OutputCostPerMillionTokens":3.0,"CacheReadCostPerMillionTokens":0.2,"CacheWriteCostPerMillionTokens":0.4}}"""),
             new ExecutionEvent(runId, revision.RevisionId, 3, DateTimeOffset.UtcNow, ExecutionEventKinds.ModelResponded, "step-1", invocationId,
-                Data: """{"modelCallId":"response-1","ModelId":"test-model","usage":{"InputTokenCount":1200,"OutputTokenCount":200,"TotalTokenCount":1400}}"""),
+                Data: """{"modelCallId":"response-1","ModelId":"test-model","usage":{"InputTokenCount":1200,"OutputTokenCount":200,"TotalTokenCount":1400,"CachedInputTokenCount":200,"cacheWriteInputTokenCount":100,"ReasoningTokenCount":50}}"""),
             new ExecutionEvent(runId, revision.RevisionId, 4, DateTimeOffset.UtcNow, ExecutionEventKinds.AgentContextCompacted, "step-1", invocationId));
         var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
             revision.ContentHash, definition, "question"), events);
@@ -78,9 +78,11 @@ public sealed class GraphCanvasRenderingTests
         });
 
         Assert.Contains("Tokens · 1,200 in / 200 out", html);
+        Assert.Contains("Cache · 200 read / 100 write", html);
+        Assert.Contains("Reasoning · 50 tokens (included in output)", html);
         Assert.Contains("Context · 1,200 / 8,000 (15%)", html);
         Assert.Contains("Host context compactions · 1", html);
-        Assert.Contains("Estimated cost · $0.002400", html);
+        Assert.Contains("Estimated cost · $0.002030", html);
         Assert.Contains("test-model", html);
     }
 

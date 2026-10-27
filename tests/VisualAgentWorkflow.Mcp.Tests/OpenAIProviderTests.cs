@@ -71,7 +71,8 @@ public sealed class OpenAIProviderTests
 
         Assert.Equal("protocol response", await executor.ExecuteAsync(Context(Revision(maxOutputTokens: 4096), events), "hello"));
     }
-    private static HttpResponseMessage Reply(string text = "protocol response") => new(HttpStatusCode.OK)
+    private static HttpResponseMessage Reply(string text = "protocol response", int? cachedTokens = null,
+        int? reasoningTokens = null, int? cacheWriteTokens = null) => new(HttpStatusCode.OK)
     {
         Content = new StringContent(JsonSerializer.Serialize(new
         {
@@ -120,6 +121,23 @@ public sealed class OpenAIProviderTests
         Assert.Equal("chatcmpl-fixture", response.RootElement.GetProperty("ResponseId").GetString());
         Assert.Equal(10, response.RootElement.GetProperty("usage").GetProperty("TotalTokenCount").GetInt64());
         Assert.Equal(2, response.RootElement.GetProperty("usage").GetProperty("CachedInputTokenCount").GetInt64());
+    }
+
+    [Fact]
+    public async Task OfficialSdkUsageBridgePreservesCachedInputAndReasoningTokenCounts()
+    {
+        var handler = new Handler((_, _) => Task.FromResult(Reply(cachedTokens: 4, reasoningTokens: 2, cacheWriteTokens: 1)));
+        var registration = OpenAIProviders.Create(Options(), () => Key, () => handler);
+        var events = new List<(string Kind, string? Data)>();
+        var executor = new AgentNodeExecutor([registration], new McpToolBroker([], new ExplicitToolAuthorizationPolicy([])));
+
+        await executor.ExecuteAsync(Context(Revision(), events), "hello");
+
+        using var response = JsonDocument.Parse(Assert.Single(events, e => e.Kind == ExecutionEventKinds.ModelResponded).Data!);
+        var usage = response.RootElement.GetProperty("usage");
+        Assert.Equal(4, usage.GetProperty("CachedInputTokenCount").GetInt64());
+        Assert.Equal(2, usage.GetProperty("ReasoningTokenCount").GetInt64());
+        Assert.Equal(1, usage.GetProperty("cacheWriteInputTokenCount").GetInt64());
     }
 
     [Fact]

@@ -47,7 +47,7 @@ public static class OpenAIProviders
                     NetworkTimeout = Timeout.InfiniteTimeSpan,
                     Transport = new HttpClientPipelineTransport(http)
                 });
-                return new OwnedChatClient(sdk.GetChatClient(options.Model).AsIChatClient(), http);
+                return new OwnedChatClient(new CacheWriteUsageChatClient(sdk.GetChatClient(options.Model).AsIChatClient()), http);
             }
             catch
             {
@@ -148,6 +148,22 @@ public static class OpenAIProviders
         if (string.IsNullOrEmpty(key)) return;
         if (key.Length > 4096 || key.Any(c => c <= ' ' || c > '~'))
             throw new InvalidOperationException("The API key must be printable ASCII and no longer than 4,096 characters.");
+    }
+
+    private sealed class CacheWriteUsageChatClient(IChatClient inner) : DelegatingChatClient(inner)
+    {
+        public override async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, CancellationToken cancellationToken = default)
+        {
+            var response = await InnerClient.GetResponseAsync(messages, options, cancellationToken);
+            if (ProviderUsageCapture.TryTakeCacheWriteInputTokens(out var cacheWriteTokens))
+            {
+                response.Usage ??= new UsageDetails();
+                response.Usage.AdditionalCounts ??= new AdditionalPropertiesDictionary<long>();
+                response.Usage.AdditionalCounts["cache_write_input_tokens"] = cacheWriteTokens;
+            }
+            return response;
+        }
     }
 
     private sealed class OwnedChatClient(IChatClient inner, HttpClient http) : DelegatingChatClient(inner)

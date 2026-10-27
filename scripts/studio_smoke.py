@@ -9,6 +9,7 @@ from workbench_browser import current_project, workbench, inspect_control, new_w
 import argparse
 import json
 import os
+import re
 import time
 import uuid
 import urllib.error
@@ -199,7 +200,9 @@ def agent_check():
 def run_saved_workflow(page, designer, input_text, expected):
     from playwright.sync_api import expect
     designer.get_by_role("button", name="Run workflow", exact=True).click()
-    dialog = designer.locator(".vaw-run-dialog")
+    # Native modal dialogs are exposed at the document level; the app's designer
+    # region is not their DOM ancestor after the modal is opened.
+    dialog = designer.page.locator(".vaw-run-dialog")
     dialog.get_by_label("Workflow input", exact=True).fill(input_text)
     run = dialog.get_by_role("button", name="Run workflow", exact=True)
     expect(run).to_be_enabled()
@@ -457,6 +460,12 @@ def agent_designer_check(browser):
     viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
     expect(viewer.locator(".vaw-agent-metrics")).to_contain_text("Model turns · 1", timeout=20000)
     viewer.get_by_text("Recorded events at this position", exact=False).click()
+    expect(viewer.get_by_role("columnheader", name="Time (local)", exact=True)).to_be_visible()
+    event_time = viewer.locator("tbody time").first
+    precise_time = event_time.get_attribute("datetime")
+    assert precise_time and "T" in precise_time, f"Expected an ISO timestamp, got {precise_time!r}"
+    expect(event_time).to_have_attribute("title", precise_time)
+    expect(event_time).to_have_attribute("aria-label", re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}"))
     expect(viewer.get_by_role("cell", name="model.responded", exact=True)).to_have_count(1)
     page.reload()
     expect(workbench(designer).get_by_role("button", name="Save", exact=True)).to_be_enabled()

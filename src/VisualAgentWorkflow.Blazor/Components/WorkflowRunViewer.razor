@@ -46,8 +46,14 @@
                         else
                         {
                             <span>Tokens · @metrics.InputTokens.ToString("N0") in / @metrics.OutputTokens.ToString("N0") out</span>
-                            @if (metrics.CacheReadTokens > 0 || metrics.CacheWriteTokens > 0)
-                            { <span>Cache · @metrics.CacheReadTokens.ToString("N0") read / @metrics.CacheWriteTokens.ToString("N0") write</span> }
+                            @if (metrics.CachedInputTokens is not null || metrics.CacheWriteInputTokens is not null)
+                            {
+                                <span>Cache · @(metrics.CachedInputTokens?.ToString("N0") ?? "—") read / @(metrics.CacheWriteInputTokens?.ToString("N0") ?? "—") write</span>
+                            }
+                            @if (metrics.ReasoningTokens is { } reasoningTokens)
+                            {
+                                <span>Reasoning · @reasoningTokens.ToString("N0") tokens (included in output)</span>
+                            }
                             @if (metrics.CostIsComplete && metrics.ResponseCount > 0)
                             {
                                 <span>Estimated cost · $@metrics.EstimatedCost.ToString("0.000000")</span>
@@ -116,12 +122,16 @@
             <summary>Recorded events at this position (@Position)</summary>
             <div class="vaw-table-scroll">
                 <table><caption>Execution evidence</caption>
-                    <colgroup><col class="vaw-event-sequence-column" /><col class="vaw-event-kind-column" /><col class="vaw-event-node-column" /><col class="vaw-event-node-column" /><col /></colgroup>
-                    <thead><tr><th>Sequence</th><th>Event</th><th>Scope</th><th>Node</th><th>Data</th></tr></thead>
+                    <colgroup><col class="vaw-event-sequence-column" /><col class="vaw-event-time-column" /><col class="vaw-event-kind-column" /><col class="vaw-event-node-column" /><col class="vaw-event-node-column" /><col /></colgroup>
+                    <thead><tr><th>Sequence</th><th>Time (local)</th><th>Event</th><th>Scope</th><th>Node</th><th>Data</th></tr></thead>
                     <tbody>
                         @foreach (var evt in VisibleEvents)
                         {
-                            <tr @key="evt.Sequence"><td>@evt.Sequence</td><td>@evt.Kind</td><td>@evt.ScopeId</td><td>@evt.NodeId</td><td><pre>@evt.Data</pre></td></tr>
+                            var localTimestamp = evt.Timestamp.ToLocalTime();
+                            var preciseTimestamp = evt.Timestamp.ToString("O");
+                            var accessibleTimestamp = localTimestamp.ToString("yyyy-MM-dd HH:mm:ss.fff zzz");
+                            var displayTimestamp = localTimestamp.ToString("HH:mm:ss.fff");
+                            <tr @key="evt.Sequence"><td>@evt.Sequence</td><td><time datetime="@preciseTimestamp" title="@preciseTimestamp" aria-label="@accessibleTimestamp">@displayTimestamp</time></td><td>@evt.Kind</td><td>@evt.ScopeId</td><td>@evt.NodeId</td><td><pre>@evt.Data</pre></td></tr>
                         }
                     </tbody>
                 </table>
@@ -289,9 +299,10 @@
         return description;
     }
 
-    private sealed record AgentUsageStatistics(long InputTokens, long OutputTokens, long CacheReadTokens, long CacheWriteTokens, int ResponseCount,
+    private sealed record AgentUsageStatistics(long InputTokens, long OutputTokens, int ResponseCount,
         long? LatestInputTokens, int? ContextWindowTokens, decimal EstimatedCost, bool CostIsComplete, string? ModelId,
-        bool ModelRequestInFlight, int ModelTurns, int CompactionCount);
+        bool ModelRequestInFlight, int ModelTurns, int CompactionCount, long? CachedInputTokens,
+        long? CacheWriteInputTokens, long? ReasoningTokens);
 
     private AgentUsageStatistics? AgentMetrics(string nodeId)
     {
@@ -313,15 +324,19 @@
         if (responses.Length == 0)
         {
             var rootProvider = providers.GetValueOrDefault(invocation.Value);
-            return rootProvider is null ? null : new(0, 0, 0, 0, 0, null, rootProvider.ContextWindowTokens, 0, false,
-                rootProvider.ModelId, requestInFlight, requests.Length, compactionCount);
+            return rootProvider is null ? null : new(0, 0, 0, null, rootProvider.ContextWindowTokens, 0, false,
+                rootProvider.ModelId, requestInFlight, requests.Length, compactionCount, null, null, null);
         }
 
         long inputTokens = 0;
         long outputTokens = 0;
-        long cacheReadTokens = 0;
-        long cacheWriteTokens = 0;
         long? latestInputTokens = null;
+        long cachedInputTokens = 0;
+        long cacheWriteInputTokens = 0;
+        long reasoningTokens = 0;
+        var allCacheReadsReported = true;
+        var allCacheWritesReported = true;
+        var allReasoningCountsReported = true;
         int? contextWindow = null;
         decimal estimatedCost = 0;
         var costComplete = true;
@@ -330,41 +345,56 @@
         {
             var provider = providers[response.InvocationId!.Value];
             modelId = ModelIdFromResponse(response) ?? provider?.ModelId ?? modelId;
-            if (!TryGetUsage(response.Data, out var input, out var output, out var cacheRead, out var cacheWrite))
+            if (!TryGetUsage(response.Data, out var usage))
+            {
+                costComplete = false;
+                allCacheReadsReported = allCacheWritesReported = allReasoningCountsReported = false;
+                continue;
+            }
+
+            var input = usage.InputTokens;
+            var output = usage.OutputTokens;
+            inputTokens = checked(inputTokens + input);
+            outputTokens = checked(outputTokens + output);
+            if (usage.CachedInputTokens is { } cached) cachedInputTokens = checked(cachedInputTokens + cached);
+            else allCacheReadsReported = false;
+            if (usage.CacheWriteInputTokens is { } cacheWrite) cacheWriteInputTokens = checked(cacheWriteInputTokens + cacheWrite);
+            else allCacheWritesReported = false;
+            if (usage.ReasoningTokens is { } reasoning) reasoningTokens = checked(reasoningTokens + reasoning);
+            else allReasoningCountsReported = false;
+            latestInputTokens = input;
+            contextWindow = provider?.ContextWindowTokens;
+            var cacheRead = usage.CachedInputTokens ?? 0;
+            var cacheWriteTokens = usage.CacheWriteInputTokens ?? 0;
+            if (cacheRead > input || cacheWriteTokens > input - cacheRead)
             {
                 costComplete = false;
                 continue;
             }
-
-            inputTokens = checked(inputTokens + input);
-            outputTokens = checked(outputTokens + output);
-            cacheReadTokens = checked(cacheReadTokens + cacheRead.GetValueOrDefault());
-            cacheWriteTokens = checked(cacheWriteTokens + cacheWrite.GetValueOrDefault());
-            latestInputTokens = input;
-            contextWindow = provider?.ContextWindowTokens;
             if (provider is null || provider.InputCostPerMillionTokens is not { } inputRate || provider.OutputCostPerMillionTokens is not { } outputRate)
-                costComplete = false;
-            else
             {
-                var uncachedInput = cacheRead is { } readUsage ? Math.Max(0, input - readUsage) : input;
-                estimatedCost += uncachedInput * inputRate / 1_000_000m + output * outputRate / 1_000_000m;
-                if (cacheRead is { } readCost && readCost > 0)
-                {
-                    if (provider.CacheReadCostPerMillionTokens is { } cacheReadRate)
-                        estimatedCost += readCost * cacheReadRate / 1_000_000m;
-                    else costComplete = false;
-                }
-                if (cacheWrite is { } write && write > 0)
-                {
-                    if (provider.CacheWriteCostPerMillionTokens is { } cacheWriteRate)
-                        estimatedCost += write * cacheWriteRate / 1_000_000m;
-                    else costComplete = false;
-                }
+                costComplete = false;
+                continue;
             }
+            if ((cacheRead > 0 && provider.CacheReadCostPerMillionTokens is not { }) ||
+                (cacheWriteTokens > 0 && provider.CacheWriteCostPerMillionTokens is not { }) ||
+                (provider.CacheReadCostPerMillionTokens is not null && usage.CachedInputTokens is null) ||
+                (provider.CacheWriteCostPerMillionTokens is not null && usage.CacheWriteInputTokens is null))
+            {
+                costComplete = false;
+                continue;
+            }
+            var uncachedInput = input - cacheRead - cacheWriteTokens;
+            estimatedCost += uncachedInput * inputRate / 1_000_000m + output * outputRate / 1_000_000m;
+            if (cacheRead > 0) estimatedCost += cacheRead * provider.CacheReadCostPerMillionTokens!.Value / 1_000_000m;
+            if (cacheWriteTokens > 0) estimatedCost += cacheWriteTokens * provider.CacheWriteCostPerMillionTokens!.Value / 1_000_000m;
         }
 
-        return new(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, responses.Length, latestInputTokens, contextWindow, estimatedCost, costComplete,
-            modelId, requestInFlight, requests.Length, compactionCount);
+        return new(inputTokens, outputTokens, responses.Length, latestInputTokens, contextWindow, estimatedCost, costComplete,
+            modelId, requestInFlight, requests.Length, compactionCount,
+            allCacheReadsReported ? cachedInputTokens : null,
+            allCacheWritesReported ? cacheWriteInputTokens : null,
+            allReasoningCountsReported ? reasoningTokens : null);
     }
 
     private static string? ModelCallId(ExecutionEvent evt) =>
@@ -398,19 +428,36 @@
         return new(context, inputRate, outputRate, cacheReadRate, cacheWriteRate, model);
     }
 
-    private static bool TryGetUsage(string? data, out long inputTokens, out long outputTokens, out long? cacheReadTokens, out long? cacheWriteTokens)
+    private sealed record RecordedUsage(long InputTokens, long OutputTokens, long? CachedInputTokens,
+        long? CacheWriteInputTokens, long? ReasoningTokens);
+
+    private static bool TryGetUsage(string? data, out RecordedUsage usageResult)
     {
-        inputTokens = outputTokens = 0;
-        cacheReadTokens = cacheWriteTokens = null;
+        usageResult = default!;
         if (!TryParse(data, out var root) || !TryGet(root, "usage", out var usage) ||
-            !TryGet(usage, "InputTokenCount", out var input) || !input.TryGetInt64(out inputTokens) ||
-            !TryGet(usage, "OutputTokenCount", out var output) || !output.TryGetInt64(out outputTokens))
+            !TryGet(usage, "InputTokenCount", out var input) || !input.TryGetInt64(out var inputTokens) ||
+            !TryGet(usage, "OutputTokenCount", out var output) || !output.TryGetInt64(out var outputTokens))
             return false;
-        if (TryGet(usage, "CachedInputTokenCount", out var cacheRead) && cacheRead.TryGetInt64(out var read) && read >= 0)
-            cacheReadTokens = read;
-        if (TryGet(usage, "CacheWriteTokenCount", out var cacheWrite) && cacheWrite.TryGetInt64(out var write) && write >= 0)
-            cacheWriteTokens = write;
-        return inputTokens >= 0 && outputTokens >= 0;
+        if (inputTokens < 0 || outputTokens < 0) return false;
+        bool OptionalCount(string name, out long? count)
+        {
+            count = null;
+            if (!TryGet(usage, name, out var value)) return true;
+            if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt64(out var parsedCount) || parsedCount < 0) return false;
+            count = parsedCount;
+            return true;
+        }
+        if (!OptionalCount("CachedInputTokenCount", out var cachedInput) ||
+            !OptionalCount("ReasoningTokenCount", out var reasoning) ||
+            !OptionalCount("cacheWriteInputTokenCount", out var cacheWrite)) return false;
+        long? cacheWriteFromAdditional = null;
+        if (TryGet(usage, "AdditionalCounts", out var additional) && TryGet(additional, "cache_write_input_tokens", out var writeValue))
+        {
+            if (writeValue.ValueKind != JsonValueKind.Number || !writeValue.TryGetInt64(out var writeCount) || writeCount < 0) return false;
+            cacheWriteFromAdditional = writeCount;
+        }
+        usageResult = new(inputTokens, outputTokens, cachedInput, cacheWrite ?? cacheWriteFromAdditional, reasoning);
+        return true;
     }
 
     private static string? ModelIdFromResponse(ExecutionEvent evt) =>

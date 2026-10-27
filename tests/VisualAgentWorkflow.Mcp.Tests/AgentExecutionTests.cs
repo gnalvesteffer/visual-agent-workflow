@@ -349,7 +349,12 @@ public class AgentExecutionTests
                 return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "answer"))
                 {
                     FinishReason = ChatFinishReason.Stop,
-                    Usage = new UsageDetails { InputTokenCount = 3, OutputTokenCount = 1, TotalTokenCount = 4 }
+                    Usage = new UsageDetails
+                    {
+                        InputTokenCount = 3, OutputTokenCount = 1, TotalTokenCount = 4,
+                        CachedInputTokenCount = 1, ReasoningTokenCount = 1,
+                        AdditionalCounts = new() { ["cache_write_input_tokens"] = 1 }
+                    }
                 });
             })
         };
@@ -367,6 +372,11 @@ public class AgentExecutionTests
         Assert.Equal(8000, started.RootElement.GetProperty("maxTotalTokens").GetInt32());
         using var request = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested).Data!);
         Assert.Equal(4096, request.RootElement.GetProperty("maxOutputTokens").GetInt32());
+        using var response = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded).Data!);
+        var usage = response.RootElement.GetProperty("usage");
+        Assert.Equal(1, usage.GetProperty("CachedInputTokenCount").GetInt64());
+        Assert.Equal(1, usage.GetProperty("ReasoningTokenCount").GetInt64());
+        Assert.Equal(1, usage.GetProperty("cacheWriteInputTokenCount").GetInt64());
         Assert.Throws<ArgumentException>(() => WorkflowParameters.Resolve(definition,
             new Dictionary<string, string> { ["response-limit"] = "0" }));
     }

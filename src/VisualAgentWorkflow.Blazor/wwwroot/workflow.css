@@ -197,14 +197,16 @@
 :where(.vaw-viewer, .vaw-designer, .vaw-workflow-editor) pre { font-family: var(--vaw-mono); font-size: 0.875rem; white-space: pre-wrap; overflow-wrap: anywhere; background-color: var(--vaw-canvas); padding: var(--vaw-space-3); }
 .vaw-table-scroll { max-inline-size: 100%; overflow-x: auto; }
 .vaw-viewer table { inline-size: 100%; table-layout: fixed; border-collapse: collapse; text-align: start; }
-.vaw-viewer .vaw-event-sequence-column { inline-size: 5rem; }
-.vaw-viewer .vaw-event-kind-column { inline-size: 14rem; }
-.vaw-viewer .vaw-event-node-column { inline-size: 22rem; }
+.vaw-viewer .vaw-event-sequence-column { inline-size: 4rem; }
+.vaw-viewer .vaw-event-time-column { inline-size: 9rem; }
+.vaw-viewer .vaw-event-kind-column { inline-size: 12rem; }
+.vaw-viewer .vaw-event-node-column { inline-size: 14rem; }
 .vaw-viewer :where(th, td) { border-block-end: 1px solid var(--vaw-border); padding: var(--vaw-space-2); }
 .vaw-viewer :where(th, td) { overflow-wrap: anywhere; }
+.vaw-viewer td time { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--vaw-muted); }
 .vaw-viewer td pre { max-inline-size: 100%; margin: 0; }
 @media (max-width: 56rem) {
-    .vaw-viewer table { min-inline-size: 52rem; }
+    .vaw-viewer table { min-inline-size: 58rem; }
 }
 .vaw-error { color: var(--vaw-error); }
 
