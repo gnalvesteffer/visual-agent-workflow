@@ -41,6 +41,7 @@
                 @if (node.Type == NodeTypes.Agent && AgentMetrics(nodeId) is { } metrics)
                 {
                     <div class="vaw-agent-metrics" aria-label="Agent usage statistics">
+                        <span title="Counts recorded model requests for this agent and its delegated agents.">Model turns · @metrics.ModelTurns</span>
                         @if (metrics.ResponseCount == 0) { <span>Waiting for provider usage</span> }
                         else
                         {
@@ -289,7 +290,7 @@
 
     private sealed record AgentUsageStatistics(long InputTokens, long OutputTokens, int ResponseCount,
         long? LatestInputTokens, int? ContextWindowTokens, decimal EstimatedCost, bool CostIsComplete, string? ModelId,
-        bool ModelRequestInFlight, int CompactionCount);
+        bool ModelRequestInFlight, int ModelTurns, int CompactionCount);
 
     private AgentUsageStatistics? AgentMetrics(string nodeId)
     {
@@ -312,7 +313,7 @@
         {
             var rootProvider = providers.GetValueOrDefault(invocation.Value);
             return rootProvider is null ? null : new(0, 0, 0, null, rootProvider.ContextWindowTokens, 0, false,
-                rootProvider.ModelId, requestInFlight, compactionCount);
+                rootProvider.ModelId, requestInFlight, requests.Length, compactionCount);
         }
 
         long inputTokens = 0;
@@ -343,7 +344,7 @@
         }
 
         return new(inputTokens, outputTokens, responses.Length, latestInputTokens, contextWindow, estimatedCost, costComplete,
-            modelId, requestInFlight, compactionCount);
+            modelId, requestInFlight, requests.Length, compactionCount);
     }
 
     private static string? ModelCallId(ExecutionEvent evt) =>

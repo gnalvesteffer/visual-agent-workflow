@@ -453,6 +453,7 @@ def agent_designer_check(browser):
     assert json.loads(model_requested["data"])["maxOutputTokens"] == 2048
     show_runs(page)
     viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
+    expect(viewer.locator(".vaw-agent-metrics")).to_contain_text("Model turns · 1", timeout=20000)
     viewer.get_by_text("Recorded events at this position", exact=False).click()
     expect(viewer.get_by_role("cell", name="model.responded", exact=True)).to_have_count(1)
     page.reload()
