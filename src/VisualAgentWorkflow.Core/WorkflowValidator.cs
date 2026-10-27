@@ -206,9 +206,9 @@ public static class WorkflowValidator
                 Error("node.unsupported", $"nodes.{id}", "Unknown node type or implementation version.");
             if (node is null) continue;
             if (node.McpArgumentsJson is { } mcpArguments &&
-                (node.Type != NodeTypes.McpTool || definition.SchemaVersion != WorkflowSchemaVersions.DirectMcpGraph ||
+                (node.Type != NodeTypes.McpTool ||
                  mcpArguments.Length > 65_536 || !IsJsonObject(mcpArguments)))
-                Error("mcp.arguments", $"nodes.{id}.mcpArgumentsJson", "Direct MCP arguments must be a JSON object of at most 65,536 characters.");
+                Error("mcp.arguments", $"nodes.{id}.mcpArgumentsJson", "MCP arguments must be a JSON object of at most 65,536 characters.");
             if (node.Type == NodeTypes.WorkflowCall)
             {
                 var call = node.WorkflowCall;

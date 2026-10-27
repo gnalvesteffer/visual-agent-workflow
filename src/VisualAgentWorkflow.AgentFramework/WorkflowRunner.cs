@@ -1277,6 +1277,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (tools is null) throw new InvalidOperationException("No tool broker is configured.");
             await using var scope = tools.OpenScope(new(runId, revision, Id, invocation,
                 (kind, data) => Emit(kind, Id, invocation, null, data)));
+            if (node.McpArgumentsJson is { } configuredArguments)
+            {
+                using var document = JsonDocument.Parse(configuredArguments, new JsonDocumentOptions { MaxDepth = 32 });
+                return await scope.InvokeJsonAsync(node.Tool!.BindingId, document.RootElement.Clone(), cancellationToken);
+            }
             return await scope.InvokeAsync(node.Tool!.BindingId, input, cancellationToken);
         }
 

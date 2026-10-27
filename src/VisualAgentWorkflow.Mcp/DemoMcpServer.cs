@@ -48,7 +48,8 @@ public static class DemoMcpServer
             new("demo.submit-answer", "MCP · submit answer", "demo-text", "submit_answer", Connect, ReadOnly: true)
             { AllowModelRecoveryAfterFailure = true },
             new("demo.add-integers", "MCP · add integers", "demo-text", "add_integers", Connect, ReadOnly: true),
-            new("demo.inspect-payload", "MCP · inspect payload", "demo-text", "inspect_payload", Connect, ReadOnly: true)
+            new("demo.inspect-payload", "MCP · inspect payload", "demo-text", "inspect_payload", Connect, ReadOnly: true),
+            new("demo.protocol-failure", "MCP · protocol failure", "demo-text", "protocol_failure", Connect, ReadOnly: true)
         ];
     }
 
@@ -81,6 +82,11 @@ public static class DemoMcpServer
          Description("Returns a deterministic summary of a nested request object and its labels.")]
         public static string InspectPayload(StructuredPayload payload) =>
             $"{payload.Request.Name}:{payload.Request.Count}:{string.Join(',', payload.Labels)}";
+
+        [McpServerTool(Name = "protocol_failure", ReadOnly = true, Destructive = false),
+         Description("Raises a definitive MCP tool error for broker recovery tests.")]
+        public static string ProtocolFailure() => throw new ModelContextProtocol.McpProtocolException(
+            "The requested fixture operation was rejected.", ModelContextProtocol.McpErrorCode.InvalidParams);
     }
 
     public sealed class StructuredPayload
@@ -100,5 +106,5 @@ public static class DemoMcpServer
 public sealed class DemoToolPolicy : IToolAuthorizationPolicy
 {
     public bool IsAllowed(WorkflowRevision revision, string nodeId, string bindingId) =>
-        bindingId is "demo.uppercase" or "demo.reverse" or "demo.submit-answer" or "demo.add-integers" or "demo.inspect-payload";
+        bindingId is "demo.uppercase" or "demo.reverse" or "demo.submit-answer" or "demo.add-integers" or "demo.inspect-payload" or "demo.protocol-failure";
 }

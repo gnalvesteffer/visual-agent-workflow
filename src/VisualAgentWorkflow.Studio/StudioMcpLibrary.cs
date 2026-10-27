@@ -228,7 +228,12 @@ public sealed class StudioMcpLibrary
             Func<CancellationToken, Task<McpClient>> connect = token => Connect(server, token);
             return server.EnabledTools.Select(tool =>
                 new McpToolRegistration(server.Id + "." + tool, server.Name + " · " + tool, server.Id, tool,
-                    connect) { AllowInvocation = true });
+                    connect)
+                {
+                    AllowInvocation = true,
+                    AllowModelRecoveryAfterFailure = true,
+                    IsDefinitiveToolFailure = exception => exception is ModelContextProtocol.McpProtocolException
+                });
         });
         var registrations = builtIn.Concat(configured).ToArray();
         broker.ReplaceRegistrations(registrations);

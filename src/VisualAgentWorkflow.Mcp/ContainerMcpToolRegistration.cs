@@ -13,6 +13,8 @@ public sealed record ContainerMcpServerOptions(string ImageReference)
     public IReadOnlyList<string> CapabilityBindingIds { get; init; } = [];
     /// <summary>Allows a known server-declared failure to be fed back to the model once for correction.</summary>
     public bool AllowModelRecoveryAfterFailure { get; init; }
+    /// <summary>Optional trusted classifier for definitive post-dispatch tool failures.</summary>
+    public Func<Exception, bool>? IsDefinitiveToolFailure { get; init; }
     /// <summary>Identity and SHA-256 pin for an extension assembly baked into the worker image.</summary>
     public WorkflowExtensionArtifact? ExtensionArtifact { get; init; }
     public bool AllowInvocation { get; init; }
@@ -100,6 +102,7 @@ public static partial class ContainerMcpToolRegistration
         {
             AllowInvocation = options.AllowInvocation,
             AllowModelRecoveryAfterFailure = options.AllowModelRecoveryAfterFailure,
+            IsDefinitiveToolFailure = options.IsDefinitiveToolFailure,
             ConnectInScope = ConnectInScope
         };
     }

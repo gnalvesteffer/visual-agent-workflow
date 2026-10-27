@@ -227,9 +227,16 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             assert pane_layout["inspector"]["left"] > pane_layout["canvas"]["right"], f"Run inspector details should not fall below the graph: {pane_layout}"
             run_resizer = page.locator(".vaw-viewer [data-pane-resizer=\"inspector\"]")
             before_width = int(run_resizer.get_attribute("aria-valuenow"))
+            resizer_box = run_resizer.bounding_box()
+            assert resizer_box, "Run inspector resizer should have measurable bounds"
+            page.mouse.move(resizer_box["x"] + resizer_box["width"] / 2, resizer_box["y"] + resizer_box["height"] / 2)
+            page.mouse.down()
+            page.mouse.move(resizer_box["x"] + resizer_box["width"] / 2 + 24, resizer_box["y"] + resizer_box["height"] / 2)
+            page.mouse.up()
+            expect(run_resizer).to_have_attribute("aria-valuenow", str(before_width - 24))
             run_resizer.focus()
             page.keyboard.press("ArrowRight")
-            expect(run_resizer).to_have_attribute("aria-valuenow", str(before_width + 16))
+            expect(run_resizer).to_have_attribute("aria-valuenow", str(before_width - 8))
             page.keyboard.press("ArrowLeft")
             expect(run_resizer).to_have_attribute("aria-valuenow", str(before_width))
             bottom_resizer = page.locator(".vaw-viewer [data-pane-resizer=\"bottom\"]")

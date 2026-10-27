@@ -60,7 +60,11 @@ export function attach(root) {
     const pointerMove = event => {
         if (!active) return;
         event.preventDefault();
-        const delta = active.kind === 'bottom' ? active.startY - event.clientY : event.clientX - active.startX;
+        const delta = active.kind === 'bottom'
+            ? active.startY - event.clientY
+            : active.kind === 'inspector'
+                ? active.startX - event.clientX
+                : event.clientX - active.startX;
         update(active.kind, active.startValue + delta, false);
     };
     const pointerUp = () => {

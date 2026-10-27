@@ -12,6 +12,12 @@ public sealed record McpToolRegistration(string BindingId, string DisplayName, s
     public bool AllowInvocation { get; init; }
     /// <summary>Allows a known server-declared failure to be fed back to the model once for correction.</summary>
     public bool AllowModelRecoveryAfterFailure { get; init; }
+    /// <summary>
+    /// Identifies a post-dispatch exception that the host knows is a definitive tool failure.
+    /// The classifier must return false for cancellation, timeout, transport, authorization, and
+    /// contract failures because those leave the tool outcome uncertain or indicate a host defect.
+    /// </summary>
+    public Func<Exception, bool>? IsDefinitiveToolFailure { get; init; }
     /// <summary>Optional invocation-bound connector for registrations that need a scoped host capability channel.</summary>
     public Func<NodeInvocationContext, CancellationToken, Task<McpToolConnection>>? ConnectInScope { get; init; }
 }
@@ -234,6 +240,23 @@ public sealed class McpToolBroker : INodeToolBroker
             }
             catch (Exception error)
             {
+                var recoverableFailure = dispatched && registration.AllowModelRecoveryAfterFailure &&
+                    IsDefinitiveToolFailure(registration, error);
+                if (recoverableFailure)
+                {
+                    var feedback = new ToolInvocationException(
+                        "The MCP server reported a definitive tool failure.",
+                        ToolInvocationFailureDisposition.RecoverableFeedback);
+                    await Record(ExecutionEventKinds.ToolFailed, new
+                    {
+                        toolCallId,
+                        parentToolCallId = invocation.ParentToolCallId,
+                        bindingId,
+                        disposition = feedback.Disposition.ToString(),
+                        reason = "The host classified the server error as recoverable model feedback."
+                    });
+                    throw feedback;
+                }
                 await Record(error is ToolAccessDeniedException ? ExecutionEventKinds.ToolDenied :
                     dispatched && error is not ToolInvocationException ? ExecutionEventKinds.ToolUncertain : ExecutionEventKinds.ToolFailed,
                     new
@@ -253,6 +276,16 @@ public sealed class McpToolBroker : INodeToolBroker
                     });
                 throw;
             }
+        }
+
+        private static bool IsDefinitiveToolFailure(McpToolRegistration registration, Exception error)
+        {
+            if (registration.IsDefinitiveToolFailure is null || error is ToolInvocationException or
+                ToolAccessDeniedException or ToolContractMismatchException or ToolDescriptionMismatchException or
+                OperationCanceledException or TimeoutException or IOException or HttpRequestException)
+                return false;
+            try { return registration.IsDefinitiveToolFailure(error); }
+            catch { return false; }
         }
 
         private static async Task<McpToolConnection> Connect(McpToolRegistration registration,

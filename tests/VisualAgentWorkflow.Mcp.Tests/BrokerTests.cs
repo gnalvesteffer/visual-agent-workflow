@@ -40,7 +40,7 @@ public class BrokerTests
     {
         var broker = CreateBroker(policy: new DemoToolPolicy());
         var bindings = await broker.ListBindingsAsync();
-        Assert.Equal(5, bindings.Count);
+        Assert.Equal(6, bindings.Count);
         var reverse = bindings.Single(b => b.BindingId == "demo.reverse");
         Assert.Contains("Reverses Unicode", reverse.ToolDescription);
         Assert.Equal(McpToolDescription.ComputeHash(reverse.ToolDescription), reverse.DescriptionHash);
@@ -82,7 +82,7 @@ public class BrokerTests
 
         var bindings = await CreateBroker(registrations).ListBindingsAsync();
 
-        Assert.Equal(5, bindings.Count);
+        Assert.Equal(6, bindings.Count);
         Assert.Equal(1, connectionCount);
     }
 
@@ -361,6 +361,46 @@ public class BrokerTests
         Assert.Equal(1, attempts);
         Assert.DoesNotContain(ExecutionEventKinds.ToolAuthorized, events);
         Assert.Contains(ExecutionEventKinds.ToolFailed, events);
+    }
+
+    [Fact]
+    public async Task ExplicitlyClassifiedPostDispatchFailureIsRecoverableFeedback()
+    {
+        var registration = (await CreateBroker(policy: new DemoToolPolicy()).ListBindingsAsync())
+            .Single(binding => binding.BindingId == "demo.protocol-failure");
+        var hostRegistration = Registrations().Single(item => item.BindingId == registration.BindingId) with
+        {
+            AllowModelRecoveryAfterFailure = true,
+            IsDefinitiveToolFailure = exception => exception is ModelContextProtocol.McpProtocolException
+        };
+        var events = new List<string>();
+        var broker = CreateBroker([hostRegistration], new DemoToolPolicy());
+        await using var scope = broker.OpenScope(Invocation(Revision(registration), events));
+
+        using var arguments = JsonDocument.Parse("{}");
+        var failure = await Assert.ThrowsAsync<ToolInvocationException>(() => scope.InvokeJsonAsync(registration.BindingId, arguments.RootElement));
+
+        Assert.True(failure.Disposition == ToolInvocationFailureDisposition.RecoverableFeedback,
+            $"{failure.GetType().FullName}: {failure.Message}");
+        Assert.Contains(ExecutionEventKinds.ToolFailed, events);
+        Assert.DoesNotContain(ExecutionEventKinds.ToolUncertain, events);
+    }
+
+    [Fact]
+    public async Task UnclassifiedPostDispatchFailureRemainsOutcomeUnknown()
+    {
+        var registration = (await CreateBroker(policy: new DemoToolPolicy()).ListBindingsAsync())
+            .Single(binding => binding.BindingId == "demo.protocol-failure");
+        var hostRegistration = Registrations().Single(item => item.BindingId == registration.BindingId);
+        var events = new List<string>();
+        var broker = CreateBroker([hostRegistration], new DemoToolPolicy());
+        await using var scope = broker.OpenScope(Invocation(Revision(registration), events));
+
+        using var arguments = JsonDocument.Parse("{}");
+        await Assert.ThrowsAnyAsync<Exception>(() => scope.InvokeJsonAsync(registration.BindingId, arguments.RootElement));
+
+        Assert.Contains(ExecutionEventKinds.ToolUncertain, events);
+        Assert.DoesNotContain(ExecutionEventKinds.ToolFailed, events);
     }
 
     [Fact]

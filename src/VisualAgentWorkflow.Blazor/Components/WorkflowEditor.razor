@@ -588,6 +588,12 @@
                                 { @foreach (var provider in Providers) { <option @key="ProviderKey(provider)" value="@ProviderKey(provider)">@provider.DisplayName</option> } }
                             </select>
                         </label>
+                        @if (node.Type == NodeTypes.McpTool && node.Tool is { } selectedTool &&
+                            Bindings.FirstOrDefault(candidate => BindingMatches(selectedTool, candidate)) is { } selectedBinding)
+                        {
+                            <McpToolArgumentsEditor Tool="selectedBinding" Value="@node.McpArgumentsJson" ValueChanged="args => McpArguments(id, args)" Disabled="@Disabled" />
+                            <p class="vaw-help">Configured arguments are stored with this workflow and override the connected text input. Clear them to pass the input text as the tool's JSON/text argument.</p>
+                        }
                         <div class="vaw-controls">
                             @if (!UsesGraphEditing)
                             {
