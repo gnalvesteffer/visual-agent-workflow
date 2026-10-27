@@ -192,7 +192,7 @@ public sealed class GraphCanvasRenderingTests
 
         Assert.Contains($"View events for {definition.EntryNodeId}", html);
         Assert.Contains("vaw-node-events-button", html);
-        Assert.Contains("vaw-node-status-row", html);
+        Assert.Contains("vaw-node-status-chip", html);
         Assert.Contains("data-pane-resizer=\"bottom\"", html);
         Assert.DoesNotContain("vaw-node-events-dialog", html);
     }

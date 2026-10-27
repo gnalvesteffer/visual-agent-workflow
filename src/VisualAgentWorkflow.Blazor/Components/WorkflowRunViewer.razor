@@ -37,12 +37,12 @@
             </ToolbarContent>
             <NodeContent Context="nodeId">
                 @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); var evaluation = DataEvaluation(nodeId); var pendingNode = PendingRootNodeId; var label = pendingNode == nodeId ? PendingApproval?.Action.ScopeId is null ? "Awaiting approval" : "Child awaiting approval" : PausedBefore(nodeId) && state is null ? "Paused before execution" : node.Type == NodeTypes.Terminate && state?.Kind == ExecutionEventKinds.NodeCompleted ? "Terminated successfully" : evaluation is not null ? "Evaluated" : StateLabel(state); var activity = ActiveActivity(nodeId); }
-                <div class="vaw-node-status-row">
+                <div class="vaw-node-status-chip" role="group" aria-label="@($"{label} status and recorded events")">
                     <button type="button" class="vaw-node-button" aria-label="@($"{nodeId} {node.Type} {label}")" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId ? "true" : "false")">
                         <span>@label</span>
                     </button>
                     <button type="button" class="vaw-node-events-button" aria-label="View events for @nodeId" @onclick:stopPropagation="true" @onclick="() => OpenNodeEvents(nodeId)">
-                        <span aria-hidden="true">↗</span> <span class="vaw-node-events-label">View events</span>
+                        <span aria-hidden="true">↗</span>
                     </button>
                 </div>
                 @if (activity is not null) { <p class="vaw-node-activity" role="status">@activity</p> }
