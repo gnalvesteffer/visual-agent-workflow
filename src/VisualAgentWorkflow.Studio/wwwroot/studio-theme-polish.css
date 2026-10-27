@@ -647,8 +647,10 @@
 .vaw-studio-in-ide .vaw-viewer .vaw-canvas-workspace.vaw-with-properties { grid-template-columns: minmax(0, 1fr) .5rem var(--vaw-inspector-width, 19rem); }
 .vaw-studio-in-ide .vaw-viewer .vaw-canvas-viewport { flex: 1 1 0; block-size: auto; max-block-size: none; min-block-size: 0; }
 .vaw-studio-in-ide .vaw-viewer .vaw-properties { min-block-size: 0; overflow: auto; }
-.vaw-studio-in-ide .vaw-viewer > details { flex: 0 1 24vh; min-block-size: 2rem; max-block-size: 28vh; overflow: auto; margin-block: .35rem 0; }
-.vaw-studio-in-ide .vaw-viewer > .vaw-collaboration-playback { flex: 0 1 20vh; max-block-size: 20vh; overflow: auto; }
+.vaw-studio-in-ide .vaw-viewer > [data-pane-resizer="bottom"] { flex: 0 0 .5rem; inline-size: auto; block-size: .5rem; min-block-size: .5rem; margin-block-start: .35rem; cursor: row-resize; }
+.vaw-studio-in-ide .vaw-viewer > .vaw-run-events-pane { flex: 0 0 var(--vaw-bottom-height, 12rem); min-block-size: 0; max-block-size: none; overflow: hidden; margin: 0; border: 1px solid var(--vaw-border); border-radius: 0; }
+.vaw-studio-in-ide .vaw-viewer .vaw-run-events-pane > .vaw-bottom-panel { max-block-size: none; min-block-size: 0; block-size: 100%; overflow: auto; padding: .6rem .75rem; }
+.vaw-studio-in-ide .vaw-viewer .vaw-run-events-pane details { margin-block-start: .6rem; }
 @media (max-width: 62rem) {
     .vaw-document-actions { gap: .2rem; }
     .vaw-studio-in-ide .vaw-document-actions button { padding-inline: .4rem; }
@@ -663,7 +665,7 @@
     .vaw-studio-in-ide .vaw-bottom-tray { flex-basis: 9rem; }
     .vaw-studio-in-ide .vaw-viewer .vaw-canvas-workspace.vaw-with-properties { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(12rem, 1fr) minmax(0, 10rem); }
     .vaw-studio-in-ide .vaw-viewer .vaw-canvas-workspace.vaw-with-properties > [data-pane-resizer="inspector"] { display: none; }
-    .vaw-studio-in-ide .vaw-viewer > details { flex-basis: 18vh; max-block-size: 22vh; }
+    .vaw-studio-in-ide .vaw-viewer > .vaw-run-events-pane { flex-basis: var(--vaw-bottom-height, 10rem); }
     .vaw-document-statusbar > :last-child { display: none; }
 }
 .vaw-source-project { display: flex; flex-direction: column; inline-size: 100%; max-inline-size: none; min-block-size: 0; margin: 0; padding: .45rem; overflow: auto; }

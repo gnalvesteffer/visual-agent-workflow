@@ -232,6 +232,13 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             expect(run_resizer).to_have_attribute("aria-valuenow", str(before_width + 16))
             page.keyboard.press("ArrowLeft")
             expect(run_resizer).to_have_attribute("aria-valuenow", str(before_width))
+            bottom_resizer = page.locator(".vaw-viewer [data-pane-resizer=\"bottom\"]")
+            before_bottom = int(bottom_resizer.get_attribute("aria-valuenow"))
+            bottom_resizer.focus()
+            page.keyboard.press("ArrowUp")
+            expect(bottom_resizer).to_have_attribute("aria-valuenow", str(before_bottom + 16))
+            page.keyboard.press("ArrowDown")
+            expect(bottom_resizer).to_have_attribute("aria-valuenow", str(before_bottom))
             node_events_button = page.locator(".vaw-viewer .vaw-node-events-button").first
             expect(node_events_button).to_be_visible()
             node_events_button.click()

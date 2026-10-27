@@ -2,7 +2,8 @@
 @using System.Collections.Immutable
 @using Microsoft.JSInterop
 @inject IServiceProvider Services
-<section class="vaw-viewer" aria-label="Workflow run viewer">
+@implements IAsyncDisposable
+<section @ref="viewerRoot" class="vaw-viewer" aria-label="Workflow run viewer">
     @if (Snapshot is null)
     {
         <div class="vaw-empty-state"><h2>Execution inspector</h2><p>Start a run or select one from history to inspect its path and recorded payloads.</p></div>
@@ -36,12 +37,14 @@
             </ToolbarContent>
             <NodeContent Context="nodeId">
                 @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); var evaluation = DataEvaluation(nodeId); var pendingNode = PendingRootNodeId; var label = pendingNode == nodeId ? PendingApproval?.Action.ScopeId is null ? "Awaiting approval" : "Child awaiting approval" : PausedBefore(nodeId) && state is null ? "Paused before execution" : node.Type == NodeTypes.Terminate && state?.Kind == ExecutionEventKinds.NodeCompleted ? "Terminated successfully" : evaluation is not null ? "Evaluated" : StateLabel(state); var activity = ActiveActivity(nodeId); }
-                <button type="button" class="vaw-node-button" aria-label="@($"{nodeId} {node.Type} {label}")" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId ? "true" : "false")">
-                    <span>@label</span>
-                </button>
-                <button type="button" class="vaw-node-events-button" aria-label="View events for @nodeId" @onclick:stopPropagation="true" @onclick="() => OpenNodeEvents(nodeId)">
-                    <span aria-hidden="true">↗</span> View events
-                </button>
+                <div class="vaw-node-status-row">
+                    <button type="button" class="vaw-node-button" aria-label="@($"{nodeId} {node.Type} {label}")" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId ? "true" : "false")">
+                        <span>@label</span>
+                    </button>
+                    <button type="button" class="vaw-node-events-button" aria-label="View events for @nodeId" @onclick:stopPropagation="true" @onclick="() => OpenNodeEvents(nodeId)">
+                        <span aria-hidden="true">↗</span> <span class="vaw-node-events-label">View events</span>
+                    </button>
+                </div>
                 @if (activity is not null) { <p class="vaw-node-activity" role="status">@activity</p> }
                 @if (node.Type == NodeTypes.Agent && AgentMetrics(nodeId) is { } metrics)
                 {
@@ -122,26 +125,31 @@
         <WorkflowApprovalPanel Snapshot="VisibleSnapshot" Client="ApprovalClient" CanDecide="@(follow && !Snapshot.IsTerminal)" OnDecision="ApprovalChanged" />
             </NodeInspector>
         </WorkflowGraphCanvas>
-        <ParallelCollaborationPlayback Events="VisibleEvents" />
-        <details>
-            <summary>Recorded events at this position (@Position)</summary>
-            <div class="vaw-table-scroll">
-                <table><caption>Execution evidence</caption>
-                    <colgroup><col class="vaw-event-sequence-column" /><col class="vaw-event-time-column" /><col class="vaw-event-kind-column" /><col class="vaw-event-node-column" /><col class="vaw-event-node-column" /><col /></colgroup>
-                    <thead><tr><th>Sequence</th><th>Time (local)</th><th>Event</th><th>Scope</th><th>Node</th><th>Data</th></tr></thead>
-                    <tbody>
-                        @foreach (var evt in VisibleEvents)
-                        {
-                            var localTimestamp = evt.Timestamp.ToLocalTime();
-                            var preciseTimestamp = evt.Timestamp.ToString("O");
-                            var accessibleTimestamp = localTimestamp.ToString("yyyy-MM-dd HH:mm:ss.fff zzz");
-                            var displayTimestamp = localTimestamp.ToString("HH:mm:ss.fff");
-                            <tr @key="evt.Sequence"><td>@evt.Sequence</td><td><time datetime="@preciseTimestamp" title="@preciseTimestamp" aria-label="@accessibleTimestamp">@displayTimestamp</time></td><td>@evt.Kind</td><td>@evt.ScopeId</td><td>@evt.NodeId</td><td><pre>@evt.Data</pre></td></tr>
-                        }
-                    </tbody>
-                </table>
+        <button type="button" class="vaw-pane-resizer vaw-pane-resizer-vertical" data-pane-resizer="bottom" role="separator" aria-orientation="horizontal" aria-label="Resize recorded events panel" aria-valuemin="128" aria-valuemax="520" aria-valuenow="192" title="Resize recorded events panel"></button>
+        <section class="vaw-bottom-tray vaw-run-events-pane" aria-label="Run evidence">
+            <div class="vaw-bottom-panel">
+                <ParallelCollaborationPlayback Events="VisibleEvents" />
+                <details open>
+                    <summary>Recorded events at this position (@Position)</summary>
+                    <div class="vaw-table-scroll">
+                        <table><caption>Execution evidence</caption>
+                            <colgroup><col class="vaw-event-sequence-column" /><col class="vaw-event-time-column" /><col class="vaw-event-kind-column" /><col class="vaw-event-node-column" /><col class="vaw-event-node-column" /><col /></colgroup>
+                            <thead><tr><th>Sequence</th><th>Time (local)</th><th>Event</th><th>Scope</th><th>Node</th><th>Data</th></tr></thead>
+                            <tbody>
+                                @foreach (var evt in VisibleEvents)
+                                {
+                                    var localTimestamp = evt.Timestamp.ToLocalTime();
+                                    var preciseTimestamp = evt.Timestamp.ToString("O");
+                                    var accessibleTimestamp = localTimestamp.ToString("yyyy-MM-dd HH:mm:ss.fff zzz");
+                                    var displayTimestamp = localTimestamp.ToString("HH:mm:ss.fff");
+                                    <tr @key="evt.Sequence"><td>@evt.Sequence</td><td><time datetime="@preciseTimestamp" title="@preciseTimestamp" aria-label="@accessibleTimestamp">@displayTimestamp</time></td><td>@evt.Kind</td><td>@evt.ScopeId</td><td>@evt.NodeId</td><td><pre>@evt.Data</pre></td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
             </div>
-        </details>
+        </section>
         @if (eventNodeId is { } modalNodeId && Snapshot.Header.Definition.Nodes.ContainsKey(modalNodeId))
         {
             var nodeEvents = EventsForNode(modalNodeId).ToArray();
@@ -572,8 +580,11 @@
     private int cursor;
     private string? selectedNode;
     private ElementReference eventDialog;
+    private ElementReference viewerRoot;
     private string? eventNodeId;
     private bool eventDialogShown;
+    private IJSObjectReference? layoutModule;
+    private IJSObjectReference? layoutSession;
     private string VisibleStatus => Snapshot is null ? "queued" : follow ? Snapshot.Status :
         (Snapshot with { Events = Snapshot.Events.Take(Position).ToImmutableArray() }).Status;
     private int Position => Snapshot is null ? 0 : follow ? Snapshot.Events.Length : Math.Clamp(cursor, 0, Snapshot.Events.Length);
@@ -626,6 +637,11 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender && Services.GetService(typeof(IJSRuntime)) is IJSRuntime layoutJs)
+        {
+            layoutModule = await layoutJs.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/paneLayout.js");
+            layoutSession = await layoutModule.InvokeAsync<IJSObjectReference>("attach", viewerRoot);
+        }
         if (eventNodeId is not null && !eventDialogShown)
         {
             if (Services.GetService(typeof(IJSRuntime)) is IJSRuntime javaScript)
@@ -639,6 +655,21 @@
                 catch (JSDisconnectedException) { }
             }
         }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (layoutSession is not null)
+            {
+                await layoutSession.InvokeVoidAsync("dispose");
+                await layoutSession.DisposeAsync();
+            }
+            if (layoutModule is not null) await layoutModule.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { }
+        catch (ObjectDisposedException) { }
     }
     private void Previous() { cursor = Math.Max(0, Position - 1); follow = false; }
     private static string StateLabel(ExecutionEvent? state) => state?.Kind switch

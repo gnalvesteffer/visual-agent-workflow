@@ -198,7 +198,9 @@
 .vaw-agent-metrics label { display: grid; gap: 0.15rem; }
 .vaw-agent-metrics progress { inline-size: 100%; block-size: 0.3rem; accent-color: var(--vaw-accent); }
 .vaw-agent-metrics small { color: var(--vaw-text); font-family: var(--vaw-mono); }
-.vaw-node-events-button { display: inline-flex; align-items: center; gap: .3rem; inline-size: auto; min-block-size: 1.8rem; margin-block-start: .45rem; padding: .25rem .5rem; border: 1px solid var(--vaw-border); border-radius: var(--vaw-control-radius); color: var(--vaw-muted); background: transparent; font-size: .7rem; }
+.vaw-node-status-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .35rem; margin-block-start: .45rem; }
+.vaw-node-status-row .vaw-node-button { min-inline-size: 0; margin: 0; }
+.vaw-node-events-button { display: inline-flex; align-items: center; gap: .3rem; inline-size: auto; min-block-size: 1.8rem; margin: 0; padding: .25rem .5rem; border: 1px solid var(--vaw-border); border-radius: var(--vaw-control-radius); color: var(--vaw-muted); background: transparent; font-size: .7rem; }
 .vaw-node-events-button:hover, .vaw-node-events-button:focus-visible { color: var(--vaw-text); background: var(--vaw-control); }
 .vaw-node-events-button span { color: var(--vaw-accent); font-size: .9rem; }
 .vaw-node-events-dialog { inline-size: min(60rem, calc(100vw - 2rem)); max-inline-size: calc(100vw - 2rem); max-block-size: min(80dvh, 48rem); margin: auto; padding: 0; border: 1px solid var(--vaw-border-strong); border-radius: var(--vaw-panel-radius); color: var(--vaw-text); background: var(--vaw-surface); box-shadow: 0 1.5rem 4rem rgb(0 0 0 / .35); }
