@@ -41,6 +41,7 @@ public static class WorkflowPorts
         NodeTypes.IntegerAdd or NodeTypes.IntegerEquals => [new("left", "integer"), new("right", "integer")],
         NodeTypes.BooleanBranch => [new("condition", "boolean")],
         NodeTypes.BooleanNot => [new("value", "boolean")],
+        NodeTypes.McpTool => [new("in", "string")],
         NodeTypes.FunctionCall when node.GraphFunction?.Definition?.Inputs is { } inputs => [.. inputs.Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))],
         _ => []
     };
@@ -52,6 +53,7 @@ public static class WorkflowPorts
         NodeTypes.IntegerConstant or NodeTypes.IntegerAdd => [new("out", "integer")],
         NodeTypes.WorkflowValue => [new("out", node.OutputDataType ?? "string")],
         NodeTypes.Agent => [new("out", node.Agent?.RequireStructuredResult == true ? "json" : "string")],
+        NodeTypes.McpTool => [new("out", "string")],
         NodeTypes.ParallelJoin => [new("out", "json")],
         NodeTypes.StringEquals or NodeTypes.IntegerEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", "boolean")],
         NodeTypes.FunctionCall when node.GraphFunction?.Definition?.Outputs is { } outputs => [.. outputs.Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))],
@@ -60,7 +62,7 @@ public static class WorkflowPorts
 
     public static ImmutableArray<string> ExplicitExecutionInputs(NodeDefinition node) => node.Type switch
     {
-        NodeTypes.Agent or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch => ["execute"],
+        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch => ["execute"],
         NodeTypes.ParallelJoin when node.ParallelJoin is { } join => [.. join.BranchIds.Select(ParallelBranchLimits.PinId)],
         NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Select(ParallelBranchLimits.PinId)],
         _ => []
@@ -71,6 +73,7 @@ public static class WorkflowPorts
         NodeTypes.Input => ["then"],
         NodeTypes.Agent when node.Agent?.Routes is { IsDefaultOrEmpty: false } routes => [.. routes.Select(route => AgentExecutionRouteLimits.PinId(route.Id))],
         NodeTypes.Agent => ["out"],
+        NodeTypes.McpTool => ["then"],
         NodeTypes.BooleanBranch => ["true", "false"],
         NodeTypes.ParallelFork when node.ParallelFork is { } fork => [.. fork.Branches.Select(branch => ParallelBranchLimits.PinId(branch.Id))],
         NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Select(ParallelBranchLimits.PinId)],

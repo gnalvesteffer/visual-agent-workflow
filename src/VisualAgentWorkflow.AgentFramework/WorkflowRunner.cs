@@ -1000,7 +1000,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         ? throw new InvalidOperationException("The workflow parameter was not resolved for this run.") : value,
                     NodeTypes.Uppercase => message.ToUpperInvariant(),
                     NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
-                    NodeTypes.McpTool => await InvokeTool(message, invocation, cancellationToken),
+                    NodeTypes.McpTool => revision.Definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpGraph
+                        ? await InvokeDirectMcpTool(message, invocation, cancellationToken)
+                        : await InvokeTool(message, invocation, cancellationToken),
                     NodeTypes.WorkflowCall => childOutcome?.Output ?? string.Empty,
                     NodeTypes.Agent => agents is null ? throw new InvalidOperationException("No agent executor is configured.") :
                         await agents.ExecuteAsync(new NodeInvocationContext(runId, revision, Id, invocation,
@@ -1040,6 +1042,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         : result;
                     dataEvaluator!.SetRuntimeOutput(Id, "out", structuredResult ? "json" : "string", runtimeValue);
                 }
+                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.McpTool)
+                    dataEvaluator!.SetRuntimeOutput(Id, "out", "string", result);
                 if (routeSelection is not null) agentRouteId = routeSelection.Commit();
                 WorkflowApprovalPermit? permit = null;
                 if (node.Type == NodeTypes.Approval)
@@ -1060,6 +1064,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 }
                 var port = agentRouteId is null ? "out" : AgentExecutionRouteLimits.PinId(agentRouteId);
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Input) port = "then";
+                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.McpTool) port = "then";
                 if (UsesConfigurableParallelGraph && node.Type == NodeTypes.ParallelBranch) port = "then";
                 if (node.Type == NodeTypes.BooleanBranch)
                 {
@@ -1273,6 +1278,28 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             await using var scope = tools.OpenScope(new(runId, revision, Id, invocation,
                 (kind, data) => Emit(kind, Id, invocation, null, data)));
             return await scope.InvokeAsync(node.Tool!.BindingId, input, cancellationToken);
+        }
+
+        private async Task<string> InvokeDirectMcpTool(string input, Guid invocation, CancellationToken cancellationToken)
+        {
+            if (tools is null) throw new InvalidOperationException("No tool broker is configured.");
+            JsonDocument document;
+            try
+            {
+                document = JsonDocument.Parse(input, new JsonDocumentOptions { MaxDepth = 32 });
+            }
+            catch (JsonException exception)
+            {
+                throw new InvalidOperationException("A direct MCP node requires a JSON object of tool arguments. For text tools, use {\"text\":\"...\"}.", exception);
+            }
+            using (document)
+            {
+                if (document.RootElement.ValueKind != JsonValueKind.Object)
+                    throw new InvalidOperationException("A direct MCP node requires a JSON object of tool arguments. For text tools, use {\"text\":\"...\"}.");
+                await using var scope = tools.OpenScope(new(runId, revision, Id, invocation,
+                    (kind, data) => Emit(kind, Id, invocation, null, data)));
+                return await scope.InvokeJsonAsync(node.Tool!.BindingId, document.RootElement.Clone(), cancellationToken);
+            }
         }
 
         private static string NormalizeJson(string input)

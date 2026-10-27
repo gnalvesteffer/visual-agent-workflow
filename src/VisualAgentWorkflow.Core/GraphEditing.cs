@@ -40,6 +40,18 @@ public static class GraphEditing
         return definition with { SchemaVersion = WorkflowSchemaVersions.ExplicitBranchGraph };
     }
 
+    /// <summary>Upgrades a valid linear explicit graph to the direct MCP tool schema.</summary>
+    public static WorkflowDefinition EnableDirectMcpGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.ExplicitGraph || definition.ExecutionConnections is null)
+            throw new ArgumentException("Start with a valid typed graph before enabling direct MCP tool nodes.", nameof(definition));
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var upgraded = definition with { SchemaVersion = WorkflowSchemaVersions.DirectMcpGraph };
+        WorkflowValidator.ThrowIfInvalid(upgraded);
+        return upgraded;
+    }
+
     /// <summary>Upgrades a valid schema 1.24 branch preview to the bounded Boolean primitive subset.</summary>
     public static WorkflowDefinition EnableTypedBooleanGraph(WorkflowDefinition definition)
     {

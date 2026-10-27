@@ -61,8 +61,8 @@ public static class WorkflowValidator
         var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
 
-        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" or "1.25" or "1.26" or "1.27" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph))
-            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.34.");
+        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" or "1.25" or "1.26" or "1.27" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpGraph))
+            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.36.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.DisplayName is { } displayName &&
@@ -527,7 +527,9 @@ public static class WorkflowValidator
 
         if (WorkflowSchemaVersions.UsesExplicitGraph(definition))
         {
-            if (definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph)
+            if (definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpGraph)
+                ValidateDirectMcpGraph(definition, Error);
+            else if (definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph)
                 ValidateExplicitGraph(definition, Error);
             else if (definition.SchemaVersion == WorkflowSchemaVersions.ConfigurableParallelGraph)
             {
@@ -635,6 +637,132 @@ public static class WorkflowValidator
         if (visited.Count != definition.Nodes.Count)
             Error("graph.unreachable", "nodes", "Every node must be reachable from the entry.");
         return issues.ToImmutable();
+    }
+
+    private static void ValidateDirectMcpGraph(WorkflowDefinition definition, Action<string, string, string> error)
+    {
+        if (definition.ExecutionConnections is null)
+        {
+            error("execution.missing", "executionConnections", "Schema 1.36 requires explicit execution connections.");
+            return;
+        }
+
+        var supportedTypes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            NodeTypes.Input, NodeTypes.Output, NodeTypes.StringConstant, NodeTypes.TextConcat, NodeTypes.McpTool
+        };
+        foreach (var (id, node) in definition.Nodes)
+            if (node is null || !supportedTypes.Contains(node.Type))
+                error("execution.node.unsupported", $"nodes.{id}", "Schema 1.36 supports input, output, deterministic text nodes, and direct MCP tool nodes.");
+
+        var input = definition.Nodes.SingleOrDefault(pair => pair.Value?.Type == NodeTypes.Input).Key;
+        var output = definition.Nodes.SingleOrDefault(pair => pair.Value?.Type == NodeTypes.Output).Key;
+        if (definition.Nodes.Count is < 2 or > 256 || definition.Connections.Count + definition.ExecutionConnections.Count > 510)
+            error("graph.limit", "nodes", "An explicit graph requires 2–256 nodes and at most 510 total data and execution connections.");
+        if (string.IsNullOrWhiteSpace(input) || string.IsNullOrWhiteSpace(output) || input != definition.EntryNodeId ||
+            definition.Nodes.Count(node => node.Value?.Type == NodeTypes.Input) != 1 ||
+            definition.Nodes.Count(node => node.Value?.Type == NodeTypes.Output) != 1)
+            error("workflow.terminals", "nodes", "A direct MCP graph requires one configured input entry and one output node.");
+
+        var seen = new HashSet<(string Kind, string Source, string SourcePort, string Target, string TargetPort)>();
+        var dataIncoming = new Dictionary<(string Node, string Port), int>();
+        var dataDependencies = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var (id, edge) in definition.Connections)
+        {
+            var path = $"connections.{id}";
+            if (edge?.Source?.NodeId is not { } source || edge.Target?.NodeId is not { } target ||
+                !definition.Nodes.TryGetValue(source, out var sourceNode) || !definition.Nodes.TryGetValue(target, out var targetNode) ||
+                sourceNode is null || targetNode is null)
+            {
+                error("connection.reference", path, "Both data-edge endpoints must reference existing nodes and ports.");
+                continue;
+            }
+            var sourcePort = WorkflowPorts.ExplicitDataOutputs(sourceNode).FirstOrDefault(port => port.Id == edge.Source.PortId);
+            var targetPort = WorkflowPorts.ExplicitDataInputs(targetNode).FirstOrDefault(port => port.Id == edge.Target.PortId);
+            if (edge.Kind != "data" || sourcePort is null || targetPort is null || sourcePort.DataType != targetPort.DataType)
+                error("connection.port", path, "Data edges must connect compatible typed data ports; they never schedule execution.");
+            if (!seen.Add(("data", source, edge.Source.PortId, target, edge.Target.PortId)))
+                error("connection.duplicate", path, "Duplicate data edge.");
+            dataIncoming[(target, edge.Target.PortId)] = dataIncoming.GetValueOrDefault((target, edge.Target.PortId)) + 1;
+            if (!dataDependencies.TryGetValue(target, out var upstream)) dataDependencies[target] = upstream = [];
+            upstream.Add(source);
+        }
+
+        var executionIncoming = new Dictionary<(string Node, string Port), int>();
+        var executionOutgoing = new Dictionary<(string Node, string Port), int>();
+        var executionAdjacency = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var (id, edge) in definition.ExecutionConnections)
+        {
+            var path = $"executionConnections.{id}";
+            if (edge?.Source?.NodeId is not { } source || edge.Target?.NodeId is not { } target ||
+                !definition.Nodes.TryGetValue(source, out var sourceNode) || !definition.Nodes.TryGetValue(target, out var targetNode) ||
+                sourceNode is null || targetNode is null)
+            {
+                error("execution.reference", path, "Both execution-edge endpoints must reference existing nodes and ports.");
+                continue;
+            }
+            var validPorts = edge.Kind == "execution" && WorkflowPorts.ExplicitExecutionOutputs(sourceNode).Contains(edge.Source.PortId) &&
+                WorkflowPorts.ExplicitExecutionInputs(targetNode).Contains(edge.Target.PortId);
+            var validRoute = sourceNode.Type is NodeTypes.Input or NodeTypes.McpTool && targetNode.Type is NodeTypes.McpTool or NodeTypes.Output;
+            if (!validPorts) error("execution.port", path, "Execution edges must connect declared execution ports and cannot carry data.");
+            if (!validRoute) error("execution.target", path, "Direct MCP execution routes must be a single acyclic input/tool/output path.");
+            if (!seen.Add(("execution", source, edge.Source.PortId, target, edge.Target.PortId)))
+                error("execution.duplicate", path, "Duplicate execution edge.");
+            executionIncoming[(target, edge.Target.PortId)] = executionIncoming.GetValueOrDefault((target, edge.Target.PortId)) + 1;
+            executionOutgoing[(source, edge.Source.PortId)] = executionOutgoing.GetValueOrDefault((source, edge.Source.PortId)) + 1;
+            if (!executionAdjacency.TryGetValue(source, out var downstream)) executionAdjacency[source] = downstream = [];
+            downstream.Add(target);
+        }
+
+        foreach (var (id, node) in definition.Nodes)
+        {
+            if (node is null) continue;
+            foreach (var port in WorkflowPorts.ExplicitDataInputs(node))
+                if (dataIncoming.GetValueOrDefault((id, port.Id)) != 1)
+                    error("data.degree", $"nodes.{id}.inputs.{port.Id}", "Every required data input must have exactly one compatible data edge.");
+            var executionInputs = WorkflowPorts.ExplicitExecutionInputs(node);
+            var executionOutputs = WorkflowPorts.ExplicitExecutionOutputs(node);
+            var incoming = executionInputs.Sum(port => executionIncoming.GetValueOrDefault((id, port)));
+            if (node.Type == NodeTypes.Input && incoming != 0 || node.Type is NodeTypes.McpTool or NodeTypes.Output && incoming != 1)
+                error("graph.degree", $"nodes.{id}", "Input has no execution input; MCP tools and output require one activation.");
+            foreach (var port in executionOutputs)
+                if (executionOutgoing.GetValueOrDefault((id, port)) != 1)
+                    error("graph.degree", $"nodes.{id}.outputs.{port}", "Every execution output pin must connect exactly once, except the output node which has none.");
+            if (node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat &&
+                !definition.Connections.Values.Any(edge => edge.Source.NodeId == id))
+                error("data.unused", $"nodes.{id}", "Every pure data node must contribute to a tool input or output value.");
+        }
+
+        if (definition.ExecutionConnections.Count < 1 || input is null || output is null ||
+            definition.ExecutionConnections.Count != definition.Nodes.Count(node => node.Value?.Type is NodeTypes.Input or NodeTypes.McpTool) ||
+            definition.ExecutionConnections.Values.Any(edge => edge.Source.NodeId == output || edge.Target.NodeId == input))
+            error("execution.path", "executionConnections", "Direct MCP execution must be one input-to-tool-to-output path.");
+
+        var reached = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Stack<string>();
+        if (input is not null) pending.Push(input);
+        while (pending.TryPop(out var current))
+        {
+            if (!reached.Add(current)) continue;
+            foreach (var next in executionAdjacency.GetValueOrDefault(current) ?? []) pending.Push(next);
+        }
+        if (reached.Count != definition.Nodes.Count(node => node.Value?.Type is NodeTypes.Input or NodeTypes.McpTool or NodeTypes.Output))
+            error("graph.unreachable", "executionConnections", "Every executable node must be reachable from the input entry.");
+        if (HasCycle(executionAdjacency, reached))
+            error("graph.cycle", "executionConnections", "Direct MCP execution routes must be acyclic.");
+        if (WorkflowGraph.TopologicalOrder(definition).Length != definition.Nodes.Count)
+            error("data.cycle", "connections", "Pure data dependencies must be acyclic.");
+
+        var reachedData = new HashSet<string>(StringComparer.Ordinal);
+        if (output is not null) pending = new Stack<string>([output]);
+        while (pending.TryPop(out var current))
+        {
+            if (!reachedData.Add(current)) continue;
+            foreach (var dependency in dataDependencies.GetValueOrDefault(current) ?? []) pending.Push(dependency);
+        }
+        foreach (var (id, node) in definition.Nodes)
+            if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat && !reachedData.Contains(id))
+                error("graph.unreachable", $"nodes.{id}", "Every pure data node must contribute to a tool input or output value.");
     }
 
     private static void ValidateExplicitGraph(WorkflowDefinition definition, Action<string, string, string> error)

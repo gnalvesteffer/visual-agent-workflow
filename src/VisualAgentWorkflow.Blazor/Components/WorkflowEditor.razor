@@ -34,6 +34,14 @@
                 <button type="button" @onclick="EnableBranchPreview" disabled="@Disabled">Enable Boolean Branch preview</button>
             </section>
         }
+        @if (CanUpgradeDirectMcpGraph)
+        {
+            <section class="vaw-library-note" aria-label="Direct MCP tools">
+                <strong>Direct MCP tools</strong>
+                <p class="vaw-help">Upgrade this linear typed graph to add deterministic MCP tool nodes. Each tool receives a JSON object and runs through the host’s normal node grant and contract checks.</p>
+                <button type="button" @onclick="EnableDirectMcpPreview" disabled="@Disabled">Enable direct MCP tools</button>
+            </section>
+        }
         @if (CanUpgradeTypedBooleanGraph)
         {
             <section class="vaw-library-note" aria-label="Typed Boolean primitives">
@@ -601,7 +609,7 @@
                     }
                     </details>
                     }
-                    @if (!ReadOnly && node.Type == NodeTypes.McpTool)
+                    @if (!ReadOnly && node.Type == NodeTypes.McpTool && Definition.SchemaVersion != WorkflowSchemaVersions.DirectMcpGraph)
                     {
                         @if (!GuardedTool(id))
                         { <button type="button" @onclick="() => Edit(() => GraphEditing.InsertApprovalBefore(Definition, id))" disabled="@(Disabled || Definition.Nodes.Count >= 256)" aria-label="Require approval before @id">Require approval before tool</button> }
@@ -614,6 +622,8 @@
                     { <p class="vaw-node-origin">Copied from @origin.WorkflowId · version @origin.Version. Local edits are independent.</p> }
                     @if (node.Tool is { } tool)
                     { <p>MCP binding: @tool.BindingId · pinned contract @tool.ContractHash[..8]</p> }
+                    @if (node.Type == NodeTypes.McpTool && Definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpGraph)
+                    { <p class="vaw-help">This direct call receives a JSON object. For a text tool, pass <code>{"text":"..."}</code> through the input data pin.</p> }
                     @if (node.Agent is { } agent)
                     {
                         <p>Model connection: @agent.ProviderId</p>
