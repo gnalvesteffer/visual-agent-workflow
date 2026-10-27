@@ -198,6 +198,20 @@
 .vaw-agent-metrics label { display: grid; gap: 0.15rem; }
 .vaw-agent-metrics progress { inline-size: 100%; block-size: 0.3rem; accent-color: var(--vaw-accent); }
 .vaw-agent-metrics small { color: var(--vaw-text); font-family: var(--vaw-mono); }
+.vaw-node-events-button { display: inline-flex; align-items: center; gap: .3rem; inline-size: auto; min-block-size: 1.8rem; margin-block-start: .45rem; padding: .25rem .5rem; border: 1px solid var(--vaw-border); border-radius: var(--vaw-control-radius); color: var(--vaw-muted); background: transparent; font-size: .7rem; }
+.vaw-node-events-button:hover, .vaw-node-events-button:focus-visible { color: var(--vaw-text); background: var(--vaw-control); }
+.vaw-node-events-button span { color: var(--vaw-accent); font-size: .9rem; }
+.vaw-node-events-dialog { inline-size: min(60rem, calc(100vw - 2rem)); max-inline-size: calc(100vw - 2rem); max-block-size: min(80dvh, 48rem); margin: auto; padding: 0; border: 1px solid var(--vaw-border-strong); border-radius: var(--vaw-panel-radius); color: var(--vaw-text); background: var(--vaw-surface); box-shadow: 0 1.5rem 4rem rgb(0 0 0 / .35); }
+.vaw-node-events-dialog::backdrop { background: rgb(0 0 0 / .62); }
+.vaw-node-events-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem .75rem; border-block-end: 1px solid var(--vaw-border); }
+.vaw-node-events-dialog h2 { margin: .15rem 0 .25rem; }
+.vaw-node-events-dialog .vaw-help { margin: 0; }
+.vaw-node-events-close { min-block-size: 2rem; inline-size: 2rem; padding: 0; border: 1px solid var(--vaw-border); border-radius: 50%; color: var(--vaw-muted); background: transparent; font-size: 1.25rem; line-height: 1; }
+.vaw-node-events-close:hover, .vaw-node-events-close:focus-visible { color: var(--vaw-text); background: var(--vaw-control); }
+.vaw-node-events-dialog > .vaw-panel-empty { margin: 1.25rem; }
+.vaw-node-events-table { max-block-size: min(62dvh, 36rem); margin: 0 1.25rem 1.25rem; overflow: auto; }
+.vaw-node-events-dialog table { min-inline-size: 48rem; }
+.vaw-node-events-dialog td pre { max-block-size: 10rem; overflow: auto; }
 :where(.vaw-viewer, .vaw-designer, .vaw-workflow-editor) pre { font-family: var(--vaw-mono); font-size: 0.875rem; white-space: pre-wrap; overflow-wrap: anywhere; background-color: var(--vaw-canvas); padding: var(--vaw-space-3); }
 .vaw-table-scroll { max-inline-size: 100%; overflow-x: auto; }
 .vaw-viewer table { inline-size: 100%; table-layout: fixed; border-collapse: collapse; text-align: start; }

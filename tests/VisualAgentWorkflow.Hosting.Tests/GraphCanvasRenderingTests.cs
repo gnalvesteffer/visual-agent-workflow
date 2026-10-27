@@ -169,6 +169,33 @@ public sealed class GraphCanvasRenderingTests
     }
 
     [Fact]
+    public async Task RunViewerAddsNodeEventActionToEachRecordedNode()
+    {
+        var definition = WorkflowTemplates.Create("uppercase");
+        var revision = WorkflowRevision.Create(definition, "test");
+        var runId = Guid.NewGuid();
+        var invocationId = Guid.NewGuid();
+        var events = ImmutableArray.Create(
+            new ExecutionEvent(runId, revision.RevisionId, 1, DateTimeOffset.UtcNow, ExecutionEventKinds.NodeStarted, definition.EntryNodeId, invocationId, Data: "input"),
+            new ExecutionEvent(runId, revision.RevisionId, 2, DateTimeOffset.UtcNow, ExecutionEventKinds.NodeCompleted, definition.EntryNodeId, invocationId, Data: "output"));
+        var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
+            revision.ContentHash, definition, "question"), events);
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<WorkflowRunViewer>(ParameterView.FromDictionary(
+                new Dictionary<string, object?> { [nameof(WorkflowRunViewer.Snapshot)] = snapshot }));
+            return component.ToHtmlString();
+        });
+
+        Assert.Contains($"View events for {definition.EntryNodeId}", html);
+        Assert.Contains("vaw-node-events-button", html);
+        Assert.DoesNotContain("vaw-node-events-dialog", html);
+    }
+
+    [Fact]
     public async Task AgentNodeDoesNotRenderMissingProviderUsageAsZeroes()
     {
         var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.2" };

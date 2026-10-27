@@ -225,6 +225,22 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             assert pane_layout["canvas"] and pane_layout["inspector"] and pane_layout["resizer"], "Run inspector should render all graph panes"
             assert pane_layout["inspector"]["top"] == pane_layout["canvas"]["top"], f"Run inspector details should stay beside the graph: {pane_layout}"
             assert pane_layout["inspector"]["left"] > pane_layout["canvas"]["right"], f"Run inspector details should not fall below the graph: {pane_layout}"
+            run_resizer = page.locator(".vaw-viewer [data-pane-resizer=\"inspector\"]")
+            before_width = int(run_resizer.get_attribute("aria-valuenow"))
+            run_resizer.focus()
+            page.keyboard.press("ArrowRight")
+            expect(run_resizer).to_have_attribute("aria-valuenow", str(before_width + 16))
+            page.keyboard.press("ArrowLeft")
+            expect(run_resizer).to_have_attribute("aria-valuenow", str(before_width))
+            node_events_button = page.locator(".vaw-viewer .vaw-node-events-button").first
+            expect(node_events_button).to_be_visible()
+            node_events_button.click()
+            node_events_dialog = page.locator(".vaw-node-events-dialog")
+            expect(node_events_dialog).to_be_visible()
+            expect(node_events_dialog).to_contain_text("Recorded playback")
+            expect(node_events_dialog.locator("tbody tr")).to_have_count(2)
+            node_events_dialog.get_by_role("button", name="Close node events", exact=True).click()
+            expect(node_events_dialog).not_to_be_visible()
             run_graph_nodes = page.locator(".vaw-viewer .vaw-canvas-world [data-node-id]")
             expect(run_graph_nodes).to_have_count(2)
             page.wait_for_function("""() => {

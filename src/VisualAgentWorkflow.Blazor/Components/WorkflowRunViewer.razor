@@ -1,5 +1,7 @@
 @using System.Text.Json
 @using System.Collections.Immutable
+@using Microsoft.JSInterop
+@inject IServiceProvider Services
 <section class="vaw-viewer" aria-label="Workflow run viewer">
     @if (Snapshot is null)
     {
@@ -36,6 +38,9 @@
                 @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); var evaluation = DataEvaluation(nodeId); var pendingNode = PendingRootNodeId; var label = pendingNode == nodeId ? PendingApproval?.Action.ScopeId is null ? "Awaiting approval" : "Child awaiting approval" : PausedBefore(nodeId) && state is null ? "Paused before execution" : node.Type == NodeTypes.Terminate && state?.Kind == ExecutionEventKinds.NodeCompleted ? "Terminated successfully" : evaluation is not null ? "Evaluated" : StateLabel(state); var activity = ActiveActivity(nodeId); }
                 <button type="button" class="vaw-node-button" aria-label="@($"{nodeId} {node.Type} {label}")" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId ? "true" : "false")">
                     <span>@label</span>
+                </button>
+                <button type="button" class="vaw-node-events-button" aria-label="View events for @nodeId" @onclick:stopPropagation="true" @onclick="() => OpenNodeEvents(nodeId)">
+                    <span aria-hidden="true">↗</span> View events
                 </button>
                 @if (activity is not null) { <p class="vaw-node-activity" role="status">@activity</p> }
                 @if (node.Type == NodeTypes.Agent && AgentMetrics(nodeId) is { } metrics)
@@ -137,6 +142,46 @@
                 </table>
             </div>
         </details>
+        @if (eventNodeId is { } modalNodeId && Snapshot.Header.Definition.Nodes.ContainsKey(modalNodeId))
+        {
+            var nodeEvents = EventsForNode(modalNodeId).ToArray();
+            var modalLabel = string.IsNullOrWhiteSpace(Presentation.Nodes[modalNodeId].Label)
+                ? WorkflowGraphCanvas.FriendlyName(Snapshot.Header.Definition.Nodes[modalNodeId])
+                : Presentation.Nodes[modalNodeId].Label;
+            <dialog @ref="eventDialog" class="vaw-node-events-dialog" aria-labelledby="node-events-title" @onclose="EventDialogClosed">
+                <header>
+                    <div>
+                        <span class="vaw-eyebrow">Recorded playback</span>
+                        <h2 id="node-events-title">@modalLabel events</h2>
+                        <p class="vaw-help">@nodeEvents.Length event@(nodeEvents.Length == 1 ? "" : "s") recorded at position @Position.</p>
+                    </div>
+                    <button type="button" class="vaw-node-events-close" aria-label="Close node events" @onclick="CloseNodeEvents">×</button>
+                </header>
+                @if (nodeEvents.Length == 0)
+                {
+                    <p class="vaw-panel-empty">No events for this node at the recorded position.</p>
+                }
+                else
+                {
+                    <div class="vaw-table-scroll vaw-node-events-table">
+                        <table>
+                            <caption>Events for @modalLabel</caption>
+                            <colgroup><col class="vaw-event-sequence-column" /><col class="vaw-event-time-column" /><col class="vaw-event-kind-column" /><col class="vaw-event-node-column" /><col /></colgroup>
+                            <thead><tr><th>Sequence</th><th>Time (local)</th><th>Event</th><th>Scope</th><th>Data</th></tr></thead>
+                            <tbody>
+                                @foreach (var evt in nodeEvents)
+                                {
+                                    var localTimestamp = evt.Timestamp.ToLocalTime();
+                                    var preciseTimestamp = evt.Timestamp.ToString("O");
+                                    var accessibleTimestamp = localTimestamp.ToString("yyyy-MM-dd HH:mm:ss.fff zzz");
+                                    <tr @key="evt.Sequence"><td>@evt.Sequence</td><td><time datetime="@preciseTimestamp" aria-label="@accessibleTimestamp">@localTimestamp.ToString("HH:mm:ss.fff")</time></td><td>@evt.Kind</td><td>@(evt.ScopeId ?? "root")</td><td><pre>@evt.Data</pre></td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </dialog>
+        }
     }
 </section>
 
@@ -526,10 +571,16 @@
     private bool follow = true;
     private int cursor;
     private string? selectedNode;
+    private ElementReference eventDialog;
+    private string? eventNodeId;
+    private bool eventDialogShown;
     private string VisibleStatus => Snapshot is null ? "queued" : follow ? Snapshot.Status :
         (Snapshot with { Events = Snapshot.Events.Take(Position).ToImmutableArray() }).Status;
     private int Position => Snapshot is null ? 0 : follow ? Snapshot.Events.Length : Math.Clamp(cursor, 0, Snapshot.Events.Length);
     private IEnumerable<ExecutionEvent> VisibleEvents => Snapshot?.Events.Take(Position) ?? [];
+
+    private IEnumerable<ExecutionEvent> EventsForNode(string nodeId) => VisibleEvents.Where(evt =>
+        evt.NodeId == nodeId || evt.ScopeId == nodeId || evt.ScopeId?.StartsWith(nodeId + "/", StringComparison.Ordinal) == true);
 
     protected override void OnParametersSet()
     {
@@ -542,6 +593,53 @@
     }
 
     private Task SelectNode(string id) { selectedNode = id; return Task.CompletedTask; }
+    private Task OpenNodeEvents(string nodeId)
+    {
+        eventNodeId = nodeId;
+        eventDialogShown = false;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task CloseNodeEvents()
+    {
+        if (eventDialogShown)
+        {
+            if (Services.GetService(typeof(IJSRuntime)) is IJSRuntime javaScript)
+            {
+                try
+                {
+                    await using var module = await javaScript.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/tabInteractions.js");
+                    await module.InvokeVoidAsync("closeModalDialog", eventDialog);
+                }
+                catch (JSDisconnectedException) { }
+            }
+        }
+        eventNodeId = null;
+        eventDialogShown = false;
+    }
+
+    private void EventDialogClosed()
+    {
+        eventNodeId = null;
+        eventDialogShown = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (eventNodeId is not null && !eventDialogShown)
+        {
+            if (Services.GetService(typeof(IJSRuntime)) is IJSRuntime javaScript)
+            {
+                try
+                {
+                    await using var module = await javaScript.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/tabInteractions.js");
+                    await module.InvokeVoidAsync("showModalDialog", eventDialog);
+                    eventDialogShown = true;
+                }
+                catch (JSDisconnectedException) { }
+            }
+        }
+    }
     private void Previous() { cursor = Math.Max(0, Position - 1); follow = false; }
     private static string StateLabel(ExecutionEvent? state) => state?.Kind switch
     {
