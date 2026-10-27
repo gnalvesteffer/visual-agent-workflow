@@ -34,6 +34,27 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             workflow_name_control = page.get_by_label("Workflow name", exact=True)
             assert 30 <= workflow_name_control.evaluate("e => Math.round(e.getBoundingClientRect().height)") <= 40
             page.get_by_role("button", name="Workflow settings", exact=True).click()
+            navigation_status = page.locator(".vaw-navigation-status")
+            expect(navigation_status).to_have_count(1)
+            expect(navigation_status).to_be_hidden()
+            # Hold one destination after the real capture-phase loading handler runs.
+            # This tests slow-navigation feedback without a sleep or a live slow service.
+            page.evaluate("""() => {
+                document.addEventListener('click', function holdNavigation(event) {
+                    if (!event.target.closest('a[aria-label="Agents"]')) return;
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                    document.removeEventListener('click', holdNavigation, true);
+                }, true);
+            }""")
+            page.get_by_role("link", name="Agents", exact=True).click()
+            expect(navigation_status).to_be_visible()
+            expect(navigation_status).to_have_attribute("role", "status")
+            page.get_by_role("link", name="Models", exact=True).click()
+            expect(page.get_by_role("heading", name="Model connections", exact=True)).to_be_visible()
+            expect(navigation_status).to_be_hidden()
+            page.get_by_role("link", name="Explorer", exact=True).click()
+            expect(page.locator(".vaw-document-header")).to_be_visible()
             assert page.locator(".vaw-explorer-manifest svg").count() == 1, "Project metadata should use a non-wrapping file icon."
             expect(page.locator(".vaw-canvas-world [data-node-id]")).to_have_count(2)
             page.wait_for_function("document.querySelector('.vaw-graph-editor')?.dataset.ready === 'true'")

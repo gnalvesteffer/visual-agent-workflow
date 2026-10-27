@@ -104,6 +104,7 @@ jobs:
         run: python3 scripts/service_smoke.py
       - name: Exercise deterministic checkpoint recovery across processes
         run: python3 scripts/checkpoint_smoke.py
+      - run: python3 -m unittest discover -s scripts/tests -p test_owned_server.py -v
       - run: python3 -m pip install -r scripts/requirements-browser.txt
       - run: python3 -m playwright install --with-deps chromium
       - name: Exercise configured provider with a local protocol fixture
@@ -117,7 +118,7 @@ jobs:
       - name: Verify workflow IDE documents
         shell: bash
         run: |
-          python3 .agents/skills/webapp-testing/scripts/with_server.py \
+          python3 scripts/with_owned_server.py \
             --server "env ASPNETCORE_ENVIRONMENT=Development WorkflowStudio__Port=5103 WorkflowStudio__DataDirectory=/tmp/vaw-ide-documents dotnet run --project src/VisualAgentWorkflow.Studio --configuration Release --no-build" \
             --port 5103 --timeout 60 -- bash -c \
             'python3 scripts/ide_shell_smoke.py --base-url http://127.0.0.1:5103 && python3 scripts/folder_workflow_ide_smoke.py --base-url http://127.0.0.1:5103'
