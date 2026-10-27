@@ -23,6 +23,24 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             assert response and response.status == 200
             expect(page.locator(".vaw-app-shell")).to_be_visible()
             expect(page.locator(".vaw-ide-titlebar")).to_be_visible()
+            page.evaluate("""() => {
+                const host = document.createElement('div');
+                host.id = 'components-reconnect-modal';
+                const shadow = host.attachShadow({ mode: 'open' });
+                const dialog = document.createElement('div');
+                dialog.className = 'components-reconnect-dialog';
+                shadow.appendChild(dialog);
+                document.body.appendChild(host);
+            }""")
+            page.wait_for_function("document.querySelector('#components-reconnect-modal')?.shadowRoot?.querySelector('style[data-vaw-reconnect]') !== null")
+            reconnect_layout = page.evaluate("""() => {
+                const dialog = document.querySelector('#components-reconnect-modal').shadowRoot.querySelector('.components-reconnect-dialog');
+                dialog.classList.add('components-reconnect-visible');
+                const style = getComputedStyle(dialog);
+                return { position: style.position, background: style.backgroundColor, width: style.width };
+            }""")
+            assert reconnect_layout['position'] == 'relative', f"Studio should replace the blocking reconnect dialog layout: {reconnect_layout}"
+            assert reconnect_layout['background'] not in ('rgb(255, 255, 255)', 'white'), f"Reconnect dialog should use Studio theme colors: {reconnect_layout}"
             expect(page.locator(".vaw-ide-titlebar").get_by_role("link", name="Projects", exact=True)).to_have_count(0)
             expect(page.locator(".vaw-ide-activitybar")).to_be_visible()
             expect(page.locator(".vaw-global-explorer")).to_be_visible()
