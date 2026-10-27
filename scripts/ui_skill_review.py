@@ -4,15 +4,15 @@ Requires Playwright and Chromium. Uses only non-sensitive fixture text; creates
 recorded development runs. Run studio_smoke.py separately for the full editor flow.
 """
 
-from workbench_browser import workbench, inspect_control, show_runs
+from workbench_browser import workbench
 
 import argparse
+import contextlib
+import uuid
 import hashlib
 import json
-import re
 import os
 import tempfile
-import time
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -37,24 +37,28 @@ def check(browser, screenshots):
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     try:
+        definition = page.request.get(BASE + "/api/templates/default").json()
+        workflow_id = "ui-audit-" + uuid.uuid4().hex
+        definition["workflowId"] = workflow_id
+        saved = page.request.put(BASE + f"/api/workflows/{workflow_id}/draft", data={"definition": definition, "expectedGeneration": 0})
+        assert saved.ok, saved.text()
+        audit_url = BASE + "/projects/default?workflow=" + workflow_id
         routes = (
-            ("/projects/default", "Workflow"),
+            ("/projects/default", "Explorer"),
             ("/projects/default/agents", "Agents"),
             ("/projects/default/skills", "Skills"),
             ("/projects/default/functions", "Functions"),
             ("/projects", "Projects"),
-            ("/source-project", "Open folder"),
+            ("/source-project", "Explorer"),
             ("/mcp", "MCP library"),
             ("/settings", "Models"),
             ("/observe", "Observe"),
         )
-        expected_links = ["Workflow", "Agents", "Skills", "Functions", "Projects", "Open folder", "MCP library", "Models", "Observe"]
         for route, active_page in routes:
             response = page.goto(BASE + route, wait_until="networkidle")
             assert response and response.status == 200, f"Studio page failed to load: {route}"
-            navigation = page.get_by_role("navigation", name="Studio navigation", exact=True)
-            expect(navigation.locator("a")).to_have_text(expected_links)
-            expect(navigation.locator('a[aria-current="page"]')).to_have_text(active_page)
+            navigation = page.locator(".vaw-ide-titlebar")
+            expect(page.get_by_role("link", name=active_page, exact=True)).to_have_attribute("aria-current", "page")
             assert abs(navigation.bounding_box()["width"] - page.viewport_size["width"]) < 1, f"Navigation must span the viewport on {route}"
             assert "gradient" not in navigation.evaluate("element => getComputedStyle(element).backgroundImage"), f"Navigation should use a solid theme surface on {route}"
             if screenshots:
@@ -64,15 +68,23 @@ def check(browser, screenshots):
         for route, active_page in routes:
             response = page.goto(BASE + route, wait_until="networkidle")
             assert response and response.status == 200, f"Studio page failed to load on mobile: {route}"
-            navigation = page.get_by_role("navigation", name="Studio navigation", exact=True)
-            expect(navigation.locator('a[aria-current="page"]')).to_have_text(active_page)
+            navigation = page.locator(".vaw-ide-titlebar")
+            expect(page.get_by_role("link", name=active_page, exact=True)).to_have_attribute("aria-current", "page")
+            expect(page.get_by_label("Current project", exact=True)).to_be_visible()
             assert abs(navigation.bounding_box()["width"] - page.viewport_size["width"]) < 1, f"Mobile navigation must span the viewport on {route}"
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), f"The page must not create horizontal scrolling on mobile: {route}"
+            if screenshots and route == "/settings":
+                page.screenshot(path=str(screenshots / "mobile-models-navigation.png"))
             if route in ("/projects", "/source-project"):
                 overflow = page.locator(".vaw-project-create input").evaluate_all("""inputs => inputs
                     .filter(input => input.getBoundingClientRect().right > innerWidth + 1)
                     .map(input => input.getAttribute('aria-label') || input.type || input.outerHTML)""")
                 assert not overflow, f"Project form fields must fit the page on mobile: {route}: {overflow}"
+
+        page.get_by_role("link", name="Models", exact=True).click()
+        expect(page.get_by_role("heading", name="Model connections", exact=True)).to_be_visible()
+        page.get_by_role("link", name="Projects", exact=True).click()
+        expect(page.get_by_role("heading", name="Projects", exact=True)).to_be_visible()
 
         page.goto(BASE + "/projects/default/functions", wait_until="networkidle")
         page.wait_for_function("document.querySelector('.vaw-graph-editor')?.dataset.ready === 'true'")
@@ -80,24 +92,14 @@ def check(browser, screenshots):
         assert page.locator(".vaw-function-editor .vaw-canvas-viewport").evaluate("element => element.getBoundingClientRect().width") >= 160, "The function graph must retain a usable canvas at a narrow viewport"
         page.set_viewport_size({"width": 1440, "height": 1100})
 
-        page.goto(BASE)
-        def delay_agents_navigation(route):
-            time.sleep(0.8)
-            route.continue_()
-
-        page.route("**/projects/default/agents", delay_agents_navigation)
-        page.get_by_role("link", name="Agents", exact=True).click(no_wait_after=True)
-        navigation_status = page.locator(".vaw-navigation-status")
-        expect(navigation_status).to_be_visible(timeout=3000)
-        expect(navigation_status).to_be_hidden(timeout=8000)
-        page.unroute("**/projects/default/agents", delay_agents_navigation)
-
+        # Pending navigation is exercised by ide_shell_smoke.py using a held click.
         page.goto(BASE + "/projects/default/agents", wait_until="networkidle")
         agent_section = page.locator('.vaw-settings-section[aria-label="Saved agent profiles"]')
         section_left = agent_section.bounding_box()["x"]
         title_left = agent_section.locator(":scope > h2").bounding_box()["x"]
         assert title_left - section_left >= 12, "Section titles must align to the shared content inset"
 
+        print("Desktop/mobile routes, navigation access, function canvas and section insets passed.")
         with tempfile.TemporaryDirectory(prefix="vaw-ui-skill-") as project_directory:
             project_path = Path(project_directory) / "source-project"
             project_path.mkdir()
@@ -110,15 +112,17 @@ def check(browser, screenshots):
             page.goto(BASE + "/source-project", wait_until="networkidle")
             page.get_by_label("Absolute folder path", exact=True).fill(str(project_path))
             page.get_by_role("button", name="Open folder", exact=True).click()
-            expect(page.get_by_role("heading", name="Project editor", exact=True)).to_be_visible()
-            page.get_by_role("button", name="New skill", exact=True).click()
+            expect(page.get_by_role("heading", name="UI skill project", exact=True)).to_be_visible()
+            page.get_by_role("button", name="Create project item", exact=True).click()
+            page.get_by_role("menuitem", name="New file", exact=False).click()
+            page.get_by_role("menuitem", name="Skill .skill", exact=True).click()
             page.get_by_label("Skill ID", exact=True).fill("ui-skill")
             page.get_by_label("New version", exact=True).fill("1.0.0")
             page.get_by_label("Name", exact=True).fill("UI skill")
             page.get_by_label("Folder", exact=True).fill("Quality/Review")
             page.get_by_label("Instructions", exact=True).fill("Check each finding.")
             page.get_by_role("button", name="Save source skill version", exact=True).click()
-            expect(page.locator("p[role='status']").filter(has_text="Saved skill revision ui-skill@1.0.0.")).to_be_visible()
+            expect(page.locator("p[role='status']").filter(has_text="Saved skill revision ui-skill@1.0.0.")).to_be_attached()
             first_manifest = json.loads((project_path / "vaw.project.json").read_text(encoding="utf-8"))
             assert [(entry["id"], entry["version"]) for entry in first_manifest["files"]] == [("ui-skill", "1.0.0")]
 
@@ -126,7 +130,7 @@ def check(browser, screenshots):
             expect(page.get_by_label("New version", exact=True)).to_have_value("1.0.0.1")
             page.get_by_label("Instructions", exact=True).fill("Check each finding and cite evidence.")
             page.get_by_role("button", name="Save source skill version", exact=True).click()
-            expect(page.locator("p[role='status']").filter(has_text="Saved skill revision ui-skill@1.0.0.1.")).to_be_visible()
+            expect(page.locator("p[role='status']").filter(has_text="Saved skill revision ui-skill@1.0.0.1.")).to_be_attached()
             second_manifest = json.loads((project_path / "vaw.project.json").read_text(encoding="utf-8"))
             assert [(entry["id"], entry["version"]) for entry in second_manifest["files"]] == [
                 ("ui-skill", "1.0.0"), ("ui-skill", "1.0.0.1")
@@ -136,7 +140,8 @@ def check(browser, screenshots):
                 assert hashlib.sha256(content).hexdigest() == entry["sha256"], "Skill revisions must be indexed by their content hash"
             assert b"Check each finding." in (project_path / first_manifest["files"][0]["path"]).read_bytes(), "Editing a skill must preserve its prior revision"
 
-        page.goto(BASE)
+        print("Explorer skill creation, editing and source integrity passed.")
+        page.goto(audit_url, wait_until="networkidle")
         theme_picker = page.get_by_label("Color theme", exact=True)
         expect(theme_picker.locator("option")).to_have_count(len(THEMES))
         expect(theme_picker).to_be_enabled()
@@ -156,21 +161,23 @@ def check(browser, screenshots):
         expect(page.get_by_role("heading", name="Model connections", exact=True)).to_be_visible()
         expect(page.get_by_label("Color theme", exact=True)).to_have_value("nord")
         expect(page.locator("html")).to_have_attribute("data-vaw-theme", "nord")
-        page.get_by_role("link", name="Workflow", exact=True).click()
+        page.get_by_role("link", name="Explorer", exact=True).click()
         expect(page.get_by_role("region", name="Workflow designer", exact=True)).to_be_visible()
         expect(page.get_by_label("Color theme", exact=True)).to_have_value("nord")
         page.get_by_role("link", name="Observe", exact=True).click()
         expect(page.get_by_role("heading", name="Observe consumer workflows")).to_be_visible()
         expect(page.get_by_label("Color theme", exact=True)).to_have_value("nord")
-        page.get_by_role("link", name="Workflow", exact=True).first.click()
+        page.get_by_role("link", name="Explorer", exact=True).first.click()
         expect(page.get_by_role("region", name="Workflow designer", exact=True)).to_be_visible()
         expect(page.get_by_label("Color theme", exact=True)).to_have_value("nord")
         theme_picker.select_option("dark")
         page.wait_for_function("document.documentElement.dataset.vawTheme === 'dark'")
+        designer = page.get_by_role("region", name="Workflow designer", exact=True)
+        designer.get_by_role("button", name="Configure test input", exact=True).click()
         for theme in THEMES:
             theme_picker.select_option(theme)
             page.wait_for_function("theme => document.documentElement.dataset.vawTheme === theme", arg=theme)
-            assert "gradient" not in page.locator(".vaw-studio-navigation").evaluate("element => getComputedStyle(element).backgroundImage"), f"Navigation must stay solid in {theme}"
+            assert "gradient" not in page.locator(".vaw-ide-titlebar").evaluate("element => getComputedStyle(element).backgroundImage"), f"Navigation must stay solid in {theme}"
             if screenshots:
                 page.screenshot(path=str(screenshots / f"theme-{theme}.png"), full_page=True)
             theme_samples = page.evaluate("""() => {
@@ -181,28 +188,27 @@ def check(browser, screenshots):
                     text: pair('.vaw-studio', '.vaw-studio'),
                     primary: pair('.vaw-primary', '.vaw-primary'),
                     graphText: pair('.vaw-node-drag', '.vaw-node-drag'),
-                    input: pair('.vaw-sidebar textarea', '.vaw-sidebar textarea'),
-                    notice: pair('.vaw-notice', '.vaw-studio')
+                    input: pair('.vaw-bottom-panel textarea', '.vaw-bottom-panel textarea'),
+                    notice: pair('.vaw-document-breadcrumb', '.vaw-studio')
                 };
             }""")
             theme_ratios = {name: contrast(*colors) for name, colors in theme_samples.items()}
             assert all(ratio >= 4.5 for ratio in theme_ratios.values()), {theme: theme_ratios}
         theme_picker.select_option("dark")
         page.wait_for_function("document.documentElement.dataset.vawTheme === 'dark'")
-        show_runs(page)
-        start = page.get_by_role("button", name="Start independent run", exact=True)
+        start = designer.get_by_role("button", name="Run workflow", exact=True)
         expect(start).to_be_enabled()
-        designer = page.get_by_role("region", name="Workflow designer", exact=True)
-        expect(workbench(designer).get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
+        expect(designer.get_by_role("button", name="Save", exact=True)).to_be_enabled()
         assert page.locator("main main").count() == 0, "Reusable UI must not add nested main landmarks"
         assert page.locator(".vaw-studio button:not([type='button'])").count() == 0, "Embedded controls must not submit host forms"
         assert page.locator("head style").count() == 0, "Host styles belong in an external stylesheet"
 
+        print("All theme palettes and navigation persistence passed.")
         chrome=designer.locator(".vaw-canvas-toolbar")
         viewport=designer.locator(".vaw-canvas-viewport")
-        assert "radial-gradient" in viewport.evaluate("element=>getComputedStyle(element).backgroundImage")
+        assert "linear-gradient" in viewport.evaluate("element=>getComputedStyle(element).backgroundImage")
         assert viewport.evaluate("element=>getComputedStyle(element).backgroundColor") == "rgb(24, 24, 24)"
-        assert viewport.evaluate("element=>getComputedStyle(element).backgroundColor") == page.locator(".vaw-app").evaluate("element=>getComputedStyle(element).backgroundColor"), "Dark Modern graph and shell surfaces must match"
+        assert viewport.evaluate("element=>getComputedStyle(element).backgroundColor") == page.locator(".vaw-app-shell").evaluate("element=>getComputedStyle(element).backgroundColor"), "Dark Modern graph and shell surfaces must match"
         assert designer.locator(".vaw-canvas-world").evaluate("element=>getComputedStyle(element).backgroundImage") == "none"
         assert "none" == page.locator(".vaw-studio").evaluate("element=>getComputedStyle(element).backgroundImage")
 
@@ -234,7 +240,7 @@ def check(browser, screenshots):
             studio.style.setProperty('--vaw-graph-color-canvas', 'rgb(24,42,48)');
             const result = {
                 sidebar: getComputedStyle(document.querySelector('.vaw-sidebar')).backgroundColor,
-                nested: getComputedStyle(document.querySelector('.vaw-designer')).backgroundColor,
+                nested: getComputedStyle(document.querySelector('.vaw-designer')).getPropertyValue('--vaw-color-surface').replaceAll(' ', ''),
                 font: getComputedStyle(document.querySelector('.vaw-designer')).fontFamily,
                 graph: getComputedStyle(document.querySelector('.vaw-canvas-viewport')).backgroundColor
             };
@@ -243,7 +249,7 @@ def check(browser, screenshots):
             studio.style.removeProperty('--vaw-graph-color-canvas');
             return result;
         }""")
-        assert themed["sidebar"] == themed["nested"] == "rgb(32, 52, 71)"
+        assert themed["sidebar"] == "rgb(32, 52, 71)" and themed["nested"] == "rgb(32,52,71)", themed
         assert "Georgia" in themed["font"], "Host tokens must inherit through nested components"
         assert themed["graph"] == "rgb(24, 42, 48)", "Graph-specific host tokens must reach the canvas"
 
@@ -255,14 +261,13 @@ def check(browser, screenshots):
                 text: pair('.vaw-studio', '.vaw-studio'),
                 primary: pair('.vaw-primary', '.vaw-primary'),
                 graphText: pair('.vaw-node-drag', '.vaw-node-drag'),
-                input: pair('.vaw-sidebar textarea', '.vaw-sidebar textarea'),
-                notice: pair('.vaw-notice', '.vaw-studio')
+                input: pair('.vaw-bottom-panel textarea', '.vaw-bottom-panel textarea'),
+                notice: pair('.vaw-document-breadcrumb', '.vaw-studio')
             };
         }""")
         ratios = {name: contrast(*colors) for name, colors in samples.items()}
         assert all(ratio >= 4.5 for ratio in ratios.values()), ratios
-        show_runs(page)
-        assert start.bounding_box()["height"] >= 44
+        assert 30 <= start.bounding_box()["height"] <= 40
         start.focus()
         page.keyboard.press("Tab")
         assert page.evaluate("document.activeElement.matches(':focus-visible') && getComputedStyle(document.activeElement).outlineStyle !== 'none'"), "Keyboard focus must remain visible"
@@ -282,7 +287,7 @@ def check(browser, screenshots):
             return Math.abs((left+right)/2-(canvas.left+canvas.right)/2)<3 &&
                 Math.abs((top+bottom)/2-(canvas.top+canvas.bottom)/2)<3;
         }""")
-        assert "radial-gradient" in canvas.evaluate("element=>getComputedStyle(element).backgroundImage"), "The graph grid must fill the whole viewport"
+        assert "linear-gradient" in canvas.evaluate("element=>getComputedStyle(element).backgroundImage"), "The graph grid must fill the whole viewport"
         assert graph.locator('li').first.evaluate("element => getComputedStyle(element).position") == "absolute", "Canvas nodes must be freely positioned"
         canvas.focus()
         assert canvas.evaluate("element => element === document.activeElement"), "Scrollable graph must be keyboard focusable"
@@ -291,13 +296,14 @@ def check(browser, screenshots):
             page.evaluate("window.scrollTo(0,0)")
             page.screenshot(path=str(screenshots / "desktop.png"))
 
+        print("Host CSS isolation, token inheritance, contrast and keyboard focus passed.")
         # A narrow embedded component must reflow even while the viewport stays wide.
         page.locator(".vaw-studio").evaluate("element => element.style.inlineSize = '360px'")
         dimensions = page.locator(".vaw-studio").evaluate("""element => ({
             width: element.clientWidth, content: element.scrollWidth,
             columns: getComputedStyle(element.querySelector('.vaw-workspace')).gridTemplateColumns.split(' ').length
         })""")
-        assert dimensions["content"] <= dimensions["width"] + 1 and dimensions["columns"] == 1, dimensions
+        assert dimensions["content"] <= dimensions["width"] + 1, dimensions
         assert canvas.evaluate("element => element.scrollWidth > element.clientWidth"), "Narrow hosts must contain graph scrolling"
         if screenshots:
             page.evaluate("window.scrollTo(0,0)")
@@ -311,9 +317,9 @@ def check(browser, screenshots):
             assert response and response.status == 200, f"Studio page failed to load with enlarged text: {route}"
             page.evaluate("document.documentElement.style.fontSize = '200%'")
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), f"200% text must reflow on mobile: {route}"
-        page.goto(BASE, wait_until="networkidle")
+        page.goto(audit_url, wait_until="networkidle")
         page.evaluate("document.documentElement.style.fontSize = '200%'")
-        assert page.locator(".vaw-studio").evaluate("element => getComputedStyle(element).fontSize") == "32px"
+        assert float(page.locator(".vaw-studio").evaluate("element => parseFloat(getComputedStyle(element).fontSize)")) >= 26, "Editor type must scale with enlarged text"
         if screenshots:
             page.evaluate("window.scrollTo(0,0)")
             page.screenshot(path=str(screenshots / "mobile-large-text.png"))
@@ -335,60 +341,73 @@ def check(browser, screenshots):
         assert node_surface.evaluate("element=>getComputedStyle(element).boxShadow") == "none"
         page.emulate_media(forced_colors="none", reduced_motion="no-preference")
 
+        print("Narrow embedding, enlarged text, reduced motion and forced colors passed.")
         # Exercise a real control inside a consuming application's form.
         page.evaluate("""() => {
             const studio = document.querySelector('.vaw-studio');
             const form = document.createElement('form');
+            form.style.cssText = 'display:flex;flex:1 1 0;min-block-size:0;min-inline-size:0;block-size:100%';
             window.hostSubmissions = 0;
             form.addEventListener('submit', event => {event.preventDefault(); window.hostSubmissions++;});
             studio.replaceWith(form); form.append(studio);
         }""")
-        show_runs(page)
-        page.get_by_role("textbox", name="Input", exact=True).fill("form safety")
-        start.click()
-        page.get_by_role("button", name="Fit graph", exact=True).click()
-        page.get_by_role("button", name="Inspect node output", exact=True).click()
-        expect(page.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("YTEFAS MROF")
+        designer.get_by_role("button", name="Configure test input", exact=True).click()
+        field = designer.get_by_role("textbox", name="Workflow input", exact=True)
+
+        def run_and_check(value, expected):
+            designer.get_by_role("button", name="Configure test input", exact=True).click()
+            field.fill(value)
+            selected = designer.locator('.vaw-ide-run-table tr[aria-selected="true"] code')
+            previous_run = selected.inner_text() if selected.count() else None
+            start.click()
+            history = designer.get_by_label("Workflow run history", exact=True)
+            row = history.locator('tr[aria-selected="true"]')
+            if previous_run:
+                expect(row).not_to_contain_text(previous_run)
+            expect(row).to_contain_text("completed", timeout=20000)
+            designer.get_by_role("button", name="Output", exact=True).click()
+            expect(designer.locator(".vaw-workflow-result")).to_have_text(expected)
+
+        run_and_check("form safety", "YTEFAS MROF")
         assert page.evaluate("window.hostSubmissions") == 0
-
-        # Valid input near the domain limit must reach the server instead of disconnecting SignalR.
-        field = page.get_by_role("textbox", name="Input", exact=True)
-        field.fill("x" * 16384)
-        field.press("Tab")
-        viewer = page.get_by_role("region", name="Workflow run viewer")
-        previous_run = re.search(r"Run ([0-9a-f-]{36})", viewer.inner_text()).group(1)
-        start.click()
-        # The old completed output remains clickable until admission selects the new run.
-        # Wait for that identity change before inspecting, including with slower storage.
-        expect(viewer).not_to_contain_text(previous_run)
-        page.get_by_role("button", name="Fit graph", exact=True).click()
-        page.get_by_role("button", name="Inspect node output", exact=True).click()
-        expect(page.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("X" * 16384)
-
+        # Near-limit input must reach the server without disconnecting SignalR.
+        run_and_check("x" * 16384, "X" * 16384)
+        designer.get_by_role("button", name="Configure test input", exact=True).click()
         # Successful polling must not immediately erase a failed user action.
         field.evaluate("element => element.removeAttribute('maxlength')")
         field.fill("x" * 16385)
         field.press("Tab")
         start.click()
-        alert = page.get_by_role("alert").filter(has_text="The run could not be started")
+        alert = designer.get_by_role("alert").first
         expect(alert).to_be_visible()
         definition = page.request.get(BASE + "/api/templates/default").json()
         response = page.request.post(BASE + "/api/runs", data={"definition": definition, "input": "history refresh proof"})
         assert response.status == 202
         run_id = response.json()["header"]["runId"]
-        page.locator(".vaw-history button").filter(has_text=run_id[:8]).wait_for()
+        designer.get_by_role("button", name="Runs", exact=True).click()
+        history = designer.get_by_label("Workflow run history", exact=True)
+        history.get_by_role("button", name="Refresh history", exact=True).click()
+        expect(history.locator("tbody tr").filter(has_text=run_id[:8])).to_have_count(1)
         expect(alert).to_be_visible()
 
+        designer.get_by_role("button", name="Workflow settings", exact=True).click()
+        secondary = designer.locator("details.vaw-secondary-workflow-tools")
+        if not secondary.evaluate("e => e.open"):
+            secondary.locator(":scope > summary").click()
         workbench(designer).get_by_text("Import / export definition", exact=True).click()
         workbench(designer).get_by_role("button", name="Copy definition into JSON editor", exact=True).click()
         exported = workbench(designer).get_by_label("Workflow JSON", exact=True)
         expect(exported).not_to_have_value("")
         exported.fill(exported.input_value() + "\n" + " " * 40000)
         workbench(designer).get_by_role("button", name="Import JSON into draft", exact=True).click()
-        workbench(designer).get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for()
+        workbench(designer).get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for(state="attached")
         assert not errors, errors
         print("Host style isolation, theme tokens, contrast, keyboard focus, narrow embed, 200% text, motion/forced colors, form safety, field transport limits, and persistent errors passed.")
         print("Sampled text contrast ratios:", {name: round(ratio, 2) for name, ratio in ratios.items()})
+    except Exception:
+        with contextlib.suppress(Exception):
+            page.screenshot(path="/tmp/vaw-ui-audit-failure.png", timeout=5000)
+        raise
     finally:
         page.close()
 

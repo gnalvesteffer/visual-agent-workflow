@@ -567,7 +567,6 @@
 }
 @media (max-width: 42rem) {
     .vaw-app-shell .vaw-ide-titlebar { gap: .35rem; padding-inline: .35rem; }
-    .vaw-ide-project-picker > :first-child { display: none; }
     .vaw-ide-project-picker select { inline-size: 7rem; }
     .vaw-ide-title-actions > a { display: none; }
     .vaw-ide-document-tabs a { padding-inline: .4rem; font-size: .68rem; }
@@ -631,3 +630,13 @@
 .vaw-explorer-file.is-selected > span { color: var(--vaw-color-text); }
 .vaw-studio-in-ide .vaw-properties :is(input, textarea)::placeholder { color: var(--vaw-muted); opacity: 1; }
 .vaw-studio-in-ide .vaw-edit-node article { border-block-start-width: 1px; border-radius: .25rem; }
+
+/* Narrow screens retain every host destination instead of hiding settings access. */
+@media (max-width: 48rem) {
+    .vaw-app-shell .vaw-ide-titlebar { flex-basis: auto; flex-wrap: wrap; padding-block: .25rem; }
+    .vaw-app-shell .vaw-ide-title-actions { flex: 1 1 100%; flex-wrap: wrap; min-inline-size: 0; margin-inline-start: 0; }
+    .vaw-app-shell .vaw-ide-title-actions > a { display: inline-flex; }
+    .vaw-app-shell .vaw-ide-title-actions .vaw-theme-picker { flex: 0 1 auto; margin-inline-start: auto; }
+    .vaw-app-shell .vaw-ide-title-actions .vaw-theme-picker > span { display: none; }
+    .vaw-app-shell .vaw-ide-title-actions .vaw-theme-picker select { inline-size: 8rem; min-inline-size: 0; }
+}
