@@ -54,7 +54,7 @@
                         @foreach (var workflow in VisibleWorkflows)
                         {
                             var selected = workflow.Definition.WorkflowId == selectedWorkflowId;
-                            <button type="button" class="vaw-explorer-file @(selected ? "is-selected" : null)" data-workflow-id="@workflow.Definition.WorkflowId" aria-current="@(selected ? "page" : null)" @onclick="() => SelectWorkflow(workflow.Definition.WorkflowId)" title="@workflow.Definition.WorkflowId"><StudioFileIcon Kind="workflow"/><span class="vaw-explorer-file-name">@(WorkflowName(workflow.Definition) + ".workflow")</span></button>
+                            <button type="button" class="vaw-explorer-file @(selected ? "is-selected" : null)" data-workflow-id="@workflow.Definition.WorkflowId" aria-current="@(selected ? "page" : null)" @onclick="() => SelectWorkflow(workflow.Definition.WorkflowId)" @oncontextmenu="args => OpenWorkflowContext(args, workflow)" @oncontextmenu:preventDefault="true" @oncontextmenu:stopPropagation="true" title="@workflow.Definition.WorkflowId"><StudioFileIcon Kind="workflow"/><span class="vaw-explorer-file-name">@(WorkflowName(workflow.Definition) + ".workflow")</span></button>
                         }
                         @if (workflows.Count == 0) { <span class="vaw-explorer-empty">No saved workflows</span> }
                     </details>
@@ -88,8 +88,37 @@
         {
             <div class="vaw-tree-menu-backdrop" @onclick="CloseExplorerContext" @onkeydown="ExplorerMenuKey">
                 <div class="vaw-tree-context-menu" role="menu" aria-label="Project actions" tabindex="-1" @ref="explorerMenuElement" @onclick:stopPropagation="true">
-                    <p class="vaw-tree-menu-heading">@(explorerContext.Length == 0 ? ProjectWorkspace.CurrentProjectName : explorerContext)</p>
-                    @if (explorerContext.Length == 0)
+                    @if (contextWorkflow is not null)
+                    {
+                        <p class="vaw-tree-menu-heading">@(WorkflowName(contextWorkflow.Definition) + ".workflow")</p>
+                        @if (workflowMenuMode == "rename")
+                        {
+                            <div class="vaw-tree-menu-form">
+                                <label for="workflow-context-name">New workflow name</label>
+                                <input id="workflow-context-name" @bind="workflowMenuName" @bind:event="oninput" maxlength="@WorkflowMetadataEditing.MaximumDisplayNameLength" @onkeydown="WorkflowMenuInputKey" />
+                                <button type="button" role="menuitem" @onclick="RenameContextWorkflow">Rename workflow</button>
+                                <button type="button" role="menuitem" @onclick="CancelWorkflowMenuAction">Cancel</button>
+                            </div>
+                        }
+                        else if (workflowMenuMode == "delete")
+                        {
+                            <div class="vaw-tree-menu-form">
+                                <p>This moves the workflow to Deleted workflows. Published revisions and run history are retained.</p>
+                                <button type="button" class="is-danger" role="menuitem" @onclick="ArchiveContextWorkflow">Delete workflow</button>
+                                <button type="button" role="menuitem" @onclick="CancelWorkflowMenuAction">Cancel</button>
+                            </div>
+                        }
+                        else
+                        {
+                            <button type="button" role="menuitem" @onclick="OpenContextWorkflow">Open</button>
+                            <button type="button" role="menuitem" @onclick="DuplicateContextWorkflow">Duplicate</button>
+                            <button type="button" role="menuitem" @onclick="CopyContextWorkflow">Copy</button>
+                            <button type="button" role="menuitem" @onclick="BeginWorkflowRename">Rename</button>
+                            <button type="button" class="is-danger" role="menuitem" @onclick="BeginWorkflowDelete">Delete</button>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(workflowMenuError)) { <p class="vaw-tree-menu-error" role="alert">@workflowMenuError</p> }
+                    }
+                    else if (explorerContext.Length == 0)
                     {
                         <button type="button" role="menuitem" aria-expanded="@explorerCreateOpen" @onclick="() => explorerCreateOpen = !explorerCreateOpen">New file <span aria-hidden="true">›</span></button>
                         @if (explorerCreateOpen)
@@ -103,12 +132,36 @@
                         }
                     }
                     else if (explorerContext == "workflows")
-                    { <button type="button" role="menuitem" @onclick="CreateExplorerWorkflow">New workflow</button> }
+                    {
+                        <p class="vaw-tree-menu-heading">workflows/</p>
+                        <button type="button" role="menuitem" @onclick="CreateExplorerWorkflow">New workflow</button>
+                        @if (workflowClipboard is not null)
+                        { <button type="button" role="menuitem" @onclick="PasteWorkflowCopy">Paste workflow</button> }
+                        @if (archivedWorkflows.Count > 0)
+                        {
+                            <button type="button" role="menuitem" aria-expanded="@restoreMenuOpen" @onclick="() => restoreMenuOpen = !restoreMenuOpen">Deleted workflows <span aria-hidden="true">›</span></button>
+                            @if (restoreMenuOpen)
+                            {
+                                <div class="vaw-tree-submenu">
+                                    @foreach (var archived in archivedWorkflows)
+                                    {
+                                        <button type="button" role="menuitem" @onclick="() => RestoreArchivedWorkflow(archived)">Restore @(WorkflowName(archived.Definition)).workflow</button>
+                                    }
+                                </div>
+                            }
+                        }
+                    }
                     else
-                    { <button type="button" role="menuitem" @onclick="() => OpenExplorerLibrary(explorerContext)">@(explorerContext == "agents" ? "New agent profile…" : explorerContext == "skills" ? "New skill…" : "New function…")</button> }
-                    <button type="button" role="menuitem" @onclick="RefreshExplorerContext">Refresh Explorer</button>
-                    <button type="button" role="menuitem" @onclick="OpenFolderContext">Open folder project…</button>
-                    <p class="vaw-tree-menu-heading">Open a folder project for folders and Markdown files.</p>
+                    {
+                        <p class="vaw-tree-menu-heading">@explorerContext/</p>
+                        <button type="button" role="menuitem" @onclick="() => OpenExplorerLibrary(explorerContext)">@(explorerContext == "agents" ? "New agent profile…" : explorerContext == "skills" ? "New skill…" : "New function…")</button>
+                    }
+                    @if (contextWorkflow is null)
+                    {
+                        <button type="button" role="menuitem" @onclick="RefreshExplorerContext">Refresh Explorer</button>
+                        <button type="button" role="menuitem" @onclick="OpenFolderContext">Open folder project…</button>
+                        <p class="vaw-tree-menu-heading">Open a folder project for folders and Markdown files.</p>
+                    }
                 </div>
             </div>
         }
@@ -130,6 +183,7 @@
     private IReadOnlyList<AgentProfileLibraryItem> profiles = [];
     private IReadOnlyList<SkillLibraryItem> skills = [];
     private IReadOnlyList<GraphFunctionCatalogEntry> functions = [];
+    private IReadOnlyList<WorkflowDraft> archivedWorkflows = [];
     private string? selectedWorkflowId;
     private DotNetObjectReference<StudioIdeLayout>? selfReference;
     private string? explorerError;
@@ -140,11 +194,18 @@
     private string? explorerContext;
     private double explorerMenuX, explorerMenuY;
     private bool explorerCreateOpen, focusExplorerMenu;
+    private bool restoreMenuOpen;
+    private string? contextWorkflowId;
+    private string? workflowMenuMode;
+    private string workflowMenuName = "";
+    private string? workflowMenuError;
+    private WorkflowDesign? workflowClipboard;
     private ElementReference explorerMenuElement;
     private List<WorkflowDraft> VisibleWorkflows => workflows.Where(item => MatchesExplorerFilter(WorkflowName(item.Definition), item.Definition.WorkflowId)).ToList();
     private List<AgentProfileLibraryItem> VisibleProfiles => profiles.Where(item => MatchesExplorerFilter(item.Profile.Name, item.Profile.Id)).ToList();
     private List<SkillLibraryItem> VisibleSkills => skills.Where(item => MatchesExplorerFilter(item.Skill.Name, item.Skill.Id)).ToList();
     private List<GraphFunctionCatalogEntry> VisibleFunctions => functions.Where(item => MatchesExplorerFilter(item.Function.Definition.FunctionId, item.Function.Definition.DisplayName)).ToList();
+    private WorkflowDraft? contextWorkflow => workflows.FirstOrDefault(item => item.Definition.WorkflowId == contextWorkflowId);
     private bool MatchesExplorerFilter(params string?[] values) => string.IsNullOrWhiteSpace(explorerFilter)
         || values.Any(value => value?.Contains(explorerFilter.Trim(), StringComparison.OrdinalIgnoreCase) == true);
 
@@ -152,13 +213,169 @@
     {
         explorerContext = category;
         explorerMenuX = args.ClientX; explorerMenuY = args.ClientY;
-        explorerCreateOpen = false; focusExplorerMenu = true;
+        contextWorkflowId = null; workflowMenuMode = null; workflowMenuError = null;
+        explorerCreateOpen = false; restoreMenuOpen = false; focusExplorerMenu = true;
     }
-    private void CloseExplorerContext() => explorerContext = null;
+    private void OpenWorkflowContext(Microsoft.AspNetCore.Components.Web.MouseEventArgs args, WorkflowDraft workflow)
+    {
+        OpenExplorerContext(args, "workflows");
+        contextWorkflowId = workflow.Definition.WorkflowId;
+    }
+    private void CloseExplorerContext()
+    {
+        explorerContext = null; contextWorkflowId = null; workflowMenuMode = null; workflowMenuError = null;
+    }
     private void ExplorerMenuKey(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs args)
     { if (args.Key == "Escape") CloseExplorerContext(); }
     private async Task RefreshExplorerContext() { CloseExplorerContext(); await RefreshExplorer(); }
     private void OpenFolderContext() { CloseExplorerContext(); Navigation.NavigateTo("/source-project"); }
+    private void OpenContextWorkflow()
+    {
+        if (contextWorkflowId is not { } id) return;
+        var target = id;
+        CloseExplorerContext();
+        _ = SelectWorkflow(target);
+    }
+    private void BeginWorkflowRename()
+    {
+        if (contextWorkflow is not { } workflow) return;
+        workflowMenuName = WorkflowName(workflow.Definition);
+        workflowMenuMode = "rename"; focusExplorerMenu = true;
+    }
+    private void BeginWorkflowDelete()
+    { workflowMenuMode = "delete"; focusExplorerMenu = true; }
+    private void CancelWorkflowMenuAction()
+    { workflowMenuMode = null; workflowMenuError = null; }
+    private void WorkflowMenuInputKey(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape") CloseExplorerContext();
+        else if (args.Key == "Enter") _ = RenameContextWorkflow();
+    }
+    private async Task<bool> CheckWorkflowEditorClean(string workflowId)
+    {
+        if (ActivePage != "workflow" || selectedWorkflowId != workflowId) return true;
+        try
+        {
+            var dirty = await JavaScript.InvokeAsync<bool>("vawStudioIde.hasUnsavedWorkflow");
+            if (!dirty) return true;
+            workflowMenuError = "Save or discard the open workflow before changing Explorer files.";
+            return false;
+        }
+        catch (Microsoft.JSInterop.JSDisconnectedException) { workflowMenuError = "The editor is reconnecting. Try again when it is ready."; return false; }
+    }
+    private async Task RenameContextWorkflow()
+    {
+        var source = contextWorkflow;
+        if (source is null || !await CheckWorkflowEditorClean(source.Definition.WorkflowId)) return;
+        try
+        {
+            if (ProjectWorkspace.Catalog is not IWorkflowDesignCatalog designCatalog)
+                throw new InvalidOperationException("This project does not support workflow design file operations.");
+            var current = await designCatalog.GetDesignAsync(source.Definition.WorkflowId)
+                ?? throw new KeyNotFoundException("The workflow no longer exists. Refresh Explorer and try again.");
+            var renamed = WorkflowMetadataEditing.Rename(current.Draft.Definition, workflowMenuName);
+            if (renamed == current.Draft.Definition) { CloseExplorerContext(); return; }
+            await designCatalog.SaveDesignAsync(renamed, current.Layout, current.Draft.Generation);
+            var id = renamed.WorkflowId;
+            CloseExplorerContext();
+            await RefreshExplorer();
+            if (selectedWorkflowId == id && ActivePage == "workflow")
+                await JavaScript.InvokeVoidAsync("vawStudioIde.selectWorkflow", id);
+            routeStatus = "Workflow renamed.";
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or KeyNotFoundException or WorkflowConflictException or IOException)
+        { workflowMenuError = exception is WorkflowConflictException ? "This workflow changed elsewhere. Refresh Explorer and try again." : exception.Message; }
+    }
+    private async Task DuplicateContextWorkflow()
+    {
+        var source = contextWorkflow;
+        if (source is null || !await CheckWorkflowEditorClean(source.Definition.WorkflowId)) return;
+        try
+        {
+            if (ProjectWorkspace.Catalog is not IWorkflowDesignCatalog designCatalog)
+                throw new InvalidOperationException("This project does not support workflow design file operations.");
+            var current = await designCatalog.GetDesignAsync(source.Definition.WorkflowId)
+                ?? throw new KeyNotFoundException("The workflow no longer exists. Refresh Explorer and try again.");
+            await CreateWorkflowCopy(current);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or KeyNotFoundException or WorkflowConflictException or IOException)
+        { workflowMenuError = exception.Message; }
+    }
+    private async Task CopyContextWorkflow()
+    {
+        var source = contextWorkflow;
+        if (source is null || !await CheckWorkflowEditorClean(source.Definition.WorkflowId)) return;
+        try
+        {
+            if (ProjectWorkspace.Catalog is not IWorkflowDesignCatalog designCatalog)
+                throw new InvalidOperationException("This project does not support workflow file operations.");
+            workflowClipboard = await designCatalog.GetDesignAsync(source.Definition.WorkflowId)
+                ?? throw new KeyNotFoundException("The workflow no longer exists. Refresh Explorer and try again.");
+            var name = WorkflowName(workflowClipboard.Draft.Definition);
+            CloseExplorerContext();
+            routeStatus = $"Copied {name}. Right-click workflows/ and choose Paste workflow.";
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or KeyNotFoundException or IOException)
+        { workflowMenuError = exception.Message; }
+    }
+    private async Task PasteWorkflowCopy()
+    {
+        if (workflowClipboard is null) return;
+        try { await CreateWorkflowCopy(workflowClipboard); }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or KeyNotFoundException or IOException)
+        { workflowMenuError = exception.Message; }
+    }
+    private async Task CreateWorkflowCopy(WorkflowDesign source)
+    {
+        if (ProjectWorkspace.Catalog is not IWorkflowDesignCatalog designCatalog)
+            throw new InvalidOperationException("This project does not support workflow file operations.");
+        var copyId = "workflow-" + Guid.NewGuid().ToString("N");
+        var sourceName = WorkflowName(source.Draft.Definition);
+        var copyName = (sourceName + " copy")[..Math.Min(sourceName.Length + 5, WorkflowMetadataEditing.MaximumDisplayNameLength)];
+        var copyDefinition = WorkflowMetadataEditing.Rename(source.Draft.Definition with { WorkflowId = copyId }, copyName);
+        await designCatalog.SaveDesignAsync(copyDefinition, source.Layout, expectedGeneration: 0);
+        workflowClipboard = null;
+        CloseExplorerContext();
+        await RefreshExplorer();
+        routeStatus = "Workflow duplicated as a new draft.";
+        Navigation.NavigateTo($"{WorkflowRoute}?workflow={Uri.EscapeDataString(copyId)}");
+    }
+    private async Task ArchiveContextWorkflow()
+    {
+        var source = contextWorkflow;
+        if (source is null || !await CheckWorkflowEditorClean(source.Definition.WorkflowId)) return;
+        try
+        {
+            await ProjectWorkspace.CatalogFileOperations.ArchiveWorkflowAsync(source.Definition.WorkflowId, source.Generation);
+            var wasSelected = selectedWorkflowId == source.Definition.WorkflowId;
+            CloseExplorerContext();
+            await RefreshExplorer();
+            routeStatus = "Workflow moved to Deleted workflows. Revisions and run history were retained.";
+            if (wasSelected && ActivePage == "workflow")
+            {
+                if (workflows.FirstOrDefault() is { } next)
+                {
+                    var result = await JavaScript.InvokeAsync<int>("vawStudioIde.selectWorkflow", next.Definition.WorkflowId);
+                    if (result == 0) Navigation.NavigateTo($"{WorkflowRoute}?workflow={Uri.EscapeDataString(next.Definition.WorkflowId)}");
+                }
+                else await JavaScript.InvokeAsync<int>("vawStudioIde.createWorkflow");
+            }
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or KeyNotFoundException or WorkflowConflictException or IOException)
+        { workflowMenuError = exception is WorkflowConflictException ? "This workflow changed elsewhere. Refresh Explorer and try again." : exception.Message; }
+    }
+    private async Task RestoreArchivedWorkflow(WorkflowDraft archived)
+    {
+        try
+        {
+            await ProjectWorkspace.CatalogFileOperations.RestoreArchivedWorkflowAsync(archived.Definition.WorkflowId, archived.Generation);
+            CloseExplorerContext();
+            await RefreshExplorer();
+            routeStatus = "Workflow restored.";
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or KeyNotFoundException or WorkflowConflictException or IOException)
+        { workflowMenuError = exception.Message; }
+    }
     private void OpenExplorerLibrary(string category)
     {
         CloseExplorerContext();
@@ -218,13 +435,14 @@
         try
         {
             workflows = await ProjectWorkspace.Catalog.ListDraftsAsync();
+            archivedWorkflows = await ProjectWorkspace.CatalogFileOperations.ListArchivedDraftsAsync();
             profiles = ProjectWorkspace.AgentProfiles.List();
             skills = ProjectWorkspace.Skills.List();
             functions = ProjectWorkspace.Functions.List();
             explorerError = null;
             loadedExplorerProjectId = ProjectWorkspace.CurrentProjectId;
         }
-        catch (InvalidOperationException) { workflows = []; profiles = []; skills = []; functions = []; loadedExplorerProjectId = ProjectWorkspace.CurrentProjectId; }
+        catch (InvalidOperationException) { workflows = []; archivedWorkflows = []; profiles = []; skills = []; functions = []; loadedExplorerProjectId = ProjectWorkspace.CurrentProjectId; }
         catch { explorerError = "Some project files could not be loaded. The editor remains available."; loadedExplorerProjectId = ProjectWorkspace.CurrentProjectId; }
         await InvokeAsync(StateHasChanged);
     }

@@ -5,7 +5,7 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>Transactional local definition store. The development host supplies a placeholder actor.</summary>
-public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog
+public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog, IWorkflowCatalogFileOperations
 {
     private readonly string connectionString;
     private readonly string actor;
@@ -23,7 +23,7 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog
         using var connection = Open();
         using var transaction = connection.BeginTransaction(deferred: false);
         var schemaVersion = Convert.ToInt32(Scalar(connection, transaction, "PRAGMA user_version;"), CultureInfo.InvariantCulture);
-        if (schemaVersion is not (0 or 1 or 2)) throw new InvalidDataException("Unsupported workflow database schema.");
+        if (schemaVersion is not (0 or 1 or 2 or 3)) throw new InvalidDataException("Unsupported workflow database schema.");
         Execute(connection, transaction, """
             CREATE TABLE IF NOT EXISTS workflows (
                 workflow_id TEXT PRIMARY KEY, draft_json TEXT NOT NULL, generation INTEGER NOT NULL,
@@ -41,8 +41,13 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog
                 workflow_id TEXT PRIMARY KEY REFERENCES workflows(workflow_id), layout_json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS revision_layouts (
                 revision_id TEXT PRIMARY KEY REFERENCES revisions(revision_id), layout_json TEXT NOT NULL);
-            PRAGMA user_version = 2;
             """);
+        if (schemaVersion < 3)
+        {
+            if (!HasColumn(connection, transaction, "workflows", "archived_at"))
+                Execute(connection, transaction, "ALTER TABLE workflows ADD COLUMN archived_at TEXT NULL;");
+            Execute(connection, transaction, "PRAGMA user_version = 3;");
+        }
         transaction.Commit();
     }
 
@@ -55,11 +60,49 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog
     public Task<IReadOnlyList<WorkflowDraft>> ListDraftsAsync()
     {
         using var connection = Open();
-        using var command = Command(connection, null, "SELECT draft_json,generation,head_revision,active_revision FROM workflows ORDER BY workflow_id;");
+        using var command = Command(connection, null, "SELECT draft_json,generation,head_revision,active_revision FROM workflows WHERE archived_at IS NULL ORDER BY workflow_id;");
         using var reader = command.ExecuteReader();
         var drafts = new List<WorkflowDraft>();
         while (reader.Read()) drafts.Add(ReadDraft(reader));
         return Task.FromResult<IReadOnlyList<WorkflowDraft>>(drafts);
+    }
+
+    public Task<IReadOnlyList<WorkflowDraft>> ListArchivedDraftsAsync()
+    {
+        using var connection = Open();
+        using var command = Command(connection, null, "SELECT draft_json,generation,head_revision,active_revision FROM workflows WHERE archived_at IS NOT NULL ORDER BY workflow_id;");
+        using var reader = command.ExecuteReader();
+        var drafts = new List<WorkflowDraft>();
+        while (reader.Read()) drafts.Add(ReadDraft(reader));
+        return Task.FromResult<IReadOnlyList<WorkflowDraft>>(drafts);
+    }
+
+    public Task ArchiveWorkflowAsync(string workflowId, long expectedGeneration)
+    {
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction(deferred: false);
+        var draft = RequireDraft(connection, transaction, workflowId, expectedGeneration);
+        if (IsArchived(connection, transaction, workflowId)) throw new InvalidOperationException("Workflow is already deleted.");
+        var generation = checked(draft.Generation + 1);
+        Execute(connection, transaction, "UPDATE workflows SET archived_at=$time,generation=$generation WHERE workflow_id=$id;",
+            ("$time", DateTimeOffset.UtcNow.ToString("O")), ("$generation", generation), ("$id", workflowId));
+        Audit(connection, transaction, workflowId, "workflow.archived", generation, null, WorkflowJson.ComputeDraftHash(draft.Definition));
+        transaction.Commit();
+        return Task.CompletedTask;
+    }
+
+    public Task RestoreArchivedWorkflowAsync(string workflowId, long expectedGeneration)
+    {
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction(deferred: false);
+        var draft = RequireDraft(connection, transaction, workflowId, expectedGeneration);
+        if (!IsArchived(connection, transaction, workflowId)) throw new InvalidOperationException("Workflow is not in Deleted workflows.");
+        var generation = checked(draft.Generation + 1);
+        Execute(connection, transaction, "UPDATE workflows SET archived_at=NULL,generation=$generation WHERE workflow_id=$id;",
+            ("$generation", generation), ("$id", workflowId));
+        Audit(connection, transaction, workflowId, "workflow.restored", generation, null, WorkflowJson.ComputeDraftHash(draft.Definition));
+        transaction.Commit();
+        return Task.CompletedTask;
     }
 
     public Task<WorkflowDraft> SaveDraftAsync(WorkflowDefinition definition, long expectedGeneration) =>
@@ -75,6 +118,8 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog
         using var transaction = connection.BeginTransaction(deferred: false);
         var previous = GetDraft(connection, transaction, definition.WorkflowId);
         CheckGeneration(definition.WorkflowId, expectedGeneration, previous?.Generation ?? 0);
+        if (previous is not null && IsArchived(connection, transaction, definition.WorkflowId))
+            throw new InvalidOperationException("Workflow is in Deleted workflows. Restore it before editing.");
         // Legacy definition-only saves preserve surviving presentation identities.
         var explicitLayout = layout is not null;
         layout ??= previous is null ? WorkflowLayout.Create(definition) :
@@ -129,6 +174,7 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog
         using var connection = Open();
         using var transaction = connection.BeginTransaction(deferred: false);
         var draft = RequireDraft(connection, transaction, workflowId, expectedGeneration);
+        EnsureNotArchived(connection, transaction, workflowId);
         var revision = WorkflowRevision.Create(draft.Definition, actor, draft.HeadRevisionId);
         var version = checked(Convert.ToInt32(Scalar(connection, transaction,
             "SELECT COALESCE(MAX(version),0) FROM revisions WHERE workflow_id=$id;", ("$id", workflowId)), CultureInfo.InvariantCulture) + 1);
@@ -174,6 +220,7 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog
         using var connection = Open();
         using var transaction = connection.BeginTransaction(deferred: false);
         var previous = RequireDraft(connection, transaction, workflowId, expectedGeneration);
+        EnsureNotArchived(connection, transaction, workflowId);
         var revision = GetRevision(connection, transaction, revisionId)?.Revision ?? throw new KeyNotFoundException("Revision not found.");
         if (revision.Definition.WorkflowId != workflowId) throw new ArgumentException("Revision belongs to another workflow.");
         var sql = restore
@@ -218,6 +265,15 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog
         var draft = GetDraft(connection, transaction, id) ?? throw new KeyNotFoundException("Workflow not found.");
         CheckGeneration(id, expected, draft.Generation);
         return draft;
+    }
+
+    private static bool IsArchived(SqliteConnection connection, SqliteTransaction transaction, string id) =>
+        Scalar(connection, transaction, "SELECT archived_at FROM workflows WHERE workflow_id=$id;", ("$id", id)) is string;
+
+    private static void EnsureNotArchived(SqliteConnection connection, SqliteTransaction transaction, string id)
+    {
+        if (IsArchived(connection, transaction, id))
+            throw new InvalidOperationException("Workflow is in Deleted workflows. Restore it before changing its published state.");
     }
 
     private static void CheckGeneration(string id, long expected, long actual)
@@ -268,4 +324,11 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog
     { using var command = Command(connection, transaction, sql, parameters); return command.ExecuteNonQuery(); }
     private static object? Scalar(SqliteConnection connection, SqliteTransaction transaction, string sql, params (string Name, object? Value)[] parameters)
     { using var command = Command(connection, transaction, sql, parameters); return command.ExecuteScalar(); }
+    private static bool HasColumn(SqliteConnection connection, SqliteTransaction transaction, string table, string column)
+    {
+        using var command = Command(connection, transaction, $"PRAGMA table_info({table});");
+        using var reader = command.ExecuteReader();
+        while (reader.Read()) if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
 }

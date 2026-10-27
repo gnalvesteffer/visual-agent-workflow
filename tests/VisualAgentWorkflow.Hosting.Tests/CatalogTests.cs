@@ -60,6 +60,37 @@ public sealed class CatalogTests : IDisposable
     }
 
     [Fact]
+    public async Task DeletedWorkflowCanBeRestoredWithoutLosingRevisionsOrRunAudit()
+    {
+        var catalog = Open();
+        var draft = await catalog.SaveDraftAsync(WorkflowTemplates.Create("uppercase"), 0);
+        var published = await catalog.PublishAsync(draft.Definition.WorkflowId, draft.Generation);
+        var beforeDelete = (await catalog.GetDraftAsync(draft.Definition.WorkflowId))!;
+
+        await catalog.ArchiveWorkflowAsync(draft.Definition.WorkflowId, beforeDelete.Generation);
+
+        Assert.Empty(await catalog.ListDraftsAsync());
+        var archived = Assert.Single(await catalog.ListArchivedDraftsAsync());
+        Assert.Equal(beforeDelete.Generation + 1, archived.Generation);
+        Assert.Single(await catalog.ListRevisionsAsync(draft.Definition.WorkflowId));
+        var auditAfterDelete = await catalog.ReadAuditAsync(draft.Definition.WorkflowId);
+        Assert.Equal(published.Revision.RevisionId, Assert.Single(auditAfterDelete,
+            entry => entry.Kind == "revision.published-and-activated").RevisionId);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => catalog.SaveDraftAsync(archived.Definition, archived.Generation));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => catalog.PublishAsync(archived.Definition.WorkflowId, archived.Generation));
+        await Assert.ThrowsAsync<WorkflowConflictException>(() => catalog.RestoreArchivedWorkflowAsync(archived.Definition.WorkflowId, beforeDelete.Generation));
+
+        await catalog.RestoreArchivedWorkflowAsync(archived.Definition.WorkflowId, archived.Generation);
+
+        var restored = Assert.Single(await catalog.ListDraftsAsync());
+        Assert.Equal(archived.Generation + 1, restored.Generation);
+        Assert.Empty(await catalog.ListArchivedDraftsAsync());
+        Assert.Single(await catalog.ListRevisionsAsync(draft.Definition.WorkflowId));
+        Assert.Contains(await catalog.ReadAuditAsync(draft.Definition.WorkflowId), entry => entry.Kind == "workflow.archived");
+        Assert.Contains(await catalog.ReadAuditAsync(draft.Definition.WorkflowId), entry => entry.Kind == "workflow.restored");
+    }
+
+    [Fact]
     public async Task ConcurrentStoreInstancesCannotOverwriteSameGeneration()
     {
         var first = Open();

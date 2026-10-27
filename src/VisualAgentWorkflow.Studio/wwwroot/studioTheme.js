@@ -82,6 +82,10 @@
             select.value = id;
             select.dispatchEvent(new Event('change', { bubbles: true }));
             return 1;
+        },
+        hasUnsavedWorkflow: () => {
+            const status = document.querySelector('.vaw-document-save-state')?.textContent?.trim();
+            return status === 'Unsaved changes' || status === 'Not saved';
         }
     };
 

@@ -183,6 +183,8 @@ public sealed class StudioProjectWorkspace
     public string CurrentProjectId => currentProjectId;
     public string CurrentProjectName => store.GetActive(currentProjectId).Name;
     public IWorkflowCatalog Catalog => RequireCatalogProject().Catalog;
+    public IWorkflowCatalogFileOperations CatalogFileOperations => RequireCatalogProject().Catalog as IWorkflowCatalogFileOperations
+        ?? throw new InvalidOperationException("The active workflow catalog does not support deleted workflow recovery.");
     public IWorkflowClient Client => RequireCatalogProject().Client;
     public StudioSkillLibrary Skills => RequireCatalogProject().Skills;
     public StudioAgentProfileLibrary AgentProfiles => RequireCatalogProject().AgentProfiles;
