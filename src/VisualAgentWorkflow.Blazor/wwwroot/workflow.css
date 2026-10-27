@@ -207,7 +207,7 @@
 .vaw-agent-metrics progress { inline-size: 100%; block-size: 0.3rem; accent-color: var(--vaw-accent); }
 .vaw-agent-metrics small { color: var(--vaw-text); font-family: var(--vaw-mono); }
 .vaw-node-status-chip { display: inline-flex; align-items: center; max-inline-size: 100%; min-block-size: 2rem; margin-block-start: .45rem; border: 1px solid var(--vaw-border); border-radius: var(--vaw-control-radius); overflow: hidden; background: color-mix(in srgb, var(--vaw-control) 55%, var(--vaw-canvas)); }
-.vaw-node-status-chip .vaw-node-button { inline-size: auto; min-inline-size: 0; max-inline-size: calc(100% - 2.1rem); margin: 0; padding: .3rem .65rem; border: 0; border-inline-end: 1px solid color-mix(in srgb, var(--vaw-border) 72%, transparent); border-radius: 0; background: transparent; line-height: 1.2; }
+.vaw-node-status-chip .vaw-node-button { display: flex; align-items: center; inline-size: auto; block-size: 2rem; min-block-size: 2rem; min-inline-size: 0; max-inline-size: calc(100% - 2.1rem); margin: 0; padding: .3rem .65rem; border: 0; border-inline-end: 1px solid color-mix(in srgb, var(--vaw-border) 72%, transparent); border-radius: 0; background: transparent; line-height: 1.2; }
 .vaw-node-status-label { display: flex; align-items: center; gap: .4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vaw-node-status-dot { inline-size: .42rem; block-size: .42rem; flex: 0 0 .42rem; border-radius: 50%; background: var(--vaw-muted); }
 .vaw-node-status-chip .vaw-node-button[aria-pressed="true"] { outline: 2px solid var(--vaw-focus); outline-offset: -2px; }
