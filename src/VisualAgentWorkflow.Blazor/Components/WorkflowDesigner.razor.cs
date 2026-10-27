@@ -111,6 +111,7 @@ public partial class WorkflowDesigner
     private string? message;
     private string jsonText = "";
     private string runInput = "Hello, workflows!";
+    private string? runInputWorkflowId;
     private readonly Dictionary<string, string> runParameters = new(StringComparer.Ordinal);
     private bool startPublishedPaused;
     private WorkflowDefinition? downloadedDefinition;
@@ -187,7 +188,7 @@ public partial class WorkflowDesigner
         providerChoicesLoading = AgentCatalog is not null;
         mcpChoicesError = null; providerChoicesError = null;
         preview = null; selectedRevisionId = null; activeRevisionId = null;
-        undo.Clear(); redo.Clear(); jsonText = ""; runInput = "Hello, workflows!"; runParameters.Clear(); startPublishedPaused = false; busy = false;
+        undo.Clear(); redo.Clear(); jsonText = ""; runInput = "Hello, workflows!"; runInputWorkflowId = null; runParameters.Clear(); startPublishedPaused = false; busy = false;
         loadedTools = null; loadedAgents = null; requestedTools = null; requestedAgents = null; ResetReuse();
         await Perform(async current =>
         {
@@ -286,6 +287,11 @@ public partial class WorkflowDesigner
         var metadata = await ReadMetadata(current, draft.Definition.WorkflowId);
         if (!Current(current)) return;
         SetDesign(draft.Definition, design?.Layout ?? WorkflowLayout.Create(draft.Definition));
+        if (!string.Equals(runInputWorkflowId, draft.Definition.WorkflowId, StringComparison.Ordinal))
+        {
+            runInput = WorkflowRunInputGuidance.For(draft.Definition);
+            runInputWorkflowId = draft.Definition.WorkflowId;
+        }
         generation = draft.Generation; activeRevisionId = draft.ActiveRevisionId;
         savedHash = DesignHash;
         ApplyMetadata(metadata);

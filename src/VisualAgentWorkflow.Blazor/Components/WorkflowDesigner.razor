@@ -361,9 +361,9 @@
 {
     <dialog @ref="runDialog" class="vaw-run-dialog" aria-labelledby="run-dialog-title" aria-describedby="run-dialog-description" @oncancel="CloseRunDialog" @oncancel:preventDefault="true">
         <h2 id="run-dialog-title">Run @WorkflowDisplayName(definition)</h2>
-        <p id="run-dialog-description">Enter test input for this saved workflow. The input and parameter values are recorded with the run.</p>
+        <p id="run-dialog-description">@WorkflowRunInputGuidance.HintFor(definition) The input and parameter values are recorded with the run.</p>
         <label>Workflow input
-            <textarea @bind="runInput" maxlength="16384" rows="5" autofocus disabled="@busy"></textarea>
+            <textarea @bind="runInput" maxlength="16384" rows="5" autofocus disabled="@busy" placeholder="@WorkflowRunInputGuidance.HintFor(definition)"></textarea>
         </label>
         @foreach (var (parameterId, parameter) in SelectedRunParameters)
         {

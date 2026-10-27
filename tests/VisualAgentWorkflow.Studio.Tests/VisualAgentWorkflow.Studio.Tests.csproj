@@ -5,5 +5,6 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio"><PrivateAssets>all</PrivateAssets></PackageReference>
     <ProjectReference Include="../../src/VisualAgentWorkflow.Studio/VisualAgentWorkflow.Studio.csproj" />
+    <ProjectReference Include="../../src/VisualAgentWorkflow.Blazor/VisualAgentWorkflow.Blazor.csproj" />
   </ItemGroup>
 </Project>
