@@ -29,6 +29,16 @@ def show_library(designer):
     expect(designer.get_by_role("button", name="Hide node library", exact=True)).to_be_visible()
 
 
+def assert_context_menu_in_viewport(page, menu):
+    box = menu.bounding_box()
+    viewport = page.viewport_size
+    assert box and viewport, "Context menu did not produce measurable bounds"
+    assert box["left"] >= 0 and box["top"] >= 0
+    assert box["right"] <= viewport["width"] and box["bottom"] <= viewport["height"], (
+        f"Context menu escaped viewport: {box} in {viewport}"
+    )
+
+
 def new_blank(designer):
     workbench(designer)
     settings(designer, True)
@@ -86,6 +96,7 @@ def text_template_node_check(page, designer):
     page.mouse.click(wire_point["x"],wire_point["y"],button="right")
     menu=canvas.get_by_role("dialog",name="Graph actions",exact=True)
     expect(menu).to_be_visible()
+    assert_context_menu_in_viewport(page, menu)
     menu.get_by_role("button",name="Add Text template",exact=True).click()
     expect(canvas.locator("li[data-node-type='core.text.template']")).to_have_count(1)
     template_id = canvas.locator("li[data-node-type='core.text.template']").get_attribute("data-node-id")
@@ -504,6 +515,7 @@ def check(browser, screenshots):
     canvas.get_by_role("button",name=f"Move node {step}",exact=True).click(button="right")
     menu=canvas.get_by_role("dialog",name="Graph actions",exact=True)
     expect(menu).to_be_visible()
+    assert_context_menu_in_viewport(page, menu)
     expect(menu.get_by_label("Search node actions",exact=True)).to_be_focused()
     menu.get_by_role("button",name="Duplicate node",exact=True).click()
     expect(canvas.locator("li[data-node-id]")).to_have_count(4)

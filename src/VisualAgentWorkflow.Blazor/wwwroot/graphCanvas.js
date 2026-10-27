@@ -137,6 +137,9 @@ export function attach(root, callback) {
     root.addEventListener('click', state.click);
     root.addEventListener('keydown', state.key);
     state.viewport.addEventListener('scroll', state.scroll, { passive: true });
+    state.resize = () => {
+        if (state.menu?.matches(':popover-open')) positionContextMenu(state, state.menu);
+    };
     state.fullscreenChanged = () => {
         const active = document.fullscreenElement === root;
         root.dataset.fullscreen = String(active);
@@ -147,6 +150,7 @@ export function attach(root, callback) {
         schedule(state);
     };
     document.addEventListener('fullscreenchange', state.fullscreenChanged);
+    window.addEventListener('resize', state.resize);
     state.handle = { refresh: () => sync(root), center: () => center(state), fit: () => fit(state), reset: () => reset(state), select: id => { state.selection = state.nodes.has(id) ? new Set([id]) : new Set(); applySelection(state); }, dispose: () => detach(root) };
     canvases.set(root, state);
     sync(root);
@@ -182,6 +186,8 @@ export function sync(root) {
             };
             menu.addEventListener('toggle',state.menuToggle);
             menu.showPopover();
+            positionContextMenu(state, menu);
+            requestAnimationFrame(() => positionContextMenu(state, menu));
             menu.querySelector('input')?.focus({preventScroll:true});
         }
     }
@@ -239,6 +245,18 @@ function reset(state) {
 function schedule(state) {
     if (!state.active || state.frame) return;
     state.frame = requestAnimationFrame(() => { state.frame = 0; draw(state); });
+}
+
+function positionContextMenu(state, menu) {
+    const margin = 8;
+    const anchorX = number(menu.dataset.menuX);
+    const anchorY = number(menu.dataset.menuY);
+    const width = Math.min(menu.offsetWidth, Math.max(0, innerWidth - margin * 2));
+    const height = Math.min(menu.offsetHeight, Math.max(0, innerHeight - margin * 2));
+    const left = Math.max(margin, Math.min(anchorX, innerWidth - width - margin));
+    const top = Math.max(margin, Math.min(anchorY, innerHeight - height - margin));
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
 }
 
 function scale(state) { return new DOMMatrixReadOnly(getComputedStyle(state.world).transform).a || 1; }
@@ -569,6 +587,7 @@ export function detach(root) {
     for (const [name,handler] of [['contextmenu',state.context],['dragstart',state.dragStart],['dragover',state.dragOver],['dragleave',state.dragLeave],['drop',state.drop]])
         root.removeEventListener(name,handler);
     document.removeEventListener('fullscreenchange', state.fullscreenChanged);
+    window.removeEventListener('resize', state.resize);
     if (document.fullscreenElement === root) document.exitFullscreen().catch(() => {});
     state.observer.disconnect(); cancelAnimationFrame(state.frame);
     state.viewport.removeEventListener('scroll', state.scroll);

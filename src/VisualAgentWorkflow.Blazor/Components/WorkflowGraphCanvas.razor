@@ -293,6 +293,7 @@
     @if (contextMenu is { } menu && ContextMenu is not null)
     {
         <div @key="menu.Id" class="vaw-context-menu" role="dialog" aria-label="Graph actions" popover="auto" data-context-id="@menu.Id"
+            data-menu-x="@Number(menu.ClientX)" data-menu-y="@Number(menu.ClientY)"
             style="@($"left:{Number(menu.ClientX)}px;top:{Number(menu.ClientY)}px")">
             @ContextMenu(menu)
         </div>
