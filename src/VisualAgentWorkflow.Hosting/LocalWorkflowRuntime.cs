@@ -8,12 +8,15 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>Bounded, process-owned execution. Paused continuations release the shared execution slot.</summary>
-public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<LocalWorkflowRuntime> logger, INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null)
+public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<LocalWorkflowRuntime> logger,
+    INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null,
+    ParallelCollaborationRuntimeOptions? collaborationOptions = null)
     : BackgroundService, IWorkflowClient, IParameterizedWorkflowClient, IWorkflowRunControl, IWorkflowApprovalClient
 {
     // Preserve the original constructor for existing source and binary consumers.
-    public LocalWorkflowRuntime(FileRunJournal journal, ILogger<LocalWorkflowRuntime> logger, INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null)
-        : this((IWorkflowRunStore)journal, logger, tools, agents) { }
+    public LocalWorkflowRuntime(FileRunJournal journal, ILogger<LocalWorkflowRuntime> logger, INodeToolBroker? tools = null,
+        IAgentNodeExecutor? agents = null, ParallelCollaborationRuntimeOptions? collaborationOptions = null)
+        : this((IWorkflowRunStore)journal, logger, tools, agents, collaborationOptions) { }
 
     private const int MaximumOwnedRuns = 32;
     private sealed record Request(Guid RunId, WorkflowRevision Revision, string Input,
@@ -223,7 +226,7 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, request.Control.Cancellation.Token);
         try
         {
-            await new WorkflowRunner(tools, agents).ExecuteControlledWithParametersAsync(request.RunId, request.Revision, request.Input,
+            await new WorkflowRunner(tools, agents, collaborationOptions).ExecuteControlledWithParametersAsync(request.RunId, request.Revision, request.Input,
                 request.Parameters, request.Control.RecordAsync, request.Control, linked.Token);
         }
         catch (OperationCanceledException) when (linked.IsCancellationRequested) { }

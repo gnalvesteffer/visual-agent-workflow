@@ -23,6 +23,8 @@ public sealed record WorkflowDefinition(
     public ImmutableSortedDictionary<string, WorkflowSkill>? Skills { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ImmutableSortedDictionary<string, AgentProfile>? AgentProfiles { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableSortedDictionary<string, ParallelCollaborationRegion>? ParallelCollaborationRegions { get; init; }
 }
 
 /// <summary>A workflow-owned, non-secret typed scalar represented portably as text.</summary>
@@ -77,6 +79,8 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     public ParallelBranchConfiguration? ParallelBranch { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ParallelJoinConfiguration? ParallelJoin { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ParallelRendezvousConfiguration? ParallelRendezvous { get; init; }
 }
 
 /// <summary>Copy-on-insert source identity; informational provenance, never a grant or runtime resolver.</summary>
@@ -103,6 +107,7 @@ public static class NodeTypes
     public const string ParallelFork = "core.parallel.fork";
     public const string ParallelBranch = "core.parallel.branch";
     public const string ParallelJoin = "core.parallel.join";
+    public const string ParallelRendezvous = "core.parallel.rendezvous";
     public const string Loop = "core.loop";
     public const string LoopBody = "core.loop.body";
     public const string Terminate = "core.terminate";
@@ -121,7 +126,7 @@ public static class NodeTypes
     public const string FunctionCall = "core.function.call";
 
     public static bool IsSupported(string? type) =>
-        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin or Loop or LoopBody or Terminate or WorkflowCall or StringConstant or TextConcat or StringEquals or BooleanBranch or BooleanConstant or BooleanNot or IntegerConstant or IntegerAdd or IntegerEquals or FunctionInput or FunctionOutput or FunctionCall;
+        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin or ParallelRendezvous or Loop or LoopBody or Terminate or WorkflowCall or StringConstant or TextConcat or StringEquals or BooleanBranch or BooleanConstant or BooleanNot or IntegerConstant or IntegerAdd or IntegerEquals or FunctionInput or FunctionOutput or FunctionCall;
 }
 
 public static class WorkflowSchemaVersions
@@ -136,12 +141,15 @@ public static class WorkflowSchemaVersions
     public const string AgentExecutionRoutes = "1.30";
     public const string IntegerGraph = "1.31";
     public const string ConfigurableParallelGraph = "1.32";
+    public const string CollaborativeParallelGraph = "1.33";
+    public const string BranchLocalParallelGraph = "1.34";
+    public const string PhasedCollaborativeParallelGraph = "1.35";
 
-    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph or PureGraphFunctions or AgentGraphFunctionTools or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph;
+    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph or PureGraphFunctions or AgentGraphFunctionTools or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph;
 
     public static bool UsesExplicitGraph(WorkflowDefinition definition) =>
         UsesExplicitGraph(definition.SchemaVersion) ||
-        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph && definition.ExecutionConnections is not null;
+        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph && definition.ExecutionConnections is not null;
 }
 
 public sealed record StringConstantConfiguration(string Value);
@@ -152,6 +160,48 @@ public sealed record ParallelForkConfiguration(ImmutableArray<ParallelBranchDesc
 public sealed record ParallelBranchDescriptor(string Id, string Label, string AnchorNodeId);
 public sealed record ParallelBranchConfiguration(string ForkNodeId, string BranchId);
 public sealed record ParallelJoinConfiguration(string ForkNodeId, ImmutableArray<string> BranchIds);
+public sealed record ParallelRendezvousConfiguration(ImmutableArray<string> BranchIds);
+public sealed record ParallelCollaborationRegion(string ForkNodeId, string RendezvousNodeId, string JoinNodeId,
+    ImmutableArray<string> ChannelIds, int? TimeoutSeconds, ImmutableArray<ParallelCollaborationBranch> Branches)
+{
+    /// <summary>The second ordered barrier, required by schema 1.35 and omitted by schema 1.33.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SecondRendezvousNodeId { get; init; }
+}
+public sealed record ParallelCollaborationBranch(string BranchId, ImmutableArray<ParallelCollaborationAgentGrant> Agents);
+public sealed record ParallelCollaborationAgentGrant(string AgentNodeId, string Phase, ImmutableArray<string> Channels)
+{
+    /// <summary>The operation granted in schema 1.35; omitted from schema-1.33 grants.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Role { get; init; }
+}
+
+public static class ParallelCollaborationPhases
+{
+    public const string Publish = "publish";
+    public const string Read = "read";
+    public const string Phase1 = "phase1";
+    public const string Phase2 = "phase2";
+}
+
+public static class ParallelCollaborationRoles
+{
+    public const string Publish = "publish";
+    public const string Read = "read";
+}
+
+public static class ParallelCollaborationLimits
+{
+    public const int MaximumChannels = 8;
+    public const int MaximumChannelIdLength = 64;
+    public const int MaximumMessageCharacters = 4_000;
+    public const int MaximumMessagesPerChannel = 32;
+    public const int MaximumMessagesPerRegion = 64;
+    public const int MaximumSnapshotBytes = 65_536;
+
+    public static bool IsValidChannelId(string? id) => id is { Length: > 0 and <= MaximumChannelIdLength } &&
+        id[0] is >= 'a' and <= 'z' && id.All(character => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '-' or '_');
+}
 
 public sealed record LoopConfiguration(StringCondition ContinueWhile, int MaximumIterations);
 public sealed record TerminationConfiguration(string Outcome);

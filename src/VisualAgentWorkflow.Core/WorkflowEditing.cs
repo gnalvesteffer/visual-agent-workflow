@@ -68,16 +68,16 @@ public static class WorkflowEditing
 
     public static WorkflowDefinition ChangeOperation(WorkflowDefinition definition, string nodeId, string type)
     {
-        if (!WorkflowDraftEditing.HasOnlyIncompleteTopologyIssues(definition)) WorkflowValidator.ThrowIfInvalid(definition);
+        if (!WorkflowDraftEditing.HasOnlyDraftableIssues(definition)) WorkflowValidator.ThrowIfInvalid(definition);
         RequireTransformNode(definition, nodeId);
         RequireTransform(type);
-        return WorkflowDraftEditing.ValidateEdit(definition,
+        return WorkflowDraftEditing.ValidateEdit(
             definition with { Nodes = definition.Nodes.SetItem(nodeId, new(type, "1.0.0")) });
     }
 
     public static WorkflowDefinition ReplaceNode(WorkflowDefinition definition, string nodeId, NodeDefinition node)
     {
-        if (!WorkflowDraftEditing.HasOnlyIncompleteTopologyIssues(definition)) WorkflowValidator.ThrowIfInvalid(definition);
+        if (!WorkflowDraftEditing.HasOnlyDraftableIssues(definition)) WorkflowValidator.ThrowIfInvalid(definition);
         RequireTransformNode(definition, nodeId);
         RequireEditable(node.Type);
         var result = definition with
@@ -85,7 +85,7 @@ public static class WorkflowEditing
             SchemaVersion = SchemaFor(definition, node),
             Nodes = definition.Nodes.SetItem(nodeId, node)
         };
-        return WorkflowDraftEditing.ValidateEdit(definition, result);
+        return WorkflowDraftEditing.ValidateEdit(result);
     }
 
     internal static WorkflowDefinition Reconnect(WorkflowDefinition definition, IReadOnlyList<string> order)

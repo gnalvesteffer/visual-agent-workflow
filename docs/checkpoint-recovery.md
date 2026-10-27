@@ -72,7 +72,7 @@ Studio and ordinary `LocalWorkflowRuntime` still mark unfinished work interrupte
 
 ## Database and runtime compatibility
 
-The dedicated SQLite run database migrates schema 1 to **schema 2** transactionally by adding `run_checkpoints`; existing headers/events remain unchanged. Workflow definitions, portable packages, layout and authoring-catalog schemas do not change. Older run-store binaries reject schema 2 and cannot be used for downgrade. Back up and stop all writers before upgrade.
+The dedicated SQLite run database migrates schema 1 to **schema 2** transactionally by adding `run_checkpoints`, then schema 2 to **schema 3** by adding the separate `reconciliation_decisions` table; existing headers, events, and checkpoints remain unchanged. Workflow definitions, portable packages, layout and authoring-catalog schemas do not change. Older run-store binaries reject schema 2 or 3 and cannot be used for downgrade. Back up and stop all writers before upgrade.
 
 The current native format stamp is `agent-framework/1.26.0;vaw-adapter/1`. Package or adapter changes must explicitly review checkpoint compatibility and update that stamp when needed. There is no cross-version native-state migration guarantee. Historical snapshots remain inspectable without deserializing/executing the native checkpoint.
 

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using VisualAgentWorkflow.AgentFramework;
 using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Hosting;
@@ -28,12 +29,14 @@ public static class WorkflowHostingExtensions
         }
         services.AddSingleton(new Registration(directory));
         services.AddLogging();
+        services.TryAddSingleton<ParallelCollaborationRuntimeOptions>();
         services.TryAddSingleton(_ => new FileRunJournal(directory));
         services.TryAddSingleton<IWorkflowRunStore>(provider => provider.GetRequiredService<FileRunJournal>());
         services.TryAddSingleton(provider => new LocalWorkflowRuntime(
             provider.GetRequiredService<IWorkflowRunStore>(),
             provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<LocalWorkflowRuntime>>(),
-            provider.GetService<INodeToolBroker>(), provider.GetService<IAgentNodeExecutor>()));
+            provider.GetService<INodeToolBroker>(), provider.GetService<IAgentNodeExecutor>(),
+            provider.GetRequiredService<ParallelCollaborationRuntimeOptions>()));
         services.TryAddSingleton<IWorkflowClient>(provider => provider.GetRequiredService<LocalWorkflowRuntime>());
         services.TryAddSingleton<IWorkflowRunControl>(provider => provider.GetRequiredService<LocalWorkflowRuntime>());
         services.TryAddSingleton<IWorkflowApprovalClient>(provider => provider.GetRequiredService<LocalWorkflowRuntime>());

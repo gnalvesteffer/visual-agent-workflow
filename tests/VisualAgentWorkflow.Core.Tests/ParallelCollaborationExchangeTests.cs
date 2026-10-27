@@ -1,4 +1,5 @@
 using VisualAgentWorkflow.Core;
+using System.Text;
 using Xunit;
 
 namespace VisualAgentWorkflow.Core.Tests;
@@ -73,20 +74,76 @@ public sealed class ParallelCollaborationExchangeTests
     }
 
     [Fact]
-    public void Arrive_WhenSnapshotLimitIsExceeded_AbortsWithoutExposingPartialSnapshot()
+    public void Send_WhenCanonicalUtf8SnapshotLimitWouldBeExceeded_RejectsAppendBeforeRecordingIt()
     {
         var exchange = CreateExchange();
-        exchange.Send("branch_a", "research", new string('a', ParallelCollaborationExchange.MaximumMessageCharacters));
-        exchange.Send("branch_b", "research", new string('b', ParallelCollaborationExchange.MaximumMessageCharacters));
-        exchange.Send("branch_a", "research", new string('c', ParallelCollaborationExchange.MaximumMessageCharacters));
-        exchange.Send("branch_b", "research", new string('d', ParallelCollaborationExchange.MaximumMessageCharacters));
-        exchange.Send("branch_a", "research", new string('e', ParallelCollaborationExchange.MaximumMessageCharacters));
-        exchange.Arrive("branch_a");
+        exchange.Send("branch_a", "research", new string('é', ParallelCollaborationExchange.MaximumMessageCharacters));
+        exchange.Send("branch_b", "research", new string('界', ParallelCollaborationExchange.MaximumMessageCharacters));
 
-        Assert.Throws<InvalidOperationException>(() => exchange.Arrive("branch_b"));
-        Assert.True(exchange.IsAborted);
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            exchange.Send("branch_a", "research", string.Concat(Enumerable.Repeat("😀", ParallelCollaborationExchange.MaximumMessageCharacters / 2))));
+
+        Assert.Contains("byte limit", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(exchange.IsAborted);
         Assert.False(exchange.IsReleased);
-        Assert.Throws<InvalidOperationException>(() => exchange.ReadSnapshot("branch_a", "research"));
+        var accepted = exchange.Arrive("branch_a");
+        Assert.False(accepted.Released);
+        var release = exchange.Arrive("branch_b");
+        Assert.True(release.Released);
+        Assert.NotNull(release.Snapshot);
+        Assert.InRange(release.Snapshot.SerializedBytes, 1, ParallelCollaborationExchange.MaximumSnapshotBytes);
+        Assert.Equal(release.Snapshot.SerializedBytes, System.Text.Encoding.UTF8.GetByteCount(release.Snapshot.CanonicalJson));
+        Assert.Equal(64, release.Snapshot.Sha256.Length);
+    }
+
+    [Fact]
+    public void Release_UsesStableCanonicalJsonAndSha256AcrossChannelInsertionOrder()
+    {
+        var first = CreateExchange();
+        first.Send("branch_a", "summary", "ready");
+        first.Send("branch_b", "research", "café");
+        first.Arrive("branch_a");
+        var firstSnapshot = first.Arrive("branch_b").Snapshot!;
+
+        var second = CreateExchange();
+        second.Send("branch_a", "summary", "ready");
+        second.Send("branch_b", "research", "café");
+        second.Arrive("branch_a");
+        var secondSnapshot = second.Arrive("branch_b").Snapshot!;
+
+        Assert.Equal(firstSnapshot.CanonicalJson, secondSnapshot.CanonicalJson);
+        Assert.Equal(firstSnapshot.Sha256, secondSnapshot.Sha256);
+        Assert.True(firstSnapshot.CanonicalJson.IndexOf("\"research\"", StringComparison.Ordinal) <
+            firstSnapshot.CanonicalJson.IndexOf("\"summary\"", StringComparison.Ordinal));
+        Assert.Contains("\"research\"", firstSnapshot.CanonicalJson, StringComparison.Ordinal);
+        Assert.Contains("\\u00E9", firstSnapshot.CanonicalJson, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void PhasedExchanges_ShareCumulativeChannelMessageAndSnapshotByteBudgets()
+    {
+        var budget = new ParallelCollaborationBudget();
+        var first = new ParallelCollaborationExchange(Guid.NewGuid(), Guid.NewGuid(), ["branch_a", "branch_b"], ["research"], budget);
+        for (var index = 0; index < ParallelCollaborationLimits.MaximumMessagesPerChannel; index++)
+            first.Send(index % 2 == 0 ? "branch_a" : "branch_b", "research", "finding");
+        Assert.Throws<InvalidOperationException>(() => first.Send("branch_a", "research", "too many"));
+        first.Arrive("branch_a");
+        var firstRelease = first.Arrive("branch_b").Snapshot!;
+
+        var second = new ParallelCollaborationExchange(Guid.NewGuid(), Guid.NewGuid(), ["branch_a", "branch_b"], ["research"], budget);
+        Assert.Throws<InvalidOperationException>(() => second.Send("branch_a", "research", "phase-two message"));
+
+        budget = new ParallelCollaborationBudget();
+        first = new ParallelCollaborationExchange(Guid.NewGuid(), Guid.NewGuid(), ["branch_a", "branch_b"], ["research"], budget);
+        for (var index = 0; index < 16; index++) first.Send(index % 2 == 0 ? "branch_a" : "branch_b", "research", new string('x', 3_500));
+        first.Arrive("branch_a");
+        firstRelease = first.Arrive("branch_b").Snapshot!;
+        second = new ParallelCollaborationExchange(Guid.NewGuid(), Guid.NewGuid(), ["branch_a", "branch_b"], ["research"], budget);
+        second.Send("branch_a", "research", new string('y', 3_500));
+        second.Send("branch_b", "research", new string('z', 3_500));
+        Assert.Throws<InvalidOperationException>(() => second.Send("branch_a", "research", new string('z', 3_500)));
+        Assert.InRange(firstRelease.SerializedBytes, 1, ParallelCollaborationLimits.MaximumSnapshotBytes);
+        Assert.Equal(firstRelease.SerializedBytes, Encoding.UTF8.GetByteCount(firstRelease.CanonicalJson));
     }
 
     [Fact]

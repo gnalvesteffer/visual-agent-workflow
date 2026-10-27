@@ -9,7 +9,7 @@ public static class ParallelBlockEditing
     {
         ArgumentNullException.ThrowIfNull(definition);
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (definition.SchemaVersion == WorkflowSchemaVersions.ConfigurableParallelGraph)
+        if (definition.SchemaVersion is WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph)
             return ConfigurableNodes(definition, nodeId);
         if (!definition.Nodes.TryGetValue(nodeId, out var selected) ||
             selected.Type is not (NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin))
@@ -53,7 +53,7 @@ public static class ParallelBlockEditing
 
     public static WorkflowDefinition Remove(WorkflowDefinition definition, string nodeId)
     {
-        if (definition.SchemaVersion == WorkflowSchemaVersions.ConfigurableParallelGraph)
+        if (definition.SchemaVersion is WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph)
             return RemoveConfigurable(definition, nodeId);
         var removed = Nodes(definition, nodeId).ToHashSet(StringComparer.Ordinal);
         var forkId = removed.Single(id => definition.Nodes[id].Type == NodeTypes.ParallelFork);
@@ -89,7 +89,7 @@ public static class ParallelBlockEditing
     private static ImmutableArray<string> ConfigurableNodes(WorkflowDefinition definition, string nodeId)
     {
         if (!definition.Nodes.TryGetValue(nodeId, out var selected) ||
-            selected.Type is not (NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.Agent))
+            selected.Type is not (NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.Agent or NodeTypes.BooleanBranch))
             throw new ArgumentException("Select a node inside a configurable parallel region.", nameof(nodeId));
         var forkEntry = definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.ParallelFork);
         var joinEntry = definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.ParallelJoin);
@@ -97,16 +97,38 @@ public static class ParallelBlockEditing
         var members = new HashSet<string>(StringComparer.Ordinal) { forkEntry.Key, joinEntry.Key };
         foreach (var branch in branches)
         {
-            var current = branch.AnchorNodeId;
-            for (var step = 0; step < definition.Nodes.Count; step++)
+            var pending = new Stack<string>();
+            var branchMembers = new HashSet<string>(StringComparer.Ordinal);
+            pending.Push(branch.AnchorNodeId);
+            while (pending.TryPop(out var current))
             {
+                if (current == joinEntry.Key || !branchMembers.Add(current)) continue;
                 if (!members.Add(current) && current != branch.AnchorNodeId)
                     throw new ArgumentException("The parallel region contains an overlapping branch.", nameof(nodeId));
-                var edge = definition.ExecutionConnections!.Values.Single(candidate => candidate.Source.NodeId == current);
-                if (edge.Target.NodeId == joinEntry.Key) break;
-                if (!definition.Nodes.TryGetValue(edge.Target.NodeId, out var target) || target.Type != NodeTypes.Agent)
+                if (!definition.Nodes.TryGetValue(current, out var currentNode) ||
+                    currentNode.Type is not (NodeTypes.ParallelBranch or NodeTypes.Agent or NodeTypes.BooleanBranch))
                     throw new ArgumentException("The parallel region contains an unsupported branch node.", nameof(nodeId));
-                current = edge.Target.NodeId;
+                var outgoing = definition.ExecutionConnections!.Values.Where(candidate => candidate.Source.NodeId == current).ToArray();
+                foreach (var edge in outgoing)
+                {
+                    if (edge.Target.NodeId != joinEntry.Key &&
+                        (!definition.Nodes.TryGetValue(edge.Target.NodeId, out var target) ||
+                            target.Type is not (NodeTypes.Agent or NodeTypes.BooleanBranch)))
+                        throw new ArgumentException("The parallel region contains an unsupported branch route.", nameof(nodeId));
+                    pending.Push(edge.Target.NodeId);
+                }
+            }
+        }
+        var pendingDataTargets = new Stack<string>(members.Where(id => definition.Nodes[id].Type == NodeTypes.BooleanBranch));
+        while (pendingDataTargets.TryPop(out var targetNodeId))
+        {
+            foreach (var edge in definition.Connections.Values.Where(edge => edge.Target.NodeId == targetNodeId))
+            {
+                var source = definition.Nodes[edge.Source.NodeId];
+                if (WorkflowPorts.ExplicitExecutionInputs(source).Length > 0 || WorkflowPorts.ExplicitExecutionOutputs(source).Length > 0 ||
+                    definition.Connections.Values.Any(candidate => candidate.Source.NodeId == edge.Source.NodeId && !members.Contains(candidate.Target.NodeId)))
+                    continue;
+                if (members.Add(edge.Source.NodeId)) pendingDataTargets.Push(edge.Source.NodeId);
             }
         }
         return members.Contains(nodeId)
@@ -118,6 +140,18 @@ public static class ParallelBlockEditing
     {
         WorkflowValidator.ThrowIfInvalid(definition);
         var removed = ConfigurableNodes(definition, nodeId).ToHashSet(StringComparer.Ordinal);
+        var pendingDataTargets = new Stack<string>(removed.Where(id => definition.Nodes[id].Type == NodeTypes.BooleanBranch));
+        while (pendingDataTargets.TryPop(out var targetNodeId))
+        {
+            foreach (var edge in definition.Connections.Values.Where(edge => edge.Target.NodeId == targetNodeId))
+            {
+                var source = definition.Nodes[edge.Source.NodeId];
+                if (WorkflowPorts.ExplicitExecutionInputs(source).Length > 0 || WorkflowPorts.ExplicitExecutionOutputs(source).Length > 0 ||
+                    definition.Connections.Values.Any(candidate => candidate.Source.NodeId == edge.Source.NodeId && !removed.Contains(candidate.Target.NodeId)))
+                    continue;
+                if (removed.Add(edge.Source.NodeId)) pendingDataTargets.Push(edge.Source.NodeId);
+            }
+        }
         var forkId = removed.Single(id => definition.Nodes[id].Type == NodeTypes.ParallelFork);
         var joinId = removed.Single(id => definition.Nodes[id].Type == NodeTypes.ParallelJoin);
         var executionConnections = definition.ExecutionConnections ?? throw new ArgumentException("The configurable graph has no execution connections.", nameof(definition));

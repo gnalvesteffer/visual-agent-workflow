@@ -62,6 +62,7 @@ public static class WorkflowPorts
     {
         NodeTypes.Agent or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch => ["execute"],
         NodeTypes.ParallelJoin when node.ParallelJoin is { } join => [.. join.BranchIds.Select(ParallelBranchLimits.PinId)],
+        NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Select(ParallelBranchLimits.PinId)],
         _ => []
     };
 
@@ -72,6 +73,7 @@ public static class WorkflowPorts
         NodeTypes.Agent => ["out"],
         NodeTypes.BooleanBranch => ["true", "false"],
         NodeTypes.ParallelFork when node.ParallelFork is { } fork => [.. fork.Branches.Select(branch => ParallelBranchLimits.PinId(branch.Id))],
+        NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Select(ParallelBranchLimits.PinId)],
         NodeTypes.ParallelBranch => ["then"],
         NodeTypes.ParallelJoin => ["then"],
         _ => []
@@ -190,7 +192,7 @@ public static class JsonProjectionLimits
 public static class WorkflowGraph
 {
     public static bool HasRouting(WorkflowDefinition definition) => definition.Nodes.Values.Any(n =>
-        n?.Type is NodeTypes.Condition or NodeTypes.BooleanBranch or NodeTypes.Merge or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.Loop or NodeTypes.Terminate);
+        n?.Type is NodeTypes.Condition or NodeTypes.BooleanBranch or NodeTypes.Merge or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous or NodeTypes.Loop or NodeTypes.Terminate);
 
     public static bool HasControlNodes(WorkflowDefinition definition) => HasRouting(definition) || definition.Nodes.Values.Any(n => n?.Type == NodeTypes.Approval);
 

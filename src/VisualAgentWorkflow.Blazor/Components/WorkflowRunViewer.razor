@@ -109,6 +109,7 @@
         <WorkflowApprovalPanel Snapshot="VisibleSnapshot" Client="ApprovalClient" CanDecide="@(follow && !Snapshot.IsTerminal)" OnDecision="ApprovalChanged" />
             </NodeInspector>
         </WorkflowGraphCanvas>
+        <ParallelCollaborationPlayback Events="VisibleEvents" />
         <details>
             <summary>Recorded events at this position (@Position)</summary>
             <div class="vaw-table-scroll">

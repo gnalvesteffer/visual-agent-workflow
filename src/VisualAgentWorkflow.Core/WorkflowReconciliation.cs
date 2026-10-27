@@ -34,7 +34,12 @@ public static class WorkflowWorkEvidence
 {
     public const int MaximumReturnedWork = 256;
 
-    public static RunWorkEvidence Read(RunSnapshot snapshot)
+    public static RunWorkEvidence Read(RunSnapshot snapshot) => Read(snapshot, MaximumReturnedWork);
+
+    /// <summary>Projects every unresolved item for trusted host-side exact-identity checks. Do not use for unbounded public responses.</summary>
+    public static RunWorkEvidence ReadAll(RunSnapshot snapshot) => Read(snapshot, int.MaxValue);
+
+    private static RunWorkEvidence Read(RunSnapshot snapshot, int maximumReturnedWork)
     {
         var work = new List<Pending>();
         var incomplete = false;
@@ -101,7 +106,7 @@ public static class WorkflowWorkEvidence
         }
         var unsettled = work.Where(w => !w.Resolved).Select(w => new UnresolvedRunWork(w.Kind, w.State, w.NodeId is { } id && snapshot.Header.Definition.Nodes.ContainsKey(id) ? id : null,
             w.InvocationId, w.CallId, w.RequestedSequence, w.LastSequence)).ToArray();
-        return new(unsettled.Take(MaximumReturnedWork).ToImmutableArray(), unsettled.Length, incomplete);
+        return new(unsettled.Take(maximumReturnedWork).ToImmutableArray(), unsettled.Length, incomplete);
     }
 
     private static Guid? ReadId(ExecutionEvent evt, string property, out bool malformed)

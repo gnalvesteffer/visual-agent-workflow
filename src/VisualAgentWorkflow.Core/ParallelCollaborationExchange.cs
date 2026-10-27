@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace VisualAgentWorkflow.Core;
@@ -13,19 +15,20 @@ internal sealed class ParallelCollaborationExchange
     public const int MaximumMessagesPerChannel = 32;
     public const int MaximumMessagesPerExchange = 64;
     public const int MaximumMessageCharacters = 4_000;
-    public const int MaximumSnapshotCharacters = ParallelGraphLimits.MaximumAggregateCharacters;
+    public const int MaximumSnapshotBytes = ParallelCollaborationLimits.MaximumSnapshotBytes;
+    private static readonly JsonSerializerOptions SnapshotJsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly object sync = new();
     private readonly ImmutableHashSet<string> participants;
     private readonly ImmutableHashSet<string> channels;
+    private readonly ParallelCollaborationBudget budget;
     private readonly Dictionary<string, List<ParallelCollaborationMessage>> messages = new(StringComparer.Ordinal);
     private readonly HashSet<string> arrivals = new(StringComparer.Ordinal);
-    private long nextSequence;
     private ParallelCollaborationSnapshot? snapshot;
     private string? abortReason;
 
     public ParallelCollaborationExchange(Guid runId, Guid regionInvocationId,
-        IEnumerable<string> branchIds, IEnumerable<string> channelIds)
+        IEnumerable<string> branchIds, IEnumerable<string> channelIds, ParallelCollaborationBudget? budget = null)
     {
         if (runId == Guid.Empty) throw new ArgumentException("A run identity is required.", nameof(runId));
         if (regionInvocationId == Guid.Empty) throw new ArgumentException("A region invocation identity is required.", nameof(regionInvocationId));
@@ -46,6 +49,7 @@ internal sealed class ParallelCollaborationExchange
         RegionInvocationId = regionInvocationId;
         participants = [.. branches];
         channels = [.. configuredChannels];
+        this.budget = budget ?? new ParallelCollaborationBudget();
     }
 
     public Guid RunId { get; }
@@ -68,11 +72,15 @@ internal sealed class ParallelCollaborationExchange
                 throw new ArgumentException($"A message must contain 1–{MaximumMessageCharacters} characters.", nameof(content));
 
             var channelMessages = messages.GetValueOrDefault(channel);
-            if (nextSequence >= MaximumMessagesPerExchange || channelMessages is { Count: >= MaximumMessagesPerChannel })
+            if (budget.MessageCount >= MaximumMessagesPerExchange || budget.ChannelMessageCount(channel) >= MaximumMessagesPerChannel)
                 throw new InvalidOperationException("The collaboration message limit was reached.");
 
-            var message = new ParallelCollaborationMessage(++nextSequence, branchId, channel, content);
+            var message = new ParallelCollaborationMessage(budget.MessageCount + 1, branchId, channel, content);
+            if (budget.ReleasedBytes + SerializeProspectiveSnapshot(channel, message).Length > MaximumSnapshotBytes)
+                throw new InvalidOperationException("The collaboration snapshot byte limit would be exceeded.");
+
             (channelMessages ??= messages[channel] = []).Add(message);
+            budget.RecordMessage(channel);
             return message;
         }
     }
@@ -100,14 +108,17 @@ internal sealed class ParallelCollaborationExchange
                 entry => entry.Key,
                 entry => entry.Value.ToImmutableArray(),
                 StringComparer.Ordinal);
-            var serializedSnapshot = JsonSerializer.Serialize(capturedMessages);
-            if (serializedSnapshot.Length > MaximumSnapshotCharacters)
+            var serializedSnapshot = JsonSerializer.SerializeToUtf8Bytes(capturedMessages, SnapshotJsonOptions);
+            if (serializedSnapshot.Length > MaximumSnapshotBytes)
             {
                 abortReason = "The collaboration snapshot exceeded its size limit.";
                 throw new InvalidOperationException(abortReason);
             }
 
-            snapshot = new(capturedMessages, serializedSnapshot.Length);
+            var canonicalJson = Encoding.UTF8.GetString(serializedSnapshot);
+            var digest = Convert.ToHexStringLower(SHA256.HashData(serializedSnapshot));
+            budget.RecordRelease(serializedSnapshot.Length);
+            snapshot = new(capturedMessages, serializedSnapshot.Length, canonicalJson, digest);
             return new(true, snapshot, arrivals.Count, participants.Count);
         }
     }
@@ -150,6 +161,19 @@ internal sealed class ParallelCollaborationExchange
             throw new InvalidOperationException("The channel is not configured for this collaboration exchange.");
     }
 
+    private byte[] SerializeProspectiveSnapshot(string changedChannel, ParallelCollaborationMessage appendedMessage)
+    {
+        var prospective = messages.ToImmutableSortedDictionary(
+            entry => entry.Key,
+            entry => entry.Key == changedChannel
+                ? entry.Value.Append(appendedMessage).ToImmutableArray()
+                : entry.Value.ToImmutableArray(),
+            StringComparer.Ordinal);
+        if (!prospective.ContainsKey(changedChannel))
+            prospective = prospective.Add(changedChannel, [appendedMessage]);
+        return JsonSerializer.SerializeToUtf8Bytes(prospective, SnapshotJsonOptions);
+    }
+
     private void ThrowIfAborted()
     {
         if (abortReason is not null)
@@ -166,11 +190,49 @@ internal sealed class ParallelCollaborationExchange
         id.All(character => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '-' or '_');
 }
 
+/// <summary>Region-wide cumulative budgets shared by the two schema-1.35 phase exchanges.</summary>
+internal sealed class ParallelCollaborationBudget
+{
+    private readonly object sync = new();
+    private readonly Dictionary<string, int> channelMessages = new(StringComparer.Ordinal);
+    private int messageCount;
+    private int releasedBytes;
+
+    public int MessageCount { get { lock (sync) return messageCount; } }
+    public int ReleasedBytes { get { lock (sync) return releasedBytes; } }
+
+    public int ChannelMessageCount(string channel)
+    {
+        lock (sync) return channelMessages.GetValueOrDefault(channel);
+    }
+
+    public void RecordMessage(string channel)
+    {
+        lock (sync)
+        {
+            messageCount++;
+            channelMessages[channel] = channelMessages.GetValueOrDefault(channel) + 1;
+        }
+    }
+
+    public void RecordRelease(int bytes)
+    {
+        lock (sync)
+        {
+            if (releasedBytes + bytes > ParallelCollaborationLimits.MaximumSnapshotBytes)
+                throw new InvalidOperationException("The collaboration snapshot byte limit would be exceeded.");
+            releasedBytes += bytes;
+        }
+    }
+}
+
 internal sealed record ParallelCollaborationMessage(long Sequence, string BranchId, string Channel, string Content);
 
 internal sealed record ParallelCollaborationSnapshot(
     ImmutableSortedDictionary<string, ImmutableArray<ParallelCollaborationMessage>> MessagesByChannel,
-    int SerializedCharacters);
+    int SerializedBytes,
+    string CanonicalJson,
+    string Sha256);
 
 internal sealed record ParallelCollaborationArrival(
     bool Released,

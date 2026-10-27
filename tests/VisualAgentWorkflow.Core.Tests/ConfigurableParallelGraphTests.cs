@@ -37,6 +37,105 @@ public sealed class ConfigurableParallelGraphTests
     }
 
     [Fact]
+    public void Schema134AllowsOneBranchLocalBooleanRouteWithExclusiveReconvergence()
+    {
+        var definition = BranchLocalDefinitionFromIntegerGraph();
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        Assert.Equal(WorkflowSchemaVersions.BranchLocalParallelGraph, WorkflowJson.Deserialize(WorkflowJson.Serialize(definition)).SchemaVersion);
+    }
+
+    [Fact]
+    public void Schema134WorkflowPackageRoundTripsWithoutChangingDefinitionHashOrLayout()
+    {
+        var definition = BranchLocalDefinitionFromIntegerGraph();
+        var layout = WorkflowLayout.Create(definition);
+        var json = WorkflowPackageJson.Serialize(definition, layout);
+
+        var imported = WorkflowPackageJson.Deserialize(json);
+
+        Assert.Equal(WorkflowSchemaVersions.BranchLocalParallelGraph, imported.Definition.SchemaVersion);
+        Assert.Equal(WorkflowJson.ComputeHash(definition), WorkflowJson.ComputeHash(imported.Definition));
+        Assert.Equal(WorkflowJson.Serialize(definition), WorkflowJson.Serialize(imported.Definition));
+        Assert.Equal(json, WorkflowPackageJson.Serialize(imported.Definition, imported.Layout));
+    }
+
+    [Fact]
+    public void Schema132StillRejectsBranchLocalBooleanRouting()
+    {
+        var definition = BranchLocalDefinition() with { SchemaVersion = WorkflowSchemaVersions.ConfigurableParallelGraph };
+
+        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code.StartsWith("parallel.branch.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BranchLocalBooleanRouteRejectsCrossBranchEscapeAndCycles()
+    {
+        var definition = BranchLocalDefinition();
+        var escaped = definition with
+        {
+            ExecutionConnections = definition.ExecutionConnections!.SetItem("research-false", Execution("branch-research", "false", "agent-review", "execute"))
+        };
+        var cyclic = definition with
+        {
+            ExecutionConnections = definition.ExecutionConnections!.SetItem("research-false", Execution("branch-research", "false", "branch-research", "execute"))
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(escaped), issue => issue.Code is "parallel.branch.entry" or "parallel.branch.overlap");
+        Assert.Contains(WorkflowValidator.Validate(cyclic), issue => issue.Code == "parallel.branch.cycle");
+    }
+
+    [Fact]
+    public void BranchLocalBooleanRouteRequiresBothOutcomesAndStableMatchingJoin()
+    {
+        var definition = BranchLocalDefinition();
+        var missingOutcome = definition with
+        {
+            ExecutionConnections = definition.ExecutionConnections!.Remove("research-false")
+        };
+        var wrongJoin = definition with
+        {
+            ExecutionConnections = definition.ExecutionConnections!.SetItem("agent-research-join",
+                Execution("agent-research", "out", "join", ParallelBranchLimits.PinId("review")))
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(missingOutcome), issue => issue.Code is "graph.degree" or "parallel.branch.path");
+        Assert.Contains(WorkflowValidator.Validate(wrongJoin), issue => issue.Code is "parallel.join.route" or "parallel.branch.entry");
+    }
+
+    [Fact]
+    public void IncompleteSchema134RouteRemainsSaveableAsADraftButCannotBePublished()
+    {
+        var incomplete = BranchLocalDefinition() with
+        {
+            ExecutionConnections = BranchLocalDefinition().ExecutionConnections!.Remove("research-false")
+        };
+
+        var saved = WorkflowJson.DeserializeDraft(WorkflowJson.SerializeDraft(incomplete));
+
+        Assert.Equal(WorkflowJson.ComputeDraftHash(incomplete), WorkflowJson.ComputeDraftHash(saved));
+        Assert.Throws<ArgumentException>(() => WorkflowJson.Serialize(incomplete));
+        Assert.Contains(WorkflowValidator.Validate(saved), issue => issue.Code is "parallel.branch.path" or "graph.degree");
+    }
+
+    [Fact]
+    public void RemovingTheSchema134RegionRemovesItsLocalRoutesAndReturnsToIntegerGraph()
+    {
+        var definition = BranchLocalDefinitionFromIntegerGraph();
+        var memberIds = ParallelBlockEditing.Nodes(definition, "branch-research");
+
+        Assert.Contains("branch-research", memberIds);
+        Assert.Contains("research-condition", memberIds);
+        var restored = ParallelBlockEditing.Remove(definition, "branch-research");
+
+        Assert.Equal(WorkflowSchemaVersions.IntegerGraph, restored.SchemaVersion);
+        Assert.DoesNotContain(restored.Nodes.Values, node => node.Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin);
+        Assert.DoesNotContain("branch-research", restored.Nodes.Keys);
+        Assert.DoesNotContain("research-condition", restored.Nodes.Keys);
+        Assert.Empty(WorkflowValidator.Validate(restored));
+    }
+
+    [Fact]
     public void RejectsCrossWiredBranchThatArrivesAtAnotherBranchesJoinPin()
     {
         var definition = Definition(3);
@@ -239,6 +338,56 @@ public sealed class ConfigurableParallelGraphTests
             .Add("join-json", new(new("join", "out"), new("output", "in"), "data"));
         return new WorkflowDefinition(WorkflowSchemaVersions.ConfigurableParallelGraph, "configurable-parallel", "input", nodes, data)
         {
+            ExecutionConnections = execution
+        };
+    }
+
+    private static WorkflowDefinition BranchLocalDefinition()
+    {
+        var definition = Definition(2);
+        var nodes = definition.Nodes
+            .Add("research-condition", new(NodeTypes.BooleanConstant, "1.0.0") { BooleanConstant = new(true) })
+            .Add("branch-research", new(NodeTypes.BooleanBranch, "1.0.0"));
+        var execution = definition.ExecutionConnections!
+            .Remove("research-agent")
+            .Add("research-anchor-branch", Execution("research", "then", "branch-research", "execute"))
+            .Add("research-true", Execution("branch-research", "true", "agent-research", "execute"))
+            .Add("research-false", Execution("branch-research", "false", "agent-research", "execute"));
+        var data = definition.Connections.Add("research-condition-value",
+            new(new("research-condition", "out"), new("branch-research", "condition"), "data"));
+        return definition with
+        {
+            SchemaVersion = WorkflowSchemaVersions.BranchLocalParallelGraph,
+            Nodes = nodes,
+            Connections = data,
+            ExecutionConnections = execution
+        };
+    }
+
+    private static WorkflowDefinition BranchLocalDefinitionFromIntegerGraph()
+    {
+        var definition = GraphEditing.CreateConfigurableParallelGraph(IntegerBranchGraph(), 2);
+        var forkId = definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.ParallelFork).Key;
+        var joinId = definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.ParallelJoin).Key;
+        var branch = definition.Nodes[forkId].ParallelFork!.Branches[0];
+        var anchorEdge = definition.ExecutionConnections!.Single(entry => entry.Value.Source.NodeId == branch.AnchorNodeId);
+        var nodes = definition.Nodes
+            .Add("research-condition", new(NodeTypes.BooleanConstant, "1.0.0") { BooleanConstant = new(true) })
+            .Add("branch-research", new(NodeTypes.BooleanBranch, "1.0.0"))
+            .Add("research-after", new(NodeTypes.Agent, "1.0.0", Agent: new("test.parallel", null, "after", [])));
+        var execution = definition.ExecutionConnections!
+            .Remove(anchorEdge.Key)
+            .Add("research-anchor-branch", Execution(branch.AnchorNodeId, "then", "branch-research", "execute"))
+            .Add("research-true", Execution("branch-research", "true", "research-after", "execute"))
+            .Add("research-false", Execution("branch-research", "false", "research-after", "execute"))
+            .Add("research-after-join", Execution("research-after", "out", joinId, ParallelBranchLimits.PinId(branch.Id)));
+        var data = definition.Connections.Add("research-condition-value",
+            new(new("research-condition", "out"), new("branch-research", "condition"), "data"));
+        return definition with
+        {
+            SchemaVersion = WorkflowSchemaVersions.BranchLocalParallelGraph,
+            Nodes = nodes,
+            Connections = data,
             ExecutionConnections = execution
         };
     }

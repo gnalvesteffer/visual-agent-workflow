@@ -47,14 +47,32 @@ public static class WorkflowJson
     {
         ArgumentNullException.ThrowIfNull(definition);
         var issues = WorkflowValidator.Validate(definition);
-        var draftableTopologyIssues = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "workflow.degree", "graph.degree", "graph.unreachable", "graph.cycle", "data.degree", "data.unused", "execution.port"
-        };
-        var blockingIssue = issues.FirstOrDefault(issue => !draftableTopologyIssues.Contains(issue.Code));
+        // Schema 1.33 collaboration regions are configured in stages: authors add the node first,
+        // then define its branch pins, region channels, timeout, grants, and finally wire the routes.
+        // Keep every intermediate state editable and persistable as a draft. Strict serialization,
+        // publication, and execution still use WorkflowValidator.ThrowIfInvalid.
+        // Schema 1.34 branch-local routes are also authored incrementally; preserve incomplete branch
+        // outcomes for draft recovery while strict serialization, publication, and execution stay strict.
+        var blockingIssue = issues.FirstOrDefault(issue => !IsDraftableIssue(issue));
         if (blockingIssue is not null)
             throw new ArgumentException($"Draft structure is invalid at {blockingIssue.Path}: {blockingIssue.Message}", nameof(definition));
     }
+
+    internal static bool HasOnlyDraftableIssues(WorkflowDefinition definition)
+    {
+        var issues = WorkflowValidator.Validate(definition);
+        return !issues.IsEmpty && issues.All(IsDraftableIssue);
+    }
+
+    private static bool IsDraftableIssue(ValidationIssue issue) =>
+        issue.Code is "workflow.degree" or "graph.degree" or "graph.unreachable" or "graph.cycle" or
+            "data.degree" or "data.unused" or "execution.port" or "execution.target" or "execution.degree" or
+            "execution.pure" or "execution.path" or "parallel.rendezvous.configuration" or "parallel.block.count" ||
+        issue.Code.StartsWith("parallel.branch.", StringComparison.Ordinal) ||
+        issue.Code.StartsWith("parallel.join.", StringComparison.Ordinal) ||
+        issue.Code.StartsWith("parallel.fork.", StringComparison.Ordinal) ||
+        issue.Code.StartsWith("parallel.anchor.", StringComparison.Ordinal) ||
+        issue.Code.StartsWith("parallel.collaboration.", StringComparison.Ordinal);
 
     private static string SerializeNormalized(WorkflowDefinition definition)
     {

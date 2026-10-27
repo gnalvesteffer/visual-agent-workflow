@@ -42,10 +42,13 @@ public sealed record NodeInvocationContext(Guid RunId, WorkflowRevision Revision
     public Func<NodeInvocationContext, INodeToolScope>? OpenToolScope { get; init; }
     /// <summary>Runtime-owned latch for one model-proposed Agent execution route.</summary>
     public Func<string, ValueTask>? ProposeAgentRoute { get; init; }
-    /// <summary>Internal test-plan grant for one graph-level collaboration phase; never serialized.</summary>
+    /// <summary>Runtime-authorized grant for one graph-level collaboration phase; never serialized.</summary>
     internal IReadOnlyList<string>? CollaborationSendChannels { get; init; }
-    /// <summary>Internal test-plan grant for one graph-level collaboration phase; never serialized.</summary>
+    /// <summary>Runtime-authorized grant for one graph-level collaboration phase; never serialized.</summary>
     internal IReadOnlyList<string>? CollaborationReadChannels { get; init; }
+    /// <summary>The exact collaboration phase and role granted to this Agent invocation.</summary>
+    internal string? CollaborationPhase { get; init; }
+    internal string? CollaborationRole { get; init; }
     /// <summary>Runtime-scoped publish callback; missing access means the agent has no channel capability.</summary>
     internal Func<string, string, CancellationToken, ValueTask<string>>? CollaborationSend { get; init; }
     /// <summary>Runtime-scoped immutable snapshot read callback; missing access means no read capability.</summary>

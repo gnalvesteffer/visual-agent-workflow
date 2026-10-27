@@ -6,7 +6,7 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>Transactional local run evidence. Concurrent appends use expected sequences; runtime ownership is still exclusive.</summary>
-public sealed partial class SqliteWorkflowRunStore : IWorkflowCheckpointStore, IParameterizedWorkflowRunStore, ILocalRuntimeOwnershipStore, IWorkflowRunReconciliationStore
+public sealed partial class SqliteWorkflowRunStore : IWorkflowCheckpointStore, IParameterizedWorkflowRunStore, ILocalRuntimeOwnershipStore, IWorkflowRunReconciliationStore, IWorkflowRunReconciliationDecisionStore
 {
     private const int ApplicationId = 0x56415752;
     private readonly string connectionString;
@@ -26,7 +26,7 @@ public sealed partial class SqliteWorkflowRunStore : IWorkflowCheckpointStore, I
         var version = Scalar(connection, transaction, "PRAGMA user_version;");
         var tableCount = Scalar(connection, transaction, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';");
         if (applicationId != ApplicationId && (applicationId != 0 || version != 0 || tableCount != 0) ||
-            applicationId == ApplicationId && version is not (1 or 2))
+            applicationId == ApplicationId && version is not (1 or 2 or 3))
             throw new InvalidDataException("Unsupported run-store database identity or schema version.");
         Execute(connection, transaction, $"""
             CREATE TABLE IF NOT EXISTS runs (
@@ -42,8 +42,25 @@ public sealed partial class SqliteWorkflowRunStore : IWorkflowCheckpointStore, I
             CREATE TABLE IF NOT EXISTS run_checkpoints (
                 run_id TEXT PRIMARY KEY REFERENCES runs(run_id),
                 checkpoint_json TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS reconciliation_decisions (
+                run_id TEXT NOT NULL REFERENCES runs(run_id),
+                decision_id TEXT NOT NULL,
+                revision_id TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                assessment_sequence INTEGER NOT NULL CHECK(assessment_sequence >= 0),
+                work_kind TEXT NOT NULL,
+                requested_sequence INTEGER NOT NULL CHECK(requested_sequence > 0),
+                node_id TEXT NOT NULL,
+                invocation_id TEXT NOT NULL,
+                call_id TEXT NULL,
+                assertion TEXT NOT NULL,
+                actor_id TEXT NOT NULL CHECK(length(actor_id) BETWEEN 1 AND 256),
+                recorded_at TEXT NOT NULL,
+                PRIMARY KEY(run_id, decision_id));
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_reconciliation_decisions_work
+                ON reconciliation_decisions(run_id, work_kind, requested_sequence, node_id, invocation_id, ifnull(call_id, ''));
             PRAGMA application_id={ApplicationId};
-            PRAGMA user_version=2;
+            PRAGMA user_version=3;
             """);
         transaction.Commit();
     }

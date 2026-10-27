@@ -353,7 +353,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                     throw new InvalidOperationException("The runtime did not provide the assigned collaboration publish capability.");
                 using var schema = ChannelSchema([.. sendChannels], includeMessage: true);
                 functions.Add(new BoundMcpFunction("collaboration_publish",
-                    "Publish a bounded message to a channel assigned to this parallel collaboration branch.",
+                    $"Publish a bounded message to a channel assigned to this parallel collaboration branch for {invocation.CollaborationPhase ?? "the collaboration"}.",
                     schema.RootElement.Clone(), async (arguments, token) =>
                         await invocation.CollaborationSend(RequiredString(arguments, "channel"), RequiredString(arguments, "message"), token)));
             }
@@ -363,7 +363,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                     throw new InvalidOperationException("The runtime did not provide the assigned collaboration snapshot capability.");
                 using var schema = ChannelSchema([.. readChannels], includeMessage: false);
                 functions.Add(new BoundMcpFunction("collaboration_read",
-                    "Read the immutable message snapshot captured when every branch reached the collaboration rendezvous.",
+                    $"Read the immutable {invocation.CollaborationPhase ?? "collaboration"} snapshot captured when every branch reached its rendezvous.",
                     schema.RootElement.Clone(), async (arguments, token) =>
                         await invocation.CollaborationRead(RequiredString(arguments, "channel"), token)));
             }
@@ -393,6 +393,8 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                     {
                         InvocationId = childInvocationId,
                         ToolRequirements = profile.Tools,
+                        CollaborationPhase = null,
+                        CollaborationRole = null,
                         CollaborationSendChannels = null,
                         CollaborationReadChannels = null,
                         CollaborationSend = null,

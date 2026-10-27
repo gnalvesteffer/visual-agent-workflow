@@ -63,6 +63,34 @@ public sealed class ConfigurableParallelExecutionTests
         Assert.Equal(ExecutionEventKinds.Failed, events[^1].Kind);
     }
 
+    [Theory]
+    [InlineData(true, "true", "selected")]
+    [InlineData(false, "false", "skipped")]
+    public async Task BranchLocalDecisionRunsOneOutcomeReconvergesAndRecordsStableBranchEvidence(
+        bool decision, string expectedPort, string expectedAgent)
+    {
+        var definition = BranchLocalDefinition(decision);
+        var executor = new BranchLocalExecutor();
+        var events = new List<ExecutionEvent>();
+        var result = await new WorkflowRunner(agents: executor).ExecuteAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "test"), "request",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }).WaitAsync(TimeSpan.FromSeconds(10));
+
+        using var json = JsonDocument.Parse(result);
+        Assert.EndsWith($":{expectedAgent}:after", json.RootElement.GetProperty("branch_1").GetString());
+        Assert.EndsWith(":Branch 2", json.RootElement.GetProperty("branch_2").GetString());
+        Assert.Contains(expectedAgent, executor.Calls);
+        Assert.DoesNotContain(expectedPort == "true" ? "skipped" : "selected", executor.Calls);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "after");
+        using var decisionEvidence = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.BranchSelected && evt.NodeId == "route").Data!);
+        Assert.Equal(expectedPort, decisionEvidence.RootElement.GetProperty("port").GetString());
+        Assert.Equal("branch_1", decisionEvidence.RootElement.GetProperty("branchId").GetString());
+        Assert.True(decisionEvidence.RootElement.TryGetProperty("parallelActivationId", out _));
+        using var transferEvidence = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated && evt.NodeId == expectedAgent).Data!);
+        Assert.Equal("branch_1", transferEvidence.RootElement.GetProperty("branchId").GetString());
+        Assert.True(transferEvidence.RootElement.TryGetProperty("parallelActivationId", out _));
+    }
+
     private static WorkflowDefinition Definition(int branchCount = 3)
     {
         var branches = Enumerable.Range(1, branchCount)
@@ -95,6 +123,36 @@ public sealed class ConfigurableParallelExecutionTests
             .Add("join-json", new(new("join", "out"), new("output", "in"), "data"));
         return new WorkflowDefinition(WorkflowSchemaVersions.ConfigurableParallelGraph, "configurable-parallel-runtime", "input", nodes, data)
         {
+            ExecutionConnections = execution
+        };
+    }
+
+    private static WorkflowDefinition BranchLocalDefinition(bool decision)
+    {
+        var definition = Definition(2);
+        var nodes = definition.Nodes
+            .Add("condition", new(NodeTypes.BooleanConstant, "1.0.0") { BooleanConstant = new(decision) })
+            .Add("route", new(NodeTypes.BooleanBranch, "1.0.0"))
+            .Add("selected", new(NodeTypes.Agent, "1.0.0", Agent: new("test.parallel", null, "selected", [])))
+            .Add("skipped", new(NodeTypes.Agent, "1.0.0", Agent: new("test.parallel", null, "skipped", [])))
+            .Add("after", new(NodeTypes.Agent, "1.0.0", Agent: new("test.parallel", null, "after", [])))
+            .Remove("agent-branch_1");
+        var execution = definition.ExecutionConnections!
+            .Remove("branch_1-agent")
+            .Remove("agent-branch_1-join")
+            .Add("anchor-route", Edge("anchor_1", "then", "route", "execute"))
+            .Add("route-true", Edge("route", "true", "selected", "execute"))
+            .Add("route-false", Edge("route", "false", "skipped", "execute"))
+            .Add("selected-after", Edge("selected", "out", "after", "execute"))
+            .Add("skipped-after", Edge("skipped", "out", "after", "execute"))
+            .Add("after-join", Edge("after", "out", "join", "branch.branch_1"));
+        var data = definition.Connections.Add("condition-route",
+            new(new("condition", "out"), new("route", "condition"), "data"));
+        return definition with
+        {
+            SchemaVersion = WorkflowSchemaVersions.BranchLocalParallelGraph,
+            Nodes = nodes,
+            Connections = data,
             ExecutionConnections = execution
         };
     }
@@ -137,6 +195,21 @@ public sealed class ConfigurableParallelExecutionTests
                 if (previous == observed) return;
                 observed = previous;
             }
+        }
+    }
+
+    private sealed class BranchLocalExecutor : IAgentNodeExecutor
+    {
+        private readonly List<string> calls = [];
+        public IReadOnlyList<string> Calls => calls;
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>([new("test.parallel", "Test", "test", true)]);
+
+        public Task<string> ExecuteAsync(NodeInvocationContext invocation, string input, CancellationToken cancellationToken = default)
+        {
+            var instruction = invocation.Revision.Definition.Nodes[invocation.NodeId].Agent!.Instructions;
+            lock (calls) calls.Add(instruction);
+            return Task.FromResult($"{input}:{instruction}");
         }
     }
 }

@@ -41,7 +41,9 @@ internal static class RunStoreRecords
             if (terminal) throw new InvalidOperationException("No event may follow a terminal outcome.");
             terminal = IsTerminal(evt.Kind);
         }
-        return snapshot with { Events = snapshot.Events.AddRange(batch) };
+        var next = snapshot with { Events = snapshot.Events.AddRange(batch) };
+        ParallelCollaborationJournalValidation.Validate(next);
+        return next;
     }
 
     public static void Validate(RunSnapshot snapshot, Guid runId)
@@ -80,6 +82,7 @@ internal static class RunStoreRecords
                 throw new InvalidDataException("Invalid event identity/sequence or terminal history.");
             terminal = IsTerminal(evt.Kind);
         }
+        ParallelCollaborationJournalValidation.Validate(snapshot);
     }
 
     private static bool IsTerminal(string kind) => kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Terminated or ExecutionEventKinds.Failed or

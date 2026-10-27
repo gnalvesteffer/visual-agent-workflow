@@ -1,0 +1,279 @@
+@using System.Globalization
+@using System.Text.Json
+@using VisualAgentWorkflow.Core
+
+@if (Items.Count > 0)
+{
+    <section class="vaw-collaboration-playback" aria-label="Parallel collaboration evidence">
+        <h3>Parallel collaboration</h3>
+        <p class="vaw-help">Recorded event payloads at this replay position. Missing fields may be redacted or incomplete. This view does not execute agents or revalidate cross-event snapshot integrity.</p>
+        <ol class="vaw-collaboration-timeline">
+            @foreach (var item in Items)
+            {
+                <li @key="item.Event.Sequence">
+                    <header>
+                        <strong>@item.Title</strong>
+                        <span>Event @item.Event.Sequence · @item.Event.Timestamp.ToString("u", CultureInfo.InvariantCulture)</span>
+                    </header>
+                    @if (item.UnavailableReason is not null)
+                    {
+                        <p class="vaw-collaboration-unavailable" role="status">Evidence unavailable or incomplete: @item.UnavailableReason</p>
+                    }
+                    else
+                    {
+                        <dl>
+                            @foreach (var field in item.Fields)
+                            {
+                                <div><dt>@field.Name</dt><dd>@field.Value</dd></div>
+                            }
+                        </dl>
+                        @if (item.ExactValue is not null)
+                        {
+                            <details>
+                                <summary>@item.ExactValueLabel</summary>
+                                <pre>@item.ExactValue</pre>
+                            </details>
+                        }
+                    }
+                </li>
+            }
+        </ol>
+    </section>
+}
+
+@code {
+    [Parameter] public IEnumerable<ExecutionEvent> Events { get; set; } = [];
+
+    private IReadOnlyList<Projection> Items => Events
+        .Where(evt => CollaborationKinds.Contains(evt.Kind))
+        .Select(Project)
+        .ToArray();
+
+    private static readonly HashSet<string> CollaborationKinds = new(StringComparer.Ordinal)
+    {
+        ExecutionEventKinds.ParallelCollaborationRegionStarted,
+        ExecutionEventKinds.ParallelCollaborationMessageSent,
+        ExecutionEventKinds.ParallelCollaborationMessagesRead,
+        ExecutionEventKinds.ParallelCollaborationArrival,
+        ExecutionEventKinds.ParallelCollaborationReleased,
+        ExecutionEventKinds.ParallelCollaborationAborted
+    };
+
+    private static Projection Project(ExecutionEvent evt)
+    {
+        var title = evt.Kind switch
+        {
+            ExecutionEventKinds.ParallelCollaborationRegionStarted => "Region started",
+            ExecutionEventKinds.ParallelCollaborationMessageSent => "Message sent",
+            ExecutionEventKinds.ParallelCollaborationMessagesRead => "Messages read",
+            ExecutionEventKinds.ParallelCollaborationArrival => "Branch arrived",
+            ExecutionEventKinds.ParallelCollaborationReleased => "Snapshot released",
+            ExecutionEventKinds.ParallelCollaborationAborted => "Region aborted",
+            _ => "Collaboration event"
+        };
+
+        if (string.IsNullOrWhiteSpace(evt.Data))
+            return Projection.Unavailable(evt, title, "the event has no recorded payload");
+
+        try
+        {
+            using var document = JsonDocument.Parse(evt.Data);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return Projection.Unavailable(evt, title, "the payload is not a JSON object");
+            if (!root.TryGetProperty("version", out var version) || version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out var versionNumber))
+                return Projection.Unavailable(evt, title, "the payload version is missing or malformed");
+            if (versionNumber is not (1 or 2))
+                return Projection.Unavailable(evt, title, $"payload version {versionNumber} is unsupported");
+
+            var phased = versionNumber == 2;
+            var fields = new List<Field>();
+            string? exactValue = null;
+            string? exactValueLabel = null;
+            string? missing = evt.Kind switch
+            {
+                ExecutionEventKinds.ParallelCollaborationRegionStarted => AddRegionStarted(root, fields, phased),
+                ExecutionEventKinds.ParallelCollaborationMessageSent => AddMessageSent(root, fields, phased),
+                ExecutionEventKinds.ParallelCollaborationMessagesRead => AddMessagesRead(root, fields, out exactValue, phased),
+                ExecutionEventKinds.ParallelCollaborationArrival => AddArrival(root, fields, phased),
+                ExecutionEventKinds.ParallelCollaborationReleased => AddReleased(root, fields, out exactValue, phased),
+                ExecutionEventKinds.ParallelCollaborationAborted => AddAborted(root, fields, phased),
+                _ => "the event kind is not supported by this view"
+            };
+
+            if (missing is not null)
+                return Projection.Unavailable(evt, title, missing);
+
+            if (evt.Kind == ExecutionEventKinds.ParallelCollaborationReleased && exactValue is not null)
+                exactValueLabel = "Exact recorded snapshot value";
+            else if (evt.Kind == ExecutionEventKinds.ParallelCollaborationMessagesRead && exactValue is not null)
+                exactValueLabel = "Exact recorded read result";
+
+            return new(evt, title, fields, null, exactValueLabel, exactValue);
+        }
+        catch (JsonException)
+        {
+            return Projection.Unavailable(evt, title, "the payload is not valid JSON");
+        }
+    }
+
+    private static string? AddRegionStarted(JsonElement root, List<Field> fields, bool phased)
+    {
+        if (!AddString(root, fields, "regionNodeId", "Region node") ||
+            !AddString(root, fields, "forkNodeId", "Fork node") ||
+            !AddString(root, fields, "joinNodeId", "Join node") ||
+            !AddGuid(root, fields, "regionInvocationId", "Region invocation") ||
+            !AddNumber(root, fields, "timeoutSeconds", "Effective timeout", " seconds") ||
+            !AddDate(root, fields, "deadline", "Deadline"))
+            return "one or more required region-start fields are missing or malformed";
+        if (phased && !AddString(root, fields, "secondRendezvousNodeId", "Second rendezvous"))
+            return "the second rendezvous field is missing or malformed";
+        return null;
+    }
+
+    private static string? AddMessageSent(JsonElement root, List<Field> fields, bool phased)
+    {
+        if (phased && !AddPhase(root, fields) || !AddGuid(root, fields, "regionInvocationId", "Region invocation") ||
+            !AddPositiveInteger(root, fields, "sequence", "Message sequence") ||
+            !AddString(root, fields, "branchId", "Branch") ||
+            !AddString(root, fields, "channel", "Channel") ||
+            !AddString(root, fields, "content", "Message content", allowEmpty: true))
+            return "one or more required message fields are missing or malformed";
+        return null;
+    }
+
+    private static string? AddMessagesRead(JsonElement root, List<Field> fields, out string? exactValue, bool phased)
+    {
+        exactValue = null;
+        if (phased && !AddPhase(root, fields) || !AddGuid(root, fields, "regionInvocationId", "Region invocation") ||
+            !AddString(root, fields, "branchId", "Branch") ||
+            !AddString(root, fields, "channel", "Channel") ||
+            !AddString(root, fields, "snapshotSha256", "Released snapshot digest") ||
+            !TryString(root, "viewJson", out exactValue))
+            return "one or more required read fields are missing or malformed";
+        fields.Add(new("Read result", "Available below"));
+        return null;
+    }
+
+    private static string? AddArrival(JsonElement root, List<Field> fields, bool phased)
+    {
+        if (phased && !AddPhase(root, fields) || !AddGuid(root, fields, "regionInvocationId", "Region invocation") ||
+            !AddString(root, fields, "branchId", "Branch") ||
+            !AddNonnegativeInteger(root, fields, "arrivedCount", "Arrived branches") ||
+            !AddPositiveInteger(root, fields, "participantCount", "Participants") ||
+            !AddBoolean(root, fields, "released", "Released"))
+            return "one or more required arrival fields are missing or malformed";
+        return null;
+    }
+
+    private static string? AddReleased(JsonElement root, List<Field> fields, out string? exactValue, bool phased)
+    {
+        exactValue = null;
+        if (phased && !AddPhase(root, fields) || !AddString(root, fields, "regionNodeId", "Region node") ||
+            !AddString(root, fields, "forkNodeId", "Fork node") ||
+            !AddString(root, fields, "joinNodeId", "Join node") ||
+            !AddGuid(root, fields, "regionInvocationId", "Region invocation") ||
+            !AddString(root, fields, "sha256", "Recorded snapshot digest") ||
+            !AddNonnegativeInteger(root, fields, "utf8Bytes", "Snapshot size", " bytes") ||
+            !TryString(root, "canonicalJson", out exactValue))
+            return "one or more required release fields are missing or malformed";
+        fields.Add(new("Integrity", "Digest is shown as recorded; this view does not recompute it."));
+        fields.Add(new("Snapshot value", "Available below"));
+        return null;
+    }
+
+    private static string? AddAborted(JsonElement root, List<Field> fields, bool phased)
+    {
+        if (!AddString(root, fields, "regionNodeId", "Region node") ||
+            !AddString(root, fields, "forkNodeId", "Fork node") ||
+            !AddString(root, fields, "joinNodeId", "Join node") ||
+            !AddGuid(root, fields, "regionInvocationId", "Region invocation") ||
+            !AddString(root, fields, "reason", "Reason") ||
+            !AddBoolean(root, fields, "released", "Snapshot had been released") ||
+            !AddNullableString(root, fields, "snapshotSha256", "Recorded snapshot digest"))
+            return "one or more required abort fields are missing or malformed";
+        if (phased && root.TryGetProperty("releasedPhases", out var phases) && phases.ValueKind == JsonValueKind.Array)
+            fields.Add(new("Released phases", string.Join(", ", phases.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.String).Select(item => item.GetString())) is { Length: > 0 } value ? value : "None"));
+        fields.Add(new("Effects", "Abort records the region outcome; it does not imply that completed side effects were rolled back."));
+        return null;
+    }
+
+    private static bool AddPhase(JsonElement root, List<Field> fields)
+    {
+        if (!TryString(root, "phase", out var phase) || phase is not (ParallelCollaborationPhases.Phase1 or ParallelCollaborationPhases.Phase2)) return false;
+        fields.Add(new("Phase", phase == ParallelCollaborationPhases.Phase1 ? "Phase 1" : "Phase 2"));
+        return true;
+    }
+
+    private static bool AddString(JsonElement root, List<Field> fields, string property, string label, bool allowEmpty = false)
+    {
+        if (!TryString(root, property, out var value) || (!allowEmpty && string.IsNullOrWhiteSpace(value))) return false;
+        fields.Add(new(label, value!));
+        return true;
+    }
+
+    private static bool AddGuid(JsonElement root, List<Field> fields, string property, string label)
+    {
+        if (!TryString(root, property, out var value) || !Guid.TryParse(value, out var id) || id == Guid.Empty) return false;
+        fields.Add(new(label, id.ToString()));
+        return true;
+    }
+
+    private static bool AddNumber(JsonElement root, List<Field> fields, string property, string label, string suffix)
+    {
+        if (!root.TryGetProperty(property, out var value) || value.ValueKind != JsonValueKind.Number || !value.TryGetDouble(out var number) || !double.IsFinite(number) || number <= 0) return false;
+        fields.Add(new(label, number.ToString("0.###", CultureInfo.InvariantCulture) + suffix));
+        return true;
+    }
+
+    private static bool AddPositiveInteger(JsonElement root, List<Field> fields, string property, string label) =>
+        AddInteger(root, fields, property, label, minimum: 1);
+
+    private static bool AddNonnegativeInteger(JsonElement root, List<Field> fields, string property, string label, string suffix = "") =>
+        AddInteger(root, fields, property, label, minimum: 0, suffix);
+
+    private static bool AddInteger(JsonElement root, List<Field> fields, string property, string label, long minimum, string suffix = "")
+    {
+        if (!root.TryGetProperty(property, out var value) || value.ValueKind != JsonValueKind.Number || !value.TryGetInt64(out var number) || number < minimum) return false;
+        fields.Add(new(label, number.ToString("N0", CultureInfo.InvariantCulture) + suffix));
+        return true;
+    }
+
+    private static bool AddBoolean(JsonElement root, List<Field> fields, string property, string label)
+    {
+        if (!root.TryGetProperty(property, out var value) || value.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) return false;
+        fields.Add(new(label, value.GetBoolean() ? "Yes" : "No"));
+        return true;
+    }
+
+    private static bool AddDate(JsonElement root, List<Field> fields, string property, string label)
+    {
+        if (!TryString(root, property, out var value) || !DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var date)) return false;
+        fields.Add(new(label, date.ToString("u", CultureInfo.InvariantCulture)));
+        return true;
+    }
+
+    private static bool AddNullableString(JsonElement root, List<Field> fields, string property, string label)
+    {
+        if (!root.TryGetProperty(property, out var value)) return false;
+        if (value.ValueKind == JsonValueKind.Null) fields.Add(new(label, "Not available at this event"));
+        else if (value.ValueKind == JsonValueKind.String) fields.Add(new(label, value.GetString() ?? ""));
+        else return false;
+        return true;
+    }
+
+    private static bool TryString(JsonElement root, string property, out string? value)
+    {
+        value = null;
+        if (!root.TryGetProperty(property, out var element) || element.ValueKind != JsonValueKind.String) return false;
+        value = element.GetString();
+        return value is not null;
+    }
+
+    private sealed record Field(string Name, string Value);
+    private sealed record Projection(ExecutionEvent Event, string Title, IReadOnlyList<Field> Fields,
+        string? UnavailableReason, string? ExactValueLabel = null, string? ExactValue = null)
+    {
+        public static Projection Unavailable(ExecutionEvent evt, string title, string reason) => new(evt, title, [], reason);
+    }
+}

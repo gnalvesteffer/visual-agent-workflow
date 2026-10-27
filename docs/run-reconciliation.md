@@ -76,4 +76,30 @@ Tests cover terminal runs with outstanding model/tool calls, distinct per-call i
 
 The consumer-observation browser smoke checks the protected metadata endpoint, rendered assessment, playback independence, source replacement and suppression during an outage. The separate checkpoint process-loss smoke verifies eligible saved-suspension and completed-run assessments. Existing provider and workflow checks remain deterministic; no live model credentials or external effects are used.
 
-Next work is a host-attributed operator reconciliation decision contract bound to an exact run/cursor/call identity, with append-only audit and no implicit execution. This release records **no such decisions**. Authenticated operator controls, effect reconciliation, automatic takeover, external-node recovery, durable approvals and production security remain separate milestones. See [checkpoint recovery](checkpoint-recovery.md), [observation](observation.md) and the [roadmap](roadmap.md).
+## Host-attributed assertion records
+
+The local SQLite decision-store capability is implemented as a separate append-only stream; no HTTP mutation route or Studio controls are exposed. Normal execution events reject appends after terminal status, so decisions remain separate and cannot corrupt history or playback. This boundary was adversarially reviewed and revised before implementation.
+
+Each assertion binds the run ID, revision ID, content hash, inspected assessment cursor, current execution head, and one complete work identity: kind, request sequence, node ID, invocation ID, and call ID. SQLite compares the current head and resolves the target against complete evidence atomically with insertion. The bounded 256-item assessment is display data, not an authoritative target list. Missing, malformed, ambiguous, stale, or already-settled targets fail without inserting anything. Assertions are accepted only after the run is terminal and target unresolved model/tool work.
+
+The closed disposition set is **believed completed**, **believed not applied**, and **remains unknown**. These labels describe a human assertion, not a provider fact. Records do not change execution events, run status, unresolved-work assessment, `CanResume`, checkpoint admission, or execution behavior. They never trigger a retry, history rewrite, tool grant, approval, or recovery. Explanatory free text is not stored.
+
+`WorkflowRunReconciliationDecisionService` accepts a host implementation of `IWorkflowRunReconciliationDecisionActor`; the command contains no actor field, and invalid or missing actor identity is rejected. Hosts must implement this provider by deriving a stable identifier from an authenticated principal. The development host still has placeholder identities and no production authorization. Hosts must therefore authorize reads and writes themselves; the service is an optional trusted-code capability, not an authenticated endpoint. The consumer observation API remains GET-only. Replaying the same decision ID and payload from the same actor returns the stored record; reusing that ID with changed content or asserting a second disposition for the same target conflicts rather than replacing the earlier record.
+
+An authenticated consumer can compose the opt-in pieces inside its own authorized request handler:
+
+```csharp
+var assessment = await observer.GetReconciliationAsync(runId, cancellationToken);
+var work = assessment?.UnresolvedWork.Single(item => item.RequestedSequence == requestSequence);
+var command = new RunReconciliationDecisionCommand(
+    Guid.NewGuid(), runId, assessment!.RevisionId, assessment.ContentHash, assessment.LastSequence,
+    new(work!.Kind, work.RequestedSequence, work.NodeId!, work.InvocationId!.Value, work.CallId),
+    RunReconciliationAssertion.RemainsUnknown);
+var recorded = decisionService.Record(command); // actor is read from the host's authenticated request scope
+```
+
+The sample deliberately leaves route mapping and per-run visibility to the host; never expose it behind the read-only observation policy alone.
+
+The SQLite schema stores decision metadata in a separate table and migrates schema version 2 to version 3 without modifying execution events or checkpoints. File and custom stores do not implement this optional write capability. Tests prove terminal histories, status, checkpoint and playback remain unchanged; uncertainty and `CanResume == false` remain unchanged; active-run, stale-cursor and mismatched-target submissions insert nothing; concurrent writes allow at most one assertion for a target; full target lookup works past the returned assessment limit; ambiguity is rejected; actor identity comes from the host provider; and duplicate/conflicting requests behave deterministically. No public mutation route or user-facing control is available until a host supplies real authentication, authorization and a suitable protected user experience.
+
+See [checkpoint recovery](checkpoint-recovery.md), [observation](observation.md) and the [roadmap](roadmap.md).

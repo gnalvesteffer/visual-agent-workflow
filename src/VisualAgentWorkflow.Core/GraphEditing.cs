@@ -154,7 +154,7 @@ public static class GraphEditing
     public static WorkflowDefinition RenameConfigurableParallelBranch(WorkflowDefinition definition, string forkNodeId,
         string branchId, string label)
     {
-        if (definition.SchemaVersion != WorkflowSchemaVersions.ConfigurableParallelGraph ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph) ||
             !ParallelBranchLimits.IsValidId(branchId) || string.IsNullOrWhiteSpace(label) ||
             label.Length > ParallelBranchLimits.MaximumLabelLength ||
             !definition.Nodes.TryGetValue(forkNodeId, out var fork) || fork.Type != NodeTypes.ParallelFork || fork.ParallelFork is not { } configuration)
@@ -265,7 +265,7 @@ public static class GraphEditing
     private static (NodeDefinition Fork, ParallelForkConfiguration ForkConfiguration, string JoinId, NodeDefinition Join,
         ParallelJoinConfiguration JoinConfiguration) ConfigurableParallelRegion(WorkflowDefinition definition, string forkNodeId)
     {
-        if (definition.SchemaVersion != WorkflowSchemaVersions.ConfigurableParallelGraph ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph) ||
             !definition.Nodes.TryGetValue(forkNodeId, out var fork) || fork.Type != NodeTypes.ParallelFork ||
             fork.ParallelFork is not { } forkConfiguration || definition.ExecutionConnections is null)
             throw new ArgumentException("Choose a configurable parallel fork in a schema 1.32 graph.", nameof(forkNodeId));
@@ -353,7 +353,7 @@ public static class GraphEditing
             throw new ArgumentException("Choose pins on existing nodes.");
         var sourcePort = WorkflowPorts.Explicit(source).SingleOrDefault(port => port.Direction == WorkflowPortDirection.Output && port.Id == sourcePortId);
         if (sourcePort is not null && target.Type == NodeTypes.Output &&
-            (definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph))
+            (definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph))
             target = target with { OutputDataType = sourcePort.Kind == WorkflowPortKind.Data ? sourcePort.DataType : target.OutputDataType };
         var targetPort = WorkflowPorts.Explicit(target).SingleOrDefault(port => port.Direction == WorkflowPortDirection.Input && port.Id == targetPortId);
         if (sourcePort is null || targetPort is null || sourcePort.Kind != targetPort.Kind || sourcePort.DataType != targetPort.DataType)
@@ -556,13 +556,13 @@ public static class GraphEditing
 
     public static WorkflowDefinition ReplaceNode(WorkflowDefinition definition, string id, NodeDefinition node)
     {
-        if (!WorkflowDraftEditing.HasOnlyIncompleteTopologyIssues(definition)) WorkflowValidator.ThrowIfInvalid(definition);
+        if (!WorkflowDraftEditing.HasOnlyDraftableIssues(definition)) WorkflowValidator.ThrowIfInvalid(definition);
         if (!definition.Nodes.TryGetValue(id, out var existing)) throw new ArgumentException("Unknown node.");
         if (existing.Type == node.Type && existing.Type is NodeTypes.Condition or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.StringConstant or NodeTypes.BooleanConstant or NodeTypes.IntegerConstant)
-            return WorkflowDraftEditing.ValidateEdit(definition, definition with { Nodes = definition.Nodes.SetItem(id, node) });
+            return WorkflowDraftEditing.ValidateEdit(definition with { Nodes = definition.Nodes.SetItem(id, node) });
         RequireProcessing(existing.Type);
         RequireProcessing(node.Type);
-        return WorkflowDraftEditing.ValidateEdit(definition,
+        return WorkflowDraftEditing.ValidateEdit(
             definition with { SchemaVersion = WorkflowEditing.SchemaFor(definition, node), Nodes = definition.Nodes.SetItem(id, node) });
     }
 
