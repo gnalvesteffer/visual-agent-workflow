@@ -13,6 +13,61 @@ namespace VisualAgentWorkflow.Hosting.Tests;
 public sealed class GraphCanvasRenderingTests
 {
     [Fact]
+    public async Task ContextNodeLibraryPutsMcpToolsBeforeOtherActions()
+    {
+        var definition = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.14" };
+        var binding = new ToolBindingDescriptor("demo.reverse", "MCP · reverse", "demo-text", "reverse",
+            "a") { InputSchemaJson = "{}", ToolDescription = "Reverses text", InputSummary = "text: string required", DescriptionHash = "b" };
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<WorkflowEditor>(ParameterView.FromDictionary(
+                new Dictionary<string, object?>
+                {
+                    [nameof(WorkflowEditor.Definition)] = definition,
+                    [nameof(WorkflowEditor.Bindings)] = new[] { binding }
+                }));
+            return component.ToHtmlString();
+        });
+
+        var mcpIndex = html.IndexOf("data-node-key=\"mcp:demo.reverse:a:b\"", StringComparison.Ordinal);
+        var valuesIndex = html.IndexOf("data-node-key=\"core.text.uppercase\"", StringComparison.Ordinal);
+        Assert.True(mcpIndex >= 0);
+        Assert.True(valuesIndex >= 0);
+        Assert.True(mcpIndex < valuesIndex);
+    }
+
+    [Fact]
+    public async Task CommentExpansionStaysOnNodeAndDoesNotResizeInspectorEditor()
+    {
+        var definition = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.14" };
+        var layout = WorkflowLayout.Create(definition);
+        layout = layout with
+        {
+            Nodes = layout.Nodes.SetItem("step-1",
+                new NodePresentation(new(440, 100), Comment: "A long node comment that is expanded on the graph.", CommentExpanded: true))
+        };
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<WorkflowEditor>(ParameterView.FromDictionary(
+                new Dictionary<string, object?>
+                {
+                    [nameof(WorkflowEditor.Definition)] = definition,
+                    [nameof(WorkflowEditor.Layout)] = layout
+                }));
+            return component.ToHtmlString();
+        });
+
+        Assert.Contains("Collapse node comment", html);
+        Assert.Contains("rows=\"6\"", html);
+    }
+
+    [Fact]
     public async Task AgentConnectionIsNotReportedUnavailableWhileProviderChoicesAreLoading()
     {
         var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.2" };

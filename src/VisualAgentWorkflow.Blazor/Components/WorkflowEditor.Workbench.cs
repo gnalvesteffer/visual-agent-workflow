@@ -160,7 +160,7 @@ public partial class WorkflowEditor
                     ProviderKey(provider), provider.DisplayName, "Agents", $"Agent node · {provider.ModelId}",
                     !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));
             if (Definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpGraph)
-                explicitEntries.AddRange(Bindings.Select(binding => new WorkflowNodeLibraryEntry(
+                explicitEntries.InsertRange(0, Bindings.Select(binding => new WorkflowNodeLibraryEntry(
                     ToolKey(binding), binding.DisplayName, "MCP tools", "Direct deterministic call; node grants and the pinned tool contract still apply",
                     !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));
             if (Definition.SchemaVersion is WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph)
@@ -198,8 +198,9 @@ public partial class WorkflowEditor
             new("terminate", "Terminate workflow", "Flow", "Add an unconnected success or failure exit", canCreate && Definition.Nodes.Values.Count(node => node.Type == NodeTypes.Terminate) < 16),
             new("approval", "Approval", "Flow", "Select an MCP tool to require exact-action review", !hasLoop && textPath && selected is not null && Definition.Nodes.TryGetValue(selected, out var selectedDefinition) && selectedDefinition.Type == NodeTypes.McpTool && !GuardedTool(selected))
         ];
+        entries.InsertRange(0, Bindings.Select(b => new WorkflowNodeLibraryEntry(
+            ToolKey(b), b.DisplayName, "MCP tools", "Host-registered tool; node grants still apply", canCreate)));
         entries.AddRange(Providers.Select(p => new WorkflowNodeLibraryEntry(ProviderKey(p), p.DisplayName, "Agents", p.ModelId, canCreate)));
-        entries.AddRange(Bindings.Select(b => new WorkflowNodeLibraryEntry(ToolKey(b), b.DisplayName, "MCP tools", "Host-registered tool; node grants still apply", canCreate)));
         return entries;
     }
 

@@ -173,7 +173,7 @@
                     {
                         <label>Node label <input aria-label="Node label" value="@detail.Label" maxlength="160" @onchange="args => Label(nodeId, args)" /></label>
                         <label>Node comment
-                            <span class="vaw-comment-editor"><textarea aria-label="Node comment" rows="@(detail.CommentExpanded ? 12 : 6)" maxlength="4000" value="@detail.Comment" @onchange="args => Comment(nodeId, args)"></textarea></span>
+                            <span class="vaw-comment-editor"><textarea aria-label="Node comment" rows="6" maxlength="4000" value="@detail.Comment" @onchange="args => Comment(nodeId, args)"></textarea></span>
                         </label>
                         <div class="vaw-coordinate-fields">
                             <label>Node X <input type="number" min="0" max="32768" step="8" value="@Number(detail.Position.X)" @onchange="args => Coordinate(nodeId, args, true)" /></label>
@@ -209,7 +209,7 @@
                     {
                         <label>Node label <input aria-label="Node label" value="@detail.Label" maxlength="160" @onchange="args => Label(nodeId, args)" /></label>
                         <label>Node comment
-                            <span class="vaw-comment-editor"><textarea aria-label="Node comment" rows="@(detail.CommentExpanded ? 12 : 6)" maxlength="4000" value="@detail.Comment" @onchange="args => Comment(nodeId, args)"></textarea></span>
+                            <span class="vaw-comment-editor"><textarea aria-label="Node comment" rows="6" maxlength="4000" value="@detail.Comment" @onchange="args => Comment(nodeId, args)"></textarea></span>
                         </label>
                         <div class="vaw-coordinate-fields">
                             <label>Node X <input type="number" min="0" max="32768" step="8" value="@Number(detail.Position.X)" @onchange="args => Coordinate(nodeId, args, true)" /></label>

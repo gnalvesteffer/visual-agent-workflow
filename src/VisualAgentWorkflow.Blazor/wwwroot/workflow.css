@@ -504,14 +504,14 @@
 .vaw-pane-resizer-horizontal { inline-size: .5rem; min-inline-size: .5rem; cursor: col-resize; }
 .vaw-pane-resizer-vertical { block-size: .5rem; min-block-size: .5rem; margin-block-start: 0; cursor: row-resize; }
 .vaw-pane-resizer[role="separator"]:focus-visible { outline-offset: 1px; }
-.vaw-node-comment { position: relative; padding-inline-end: 2rem; max-block-size: 3.5rem; overflow: hidden; }
+.vaw-node-comment { position: relative; padding-inline-end: 1.45rem; max-block-size: 3.5rem; overflow: hidden; }
 .vaw-node-comment.is-expanded { max-block-size: none; overflow: visible; }
 .vaw-node-comment.is-expanded .vaw-node-comment-text { display: block; overflow: visible; }
-.vaw-node-comment-toggle { position: absolute; inset-inline-end: .25rem; inset-block-end: .25rem; display: none; place-items: center; inline-size: 1.45rem; block-size: 1.45rem; padding: .2rem; border: 1px solid var(--vaw-control-border); border-radius: var(--vaw-control-radius); color: var(--vaw-muted); background: var(--vaw-control); cursor: pointer; }
+.vaw-node-comment-toggle { position: absolute; inset-inline-end: .12rem; inset-block-end: .12rem; display: none; place-items: center; inline-size: 1.15rem; block-size: 1.15rem; padding: 0; border: 0; border-radius: 2px; color: var(--vaw-muted); background: transparent; cursor: pointer; }
 .vaw-tooltip-anchor[data-tooltip-truncated="true"] .vaw-node-comment-toggle, .vaw-tooltip-anchor[data-comment-expanded="true"] .vaw-node-comment-toggle { display: grid; }
-.vaw-node-comment-toggle:hover { color: var(--vaw-text); border-color: var(--vaw-accent); }
-.vaw-node-comment-toggle:focus-visible { color: var(--vaw-text); border-color: var(--vaw-focus); outline: 2px solid var(--vaw-focus); outline-offset: 2px; }
-.vaw-node-comment-toggle svg { inline-size: 1rem; block-size: 1rem; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.35; }
+.vaw-node-comment-toggle:hover { color: var(--vaw-text); background: color-mix(in srgb, var(--vaw-accent) 12%, transparent); }
+.vaw-node-comment-toggle:focus-visible { color: var(--vaw-text); outline: 2px solid var(--vaw-focus); outline-offset: 1px; }
+.vaw-node-comment-toggle svg { inline-size: .85rem; block-size: .85rem; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.5; }
 .vaw-node-comment.is-expanded + .vaw-tooltip { display: none !important; }
 .vaw-bottom-tray { block-size: var(--vaw-bottom-height, auto); max-block-size: none; overflow: hidden; }
 .vaw-bottom-tray.is-collapsed { block-size: auto; }
