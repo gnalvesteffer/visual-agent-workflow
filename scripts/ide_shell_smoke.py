@@ -203,6 +203,10 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             history.get_by_role("button", name="Inspect run", exact=False).click()
             expect(page.locator(".vaw-viewer")).to_be_visible()
             expect(page.locator(".vaw-run-header")).to_contain_text("Latest run status: completed")
+            pane_layout = page.locator(".vaw-viewer .vaw-canvas-workspace.vaw-with-properties").evaluate("e => { const canvas = e.querySelector('.vaw-canvas-viewport')?.getBoundingClientRect(); const inspector = e.querySelector('.vaw-properties')?.getBoundingClientRect(); const resizer = e.querySelector('[data-pane-resizer=\\\"inspector\\\"]')?.getBoundingClientRect(); return { canvas, inspector, resizer }; }")
+            assert pane_layout["canvas"] and pane_layout["inspector"] and pane_layout["resizer"], "Run inspector should render all graph panes"
+            assert pane_layout["inspector"]["top"] == pane_layout["canvas"]["top"], f"Run inspector details should stay beside the graph: {pane_layout}"
+            assert pane_layout["inspector"]["left"] > pane_layout["canvas"]["right"], f"Run inspector details should not fall below the graph: {pane_layout}"
             run_graph_nodes = page.locator(".vaw-viewer .vaw-canvas-world [data-node-id]")
             expect(run_graph_nodes).to_have_count(2)
             page.wait_for_function("""() => {

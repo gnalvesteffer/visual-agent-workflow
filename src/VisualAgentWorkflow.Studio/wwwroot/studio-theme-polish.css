@@ -644,7 +644,7 @@
 .vaw-studio-in-ide .vaw-viewer > .vaw-graph-editor { display: flex; flex: 1 1 0; flex-direction: column; min-block-size: 15rem; max-block-size: none; overflow: hidden; }
 .vaw-studio-in-ide .vaw-viewer > .vaw-graph-editor > .vaw-canvas-toolbar { flex: 0 0 auto; }
 .vaw-studio-in-ide .vaw-viewer .vaw-canvas-workspace { flex: 1 1 0; grid-template-rows: minmax(0, 1fr); min-block-size: 0; }
-.vaw-studio-in-ide .vaw-viewer .vaw-canvas-workspace.vaw-with-properties { grid-template-columns: minmax(0, 1fr) minmax(14rem, 17rem); }
+.vaw-studio-in-ide .vaw-viewer .vaw-canvas-workspace.vaw-with-properties { grid-template-columns: minmax(0, 1fr) .5rem minmax(17rem, 22rem); }
 .vaw-studio-in-ide .vaw-viewer .vaw-canvas-viewport { flex: 1 1 0; block-size: auto; max-block-size: none; min-block-size: 0; }
 .vaw-studio-in-ide .vaw-viewer .vaw-properties { min-block-size: 0; overflow: auto; }
 .vaw-studio-in-ide .vaw-viewer > details { flex: 0 1 24vh; min-block-size: 2rem; max-block-size: 28vh; overflow: auto; margin-block: .35rem 0; }
@@ -652,7 +652,7 @@
 @media (max-width: 62rem) {
     .vaw-document-actions { gap: .2rem; }
     .vaw-studio-in-ide .vaw-document-actions button { padding-inline: .4rem; }
-    .vaw-studio-in-ide .vaw-canvas-workspace.vaw-with-properties { grid-template-columns: minmax(0, 1fr) 16rem; }
+    .vaw-studio-in-ide .vaw-canvas-workspace.vaw-with-properties { grid-template-columns: minmax(0, 1fr) .5rem 16rem; }
 }
 @media (max-width: 42rem) {
     .vaw-document-header { flex-wrap: wrap; flex-basis: auto; }
@@ -661,7 +661,8 @@
     .vaw-document-breadcrumb { flex-basis: 1.8rem; }
     .vaw-studio-in-ide .vaw-canvas-workspace.vaw-with-properties { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(12rem, 1fr) minmax(0, 10rem); }
     .vaw-studio-in-ide .vaw-bottom-tray { flex-basis: 9rem; }
-    .vaw-studio-in-ide .vaw-viewer .vaw-canvas-workspace.vaw-with-properties { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 9rem); }
+    .vaw-studio-in-ide .vaw-viewer .vaw-canvas-workspace.vaw-with-properties { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(12rem, 1fr) minmax(0, 10rem); }
+    .vaw-studio-in-ide .vaw-viewer .vaw-canvas-workspace.vaw-with-properties > [data-pane-resizer="inspector"] { display: none; }
     .vaw-studio-in-ide .vaw-viewer > details { flex-basis: 18vh; max-block-size: 22vh; }
     .vaw-document-statusbar > :last-child { display: none; }
 }
