@@ -162,6 +162,10 @@ The Studio navigation now offers Dark Modern, Light Modern, VS Code Dark+, Solar
 
 The Studio theme selector now includes Retro Drive, a dashboard-inspired palette based on smoked instrument panels, amber indicators, warm ivory labels, and cyan/green display traces. It remains a standalone Studio theme; embeddable components continue to inherit host-owned tokens.
 
+## Schema-driven direct MCP arguments
+
+Direct MCP nodes now expose the selected tool's bounded input schema in the properties pane. Authors can configure portable static JSON arguments without hand-writing the object; clearing the configuration restores the existing connected-input behavior. Configured arguments make the direct node's data input optional, while broker authorization, contract pinning, live schema validation, and audit evidence remain unchanged.
+
 ## Flat Studio theme and fitted graph viewport
 
 The standalone Studio now uses a flat, light neutral shell with a single dark graph canvas. Its subdued grid fills the whole viewport and tracks camera pan and zoom rather than ending at the logical world's edge. Initial attachment and **Fit graph** center visible nodes using transient camera offsets; workflow layout coordinates remain unchanged. Browser review covers full-width grid, initial centering, fit, graph gestures, theme contrast, forced colors, reduced motion, and narrow embeds.

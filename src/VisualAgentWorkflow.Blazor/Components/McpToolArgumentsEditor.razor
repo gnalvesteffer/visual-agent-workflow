@@ -1,0 +1,163 @@
+@using System.Globalization
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@implements IDisposable
+
+<section class="vaw-mcp-arguments-editor" aria-label="MCP tool arguments">
+    <p class="vaw-help">Configure static arguments from the tool schema. These values are used when the node runs; clear them to use the connected data input instead.</p>
+    @if (schema is null)
+    {
+        <p class="vaw-error">This tool's input schema is unavailable or unsupported.</p>
+    }
+    else if (properties.Count == 0)
+    {
+        <p class="vaw-help">This tool accepts an empty argument object.</p>
+    }
+    else
+    {
+        @foreach (var property in properties)
+        {
+            var propertySchema = property.Value;
+            var propertyType = SchemaType(propertySchema);
+            var required = Required.Contains(property.Name);
+            <div class="vaw-mcp-argument-field" @key="property.Name">
+                <label>
+                    <span>@property.Name@(required ? " · required" : " · optional")</span>
+                    @if (propertySchema.TryGetProperty("enum", out var enumValues) && enumValues.ValueKind == JsonValueKind.Array)
+                    {
+                        <select aria-label="MCP argument @property.Name" value="@EnumRawText(property.Name)" @onchange="args => ChangeEnum(property.Name, enumValues, args)" disabled="@Disabled">
+                            @if (!required) { <option value="">Not set</option> }
+                            @foreach (var enumValue in enumValues.EnumerateArray())
+                            { <option value="@enumValue.GetRawText()">@enumValue.GetRawText()</option> }
+                        </select>
+                    }
+                    else if (propertyType == "boolean")
+                    {
+                        <input aria-label="MCP argument @property.Name" type="checkbox" checked="@BooleanValue(property.Name)" @onchange="args => ChangeBoolean(property.Name, args)" disabled="@Disabled" />
+                    }
+                    else if (propertyType is "object" or "array" || propertySchema.EnumerateObject().Count() == 0)
+                    {
+                        <textarea aria-label="MCP argument @property.Name" rows="3" value="@ValueText(property.Name)" @onchange="args => ChangeJson(property.Name, args)" disabled="@Disabled" placeholder="JSON value"></textarea>
+                    }
+                    else
+                    {
+                        <input aria-label="MCP argument @property.Name" type="@(propertyType is "integer" or "number" ? "number" : "text")" value="@ScalarText(property.Name)" @onchange="args => ChangeScalar(property.Name, propertySchema, args)" disabled="@Disabled" />
+                    }
+                </label>
+                @if (propertySchema.TryGetProperty("description", out var description) && description.ValueKind == JsonValueKind.String)
+                { <p class="vaw-help">@description.GetString()</p> }
+                @if (propertySchema.TryGetProperty("pattern", out var pattern) && pattern.ValueKind == JsonValueKind.String)
+                { <p class="vaw-help">Pattern: <code>@pattern.GetString()</code></p> }
+            </div>
+        }
+    }
+    @if (error is not null) { <p class="vaw-error" role="alert">@error</p> }
+    @if (Value is null)
+    { <button type="button" @onclick="UseEmpty" disabled="@Disabled">Use empty argument object</button> }
+    else
+    { <button type="button" @onclick="Clear" disabled="@Disabled">Use connected input instead</button> }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public ToolBindingDescriptor Tool { get; set; } = default!;
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+
+    private JsonDocument? schemaDocument;
+    private JsonObject arguments = new();
+    private List<JsonProperty> properties = [];
+    private HashSet<string> Required { get; set; } = new(StringComparer.Ordinal);
+    private string? lastValue;
+    private string? error;
+    private JsonElement? schema => schemaDocument?.RootElement;
+
+    protected override void OnParametersSet()
+    {
+        if (lastValue == Value && schemaDocument is not null) return;
+        lastValue = Value;
+        schemaDocument?.Dispose();
+        schemaDocument = null;
+        properties = [];
+        Required = new(StringComparer.Ordinal);
+        error = null;
+        try
+        {
+            schemaDocument = JsonDocument.Parse(Tool.InputSchemaJson);
+            if (schemaDocument.RootElement.ValueKind != JsonValueKind.Object ||
+                !schemaDocument.RootElement.TryGetProperty("properties", out var propertyObject) || propertyObject.ValueKind != JsonValueKind.Object)
+                throw new InvalidOperationException("The tool schema does not expose editable object fields.");
+            properties = propertyObject.EnumerateObject().ToList();
+            if (schemaDocument.RootElement.TryGetProperty("required", out var required) && required.ValueKind == JsonValueKind.Array)
+                Required = required.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.String).Select(item => item.GetString()!).ToHashSet(StringComparer.Ordinal);
+            arguments = ParseArguments(Value);
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException)
+        {
+            error = exception.Message;
+            arguments = new();
+        }
+    }
+
+    private static JsonObject ParseArguments(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return new();
+        var node = JsonNode.Parse(value);
+        return node as JsonObject ?? throw new InvalidOperationException("Configured MCP arguments must be a JSON object.");
+    }
+
+    private static string SchemaType(JsonElement definition) => definition.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String ? type.GetString()! : "json";
+    private string ValueText(string name) => arguments[name]?.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) ?? "";
+    private string ScalarText(string name) => arguments[name] switch
+    {
+        JsonValue value when value.TryGetValue<string>(out var text) => text,
+        JsonValue value => value.ToJsonString().Trim('"'),
+        _ => ""
+    };
+    private string EnumRawText(string name) => arguments[name]?.ToJsonString() ?? "";
+    private bool BooleanValue(string name) => arguments[name] is JsonValue value && value.TryGetValue<bool>(out var result) && result;
+
+    private Task ChangeEnum(string name, JsonElement enumValues, ChangeEventArgs args) => ChangeJsonNode(name,
+        string.IsNullOrWhiteSpace(args.Value?.ToString()) ? null : JsonNode.Parse(args.Value!.ToString()!)!);
+
+    private Task ChangeBoolean(string name, ChangeEventArgs args) => ChangeJsonNode(name, JsonValue.Create(args.Value is true));
+
+    private Task ChangeScalar(string name, JsonElement definition, ChangeEventArgs args)
+    {
+        var text = args.Value?.ToString() ?? "";
+        if (text.Length == 0) return ChangeJsonNode(name, Required.Contains(name) ? JsonValue.Create("") : null);
+        var type = SchemaType(definition);
+        if (type == "integer" && long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var integer)) return ChangeJsonNode(name, JsonValue.Create(integer));
+        if (type == "number" && double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) && double.IsFinite(number)) return ChangeJsonNode(name, JsonValue.Create(number));
+        if (type == "string") return ChangeJsonNode(name, JsonValue.Create(text));
+        error = $"Enter a valid {type} value for {name}.";
+        return Task.CompletedTask;
+    }
+
+    private Task ChangeJson(string name, ChangeEventArgs args)
+    {
+        var text = args.Value?.ToString() ?? "";
+        if (text.Length == 0) return ChangeJsonNode(name, Required.Contains(name) ? JsonValue.Create((string?)null) : null);
+        try { return ChangeJsonNode(name, JsonNode.Parse(text)); }
+        catch (JsonException) { error = $"Enter valid JSON for {name}."; return Task.CompletedTask; }
+    }
+
+    private async Task ChangeJsonNode(string name, JsonNode? value)
+    {
+        error = null;
+        if (value is null) arguments.Remove(name); else arguments[name] = value;
+        var json = arguments.Count == 0 ? null : arguments.ToJsonString(new JsonSerializerOptions { WriteIndented = false });
+        await ValueChanged.InvokeAsync(json);
+    }
+
+    private async Task Clear()
+    {
+        arguments = new();
+        error = null;
+        await ValueChanged.InvokeAsync(null);
+    }
+
+    private Task UseEmpty() => ValueChanged.InvokeAsync("{}");
+
+    public void Dispose() => schemaDocument?.Dispose();
+}

@@ -81,6 +81,9 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     public ParallelJoinConfiguration? ParallelJoin { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ParallelRendezvousConfiguration? ParallelRendezvous { get; init; }
+    /// <summary>Optional static JSON arguments for a direct MCP tool node; credentials and grants are never stored here.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? McpArgumentsJson { get; init; }
 }
 
 /// <summary>Copy-on-insert source identity; informational provenance, never a grant or runtime resolver.</summary>

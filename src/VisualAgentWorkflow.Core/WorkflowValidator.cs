@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 namespace VisualAgentWorkflow.Core;
 
@@ -204,6 +205,10 @@ public static class WorkflowValidator
             if (node is null || !NodeTypes.IsSupported(node.Type) || node.TypeVersion != "1.0.0")
                 Error("node.unsupported", $"nodes.{id}", "Unknown node type or implementation version.");
             if (node is null) continue;
+            if (node.McpArgumentsJson is { } mcpArguments &&
+                (node.Type != NodeTypes.McpTool || definition.SchemaVersion != WorkflowSchemaVersions.DirectMcpGraph ||
+                 mcpArguments.Length > 65_536 || !IsJsonObject(mcpArguments)))
+                Error("mcp.arguments", $"nodes.{id}.mcpArgumentsJson", "Direct MCP arguments must be a JSON object of at most 65,536 characters.");
             if (node.Type == NodeTypes.WorkflowCall)
             {
                 var call = node.WorkflowCall;
@@ -639,6 +644,19 @@ public static class WorkflowValidator
         return issues.ToImmutable();
     }
 
+    private static bool IsJsonObject(string value)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(value, new JsonDocumentOptions { MaxDepth = 32 });
+            return document.RootElement.ValueKind == JsonValueKind.Object;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     private static void ValidateDirectMcpGraph(WorkflowDefinition definition, Action<string, string, string> error)
     {
         if (definition.ExecutionConnections is null)
@@ -717,9 +735,18 @@ public static class WorkflowValidator
         foreach (var (id, node) in definition.Nodes)
         {
             if (node is null) continue;
+            var hasConfiguredMcpArguments = node.Type == NodeTypes.McpTool && node.McpArgumentsJson is not null;
             foreach (var port in WorkflowPorts.ExplicitDataInputs(node))
-                if (dataIncoming.GetValueOrDefault((id, port.Id)) != 1)
+            {
+                var count = dataIncoming.GetValueOrDefault((id, port.Id));
+                if (node.Type == NodeTypes.McpTool && port.Id == "in" && hasConfiguredMcpArguments)
+                {
+                    if (count > 1)
+                        error("data.degree", $"nodes.{id}.inputs.{port.Id}", "A configured direct MCP tool accepts at most one optional connected input; configured arguments take precedence.");
+                }
+                else if (count != 1)
                     error("data.degree", $"nodes.{id}.inputs.{port.Id}", "Every required data input must have exactly one compatible data edge.");
+            }
             var executionInputs = WorkflowPorts.ExplicitExecutionInputs(node);
             var executionOutputs = WorkflowPorts.ExplicitExecutionOutputs(node);
             var incoming = executionInputs.Sum(port => executionIncoming.GetValueOrDefault((id, port)));

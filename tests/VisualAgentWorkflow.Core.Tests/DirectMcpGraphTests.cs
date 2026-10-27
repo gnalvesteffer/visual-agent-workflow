@@ -36,6 +36,31 @@ public sealed class DirectMcpGraphTests
         Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "execution.node.unsupported");
     }
 
+    [Fact]
+    public void Configured_direct_mcp_arguments_make_the_data_input_optional()
+    {
+        var baseline = Definition();
+        var tool = baseline.Nodes["tool"] with { McpArgumentsJson = "{}" };
+        var definition = baseline with
+        {
+            Nodes = baseline.Nodes.SetItem("tool", tool),
+            Connections = baseline.Connections.Remove("tool-input")
+        };
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+    }
+
+    [Fact]
+    public void Direct_mcp_arguments_must_be_a_bounded_json_object()
+    {
+        var definition = Definition() with
+        {
+            Nodes = Definition().Nodes.SetItem("tool", Definition().Nodes["tool"] with { McpArgumentsJson = "[]" })
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "mcp.arguments");
+    }
+
     private static WorkflowDefinition Definition() => new(
         WorkflowSchemaVersions.DirectMcpGraph, "direct-mcp", "input",
         new Dictionary<string, NodeDefinition>

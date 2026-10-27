@@ -34,6 +34,24 @@ public sealed class DirectMcpExecutionTests
         Assert.Null(broker.Input);
     }
 
+    [Fact]
+    public async Task Configured_direct_mcp_arguments_override_the_connected_input()
+    {
+        var broker = new RecordingBroker();
+        var baseline = Definition();
+        var definition = baseline with
+        {
+            Nodes = baseline.Nodes.SetItem("tool", baseline.Nodes["tool"] with { McpArgumentsJson = "{\"query\":\"configured\"}" })
+        };
+
+        var result = await new WorkflowRunner(broker).ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "test"), "{\"query\":\"connected\"}", null,
+            _ => ValueTask.CompletedTask);
+
+        Assert.False(result.Failed);
+        Assert.Equal("{\"query\":\"configured\"}", broker.Input);
+    }
+
     private static WorkflowDefinition Definition() => new(
         WorkflowSchemaVersions.DirectMcpGraph, "direct-mcp-runtime", "input",
         new Dictionary<string, NodeDefinition>

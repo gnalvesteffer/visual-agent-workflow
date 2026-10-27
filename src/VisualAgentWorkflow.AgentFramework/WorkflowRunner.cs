@@ -1286,7 +1286,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             JsonDocument document;
             try
             {
-                document = JsonDocument.Parse(input, new JsonDocumentOptions { MaxDepth = 32 });
+                document = JsonDocument.Parse(node.McpArgumentsJson ?? input, new JsonDocumentOptions { MaxDepth = 32 });
             }
             catch (JsonException exception)
             {

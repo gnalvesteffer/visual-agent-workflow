@@ -495,6 +495,27 @@
                         else
                         { <button type="button" disabled="@Disabled" @onclick="() => RequestBlockRemoval(id)">Remove conditional block…</button> }
                     }
+                    else if (node.Type == NodeTypes.McpTool && Definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpGraph)
+                    {
+                        <label>Tool binding
+                            <select aria-label="MCP tool for @id" value="@NodeKey(node)" @onchange="args => ChangeType(id, args)" disabled="@(Disabled || GuardedTool(id))">
+                                @if (node.Tool is { } pinned && !Bindings.Any(b => BindingMatches(pinned, b)))
+                                { <option value="@NodeKey(node)">Pinned MCP binding @ToolBindingStatus(pinned): @pinned.BindingId</option> }
+                                @foreach (var binding in Bindings)
+                                { <option @key="ToolKey(binding)" value="@ToolKey(binding)">@binding.DisplayName</option> }
+                            </select>
+                        </label>
+                        @if (node.Tool is { } selectedTool && Bindings.FirstOrDefault(candidate => BindingMatches(selectedTool, candidate)) is { } selectedBinding)
+                        {
+                            <McpToolArgumentsEditor Tool="selectedBinding" Value="@node.McpArgumentsJson" ValueChanged="args => McpArguments(id, args)" Disabled="@Disabled" />
+                        }
+                        else
+                        {
+                            <p class="vaw-help">The pinned tool schema is unavailable. Refresh MCP tools or choose another binding before configuring arguments.</p>
+                        }
+                        <p class="vaw-help">Configured arguments are stored with this workflow and override the connected data input. Clear them to use the input pin's JSON object.</p>
+                        <button type="button" @onclick="() => Edit(() => UseGraphRemoval ? GraphEditing.RemoveNode(Definition, id) : WorkflowEditing.Remove(Definition, id))" disabled="@(Disabled || GuardedTool(id))" aria-label="Remove @id">Remove</button>
+                    }
                     else if (node.Type == NodeTypes.WorkflowValue)
                     {
                         var parameterChoices = ParameterDefinitions.Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph) || WorkflowParameterGraphTypes.DataType(pair.Value) is not null).ToDictionary(pair => pair.Key, pair => pair.Value);
@@ -1213,6 +1234,9 @@
             throw new ArgumentException("Enter a whole number from -9,223,372,036,854,775,808 to 9,223,372,036,854,775,807.");
         return GraphEditing.ReplaceNode(Definition, id, Definition.Nodes[id] with { IntegerConstant = new(value) });
     });
+
+    private Task McpArguments(string id, string? value) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
+        Definition.Nodes[id] with { McpArgumentsJson = value }));
 
     private Task Instructions(string id, ChangeEventArgs args) => Edit(() => ReplaceProcessing(id,
         Definition.Nodes[id] with { Agent = Definition.Nodes[id].Agent! with { Instructions = args.Value?.ToString() ?? "" } }));

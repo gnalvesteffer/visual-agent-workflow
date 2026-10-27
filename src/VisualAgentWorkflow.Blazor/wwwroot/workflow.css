@@ -133,6 +133,10 @@
 .vaw-agent-tool-assignment { border-block-end: 1px solid var(--vaw-border); padding-block: var(--vaw-space-2); }
 .vaw-agent-tool-assignment details { margin-inline-start: 1.75rem; }
 .vaw-mcp-tool-choice { border-block-end: 1px solid var(--vaw-border); padding-block: var(--vaw-space-2); }
+.vaw-mcp-arguments-editor { display: grid; gap: .65rem; margin-block: .85rem; border-block: 1px solid var(--vaw-border); padding-block: .75rem; }
+.vaw-mcp-argument-field { display: grid; gap: .25rem; }
+.vaw-mcp-argument-field label > span { display: block; margin-block-end: .25rem; color: var(--vaw-text); font-size: .82rem; font-weight: 600; }
+.vaw-mcp-argument-field input:not([type="checkbox"]), .vaw-mcp-argument-field select, .vaw-mcp-argument-field textarea { inline-size: 100%; }
 .vaw-mcp-tool-choice p { margin: 0 0 0 1.75rem; }
 
 /* Run navigation and graph cards retain text labels alongside color cues. */
