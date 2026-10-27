@@ -13,7 +13,7 @@ Keep model-reported task outcome separate from runtime completion. A model may r
 - `turns_exhausted`, `tokens_exhausted`, and `timeout`: a configured execution bound was reached.
 - `token_usage_unavailable`: a configured aggregate token budget could not be enforced because the provider omitted usage.
 - `execution_error`: an unexpected bounded agent invocation error occurred.
-- `invalid_result`, `provider_error`, and `tool_error`: the runtime could not complete the declared contract.
+- `invalid_result`, `provider_error`, and `tool_error`: the runtime could not complete the declared contract. A host may explicitly mark a known MCP server-declared failure as recoverable; the adapter feeds one sanitized correction message back to the model, while authorization, contract, budget, timeout, transport, and outcome-unknown failures remain terminal.
 
 Schema 1.21 pins the structured-result contract and schema 1.22 adds aggregate token budgets. Connect the JSON agent output to **Select JSON property** at `/status`, then use a Condition to route an explicit status string. Select `/payload` or project explicit fields when downstream nodes need result data. Do not parse human-facing error strings. Structured outcomes are normal agent-node values; host cancellation still cancels the run and is not converted into a model result.
 

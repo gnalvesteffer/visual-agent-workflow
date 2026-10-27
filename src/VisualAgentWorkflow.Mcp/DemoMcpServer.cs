@@ -45,7 +45,8 @@ public static class DemoMcpServer
         [
             new("demo.uppercase", "MCP · uppercase", "demo-text", "uppercase", Connect, ReadOnly: true),
             new("demo.reverse", "MCP · reverse", "demo-text", "reverse", Connect, ReadOnly: true),
-            new("demo.submit-answer", "MCP · submit answer", "demo-text", "submit_answer", Connect, ReadOnly: true),
+            new("demo.submit-answer", "MCP · submit answer", "demo-text", "submit_answer", Connect, ReadOnly: true)
+            { AllowModelRecoveryAfterFailure = true },
             new("demo.add-integers", "MCP · add integers", "demo-text", "add_integers", Connect, ReadOnly: true),
             new("demo.inspect-payload", "MCP · inspect payload", "demo-text", "inspect_payload", Connect, ReadOnly: true)
         ];

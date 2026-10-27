@@ -96,4 +96,16 @@ public sealed class ExplicitToolAuthorizationPolicy(IEnumerable<NodeToolGrant> g
 public sealed class ToolAccessDeniedException() : InvalidOperationException("The node has no effective grant for this tool.");
 public sealed class ToolContractMismatchException() : InvalidOperationException("The pinned tool schema no longer matches the server.");
 public sealed class ToolDescriptionMismatchException() : InvalidOperationException("The pinned tool description no longer matches the server.");
-public sealed class ToolInvocationException(string message) : InvalidOperationException(message);
+public enum ToolInvocationFailureDisposition
+{
+    Fatal,
+    OutcomeUnknown,
+    RecoverableFeedback
+}
+
+public sealed class ToolInvocationException(string message,
+    ToolInvocationFailureDisposition disposition = ToolInvocationFailureDisposition.Fatal)
+    : InvalidOperationException(message)
+{
+    public ToolInvocationFailureDisposition Disposition { get; } = disposition;
+}

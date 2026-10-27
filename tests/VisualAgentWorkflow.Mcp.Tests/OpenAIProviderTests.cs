@@ -82,7 +82,8 @@ public sealed class OpenAIProviderTests
             model = "fixture-resolved-model",
             choices = new[] { new { index = 0, message = new { role = "assistant", content = text }, finish_reason = "stop" } },
             usage = new { prompt_tokens = 7, completion_tokens = 3, total_tokens = 10,
-                prompt_tokens_details = new { cached_tokens = 2 } }
+                prompt_tokens_details = new { cached_tokens = cachedTokens ?? 2, cache_write_tokens = cacheWriteTokens },
+                completion_tokens_details = new { reasoning_tokens = reasoningTokens } }
         }), Encoding.UTF8, "application/json")
     };
     private static NodeInvocationContext Context(WorkflowRevision revision, List<(string Kind, string? Data)> events) => new(Guid.NewGuid(), revision, "step-1", Guid.NewGuid(),

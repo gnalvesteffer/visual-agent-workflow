@@ -191,6 +191,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                 throw new ToolAccessDeniedException();
             }
             string? lastSuccessfulToolResult = null;
+            var recoverableToolFeedbacks = 0;
             var graphFunctionCalls = 0;
             var graphFunctionNodeVisits = 0;
             var functions = new List<AITool>();
@@ -211,6 +212,13 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                             var result = await scope.InvokeJsonAsync(binding.BindingId, json, token);
                             lastSuccessfulToolResult = result;
                             return result;
+                        }
+                        catch (ToolInvocationException failure) when (failure.Disposition == ToolInvocationFailureDisposition.RecoverableFeedback)
+                        {
+                            toolInvocationFailed = true;
+                            if (Interlocked.Increment(ref recoverableToolFeedbacks) > 1)
+                                throw new ToolInvocationException("The agent received too many recoverable tool failures.");
+                            return "The tool reported a known failure. Do not repeat the same call unchanged; correct the arguments or choose another assigned tool.";
                         }
                         catch
                         {

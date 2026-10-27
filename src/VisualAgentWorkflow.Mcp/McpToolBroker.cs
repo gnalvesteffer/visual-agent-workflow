@@ -10,6 +10,8 @@ public sealed record McpToolRegistration(string BindingId, string DisplayName, s
     Func<CancellationToken, Task<McpClient>> Connect, bool ReadOnly = false)
 {
     public bool AllowInvocation { get; init; }
+    /// <summary>Allows a known server-declared failure to be fed back to the model once for correction.</summary>
+    public bool AllowModelRecoveryAfterFailure { get; init; }
     /// <summary>Optional invocation-bound connector for registrations that need a scoped host capability channel.</summary>
     public Func<NodeInvocationContext, CancellationToken, Task<McpToolConnection>>? ConnectInScope { get; init; }
 }
@@ -205,7 +207,11 @@ public sealed class McpToolBroker : INodeToolBroker
                 });
                 dispatched = true;
                 var result = await client.CallToolAsync(registration.ToolName, callArguments, cancellationToken: deadline.Token);
-                if (result.IsError == true) throw new ToolInvocationException("The MCP server reported a tool failure.");
+                if (result.IsError == true)
+                    throw new ToolInvocationException("The MCP server reported a tool failure.",
+                        registration.AllowModelRecoveryAfterFailure
+                            ? ToolInvocationFailureDisposition.RecoverableFeedback
+                            : ToolInvocationFailureDisposition.Fatal);
                 if (result.Content.Any(c => c is not TextContentBlock)) throw new ToolInvocationException("The tool returned unsupported non-text content.");
                 var output = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(c => c.Text));
                 if (output.Length > 16_384) throw new ToolInvocationException("Tool output exceeds the workflow limit.");
@@ -234,6 +240,9 @@ public sealed class McpToolBroker : INodeToolBroker
                         toolCallId,
                         parentToolCallId = invocation.ParentToolCallId,
                         bindingId,
+                        disposition = error is ToolInvocationException invocationFailure
+                            ? invocationFailure.Disposition.ToString()
+                            : dispatched ? ToolInvocationFailureDisposition.OutcomeUnknown.ToString() : ToolInvocationFailureDisposition.Fatal.ToString(),
                         reason = error switch
                         {
                             ToolContractMismatchException => "Input/output schema mismatch.",

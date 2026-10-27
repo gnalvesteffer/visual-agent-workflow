@@ -53,7 +53,7 @@ public class AgentExecutionTests
         var usage = response.RootElement.GetProperty("usage");
         Assert.Equal(10, usage.GetProperty("InputTokenCount").GetInt64());
         Assert.Equal(4, usage.GetProperty("CachedInputTokenCount").GetInt64());
-        Assert.Equal(3, usage.GetProperty("cacheWriteTokenCount").GetInt64());
+        Assert.Equal(3, usage.GetProperty("cacheWriteInputTokenCount").GetInt64());
     }
 
     [Fact]
@@ -1175,6 +1175,36 @@ public class AgentExecutionTests
         Assert.Contains(events, e => e.Kind == ExecutionEventKinds.AgentCompleted);
         Assert.All(events.Where(e => e.Kind.StartsWith("model.", StringComparison.Ordinal)), e => Assert.Equal("step-1", e.NodeId));
         Assert.Contains(events.Where(e => e.Kind == ExecutionEventKinds.ModelRequested), e => e.Data!.Contains("Use only assigned tools.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task KnownMcpToolFailureIsFedBackOnceSoTheAgentCanRecover()
+    {
+        var broker = BrokerTests.CreateBroker(policy: new DemoToolPolicy());
+        var submit = (await broker.ListBindingsAsync()).Single(binding => binding.BindingId == "demo.submit-answer");
+        var responses = 0;
+        var registration = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient((_, _, _) => Task.FromResult(++responses == 1
+                ? new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                    [new FunctionCallContent("invalid-answer", "tool_0", new Dictionary<string, object?> { ["text"] = "not-a-number" })]))
+                  { FinishReason = ChatFinishReason.ToolCalls }
+                : new ChatResponse(new ChatMessage(ChatRole.Assistant, "Recovered after the tool error."))
+                  { FinishReason = ChatFinishReason.Stop }))
+        };
+        var events = new List<ExecutionEvent>();
+
+        var output = await new WorkflowRunner(broker, new AgentNodeExecutor([registration], broker)).ExecuteAsync(
+            Guid.NewGuid(), Revision(new ToolBindingRequest(submit.BindingId, submit.ContractHash)), "question",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("Recovered after the tool error.", output);
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested));
+        var failed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolFailed);
+        Assert.Contains("RecoverableFeedback", failed.Data);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentCompleted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
     }
 
     [Fact]
