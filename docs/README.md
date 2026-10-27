@@ -14,8 +14,10 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Unreal Blueprint reference](unreal-blueprint-reference.md) | UE 5.7 Blueprint visual-scripting concepts translated into implementation guidance |
 | [Exact-action approvals](approvals.md) | Exact MCP action review, nested call-path binding, attribution, controls and process ownership |
 | [Conditional graphs](conditional-graphs.md) | Schema 1.4 predicates, typed string ports, exclusive merges, authoring and actual-path evidence |
-| [Parallel graphs](parallel-graphs.md) | Schema 1.14 bounded two-branch fork/barrier join, JSON result, concurrency and failure limits |
-| [Parallel agent collaboration](parallel-agent-collaboration.md) | Proposed new-schema shared channels, one rendezvous, deterministic snapshots, failure and audit contract |
+| [Parallel graphs](parallel-graphs.md) | Schema 1.14–1.35 parallel regions, JSON joins, collaboration, branch-local routing, concurrency and failure limits |
+| [Parallel agent collaboration](parallel-agent-collaboration.md) | Schema-1.33 contract for one branch-scoped rendezvous, snapshots, execution, audit, playback, and authoring |
+| [Two-phase parallel Agent collaboration](parallel-agent-collaboration-phases.md) | Schema-1.35 data layout, ordered barriers, phase/role grants, bounds, and compatibility contract |
+| [Branch-local parallel routing](parallel-branch-routing.md) | Schema 1.34 Boolean routes inside static 1.32 fork branches, validation, evidence, and explicit 1.33 collaboration deferral |
 | [Bounded loop graphs](loop-graphs.md) | Schema 1.17 single-loop body, predicate, hard iteration cap, audit events, and authoring limits |
 | [Workflow termination](workflow-termination.md) | Schema 1.18 successful no-result exits and runtime/audit behavior |
 | [Nested workflow calls](nested-workflows.md) | Schema 1.19 pinned child workflows, scoped approvals/audit events, limits, and authoring behavior |

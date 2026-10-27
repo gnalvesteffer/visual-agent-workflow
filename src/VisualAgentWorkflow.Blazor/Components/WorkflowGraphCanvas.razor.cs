@@ -16,6 +16,7 @@ public partial class WorkflowGraphCanvas
     [Parameter, EditorRequired] public WorkflowLayout Layout { get; set; } = default!;
     [Parameter, EditorRequired] public RenderFragment<string> NodeContent { get; set; } = default!;
     [Parameter] public RenderFragment? NodeLibrary { get; set; }
+    [Parameter] public bool IdeMode { get; set; }
     [Parameter] public bool ShowNodeLibrary { get; set; } = true;
     [Parameter] public RenderFragment<GraphContextRequest>? ContextMenu { get; set; }
     [Parameter] public bool EnableContextMenu { get; set; } = true;
@@ -48,6 +49,8 @@ public partial class WorkflowGraphCanvas
     private bool ready;
     private double zoom = 1;
     private string? selectedNode;
+    private string inspectorTab = "configure";
+    private string? CurrentSelection => SelectedNodeId is not null && Definition.Nodes.ContainsKey(SelectedNodeId) ? SelectedNodeId : selectedNode;
     private string? selectedWire;
     private string sectionLabel = "New section";
     private HashSet<string> members = new(StringComparer.Ordinal);
@@ -88,7 +91,7 @@ public partial class WorkflowGraphCanvas
         NodeTypes.Input => "Input", NodeTypes.Output => "Output", NodeTypes.Uppercase => "Uppercase", NodeTypes.Reverse => "Reverse", NodeTypes.TextTemplate => "Text template",
         NodeTypes.JsonProject => "JSON projection", NodeTypes.JsonSelectString => "JSON selector",
         NodeTypes.Condition => "Condition", NodeTypes.Merge => "Merge", NodeTypes.Approval => "Approval",
-        NodeTypes.ParallelFork => "Parallel fork", NodeTypes.ParallelBranch => "Parallel branch", NodeTypes.ParallelJoin => "Parallel join",
+        NodeTypes.ParallelFork => "Parallel fork", NodeTypes.ParallelBranch => "Parallel branch", NodeTypes.ParallelJoin => "Parallel join", NodeTypes.ParallelRendezvous => "Parallel rendezvous",
         NodeTypes.Loop => "Bounded loop", NodeTypes.LoopBody => "Loop body", NodeTypes.Terminate => "Terminate workflow",
         NodeTypes.WorkflowCall => $"Workflow · {node.WorkflowCall?.WorkflowId} v{node.WorkflowCall?.Version}",
         NodeTypes.StringConstant => "String constant", NodeTypes.TextConcat => "Text concatenation",
@@ -103,8 +106,10 @@ public partial class WorkflowGraphCanvas
     private async Task SelectNode(string id)
     {
         if (!Definition.Nodes.ContainsKey(id)) return;
+        if (selectedNode != id) inspectorTab = "configure";
         selectedNode = id;
         activeConnection = null;
+        if (browserSession is not null) await browserSession.InvokeVoidAsync("select", id);
         await SelectedNodeIdChanged.InvokeAsync(id);
     }
     private static string Kind(NodeDefinition node) => node.Type == NodeTypes.Input ? "Input" : node.Type == NodeTypes.Output ? "Output" :

@@ -69,7 +69,7 @@
 .vaw-definition-status strong { color: var(--vaw-text); font-weight: 500; }
 .vaw-workflow-identity { display: flex; flex-wrap: wrap; align-items: end; gap: var(--vaw-space-3); margin-block: var(--vaw-space-2); }
 .vaw-workflow-identity label { flex: 0 1 18rem; inline-size: min(100%, 22rem); min-inline-size: 0; max-inline-size: 100%; margin: 0; }
-.vaw-workflow-identity input { box-sizing: border-box; inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; }
+.vaw-workflow-identity input { box-sizing: border-box; inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; min-block-size: 2.75rem; font-size: .875rem; }
 .vaw-workflow-identity .vaw-definition-status { margin: 0 0 var(--vaw-space-2); }
 .vaw-definition-status code { margin-inline-start: var(--vaw-space-2); color: var(--vaw-muted); font-size: 0.75rem; }
 .vaw-empty-state { border-inline-start: 3px solid var(--vaw-accent); padding-inline-start: var(--vaw-space-4); }
@@ -318,7 +318,7 @@
 .vaw-with-properties { grid-template-columns: minmax(0, 1fr) var(--vaw-inspector-width, 19rem); }
 .vaw-properties { padding: var(--vaw-space-4); border: 1px solid var(--vaw-border); border-inline-start: 0; background: var(--vaw-surface); max-block-size: 40rem; overflow: auto; min-inline-size: 0; }
 .vaw-properties h3 { margin-block-start: 0; }
-.vaw-properties :where(input:not([type="checkbox"]), textarea, select) { inline-size: 100%; min-inline-size: 0; }
+.vaw-properties :where(input:not([type="checkbox"]), textarea, select) { inline-size: 100%; min-inline-size: 0; font-size: .875rem; }
 .vaw-properties fieldset { border: 0; padding: 0; margin: 0; min-inline-size: 0; }
 .vaw-json-value-schema { min-inline-size: 0; margin-block: var(--vaw-space-3); padding-inline-start: var(--vaw-space-3); border-inline-start: 2px solid var(--vaw-border); }
 .vaw-json-value-schema > fieldset { min-inline-size: 0; margin-block: var(--vaw-space-3); padding: var(--vaw-space-3); border: 1px solid var(--vaw-border); border-radius: var(--vaw-panel-radius); background: color-mix(in srgb, var(--vaw-surface) 72%, var(--vaw-canvas)); }
@@ -409,6 +409,47 @@
     .vaw-graph-editor:fullscreen .vaw-with-library > .vaw-properties { grid-column: auto; }
 }
 .vaw-graph-editor:fullscreen .vaw-with-library > .vaw-properties { grid-column: auto; }
+
+/* Workflow map and node search share the left rail; the canvas and inspector remain the work surface. */
+.vaw-workflow-rail { display: flex; flex-direction: column; gap: var(--vaw-space-5); padding: var(--vaw-space-3); max-block-size: min(56vh, 46rem); }
+.vaw-workflow-map { min-inline-size: 0; }
+.vaw-workflow-map h3, .vaw-workflow-node-library > h3 { margin: 0 0 var(--vaw-space-2); font-size: .875rem; font-weight: 650; }
+.vaw-workflow-map ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.vaw-workflow-map li { min-inline-size: 0; }
+.vaw-workflow-map li button { display: grid; gap: 2px; inline-size: 100%; min-inline-size: 0; min-block-size: 2.75rem; padding: var(--vaw-space-2); text-align: start; border: 1px solid transparent; background: transparent; }
+.vaw-workflow-map li button[aria-pressed="true"] { background: var(--vaw-control); border-color: var(--vaw-control-border); }
+.vaw-workflow-map-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8125rem; font-weight: 600; }
+.vaw-workflow-map-kind { color: var(--vaw-muted); font-size: .6875rem; }
+.vaw-workflow-node-library { border-block-start: 1px solid var(--vaw-border); padding-block-start: var(--vaw-space-3); min-inline-size: 0; }
+.vaw-workflow-node-library .vaw-node-library { display: grid; gap: var(--vaw-space-2); }
+.vaw-workflow-node-library .vaw-node-library h3 { display: none; }
+.vaw-graph-editor .vaw-canvas-viewport { block-size: min(56vh, 46rem); max-block-size: none; min-block-size: 30rem; }
+.vaw-bottom-tray { border-block-start: 1px solid var(--vaw-border); margin-block-start: var(--vaw-space-4); background: var(--vaw-surface); }
+.vaw-bottom-tray > nav { display: flex; align-items: center; gap: var(--vaw-space-2); padding: var(--vaw-space-2) var(--vaw-space-3); border-block-end: 1px solid var(--vaw-border); }
+.vaw-bottom-tray > nav button { min-block-size: 2.5rem; border-color: transparent; background: transparent; }
+.vaw-bottom-tray > nav button[aria-pressed="true"] { color: var(--vaw-text); border-color: var(--vaw-border); background: var(--vaw-control); }
+.vaw-bottom-count { display: inline-grid; place-items: center; min-inline-size: 1.25rem; block-size: 1.25rem; border-radius: 50%; background: color-mix(in srgb, var(--vaw-error) 20%, var(--vaw-surface)); color: var(--vaw-error); font-size: .75rem; }
+.vaw-bottom-panel { max-block-size: 18rem; overflow: auto; padding: var(--vaw-space-3); }
+.vaw-bottom-panel[hidden] { display: none !important; }
+.vaw-bottom-panel > :first-child { margin-block-start: 0; }
+.vaw-bottom-issues { display: grid; gap: var(--vaw-space-2); margin: 0; padding-inline-start: 1.25rem; }
+.vaw-bottom-issues li { display: grid; grid-template-columns: minmax(8rem, .35fr) minmax(0, 1fr); gap: var(--vaw-space-2); }
+.vaw-bottom-empty { color: var(--vaw-success); }
+.vaw-bottom-panel .vaw-version-panel { border: 0; margin: 0; padding: 0; }
+@container vaw-designer (min-width: 70rem) {
+    .vaw-with-library.vaw-with-properties { grid-template-columns: minmax(15rem, 18rem) minmax(0, 1fr) minmax(18rem, 22rem); }
+}
+@container vaw-designer (max-width: 70rem) {
+    .vaw-workflow-rail { max-block-size: 18rem; }
+    .vaw-with-library.vaw-with-properties { grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr); }
+    .vaw-with-library > .vaw-properties { grid-column: 1 / -1; }
+}
+@container vaw-designer (max-width: 42rem) {
+    .vaw-workflow-rail { max-block-size: 14rem; }
+    .vaw-with-library.vaw-with-properties { grid-template-columns: minmax(0, 1fr); }
+    .vaw-with-library > .vaw-properties { grid-column: auto; }
+    .vaw-graph-editor .vaw-canvas-viewport { min-block-size: 22rem; block-size: 58vh; }
+}
 .vaw-designer-toolbar { display: grid; grid-template-columns: minmax(10rem,.4fr) minmax(14rem,1fr) auto auto; align-items: end; }
 .vaw-designer-toolbar > label { margin: 0; }
 .vaw-workflow-search input { margin-block-start: var(--vaw-space-2); }

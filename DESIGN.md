@@ -91,7 +91,8 @@ The interface favors compact, steady surfaces and clear state over decorative at
 **Key Characteristics:**
 - IDE shell with project picker, open-view tabs, activity rail, and project Explorer.
 - Graph canvas is the central work surface, with node properties at its edge.
-- Run, version, and issue details collapse to preserve canvas space.
+- Document tabs and a compact action header replace workflow identity forms on the canvas.
+- Runs, Output, and Problems share one collapsible bottom panel; project source control belongs to the user.
 - Cool neutral dark default with concise status colors and an optional theme palette.
 
 ## Colors
@@ -179,7 +180,8 @@ Controls and cards use restrained, slightly rounded corners: about 4px for compa
 - **Nodes:** Compact rectangular cards with distinct input, agent/tool, and output identity; execution state appears on the node.
 - **Connections:** Typed pins and visible wires communicate data and control flow. Wires can be selected, disconnected, and rerouted.
 - **Inspector:** Node-specific properties appear in a dedicated panel adjacent to the canvas.
-- **Details Tray:** Run, versions, and issues remain available in a collapsible lower panel.
+- **Details Tray:** Runs, Output, and Problems share a collapsible lower panel. Test input opens from the document header.
+- **Document Settings:** Naming, parameters, and import/export stay outside the default graph view.
 
 ### Project Explorer
 - **Tree:** Asset folders group workflows, agents, skills, and functions. File-type marks use the accent color.

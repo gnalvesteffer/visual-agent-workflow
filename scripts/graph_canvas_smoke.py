@@ -41,18 +41,24 @@ def check(browser, screenshots):
         assert response.ok, response.text()
         return response.json()
 
+    def select_workflow(workflow_id):
+        result = page.evaluate("id => window.vawStudioIde.selectWorkflow(id)", workflow_id)
+        assert result == 1, f"IDE workflow selector could not select {workflow_id}: {result}"
+
     def open_editor():
         page.goto(BASE)
         designer = page.get_by_role("region", name="Workflow designer", exact=True)
         expect(workbench(designer).get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
-        workbench(designer).get_by_label("Saved workflow", exact=True).select_option(workflow_id)
+        select_workflow(workflow_id)
         expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text(workflow_id)
         expect(workbench(designer).locator(".vaw-graph-editor")).to_have_attribute("data-ready", "true")
         return designer
 
     designer = open_editor()
     canvas = workbench(designer).locator(".vaw-graph-editor")
-    nodes = workbench(designer).locator("ol[aria-label='Editable workflow nodes'] > li")
+    # The canvas list's accessible name may vary between workflows and graph modes;
+    # target the stable canvas implementation rather than a copy-specific label.
+    nodes = workbench(designer).locator("ol.vaw-free-graph > li")
     step = nodes.filter(has=page.get_by_role("button", name="Move node step-1", exact=True))
     original = design()
     before_x = original["layout"]["nodes"]["step-1"]["position"]["x"]
@@ -281,7 +287,7 @@ def check(browser, screenshots):
     assert response.ok, response.text()
     page.goto(BASE)
     agent_designer = page.get_by_role("region", name="Workflow designer", exact=True)
-    workbench(agent_designer).get_by_label("Saved workflow", exact=True).select_option(agent_definition["workflowId"])
+    select_workflow(agent_definition["workflowId"])
     workbench(agent_designer).get_by_label("Node to organize", exact=True).select_option("step-1")
     token_limit = workbench(agent_designer).get_by_label("Maximum output tokens for step-1", exact=True)
     token_limit.fill("4096")
@@ -300,7 +306,7 @@ def check(browser, screenshots):
     assert response.ok, response.text()
     page.goto(BASE)
     json_designer = page.get_by_role("region", name="Workflow designer", exact=True)
-    workbench(json_designer).get_by_label("Saved workflow", exact=True).select_option(json_definition["workflowId"])
+    select_workflow(json_definition["workflowId"])
     json_canvas = workbench(json_designer).locator(".vaw-graph-editor")
     json_canvas.get_by_role("button", name="Use JSON input and add a value selector", exact=True).click()
     selector = json_canvas.locator("li[data-node-type='core.json.select-string']")

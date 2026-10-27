@@ -10,7 +10,7 @@
 <main class="vaw-main-ide-route">
     <WorkflowErrorBoundary>
         <ChildContent>
-            <WorkflowStudio @key="(ProjectWorkspace.CurrentProjectId, WorkflowId)" ProjectId="ProjectWorkspace.CurrentProjectId" InitialWorkflowId="WorkflowId" IdeMode="true" DraftSaved="RefreshProjectExplorer" Client="ProjectWorkspace.Client" Catalog="ProjectWorkspace.Catalog" ToolCatalog="Tools" AgentCatalog="Agents" SkillLibrary="ProjectWorkspace.Skills" AgentProfileLibrary="ProjectWorkspace.AgentProfiles" FunctionCatalog="ProjectWorkspace.Functions" />
+            <WorkflowStudio @key="(ProjectWorkspace.CurrentProjectId, WorkflowId)" ProjectId="@ProjectWorkspace.CurrentProjectId" InitialWorkflowId="@WorkflowId" IdeMode="true" DraftSaved="RefreshProjectExplorer" WorkflowSelected="SelectWorkflow" Client="ProjectWorkspace.Client" Catalog="ProjectWorkspace.Catalog" ToolCatalog="Tools" AgentCatalog="Agents" SkillLibrary="ProjectWorkspace.Skills" AgentProfileLibrary="ProjectWorkspace.AgentProfiles" FunctionCatalog="ProjectWorkspace.Functions" />
         </ChildContent>
         <ErrorContent>
             <section class="vaw-viewer" role="alert">
@@ -26,6 +26,9 @@
     [Parameter] public string? ProjectId { get; set; }
     [SupplyParameterFromQuery(Name = "workflow")] public string? WorkflowId { get; set; }
     [CascadingParameter(Name = "RefreshProjectExplorer")] public Func<Task>? RefreshProjectExplorer { get; set; }
+
+    [CascadingParameter(Name = "WorkflowSelected")] public Func<string, Task>? WorkflowSelection { get; set; }
+    private Task SelectWorkflow(string id) => WorkflowSelection?.Invoke(id) ?? Task.CompletedTask;
 
     protected override void OnParametersSet()
     {

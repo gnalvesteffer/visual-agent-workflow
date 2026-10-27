@@ -11,7 +11,7 @@
     </header>
     <p class="vaw-studio-description" hidden="@IdeMode">Design a workflow. Run it independently. Inspect every recorded step.</p>
     <div class="vaw-workspace @(workspaceView == "designer" ? "vaw-authoring-workspace" : "")">
-        <aside class="vaw-sidebar" hidden="@(workspaceView == "designer")">
+        <aside class="vaw-sidebar" hidden="@(IdeMode || workspaceView == "designer")">
             <h2>Quick template run</h2>
             <label>Workflow
                 <select @bind="operation">
@@ -57,7 +57,7 @@
             @if (actionError is not null) { <p role="alert" class="vaw-error">@actionError</p> }
             @if (workspaceView == "run" && historyLoading)
             { <p class="vaw-help" role="status" aria-live="polite">Loading recorded run history… The workflow editor is already available.</p> }
-            <nav class="vaw-workspace-views" aria-label="Workspace views">
+            <nav class="vaw-workspace-views" aria-label="Workspace views" hidden="@IdeMode">
                 @if (Catalog is not null && Client is IPublishedWorkflowClient)
                 { <button type="button" aria-pressed="@(workspaceView == "designer" ? "true" : "false")" @onclick="ShowDesigner" disabled="@(!interactive)">Designer</button> }
                 <button type="button" aria-pressed="@(workspaceView == "run" ? "true" : "false")" @onclick="ShowRun" disabled="@(!interactive)">Run inspector</button>
@@ -65,10 +65,34 @@
             <div hidden="@(workspaceView != "designer")">
             @if (Catalog is not null && Client is IPublishedWorkflowClient publishedClient)
             {
-                <WorkflowDesigner @key="(Catalog, publishedClient, InitialWorkflowId)" ProjectId="ProjectId" IdeMode="IdeMode" InitialWorkflowId="InitialWorkflowId" DraftSaved="DraftSaved" Catalog="Catalog" Client="publishedClient" OnRunStarted="PublishedCallback(publishedClient)" OpenRunInspector="ShowRun" ToolCatalog="ToolCatalog" AgentCatalog="AgentCatalog" SkillLibrary="SkillLibrary" AgentProfileLibrary="AgentProfileLibrary" FunctionCatalog="FunctionCatalog" />
+                <WorkflowDesigner @key="(Catalog, publishedClient, InitialWorkflowId)" ProjectId="@ProjectId" IdeMode="IdeMode" InitialWorkflowId="@InitialWorkflowId" DraftSaved="DraftSaved" WorkflowSelected="WorkflowSelected" Catalog="Catalog" Client="publishedClient" OnRunStarted="PublishedCallback(publishedClient)" OpenRunInspector="ShowRun" ToolCatalog="ToolCatalog" AgentCatalog="AgentCatalog" SkillLibrary="SkillLibrary" AgentProfileLibrary="AgentProfileLibrary" FunctionCatalog="FunctionCatalog">
+                    <RunHistoryContent>
+                        <div class="vaw-run-list-tools"><label>Filter runs <input aria-label="Filter workflow runs" @bind="runFilter" @bind:event="oninput" placeholder="Workflow, status or run ID" /></label><button type="button" @onclick="Refresh" disabled="@historyLoading">Refresh history</button></div>
+                        @if (historyLoading) { <p role="status" class="vaw-help">Loading run history…</p> }
+                        else if (!runs.Any(MatchesRunFilter)) { <p class="vaw-panel-empty">No matching runs. Save this workflow and choose Run to test it.</p> }
+                        else
+                        {
+                            <table class="vaw-ide-run-table"><thead><tr><th scope="col">Status</th><th scope="col">Workflow</th><th scope="col">Started</th><th scope="col">Duration</th><th scope="col">Run</th><th scope="col"><span class="vaw-sr-only">Actions</span></th></tr></thead><tbody>
+                                @foreach (var run in runs.Where(MatchesRunFilter).Take(50))
+                                {
+                                    <tr @key="run.Header.RunId" aria-selected="@(snapshot?.Header.RunId == run.Header.RunId ? "true" : "false")"><td><span class="vaw-run-state" data-status="@run.Status">@run.Status</span></td><td>@(string.IsNullOrWhiteSpace(run.Header.Definition.DisplayName) ? run.Header.Definition.WorkflowId : run.Header.Definition.DisplayName)</td><td><time datetime="@run.Header.CreatedAt.ToString("O")">@run.Header.CreatedAt.ToLocalTime().ToString("MMM d, HH:mm:ss")</time></td><td>@(run.IsTerminal && !run.Events.IsEmpty ? $"{(run.Events[^1].Timestamp - run.Header.CreatedAt).TotalSeconds:0.0}s" : "In progress")</td><td><code>@run.Header.RunId.ToString()[..8]</code></td><td><button type="button" @onclick="() => SelectRun(run.Header.RunId)" aria-label="Inspect run @run.Header.RunId">Inspect</button></td></tr>
+                                }
+                            </tbody></table>
+                        }
+                    </RunHistoryContent>
+                    <OutputContent>
+                        @if (snapshot is null) { <p class="vaw-panel-empty">Run a workflow to see its result here.</p> }
+                        else
+                        {
+                            <div class="vaw-output-heading"><span>Run <code>@snapshot.Header.RunId.ToString()[..8]</code> · <strong>@snapshot.Status</strong></span><button type="button" @onclick="ShowRun">Inspect execution</button></div>
+                            <pre class="vaw-workflow-result">@(snapshot.Events.LastOrDefault(item => item.Kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Failed)?.Data ?? (snapshot.IsTerminal ? "This run did not return a result." : "Waiting for a result…"))</pre>
+                        }
+                    </OutputContent>
+                </WorkflowDesigner>
             }
             </div>
             <div hidden="@(workspaceView != "run")">
+            @if (IdeMode) { <div class="vaw-inspection-document-bar"><button type="button" @onclick="ShowDesigner">Back to workflow</button><span>Execution inspection</span>@if (snapshot is { IsTerminal: false }) { <button type="button" @onclick="Cancel">Cancel selected run</button> }</div> }
             <WorkflowRunViewer Snapshot="snapshot" Layout="runLayout" ApprovalClient="@(Client as IWorkflowApprovalClient)" ApprovalChanged="Refresh" />
             </div>
         </section>

@@ -58,6 +58,10 @@ A host can invoke workflows from its own controller, message consumer, webhook h
 
 Deployment uses reviewed, version-pinned definitions/packages and host-side dependency resolution. Each run captures its resolved revision and dependency identities. Replacing a deployment changes future runs, not in-flight or historical runs. Authoring catalogs and SQLite are optional deployment choices; a service should also be able to load its approved artifact from its own release/configuration mechanism. Environment credentials, MCP connection factories, and policy remain with the service host.
 
+### Portable model roles
+
+Agent nodes should support a portable, typed model slot such as `smart-model` (“Smart model for complex reasoning”) or `fast-model` (“Fast model for routine extraction”). The workflow author describes the role; the consuming Studio/host binds it to one of that consumer's stable model connection IDs using a model picker. The portable workflow contains slot identity and descriptive metadata, never a concrete consumer connection, endpoint, or credential. The consumer's binding remains host-owned and is validated before execution admission; a missing or unavailable required slot is an explicit error, never a silent fallback. Run provenance records the selected stable connection ID and safe model descriptor. This is distinct from scalar workflow parameters, which are caller-overridable values and must not grant access to arbitrary registered model connections. Existing workflows retain exact connection-ID semantics until an explicit conversion is made. Nested profiles and called workflows require an explicit slot propagation contract before they are advertised as portable across consumer model catalogs.
+
 ### Proposed packages
 
 | Package | Responsibility |
@@ -105,9 +109,9 @@ Child calls appear under the parent node with separate invocation IDs and profil
 
 Channel IDs are profile-pinned logical names. At execution, scope each board to the parent-agent invocation or team invocation; never use a global namespace that can leak messages across runs or calls. The implementation allows up to eight memberships per profile, validates membership on each operation, and caps messages at 4,000 characters, 32 per channel and 64 per board. Store channel traffic as bounded, sequenced, append-only run evidence, not unrestricted shared mutable memory. Every send/read is audited; read evidence captures exactly what the participant received so playback requires no agent calls. The parent selects sequential delegate turns through its assigned tools; no independent scheduler or durable shared memory is introduced. Aggregate budgets and richer failure policies remain future orchestration work. Parallel fan-out/fan-in of separate graph nodes remains a general control-flow capability; team channels are an agent-specific messaging layer.
 
-**Planned collaborative parallel region:** the existing `team_0` is optional because a parent model must choose to call it. Graph-level collaboration instead places agents on visible branches with explicit channel grants. The proposed first release uses a new schema and one rendezvous per static 2–8 branch region; stable branch IDs identify participants. Members can append bounded messages before release, then read one immutable snapshot after all participants arrive. Waiters release execution capacity, and failure aborts the region without a partial join value. Repeated phases, conditions, loops, nested forks, automatic retry, and interrupted-barrier recovery are deferred. The full timeout, audit, authorization, and test contract is in [parallel agent collaboration](parallel-agent-collaboration.md); this remains a proposal, not an implemented runtime feature.
+**Collaboration contracts:** schema 1.33 retains its implemented single-rendezvous behavior and format. Schema 1.35 defines exactly two ordered rendezvous phases for a static 2–8 branch region, with separate phase boards/snapshots and grants bound to an exact Agent node, phase, role, and channels. Core validates the schema-1.35 topology and package contract; runtime, hosting, playback, and Studio integration remain separate delivery work. Both schemas require straight Agent paths and exclude conditional collaboration topology, loops, nested forks, retries, and interrupted-barrier recovery. See [schema 1.33 collaboration](parallel-agent-collaboration.md) and [schema 1.35 two-phase collaboration](parallel-agent-collaboration-phases.md).
 
-Prefer composing the region from visible fork branches, configured Agent nodes, a group-scoped channel, and explicit barriers over hiding the work in one monolithic team node. This permits deterministic processing between collaboration phases and lets authors route each result independently. The first release contract is specified in [parallel agent collaboration](parallel-agent-collaboration.md): one rendezvous, bounded messages, a shared immutable snapshot, and all-or-nothing failure. A Team prefab/preset may package a common topology while expanding to the same serialized region semantics. Reuse version-pinned profiles, per-agent capability grants, and append-only message evidence. Record region and invocation IDs, snapshot boundaries, exact reads/writes, arrivals/releases, and final outputs so playback can reconstruct observed evidence without rerunning agents. Runtime scheduling and authoring remain planned; a dedicated single Agent Team runtime node should not become a second team/profile execution contract.
+Keep the region visible as fork branches, configured Agent nodes, a group-scoped channel, and an explicit barrier. The implemented schema 1.34 extension permits at most one Boolean Branch in each static schema 1.32 branch. Both statically possible outcomes stay inside their owning branch and reach the matching stable-ID join input exactly once. Exclusive routing may converge through a shared branch-local node without creating a second fan-in. Schema 1.33 collaboration remains linear before and after its rendezvous. Schema 1.35 adds two ordered barriers with straight-line Agent paths and phase/role grants; see the focused contract. A Team prefab/preset may package a common topology while expanding to the same serialized region semantics. Reuse version-pinned profiles, exact per-agent grants, and append-only evidence. Playback reconstructs observed messages and decisions without rerunning agents. A dedicated single Agent Team runtime node should not become a second team/profile execution contract.
 
 ```mermaid
 flowchart LR
@@ -263,7 +267,7 @@ Each execution still binds to an immutable, content-addressed workflow/package s
 
 Expose one host-selected `IWorkflowRunStore` as the authoritative persistence/event boundary. Consumers configure it through the workflow hosting layer; the runtime writes the ordered events and derived run state, while observers read from that same store. Do not add a second write-only sink for the same run history: independent sinks can disagree about sequence, pause/approval/interruption events, and what playback can show. A separate telemetry/export relay may be designed later with explicit lag and failure semantics. Studio keeps its configurable app-local run store outside project roots for cross-session inspection; an OS temporary directory is only an explicit disposable option, not a retention policy. Optional checkpoint recovery must persist native state, events, and cursor in the same checkpoint-capable store.
 
-Pin node implementation versions, configuration schemas, skills, graph functions, and extension artifacts in portable files and package manifests. Missing or incompatible dependencies produce explicit validation errors. A package build produces an immutable artifact hash for deployment and run attribution; it does not create a competing source-control history.
+Editable projects reference project-owned skills, agent profiles, and graph functions by stable logical ID, resolving the current checked-out file during authoring and run capture. Do not require per-asset version numbers or a second revision lineage in project source. At execution and package-build boundaries, capture the exact dependency closure with content hashes and provenance; missing or incompatible dependencies produce explicit validation errors. Optional pins may be used for controlled deployments. A package build produces a separate immutable artifact hash for deployment and run attribution; it does not create a competing source-control history.
 
 Promote the same immutable release across environments using separately authorized environment bindings. Record relevant resolved binding metadata for each run without copying credentials into definitions or logs.
 
@@ -283,7 +287,7 @@ Studio is designed first for one local operator. Do not add multi-user editing, 
 flowchart TB
     Author["Local author"] --> Workspace["Local workspace"]
     Workspace --> Project["Project: authoring and asset ownership"]
-    Project --> Workflows["Workflow and graph revisions"]
+    Project --> Workflows["Editable workflow source files"]
     Project --> Reusable["Functions, agent presets and skills"]
     Project --> References["Logical MCP and model references"]
     References --> Environment["Host/environment registrations and secrets"]
@@ -311,13 +315,13 @@ Use platform-owned versioned JSON documents validated against JSON Schema. Do no
 | --- | --- |
 | `vaw.project.json` | Project format version, stable project ID, display name, and relative asset indexes |
 | `workflows/<id>.json` | Executable nodes/connections, input/output schemas, configuration, requirements, and graph layout |
-| `skills/<id>/<version>.json` | Immutable text skill revision and content hash |
-| `agents/<id>/<version>.json` | Immutable agent profile revision and content hash |
-| `functions/<id>/<version>.json` | Immutable pure graph-function definition and content hash |
+| `skills/<id>.skill.json` | Mutable text skill source with stable logical ID |
+| `agents/<id>.agent.json` | Mutable agent profile source with stable logical ID |
+| `functions/<id>.function.json` | Mutable pure graph-function source with stable logical ID |
 | `.vaw/` | Optional ignored local recovery/index/cache; never required to open, validate, or package a project |
 | `.vawpkg` ZIP artifact | Deterministic selected-workflow release wrapper with requirement manifest; consumer resolves host services and policy; excludes `.vaw`, Git data, endpoints, credentials, grants, and local run history |
 
-Keep layout in a dedicated field/document when the selected source schema supports it so moving nodes is reviewable separately from behavior changes. A built artifact captures the exact definition and layout. Execution events, host audit, payload artifacts, and runtime checkpoints stay outside project source files.
+Keep layout in a dedicated field/document when the selected source schema supports it so moving nodes is reviewable separately from behavior changes. A built artifact captures the exact definition, layout, and resolved dependency closure. Execution events, host audit, payload artifacts, and runtime checkpoints stay outside project source files.
 
 ### Illustrative definition fragment
 

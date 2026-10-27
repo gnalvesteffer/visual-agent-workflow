@@ -86,6 +86,7 @@
 @code {
     [Parameter, EditorRequired] public StudioFolderGraphFunctionCatalog Source { get; set; } = null!;
     [Parameter, EditorRequired] public string ExpectedManifestHash { get; set; } = "";
+    [Parameter] public string? TargetDirectory { get; set; }
     [Parameter] public StudioFolderGraphFunction? Asset { get; set; }
     [Parameter] public EventCallback<StudioFolderGraphFunction> Saved { get; set; }
     [Parameter] public EventCallback Discarded { get; set; }
@@ -361,7 +362,7 @@
         }
         try
         {
-            var saved = Source.SaveNewVersion(BuildFunction(), folder.Trim(), ExpectedManifestHash, layout);
+            var saved = Source.SaveNewVersion(BuildFunction(), folder.Trim(), ExpectedManifestHash, layout, TargetDirectory);
             version++;
             dirty = false;
             error = null;

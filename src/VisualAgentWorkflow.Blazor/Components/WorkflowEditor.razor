@@ -7,7 +7,7 @@
             <ul>@foreach (var issue in validationIssues) { <li><strong>@issue.Path</strong> · @issue.Message</li> }</ul>
         </section>
     }
-    @if (!ReadOnly)
+    @if (!ReadOnly && ShowWorkflowSettings)
     {
         <details class="vaw-parameter-editor">
             <summary>Workflow parameters <span class="vaw-help">@ParameterDefinitions.Count configurable values</span></summary>
@@ -36,7 +36,7 @@
             </div>
         </details>
     }
-    <WorkflowGraphCanvas @ref="canvas" @key="Definition.WorkflowId" Definition="Definition" Layout="EffectiveLayout" LayoutChanged="LayoutEdited" ReadOnly="@(ReadOnly || LayoutReadOnly)" Disabled="Disabled" SelectedNodeId="@selectedNode" SelectedNodeIdChanged="SelectNode" ConnectionSelected="ConnectionSelected" ConnectionDisconnectRequested="id => Edit(() => GraphEditing.Disconnect(Definition, id))" ConnectionRequested="pins => Edit(() => GraphEditing.ConnectPins(Definition, pins.SourceId, pins.SourcePort, pins.TargetId, pins.TargetPort))" ShowNodeLibrary="@(!ReadOnly && (!HideNodeLibrary || showNodeLibrary))" EnableContextMenu="@(!ReadOnly && !Disabled)" NodeCreateRequested="request => AddLibraryNode(request.Key, request.Context)" DeleteNodeRequested="id => RemoveSelected(id)">
+    <WorkflowGraphCanvas IdeMode="IdeMode" @ref="canvas" @key="Definition.WorkflowId" Definition="Definition" Layout="EffectiveLayout" LayoutChanged="LayoutEdited" ReadOnly="@(ReadOnly || LayoutReadOnly)" Disabled="Disabled" SelectedNodeId="@selectedNode" SelectedNodeIdChanged="SelectNode" ConnectionSelected="ConnectionSelected" ConnectionDisconnectRequested="id => Edit(() => GraphEditing.Disconnect(Definition, id))" ConnectionRequested="pins => Edit(() => GraphEditing.ConnectPins(Definition, pins.SourceId, pins.SourcePort, pins.TargetId, pins.TargetPort))" ShowNodeLibrary="@(!ReadOnly && (!HideNodeLibrary || showNodeLibrary))" EnableContextMenu="@(!ReadOnly && !Disabled)" NodeCreateRequested="request => AddLibraryNode(request.Key, request.Context)" DeleteNodeRequested="id => RemoveSelected(id)">
     <ToolbarContent>
         @if (HideNodeLibrary)
         { <button type="button" @onclick="ToggleNodeLibrary">@(showNodeLibrary ? "Hide node library" : "Add node")</button> }
@@ -140,7 +140,7 @@
             <div class="vaw-context-actions">
                 <button type="button" @onclick="() => CloseMenu(context)">Edit selected node properties</button>
                 <button type="button" disabled="@(!CanDuplicate(contextNode))" @onclick="() => Duplicate(contextNode, context)">Duplicate node</button>
-                <button type="button" disabled="@(!CanRemove(contextNode))" @onclick="() => RemoveSelected(contextNode, context)">@(Definition.Nodes[contextNode].Type == NodeTypes.Merge ? "Remove merge and split paths" : Definition.Nodes[contextNode].Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin ? "Remove parallel block…" : Definition.Nodes[contextNode].Type == NodeTypes.Loop ? "Remove loop (run body once)" : "Delete node")</button>
+                <button type="button" disabled="@(!CanRemove(contextNode))" @onclick="() => RemoveSelected(contextNode, context)">@(Definition.Nodes[contextNode].Type == NodeTypes.ParallelRendezvous ? "Remove collaboration region…" : Definition.Nodes[contextNode].Type == NodeTypes.Merge ? "Remove merge and split paths" : Definition.Nodes[contextNode].Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin ? "Remove parallel block…" : Definition.Nodes[contextNode].Type == NodeTypes.Loop ? "Remove loop (run body once)" : "Delete node")</button>
                 @if (Definition.Nodes[contextNode].Type == NodeTypes.Condition)
                 { <button type="button" disabled="@Disabled" @onclick="() => RequestBlockRemoval(contextNode, context)">Remove conditional block…</button> }
             </div>
@@ -331,7 +331,7 @@
                     else if (node.Type == NodeTypes.ParallelFork)
                     {
                         <p>Starts every configured branch concurrently with the same input. Each branch output must reach its matching join input. A branch failure fails the workflow; side effects already performed by another branch are not rolled back.</p>
-                        @if (Definition.SchemaVersion == WorkflowSchemaVersions.ConfigurableParallelGraph && node.ParallelFork is { } forkConfiguration)
+                        @if (Definition.SchemaVersion is WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph && node.ParallelFork is { } forkConfiguration)
                         {
                             <fieldset aria-label="Parallel branch labels">
                                 <legend>Branch order, labels, and count</legend>
@@ -376,13 +376,122 @@
                     }
                     else if (node.Type == NodeTypes.ParallelJoin)
                     {
-                        @if (Definition.SchemaVersion == WorkflowSchemaVersions.ConfigurableParallelGraph && node.ParallelJoin is { } configurableJoin)
+                        @if (Definition.SchemaVersion is WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph && node.ParallelJoin is { } configurableJoin)
                         {
                             <p>Waits for @configurableJoin.BranchIds.Length named branch results, then emits them as a JSON object keyed by stable branch ID.</p>
                         }
                         else
                         {
                             <p>Waits until both named branches finish, then emits a JSON object with <code>branch_1</code> and <code>branch_2</code> values. Use a JSON selector to continue with one value as text.</p>
+                        }
+                    }
+                    else if (node.Type == NodeTypes.ParallelRendezvous)
+                    {
+                        <p>Pairs messages from the named parallel branches at a barrier. The rendezvous adds no execution wires: connect each branch to its matching input, then connect each matching output onward.</p>
+                        @if (!ReadOnly)
+                        {
+                            @if (Definition.ParallelCollaborationRegions?.Values.Any(candidate => candidate.SecondRendezvousNodeId == id) == true)
+                            {
+                                <p class="vaw-help">Second rendezvous in a two-phase collaboration. Configure the shared channels and Agent grants on its first rendezvous. This barrier has no execution wires until you connect them.</p>
+                            }
+                            else
+                            {
+                            var forkChoices = Definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.ParallelFork).ToArray();
+                            var joinChoices = Definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.ParallelJoin).ToArray();
+                            <fieldset aria-label="Parallel collaboration region" disabled="@Disabled">
+                                <legend>Region binding</legend>
+                                <label>Parallel fork
+                                    <select aria-label="Collaboration fork for @id" @bind="rendezvousForkSelection">
+                                        <option value="">Choose a fork</option>
+                                        @foreach (var forkEntry in forkChoices)
+                                        { <option value="@forkEntry.Key">@(string.IsNullOrWhiteSpace(EffectiveLayout.Nodes[forkEntry.Key].Label) ? WorkflowGraphCanvas.FriendlyName(forkEntry.Value) : EffectiveLayout.Nodes[forkEntry.Key].Label) · @forkEntry.Key</option> }
+                                    </select>
+                                </label>
+                                <label>Parallel join
+                                    <select aria-label="Collaboration join for @id" @bind="rendezvousJoinSelection">
+                                        <option value="">Choose a join</option>
+                                        @foreach (var joinEntry in joinChoices)
+                                        { <option value="@joinEntry.Key">@(string.IsNullOrWhiteSpace(EffectiveLayout.Nodes[joinEntry.Key].Label) ? WorkflowGraphCanvas.FriendlyName(joinEntry.Value) : EffectiveLayout.Nodes[joinEntry.Key].Label) · @joinEntry.Key</option> }
+                                    </select>
+                                </label>
+                                <label>Shared channel IDs <textarea aria-label="Shared channels for @id" @bind="rendezvousChannels" rows="3" placeholder="research&#10;review"></textarea></label>
+                                <p class="vaw-help">One stable channel ID per line. Only channels explicitly granted to an Agent are visible to it.</p>
+                                <label>Barrier timeout (seconds, optional)
+                                    <input aria-label="Collaboration timeout for @id" type="number" min="1" @bind="rendezvousTimeout" placeholder="Host default" />
+                                </label>
+                                <p class="vaw-help">Leave blank for the host default. A specified timeout must be positive.</p>
+                                <button type="button" @onclick="() => ConfigureCollaborationRegion(id)" disabled="@Disabled">Apply region and branch pins</button>
+                                @if (Definition.SchemaVersion == WorkflowSchemaVersions.CollaborativeParallelGraph && Definition.ParallelCollaborationRegions?.ContainsKey(id) == true)
+                                {
+                                    <p>Upgrade adds one unwired second barrier and preserves current Agent positions in phase 1.</p>
+                                    <button type="button" @onclick="() => UpgradeCollaborationToTwoPhases(id)" disabled="@(Disabled || Definition.Nodes.Count >= 256)">Upgrade to two phases</button>
+                                }
+                                @if (Definition.SchemaVersion == WorkflowSchemaVersions.PhasedCollaborativeParallelGraph && Definition.ParallelCollaborationRegions?.GetValueOrDefault(id) is { } phasedRegion)
+                                {
+                                    <label>Second rendezvous
+                                        <select aria-label="Second rendezvous for @id" value="@phasedRegion.SecondRendezvousNodeId" @onchange="args => SetSecondRendezvous(id, args.Value?.ToString())">
+                                            <option value="">Choose the second rendezvous</option>
+                                            @foreach (var candidate in Definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.ParallelRendezvous && entry.Key != id))
+                                            { <option value="@candidate.Key">@(string.IsNullOrWhiteSpace(EffectiveLayout.Nodes[candidate.Key].Label) ? WorkflowGraphCanvas.FriendlyName(candidate.Value) : EffectiveLayout.Nodes[candidate.Key].Label) · @candidate.Key</option> }
+                                        </select>
+                                    </label>
+                                    <p class="vaw-help">Use the same stable branch IDs at both barriers. Wire each branch through both barriers in order and then to its matching join input.</p>
+                                }
+                            </fieldset>
+                            @if (Definition.ParallelCollaborationRegions?.GetValueOrDefault(id) is { } region)
+                            {
+                                <fieldset aria-label="Agent communication grants" disabled="@Disabled">
+                                    <legend>Per-branch Agent grants</legend>
+                                    @foreach (var branch in region.Branches)
+                                    {
+                                        var branchId = branch.BranchId;
+                                        <section class="vaw-collaboration-branch" @key="branchId" aria-label="Grants for branch @branchId">
+                                            <h4>Branch @branchId</h4>
+                                            @for (var grantIndex = 0; grantIndex < branch.Agents.Length; grantIndex++)
+                                            {
+                                                var grantRowIndex = grantIndex;
+                                                var grant = branch.Agents[grantRowIndex];
+                                                <div class="vaw-collaboration-grant" @key="grantRowIndex">
+                                                    <label>Agent
+                                                        <select aria-label="Granted agent for @branchId grant @grantRowIndex" value="@grant.AgentNodeId" @onchange="args => ChangeCollaborationGrant(id, branchId, grantRowIndex, agentNodeId: args.Value?.ToString())">
+                                                            <option value="">Choose an Agent</option>
+                                                            @foreach (var agentEntry in Definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.Agent))
+                                                            { <option value="@agentEntry.Key">@(string.IsNullOrWhiteSpace(EffectiveLayout.Nodes[agentEntry.Key].Label) ? WorkflowGraphCanvas.FriendlyName(agentEntry.Value) : EffectiveLayout.Nodes[agentEntry.Key].Label) · @agentEntry.Key</option> }
+                                                        </select>
+                                                    </label>
+                                                    <label>Phase
+                                                        <select aria-label="Grant phase for @branchId grant @grantRowIndex" value="@grant.Phase" @onchange="args => ChangeCollaborationGrant(id, branchId, grantRowIndex, phase: args.Value?.ToString())">
+                                                            @if (Definition.SchemaVersion == WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)
+                                                            { <option value="phase1">Phase 1</option><option value="phase2">Phase 2</option> }
+                                                            else
+                                                            { <option value="publish">Publish before rendezvous</option><option value="read">Read after rendezvous</option> }
+                                                        </select>
+                                                    </label>
+                                                    @if (Definition.SchemaVersion == WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)
+                                                    {
+                                                        <label>Role
+                                                            <select aria-label="Grant role for @branchId grant @grantRowIndex" value="@grant.Role" @onchange="args => ChangeCollaborationGrant(id, branchId, grantRowIndex, role: args.Value?.ToString())">
+                                                                <option value="publish">Publish</option><option value="read">Read</option>
+                                                            </select>
+                                                        </label>
+                                                    }
+                                                    <label>Allowed channels
+                                                        <input aria-label="Grant channels for @branchId grant @grantRowIndex" value="@string.Join(", ", grant.Channels)" placeholder="research, review" @onchange="args => ChangeCollaborationGrant(id, branchId, grantRowIndex, channels: args.Value?.ToString())" />
+                                                    </label>
+                                                    <button type="button" aria-label="Remove grant for @branchId grant @grantRowIndex" @onclick="() => RemoveCollaborationGrant(id, branchId, grantRowIndex)">Remove grant</button>
+                                                </div>
+                                            }
+                                            <button type="button" aria-label="Add Agent grant for branch @branchId" @onclick="() => AddCollaborationGrant(id, branchId)" disabled="@(Definition.Nodes.Values.All(candidate => candidate.Type != NodeTypes.Agent))">Add Agent grant</button>
+                                        </section>
+                                    }
+                                    <p class="vaw-help">A publish grant applies only before the barrier; a read grant applies only after it. Branch membership and connected paths are validated before publishing.</p>
+                                </fieldset>
+                            }
+                            }
+                        }
+                        else
+                        {
+                            <p>Rendezvous for @string.Join(", ", node.ParallelRendezvous?.BranchIds ?? []).</p>
                         }
                     }
                     else if (node.Type == NodeTypes.Condition && !ReadOnly)
@@ -413,7 +522,7 @@
                     }
                     else if (node.Type == NodeTypes.WorkflowValue)
                     {
-                        var parameterChoices = ParameterDefinitions.Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph) || WorkflowParameterGraphTypes.DataType(pair.Value) is not null).ToDictionary(pair => pair.Key, pair => pair.Value);
+                        var parameterChoices = ParameterDefinitions.Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph) || WorkflowParameterGraphTypes.DataType(pair.Value) is not null).ToDictionary(pair => pair.Key, pair => pair.Value);
                         @if (!ReadOnly && parameterChoices.Count > 0)
                         {
                             <label>Workflow parameter
@@ -702,6 +811,8 @@
     [Parameter] public string ProjectId { get; set; } = "default";
     [Parameter, EditorRequired] public WorkflowDefinition Definition { get; set; } = default!;
     [Parameter] public RenderFragment? EditorActions { get; set; }
+    [Parameter] public bool IdeMode { get; set; }
+    [Parameter] public bool ShowWorkflowSettings { get; set; } = true;
     [Parameter] public EventCallback<WorkflowGraphEdit> GraphEdited { get; set; }
     private WorkflowGraphCanvas? canvas;
     [Parameter] public EventCallback<WorkflowDefinition> DefinitionChanged { get; set; }
@@ -738,13 +849,22 @@
             int.TryParse(pair.Value.DefaultValue, System.Globalization.NumberStyles.AllowLeadingSign,
                 System.Globalization.CultureInfo.InvariantCulture, out var value) && value >= minimum && value <= maximum);
     private static string LimitSource(string? parameterId) => parameterId is null ? "static" : "parameter:" + parameterId;
-    private string CapabilitySchema => Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : Definition.SchemaVersion == "1.8" || ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
+    private string CapabilitySchema => Version.TryParse(Definition.SchemaVersion, out var currentSchema) && currentSchema >= new Version(1, 7)
+        ? Definition.SchemaVersion
+        : ParameterDefinitions.Values.Any(parameter => parameter.Type is not (null or "string")) ? "1.8" : "1.7";
     private string? error;
     private string? selectedNode;
     private string selectedPort = "out";
-    private Task SelectNode(string id) { insertionConnection = null; if (selectedNode != id) selectedPort = WorkflowSchemaVersions.UsesExplicitGraph(Definition)
+    private string rendezvousForkSelection = "";
+    private string rendezvousJoinSelection = "";
+    private string rendezvousChannels = "";
+    private string rendezvousTimeout = "";
+    private Task SelectNode(string id) { insertionConnection = null; if (!Definition.Nodes.ContainsKey(id)) id = Definition.Nodes.ContainsKey(Definition.EntryNodeId)
+        ? Definition.EntryNodeId : WorkflowGraph.DisplayOrder(Definition).FirstOrDefault() ?? string.Empty;
+        if (id.Length == 0) return Task.CompletedTask;
+        if (selectedNode != id) selectedPort = WorkflowSchemaVersions.UsesExplicitGraph(Definition)
         ? WorkflowPorts.Explicit(Definition.Nodes[id]).FirstOrDefault(port => port.Direction == WorkflowPortDirection.Output)?.Id ?? "out"
-        : WorkflowPorts.Outputs(Definition.Nodes[id]).FirstOrDefault()?.Id ?? "out"; selectedNode = id; return Task.CompletedTask; }
+        : WorkflowPorts.Outputs(Definition.Nodes[id]).FirstOrDefault()?.Id ?? "out"; selectedNode = id; LoadRendezvousEditorState(id); return Task.CompletedTask; }
     private string Summary(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input => "Workflow input",
@@ -777,6 +897,7 @@
         NodeTypes.ParallelFork => "Start both branches concurrently",
         NodeTypes.ParallelBranch => "Parallel branch anchor",
         NodeTypes.ParallelJoin => "Wait for both branch results",
+        NodeTypes.ParallelRendezvous => "Synchronize branch messages",
         NodeTypes.Approval => "Review before the next tool call",
         NodeTypes.Agent => Providers.FirstOrDefault(p => p.ProviderId == node.Agent!.ProviderId)?.DisplayName ?? "Host-configured agent",
         _ => Bindings.FirstOrDefault(b => b.BindingId == node.Tool?.BindingId)?.DisplayName ?? "Host-approved tool"
@@ -794,8 +915,140 @@
             ? WorkflowLayout.Create(Definition)
             : (localLayout ?? WorkflowLayout.Create(Definition)).Reconcile(Definition);
         if (selectedNode is null || !Definition.Nodes.ContainsKey(selectedNode)) selectedNode = Definition.EntryNodeId;
+        LoadRendezvousEditorState(selectedNode);
         orderedDefinition = Definition;
         error = null;
+    }
+
+    private void LoadRendezvousEditorState(string? nodeId)
+    {
+        if (nodeId is null || !Definition.Nodes.TryGetValue(nodeId, out var node) || node.Type != NodeTypes.ParallelRendezvous) return;
+        var region = Definition.ParallelCollaborationRegions?.GetValueOrDefault(nodeId);
+        rendezvousForkSelection = region?.ForkNodeId ?? Definition.Nodes.FirstOrDefault(entry => entry.Value.Type == NodeTypes.ParallelFork).Key ?? "";
+        rendezvousJoinSelection = region?.JoinNodeId ?? Definition.Nodes.FirstOrDefault(entry => entry.Value.Type == NodeTypes.ParallelJoin).Key ?? "";
+        rendezvousChannels = region is null || region.ChannelIds.IsDefault ? "" : string.Join(Environment.NewLine, region.ChannelIds);
+        rendezvousTimeout = region?.TimeoutSeconds?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
+    }
+
+    private Task ConfigureCollaborationRegion(string rendezvousId) => Edit(() =>
+    {
+        if (!Definition.Nodes.TryGetValue(rendezvousId, out var rendezvous) || rendezvous.Type != NodeTypes.ParallelRendezvous)
+            throw new ArgumentException("Select the parallel rendezvous node you want to configure.");
+        if (rendezvousForkSelection.Length == 0 || !Definition.Nodes.TryGetValue(rendezvousForkSelection, out var fork) ||
+            fork.Type != NodeTypes.ParallelFork || fork.ParallelFork is not { } forkConfiguration)
+            throw new ArgumentException("Choose a configured parallel fork with stable branch IDs.");
+        if (rendezvousJoinSelection.Length == 0 || !Definition.Nodes.TryGetValue(rendezvousJoinSelection, out var join) ||
+            join.Type != NodeTypes.ParallelJoin || join.ParallelJoin is not { } joinConfiguration || joinConfiguration.ForkNodeId != rendezvousForkSelection)
+            throw new ArgumentException("Choose the join matched to the selected fork.");
+        if (!string.IsNullOrWhiteSpace(rendezvousTimeout) &&
+            (!int.TryParse(rendezvousTimeout, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var timeout) || timeout <= 0))
+            throw new ArgumentException("Enter a positive whole number of seconds, or leave the timeout blank for the host default.");
+        var branchIds = forkConfiguration.Branches.Select(branch => branch.Id).ToImmutableArray();
+        if (branchIds.IsDefaultOrEmpty || !branchIds.Order(StringComparer.Ordinal).SequenceEqual(joinConfiguration.BranchIds.Order(StringComparer.Ordinal)))
+            throw new ArgumentException("The selected fork and join must have matching stable branch IDs.");
+        var old = Definition.ParallelCollaborationRegions?.GetValueOrDefault(rendezvousId);
+        var oldBranches = old?.Branches.IsDefault == false ? old.Branches : [];
+        var branches = branchIds.Select(branchId => oldBranches.FirstOrDefault(branch => branch.BranchId == branchId) ?? new ParallelCollaborationBranch(branchId, [])).ToImmutableArray();
+        var channels = rendezvousChannels.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToImmutableArray();
+        int? timeoutSeconds = string.IsNullOrWhiteSpace(rendezvousTimeout) ? null : int.Parse(rendezvousTimeout, System.Globalization.CultureInfo.InvariantCulture);
+        var region = new ParallelCollaborationRegion(rendezvousForkSelection, rendezvousId, rendezvousJoinSelection, channels, timeoutSeconds, branches)
+        { SecondRendezvousNodeId = old?.SecondRendezvousNodeId };
+        var regions = Definition.ParallelCollaborationRegions ?? ImmutableSortedDictionary.Create<string, ParallelCollaborationRegion>(StringComparer.Ordinal);
+        var nodes = Definition.Nodes.SetItem(rendezvousId, rendezvous with { ParallelRendezvous = new(branchIds) });
+        if (old?.SecondRendezvousNodeId is { } secondId && nodes.TryGetValue(secondId, out var secondNode) && secondNode.Type == NodeTypes.ParallelRendezvous)
+            nodes = nodes.SetItem(secondId, secondNode with { ParallelRendezvous = new(branchIds) });
+        return Definition with
+        {
+            SchemaVersion = old?.SecondRendezvousNodeId is null ? WorkflowSchemaVersions.CollaborativeParallelGraph : WorkflowSchemaVersions.PhasedCollaborativeParallelGraph,
+            Nodes = nodes,
+            ParallelCollaborationRegions = regions.SetItem(rendezvousId, region)
+        };
+    });
+
+    private Task UpgradeCollaborationToTwoPhases(string rendezvousId) => Edit(() =>
+    {
+        if (Definition.SchemaVersion != WorkflowSchemaVersions.CollaborativeParallelGraph ||
+            Definition.ParallelCollaborationRegions?.TryGetValue(rendezvousId, out var region) != true || region is null)
+            throw new ArgumentException("Choose a configured schema-1.33 collaboration region to upgrade.");
+        if (Definition.Nodes.Count >= 256) throw new ArgumentException("The workflow has reached its 256-node limit.");
+
+        var branchIds = region.Branches.Select(branch => branch.BranchId).ToImmutableArray();
+        var added = GraphEditing.AddUnconnectedNode(Definition with { SchemaVersion = WorkflowSchemaVersions.PhasedCollaborativeParallelGraph },
+            new(NodeTypes.ParallelRendezvous, "1.0.0") { ParallelRendezvous = new(branchIds) });
+        var secondId = added.Nodes.Keys.Single(id => !Definition.Nodes.ContainsKey(id));
+        var branches = region.Branches.Select(branch => branch with
+        {
+            Agents = branch.Agents.Select(grant => grant with
+            {
+                Phase = ParallelCollaborationPhases.Phase1,
+                Role = grant.Phase == ParallelCollaborationPhases.Publish ? ParallelCollaborationRoles.Publish : ParallelCollaborationRoles.Read
+            }).ToImmutableArray()
+        }).ToImmutableArray();
+        var upgradedRegion = region with { SecondRendezvousNodeId = secondId, Branches = branches };
+        return added with
+        {
+            SchemaVersion = WorkflowSchemaVersions.PhasedCollaborativeParallelGraph,
+            ParallelCollaborationRegions = added.ParallelCollaborationRegions!.SetItem(rendezvousId, upgradedRegion)
+        };
+    }, preserveSelection: rendezvousId);
+
+    private Task SetSecondRendezvous(string rendezvousId, string? secondId) => Edit(() =>
+    {
+        var regions = Definition.ParallelCollaborationRegions ?? throw new ArgumentException("Configure the first rendezvous before assigning the second.");
+        if (!regions.TryGetValue(rendezvousId, out var region)) throw new ArgumentException("The selected collaboration region is no longer available.");
+        var selected = secondId is { Length: > 0 } && Definition.Nodes.TryGetValue(secondId, out var node) && node.Type == NodeTypes.ParallelRendezvous
+            ? secondId : null;
+        var nodes = Definition.Nodes;
+        if (selected is not null && Definition.Nodes.TryGetValue(region.ForkNodeId, out var fork) && fork.ParallelFork is { } forkConfiguration)
+            nodes = nodes.SetItem(selected, nodes[selected] with { ParallelRendezvous = new([.. forkConfiguration.Branches.Select(branch => branch.Id)]) });
+        return Definition with
+        {
+            Nodes = nodes,
+            SchemaVersion = WorkflowSchemaVersions.PhasedCollaborativeParallelGraph,
+            ParallelCollaborationRegions = regions.SetItem(rendezvousId, region with { SecondRendezvousNodeId = selected })
+        };
+    });
+
+    private Task AddCollaborationGrant(string rendezvousId, string branchId) => Edit(() => UpdateCollaborationRegion(rendezvousId, region =>
+    {
+        var branch = region.Branches.FirstOrDefault(item => item.BranchId == branchId) ?? throw new ArgumentException("The selected branch is no longer available.");
+        var agentId = Definition.Nodes.FirstOrDefault(entry => entry.Value.Type == NodeTypes.Agent).Key ?? "";
+        var phase = region.SecondRendezvousNodeId is null ? ParallelCollaborationPhases.Publish : ParallelCollaborationPhases.Phase1;
+        var grant = new ParallelCollaborationAgentGrant(agentId, phase, []);
+        if (region.SecondRendezvousNodeId is not null) grant = grant with { Role = ParallelCollaborationRoles.Publish };
+        var updated = branch with { Agents = branch.Agents.Add(grant) };
+        return region with { Branches = [.. region.Branches.Select(item => item.BranchId == branchId ? updated : item)] };
+    }));
+
+    private Task RemoveCollaborationGrant(string rendezvousId, string branchId, int grantIndex) => Edit(() => UpdateCollaborationRegion(rendezvousId, region =>
+    {
+        var branch = region.Branches.FirstOrDefault(item => item.BranchId == branchId) ?? throw new ArgumentException("The selected branch is no longer available.");
+        if (grantIndex < 0 || grantIndex >= branch.Agents.Length) throw new ArgumentException("The selected Agent grant is no longer available.");
+        return region with { Branches = [.. region.Branches.Select(item => item.BranchId == branchId
+            ? item with { Agents = item.Agents.RemoveAt(grantIndex) } : item)] };
+    }));
+
+    private Task ChangeCollaborationGrant(string rendezvousId, string branchId, int grantIndex, string? agentNodeId = null,
+        string? phase = null, string? role = null, string? channels = null) => Edit(() => UpdateCollaborationRegion(rendezvousId, region =>
+    {
+        var branch = region.Branches.FirstOrDefault(item => item.BranchId == branchId) ?? throw new ArgumentException("The selected branch is no longer available.");
+        if (grantIndex < 0 || grantIndex >= branch.Agents.Length) throw new ArgumentException("The selected Agent grant is no longer available.");
+        var grant = branch.Agents[grantIndex] with
+        {
+            AgentNodeId = agentNodeId ?? branch.Agents[grantIndex].AgentNodeId,
+            Phase = phase ?? branch.Agents[grantIndex].Phase,
+            Channels = channels is null ? branch.Agents[grantIndex].Channels : channels.Split([',', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToImmutableArray()
+        };
+        if (role is not null) grant = grant with { Role = role };
+        return region with { Branches = [.. region.Branches.Select(item => item.BranchId == branchId
+            ? item with { Agents = item.Agents.SetItem(grantIndex, grant) } : item)] };
+    }));
+
+    private WorkflowDefinition UpdateCollaborationRegion(string rendezvousId, Func<ParallelCollaborationRegion, ParallelCollaborationRegion> update)
+    {
+        var regions = Definition.ParallelCollaborationRegions ?? ImmutableSortedDictionary.Create<string, ParallelCollaborationRegion>(StringComparer.Ordinal);
+        if (!regions.TryGetValue(rendezvousId, out var region)) throw new ArgumentException("Apply the region binding before editing Agent grants.");
+        return Definition with { ParallelCollaborationRegions = regions.SetItem(rendezvousId, update(region)) };
     }
 
     private bool GuardedTool(string id) => Definition.Connections.Values.Any(e => e.Target.NodeId == id && Definition.Nodes[e.Source.NodeId].Type == NodeTypes.Approval);

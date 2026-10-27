@@ -4,12 +4,29 @@
 @inject StudioProjectWorkspace ProjectWorkspace
 @inject IAgentProviderCatalog ProviderCatalog
 @inject IToolBindingCatalog ToolCatalog
+@inject ILogger<Agents> Logger
 
 <PageTitle>Agent Designer · Visual Agent Workflow</PageTitle>
 <main class="vaw-provider-settings">
     <header class="vaw-settings-heading"><div><h1>Agent Designer</h1>
         <p class="vaw-settings-intro">Create immutable specialist-agent profiles with their own model, instructions, skills, and MCP tools. Assign a profile to an agent node to expose it as a bounded delegate tool.</p></div></header>
     @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
+    @if (providers.Count == 0)
+    {
+        <aside class="vaw-provider-empty" role="status">
+            <h2>Connect a model before creating an agent profile</h2>
+            <p>Agent profiles need a model connection. Add one in Models, then return here to configure instructions and optional tools.</p>
+            <a class="vaw-button-link" href="/settings">Open Models</a>
+        </aside>
+    }
+    @if (catalogWarning is not null)
+    {
+        <aside class="vaw-provider-empty vaw-provider-note" role="status">
+            <h2>MCP tools could not be loaded</h2>
+            <p>@catalogWarning Profiles can still be created without MCP tools.</p>
+            <a class="vaw-button-link" href="/mcp">Review MCP connections</a>
+        </aside>
+    }
     <section class="vaw-settings-section" aria-label="Saved agent profiles">
         <h2>Saved profiles</h2>
         @if (Library.List().Count == 0) { <p>No agent profiles yet. Create a profile below.</p> }
@@ -62,7 +79,7 @@
                 @foreach (var item in skills)
                 { <label @key="item.Skill.Id + item.Skill.Version"><input type="checkbox" checked="@selectedSkills.Contains(item.Skill.Id + "@" + item.Skill.Version)" @onchange="args => ToggleSkill(item, args)" />@item.Skill.Name · @item.Skill.Version @(string.IsNullOrWhiteSpace(item.Folder) ? "" : "· " + item.Folder)</label> }
             </fieldset>
-            <button type="submit" class="vaw-primary" disabled="@(providers.Count == 0)">Save profile version</button>
+            <button type="submit" class="vaw-primary" disabled="@(providers.Count == 0)" title="@(providers.Count == 0 ? "Connect a model before saving an agent profile." : null)">Save profile version</button>
         </form>
         @if (message is not null) { <p role="status">@message</p> }
     </section>
@@ -96,17 +113,41 @@
     private string channelsText = "";
     private string? message;
     private string? error;
+    private string? catalogWarning;
 
     private async Task LoadCatalogs()
     {
+        error = null;
+        catalogWarning = null;
         try
         {
             providers = await ProviderCatalog.ListProvidersAsync();
-            tools = await ToolCatalog.ListBindingsAsync();
-            skills = SkillLibrary.List();
             providerKey = providers.FirstOrDefault()?.ProviderId ?? "";
         }
-        catch (Exception exception) { error = exception.Message; }
+        catch (Exception exception)
+        {
+            providers = [];
+            providerKey = "";
+            Logger.LogWarning(exception, "Could not load model connections for agent profiles.");
+        }
+
+        try { tools = await ToolCatalog.ListBindingsAsync(); }
+        catch (Exception exception)
+        {
+            tools = [];
+            catalogWarning = "Check the MCP library and retry discovery for any connection you want to use.";
+            Logger.LogWarning(exception, "Could not load MCP tools for agent profiles.");
+        }
+
+        try { skills = SkillLibrary.List(); }
+        catch (Exception exception)
+        {
+            skills = [];
+            catalogWarning = catalogWarning is null
+                ? "The skills library could not be read. Check the project files and refresh this page."
+                : catalogWarning + " The skills library could not be read; check the project files and refresh this page.";
+            Logger.LogWarning(exception, "Could not load skills for agent profiles.");
+        }
     }
 
     private void ToggleTool(ToolBindingDescriptor tool, ChangeEventArgs args)

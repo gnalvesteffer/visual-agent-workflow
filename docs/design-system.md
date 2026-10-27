@@ -30,3 +30,9 @@ The graph is the visual focus. Node headers are drag handles, sockets sit on nod
 Buttons expose default, hover, focus, pressed, and disabled states. Save and error feedback remains visible text. Node types describe workflow definition; only recorded run events drive completed, failed, or delivered states. Playback controls do not imply execution or issue model calls.
 
 The local Playwright checks cover graph centering, full-width grid, keyboard focus, reduced motion, forced colors, contrast samples, narrow embeds, fullscreen, and graph authoring interactions. Screenshots are used for visual critique; they are not a complete accessibility audit.
+
+## Workflow document layout
+
+The approved workflow-document layout gives the graph the available pane between document tabs/actions and one lower panel for Runs, Output, and Problems. Workflow naming and parameters live in settings. A selected node has a compact inspector with Configure, Inputs, and Outputs views; pin views describe actual port contracts. Save and Run stay outside the graph-navigation toolbar. Folder-backed documents use their existing Explorer and file tabs with the same canvas/inspector styling. Their project tools are accessed from the Explorer header.
+
+Use `scripts/ide_shell_smoke.py` and `scripts/folder_workflow_ide_smoke.py` for document navigation, independent scrolling, execution, invalid drafts, and responsive regressions. A hidden graph must retain pending camera centering until it has measurable dimensions; opening and closing settings must not consume that pending view while the canvas is hidden.

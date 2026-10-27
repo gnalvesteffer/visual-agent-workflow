@@ -27,15 +27,17 @@ public sealed class StudioFolderWorkflowSource(string projectDirectory)
 
     public StudioFolderWorkflow? Get(string workflowId) => List().SingleOrDefault(workflow => workflow.WorkflowId == workflowId);
 
-    public StudioFolderWorkflow Save(WorkflowDefinition definition, WorkflowLayout layout, string? expectedContentHash)
+    public StudioFolderWorkflow Save(WorkflowDefinition definition, WorkflowLayout layout, string? expectedContentHash,
+        string? targetDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(layout);
         var gate = StudioFolderSourceWriter.LockFor(root);
-        lock (gate) return SaveLocked(definition, layout, expectedContentHash);
+        lock (gate) return SaveLocked(definition, layout, expectedContentHash, targetDirectory);
     }
 
-    private StudioFolderWorkflow SaveLocked(WorkflowDefinition definition, WorkflowLayout layout, string? expectedContentHash)
+    private StudioFolderWorkflow SaveLocked(WorkflowDefinition definition, WorkflowLayout layout, string? expectedContentHash,
+        string? targetDirectory)
     {
         var (manifest, existingFiles) = StudioProjectSourceDirectory.Read(root);
         var currentFile = manifest.Files.SingleOrDefault(file => file.Kind == "workflow" && file.Id == definition.WorkflowId);
@@ -47,15 +49,22 @@ public sealed class StudioFolderWorkflowSource(string projectDirectory)
         if (source.Definition.WorkflowId != definition.WorkflowId)
             throw new InvalidDataException("The workflow source identity changed during serialization.");
         var contentHash = StudioProjectSourceArchive.ComputeContentHash(bytes);
-        var relativePath = StudioProjectSourceArchive.WorkflowDraftPath(definition.WorkflowId, contentHash);
+        var destinationDirectory = targetDirectory ?? (currentFile is null ? "workflows" :
+            Path.GetDirectoryName(currentFile.Path)?.Replace('\\', '/') ?? "");
+        var relativePath = StudioProjectSourceArchive.AssetPathInDirectory(destinationDirectory,
+            StudioProjectSourceArchive.SafeAssetFileStem(definition.WorkflowId), ".workflow", contentHash);
         var file = new StudioProjectFile("workflow", definition.WorkflowId, "draft", relativePath, contentHash);
         if (currentFile?.Sha256 == contentHash)
             return ToWorkflow(currentFile, existingFiles[currentFile.Path]);
 
         var updatedManifest = manifest with
         {
+            FormatVersion = StudioProjectSourceArchive.FormatVersion,
             Files = manifest.Files.Where(existing => existing != currentFile).Append(file)
-                .OrderBy(existing => existing.Path, StringComparer.Ordinal).ToImmutableArray()
+                .OrderBy(existing => existing.Path, StringComparer.Ordinal).ToImmutableArray(),
+            Directories = StudioProjectSourceArchive.DirectoriesForPaths(
+                manifest.Files.Where(existing => existing != currentFile).Select(existing => existing.Path).Append(relativePath),
+                manifest.Directories)
         };
         var updatedFiles = new SortedDictionary<string, byte[]>(StringComparer.Ordinal);
         foreach (var existing in existingFiles) updatedFiles.Add(existing.Key, existing.Value);

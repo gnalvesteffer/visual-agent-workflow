@@ -1,6 +1,8 @@
 @implements IAsyncDisposable
 @using VisualAgentWorkflow.Blazor
 @using System.Collections.Immutable
+@using Microsoft.JSInterop
+@inject IJSRuntime JavaScript
 @inject IToolBindingCatalog ToolCatalog
 @inject IAgentProviderCatalog ProviderCatalog
 @inject StudioProjectStore ProjectStore
@@ -13,7 +15,7 @@
     aria-label="Project folder editor" hidden="@(!IsActive)" aria-hidden="@(!IsActive)">
     @if (manifest is not null)
     {
-        <header class="vaw-project-tab-heading">
+        <header class="vaw-project-tab-heading" hidden="@(!projectToolsOpen)">
             <div><h2>@manifest.ProjectName</h2><p><code>@openDirectory</code> · @manifest.Files.Length indexed files</p></div>
             <span class="vaw-provider-state"><span aria-hidden="true"></span>Folder open</span>
         </header>
@@ -30,12 +32,12 @@
             </aside>
         }
         @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
-        @if (message is not null) { <p role="status">@message</p> }
-        @if (mcpChoicesLoading) { <p class="vaw-editor-choice-status" role="status" aria-live="polite">Loading MCP tool choices…</p> }
-        @if (providerChoicesLoading) { <p class="vaw-editor-choice-status" role="status" aria-live="polite">Loading model connections…</p> }
-        @if (mcpChoicesError is not null) { <p role="status" class="vaw-editor-choice-warning">@mcpChoicesError</p> }
-        @if (providerChoicesError is not null) { <p role="status" class="vaw-editor-choice-warning">@providerChoicesError</p> }
-        <details class="vaw-project-utility" aria-label="Build a consumer release">
+        @if (message is not null) { <p role="status" class="vaw-folder-feedback">@message</p> }
+        @if (openedWorkflow is null && mcpChoicesLoading) { <p class="vaw-editor-choice-status" role="status" aria-live="polite">Loading MCP tool choices…</p> }
+        @if (openedWorkflow is null && providerChoicesLoading) { <p class="vaw-editor-choice-status" role="status" aria-live="polite">Loading model connections…</p> }
+        @if (openedWorkflow is null && mcpChoicesError is not null) { <p role="status" class="vaw-editor-choice-warning">@mcpChoicesError</p> }
+        @if (openedWorkflow is null && providerChoicesError is not null) { <p role="status" class="vaw-editor-choice-warning">@providerChoicesError</p> }
+        <details hidden="@(!projectToolsOpen)" class="vaw-project-utility" aria-label="Build a consumer release">
         <summary>Consumer package</summary>
         <section class="vaw-settings-section vaw-project-release" aria-label="Build a consumer release">
             <div class="vaw-settings-section-heading">
@@ -67,7 +69,7 @@
             }
         </section>
         </details>
-        <details class="vaw-project-utility" aria-label="Local restore points">
+        <details hidden="@(!projectToolsOpen)" class="vaw-project-utility" aria-label="Local restore points">
         <summary>Restore points <span class="vaw-help">@snapshots.Count saved</span></summary>
         <section class="vaw-settings-section vaw-project-snapshots" aria-label="Local restore points">
             <div class="vaw-settings-section-heading">
@@ -121,10 +123,13 @@
     {
         <section class="vaw-settings-section vaw-source-workspace" aria-label="Project explorer and project editor">
             <aside class="vaw-project-explorer" aria-label="Project explorer">
-                <header><h2>Project explorer</h2><span>@manifest.Files.Length files</span></header>
+                <header @oncontextmenu="args => OpenTreeContext(args, string.Empty)" @oncontextmenu:preventDefault="true">
+                    <h2 title="@manifest.ProjectName">@manifest.ProjectName</h2><button type="button" class="vaw-tree-more" aria-label="Project tools" title="Project tools" @onclick="() => projectToolsOpen = !projectToolsOpen"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="4" cy="10" r="1"/><circle cx="10" cy="10" r="1"/><circle cx="16" cy="10" r="1"/></svg></button>
+                    <button type="button" class="vaw-tree-more" aria-label="Create project item" title="Create project item" @onclick="() => OpenTreeContext(null, string.Empty)">＋</button>
+                </header>
                 <ul class="vaw-project-tree">
-                    @if (manifest.Files.IsEmpty)
-                    { <li><p class="vaw-empty-state">No source files yet. Create a workflow to add the first one.</p></li> }
+                    @if (fileTree.Count == 0)
+                    { <li><p class="vaw-empty-state">No source files yet. Right-click the project root to create a file or folder.</p></li> }
                     else
                     {
                         @foreach (var node in fileTree)
@@ -132,25 +137,78 @@
                             <li @key="node.Name + node.File?.Path">
                                 <ProjectFileTreeItem Node="@node" SelectedPath="@SelectedFilePath"
                                     WorkflowNames="@workflowNames" FileNames="@fileNames" CanOpenFiles="@(!busy && !HasUnsavedEdits)"
-                                    OnOpenWorkflow="@OpenWorkflow" OnOpenSkill="@OpenSkill" OnOpenAgentProfile="@OpenAgentProfile" OnOpenGraphFunction="@OpenGraphFunction" />
+                                    ClipboardPath="@treeClipboard?.Path" ClipboardIsCut="@(treeClipboard?.IsCut == true)"
+                                    OnOpenWorkflow="@OpenWorkflow" OnOpenSkill="@OpenSkill" OnOpenAgentProfile="@OpenAgentProfile" OnOpenGraphFunction="@OpenGraphFunction"
+                                    OnOpenDocumentation="@OpenDocumentation" OnContextMenu="@OpenTreeContext" />
                             </li>
                         }
                     }
-                    <li><span class="vaw-project-tree-file is-read-only" aria-label="Project manifest vaw.project.json, read only" title="Edit this file with your normal source-control tools"><span class="vaw-project-tree-icon" aria-hidden="true">J</span><span class="vaw-project-tree-file-name">vaw.project.json</span></span></li>
+                    <li><span class="vaw-project-tree-file is-read-only" aria-label="Project manifest vaw.project.json, read only" title="Edit this file with your normal source-control tools"><svg class="vaw-project-tree-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.75h6l4 4v8.5H3zM9 1.75v4h4M6 8.5l-1.25 1.25L6 11m4-2.5 1.25 1.25L10 11M8.75 8l-1.5 3.5" /></svg><span class="vaw-project-tree-file-name">vaw.project.json</span></span></li>
                 </ul>
-                @if (!manifest.Files.IsEmpty) { <p class="vaw-project-tree-legend">W Workflow · S Skill · A Agent preset · F Graph function</p> }
+                @if (!manifest.Files.IsEmpty) { <p class="vaw-project-tree-legend">W Workflow · S Skill · A Agent preset · F Graph function · M Markdown</p> }
                 @if (HasUnsavedEdits) { <p class="vaw-help">Save or discard the current edits before opening another file.</p> }
             </aside>
+
+            @if (treeContext is { } context)
+            {
+                <div class="vaw-tree-menu-backdrop" @onclick="CloseTreeContext" @onkeydown="HandleTreeMenuKey" @onkeydown:stopPropagation="true">
+                    <div class="vaw-tree-context-menu" role="menu" aria-label="@(context.IsDirectory ? $"Actions for {context.Path}" : $"Actions for {TreeFileLabel(context.File!)}")"
+                         style="left:@(context.ClientX)px;top:@(context.ClientY)px" @onclick:stopPropagation="true">
+                        <p class="vaw-tree-menu-heading">@(context.IsDirectory ? (string.IsNullOrEmpty(context.Path) ? manifest.ProjectName : Path.GetFileName(context.Path)) : TreeFileLabel(context.File!))</p>
+                        @if (context.IsDirectory)
+                        {
+                            @if (treeClipboard is not null)
+                            { <button type="button" role="menuitem" disabled="@(!CanManageTree)" @onclick="PasteTreeClipboard">Paste into this folder</button> }
+                            <button type="button" role="menuitem" aria-expanded="@showCreateSubmenu" disabled="@(!CanManageTree)" @onclick="() => showCreateSubmenu = !showCreateSubmenu">New file <span aria-hidden="true">›</span></button>
+                            @if (showCreateSubmenu)
+                            {
+                                <div class="vaw-tree-submenu" role="group" aria-label="New project file type">
+                                    <button type="button" role="menuitem" disabled="@(!CanManageTree)" @onclick="() => CreateWorkflow(context.Path)">Workflow <span>.workflow</span></button>
+                                    <button type="button" role="menuitem" disabled="@(!CanManageTree)" @onclick="() => CreateProfile(context.Path)">Agent <span>.agent</span></button>
+                                    <button type="button" role="menuitem" disabled="@(!CanManageTree)" @onclick="() => CreateSkill(context.Path)">Skill <span>.skill</span></button>
+                                    <button type="button" role="menuitem" disabled="@(!CanManageTree)" @onclick="() => CreateGraphFunction(context.Path)">Function <span>.function</span></button>
+                                    <button type="button" role="menuitem" disabled="@(!CanManageTree)" @onclick="() => CreateDocumentation(context.Path)">Markdown <span>.md</span></button>
+                                </div>
+                            }
+                            <form class="vaw-tree-menu-form" @onsubmit="CreateProjectDirectory" @onsubmit:preventDefault>
+                                <label>New subfolder <input @bind="treeOperationName" @bind:event="oninput" placeholder="e.g. Support/Triage" disabled="@(!CanManageTree)" /></label>
+                                <button type="submit" role="menuitem" disabled="@(!CanManageTree || string.IsNullOrWhiteSpace(treeOperationName))">Create folder</button>
+                            </form>
+                            @if (!string.IsNullOrEmpty(context.Path))
+                            {
+                                <button type="button" role="menuitem" disabled="@(!CanManageTree)" @onclick="CutTreeItem">Cut folder</button>
+                                <button type="button" role="menuitem" disabled="@(!CanManageTree)" @onclick="CopyTreeItem">Copy folder</button>
+                                <button type="button" role="menuitem" disabled="@(!CanManageTree)" @onclick="BeginTreeRename">Rename folder…</button>
+                                <button type="button" role="menuitem" class="is-danger" disabled="@(!CanManageTree)" @onclick="DeleteProjectDirectory">@(treeDeleteArmed ? "Confirm delete empty folder" : "Delete empty folder")</button>
+                            }
+                        }
+                        else if (context.File is { } file)
+                        {
+                            @if (treeClipboard is not null)
+                            { <button type="button" role="menuitem" disabled="@(!CanManageTree)" @onclick="PasteTreeClipboard">Paste beside this file</button> }
+                            <button type="button" role="menuitem" disabled="@(!CanManageTree)" @onclick="() => OpenTreeFile(file)">Open</button>
+                            <button type="button" role="menuitem" disabled="@(!CanManageTree)" @onclick="CutTreeItem">Cut</button>
+                            <button type="button" role="menuitem" disabled="@(!CanManageTree)" @onclick="CopyTreeItem">Copy</button>
+                            <button type="button" role="menuitem" disabled="@(!CanManageTree)" @onclick="DuplicateTreeFile">Duplicate</button>
+                            <button type="button" role="menuitem" disabled="@(!CanManageTree)" @onclick="BeginTreeRename">Rename / move…</button>
+                            <button type="button" role="menuitem" class="is-danger" disabled="@(!CanManageTree)" @onclick="DeleteTreeFile">@(treeDeleteArmed ? "Confirm delete file" : "Delete")</button>
+                        }
+                        @if (TreeOperationError is not null) { <p class="vaw-tree-menu-error" role="alert">@TreeOperationError</p> }
+                        @if (treeRenameEditing)
+                        {
+                            <form class="vaw-tree-menu-form" @onsubmit="ApplyTreeRename" @onsubmit:preventDefault>
+                                <label>@(context.IsDirectory ? "Folder name" : "New file name") <input @bind="treeOperationName" @bind:event="oninput" disabled="@(!CanManageTree)" /></label>
+                                <button type="submit" role="menuitem" disabled="@(!CanManageTree || string.IsNullOrWhiteSpace(treeOperationName))">Apply</button>
+                                <button type="button" role="menuitem" @onclick="CancelTreeRename">Cancel</button>
+                            </form>
+                        }
+                    </div>
+                </div>
+            }
 
             <section class="vaw-folder-workflow-editor" aria-label="Project source editor">
                 <div class="vaw-settings-section-heading">
                     <div><h2>@EditorTitle</h2><p>@EditorDescription</p></div>
-                    <div class="vaw-provider-actions">
-                        <button type="button" class="vaw-secondary" @onclick="CreateProfile" disabled="@(busy || HasUnsavedEdits)">New agent profile</button>
-                        <button type="button" class="vaw-secondary" @onclick="CreateSkill" disabled="@(busy || HasUnsavedEdits)">New skill</button>
-                        <button type="button" class="vaw-secondary" @onclick="CreateGraphFunction" disabled="@(busy || HasUnsavedEdits)">New graph function</button>
-                        <button type="button" class="vaw-primary" @onclick="CreateWorkflow" disabled="@(busy || HasUnsavedEdits)">New workflow</button>
-                    </div>
                 </div>
                 @if (editorTabs.Count > 0)
                 {
@@ -169,7 +227,36 @@
                 }
                 @if (openedWorkflow is null)
                 {
-                    @if (openedProfile is not null || creatingNewProfile)
+                    @if (openedDocumentationPath is not null || creatingNewDocumentation)
+                    {
+                        <section class="vaw-folder-markdown-editor" aria-label="Project Markdown editor">
+                            <p class="vaw-help">Developer documentation is ordinary project source. It is not part of a consumer workflow package.</p>
+                            <form class="vaw-markdown-form" @onsubmit="SaveDocumentationFromEditor" @onsubmit:preventDefault>
+                                <label>File name <input required value="@markdownFileName" @oninput="SetMarkdownFileName" disabled="@(openedDocumentationPath is not null)" maxlength="120" placeholder="README.md" /></label>
+                                @if (openedDocumentationPath is not null) { <p class="vaw-definition-status"><code>@openedDocumentationPath</code></p> }
+                                <div class="vaw-markdown-editor-frame" aria-labelledby="markdown-source-label" aria-describedby="markdown-editor-help">
+                                    <p id="markdown-source-label" class="vaw-markdown-editor-label">Markdown source</p>
+                                    <div @ref="markdownEditorHost" class="vaw-markdown-editor-host @(markdownEditorError is null ? null : "is-hidden")" aria-label="Markdown source editor"></div>
+                                    @if (!markdownEditorReady && markdownEditorError is null)
+                                    { <p class="vaw-markdown-editor-status" role="status" aria-live="polite">Loading Markdown editor…</p> }
+                                    @if (markdownEditorError is not null)
+                                    {
+                                        <div class="vaw-markdown-editor-fallback" role="alert">
+                                            <p>@markdownEditorError</p>
+                                            <button type="button" class="vaw-secondary" @onclick="RetryMarkdownEditor">Retry Monaco</button>
+                                            <label>Markdown source <textarea required value="@markdownText" @oninput="SetMarkdownText" rows="24" spellcheck="false" placeholder="# Project notes"></textarea></label>
+                                        </div>
+                                    }
+                                    <p id="markdown-editor-help" class="vaw-help">Markdown syntax highlighting · Ctrl+S to save</p>
+                                </div>
+                                <div class="vaw-provider-form-actions">
+                                    <button type="submit" class="vaw-primary" disabled="@(busy || !documentationDirty)">Save Markdown</button>
+                                    <button type="button" class="vaw-secondary" @onclick="CancelDocumentationEdit" disabled="@busy">Discard changes</button>
+                                </div>
+                            </form>
+                        </section>
+                    }
+                    else if (openedProfile is not null || creatingNewProfile)
                     {
                         <section class="vaw-folder-skill-editor" aria-label="Agent profile source editor">
                             @if (openedProfile is not null)
@@ -243,7 +330,7 @@
                     else if (graphFunctionCatalog is not null && (openedGraphFunction is not null || creatingNewGraphFunction))
                     {
                         <ProjectGraphFunctionEditor @key="graphFunctionEditorGeneration" Source="graphFunctionCatalog"
-                            ExpectedManifestHash="@sourceManifestHash" Asset="@openedGraphFunction"
+                            ExpectedManifestHash="@sourceManifestHash" Asset="@openedGraphFunction" TargetDirectory="@(creatingNewGraphFunction ? creationDirectory : null)"
                             Saved="OnGraphFunctionSaved" DirtyChanged="OnGraphFunctionDirtyChanged" Discarded="CancelGraphFunctionEdit" />
                     }
                     else
@@ -253,21 +340,38 @@
                 }
                 else if (definition is not null && layout is not null)
                 {
-                    <p class="vaw-definition-status"><strong>@WorkflowName(definition)</strong> <code>@definition.WorkflowId</code> · @(dirty ? "Unsaved changes" : "Source saved")</p>
-                    <WorkflowEditor @key="definition.WorkflowId" ProjectId="folder-project" Definition="definition" DefinitionChanged="DefinitionChanged" HideNodeLibrary="true"
+                    <div class="vaw-studio-in-ide vaw-folder-workflow-document">
+                    <header class="vaw-document-breadcrumb"><strong>@openedWorkflow.RelativePath</strong><span class="vaw-document-save-state">@(dirty ? "Unsaved changes" : "Source saved")</span><div class="vaw-document-actions">
+                        <button type="button" data-graph-save @onclick="SaveWorkflow" disabled="@(busy || !dirty)">Save source file</button>
+                        <button type="button" @onclick='() => bottomTab = "test"'>Test input</button>
+                        <button type="button" class="vaw-primary" @onclick="RunSavedWorkflow" disabled="@(!CanRunSavedWorkflow)">@(folderRunActive ? "Running…" : "Run workflow")</button>
+                        @if (folderRunActive && folderRun is not null) { <button type="button" @onclick="CancelFolderRun">Cancel run</button> }
+                        <button type="button" @onclick="() => folderSettingsOpen = !folderSettingsOpen" aria-label="Workflow settings" aria-expanded="@(folderSettingsOpen ? "true" : "false")">Settings</button>
+                    </div></header>
+                    @if (folderInspectRun && folderRun is not null)
+                    { <div class="vaw-inspection-document-bar"><button type="button" @onclick="() => folderInspectRun = false">Back to workflow</button><span>Execution inspection</span></div><WorkflowRunViewer Snapshot="folderRun" Layout="folderRun.Header.Layout" /> }
+                    else
+                    {
+                    <WorkflowEditor IdeMode="true" ShowWorkflowSettings="folderSettingsOpen" @key="definition.WorkflowId" ProjectId="@ProjectId" Definition="definition" DefinitionChanged="DefinitionChanged" HideNodeLibrary="true"
                         Layout="layout" LayoutChanged="LayoutChanged" Bindings="bindings" Providers="providers" SkillLibrary="skillSource"
                         AgentProfileLibrary="profileSource" FunctionCatalog="graphFunctionCatalog">
-                        <EditorActions>
-                            <button type="button" data-graph-save class="vaw-primary" @onclick="SaveWorkflow" disabled="@(busy || !dirty)">Save source file</button>
-                        </EditorActions>
                     </WorkflowEditor>
-                    <section class="vaw-bottom-tray" aria-label="Workflow runs, issues and output">
+                    }
+                    <section class="vaw-bottom-tray" aria-label="Workflow runs, output and problems">
                         <nav aria-label="Workflow detail tabs">
                             <button type="button" role="tab" aria-selected="@(bottomTab == "runs" ? "true" : "false")" @onclick='() => bottomTab = "runs"'>Runs</button>
-                            <button type="button" role="tab" aria-selected="@(bottomTab == "issues" ? "true" : "false")" @onclick='() => bottomTab = "issues"'>Issues <span class="vaw-bottom-count">@WorkflowValidator.Validate(definition).Length</span></button>
+                            <button type="button" role="tab" aria-selected="@(bottomTab == "issues" ? "true" : "false")" @onclick='() => bottomTab = "issues"'>Problems <span class="vaw-bottom-count">@(WorkflowValidator.Validate(definition).Length + (mcpChoicesError is null ? 0 : 1) + (providerChoicesError is null ? 0 : 1))</span></button>
                             <button type="button" role="tab" aria-selected="@(bottomTab == "output" ? "true" : "false")" @onclick='() => bottomTab = "output"'>Output</button>
                         </nav>
-                        <section class="vaw-bottom-panel" role="tabpanel" aria-label="Workflow run controls" hidden="@(bottomTab != "runs")">
+                        <section class="vaw-bottom-panel" role="tabpanel" aria-label="Workflow run history" hidden="@(bottomTab != "runs")">
+                            @if (folderRun is null) { <p class="vaw-panel-empty">No run started in this editor session. Choose Test input, then Run workflow.</p> }
+                            else
+                            {
+                                <table class="vaw-ide-run-table"><thead><tr><th scope="col">Status</th><th scope="col">Workflow</th><th scope="col">Started</th><th scope="col">Run</th><th scope="col">Actions</th></tr></thead><tbody><tr><td><span class="vaw-run-state" data-status="@folderRun.Status">@folderRun.Status</span></td><td>@WorkflowName(folderRun.Header.Definition)</td><td>@folderRun.Header.CreatedAt.ToLocalTime().ToString("MMM d, HH:mm:ss")</td><td><code>@folderRun.Header.RunId.ToString()[..8]</code></td><td><button type="button" @onclick="() => folderInspectRun = true">Inspect execution</button></td></tr></tbody></table>
+                            }
+                            @if (folderRunError is not null) { <p role="alert" class="vaw-error">@folderRunError</p> }
+                        </section>
+                        <section class="vaw-bottom-panel" role="tabpanel" aria-label="Workflow run controls" hidden="@(bottomTab != "test")">
                             <div class="vaw-folder-run-controls">
                                 <label>Workflow input <textarea @bind="runInput" rows="2" maxlength="16384" disabled="@folderRunActive"></textarea></label>
                                 @if (definition.Parameters is { Count: > 0 } runParameterDefinitions)
@@ -284,8 +388,7 @@
                                         </label>
                                     }
                                 }
-                                <button type="button" class="vaw-primary" @onclick="RunSavedWorkflow" disabled="@(!CanRunSavedWorkflow)">@(folderRunActive ? "Running…" : "Run workflow")</button>
-                                @if (folderRunActive && folderRun is not null) { <button type="button" class="vaw-secondary" @onclick="CancelFolderRun">Cancel run</button> }
+
                             </div>
                             @if (dirty) { <p class="vaw-help">Save your edits before running. Runs use saved source.</p> }
                             @if (externalSourceChanged) { <p class="vaw-error">Reload the externally changed project before running this workflow.</p> }
@@ -294,15 +397,23 @@
                             <p class="vaw-help">Run history is stored by Studio outside the project. Do not enter secrets in workflow inputs.</p>
                         </section>
                         <section class="vaw-bottom-panel" role="tabpanel" aria-label="Workflow issues" hidden="@(bottomTab != "issues")">
+                            @if (mcpChoicesError is not null) { <p class="vaw-error">@mcpChoicesError</p> }
+                            @if (providerChoicesError is not null) { <p class="vaw-error">@providerChoicesError</p> }
                             @if (WorkflowValidator.Validate(definition) is { Length: > 0 } issues)
                             { <ul class="vaw-bottom-issues">@foreach (var issue in issues) { <li @key="(issue.Path, issue.Code)"><strong>@issue.Path</strong><span>@issue.Message</span></li> }</ul> }
                             else { <p class="vaw-bottom-empty">No workflow issues. This graph is valid and ready to run.</p> }
                         </section>
                         <section class="vaw-bottom-panel" role="tabpanel" aria-label="Workflow output" hidden="@(bottomTab != "output")">
-                            @if (folderRun is not null) { <WorkflowRunViewer Snapshot="folderRun" Layout="folderRun.Header.Layout" /> }
+                            @if (folderRun is not null)
+                            {
+                                <div class="vaw-output-heading"><span>@folderRun.Status · <code>@folderRun.Header.RunId.ToString()[..8]</code></span><button type="button" @onclick="() => folderInspectRun = true">Inspect execution</button></div>
+                                <pre class="vaw-workflow-result">@(folderRun.Events.LastOrDefault(item => item.Kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Failed)?.Data ?? "No result recorded.")</pre>
+                            }
                             else { <p class="vaw-bottom-empty">Run this workflow to inspect its output and execution evidence.</p> }
                         </section>
                     </section>
+                    <footer class="vaw-document-statusbar"><span>@(dirty ? "Unsaved changes" : "Ready")</span><span>@definition.Nodes.Count nodes</span><button type="button" @onclick='() => bottomTab = "issues"'>Problems: @(WorkflowValidator.Validate(definition).Length + (mcpChoicesError is null ? 0 : 1) + (providerChoicesError is null ? 0 : 1))</button><span>Project: @manifest.ProjectName</span></footer>
+                    </div>
                 }
             </section>
         </section>
@@ -318,6 +429,13 @@
 
     private string directoryPath = "";
     private string? openDirectory;
+    private StudioProjectTreeContext? treeContext;
+    private StudioProjectTreeClipboard? treeClipboard;
+    private string treeOperationName = "";
+    private bool treeRenameEditing;
+    private bool treeDeleteArmed;
+    private bool showCreateSubmenu;
+    private string? creationDirectory;
     private StudioProjectManifest? manifest;
     private IReadOnlyList<StudioProjectFileTreeNode> fileTree = [];
     private readonly List<StudioProjectFile> editorTabs = [];
@@ -335,6 +453,19 @@
     private StudioFolderGraphFunction? openedGraphFunction;
     private bool creatingNewGraphFunction;
     private bool graphFunctionDirty;
+    private string? openedDocumentationPath;
+    private bool creatingNewDocumentation;
+    private bool documentationDirty;
+    private string markdownFileName = "README.md";
+    private string markdownText = "";
+    private ElementReference markdownEditorHost;
+    private IJSObjectReference? markdownEditorModule;
+    private DotNetObjectReference<ProjectFolderEditor>? markdownEditorDotNet;
+    private bool markdownEditorReady;
+    private bool markdownEditorCreated;
+    private bool markdownEditorNeedsSync;
+    private string? markdownEditorError;
+    private bool IsMarkdownEditorOpen => openedDocumentationPath is not null || creatingNewDocumentation;
     private int graphFunctionEditorGeneration;
     private string sourceManifestHash = "";
     private IReadOnlyList<StudioProjectSnapshot> snapshots = [];
@@ -378,6 +509,8 @@
     private string? providerChoicesError;
     private bool dirty;
     private bool busy;
+    private bool CanManageTree => manifest is not null && openDirectory is not null && !busy && !HasUnsavedEdits && !externalSourceChanged;
+    private string? TreeOperationError { get; set; }
     private string runInput = "";
     private Dictionary<string, string> runParameters = new(StringComparer.Ordinal);
     private RunSnapshot? folderRun;
@@ -397,22 +530,27 @@
     private string? sourceMonitorRoot;
     private long sourceMonitorGeneration;
     private bool disposed;
-    public bool HasUnsavedEdits => dirty || skillFormDirty || profileFormDirty || graphFunctionDirty;
+    public bool HasUnsavedEdits => dirty || skillFormDirty || profileFormDirty || graphFunctionDirty || documentationDirty;
     private string? loadedProjectId;
     private bool wasActive;
     private bool? lastReportedDirty;
     private string? error;
     private string? message;
-    private string EditorTitle => openedWorkflow is not null ? "Workflow editor" : openedProfile is not null || creatingNewProfile ? "Agent profile editor" : openedSkill is not null || creatingNewSkill ? "Skill editor" : "Project editor";
+    private string EditorTitle => openedWorkflow is not null ? "Workflow editor" : openedDocumentationPath is not null || creatingNewDocumentation ? "Markdown editor" : openedProfile is not null || creatingNewProfile ? "Agent profile editor" : openedSkill is not null || creatingNewSkill ? "Skill editor" : "Project editor";
     private string bottomTab = "runs";
-    private string? SelectedFilePath => openedWorkflow?.RelativePath ?? openedSkill?.RelativePath ?? openedProfile?.RelativePath ?? openedGraphFunction?.RelativePath;
+    private bool folderSettingsOpen;
+    private bool projectToolsOpen;
+    private bool folderInspectRun;
+    private string? SelectedFilePath => openedWorkflow?.RelativePath ?? openedSkill?.RelativePath ?? openedProfile?.RelativePath ?? openedGraphFunction?.RelativePath ?? openedDocumentationPath;
     private string EditorDescription => openedWorkflow is not null
         ? "Workflow drafts save directly to source files. A stale edit is rejected if the project changed since it was loaded."
         : openedSkill is not null || creatingNewSkill
             ? "Skill text saves as a new immutable project revision. A stale project edit is rejected."
             : openedProfile is not null || creatingNewProfile
                 ? "Profile settings save as an immutable project revision; provider and MCP services remain host-owned."
-                : openedGraphFunction is not null || creatingNewGraphFunction
+                : openedDocumentationPath is not null || creatingNewDocumentation
+                    ? "Edit project documentation as Markdown source. Saved text is indexed in the project manifest and versioned with Git."
+                    : openedGraphFunction is not null || creatingNewGraphFunction
                     ? "Pure graph functions are edited visually and saved as immutable project revisions."
                     : "Select a source file to edit. Graph function revisions can be created from the project.";
 
@@ -497,9 +635,16 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (lastReportedDirty == HasUnsavedEdits) return;
-        lastReportedDirty = HasUnsavedEdits;
-        await DirtyChanged.InvokeAsync(HasUnsavedEdits);
+        if (IsActive && IsMarkdownEditorOpen)
+            await EnsureMarkdownEditorAsync();
+        else if (markdownEditorModule is not null)
+            await DisposeMarkdownEditorAsync();
+
+        if (lastReportedDirty != HasUnsavedEdits)
+        {
+            lastReportedDirty = HasUnsavedEdits;
+            await DirtyChanged.InvokeAsync(HasUnsavedEdits);
+        }
     }
 
     private async Task ReconcileSourceSnapshotAsync()
@@ -530,7 +675,7 @@
         var loadedWorkflows = loadedSource.List().ToList();
         openDirectory = canonicalDirectory;
         manifest = loadedManifest;
-        fileTree = StudioProjectFileTree.Build(loadedManifest.Files);
+        fileTree = StudioProjectFileTree.Build(loadedManifest.Files, loadedManifest.Directories);
         source = loadedSource;
         skillSource = loadedSkillSource;
         profileSource = loadedProfileSource;
@@ -771,7 +916,81 @@
         disposed = true;
         folderRunPolling?.Cancel();
         await StopSourceMonitorAsync();
+        await DisposeMarkdownEditorAsync();
     }
+
+    private async Task EnsureMarkdownEditorAsync()
+    {
+        if (markdownEditorError is not null || (markdownEditorCreated && !markdownEditorNeedsSync)) return;
+        try
+        {
+            markdownEditorModule ??= await JavaScript.InvokeAsync<IJSObjectReference>("import", "./markdownEditor.js");
+            markdownEditorDotNet ??= DotNetObjectReference.Create(this);
+            if (!markdownEditorCreated)
+            {
+                await markdownEditorModule.InvokeVoidAsync("create", markdownEditorHost, markdownText, markdownEditorDotNet);
+                markdownEditorCreated = true;
+            }
+            else if (markdownEditorNeedsSync)
+                await markdownEditorModule.InvokeVoidAsync("setValue", markdownEditorHost, markdownText);
+
+            markdownEditorNeedsSync = false;
+            markdownEditorError = null;
+            markdownEditorReady = true;
+        }
+        catch (Exception exception) when (exception is JSException or InvalidOperationException)
+        {
+            Logger.LogWarning(exception, "Could not initialize the Markdown source editor");
+            markdownEditorReady = false;
+            markdownEditorError = "Monaco could not start. Retry, or continue editing in the plain-text field below.";
+            markdownEditorCreated = false;
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task DisposeMarkdownEditorAsync()
+    {
+        if (markdownEditorModule is not null)
+        {
+            try { await markdownEditorModule.InvokeVoidAsync("dispose", markdownEditorHost); }
+            catch (JSDisconnectedException) { }
+            catch (ObjectDisposedException) { }
+            try { await markdownEditorModule.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+            catch (ObjectDisposedException) { }
+            markdownEditorModule = null;
+        }
+        markdownEditorDotNet?.Dispose();
+        markdownEditorDotNet = null;
+        markdownEditorCreated = false;
+        markdownEditorReady = false;
+    }
+
+    private void RetryMarkdownEditor()
+    {
+        markdownEditorError = null;
+        markdownEditorNeedsSync = true;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public Task MarkdownEditorChanged(string value) => InvokeAsync(() =>
+    {
+        if (disposed || !IsMarkdownEditorOpen) return;
+        markdownText = value;
+        documentationDirty = true;
+        StateHasChanged();
+    });
+
+    [JSInvokable]
+    public Task SaveMarkdownFromEditor(string value) => InvokeAsync(() =>
+    {
+        if (disposed || !IsMarkdownEditorOpen) return;
+        markdownText = value;
+        documentationDirty = true;
+        SaveDocumentation();
+        StateHasChanged();
+    });
 
     private void ClearProjectFolder()
     {
@@ -791,6 +1010,7 @@
         openedSkill = null;
         openedProfile = null;
         openedGraphFunction = null;
+        ClearDocumentation();
         creatingNewGraphFunction = false;
         graphFunctionDirty = false;
         creatingNewSkill = false;
@@ -803,6 +1023,7 @@
     private Task OpenWorkflow(string workflowId)
     {
         if (HasUnsavedEdits || busy) return Task.CompletedTask;
+        ClearDocumentation();
         var workflow = workflows.SingleOrDefault(item => item.WorkflowId == workflowId);
         SetWorkflow(workflow);
         if (workflow is not null) AddEditorTab(manifest!.Files.Single(file => file.Path == workflow.RelativePath));
@@ -813,6 +1034,7 @@
     private Task OpenSkill(StudioProjectFile file)
     {
         if (HasUnsavedEdits || busy || skillSource is null) return Task.CompletedTask;
+        ClearDocumentation();
         openedSkill = skillSource.List().SingleOrDefault(skill => skill.RelativePath == file.Path);
         openedProfile = null;
         openedGraphFunction = null;
@@ -835,6 +1057,7 @@
     private Task OpenAgentProfile(StudioProjectFile file)
     {
         if (HasUnsavedEdits || busy || profileSource is null) return Task.CompletedTask;
+        ClearDocumentation();
         openedProfile = profileSource.List().SingleOrDefault(profile => profile.RelativePath == file.Path);
         openedWorkflow = null;
         openedSkill = null;
@@ -856,6 +1079,7 @@
     private Task OpenGraphFunction(StudioProjectFile file)
     {
         if (HasUnsavedEdits || busy || graphFunctionCatalog is null) return Task.CompletedTask;
+        ClearDocumentation();
         openedGraphFunction = graphFunctionCatalog.ListAssets().SingleOrDefault(function => function.RelativePath == file.Path);
         openedWorkflow = null;
         openedSkill = null;
@@ -875,8 +1099,165 @@
         return Task.CompletedTask;
     }
 
-    private void CreateGraphFunction()
+    private Task OpenDocumentation(StudioProjectFile file)
     {
+        if (HasUnsavedEdits || busy || openDirectory is null || manifest is null ||
+            !manifest.Files.Any(entry => entry.Kind == "documentation" && entry.Path == file.Path))
+            return Task.CompletedTask;
+        try
+        {
+            var snapshot = StudioProjectSourceDirectory.Read(openDirectory);
+            openedDocumentationPath = file.Path;
+            markdownFileName = Path.GetFileName(file.Path);
+            markdownText = System.Text.Encoding.UTF8.GetString(snapshot.Files[file.Path]);
+            creatingNewDocumentation = false;
+            documentationDirty = false;
+            markdownEditorReady = false;
+            markdownEditorNeedsSync = true;
+            markdownEditorError = null;
+            openedWorkflow = null;
+            openedSkill = null;
+            openedProfile = null;
+            openedGraphFunction = null;
+            definition = null;
+            layout = null;
+            creatingNewSkill = creatingNewProfile = creatingNewGraphFunction = false;
+            skillFormDirty = profileFormDirty = graphFunctionDirty = false;
+            AddEditorTab(file);
+            error = null;
+            message = null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        { error = exception.Message; }
+        return Task.CompletedTask;
+    }
+
+    private void CreateDocumentation(string? targetDirectory)
+    {
+        editorTabs.Clear();
+        openedWorkflow = null;
+        openedSkill = null;
+        openedProfile = null;
+        openedGraphFunction = null;
+        definition = null;
+        layout = null;
+        creatingNewSkill = creatingNewProfile = creatingNewGraphFunction = false;
+        skillFormDirty = profileFormDirty = graphFunctionDirty = false;
+        openedDocumentationPath = null;
+        creatingNewDocumentation = true;
+        // A fresh document is an unsaved buffer even before the user changes its starter text.
+        documentationDirty = true;
+        markdownEditorReady = false;
+        markdownEditorNeedsSync = true;
+        markdownEditorError = null;
+        creationDirectory = DefaultCreationDirectory("docs", targetDirectory);
+        markdownFileName = "README.md";
+        markdownText = "# " + (manifest?.ProjectName ?? "Project") + "\n\n";
+        treeContext = null;
+        error = null;
+        message = "New Markdown document. Choose a file name and save it to the project.";
+    }
+
+    private void SetMarkdownFileName(Microsoft.AspNetCore.Components.ChangeEventArgs args)
+    {
+        markdownFileName = args.Value?.ToString() ?? "";
+        documentationDirty = true;
+    }
+
+    private void SetMarkdownText(Microsoft.AspNetCore.Components.ChangeEventArgs args)
+    {
+        markdownText = args.Value?.ToString() ?? "";
+        documentationDirty = true;
+    }
+
+    private async Task SaveDocumentationFromEditor()
+    {
+        if (markdownEditorModule is not null && markdownEditorCreated && markdownEditorReady)
+        {
+            try { markdownText = await markdownEditorModule.InvokeAsync<string>("getValue", markdownEditorHost); }
+            catch (JSDisconnectedException) { return; }
+            catch (JSException exception)
+            {
+                Logger.LogWarning(exception, "Could not read Markdown source before saving");
+                error = "The Markdown editor could not provide its current text. Retry the editor before saving.";
+                return;
+            }
+        }
+        SaveDocumentation();
+    }
+
+    private void SaveDocumentation()
+    {
+        if (!documentationDirty || openDirectory is null) return;
+        busy = true;
+        error = null;
+        try
+        {
+            StudioProjectFile savedFile;
+            if (creatingNewDocumentation)
+            {
+                var fileName = markdownFileName.Trim();
+                if (fileName != Path.GetFileName(fileName) || fileName is "." or "..")
+                    throw new ArgumentException("Enter a file name without folder separators.");
+                if (!fileName.EndsWith(".md", StringComparison.OrdinalIgnoreCase)) fileName += ".md";
+                var relativePath = string.IsNullOrEmpty(creationDirectory) ? fileName : $"{creationDirectory}/{fileName}";
+                savedFile = StudioProjectSourceTreeOperations.CreateDocumentation(openDirectory, relativePath, markdownText, sourceManifestHash);
+            }
+            else if (openedDocumentationPath is not null)
+                savedFile = StudioProjectSourceTreeOperations.SaveDocumentation(openDirectory, openedDocumentationPath, markdownText, sourceManifestHash);
+            else return;
+
+            documentationDirty = false;
+            creatingNewDocumentation = false;
+            creationDirectory = null;
+            RefreshProjectSource();
+            openedDocumentationPath = savedFile.Path;
+            markdownFileName = Path.GetFileName(savedFile.Path);
+            markdownEditorNeedsSync = false;
+            AddEditorTab(savedFile);
+            message = $"Saved {savedFile.Path}.";
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        { error = exception.Message; }
+        finally { busy = false; }
+    }
+
+    private void CancelDocumentationEdit()
+    {
+        if (creatingNewDocumentation)
+        {
+            creatingNewDocumentation = false;
+            documentationDirty = false;
+            creationDirectory = null;
+            markdownText = "";
+            markdownEditorReady = false;
+        }
+        else if (openedDocumentationPath is { } path && manifest?.Files.SingleOrDefault(file => file.Path == path) is { } file)
+        {
+            documentationDirty = false;
+            _ = OpenDocumentation(file);
+        }
+        error = null;
+        message = "Markdown changes discarded.";
+    }
+
+    private void ClearDocumentation()
+    {
+        openedDocumentationPath = null;
+        creatingNewDocumentation = false;
+        documentationDirty = false;
+        markdownText = "";
+        creationDirectory = null;
+        markdownEditorReady = false;
+    }
+
+    private void CreateGraphFunction() => CreateGraphFunction(null);
+
+    private void CreateGraphFunction(string? targetDirectory)
+    {
+        ClearDocumentation();
+        creationDirectory = DefaultCreationDirectory("functions", targetDirectory);
+        treeContext = null;
         editorTabs.Clear();
         openedWorkflow = null;
         openedSkill = null;
@@ -910,6 +1291,7 @@
         openedGraphFunction = saved;
         AddEditorTab(manifest!.Files.Single(file => file.Path == saved.RelativePath));
         creatingNewGraphFunction = false;
+        creationDirectory = null;
         graphFunctionDirty = false;
         message = $"Saved graph function revision {saved.Item.Function.Definition.FunctionId}@{saved.Item.Function.Definition.Version}.";
         error = null;
@@ -933,8 +1315,262 @@
         error = null;
     }
 
-    private void CreateWorkflow()
+    private void OpenTreeContext(StudioProjectTreeContext target)
     {
+        if (!CanManageTree) return;
+        treeContext = target;
+        treeOperationName = "";
+        treeRenameEditing = false;
+        treeDeleteArmed = false;
+        showCreateSubmenu = false;
+        TreeOperationError = null;
+    }
+
+    private void OpenTreeContext(Microsoft.AspNetCore.Components.Web.MouseEventArgs? args, string path)
+    {
+        if (!CanManageTree) return;
+        treeContext = new(path, null, true, args?.ClientX ?? 64, args?.ClientY ?? 64);
+        treeOperationName = "";
+        treeRenameEditing = false;
+        treeDeleteArmed = false;
+        showCreateSubmenu = false;
+        TreeOperationError = null;
+    }
+
+    private void CloseTreeContext()
+    {
+        treeContext = null;
+        treeRenameEditing = false;
+        treeDeleteArmed = false;
+        showCreateSubmenu = false;
+    }
+
+    private void HandleTreeMenuKey(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape") CloseTreeContext();
+    }
+
+    private string TreeFileLabel(StudioProjectFile file) => fileNames.GetValueOrDefault(file.Path, Path.GetFileName(file.Path));
+
+    private Task OpenTreeFile(StudioProjectFile file)
+    {
+        CloseTreeContext();
+        return file.Kind switch
+        {
+            "workflow" => OpenWorkflow(file.Id),
+            "skill" => OpenSkill(file),
+            "agent-profile" => OpenAgentProfile(file),
+            "graph-function" => OpenGraphFunction(file),
+            "documentation" => OpenDocumentation(file),
+            _ => Task.CompletedTask
+        };
+    }
+
+    private void CutTreeItem()
+    {
+        if (treeContext is not { } context) return;
+        treeClipboard = new(context.Path, context.File, context.IsDirectory, IsCut: true);
+        message = $"Cut {(context.IsDirectory ? "folder" : "file")} {context.Path}. Choose a destination folder and paste.";
+        CloseTreeContext();
+    }
+
+    private void CopyTreeItem()
+    {
+        if (treeContext is not { } context) return;
+        treeClipboard = new(context.Path, context.File, context.IsDirectory, IsCut: false);
+        message = $"Copied {(context.IsDirectory ? "folder" : "file")} {context.Path} to the project clipboard.";
+        CloseTreeContext();
+    }
+
+    private async Task PasteTreeClipboard()
+    {
+        if (!CanManageTree || openDirectory is null || treeContext is not { } context || treeClipboard is not { } clipboard) return;
+        var targetDirectory = context.IsDirectory ? context.Path :
+            Path.GetDirectoryName(context.Path)?.Replace('\\', '/') ?? "";
+        busy = true;
+        try
+        {
+            if (clipboard.IsDirectory)
+            {
+                var destination = string.IsNullOrEmpty(targetDirectory)
+                    ? Path.GetFileName(clipboard.Path)
+                    : $"{targetDirectory}/{Path.GetFileName(clipboard.Path)}";
+                if (clipboard.IsCut)
+                {
+                    if (!string.Equals(destination, clipboard.Path, StringComparison.OrdinalIgnoreCase))
+                        _ = StudioProjectSourceTreeOperations.RenameDirectory(openDirectory, clipboard.Path, destination, sourceManifestHash);
+                }
+                else
+                {
+                    _ = StudioProjectSourceTreeOperations.CopyDirectory(openDirectory, clipboard.Path, targetDirectory, sourceManifestHash);
+                }
+            }
+            else if (clipboard.File is { } sourceFile)
+            {
+                var destination = string.IsNullOrEmpty(targetDirectory)
+                    ? Path.GetFileName(sourceFile.Path)
+                    : $"{targetDirectory}/{Path.GetFileName(sourceFile.Path)}";
+                if (clipboard.IsCut)
+                {
+                    if (!string.Equals(destination, sourceFile.Path, StringComparison.OrdinalIgnoreCase))
+                        _ = StudioProjectSourceTreeOperations.MoveFile(openDirectory, sourceFile.Path, destination, sourceManifestHash);
+                }
+                else
+                {
+                    _ = StudioProjectSourceTreeOperations.DuplicateFile(openDirectory, sourceFile.Path, sourceManifestHash, targetDirectory);
+                }
+            }
+            RefreshProjectSource();
+            treeClipboard = null;
+            CloseTreeContext();
+            message = "Project item pasted.";
+            error = null;
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        { TreeOperationError = exception.Message; }
+        finally { busy = false; }
+    }
+
+    private async Task DuplicateTreeFile()
+    {
+        if (!CanManageTree || openDirectory is null || manifest is null || treeContext?.File is not { } selected) return;
+        busy = true;
+        try
+        {
+            var duplicate = StudioProjectSourceTreeOperations.DuplicateFile(openDirectory, selected.Path, sourceManifestHash);
+            RefreshProjectSource();
+            var newFile = manifest!.Files.Single(file => file.Path == duplicate.Path);
+            CloseTreeContext();
+            await OpenTreeFile(newFile);
+            message = $"Duplicated {TreeFileLabel(newFile)}.";
+            error = null;
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        { TreeOperationError = exception.Message; }
+        finally { busy = false; }
+    }
+
+    private async Task CreateProjectDirectory()
+    {
+        if (!CanManageTree || openDirectory is null || manifest is null || treeContext is not { IsDirectory: true } context) return;
+        var name = treeOperationName.Trim().Trim('/');
+        var newPath = string.IsNullOrEmpty(context.Path) ? name : $"{context.Path}/{name}";
+        busy = true;
+        try
+        {
+            _ = StudioProjectSourceTreeOperations.CreateDirectory(openDirectory, newPath, sourceManifestHash);
+            RefreshProjectSource();
+            CloseTreeContext();
+            message = $"Created folder {newPath}.";
+            error = null;
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        { TreeOperationError = exception.Message; }
+        finally { busy = false; }
+    }
+
+    private void BeginTreeRename()
+    {
+        if (treeContext is not { } context) return;
+        treeOperationName = context.IsDirectory ? Path.GetFileName(context.Path) :
+            Path.GetFileNameWithoutExtension(EditorFileName(context.File!));
+        treeRenameEditing = true;
+        treeDeleteArmed = false;
+        TreeOperationError = null;
+    }
+
+    private async Task ApplyTreeRename()
+    {
+        if (!CanManageTree || openDirectory is null || treeContext is not { } context) return;
+        var name = treeOperationName.Trim();
+        if (string.IsNullOrWhiteSpace(name) || name is "." or "..") return;
+        var oldPath = context.Path;
+        var parent = Path.GetDirectoryName(oldPath)?.Replace('\\', '/') ?? "";
+        var newPath = context.IsDirectory ? (string.IsNullOrEmpty(parent) ? name : $"{parent}/{name}") :
+            $"{(string.IsNullOrEmpty(parent) ? "" : parent + "/")}{name}{Path.GetExtension(oldPath)}";
+        busy = true;
+        try
+        {
+            if (context.IsDirectory)
+                _ = StudioProjectSourceTreeOperations.RenameDirectory(openDirectory, oldPath, newPath, sourceManifestHash);
+            else
+                _ = StudioProjectSourceTreeOperations.MoveFile(openDirectory, oldPath, newPath, sourceManifestHash);
+            RefreshProjectSource();
+            var renamedFile = manifest!.Files.SingleOrDefault(file => file.Path == newPath);
+            CloseTreeContext();
+            if (renamedFile is not null) await OpenTreeFile(renamedFile);
+            message = $"Moved {oldPath} to {newPath}.";
+            error = null;
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        { TreeOperationError = exception.Message; }
+        finally { busy = false; }
+    }
+
+    private void CancelTreeRename() { treeRenameEditing = false; treeOperationName = ""; TreeOperationError = null; }
+
+    private void DeleteProjectDirectory()
+    {
+        if (!CanManageTree || openDirectory is null || manifest is null || treeContext?.Path is not { Length: > 0 } path) return;
+        if (!treeDeleteArmed) { treeDeleteArmed = true; return; }
+        busy = true;
+        try
+        {
+            _ = StudioProjectSourceTreeOperations.DeleteEmptyDirectory(openDirectory, path, sourceManifestHash);
+            RefreshProjectSource();
+            CloseTreeContext();
+            message = $"Deleted empty folder {path}.";
+            error = null;
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        { TreeOperationError = exception.Message; treeDeleteArmed = false; }
+        finally { busy = false; }
+    }
+
+    private void DeleteTreeFile()
+    {
+        if (!CanManageTree || openDirectory is null || manifest is null || treeContext?.File is not { } file) return;
+        if (!treeDeleteArmed) { treeDeleteArmed = true; return; }
+        busy = true;
+        try
+        {
+            _ = StudioProjectSourceTreeOperations.DeleteFile(openDirectory, file.Path, sourceManifestHash);
+            editorTabs.RemoveAll(tab => tab.Path == file.Path);
+            if (SelectedFilePath == file.Path) ClearOpenEditor();
+            RefreshProjectSource();
+            CloseTreeContext();
+            message = $"Deleted {file.Path} from the project.";
+            error = null;
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        { TreeOperationError = exception.Message; treeDeleteArmed = false; }
+        finally { busy = false; }
+    }
+
+    private void ClearOpenEditor()
+    {
+        openedWorkflow = null;
+        openedSkill = null;
+        openedProfile = null;
+        openedGraphFunction = null;
+        ClearDocumentation();
+        definition = null;
+        layout = null;
+        dirty = false;
+        creatingNewSkill = creatingNewProfile = creatingNewGraphFunction = false;
+        creationDirectory = null;
+    }
+
+    private static string DefaultCreationDirectory(string kindFolder, string? targetDirectory) =>
+        string.IsNullOrWhiteSpace(targetDirectory) ? kindFolder : targetDirectory;
+
+    private void CreateWorkflow() => CreateWorkflow(null);
+
+    private void CreateWorkflow(string? targetDirectory)
+    {
+        ClearDocumentation();
+        creationDirectory = DefaultCreationDirectory("workflows", targetDirectory);
+        treeContext = null;
         editorTabs.Clear();
         var id = "workflow-" + Guid.NewGuid().ToString("N");
         var created = WorkflowTemplates.Create("uppercase-reverse") with { WorkflowId = id, DisplayName = "Untitled workflow" };
@@ -976,7 +1612,8 @@
         error = null;
         try
         {
-            var saved = source.Save(definition, layout, string.IsNullOrEmpty(openedWorkflow.ContentHash) ? null : openedWorkflow.ContentHash);
+            var saved = source.Save(definition, layout, string.IsNullOrEmpty(openedWorkflow.ContentHash) ? null : openedWorkflow.ContentHash,
+                string.IsNullOrEmpty(openedWorkflow.ContentHash) ? creationDirectory : null);
             openedWorkflow = saved;
             definition = saved.Definition;
             layout = saved.Layout;
@@ -984,9 +1621,10 @@
             workflowNames = ToWorkflowNames(workflows);
             manifest = StudioProjectSourceDirectory.Read(openDirectory!).Manifest;
             sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(manifest);
-            fileTree = StudioProjectFileTree.Build(manifest.Files);
+            fileTree = StudioProjectFileTree.Build(manifest.Files, manifest.Directories);
             AddEditorTab(manifest.Files.Single(file => file.Path == saved.RelativePath));
             dirty = false;
+            creationDirectory = null;
             message = $"Saved {saved.RelativePath}.";
         }
         catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
@@ -996,8 +1634,13 @@
         finally { busy = false; }
     }
 
-    private void CreateSkill()
+    private void CreateSkill() => CreateSkill(null);
+
+    private void CreateSkill(string? targetDirectory)
     {
+        ClearDocumentation();
+        creationDirectory = DefaultCreationDirectory("skills", targetDirectory);
+        treeContext = null;
         editorTabs.Clear();
         openedWorkflow = null;
         openedProfile = null;
@@ -1023,8 +1666,13 @@
         message = null;
     }
 
-    private void CreateProfile()
+    private void CreateProfile() => CreateProfile(null);
+
+    private void CreateProfile(string? targetDirectory)
     {
+        ClearDocumentation();
+        creationDirectory = DefaultCreationDirectory("agents", targetDirectory);
+        treeContext = null;
         editorTabs.Clear();
         openedWorkflow = null;
         openedSkill = null;
@@ -1158,11 +1806,12 @@
             var profile = AgentProfile.Create(profileId.Trim(), profileVersion.Trim(), profileName.Trim(), profileDescription.Trim(),
                 profileProviderId.Trim(), profileBeingEdited?.ProviderVersion, profileInstructions, profileTools, profileSkills,
                 effort, profileMaxOutputTokens, channels.IsEmpty ? null : channels);
-            var saved = profileSource.SaveNewVersion(profile, profileFolder.Trim(), sourceManifestHash);
+            var saved = profileSource.SaveNewVersion(profile, profileFolder.Trim(), sourceManifestHash, creationDirectory);
             RefreshProjectSource();
             openedProfile = saved;
             AddEditorTab(manifest!.Files.Single(file => file.Path == saved.RelativePath));
             creatingNewProfile = false;
+            creationDirectory = null;
             LoadProfileRevision(saved);
             message = $"Saved agent profile revision {saved.Item.Profile.Id}@{saved.Item.Profile.Version}.";
         }
@@ -1178,7 +1827,7 @@
         var (loadedManifest, _) = StudioProjectSourceDirectory.Read(openDirectory!);
         manifest = loadedManifest;
         sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(loadedManifest);
-        fileTree = StudioProjectFileTree.Build(loadedManifest.Files);
+        fileTree = StudioProjectFileTree.Build(loadedManifest.Files, loadedManifest.Directories);
         projectSkills = skillSource!.List().Select(skill => skill.Item).ToArray();
         RefreshFileNames();
     }
@@ -1218,15 +1867,16 @@
         try
         {
             var saved = skillSource.SaveNewVersion(skillId.Trim(), skillVersion.Trim(), skillName.Trim(),
-                skillInstructions, skillFolder.Trim(), sourceManifestHash);
+                skillInstructions, skillFolder.Trim(), sourceManifestHash, creationDirectory);
             var refreshedProject = StudioProjectSourceDirectory.Read(openDirectory!);
             manifest = refreshedProject.Manifest;
             sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(manifest);
-            fileTree = StudioProjectFileTree.Build(manifest.Files);
+            fileTree = StudioProjectFileTree.Build(manifest.Files, manifest.Directories);
             projectSkills = skillSource.List().Select(skill => skill.Item).ToArray();
             openedSkill = saved;
             AddEditorTab(manifest.Files.Single(file => file.Path == saved.RelativePath));
             creatingNewSkill = false;
+            creationDirectory = null;
             LoadSkillRevision(saved);
             message = $"Saved skill revision {saved.Item.Skill.Id}@{saved.Item.Skill.Version}.";
         }
@@ -1239,6 +1889,7 @@
 
     private void SetWorkflow(StudioFolderWorkflow? workflow)
     {
+        ClearDocumentation();
         folderRunPolling?.Cancel();
         folderRun = null;
         folderRunError = null;
@@ -1266,7 +1917,8 @@
 
     private void AddEditorTab(StudioProjectFile file)
     {
-        var existingIndex = editorTabs.FindIndex(item => string.Equals(item.Path, file.Path, StringComparison.Ordinal));
+        var existingIndex = editorTabs.FindIndex(item => string.Equals(item.Path, file.Path, StringComparison.Ordinal) ||
+            file.Kind == "workflow" && item.Kind == "workflow" && item.Id == file.Id);
         if (existingIndex >= 0) editorTabs[existingIndex] = file;
         else editorTabs.Add(file);
     }
@@ -1277,6 +1929,7 @@
         "skill" => OpenSkill(file),
         "agent-profile" => OpenAgentProfile(file),
         "graph-function" => OpenGraphFunction(file),
+        "documentation" => OpenDocumentation(file),
         _ => Task.CompletedTask
     };
 
@@ -1302,6 +1955,7 @@
         "agent-profile" => "A",
         "skill" => "S",
         "graph-function" => "ƒ",
+        "documentation" => "M",
         _ => "·"
     };
 
@@ -1337,6 +1991,7 @@
         try
         {
             folderRun = await start();
+            bottomTab = "runs";
             await InvokeAsync(StateHasChanged);
             while (!folderRun.IsTerminal)
             {

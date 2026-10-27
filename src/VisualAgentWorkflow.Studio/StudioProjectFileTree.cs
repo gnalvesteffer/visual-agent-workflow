@@ -8,13 +8,31 @@ public sealed record StudioProjectFileTreeNode(string Name, StudioProjectFile? F
     public bool IsDirectory => File is null;
 }
 
+public sealed record StudioProjectTreeContext(string Path, StudioProjectFile? File, bool IsDirectory,
+    double ClientX, double ClientY);
+public sealed record StudioProjectTreeClipboard(string Path, StudioProjectFile? File, bool IsDirectory, bool IsCut);
+
 /// <summary>Builds a navigable view from manifest-indexed project files only.</summary>
 public static class StudioProjectFileTree
 {
-    public static ImmutableArray<StudioProjectFileTreeNode> Build(IEnumerable<StudioProjectFile> files)
+    public static ImmutableArray<StudioProjectFileTreeNode> Build(IEnumerable<StudioProjectFile> files,
+        IEnumerable<string>? explicitDirectories = null)
     {
         ArgumentNullException.ThrowIfNull(files);
         var root = new MutableDirectory("");
+        var declaredDirectories = explicitDirectories is ImmutableArray<string> immutable && immutable.IsDefault
+            ? [] : explicitDirectories ?? [];
+        foreach (var directoryPath in declaredDirectories)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(directoryPath);
+            var directory = root;
+            foreach (var part in directoryPath.Split('/', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (!directory.Directories.TryGetValue(part, out var child))
+                    directory.Directories.Add(part, child = new MutableDirectory(part));
+                directory = child;
+            }
+        }
         foreach (var file in files)
         {
             ArgumentNullException.ThrowIfNull(file);

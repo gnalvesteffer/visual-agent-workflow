@@ -93,6 +93,70 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
     }
 
     [Fact]
+    public void FolderOperations_SupportDomainFoldersMarkdownAndGitFriendlyMovesAndCopies()
+    {
+        var folder = Path.Combine(directory, "domain-project");
+        var initial = new StudioProjectManifest("1.0", "domain-project", "Domain project", []);
+        StudioProjectSourceDirectory.Write(folder, initial, new Dictionary<string, byte[]>());
+        var hash = StudioProjectSourceArchive.ComputeManifestHash(initial);
+        _ = StudioProjectSourceTreeOperations.CreateDirectory(folder, "domains/support", hash);
+        var currentHash = StudioProjectSourceArchive.ComputeManifestHash(StudioProjectSourceDirectory.Read(folder).Manifest);
+        var document = StudioProjectSourceTreeOperations.CreateDocumentation(folder, "domains/support/README.md",
+            "# Support\n\nProject notes.\n", currentHash);
+
+        var workflowDefinition = WorkflowTemplates.Create("uppercase-reverse") with
+        {
+            WorkflowId = "support-triage",
+            DisplayName = "Support triage"
+        };
+        currentHash = StudioProjectSourceArchive.ComputeManifestHash(StudioProjectSourceDirectory.Read(folder).Manifest);
+        var workflow = new StudioFolderWorkflowSource(folder).Save(workflowDefinition, WorkflowLayout.Create(workflowDefinition),
+            expectedContentHash: null, targetDirectory: "domains/support/workflows");
+        var beforeMove = StudioProjectSourceDirectory.Read(folder).Manifest;
+
+        var moved = StudioProjectSourceTreeOperations.RenameDirectory(folder, "domains/support", "domains/customer-support",
+            StudioProjectSourceArchive.ComputeManifestHash(beforeMove));
+        var movedDocument = moved.Files.Single(file => file.Id == document.Id);
+        var movedWorkflow = moved.Files.Single(file => file.Id == workflow.WorkflowId);
+        Assert.Equal("domains/customer-support/README.md", movedDocument.Path);
+        Assert.Equal("domains/customer-support/workflows/" + Path.GetFileName(workflow.RelativePath), movedWorkflow.Path);
+        Assert.False(File.Exists(Path.Combine(folder, "domains", "support", "README.md")));
+
+        var copied = StudioProjectSourceTreeOperations.CopyDirectory(folder, "domains/customer-support", "domains",
+            StudioProjectSourceArchive.ComputeManifestHash(moved));
+        var copiedDocument = copied.Files.Single(file => file.Kind == "documentation" && file.Id != document.Id);
+        Assert.NotEqual(document.Id, copiedDocument.Id);
+        Assert.Contains(copied.Files, file => file.Kind == "workflow" && file.Id != workflow.WorkflowId);
+        Assert.Contains(copied.Directories, path => path == "domains/customer-support copy/workflows");
+
+        var validated = StudioProjectSourceDirectory.Read(folder);
+        Assert.Equal(StudioProjectSourceArchive.FormatVersion, validated.Manifest.FormatVersion);
+        Assert.Contains(validated.Manifest.Directories, path => path == "domains/customer-support");
+        Assert.Equal("# Support\n\nProject notes.\n", Encoding.UTF8.GetString(validated.Files[copiedDocument.Path]));
+        Assert.DoesNotContain(validated.Manifest.Files, file => file.Path.StartsWith("domains/support/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Documentation_RequiresUtf8MarkdownPathAndCanBeEditedInPlace()
+    {
+        var folder = Path.Combine(directory, "markdown-project");
+        var manifest = new StudioProjectManifest("1.0", "markdown-project", "Markdown project", []);
+        StudioProjectSourceDirectory.Write(folder, manifest, new Dictionary<string, byte[]>());
+
+        Assert.Throws<ArgumentException>(() => StudioProjectSourceTreeOperations.CreateDocumentation(folder, "docs/notes.txt",
+            "notes", StudioProjectSourceArchive.ComputeManifestHash(manifest)));
+        var document = StudioProjectSourceTreeOperations.CreateDocumentation(folder, "docs/notes.md", "# Notes",
+            StudioProjectSourceArchive.ComputeManifestHash(manifest));
+        var updated = StudioProjectSourceTreeOperations.SaveDocumentation(folder, document.Path, "# Updated notes",
+            StudioProjectSourceArchive.ComputeManifestHash(StudioProjectSourceDirectory.Read(folder).Manifest));
+
+        Assert.Equal(document.Id, updated.Id);
+        var snapshot = StudioProjectSourceDirectory.Read(folder);
+        Assert.Equal("# Updated notes", Encoding.UTF8.GetString(snapshot.Files[document.Path]));
+        Assert.Equal(StudioProjectSourceArchive.ComputeContentHash(snapshot.Files[document.Path]), updated.Sha256);
+    }
+
+    [Fact]
     public void GeneratedProjectAssetsUseDescriptiveFileExtensions()
     {
         var hash = new string('a', 64);

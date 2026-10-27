@@ -3,6 +3,7 @@
 @using VisualAgentWorkflow.Blazor
 @inject StudioProjectStore ProjectStore
 @inject StudioOpenWorkspaceStore OpenWorkspace
+@inject NavigationManager Navigation
 
 <PageTitle>Project workspace · Visual Agent Workflow</PageTitle>
 <main class="vaw-provider-settings vaw-source-project vaw-open-project-workspace">
@@ -130,6 +131,7 @@
             var project = ProjectStore.RegisterFolderSource(canonicalDirectory, manifest.ProjectName);
             OpenWorkspace.Open(project.Id);
             directoryPath = canonicalDirectory;
+            Navigation.NavigateTo($"/source-project/folder/{Uri.EscapeDataString(project.Id)}");
         }
         catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException or InvalidOperationException)
         {
@@ -143,6 +145,7 @@
         try
         {
             OpenWorkspace.Select(projectId);
+            Navigation.NavigateTo($"/source-project/folder/{Uri.EscapeDataString(projectId)}");
             error = null;
         }
         catch (Exception exception) when (exception is InvalidOperationException or IOException)
@@ -173,7 +176,8 @@
 
     private void CloseProject(string projectId)
     {
-        OpenWorkspace.Close(projectId);
+        var next = OpenWorkspace.Close(projectId);
+        Navigation.NavigateTo(next is null ? "/source-project" : $"/source-project/folder/{Uri.EscapeDataString(next)}");
     }
 
     private void CancelClose() => pendingCloseProjectId = null;

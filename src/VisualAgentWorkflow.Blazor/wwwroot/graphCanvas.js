@@ -25,6 +25,19 @@ export function attach(root, callback) {
         invoke(state, 'AddWaypoint', path.dataset.wire, Number(path.dataset.segment), clamp(point.x), clamp(point.y));
     };
     state.click = event => {
+        const mode = event.target.closest('[data-canvas-mode]');
+        if (mode) {
+            root.dataset.canvasMode = mode.dataset.canvasMode;
+            root.querySelectorAll('[data-canvas-mode]').forEach(button => button.setAttribute('aria-pressed', String(button === mode)));
+            return;
+        }
+        const minimap = event.target.closest('[data-canvas-minimap]');
+        if (minimap) {
+            const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(minimap.getScreenCTM().inverse());
+            state.viewport.scrollTo(margin + (point.x + state.camera.x) * scale(state) - state.viewport.clientWidth / 2,
+                margin + (point.y + state.camera.y) * scale(state) - state.viewport.clientHeight / 2);
+            return;
+        }
         if (event.target.closest('[data-fullscreen-toggle]')) { toggleFullscreen(state); return; }
         const path = event.target.closest('[data-wire]');
         if (path) invoke(state, 'SelectWire', path.dataset.wire);
@@ -134,7 +147,7 @@ export function attach(root, callback) {
         schedule(state);
     };
     document.addEventListener('fullscreenchange', state.fullscreenChanged);
-    state.handle = { refresh: () => sync(root), center: () => center(state), fit: () => fit(state), reset: () => reset(state), dispose: () => detach(root) };
+    state.handle = { refresh: () => sync(root), center: () => center(state), fit: () => fit(state), reset: () => reset(state), select: id => { state.selection = state.nodes.has(id) ? new Set([id]) : new Set(); applySelection(state); }, dispose: () => detach(root) };
     canvases.set(root, state);
     sync(root);
     return state.handle;
@@ -173,12 +186,6 @@ export function sync(root) {
         }
     }
     draw(state);
-    if (state.pendingFit) {
-        state.viewport.scrollTo(
-            margin + (state.pendingFit.x + state.camera.x) * scale(state) - state.viewport.clientWidth / 2,
-            margin + (state.pendingFit.y + state.camera.y) * scale(state) - state.viewport.clientHeight / 2);
-        state.pendingFit = null;
-    }
 }
 
 async function toggleFullscreen(state) {
@@ -202,11 +209,13 @@ function fit(state) {
         (state.viewport.clientHeight - 96) / (bottom - top)));
     const centerX = (left + right) / 2, centerY = (top + bottom) / 2;
     state.camera = { x: 0, y: 0 };
-    state.pendingFit = { x: centerX, y: centerY };
+    state.pendingFit = { x: centerX, y: centerY, zoom };
     return zoom;
 }
 
 function center(state) {
+    if (!state.viewport.clientWidth || !state.viewport.clientHeight) { state.pendingCenter = true; return 1; }
+    state.pendingCenter = false;
     const nodes = [...state.nodes.values()];
     if (!nodes.length) return 1;
     const left = Math.min(...nodes.map(node => position(node).x));
@@ -214,7 +223,7 @@ function center(state) {
     const right = Math.max(...nodes.map(node => position(node).x + node.offsetWidth));
     const bottom = Math.max(...nodes.map(node => position(node).y + node.offsetHeight));
     state.camera = { x: 0, y: 0 };
-    state.pendingFit = { x: (left + right) / 2, y: (top + bottom) / 2 };
+    state.pendingFit = { x: (left + right) / 2, y: (top + bottom) / 2, zoom: 1 };
     return 1;
 }
 
@@ -245,7 +254,8 @@ function local(state, event) {
 }
 
 function draw(state) {
-    if (!state.active || !state.world.isConnected || state.viewport.clientWidth === 0) return;
+    if (!state.active || !state.world.isConnected || !state.viewport.clientWidth || !state.viewport.clientHeight) return;
+    if (state.pendingCenter) center(state);
     const zoom = scale(state);
     state.world.style.transform = `scale(${zoom}) translate(${state.camera.x}px, ${state.camera.y}px)`;
     updateGrid(state);
@@ -298,6 +308,13 @@ function draw(state) {
     const extent = state.world.parentElement;
     extent.style.width = `${margin * 2 + (width + state.camera.x) * zoom}px`;
     extent.style.height = `${margin * 2 + (height + state.camera.y) * zoom}px`;
+    if (state.pendingFit) {
+        const targetZoom = state.pendingFit.zoom ?? scale(state);
+        state.viewport.scrollTo(
+            margin + (state.pendingFit.x + state.camera.x) * targetZoom - state.viewport.clientWidth / 2,
+            margin + (state.pendingFit.y + state.camera.y) * targetZoom - state.viewport.clientHeight / 2);
+        state.pendingFit = null;
+    }
 }
 
 function tangent(anchor, previous, next) {
@@ -338,7 +355,7 @@ function pointerDown(state, event) {
         state.root.querySelector('[data-pin-hint]').hidden=true;
         state.viewport.setPointerCapture(event.pointerId); event.preventDefault(); return;
     }
-    if (event.button === 1) {
+    if (event.button === 1 || state.root.dataset.canvasMode === 'pan' && state.viewport.contains(event.target) && !event.target.closest('li[data-node-id], button, [data-socket]')) {
         const point = local(state, event);
         state.drag = { kind: 'pan', pointer: event.pointerId, start: point, screenX: event.clientX, screenY: event.clientY,
             target: state.viewport, scrollX: state.viewport.scrollLeft, scrollY: state.viewport.scrollTop, moved: false, items: [] };

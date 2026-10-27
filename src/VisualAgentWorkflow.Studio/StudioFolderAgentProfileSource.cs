@@ -27,7 +27,8 @@ public sealed class StudioFolderAgentProfileSource(string projectDirectory) : IA
 
     IReadOnlyList<AgentProfileLibraryItem> IAgentProfileLibrary.List() => List().Select(profile => profile.Item).ToArray();
 
-    public StudioFolderAgentProfile SaveNewVersion(AgentProfile profile, string folder, string expectedManifestHash)
+    public StudioFolderAgentProfile SaveNewVersion(AgentProfile profile, string folder, string expectedManifestHash,
+        string? targetDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedManifestHash);
@@ -48,11 +49,15 @@ public sealed class StudioFolderAgentProfileSource(string projectDirectory) : IA
                 throw new InvalidDataException("Project agent profile exceeds the supported source file size.");
 
             var contentHash = StudioProjectSourceArchive.ComputeContentHash(bytes);
-            var relativePath = StudioProjectSourceArchive.VersionedAssetPath("agents", profile.Id, profile.Version, contentHash);
+            var relativePath = StudioProjectSourceArchive.AssetPathInDirectory(targetDirectory ?? "agents",
+                StudioProjectSourceArchive.SafeAssetFileStem(profile.Id + "-" + profile.Version), ".agent", contentHash);
             var file = new StudioProjectFile("agent-profile", profile.Id, profile.Version, relativePath, contentHash);
             var updatedManifest = manifest with
             {
-                Files = manifest.Files.Append(file).OrderBy(entry => entry.Path, StringComparer.Ordinal).ToImmutableArray()
+                FormatVersion = StudioProjectSourceArchive.FormatVersion,
+                Files = manifest.Files.Append(file).OrderBy(entry => entry.Path, StringComparer.Ordinal).ToImmutableArray(),
+                Directories = StudioProjectSourceArchive.DirectoriesForPaths(
+                    manifest.Files.Select(entry => entry.Path).Append(relativePath), manifest.Directories)
             };
             var updatedFiles = new SortedDictionary<string, byte[]>(StringComparer.Ordinal);
             foreach (var existing in existingFiles) updatedFiles.Add(existing.Key, existing.Value);

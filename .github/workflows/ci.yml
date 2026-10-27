@@ -12,6 +12,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci --prefix tools/monaco --ignore-scripts --no-audit --no-fund
+      - run: npm run --prefix tools/monaco build
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -25,6 +30,11 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci --prefix tools/monaco --ignore-scripts --no-audit --no-fund
+      - run: npm run --prefix tools/monaco build
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -75,6 +85,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci --prefix tools/monaco --ignore-scripts --no-audit --no-fund
+      - run: npm run --prefix tools/monaco build
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -97,11 +112,15 @@ jobs:
         env:
           WorkflowService__RunStore: sqlite
         run: python3 scripts/observation_smoke.py
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
       - run: npm ci --prefix tools/documentation --ignore-scripts --no-audit --no-fund
       - run: python3 scripts/check_docs.py --mermaid
+      - name: Verify workflow IDE documents
+        shell: bash
+        run: |
+          python3 .agents/skills/webapp-testing/scripts/with_server.py \
+            --server "env ASPNETCORE_ENVIRONMENT=Development WorkflowStudio__Port=5103 WorkflowStudio__DataDirectory=/tmp/vaw-ide-documents dotnet run --project src/VisualAgentWorkflow.Studio --configuration Release --no-build" \
+            --port 5103 --timeout 60 -- bash -c \
+            'python3 scripts/ide_shell_smoke.py --base-url http://127.0.0.1:5103 && python3 scripts/folder_workflow_ide_smoke.py --base-url http://127.0.0.1:5103'
       - name: Exercise the SQLite-backed studio API and browser
         shell: bash
         run: |
@@ -115,6 +134,7 @@ jobs:
           python3 scripts/folder_snapshot_smoke.py
           python3 scripts/folder_release_smoke.py
           python3 scripts/multi_root_workspace_smoke.py
+          python3 scripts/markdown_editor_smoke.py
           python3 scripts/graph_canvas_smoke.py
           python3 scripts/workflow_reuse_smoke.py
           python3 scripts/pause_resume_smoke.py

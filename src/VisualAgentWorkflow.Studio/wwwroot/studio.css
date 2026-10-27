@@ -417,8 +417,8 @@
 .vaw-provider-tip span { color: var(--vaw-color-muted); font-size: .8125rem; line-height: 1.5; }
 .vaw-provider-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.15rem 1.25rem; padding: 1.35rem 1.5rem 1.5rem; }
 .vaw-provider-form label { display: block; min-inline-size: 0; color: var(--vaw-color-text); font-size: .875rem; font-weight: 550; }
-.vaw-provider-form input:not([type="checkbox"]) { display: block; inline-size: 100%; min-block-size: 2.8rem; margin-block-start: .4rem; border: 1px solid var(--vaw-color-control-border); border-radius: .3rem; padding: .55rem .75rem; background: var(--vaw-color-canvas); color: var(--vaw-color-text); font: inherit; font-weight: 400; }
-.vaw-provider-form select { display: block; inline-size: 100%; min-block-size: 2.8rem; margin-block-start: .4rem; border: 1px solid var(--vaw-color-control-border); border-radius: .3rem; padding: .55rem .75rem; background: var(--vaw-color-canvas); color: var(--vaw-color-text); font: inherit; font-weight: 400; }
+.vaw-provider-form input:not([type="checkbox"]) { display: block; inline-size: 100%; min-block-size: 2.75rem; margin-block-start: .4rem; border: 1px solid var(--vaw-color-control-border); border-radius: .3rem; padding: .5rem .7rem; background: var(--vaw-color-canvas); color: var(--vaw-color-text); font: inherit; font-weight: 400; }
+.vaw-provider-form select { display: block; inline-size: 100%; min-block-size: 2.75rem; margin-block-start: .4rem; border: 1px solid var(--vaw-color-control-border); border-radius: .3rem; padding: .5rem .7rem; background: var(--vaw-color-canvas); color: var(--vaw-color-text); font: inherit; font-weight: 400; }
 .vaw-provider-form input::placeholder { color: var(--vaw-color-muted); }
 .vaw-provider-form input:focus-visible { border-color: var(--vaw-color-focus); outline: 2px solid var(--vaw-color-focus); outline-offset: 1px; }
 .vaw-provider-form label small { display: block; margin-block-start: .35rem; color: var(--vaw-color-muted); font-size: .77rem; font-weight: 400; line-height: 1.45; }
@@ -442,7 +442,7 @@
 .vaw-function-editor { display: grid; gap: 1.25rem; padding: 1.35rem 1.5rem 1.5rem; container: vaw-function-editor / inline-size; }
 .vaw-function-metadata { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 1.25rem; }
 .vaw-function-metadata label, .vaw-function-interface label { display: block; min-inline-size: 0; color: var(--vaw-color-text); font-size: .875rem; font-weight: 550; }
-.vaw-function-metadata :where(input, textarea), .vaw-function-interface :where(input, select) { display: block; inline-size: 100%; min-inline-size: 0; min-block-size: 2.7rem; margin-block-start: .4rem; border: 1px solid var(--vaw-color-control-border); border-radius: .3rem; padding: .5rem .7rem; background: var(--vaw-color-canvas); color: var(--vaw-color-text); font: inherit; font-weight: 400; }
+.vaw-function-metadata :where(input, textarea), .vaw-function-interface :where(input, select) { display: block; inline-size: 100%; min-inline-size: 0; min-block-size: 2.75rem; margin-block-start: .4rem; border: 1px solid var(--vaw-color-control-border); border-radius: .3rem; padding: .5rem .7rem; background: var(--vaw-color-canvas); color: var(--vaw-color-text); font: inherit; font-weight: 400; }
 .vaw-function-metadata textarea { resize: vertical; }
 .vaw-function-interface { border-block: 1px solid var(--vaw-color-border); padding-block: 1rem; }
 .vaw-function-interface > summary { cursor: pointer; font-weight: 600; }
@@ -542,15 +542,46 @@
 .vaw-project-tree-directory > summary { display: flex; align-items: center; gap: .35rem; min-block-size: 2rem; padding-inline: .3rem; border-radius: .25rem; color: var(--vaw-color-text); cursor: pointer; font-weight: 600; }
 .vaw-project-tree-directory > summary:hover, .vaw-project-tree-file:hover:not(:disabled) { background: var(--vaw-color-hover); }
 .vaw-project-tree-directory > summary::-webkit-details-marker { display: none; }
-.vaw-project-tree-icon { display: inline-grid; flex: 0 0 1.25rem; place-items: center; color: var(--vaw-color-muted); font-size: .72rem; font-weight: 700; }
+.vaw-project-tree-icon { display: inline-grid; flex: 0 0 1.25rem; place-items: center; inline-size: 1rem; block-size: 1rem; color: var(--vaw-color-muted); font-size: .72rem; font-weight: 700; }
+.vaw-project-tree-icon:is(svg) { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.15; }
 .vaw-project-tree-directory > summary .vaw-project-tree-icon { transition: transform .12s ease; }
 .vaw-project-tree-directory:not([open]) > summary .vaw-project-tree-icon { transform: rotate(-90deg); }
 .vaw-project-tree-file { display: flex; inline-size: 100%; min-inline-size: 0; align-items: center; gap: .25rem; border: 0; border-radius: .25rem; padding: .35rem .25rem; background: transparent; color: var(--vaw-color-text); text-align: start; text-decoration: none; font: inherit; font-size: .82rem; }
 button.vaw-project-tree-file { cursor: pointer; }
 .vaw-project-tree-file.is-selected { background: var(--vaw-color-selected); color: var(--vaw-color-text); outline: 1px solid var(--vaw-color-focus); }
+.vaw-project-tree-file.is-cut, .vaw-project-tree-directory.is-cut > summary { opacity: .58; }
 .vaw-project-tree-file:disabled { cursor: not-allowed; opacity: .58; }
 .vaw-project-tree-file.is-read-only { color: var(--vaw-color-muted); cursor: default; }
 .vaw-project-tree-file-name { min-inline-size: 0; overflow-wrap: anywhere; }
+.vaw-tree-more { inline-size: 1.7rem; min-block-size: 1.7rem; padding: 0; border: 1px solid transparent; border-radius: .25rem; background: transparent; color: var(--vaw-color-muted); font-size: 1rem; line-height: 1; }
+.vaw-tree-more:hover, .vaw-tree-more:focus-visible { border-color: var(--vaw-color-border); background: var(--vaw-color-hover); color: var(--vaw-color-text); }
+.vaw-tree-menu-backdrop { position: fixed; z-index: 10000; inset: 0; background: transparent; }
+.vaw-tree-context-menu { position: fixed; z-index: 1; display: grid; inline-size: min(15rem, calc(100vw - 1rem)); max-block-size: min(70vh, 34rem); overflow: auto; padding: .3rem; border: 1px solid var(--vaw-color-border); border-radius: .35rem; background: var(--vaw-color-surface); color: var(--vaw-color-text); box-shadow: 0 8px 24px rgb(0 0 0 / .35); font-size: .8rem; }
+.vaw-tree-menu-heading { margin: .15rem .35rem .3rem; overflow: hidden; color: var(--vaw-color-muted); font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+.vaw-tree-context-menu > button, .vaw-tree-submenu > button { display: flex; align-items: center; justify-content: space-between; gap: .6rem; inline-size: 100%; min-block-size: 1.9rem; padding: .3rem .45rem; border: 0; border-radius: .2rem; background: transparent; color: inherit; font: inherit; text-align: start; }
+.vaw-tree-context-menu > button:hover:not(:disabled), .vaw-tree-submenu > button:hover:not(:disabled), .vaw-tree-context-menu > button:focus-visible, .vaw-tree-submenu > button:focus-visible { background: var(--vaw-color-hover); outline: none; }
+.vaw-tree-context-menu > button:disabled, .vaw-tree-submenu > button:disabled { opacity: .55; }
+.vaw-tree-context-menu > button.is-danger { color: var(--vaw-color-error); }
+.vaw-tree-context-menu button span { color: var(--vaw-color-muted); font-size: .72rem; }
+.vaw-tree-submenu { display: grid; margin-inline-start: .65rem; padding-inline-start: .3rem; border-inline-start: 1px solid var(--vaw-color-border); }
+.vaw-tree-menu-form { display: grid; gap: .35rem; margin-block: .3rem; padding: .4rem .35rem .2rem; border-block-start: 1px solid var(--vaw-color-border); }
+.vaw-tree-menu-form label { display: grid; gap: .25rem; color: var(--vaw-color-muted); font-size: .72rem; }
+.vaw-tree-menu-form input { min-inline-size: 0; min-block-size: 1.9rem; padding: .35rem .45rem; font: inherit; }
+.vaw-tree-menu-form > button { min-block-size: 1.9rem; padding: .3rem .45rem; text-align: start; }
+.vaw-tree-menu-error { margin: .35rem; color: var(--vaw-color-error); font-size: .75rem; }
+.vaw-markdown-form { display: grid; gap: .65rem; max-inline-size: 78rem; }
+.vaw-markdown-form > label, .vaw-markdown-editor-fallback > label { display: grid; gap: .3rem; font-size: .8rem; font-weight: 600; }
+.vaw-markdown-form input, .vaw-markdown-form textarea { inline-size: 100%; min-inline-size: 0; font-size: .82rem; }
+.vaw-markdown-editor-frame { display: grid; gap: .4rem; min-inline-size: 0; }
+.vaw-markdown-editor-label { margin: 0; font-size: .8rem; font-weight: 600; }
+.vaw-markdown-editor-host { inline-size: 100%; block-size: min(56vh, 42rem); min-block-size: 18rem; overflow: hidden; border: 1px solid var(--vaw-color-control-border); border-radius: .3rem; background: var(--vaw-color-canvas); }
+.vaw-markdown-editor-host:focus-within { border-color: var(--vaw-color-focus); outline: 2px solid var(--vaw-color-focus); outline-offset: 1px; }
+.vaw-markdown-editor-host.is-hidden { display: none; }
+.vaw-markdown-editor-host .monaco-editor, .vaw-markdown-editor-host .monaco-editor .overflow-guard { border-radius: inherit; }
+.vaw-markdown-editor-status { margin: 0; color: var(--vaw-color-muted); font-size: .78rem; }
+.vaw-markdown-editor-fallback { display: grid; gap: .55rem; }
+.vaw-markdown-editor-fallback > p { margin: 0; color: var(--vaw-color-error); font-size: .8rem; }
+.vaw-markdown-editor-fallback textarea { min-block-size: min(56vh, 42rem); resize: vertical; font-family: var(--vaw-font-mono, ui-monospace, monospace); line-height: 1.55; tab-size: 2; }
 .vaw-project-tree-legend { margin-block: .75rem 0; line-height: 1.5; }
 .vaw-project-snapshots { margin-block-end: 1rem; }
 .vaw-folder-run { margin-block: 1rem; }
@@ -577,7 +608,7 @@ button.vaw-project-tree-file { cursor: pointer; }
 .vaw-folder-skill-editor > .vaw-provider-form { padding: 0; }
 .vaw-source-mode-note { display: flex; flex-wrap: wrap; gap: .5rem .8rem; margin-block: 1rem; border-inline-start: 3px solid var(--vaw-color-focus); padding: .8rem 1rem; background: var(--vaw-color-surface); color: var(--vaw-color-muted); }
 .vaw-source-mode-note strong { color: var(--vaw-color-text); }
-.vaw-provider-form textarea { display: block; inline-size: 100%; min-block-size: 7rem; margin-block-start: .4rem; border: 1px solid var(--vaw-color-control-border); border-radius: .3rem; padding: .55rem .75rem; background: var(--vaw-color-canvas); color: var(--vaw-color-text); font: inherit; font-weight: 400; resize: vertical; }
+.vaw-provider-form textarea { display: block; inline-size: 100%; min-block-size: 0; margin-block-start: .4rem; border: 1px solid var(--vaw-color-control-border); border-radius: .3rem; padding: .5rem .7rem; background: var(--vaw-color-canvas); color: var(--vaw-color-text); font: inherit; font-weight: 400; resize: vertical; }
 .vaw-provider-form fieldset { min-inline-size: 0; border: 1px solid var(--vaw-color-border); border-radius: .35rem; padding: .85rem; }
 .vaw-provider-form fieldset legend { padding-inline: .3rem; color: var(--vaw-color-muted); font-size: .875rem; font-weight: 600; }
 .vaw-provider-form input[type="checkbox"] { inline-size: 1rem; block-size: 1rem; accent-color: var(--vaw-color-accent); }

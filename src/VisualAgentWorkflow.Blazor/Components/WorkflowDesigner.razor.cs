@@ -20,6 +20,8 @@ public partial class WorkflowDesigner
     [Parameter] public bool IdeMode { get; set; }
     [Parameter] public string? InitialWorkflowId { get; set; }
     [Parameter] public Func<Task>? DraftSaved { get; set; }
+    [Parameter] public EventCallback<string> WorkflowSelected { get; set; }
+    private string? notifiedWorkflowId;
 
     private sealed record Binding(IWorkflowCatalog Catalog, IPublishedWorkflowClient Client, CancellationToken Token);
     private Binding? binding;
@@ -54,8 +56,12 @@ public partial class WorkflowDesigner
     private bool dirty => definition is not null && DesignHash != savedHash;
     private bool busy;
     private bool interactive;
-    private string bottomTab = "run";
-    private bool bottomTrayExpanded;
+    private string bottomTab = "runs";
+    private bool bottomTrayExpanded = true;
+    private bool documentSettingsOpen;
+    private readonly List<string> openWorkflowIds = [];
+    [Parameter] public RenderFragment? RunHistoryContent { get; set; }
+    [Parameter] public RenderFragment? OutputContent { get; set; }
     private Task RequestRunInspector() => OpenRunInspector.InvokeAsync();
     private void SelectBottomTab(string tab)
     {
@@ -139,6 +145,8 @@ public partial class WorkflowDesigner
         binding = new(Catalog, Client, contextLifetime.Token);
         previous?.Cancel();
         previous?.Dispose();
+        bottomTab = IdeMode ? "runs" : "run";
+        openWorkflowIds.Clear();
         definition = null; layout = null; previewLayout = null; layoutHash = null; definitionHash = null; savedHash = null;
         workflows = []; versions = []; audit = []; bindings = []; providers = [];
         loadingWorkflow = true;
@@ -165,13 +173,18 @@ public partial class WorkflowDesigner
         if (Current(binding)) loadingWorkflow = false;
     }
 
-    protected override void OnAfterRender(bool firstRender)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender && !disposed)
         {
             interactive = true;
             if (binding is not null && choicesLoading) _ = LoadChoicesAndRenderAsync(binding);
             StateHasChanged();
+        }
+        if (!disposed && definition is { } current && notifiedWorkflowId != current.WorkflowId)
+        {
+            notifiedWorkflowId = current.WorkflowId;
+            await WorkflowSelected.InvokeAsync(current.WorkflowId);
         }
     }
 
@@ -189,7 +202,7 @@ public partial class WorkflowDesigner
         generation = 0; activeRevisionId = null; selectedRevisionId = null; preview = null;
         versions = []; audit = []; undo.Clear(); redo.Clear(); jsonText = "";
         savedHash = DesignHash;
-        error = null; message = "New workflow created locally. Save its draft before publishing.";
+        error = null; message = IdeMode ? "New workflow created. Name it in Workflow settings, then save." : "New workflow created locally. Save its draft before publishing.";
     }
 
     private void RenameWorkflow(ChangeEventArgs args)
@@ -216,6 +229,8 @@ public partial class WorkflowDesigner
     {
         ClearUpgradeReview();
         definition = value; layout = presentation;
+        openWorkflowIds.RemoveAll(id => id != value.WorkflowId && !workflows.Any(item => item.Definition.WorkflowId == id));
+        if (!openWorkflowIds.Contains(value.WorkflowId)) openWorkflowIds.Add(value.WorkflowId);
         definitionHash = WorkflowJson.ComputeDraftHash(value);
         layoutHash = WorkflowLayoutJson.ComputeHash(presentation, value);
         if (!presentation.Sections.ContainsKey(reusableSectionId)) reusableSectionId = "";
@@ -341,11 +356,14 @@ public partial class WorkflowDesigner
         catch (ObjectDisposedException) { }
     }
 
-    private void Changed(WorkflowDefinition next)
+    private void Changed(WorkflowDefinition next) => ChangeDefinition(next, resetLayout: false);
+    private void ChangedImported(WorkflowDefinition next) => ChangeDefinition(next, resetLayout: true);
+
+    private void ChangeDefinition(WorkflowDefinition next, bool resetLayout)
     {
         if (definition is null || layout is null || WorkflowJson.ComputeDraftHash(next) == definitionHash) return;
         undo.Push(new(definition, layout)); redo.Clear();
-        SetDesign(next, layout.Reconcile(next)); error = null; message = null;
+        SetDesign(next, resetLayout ? WorkflowLayout.Create(next) : layout.Reconcile(next)); error = null; message = null;
     }
 
     private void ChangedGraph(WorkflowGraphEdit next)
@@ -434,10 +452,32 @@ public partial class WorkflowDesigner
 
     private Task RunPublished() => Perform(async current =>
     {
+        if (IdeMode && dirty)
+            throw new InvalidOperationException("Save the workflow before starting a run.");
+        if (IdeMode && WorkflowValidator.Validate(definition!).Length > 0)
+            throw new InvalidOperationException("Resolve workflow issues before starting a run.");
+
         var parameterOverrides = SelectedRunParameters.Count == 0 ? null : SelectedRunParameters.Keys
             .ToDictionary(id => id, id => RunParameterValue(id, SelectedRunParameters[id]), StringComparer.Ordinal);
         Task<RunSnapshot> request;
-        if (parameterOverrides is not null)
+        if (IdeMode)
+        {
+            if (parameterOverrides is not null)
+            {
+                if (current.Client is not IParameterizedWorkflowClient parameterized)
+                    throw new InvalidOperationException("The configured run client does not support workflow parameters.");
+                request = startPublishedPaused
+                    ? parameterized.StartPausedRunWithParametersAsync(definition!, runInput, parameterOverrides)
+                    : parameterized.StartRunWithParametersAsync(definition!, runInput, parameterOverrides);
+            }
+            else
+            {
+                request = startPublishedPaused && current.Client is IWorkflowRunControl controls
+                    ? controls.StartPausedRunAsync(definition!, runInput)
+                    : current.Client.StartRunAsync(definition!, runInput);
+            }
+        }
+        else if (parameterOverrides is not null)
         {
             if (current.Client is not IParameterizedPublishedWorkflowClient parameterized)
                 throw new InvalidOperationException("The configured run client does not support workflow parameters.");
@@ -454,12 +494,15 @@ public partial class WorkflowDesigner
         var run = await request.WaitAsync(current.Token);
         if (!Current(current)) return;
         await OnRunStarted.InvokeAsync(run);
+        if (IdeMode) { bottomTab = "runs"; bottomTrayExpanded = true; }
         if (Current(current)) message = startPublishedPaused
-            ? "Published run created paused. Resume it from the run controls."
+            ? "Workflow run created paused. Resume it from the run controls."
+            : IdeMode ? "Workflow run started. You can keep editing while it runs."
             : "Published run started independently of the editor.";
     });
 
     private System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition> SelectedRunParameters =>
+        IdeMode ? definition?.Parameters ?? System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty :
         selectedRevisionId is { } revisionId
             ? versions.FirstOrDefault(version => version.Revision.RevisionId == revisionId)?.Revision.Definition.Parameters ??
                 System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
@@ -490,7 +533,7 @@ public partial class WorkflowDesigner
     private Task Import() => Perform(_ =>
     {
         var imported = WorkflowJson.Deserialize(jsonText) with { WorkflowId = definition!.WorkflowId };
-        Changed(imported); message = "Definition imported locally. Save and publish explicitly.";
+        ChangedImported(imported); message = "Definition imported locally. Save and publish explicitly.";
         return Task.CompletedTask;
     });
 

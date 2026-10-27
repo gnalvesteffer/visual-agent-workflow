@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import uuid
 
 from playwright.sync_api import expect, sync_playwright
 
@@ -25,6 +26,15 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             expect(page.locator(".vaw-global-explorer")).to_be_visible()
             canvas = page.locator(".vaw-canvas-viewport")
             expect(canvas).to_be_visible()
+            expect(page.locator(".vaw-document-header")).to_be_visible()
+            expect(page.locator(".vaw-document-settings")).not_to_be_visible()
+            expect(page.get_by_role("navigation", name="Workspace views")).not_to_be_visible()
+            expect(page.get_by_role("navigation", name="Open workflow documents")).to_be_visible()
+            page.get_by_role("button", name="Workflow settings", exact=True).click()
+            workflow_name_control = page.get_by_label("Workflow name", exact=True)
+            assert 30 <= workflow_name_control.evaluate("e => Math.round(e.getBoundingClientRect().height)") <= 40
+            page.get_by_role("button", name="Workflow settings", exact=True).click()
+            assert page.locator(".vaw-explorer-manifest svg").count() == 1, "Project metadata should use a non-wrapping file icon."
             expect(page.locator(".vaw-canvas-world [data-node-id]")).to_have_count(2)
             page.wait_for_function("document.querySelector('.vaw-graph-editor')?.dataset.ready === 'true'")
             page.wait_for_function("""() => {
@@ -36,21 +46,61 @@ def verify(base_url: str, browser_executable: str | None) -> None:
                 });
             }""")
             assert canvas.bounding_box()["height"] >= 300, "The workflow graph must retain useful height."
+            expect(page.get_by_label("Workflow status")).to_contain_text("Project: default")
+            inspector = page.get_by_label("Selected node properties", exact=True)
+            inspector.get_by_role("button", name="Inputs", exact=True).click()
+            expect(inspector).to_contain_text("This node has no input pins.")
+            inspector.get_by_role("button", name="Outputs", exact=True).click()
+            expect(inspector.locator(".vaw-inspector-ports")).to_contain_text("string")
+            inspector.get_by_role("button", name="Configure", exact=True).click()
+            expect(inspector.get_by_label("Node label", exact=True)).to_be_visible()
+            label_height = inspector.get_by_label("Node label", exact=True).evaluate("e => e.getBoundingClientRect().height")
+            assert 30 <= label_height <= 40, f"Node fields should match the IDE scale: {label_height}"
+            viewport = canvas.bounding_box()
+            old_scroll = canvas.evaluate("e=>e.scrollLeft")
+            page.get_by_role("button", name="Pan", exact=True).click()
+            page.mouse.move(viewport["x"] + 40, viewport["y"] + 40)
+            page.mouse.down()
+            page.mouse.move(viewport["x"] + 100, viewport["y"] + 60, steps=5)
+            page.mouse.up()
+            assert canvas.evaluate("e=>e.scrollLeft") != old_scroll, "Pan mode must move the viewport."
+            page.get_by_role("button", name="Select", exact=True).click()
+            page.get_by_role("button", name="Reset view", exact=True).click()
 
             page.locator("[data-graph-save]").click()
             expect(page.locator(".vaw-definition-status")).to_contain_text("Draft saved")
             page.get_by_role("button", name="Refresh project files", exact=True).click()
-            workflow_file = page.get_by_role("button", name="Untitled workflow.workflow", exact=True)
+            workflow_file = page.locator(".vaw-global-explorer").get_by_role("button", name="Untitled workflow.workflow", exact=True)
             expect(workflow_file).to_be_visible()
+            expect(page.locator(".vaw-explorer-file.is-selected")).to_have_count(1)
+            expect(workflow_file).to_have_attribute("aria-current", "page")
+            page.get_by_role("button", name="Workflow settings", exact=True).click()
             page.get_by_role("button", name="New workflow", exact=True).click()
             name = page.get_by_label("Workflow name", exact=True)
-            name.fill("Reopen smoke")
+            name.fill(f"Reopen smoke {uuid.uuid4().hex[:8]}")
             name.press("Tab")
             page.locator("[data-graph-save]").click()
-            expect(page.get_by_role("button", name="Reopen smoke.workflow", exact=True)).to_be_visible()
+            workflow_name = name.input_value()
+            page.get_by_role("button", name="Workflow settings", exact=True).click()
+            workflow_file = page.locator(".vaw-global-explorer").get_by_role("button", name=f"{workflow_name}.workflow", exact=True)
+            expect(workflow_file).to_be_visible()
             workflow_file.click()
-            expect(page.get_by_label("Workflow name", exact=True)).to_have_value("Untitled workflow")
+            expect(workflow_file).to_have_class("vaw-explorer-file is-selected")
+            expect(page.locator(".vaw-explorer-file.is-selected")).to_have_count(1)
+            selected_by_picker = page.evaluate("""() => {
+                const select = document.querySelector('[data-vaw-workflow-selector]');
+                const option = [...select.options].find(item => item.value !== select.value);
+                window.vawStudioIde.selectWorkflow(option.value);
+                return option.value;
+            }""")
+            expect(page.locator(".vaw-explorer-file.is-selected")).to_have_attribute("data-workflow-id", selected_by_picker)
+            workflow_file.click()
+            expect(workflow_file).to_have_attribute("aria-current", "page")
+            expect(page).to_have_url(f"{base_url}/projects/default")
+            expect(page.get_by_label("Workflow name", exact=True)).to_have_value(workflow_name)
             page.wait_for_function("document.querySelector('.vaw-graph-editor')?.dataset.ready === 'true'")
+            page.wait_for_timeout(350)
+            expect(page.get_by_label("Workflow name", exact=True)).to_have_value(workflow_name)
             expect(page.locator(".vaw-canvas-world [data-node-id]")).to_have_count(2)
             page.wait_for_function("""() => {
                 const canvas = document.querySelector('.vaw-canvas-viewport')?.getBoundingClientRect();
@@ -59,14 +109,58 @@ def verify(base_url: str, browser_executable: str | None) -> None:
                     return box.width > 0 && box.height > 0 && box.right > canvas.left && box.left < canvas.right && box.bottom > canvas.top && box.top < canvas.bottom;
                 });
             }""")
+            page.locator(".vaw-global-explorer").get_by_role("button", name="Untitled workflow.workflow", exact=True).click()
+            expect(page.get_by_label("Workflow name", exact=True)).to_have_value("Untitled workflow")
+            workflow_file.click()
+            expect(page.get_by_label("Workflow name", exact=True)).to_have_value(workflow_name)
+            expect(workflow_file).to_have_attribute("aria-current", "page")
+            documents = page.get_by_role("navigation", name="Open workflow documents")
+            documents.get_by_role("button", name="Untitled workflow.workflow", exact=True).click()
+            expect(page.locator(".vaw-explorer-file.is-selected")).to_contain_text("Untitled workflow.workflow")
+            documents.get_by_role("button", name=f"{workflow_name}.workflow", exact=True).click()
+            expect(workflow_file).to_have_attribute("aria-current", "page")
             page.screenshot(path="/tmp/vaw-studio-ide.png")
 
-            expand = page.get_by_role("button", name="Expand workflow details")
-            expect(expand).to_have_attribute("aria-expanded", "false")
-            expand.click()
-            expect(page.get_by_role("button", name="Collapse workflow details")).to_have_attribute("aria-expanded", "true")
-            page.get_by_role("button", name="Collapse workflow details").click()
+            expect(page.get_by_role("button", name="Publish & activate", exact=True)).to_have_count(0)
+            expect(page.get_by_role("button", name="Versions", exact=True)).to_have_count(0)
+            page.get_by_role("button", name="Configure test input", exact=True).click()
+            run_button = page.get_by_role("button", name="Run workflow", exact=True)
+            expect(run_button).to_be_enabled()
+            page.get_by_label("Workflow input", exact=True).fill("Run directly from the saved project source")
+            run_button.click()
+            history = page.get_by_role("region", name="Workflow designer").get_by_label("Workflow run history", exact=True)
+            expect(history.locator("tbody tr")).to_have_count(1)
+            expect(history.locator("tbody tr")).to_contain_text("completed")
+            expect(page.locator(".vaw-canvas-viewport").first).to_be_visible()
+            page.locator(".vaw-bottom-tray nav").get_by_role("button", name="Output", exact=True).click()
+            expect(page.locator(".vaw-workflow-result")).to_have_text("Run directly from the saved project source")
+            page.locator(".vaw-bottom-tray nav").get_by_role("button", name="Runs", exact=True).click()
+            history.get_by_role("button", name="Inspect run", exact=False).click()
+            expect(page.locator(".vaw-viewer")).to_be_visible()
+            expect(page.locator(".vaw-run-header")).to_contain_text("Latest run status: completed")
+            page.get_by_role("button", name="Back to workflow", exact=True).click()
+
+            collapse = page.get_by_role("button", name="Collapse workflow details")
+            expect(collapse).to_have_attribute("aria-expanded", "true")
+            collapse.click()
+            expect(page.get_by_role("button", name="Expand workflow details")).to_have_attribute("aria-expanded", "false")
             expect(page.locator(".vaw-bottom-tray")).to_have_class("vaw-bottom-tray is-collapsed")
+
+            # An invalid draft remains editable, with a clear problem list and a disabled Run action.
+            invalid = page.request.get(f"{base_url}/api/templates/default").json()
+            invalid["workflowId"] = "invalid-ide-" + uuid.uuid4().hex
+            invalid["displayName"] = "Incomplete wiring"
+            invalid["connections"].pop(next(iter(invalid["connections"])))
+            saved = page.request.put(f"{base_url}/api/workflows/{invalid['workflowId']}/draft", data={"definition": invalid, "expectedGeneration": 0})
+            assert saved.ok, saved.text()
+            page.get_by_role("button", name="Refresh project files", exact=True).click()
+            page.locator(".vaw-global-explorer").get_by_role("button", name="Incomplete wiring.workflow", exact=True).click()
+            expect(page.get_by_role("button", name="Run workflow", exact=True)).to_be_disabled()
+            page.locator(".vaw-bottom-tray nav").get_by_role("button", name="Problems", exact=False).click()
+            expect(page.locator(".vaw-bottom-issues li").first).to_be_visible()
+            expect(page.locator("[data-graph-save]")).to_be_enabled()
+            workflow_file.click()
+            expect(page.get_by_role("button", name="Run workflow", exact=True)).to_be_enabled()
 
             expect(page.get_by_label("Color theme", exact=True)).to_be_enabled()
             page.get_by_label("Color theme", exact=True).select_option("vs-code-dark-plus")
@@ -81,6 +175,23 @@ def verify(base_url: str, browser_executable: str | None) -> None:
                 expect(page.locator(".vaw-app-shell")).to_be_visible()
                 expect(page.locator(".vaw-ide-activitybar")).to_be_visible()
                 expect(page.get_by_label("Color theme", exact=True)).to_have_value("vs-code-dark-plus")
+                visible_alerts = page.locator("[role=alert]:visible").all_inner_texts()
+                assert not any("\n   at " in alert or "System." in alert for alert in visible_alerts), (
+                    f"{route} should show concise user-facing errors, not raw exception details: {visible_alerts}"
+                )
+                if route in ("/agents", "/skills", "/functions", "/mcp", "/settings", "/source-project"):
+                    form_control_heights = page.locator("main input:not([type=checkbox]):not([type=file]), main select").evaluate_all(
+                        "els => els.filter(e => e.getBoundingClientRect().height > 0).map(e => Math.round(e.getBoundingClientRect().height))"
+                    )
+                    assert all(40 <= height <= 50 for height in form_control_heights), (
+                        f"Form controls should share a comfortable ~44px size on {route}: {form_control_heights}"
+                    )
+                if route == "/agents":
+                    description = page.get_by_label("Delegate description", exact=True)
+                    assert description.evaluate("e => e.getBoundingClientRect().height") < 85, "Two-row descriptions should not inherit the instruction editor's tall minimum."
+                if route == "/observe":
+                    expect(page.get_by_role("heading", name="No consumer services configured")).to_be_visible()
+                    expect(page.locator("pre")).to_contain_text("WorkflowObservation__Sources__consumer__BaseAddress")
             expect(page.get_by_label("Absolute folder path", exact=True)).to_be_visible()
             assert page.evaluate("performance.getEntriesByType('navigation').length") == 1, "Internal views should remain in one SPA document."
 
@@ -88,6 +199,9 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), "The shared shell must not create page-level horizontal scrolling on mobile."
             expect(page.locator(".vaw-ide-titlebar")).to_be_visible()
             assert not page_errors, page_errors
+        except Exception:
+            page.screenshot(path="/tmp/vaw-ide-failure.png")
+            raise
         finally:
             browser.close()
 

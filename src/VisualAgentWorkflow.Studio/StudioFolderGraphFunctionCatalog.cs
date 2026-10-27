@@ -33,7 +33,7 @@ public sealed class StudioFolderGraphFunctionCatalog(string projectDirectory) : 
     public IReadOnlyList<GraphFunctionCatalogEntry> List() => ListAssets().Select(function => function.Item).ToArray();
 
     public StudioFolderGraphFunction SaveNewVersion(GraphFunctionDefinition definition, string folder,
-        string expectedManifestHash, WorkflowLayout? layout = null)
+        string expectedManifestHash, WorkflowLayout? layout = null, string? targetDirectory = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedManifestHash);
         StudioGraphFunctionLibrary.Validate(definition, folder);
@@ -57,11 +57,17 @@ public sealed class StudioFolderGraphFunctionCatalog(string projectDirectory) : 
                 throw new InvalidDataException("Project graph function exceeds the supported source file size.");
 
             var contentHash = StudioProjectSourceArchive.ComputeContentHash(bytes);
-            var relativePath = StudioProjectSourceArchive.VersionedAssetPath("functions", definition.FunctionId, version, contentHash);
+            var relativePath = targetDirectory is null
+                ? StudioProjectSourceArchive.VersionedAssetPath("functions", definition.FunctionId, version, contentHash)
+                : StudioProjectSourceArchive.AssetPathInDirectory(targetDirectory,
+                    StudioProjectSourceArchive.SafeAssetFileStem(definition.FunctionId + "-" + version), ".function", contentHash);
             var file = new StudioProjectFile("graph-function", definition.FunctionId, version, relativePath, contentHash);
             var updatedManifest = manifest with
             {
-                Files = manifest.Files.Append(file).OrderBy(entry => entry.Path, StringComparer.Ordinal).ToImmutableArray()
+                FormatVersion = StudioProjectSourceArchive.FormatVersion,
+                Files = manifest.Files.Append(file).OrderBy(entry => entry.Path, StringComparer.Ordinal).ToImmutableArray(),
+                Directories = StudioProjectSourceArchive.DirectoriesForPaths(
+                    manifest.Files.Select(entry => entry.Path).Append(relativePath), manifest.Directories)
             };
             var updatedFiles = new SortedDictionary<string, byte[]>(StringComparer.Ordinal);
             foreach (var existing in existingFiles) updatedFiles.Add(existing.Key, existing.Value);

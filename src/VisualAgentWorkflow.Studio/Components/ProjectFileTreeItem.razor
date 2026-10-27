@@ -1,13 +1,14 @@
 @if (Node.IsDirectory)
 {
-    <details class="vaw-project-tree-directory" open>
+    <details class="vaw-project-tree-directory @(IsClipboardPath(NodePath) ? "is-cut" : "")" open
+        @oncontextmenu="args => ContextDirectory(args)" @oncontextmenu:preventDefault="true" @oncontextmenu:stopPropagation="true">
         <summary><span class="vaw-project-tree-icon" aria-hidden="true">▾</span>@Node.Name</summary>
         <ul>
             @foreach (var child in Node.Children)
             {
                 <li @key="child.Name + child.File?.Path">
-                    <ProjectFileTreeItem Node="@child" SelectedPath="@SelectedPath" WorkflowNames="@WorkflowNames" FileNames="@FileNames"
-                        CanOpenFiles="@CanOpenFiles" OnOpenWorkflow="@OnOpenWorkflow" OnOpenSkill="@OnOpenSkill" OnOpenAgentProfile="@OnOpenAgentProfile" OnOpenGraphFunction="@OnOpenGraphFunction" />
+                    <ProjectFileTreeItem Node="@child" PathPrefix="@NodePath" SelectedPath="@SelectedPath" ClipboardPath="@ClipboardPath" ClipboardIsCut="@ClipboardIsCut" WorkflowNames="@WorkflowNames" FileNames="@FileNames"
+                        CanOpenFiles="@CanOpenFiles" OnOpenWorkflow="@OnOpenWorkflow" OnOpenSkill="@OnOpenSkill" OnOpenAgentProfile="@OnOpenAgentProfile" OnOpenGraphFunction="@OnOpenGraphFunction" OnContextMenu="@OnContextMenu" />
                 </li>
             }
         </ul>
@@ -16,9 +17,10 @@
 else if (Node.File is { Kind: "workflow" } file)
 {
     var selected = file.Path == SelectedPath;
-    <button type="button" class="vaw-project-tree-file @(selected ? "is-selected" : "")"
+    <button type="button" class="vaw-project-tree-file @(selected ? "is-selected" : "") @(IsClipboardPath(file.Path) ? "is-cut" : "")"
             aria-current="@(selected ? "page" : "false")" aria-label="@($"Open workflow {WorkflowLabel(file)}")" title="@file.Path"
-            disabled="@(!CanOpenFiles)" @onclick="() => OnOpenWorkflow.InvokeAsync(file.Id)">
+            disabled="@(!CanOpenFiles)" @onclick="() => OnOpenWorkflow.InvokeAsync(file.Id)"
+            @oncontextmenu="args => ContextFile(args, file)" @oncontextmenu:preventDefault="true" @oncontextmenu:stopPropagation="true">
         <span class="vaw-project-tree-icon" aria-hidden="true">W</span>
         <span class="vaw-project-tree-file-name">@WorkflowLabel(file)</span>
     </button>
@@ -26,9 +28,10 @@ else if (Node.File is { Kind: "workflow" } file)
 else if (Node.File is { Kind: "skill" } skillFile)
 {
     var selected = skillFile.Path == SelectedPath;
-    <button type="button" class="vaw-project-tree-file @(selected ? "is-selected" : "")"
+    <button type="button" class="vaw-project-tree-file @(selected ? "is-selected" : "") @(IsClipboardPath(skillFile.Path) ? "is-cut" : "")"
             aria-current="@(selected ? "page" : "false")" aria-label="@($"Edit skill {Node.Name}")" title="@skillFile.Path"
-            disabled="@(!CanOpenFiles)" @onclick="() => OnOpenSkill.InvokeAsync(skillFile)">
+            disabled="@(!CanOpenFiles)" @onclick="() => OnOpenSkill.InvokeAsync(skillFile)"
+            @oncontextmenu="args => ContextFile(args, skillFile)" @oncontextmenu:preventDefault="true" @oncontextmenu:stopPropagation="true">
         <span class="vaw-project-tree-icon" aria-hidden="true">S</span>
         <span class="vaw-project-tree-file-name">@FileLabel(skillFile)</span>
     </button>
@@ -36,9 +39,10 @@ else if (Node.File is { Kind: "skill" } skillFile)
 else if (Node.File is { Kind: "agent-profile" } profileFile)
 {
     var selected = profileFile.Path == SelectedPath;
-    <button type="button" class="vaw-project-tree-file @(selected ? "is-selected" : "")"
+    <button type="button" class="vaw-project-tree-file @(selected ? "is-selected" : "") @(IsClipboardPath(profileFile.Path) ? "is-cut" : "")"
             aria-current="@(selected ? "page" : "false")" aria-label="@($"Edit agent profile {Node.Name}")" title="@profileFile.Path"
-            disabled="@(!CanOpenFiles)" @onclick="() => OnOpenAgentProfile.InvokeAsync(profileFile)">
+            disabled="@(!CanOpenFiles)" @onclick="() => OnOpenAgentProfile.InvokeAsync(profileFile)"
+            @oncontextmenu="args => ContextFile(args, profileFile)" @oncontextmenu:preventDefault="true" @oncontextmenu:stopPropagation="true">
         <span class="vaw-project-tree-icon" aria-hidden="true">A</span>
         <span class="vaw-project-tree-file-name">@FileLabel(profileFile)</span>
     </button>
@@ -46,11 +50,23 @@ else if (Node.File is { Kind: "agent-profile" } profileFile)
 else if (Node.File is { Kind: "graph-function" } graphFunctionFile)
 {
     var selected = graphFunctionFile.Path == SelectedPath;
-    <button type="button" class="vaw-project-tree-file @(selected ? "is-selected" : "")"
+    <button type="button" class="vaw-project-tree-file @(selected ? "is-selected" : "") @(IsClipboardPath(graphFunctionFile.Path) ? "is-cut" : "")"
             aria-current="@(selected ? "page" : "false")" aria-label="@($"Edit graph function {Node.Name}")" title="@graphFunctionFile.Path"
-            disabled="@(!CanOpenFiles)" @onclick="() => OnOpenGraphFunction.InvokeAsync(graphFunctionFile)">
+            disabled="@(!CanOpenFiles)" @onclick="() => OnOpenGraphFunction.InvokeAsync(graphFunctionFile)"
+            @oncontextmenu="args => ContextFile(args, graphFunctionFile)" @oncontextmenu:preventDefault="true" @oncontextmenu:stopPropagation="true">
         <span class="vaw-project-tree-icon" aria-hidden="true">F</span>
         <span class="vaw-project-tree-file-name">@FileLabel(graphFunctionFile)</span>
+    </button>
+}
+else if (Node.File is { Kind: "documentation" } documentFile)
+{
+    var selected = documentFile.Path == SelectedPath;
+    <button type="button" class="vaw-project-tree-file @(selected ? "is-selected" : "") @(IsClipboardPath(documentFile.Path) ? "is-cut" : "")"
+            aria-current="@(selected ? "page" : "false")" aria-label="@($"Edit Markdown document {Node.Name}")" title="@documentFile.Path"
+            disabled="@(!CanOpenFiles)" @onclick="() => OnOpenDocumentation.InvokeAsync(documentFile)"
+            @oncontextmenu="args => ContextFile(args, documentFile)" @oncontextmenu:preventDefault="true" @oncontextmenu:stopPropagation="true">
+        <span class="vaw-project-tree-icon" aria-hidden="true">M</span>
+        <span class="vaw-project-tree-file-name">@FileLabel(documentFile)</span>
     </button>
 }
 else if (Node.File is { } readOnlyFile)
@@ -64,6 +80,9 @@ else if (Node.File is { } readOnlyFile)
 
 @code {
     [Parameter, EditorRequired] public StudioProjectFileTreeNode Node { get; set; } = null!;
+    [Parameter] public string PathPrefix { get; set; } = "";
+    [Parameter] public string? ClipboardPath { get; set; }
+    [Parameter] public bool ClipboardIsCut { get; set; }
     [Parameter] public string? SelectedPath { get; set; }
     [Parameter] public IReadOnlyDictionary<string, string> WorkflowNames { get; set; } = new Dictionary<string, string>();
     [Parameter] public IReadOnlyDictionary<string, string> FileNames { get; set; } = new Dictionary<string, string>();
@@ -72,6 +91,15 @@ else if (Node.File is { } readOnlyFile)
     [Parameter] public EventCallback<StudioProjectFile> OnOpenSkill { get; set; }
     [Parameter] public EventCallback<StudioProjectFile> OnOpenAgentProfile { get; set; }
     [Parameter] public EventCallback<StudioProjectFile> OnOpenGraphFunction { get; set; }
+    [Parameter] public EventCallback<StudioProjectFile> OnOpenDocumentation { get; set; }
+    [Parameter] public EventCallback<StudioProjectTreeContext> OnContextMenu { get; set; }
+
+    private string NodePath => string.IsNullOrEmpty(PathPrefix) ? Node.Name : $"{PathPrefix}/{Node.Name}";
+    private bool IsClipboardPath(string path) => ClipboardIsCut && string.Equals(ClipboardPath, path, StringComparison.OrdinalIgnoreCase);
+    private Task ContextDirectory(Microsoft.AspNetCore.Components.Web.MouseEventArgs args) =>
+        OnContextMenu.InvokeAsync(new(NodePath, null, true, args.ClientX, args.ClientY));
+    private Task ContextFile(Microsoft.AspNetCore.Components.Web.MouseEventArgs args, StudioProjectFile file) =>
+        OnContextMenu.InvokeAsync(new(file.Path, file, false, args.ClientX, args.ClientY));
 
     private static string AssetIcon(string kind) => kind switch
     {

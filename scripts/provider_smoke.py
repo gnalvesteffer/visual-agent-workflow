@@ -39,7 +39,138 @@ def stop(process):
             process.kill(); process.wait(timeout=5)
 
 
-def check(dotnet, browser_executable):
+def parallel_user_template_check(page, base, get, state, state_lock):
+    """Verify agent-template editing and execution in a published parallel graph."""
+    branches = [
+        {"id": "branch_1", "label": "Research", "anchorNodeId": "anchor_1"},
+        {"id": "branch_2", "label": "Critique", "anchorNodeId": "anchor_2"},
+        {"id": "branch_3", "label": "Synthesis", "anchorNodeId": "anchor_3"},
+    ]
+    nodes = {
+        "input": {"type": "core.input", "typeVersion": "1.0.0"},
+        "fork": {"type": "core.parallel.fork", "typeVersion": "1.0.0", "parallelFork": {"branches": branches}},
+        "join": {"type": "core.parallel.join", "typeVersion": "1.0.0", "parallelJoin": {
+            "forkNodeId": "fork", "branchIds": [branch["id"] for branch in branches]}},
+        "output": {"type": "core.output", "typeVersion": "1.0.0", "outputDataType": "json"},
+    }
+    execution = {
+        "start": {"source": {"nodeId": "input", "portId": "then"}, "target": {"nodeId": "fork", "portId": "execute"}, "kind": "execution"},
+        "finish": {"source": {"nodeId": "join", "portId": "then"}, "target": {"nodeId": "output", "portId": "execute"}, "kind": "execution"},
+    }
+    task_prefixes = [
+        "Research: identify evidence about ",
+        "Critique: find weaknesses in ",
+        "Synthesis: combine useful conclusions about ",
+    ]
+    for index, branch in enumerate(branches, start=1):
+        branch_id = branch["id"]
+        anchor_id = branch["anchorNodeId"]
+        agent_id = f"agent_{index}"
+        nodes[anchor_id] = {"type": "core.parallel.branch", "typeVersion": "1.0.0",
+                            "parallelBranch": {"forkNodeId": "fork", "branchId": branch_id}}
+        nodes[agent_id] = {"type": "core.agent", "typeVersion": "1.0.0", "agent": {
+            "providerId": "openai.fixture", "providerVersion": "1.0.0",
+            "instructions": f"Act as the {branch['label']} specialist.", "tools": [],
+            "userMessage": {"parts": [
+                {"kind": "literal", "value": task_prefixes[index - 1]},
+                {"kind": "input", "value": ""},
+                {"kind": "literal", "value": " for audience "},
+                {"kind": "parameter", "value": "audience"},
+            ]},
+        }}
+        execution[f"fork-{index}"] = {"source": {"nodeId": "fork", "portId": f"branch.{branch_id}"},
+                                       "target": {"nodeId": anchor_id, "portId": "execute"}, "kind": "execution"}
+        execution[f"agent-{index}"] = {"source": {"nodeId": anchor_id, "portId": "then"},
+                                        "target": {"nodeId": agent_id, "portId": "execute"}, "kind": "execution"}
+        execution[f"join-{index}"] = {"source": {"nodeId": agent_id, "portId": "out"},
+                                       "target": {"nodeId": "join", "portId": f"branch.{branch_id}"}, "kind": "execution"}
+
+    workflow_id = "parallel-template-" + uuid.uuid4().hex
+    definition = {
+        "schemaVersion": "1.32", "workflowId": workflow_id, "displayName": "Parallel template authoring proof",
+        "entryNodeId": "input", "nodes": nodes,
+        "connections": {"join-result": {"source": {"nodeId": "join", "portId": "out"},
+                                         "target": {"nodeId": "output", "portId": "in"}, "kind": "data"}},
+        "executionConnections": execution,
+        "parameters": {"audience": {"displayName": "Audience", "defaultValue": "default readers", "type": "string"}},
+    }
+    response = page.request.put(base + f"/api/workflows/{workflow_id}/draft",
+                                data={"definition": definition, "expectedGeneration": 0})
+    assert response.ok, response.text()
+    calls_before = len(state["calls"])
+
+    page.reload(wait_until="networkidle")
+    designer = page.get_by_role("region", name="Workflow designer", exact=True)
+    expect(designer.get_by_role("button", name="New workflow", exact=True)).to_be_enabled()
+    designer.get_by_label("Saved workflow", exact=True).select_option(workflow_id)
+    expect(designer.get_by_label("Workflow name", exact=True)).to_have_value("Parallel template authoring proof")
+    designer.get_by_label("Node to organize", exact=True).select_option("agent_1")
+    editor = designer.get_by_role("textbox", name="User message template", exact=True)
+    editor.fill("Research: verify {{input}} for audience {{parameter:audience}}")
+    editor.press("Tab")
+    expect(designer.locator(".vaw-definition-status")).to_contain_text("Unsaved changes", timeout=15_000)
+    designer.get_by_role("button", name="Save draft", exact=True).click()
+    expect(designer).to_contain_text("Draft saved.")
+
+    design = get(f"/api/workflows/{workflow_id}/design")
+    edited = design["draft"]["definition"]
+    assert edited["schemaVersion"] == "1.32", edited["schemaVersion"]
+    assert edited["nodes"]["agent_1"]["agent"]["userMessage"]["parts"] == [
+        {"kind": "literal", "value": "Research: verify "}, {"kind": "input", "value": ""},
+        {"kind": "literal", "value": " for audience "}, {"kind": "parameter", "value": "audience"},
+    ]
+
+    page.reload(wait_until="networkidle")
+    designer = page.get_by_role("region", name="Workflow designer", exact=True)
+    expect(designer.get_by_role("button", name="New workflow", exact=True)).to_be_enabled()
+    designer.get_by_label("Saved workflow", exact=True).select_option(workflow_id)
+    designer.get_by_label("Node to organize", exact=True).select_option("agent_1")
+    expect(designer.get_by_role("textbox", name="User message template", exact=True)).to_have_value(
+        "Research: verify {{input}} for audience {{parameter:audience}}")
+    designer.get_by_role("button", name="Publish & activate", exact=True).click()
+    expect(designer).to_contain_text("Published and activated version 1.")
+    revision = get(f"/api/workflows/{workflow_id}/revisions")[0]["revision"]
+    response = page.request.post(base + f"/api/revisions/{revision['revisionId']}/runs",
+                                 data={"input": "climate adaptation", "parameters": {"audience": "city planners"}})
+    assert response.status == 202, response.text()
+    run_id = response.json()["header"]["runId"]
+    deadline = time.monotonic() + 25
+    while time.monotonic() < deadline:
+        run = get(f"/api/runs/{run_id}")
+        if run["status"] in ("completed", "failed", "interrupted"):
+            break
+        time.sleep(0.05)
+    assert run["status"] == "completed", run
+    requested = [event for event in run["events"] if event["kind"] == "model.requested"]
+    expected = {
+        "agent_1": "Research: verify climate adaptation for audience city planners",
+        "agent_2": "Critique: find weaknesses in climate adaptation for audience city planners",
+        "agent_3": "Synthesis: combine useful conclusions about climate adaptation for audience city planners",
+    }
+    actual = {}
+    for event in requested:
+        request = json.loads(event["data"])
+        actual[event["nodeId"]] = request["messages"][0]["content"][0]["text"]
+    assert actual == expected, actual
+    with state_lock:
+        assert len(state["calls"]) == calls_before + 3
+
+    page.get_by_role("button", name="Run inspector", exact=True).click()
+    page.get_by_role("button", name="Refresh history", exact=True).click()
+    run_row = page.locator(".vaw-history button").filter(has_text=run_id[:8])
+    expect(run_row).to_be_visible(timeout=15_000)
+    run_row.click()
+    viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
+    viewer.get_by_role("button", name="Previous event", exact=True).click()
+    expect(viewer).to_contain_text("Recorded playback")
+    for agent_id, message in expected.items():
+        viewer.get_by_role("button", name=f"Inspect node {agent_id}", exact=True).click()
+        expect(viewer.get_by_role("region", name="Selected node payloads")).to_contain_text(message)
+    with state_lock:
+        assert len(state["calls"]) == calls_before + 3, "Playback must not issue another model request"
+
+
+def check(dotnet, browser_executable, template_only=False):
     key = secrets.token_urlsafe(32)
     state = {"calls":[], "status":200}
     state_lock = threading.Lock()
@@ -127,6 +258,14 @@ def check(dotnet, browser_executable):
                     errors, destinations = [], []
                     page.on("pageerror", lambda error: errors.append(str(error)))
                     page.on("request", lambda request: destinations.append(request.url))
+                    if template_only:
+                        page.goto(base)
+                        designer = page.get_by_role("region", name="Workflow designer", exact=True)
+                        expect(designer.get_by_role("button", name="New workflow", exact=True)).to_be_enabled()
+                        parallel_user_template_check(page, base, get, state, state_lock)
+                        assert not errors, errors
+                        print("Parallel Agent user-message template: edit/save/reload/publish/run/exact playback evidence passed.")
+                        return
                     page.goto(base)
                     designer = page.get_by_role("region",name="Workflow designer",exact=True)
                     expect(workbench(designer).get_by_role("button",name="New workflow",exact=True)).to_be_enabled()
@@ -178,6 +317,8 @@ def check(dotnet, browser_executable):
                     viewer.get_by_role("button",name="Previous event",exact=True).click()
                     expect(viewer.get_by_text("Recorded playback",exact=True)).to_be_visible()
                     assert len(state["calls"]) == before
+                    parallel_user_template_check(page, base, get, state, state_lock)
+                    before = len(state["calls"])
                     # An HTTP rate-limit failure makes one attempt and records no credential/error body.
                     with state_lock:
                         state["status"] = 429
@@ -253,5 +394,6 @@ if __name__ == "__main__":
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dotnet",default="dotnet")
     parser.add_argument("--browser-executable")
+    parser.add_argument("--template-only",action="store_true",help="Run only the isolated parallel Agent-template browser proof")
     args=parser.parse_args()
-    check(args.dotnet,args.browser_executable)
+    check(args.dotnet,args.browser_executable,args.template_only)

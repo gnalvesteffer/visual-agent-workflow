@@ -424,6 +424,19 @@ def check(browser, screenshots):
     # The remaining workbench checks use an explicitly connected fixture.
     new_workflow_fixture(designer)
     canvas = designer.locator(".vaw-graph-editor")
+    workflow_map = canvas.get_by_role("navigation", name="Workflow map", exact=True)
+    expect(workflow_map.get_by_role("heading", name="Workflow map", exact=True)).to_be_visible()
+    expect(workflow_map.locator("li")).to_have_count(3)
+    workflow_map.locator("button").nth(1).click()
+    expect(canvas.locator("li[data-node-id='step-1'] .vaw-node-drag")).to_have_attribute("aria-pressed", "true")
+    tray = designer.get_by_role("region", name="Workflow runs, versions and issues", exact=True)
+    expect(tray.get_by_role("region", name="Run controls", exact=True)).to_be_visible()
+    tray.get_by_role("button", name="Issues", exact=False).click()
+    expect(tray.get_by_role("region", name="Workflow issues", exact=True)).to_be_visible()
+    tray.get_by_role("button", name="Versions", exact=True).click()
+    expect(tray.get_by_role("region", name="Published workflow versions", exact=True)).to_be_visible()
+    tray.get_by_role("button", name="Run", exact=True).click()
+    expect(tray.get_by_role("region", name="Run controls", exact=True)).to_be_visible()
     step = "step-1"
     workflow_id = designer.get_by_label("Saved workflow",exact=True).input_value()
     assert canvas.locator("li[data-node-id] input, li[data-node-id] textarea, li[data-node-id] select").count() == 0
@@ -453,7 +466,7 @@ def check(browser, screenshots):
     viewport.scroll_into_view_if_needed()
     bounds=viewport.bounding_box()
     destination={"x":bounds["x"]+bounds["width"]*.5,"y":bounds["y"]+350}
-    library=canvas.get_by_role("complementary",name="Workflow node library",exact=True)
+    library=canvas.locator(".vaw-workflow-node-library")
     library.get_by_role("button",name="Add Reverse",exact=True).drag_to(viewport,target_position={"x":bounds["width"]*.5,"y":350})
     expect(canvas.locator("li[data-node-id]")).to_have_count(4)
     dropped=canvas.locator("li[data-node-type='core.text.reverse']")

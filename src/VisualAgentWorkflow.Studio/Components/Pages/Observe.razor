@@ -8,7 +8,15 @@
         <p><a href="/">Return to workflow designer</a></p>
         @if (Sources.Names.Count == 0)
         {
-            <p>No consumer sources are configured. Add a named source in the Studio server configuration.</p>
+            <section class="vaw-provider-empty" aria-label="Configure a consumer source">
+                <h2>No consumer services configured</h2>
+                <p>To inspect runs from another app, configure a named, read-only observation endpoint on the Studio server. The consumer must expose the observation API and authorize Studio to read it.</p>
+                <p>Add a source with these settings, then restart Studio:</p>
+                <pre><code>WorkflowObservation__Sources__consumer__BaseAddress=http://127.0.0.1:5100/workflow-observation/
+WorkflowObservation__Sources__consumer__BearerToken=&lt;consumer-token&gt;</code></pre>
+                <p class="vaw-help">Use HTTPS for non-local endpoints. Keep the token in server configuration or a secret store; it is never entered in the browser.</p>
+                <a class="vaw-button-link" href="/projects/default">Return to workflow editor</a>
+            </section>
         }
         else
         {

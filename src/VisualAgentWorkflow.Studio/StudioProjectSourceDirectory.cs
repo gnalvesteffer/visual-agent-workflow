@@ -57,6 +57,9 @@ public static class StudioProjectSourceDirectory
         Directory.CreateDirectory(root);
         try
         {
+            if (!normalizedManifest.Directories.IsDefault)
+                foreach (var directoryPath in normalizedManifest.Directories)
+                    EnsureSafeDirectories(root, ResolvePath(root, directoryPath));
             foreach (var file in normalizedFiles.OrderBy(file => file.Key, StringComparer.Ordinal))
                 WriteAtomically(root, file.Key, file.Value);
             WriteAtomically(root, StudioProjectSourceArchive.ManifestFileName,
@@ -102,6 +105,64 @@ public static class StudioProjectSourceDirectory
             current = Path.Combine(current, segment);
             if (Directory.Exists(current)) RejectReparsePoint(current);
             else Directory.CreateDirectory(current);
+        }
+    }
+
+    internal static void ReplaceManifest(string root, StudioProjectManifest manifest)
+    {
+        var path = Path.Combine(root, StudioProjectSourceArchive.ManifestFileName);
+        RejectPathLinks(root, path);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(StudioProjectSourceArchive.SerializeManifest(manifest));
+        var temporary = path + ".tmp-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                output.Write(bytes);
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+        }
+    }
+
+    internal static void WriteIndexedFile(string root, string relativePath, byte[] contents)
+    {
+        var path = ResolvePath(root, relativePath);
+        EnsureSafeDirectories(root, Path.GetDirectoryName(path)!);
+        RejectPathLinks(root, Path.GetDirectoryName(path)!);
+        if (File.Exists(path)) RejectPathLinks(root, path);
+        if (File.Exists(path)) throw new IOException("A project file already exists at the requested path.");
+        var temporary = path + ".tmp-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                output.Write(contents);
+            File.Move(temporary, path);
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+        }
+    }
+
+    internal static void ReplaceIndexedFile(string root, string relativePath, byte[] contents)
+    {
+        var path = ResolvePath(root, relativePath);
+        EnsureSafeDirectories(root, Path.GetDirectoryName(path)!);
+        RejectPathLinks(root, Path.GetDirectoryName(path)!);
+        if (File.Exists(path)) RejectPathLinks(root, path);
+        if (!File.Exists(path)) throw new IOException("The selected project file no longer exists.");
+        var temporary = path + ".tmp-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                output.Write(contents);
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
         }
     }
 

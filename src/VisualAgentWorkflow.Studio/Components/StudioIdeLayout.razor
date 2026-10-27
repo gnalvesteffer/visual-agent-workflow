@@ -19,11 +19,8 @@
                 { <option value="@project.Id">@project.Name</option> }
             </select>
         </label>
-        <nav class="vaw-ide-document-tabs" aria-label="Open views">
-            <a href="@WorkflowRoute" aria-current="@(ActivePage == "workflow" ? "page" : null)" data-vaw-route-link>Workflow</a>
-            <a href="/projects" aria-current="@(ActivePage == "projects" ? "page" : null)" data-vaw-route-link>Projects</a>
-        </nav>
         <nav class="vaw-ide-title-actions" aria-label="Host connections">
+            <a href="/projects" data-vaw-route-link>Projects</a>
             <a href="/mcp" data-vaw-route-link>Connections</a>
             <a href="/settings" data-vaw-route-link>Models</a>
             <StudioThemePicker />
@@ -49,7 +46,8 @@
                         <summary>workflows/</summary>
                         @foreach (var workflow in workflows)
                         {
-                            <button type="button" class="vaw-explorer-file" @onclick="() => SelectWorkflow(workflow.Definition.WorkflowId)" title="@workflow.Definition.WorkflowId"><span aria-hidden="true">W</span>@(WorkflowName(workflow.Definition) + ".workflow")</button>
+                            var selected = workflow.Definition.WorkflowId == selectedWorkflowId;
+                            <button type="button" class="vaw-explorer-file @(selected ? "is-selected" : null)" data-workflow-id="@workflow.Definition.WorkflowId" aria-current="@(selected ? "page" : null)" @onclick="() => SelectWorkflow(workflow.Definition.WorkflowId)" title="@workflow.Definition.WorkflowId"><span aria-hidden="true">W</span><span class="vaw-explorer-file-name">@(WorkflowName(workflow.Definition) + ".workflow")</span></button>
                         }
                         @if (workflows.Count == 0) { <span class="vaw-explorer-empty">No saved workflows</span> }
                     </details>
@@ -68,15 +66,17 @@
                         @foreach (var function in functions) { <a class="vaw-explorer-file" href="@($"/projects/{Uri.EscapeDataString(SelectedProjectId)}/functions")" data-vaw-route-link><span aria-hidden="true">ƒ</span>@(function.Function.Definition.FunctionId + ".function")</a> }
                         @if (functions.Count == 0) { <span class="vaw-explorer-empty">No functions</span> }
                     </details>
-                    <button type="button" class="vaw-explorer-file vaw-explorer-manifest" title="Project metadata"><span aria-hidden="true">{ }</span>vaw.project.json</button>
+                    <button type="button" class="vaw-explorer-file vaw-explorer-manifest" title="Project metadata"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 3H7a2 2 0 0 0-2 2v2a3 3 0 0 1-3 3 3 3 0 0 1 3 3v2a2 2 0 0 0 2 2h1M12 3h1a2 2 0 0 1 2 2v2a3 3 0 0 0 3 3 3 3 0 0 0-3 3v2a2 2 0 0 1-2 2h-1" /></svg>vaw.project.json</button>
                 </div>
             </aside>
         }
         <section class="vaw-ide-route-workspace" aria-label="Studio workspace">
-            <div class="vaw-ide-route-heading"><span>@CurrentViewName</span>@if (!string.IsNullOrWhiteSpace(routeStatus)) { <span role="status">@routeStatus</span> }</div>
+            <div class="vaw-ide-route-heading" hidden="@(ActivePage == "workflow" && routeStatus is null)"><span>@CurrentViewName</span>@if (!string.IsNullOrWhiteSpace(routeStatus)) { <span role="status">@routeStatus</span> }</div>
             <div class="vaw-ide-route-content">
                 <CascadingValue Name="RefreshProjectExplorer" Value="@((Func<Task>)RefreshExplorer)">
-                    @Body
+                    <CascadingValue Name="WorkflowSelected" Value="@((Func<string, Task>)WorkflowSelectionChanged)">
+                        @Body
+                    </CascadingValue>
                 </CascadingValue>
             </div>
         </section>
@@ -88,6 +88,8 @@
     private IReadOnlyList<AgentProfileLibraryItem> profiles = [];
     private IReadOnlyList<SkillLibraryItem> skills = [];
     private IReadOnlyList<GraphFunctionCatalogEntry> functions = [];
+    private string? selectedWorkflowId;
+    private DotNetObjectReference<StudioIdeLayout>? selfReference;
     private string? explorerError;
     private string? routeStatus;
     private string? loadedExplorerProjectId;
@@ -113,6 +115,16 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender)
+        {
+            selfReference = DotNetObjectReference.Create(this);
+            try
+            {
+                await JavaScript.InvokeVoidAsync("vawStudioIde.subscribeWorkflowSelection", selfReference);
+                selectedWorkflowId = await JavaScript.InvokeAsync<string?>("vawStudioIde.getSelectedWorkflow");
+            }
+            catch (Microsoft.JSInterop.JSDisconnectedException) { }
+        }
         if (firstRender || !IsFolderWorkspace) await LoadExplorerAsync();
     }
 
@@ -169,13 +181,41 @@
 
     private async Task SelectWorkflow(string id)
     {
-        if (ActivePage != "workflow")
+        if (ActivePage == "workflow")
         {
-            Navigation.NavigateTo($"{WorkflowRoute}?workflow={Uri.EscapeDataString(id)}");
+            var result = await JavaScript.InvokeAsync<int>("vawStudioIde.selectWorkflow", id);
+            if (result == -1)
+            {
+                routeStatus = "Save or discard the current draft before switching workflows.";
+                return;
+            }
+            if (result == 0)
+            {
+                // Explorer can discover source created after this editor loaded its selector.
+                // Open that saved document through the route instead of rejecting a fresh entry.
+                routeStatus = null;
+                Navigation.NavigateTo($"{WorkflowRoute}?workflow={Uri.EscapeDataString(id)}");
+                return;
+            }
+
+            // The selector's async Blazor change handler loads the selected draft in place.
+            // Navigating to a query-only URL here races that load against page initialization.
+            selectedWorkflowId = id;
+            routeStatus = null;
             return;
         }
-        var result = await JavaScript.InvokeAsync<int>("vawStudioIde.selectWorkflow", id);
-        routeStatus = result == -1 ? "Save or discard the current draft before switching workflows." : null;
+
+        routeStatus = null;
+        Navigation.NavigateTo($"{WorkflowRoute}?workflow={Uri.EscapeDataString(id)}");
+    }
+
+    [JSInvokable]
+    public async Task WorkflowSelectionChanged(string id)
+    {
+        selectedWorkflowId = id;
+        routeStatus = null;
+        try { await JavaScript.InvokeVoidAsync("vawStudioIde.applySelectedWorkflow", id); }
+        catch (Microsoft.JSInterop.JSDisconnectedException) { }
     }
 
     private static string WorkflowName(WorkflowDefinition definition) => string.IsNullOrWhiteSpace(definition.DisplayName) ? definition.WorkflowId : definition.DisplayName;
@@ -184,5 +224,6 @@
     {
         disposed = true;
         Navigation.LocationChanged -= LocationChanged;
+        selfReference?.Dispose();
     }
 }

@@ -101,7 +101,7 @@ public partial class WorkflowEditor
         GraphEditing.RemoveEmptyConfigurableParallelBranch(Definition, forkNodeId, branchId));
     private bool CanRemoveEmptyConfigurableParallelBranch(string forkNodeId, ParallelBranchDescriptor branch)
     {
-        if (Definition.SchemaVersion != WorkflowSchemaVersions.ConfigurableParallelGraph ||
+            if (Definition.SchemaVersion is not (WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph) ||
             !Definition.Nodes.TryGetValue(forkNodeId, out var fork) || fork.ParallelFork is not { } configuration ||
             configuration.Branches.Length <= ParallelBranchLimits.MinimumBranches || Definition.ExecutionConnections is not { } execution)
             return false;
@@ -120,7 +120,7 @@ public partial class WorkflowEditor
                 new(NodeTypes.StringConstant, "String constant", "Values", "A literal text value; evaluated only when a data input needs it", !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
                 new(NodeTypes.TextConcat, "Concatenate text", "Values", "Join two text inputs without activating a node", !ReadOnly && !Disabled && Definition.Nodes.Count < 256)
             ];
-        if (WorkflowSchemaVersions.UsesExplicitGraph(Definition) && Definition.SchemaVersion is WorkflowSchemaVersions.ExplicitBranchGraph or WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph)
+        if (WorkflowSchemaVersions.UsesExplicitGraph(Definition) && Definition.SchemaVersion is WorkflowSchemaVersions.ExplicitBranchGraph or WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)
         {
             var explicitEntries = new List<WorkflowNodeLibraryEntry>
             {
@@ -128,18 +128,18 @@ public partial class WorkflowEditor
                 new(NodeTypes.TextConcat, "Concatenate text", "Values", "Join two string inputs deterministically", !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
                 new(NodeTypes.StringEquals, "Compare strings", "Values", "Compare strings using ordinal, case-sensitive equality", !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
                 new(NodeTypes.BooleanBranch, "Boolean Branch", "Flow", "Choose exactly one execution route from a Boolean data input", !ReadOnly && !Disabled && Definition.Nodes.Count < 256 &&
-                    (Definition.SchemaVersion is WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph
+                    (Definition.SchemaVersion is WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph
                         ? Definition.Nodes.Values.Count(node => node.Type == NodeTypes.BooleanBranch) < 8
                         : Definition.Nodes.Values.All(node => node.Type != NodeTypes.BooleanBranch))),
                 new("terminate", "Terminate workflow", "Flow", "End this route with a successful or failed result", !ReadOnly && !Disabled && Definition.Nodes.Count < 256 &&
-                    Definition.Nodes.Values.Count(node => node.Type == NodeTypes.Terminate) < (Definition.SchemaVersion is WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph ? 16 : 1))
+                    Definition.Nodes.Values.Count(node => node.Type == NodeTypes.Terminate) < (Definition.SchemaVersion is WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph ? 16 : 1))
             };
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph)
+            if (Definition.SchemaVersion is WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)
             {
                 explicitEntries.Insert(0, new(NodeTypes.BooleanConstant, "Boolean constant", "Values", "Provide a literal true or false value", !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
                 explicitEntries.Insert(1, new(NodeTypes.BooleanNot, "Boolean NOT", "Values", "Invert a Boolean value without converting its type", !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
             }
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph)
+            if (Definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)
             {
                 explicitEntries.Insert(0, new(NodeTypes.IntegerConstant, "Integer constant", "Values", "Provide a signed 64-bit integer literal", !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
                 explicitEntries.Insert(1, new(NodeTypes.IntegerAdd, "Add integers", "Values", "Add two integers with checked overflow", !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
@@ -147,15 +147,17 @@ public partial class WorkflowEditor
                 if (ParameterDefinitions.Values.Any(parameter => WorkflowParameterGraphTypes.DataType(parameter) is not null))
                     explicitEntries.Insert(3, new(NodeTypes.WorkflowValue, "Workflow value", "Inputs", "Read a typed string, Boolean, or integer workflow parameter", !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
             }
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph)
+            if (Definition.SchemaVersion is WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)
                 explicitEntries.AddRange((FunctionCatalog?.List() ?? []).Select(entry => new WorkflowNodeLibraryEntry(
                     FunctionKey(entry.Function), $"Function · {entry.Function.Definition.DisplayName} v{entry.Function.Definition.Version}",
                     "Functions", $"{entry.Function.Definition.Inputs.Count} inputs · {entry.Function.Definition.Outputs.Count} outputs · snapshot pinned on insert",
-                    !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph)
+                        !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));
+            if (Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)
                 explicitEntries.AddRange(Providers.Select(provider => new WorkflowNodeLibraryEntry(
                     ProviderKey(provider), provider.DisplayName, "Agents", $"Agent node · {provider.ModelId}",
                     !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));
+            if (Definition.SchemaVersion is WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph)
+                explicitEntries.Add(new("parallel-rendezvous", "Parallel rendezvous", "Flow", "Add one unwired communication barrier; configure its branch pins and grants in node properties", !ReadOnly && !Disabled && Definition.Nodes.Count < 256 && Definition.Nodes.Values.All(node => node.Type != NodeTypes.ParallelRendezvous)));
             return explicitEntries;
         }
         var insertion = Insertion(context);
@@ -232,15 +234,34 @@ public partial class WorkflowEditor
             await Edit(() => GraphEditing.InsertBoundedLoopAfter(Definition, loopInsertion.NodeId, loopInsertion.PortId), context, loopInsertion);
         else if (key == "terminate")
             await Edit(() => GraphEditing.AddUnconnectedNode(Definition, new(NodeTypes.Terminate, "1.0.0")), context, insertion);
+        else if (key == "parallel-rendezvous")
+            await Edit(() => GraphEditing.AddUnconnectedNode(Definition with { SchemaVersion = WorkflowSchemaVersions.CollaborativeParallelGraph }, new(NodeTypes.ParallelRendezvous, "1.0.0")), context);
         else if (key == "json-selector" && insertion is { } jsonInsertion)
             await Edit(() => GraphEditing.InsertJsonSelectorAfterJson(Definition, jsonInsertion.NodeId, jsonInsertion.PortId), context, jsonInsertion);
         else if (insertion is not null)
-            await Edit(() => UsesGraphEditing ? GraphEditing.InsertNodeAfter(Definition, insertion.NodeId, insertion.PortId, FromSelection(key)) :
-                WorkflowEditing.InsertNodeAfter(Definition, insertion.NodeId, FromSelection(key)), context, insertion);
+            await Edit(() =>
+            {
+                var node = FromSelection(key);
+                var inserted = UsesGraphEditing ? GraphEditing.InsertNodeAfter(Definition, insertion.NodeId, insertion.PortId, node) :
+                    WorkflowEditing.InsertNodeAfter(Definition, insertion.NodeId, node);
+                return UpgradeForBranchLocalRouting(inserted, node);
+            }, context, insertion);
         else
-            await Edit(() => GraphEditing.AddUnconnectedNode(Definition, FromSelection(key)), context);
+            await Edit(() =>
+            {
+                var node = FromSelection(key);
+                var added = GraphEditing.AddUnconnectedNode(Definition, node);
+                return UpgradeForBranchLocalRouting(added, node);
+            }, context);
         insertionConnection = null;
     }
+
+    private static WorkflowDefinition UpgradeForBranchLocalRouting(WorkflowDefinition definition, NodeDefinition node) =>
+        // Apply the upgrade after GraphEditing has computed its node schema so that this opt-in
+        // authoring action is not overwritten while the unconnected node is added.
+        node.Type == NodeTypes.BooleanBranch && definition.SchemaVersion == WorkflowSchemaVersions.ConfigurableParallelGraph
+            ? definition with { SchemaVersion = WorkflowSchemaVersions.BranchLocalParallelGraph }
+            : definition;
 
     private Task SetTerminationOutcome(string id, ChangeEventArgs args) => Edit(() =>
         WorkflowTerminationEditing.SetOutcome(Definition, id, args.Value?.ToString() ?? string.Empty));
@@ -251,7 +272,7 @@ public partial class WorkflowEditor
     private bool CanRemove(string id) => !ReadOnly && !Disabled && Definition.Nodes.TryGetValue(id, out var node) &&
         node.Type is not (NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.LoopBody) && !GuardedTool(id);
     private bool CanDuplicate(string id) => CanRemove(id) && Definition.Nodes[id].Type is not
-        (NodeTypes.Loop or NodeTypes.Approval or NodeTypes.Merge or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin);
+        (NodeTypes.Loop or NodeTypes.Approval or NodeTypes.Merge or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous);
     private async Task RemoveSelected(string id, GraphContextRequest? context = null)
     {
         await CloseMenu(context);
@@ -262,7 +283,26 @@ public partial class WorkflowEditor
         { await RequestParallelBlockRemoval(id); return; }
         if (!CanRemove(id)) { error = "This node cannot be deleted independently. Input/output and branch boundaries are required; remove an approval before its guarded tool."; return; }
         await Edit(() => Definition.Nodes[id].Type == NodeTypes.Approval ? GraphEditing.RemoveApproval(Definition, id) :
+            Definition.Nodes[id].Type == NodeTypes.ParallelRendezvous ? RemoveRendezvous(Definition, id) :
             UseGraphRemoval ? GraphEditing.RemoveNode(Definition, id) : WorkflowEditing.Remove(Definition, id));
+    }
+
+    private static WorkflowDefinition RemoveRendezvous(WorkflowDefinition definition, string id)
+    {
+        var region = definition.ParallelCollaborationRegions?.GetValueOrDefault(id) ??
+            definition.ParallelCollaborationRegions?.Values.FirstOrDefault(item => item.SecondRendezvousNodeId == id);
+        var removeIds = definition.SchemaVersion == WorkflowSchemaVersions.PhasedCollaborativeParallelGraph
+            ? definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.ParallelRendezvous).Select(entry => entry.Key).Distinct(StringComparer.Ordinal).ToArray()
+            : region?.SecondRendezvousNodeId is { } secondId
+                ? new[] { region.RendezvousNodeId, secondId }
+                : [id];
+        var next = removeIds.Where(definition.Nodes.ContainsKey)
+            .Aggregate(definition, (current, nodeId) => GraphEditing.RemoveNode(current, nodeId));
+        return next with
+        {
+            SchemaVersion = WorkflowSchemaVersions.ConfigurableParallelGraph,
+            ParallelCollaborationRegions = null
+        };
     }
 
     private string? pendingBlockRemoval;

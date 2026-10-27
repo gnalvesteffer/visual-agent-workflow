@@ -16,6 +16,7 @@ public partial class WorkflowStudio
     [Parameter] public bool IdeMode { get; set; }
     [Parameter] public string? InitialWorkflowId { get; set; }
     [Parameter] public Func<Task>? DraftSaved { get; set; }
+    [Parameter] public EventCallback<string> WorkflowSelected { get; set; }
     private string workspaceView = "designer";
     private string runFilter = "";
     private void ShowDesigner() => workspaceView = "designer";
@@ -211,7 +212,7 @@ public partial class WorkflowStudio
             if (!Current(client, version)) return;
             selectionVersion++;
             snapshot = run; runLayout = null;
-            workspaceView = "run";
+            workspaceView = IdeMode ? "designer" : "run";
             await LoadRunLayout(run, selectionVersion, client, version);
             await RefreshHistory();
         });

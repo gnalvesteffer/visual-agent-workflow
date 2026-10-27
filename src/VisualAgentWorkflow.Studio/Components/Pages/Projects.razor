@@ -16,6 +16,10 @@
             <button type="submit" class="vaw-primary">Create project</button>
         </form>
         @if (message is not null) { <p role="status">@message</p> }
+        @if (createdProjectId is not null)
+        {
+            <a class="vaw-primary vaw-button-link" href="/projects/@Uri.EscapeDataString(createdProjectId)" data-vaw-route-link>Open created project</a>
+        }
         @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
         @if (ImportError is not null) { <p role="alert" class="vaw-error">Source import failed: @ImportError</p> }
     </section>
@@ -76,6 +80,7 @@
     private string name = "";
     private string? message;
     private string? error;
+    private string? createdProjectId;
 
     private void Create()
     {
@@ -83,10 +88,11 @@
         {
             var project = ProjectStore.Create(name);
             name = "";
+            createdProjectId = project.Id;
             message = $"Created {project.Name}.";
             error = null;
         }
-        catch (ArgumentException exception) { error = exception.Message; message = null; }
+        catch (ArgumentException exception) { error = exception.Message; message = null; createdProjectId = null; }
     }
 
     private void SetArchived(StudioProject project, bool archived)
@@ -94,6 +100,7 @@
         ProjectStore.SetArchived(project.Id, archived);
         message = archived ? $"Archived {project.Name}. Its data is retained." : $"Restored {project.Name}.";
         error = null;
+        createdProjectId = null;
     }
 
     private void OpenFolderProject(string projectId)

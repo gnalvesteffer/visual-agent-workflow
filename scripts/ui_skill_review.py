@@ -1,4 +1,4 @@
-"""Browser checks for the Blazor/CSS skill fixes against the running local Studio.
+"""Browser checks for UI and embedding behavior against the running local Studio.
 
 Requires Playwright and Chromium. Uses only non-sensitive fixture text; creates
 recorded development runs. Run studio_smoke.py separately for the full editor flow.
@@ -118,7 +118,7 @@ def check(browser, screenshots):
             page.get_by_label("Folder", exact=True).fill("Quality/Review")
             page.get_by_label("Instructions", exact=True).fill("Check each finding.")
             page.get_by_role("button", name="Save source skill version", exact=True).click()
-            expect(page.get_by_role("status")).to_contain_text("Saved skill revision ui-skill@1.0.0.")
+            expect(page.locator("p[role='status']").filter(has_text="Saved skill revision ui-skill@1.0.0.")).to_be_visible()
             first_manifest = json.loads((project_path / "vaw.project.json").read_text(encoding="utf-8"))
             assert [(entry["id"], entry["version"]) for entry in first_manifest["files"]] == [("ui-skill", "1.0.0")]
 
@@ -126,7 +126,7 @@ def check(browser, screenshots):
             expect(page.get_by_label("New version", exact=True)).to_have_value("1.0.0.1")
             page.get_by_label("Instructions", exact=True).fill("Check each finding and cite evidence.")
             page.get_by_role("button", name="Save source skill version", exact=True).click()
-            expect(page.get_by_role("status")).to_contain_text("Saved skill revision ui-skill@1.0.0.1.")
+            expect(page.locator("p[role='status']").filter(has_text="Saved skill revision ui-skill@1.0.0.1.")).to_be_visible()
             second_manifest = json.loads((project_path / "vaw.project.json").read_text(encoding="utf-8"))
             assert [(entry["id"], entry["version"]) for entry in second_manifest["files"]] == [
                 ("ui-skill", "1.0.0"), ("ui-skill", "1.0.0.1")

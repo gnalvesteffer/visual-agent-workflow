@@ -1,0 +1,15 @@
+{
+  "name": "visual-agent-workflow-monaco-editor",
+  "private": true,
+  "description": "Development-time bundle for the Studio's locally hosted Markdown editor.",
+  "scripts": {
+    "build": "vite build && node scripts/copy-license.mjs"
+  },
+  "dependencies": {
+    "monaco-editor": "0.57.0"
+  },
+  "devDependencies": {
+    "vite": "8.3.5"
+  },
+  "type": "module"
+}

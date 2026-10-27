@@ -28,7 +28,7 @@ public sealed class StudioFolderSkillSource(string projectDirectory) : ISkillLib
     IReadOnlyList<SkillLibraryItem> ISkillLibrary.List() => List().Select(skill => skill.Item).ToArray();
 
     public StudioFolderSkill SaveNewVersion(string id, string version, string name, string instructions, string folder,
-        string expectedManifestHash)
+        string expectedManifestHash, string? targetDirectory = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedManifestHash);
         StudioSkillLibrary.Validate(id, version, name, instructions, folder);
@@ -48,11 +48,15 @@ public sealed class StudioFolderSkillSource(string projectDirectory) : ISkillLib
                 throw new InvalidDataException("Project skill exceeds the supported source file size.");
 
             var contentHash = StudioProjectSourceArchive.ComputeContentHash(bytes);
-            var relativePath = StudioProjectSourceArchive.SkillAssetPath(id, version, contentHash);
+            var relativePath = StudioProjectSourceArchive.AssetPathInDirectory(targetDirectory ?? "skills",
+                StudioProjectSourceArchive.SafeAssetFileStem(id + "-" + version), ".skill", contentHash);
             var file = new StudioProjectFile("skill", id, version, relativePath, contentHash);
             var updatedManifest = manifest with
             {
-                Files = manifest.Files.Append(file).OrderBy(entry => entry.Path, StringComparer.Ordinal).ToImmutableArray()
+                FormatVersion = StudioProjectSourceArchive.FormatVersion,
+                Files = manifest.Files.Append(file).OrderBy(entry => entry.Path, StringComparer.Ordinal).ToImmutableArray(),
+                Directories = StudioProjectSourceArchive.DirectoriesForPaths(
+                    manifest.Files.Select(entry => entry.Path).Append(relativePath), manifest.Directories)
             };
             var updatedFiles = new SortedDictionary<string, byte[]>(StringComparer.Ordinal);
             foreach (var existing in existingFiles) updatedFiles.Add(existing.Key, existing.Value);

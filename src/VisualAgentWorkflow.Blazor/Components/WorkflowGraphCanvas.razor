@@ -4,7 +4,12 @@
     @if (!CompactReadOnly || !ReadOnly)
     {
     <div class="vaw-controls vaw-canvas-toolbar">
-        <strong>Graph canvas</strong>
+        @if (!IdeMode) { <strong>Graph canvas</strong> }
+        @if (IdeMode)
+        {
+            <button type="button" data-canvas-mode="select" aria-pressed="true" title="Drag empty canvas to select nodes">Select</button>
+            <button type="button" data-canvas-mode="pan" aria-pressed="false" title="Drag empty canvas to pan">Pan</button>
+        }
         @ToolbarContent
         <button type="button" @onclick="() => Zoom(-0.1)" disabled="@(zoom <= 0.25)" aria-label="Zoom out graph">−</button>
         <span>@Math.Round(zoom * 100)%</span>
@@ -20,7 +25,28 @@
     <p class="vaw-error" role="status" data-fullscreen-error hidden>Fullscreen is unavailable in this host. Embedded apps must allow fullscreen for this frame.</p>
     <div class="vaw-canvas-workspace @(NodeInspector is not null ? "vaw-with-properties" : "") @(NodeLibrary is not null && ShowNodeLibrary ? "vaw-with-library" : "")">
     @if (NodeLibrary is not null && ShowNodeLibrary)
-    { <aside class="vaw-library-panel" aria-label="Workflow node library">@NodeLibrary</aside> }
+    {
+        <aside class="vaw-library-panel vaw-workflow-rail" aria-label="Workflow map and node library">
+            <nav class="vaw-workflow-map" aria-label="Workflow map">
+                <h3>Workflow map</h3>
+                <ol>
+                    @foreach (var id in Order)
+                    {
+                        <li @key="id" class="@(SelectedNodeId == id ? "is-selected" : null)">
+                            <button type="button" aria-pressed="@(SelectedNodeId == id ? "true" : "false")" title="Select @Title(id)" @onclick="() => SelectNode(id)">
+                                <span class="vaw-workflow-map-title">@Title(id)</span>
+                                <span class="vaw-workflow-map-kind">@Kind(Definition.Nodes[id])</span>
+                            </button>
+                        </li>
+                    }
+                </ol>
+            </nav>
+            <section class="vaw-workflow-node-library" aria-label="Add workflow nodes">
+                <h3>Node library</h3>
+                @NodeLibrary
+            </section>
+        </aside>
+    }
     <div class="vaw-canvas-viewport" tabindex="0" aria-label="Workflow graph canvas. Drag empty space to select nodes; middle-drag to pan.">
         <div class="vaw-canvas-extent" style="@ExtentStyle">
             <div class="vaw-canvas-world" style="@WorldStyle">
@@ -52,7 +78,7 @@
                         var ports = Ports(node);
                         <li @key="id" class="vaw-node vaw-edit-node @(NodeClass?.Invoke(id))" data-node-id="@id" data-node-type="@node.Type" data-x="@Number(presentation.Position.X)" data-y="@Number(presentation.Position.Y)" style="@PositionStyle(presentation.Position)">
                             <article>
-                                <button type="button" class="vaw-node-drag" data-drag-node="@id" title="Drag to move, or use arrow keys. Hold Shift for larger steps." aria-label="@(ReadOnly ? $"Inspect node {id}" : $"Move node {id}")" @onclick="() => SelectNode(id)" aria-pressed="@(selectedNode == id ? "true" : "false")" @onkeydown="args => NodeKey(id, args)">
+                                <button type="button" class="vaw-node-drag" data-drag-node="@id" title="Drag to move, or use arrow keys. Hold Shift for larger steps." aria-label="@(ReadOnly ? $"Inspect node {id}" : $"Move node {id}")" @onclick="() => SelectNode(id)" aria-pressed="@(CurrentSelection == id ? "true" : "false")" @onkeydown="args => NodeKey(id, args)">
                                     <strong>@Title(id)</strong>@if (Title(id) != Kind(node)) { <span class="vaw-node-kind">@Kind(node)</span> }
                                 </button>
                                 <div class="vaw-socket-row">
@@ -87,16 +113,41 @@
             </div>
         </div>
     </div>
+    @if (IdeMode)
+    {
+        <svg class="vaw-canvas-minimap" data-canvas-minimap viewBox="@($"0 0 {Number(Width)} {Number(Height)}")" role="img" aria-label="Graph overview. Click to navigate.">
+            @foreach (var id in Order)
+            { <rect @key="id" x="@Number(Layout.Nodes[id].Position.X)" y="@Number(Layout.Nodes[id].Position.Y)" width="220" height="120" rx="8" class="@(id == selectedNode ? "is-selected" : null)" /> }
+        </svg>
+    }
     @if (NodeInspector is not null && selectedNode is { } selection)
     {
         <aside class="vaw-properties" aria-label="Selected node properties">
-            <h3>@InspectorTitle</h3>
-            <label>Node to organize
+            <header class="vaw-inspector-heading"><span class="vaw-inspector-node-icon" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M5 5h10v10H5zM10 2v3m0 10v3M2 10h3m10 0h3" /></svg></span><div><h3>@(IdeMode ? Title(selection) : InspectorTitle)</h3>@if (IdeMode) { <span>@Kind(Definition.Nodes[selection]) node</span> }</div></header>
+            <label class="vaw-node-selector">@(IdeMode ? "Selected node" : "Node to organize")
                 <select aria-label="Node to organize" value="@selectedNode" @onchange="args => SelectNode(args.Value?.ToString() ?? Definition.EntryNodeId)">
                     @foreach (var id in Order) { <option @key="id" value="@id">@Title(id) (@id)</option> }
                 </select>
             </label>
-            <p class="vaw-help">Node ID: @selection</p>
+            @if (IdeMode)
+            {
+                <nav class="vaw-inspector-tabs" aria-label="Node properties views">
+                    <button type="button" aria-pressed="@(inspectorTab == "configure" ? "true" : "false")" @onclick='() => inspectorTab = "configure"'>Configure</button>
+                    <button type="button" aria-pressed="@(inspectorTab == "inputs" ? "true" : "false")" @onclick='() => inspectorTab = "inputs"'>Inputs</button>
+                    <button type="button" aria-pressed="@(inspectorTab == "outputs" ? "true" : "false")" @onclick='() => inspectorTab = "outputs"'>Outputs</button>
+                </nav>
+                @if (inspectorTab != "configure")
+                {
+                    var direction = inspectorTab == "inputs" ? WorkflowPortDirection.Input : WorkflowPortDirection.Output;
+                    <dl class="vaw-inspector-ports">
+                        @foreach (var port in Ports(Definition.Nodes[selection]).Where(item => item.Direction == direction))
+                        { <dt>@(port.DisplayName ?? port.Id)</dt><dd>@(port.DataType ?? "execution") · @port.Kind.ToString().ToLowerInvariant()</dd> }
+                    </dl>
+                    @if (!Ports(Definition.Nodes[selection]).Any(item => item.Direction == direction)) { <p class="vaw-help">This node has no @(inspectorTab == "inputs" ? "input" : "output") pins.</p> }
+                }
+            }
+            <div hidden="@(IdeMode && inspectorTab != "configure")">
+            <p class="vaw-help vaw-node-identity">Node ID: @selection</p>
             @NodeInspector(selection)
             @if (!ReadOnly)
             {
@@ -117,6 +168,7 @@
             }
             else if (!string.IsNullOrWhiteSpace(Layout.Nodes[selection].Comment))
             { <p>@Layout.Nodes[selection].Comment</p> }
+            </div>
         </aside>
     }
     </div>

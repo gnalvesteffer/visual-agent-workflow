@@ -1,6 +1,6 @@
 # Applied skill review
 
-The [Blazor](../.agents/skills/blazor/SOURCE.md) and [CSS](../.agents/skills/css/SOURCE.md) guidance led to concrete fixes rather than additional state frameworks or authentication packages.
+The [Blazor](../.agents/skills/blazor/SOURCE.md) and [Impeccable](../.agents/skills/impeccable/SOURCE.md) guidance led to concrete fixes rather than additional state frameworks or authentication packages.
 
 - Components reload changing host parameters safely, ignore stale asynchronous responses, dispose observation promptly, and preserve backend-owned execution. Polling starts after interactivity and skips unchanged snapshots. Six HtmlRenderer lifecycle/error-boundary tests cover these behaviors.
 - Designer logic lives in code-behind; validation and export values are cached by definition identity. Repeated lists have stable keys. Buttons declare their type so embedding inside a form does not submit it.
@@ -23,4 +23,4 @@ The architecture still includes synchronous SQLite catalog operations and a sing
 
 ## Visual design and themes
 
-The pinned, Apache-2.0 Frontend Design and Design Systems skills now guide visual changes. The [editor design system](design-system.md) records the product-specific plan, palette, typography, component states, responsive graph layout, and embedding constraints. The Studio applies this theme through scoped library tokens: compact application header, consolidated edit controls, horizontal typed nodes on wide containers, a vertical narrow layout, and paired publication/run panels. The browser review also verifies the horizontal/vertical switch and keyboard access to the scrollable graph. No frontend framework or external font dependency was added.
+The pinned, Apache-2.0 [Impeccable skill](../.agents/skills/impeccable/SKILL.md) now guides general visual changes. The project-specific [graph experience review](../.agents/skills/graph-experience-review/SKILL.md) and [editor design system](design-system.md) retain workflow-canvas validation, the product palette, typography, component states, responsive graph layout, and embedding constraints. The Studio applies this theme through scoped library tokens: compact application header, consolidated edit controls, horizontal typed nodes on wide containers, a vertical narrow layout, and paired publication/run panels. The browser review also verifies the horizontal/vertical switch and keyboard access to the scrollable graph. No frontend framework or external font dependency was added.

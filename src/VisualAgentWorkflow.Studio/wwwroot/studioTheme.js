@@ -28,10 +28,30 @@
         }
     };
     window.vawStudioIde = {
+        subscribeWorkflowSelection: dotNetReference => {
+            if (window.vawStudioIde.workflowSelectionReference) return;
+            window.vawStudioIde.workflowSelectionReference = dotNetReference;
+            document.addEventListener('change', event => {
+                const select = event.target;
+                if (select instanceof HTMLSelectElement && select.matches('[data-vaw-workflow-selector]')) {
+                    window.vawStudioIde.applySelectedWorkflow(select.value);
+                    dotNetReference.invokeMethodAsync('WorkflowSelectionChanged', select.value).catch(() => {});
+                }
+            });
+        },
+        getSelectedWorkflow: () => document.querySelector('[data-vaw-workflow-selector]')?.value ?? null,
+        applySelectedWorkflow: id => {
+            document.querySelectorAll('.vaw-explorer-file[data-workflow-id]').forEach(file => {
+                const selected = file.dataset.workflowId === id;
+                file.classList.toggle('is-selected', selected);
+                if (selected) file.setAttribute('aria-current', 'page');
+                else file.removeAttribute('aria-current');
+            });
+        },
         selectWorkflow: id => {
             const select = document.querySelector('[data-vaw-workflow-selector]');
             if (!select) return 0;
-            if (select.disabled) return -1;
+            if (select.matches(':disabled')) return -1;
             if (![...select.options].some(option => option.value === id)) return 0;
             select.value = id;
             select.dispatchEvent(new Event('change', { bubbles: true }));

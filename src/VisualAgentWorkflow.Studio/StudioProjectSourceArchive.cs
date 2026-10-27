@@ -9,14 +9,16 @@ namespace VisualAgentWorkflow.Studio;
 
 public sealed record StudioProjectFile(string Kind, string Id, string Version, string Path, string Sha256);
 public sealed record StudioProjectManifest(string FormatVersion, string ProjectId, string ProjectName,
-    ImmutableArray<StudioProjectFile> Files);
+    ImmutableArray<StudioProjectFile> Files, ImmutableArray<string> Directories = default);
 public sealed record StudioWorkflowSource(string FormatVersion, WorkflowDefinition Definition, WorkflowLayout Layout);
 
 /// <summary>Deterministic, credential-free source snapshot export. Not a consumer runtime installer.</summary>
 public static class StudioProjectSourceArchive
 {
     public const string ManifestFileName = "vaw.project.json";
-    public const string FormatVersion = "1.0";
+    public const string FormatVersion = "1.2";
+    public const string FolderFormatVersion = "1.1";
+    public const string LegacyFormatVersion = "1.0";
     public const string WorkflowSourceFormatVersion = "1.0";
     public const int MaximumFiles = 2_000;
     public const int MaximumFileBytes = 3 * 1024 * 1024;
@@ -65,7 +67,8 @@ public static class StudioProjectSourceArchive
         }
 
         var manifest = new StudioProjectManifest(FormatVersion, workspace.CurrentProjectId, workspace.CurrentProjectName,
-            assetEntries.OrderBy(file => file.Path, StringComparer.Ordinal).ToImmutableArray());
+            assetEntries.OrderBy(file => file.Path, StringComparer.Ordinal).ToImmutableArray(),
+            DirectoriesForPaths(assetEntries.Select(file => file.Path)));
         if (assetEntries.Count > MaximumFiles) throw new InvalidDataException("Project contains too many assets.");
         return CreateArchive(manifest, sourceFiles);
     }
@@ -73,11 +76,15 @@ public static class StudioProjectSourceArchive
     public static byte[] CreateArchive(StudioProjectManifest manifest, IReadOnlyDictionary<string, byte[]> files)
     {
         ArgumentNullException.ThrowIfNull(files);
-        ValidateManifest(manifest);
-        ValidateFiles(manifest, files);
+        ArgumentNullException.ThrowIfNull(manifest);
+        // Format 1.0/1.1 manifests predate explicit directory entries.
+        // Normalize their optional field before validation and JSON serialization.
+        var normalizedManifest = manifest.Directories.IsDefault ? manifest with { Directories = [] } : manifest;
+        ValidateManifest(normalizedManifest);
+        ValidateFiles(normalizedManifest, files);
         if (files.Count > MaximumFiles || files.Values.Any(content => content.Length > MaximumFileBytes))
             throw new InvalidDataException("Project source exceeds the supported file limits.");
-        var manifestBytes = JsonSerializer.SerializeToUtf8Bytes(manifest, JsonOptions);
+        var manifestBytes = JsonSerializer.SerializeToUtf8Bytes(normalizedManifest, JsonOptions);
         if (manifestBytes.Length > MaximumFileBytes || files.Values.Sum(content => (long)content.Length) + manifestBytes.Length > MaximumArchiveBytes)
             throw new InvalidDataException("Project source exceeds the supported size.");
         var sortedFiles = new SortedDictionary<string, byte[]>(StringComparer.Ordinal);
@@ -183,8 +190,10 @@ public static class StudioProjectSourceArchive
 
     public static string SerializeManifest(StudioProjectManifest manifest)
     {
-        ValidateManifest(manifest);
-        return JsonSerializer.Serialize(manifest, JsonOptions);
+        ArgumentNullException.ThrowIfNull(manifest);
+        var normalizedManifest = manifest.Directories.IsDefault ? manifest with { Directories = [] } : manifest;
+        ValidateManifest(normalizedManifest);
+        return JsonSerializer.Serialize(normalizedManifest, JsonOptions);
     }
 
     public static string WorkflowDraftPath(string workflowId, string contentHash)
@@ -304,31 +313,77 @@ public static class StudioProjectSourceArchive
 
     private static void ValidateManifest(StudioProjectManifest manifest)
     {
-        if (manifest.FormatVersion != FormatVersion || !ValidProjectId(manifest.ProjectId) ||
+        if (manifest.FormatVersion is not (FormatVersion or FolderFormatVersion or LegacyFormatVersion) || !ValidProjectId(manifest.ProjectId) ||
             string.IsNullOrWhiteSpace(manifest.ProjectName) || manifest.ProjectName.Length > 80 ||
             manifest.ProjectName.Any(char.IsControl) || manifest.Files.IsDefault || manifest.Files.Length > MaximumFiles)
             throw new InvalidDataException("Project manifest is invalid or uses an unsupported format version.");
 
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!manifest.Directories.IsDefault)
+        {
+            if (manifest.Directories.Length > MaximumFiles)
+                throw new InvalidDataException("Project manifest contains too many directories.");
+            foreach (var directory in manifest.Directories)
+            {
+                ValidatePath(directory);
+                if (!directories.Add(directory))
+                    throw new InvalidDataException("Project manifest contains duplicate or case-colliding directories.");
+            }
+            foreach (var directory in directories)
+            {
+                var segments = directory.Split('/');
+                if (segments.Length > 1 && !directories.Contains(string.Join('/', segments[..^1])))
+                    throw new InvalidDataException("Project manifest must list every parent directory.");
+            }
+        }
         var assetIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var file in manifest.Files)
         {
             if (file is null || !ValidAssetId(file.Id) || string.IsNullOrWhiteSpace(file.Version) || file.Version.Length > 64 ||
                 file.Version.Any(char.IsControl) || file.Sha256 is null || file.Sha256.Length != 64 || !file.Sha256.All(Uri.IsHexDigit) ||
-                file.Kind is not ("workflow" or "skill" or "agent-profile" or "graph-function"))
+                file.Kind is not ("workflow" or "skill" or "agent-profile" or "graph-function" or "documentation"))
                 throw new InvalidDataException("Project manifest contains an invalid asset reference.");
             ValidatePath(file.Path);
-            var prefix = file.Kind switch
+            var expectedExtension = file.Kind switch
+            {
+                "workflow" => ".workflow",
+                "skill" => ".skill",
+                "agent-profile" => ".agent",
+                "graph-function" => ".function",
+                _ => ".md"
+            };
+            var legacyPrefix = file.Kind switch
             {
                 "workflow" => "workflows/",
                 "skill" => "skills/",
                 "agent-profile" => "agents/",
-                _ => "functions/"
+                "graph-function" => "functions/",
+                _ => "docs/"
             };
-            if (!file.Path.StartsWith(prefix, StringComparison.Ordinal) || !paths.Add(file.Path) ||
+            var actualExtension = Path.GetExtension(file.Path);
+            if (file.Kind == "documentation" && manifest.FormatVersion != FormatVersion)
+                throw new InvalidDataException("Markdown documentation requires project manifest format 1.2 or newer.");
+            if ((!string.Equals(manifest.FormatVersion, LegacyFormatVersion, StringComparison.Ordinal) &&
+                 !string.Equals(actualExtension, expectedExtension, StringComparison.OrdinalIgnoreCase) &&
+                 (file.Kind == "documentation" || !string.Equals(actualExtension, ".json", StringComparison.OrdinalIgnoreCase))) ||
+                (string.Equals(manifest.FormatVersion, LegacyFormatVersion, StringComparison.Ordinal) &&
+                 !file.Path.StartsWith(legacyPrefix, StringComparison.Ordinal)) || !paths.Add(file.Path) ||
                 !assetIds.Add($"{file.Kind}\0{file.Id}\0{file.Version}"))
-                throw new InvalidDataException("Project manifest contains duplicate or misplaced assets.");
+                throw new InvalidDataException("Project manifest contains duplicate or incompatible asset paths.");
         }
+        foreach (var path in paths)
+        {
+            var segments = path.Split('/');
+            var parentCount = segments.Length - 1;
+            for (var index = 1; index <= parentCount; index++)
+                if (!directories.Contains(string.Join('/', segments[..index])) && manifest.FormatVersion != LegacyFormatVersion)
+                    throw new InvalidDataException("Project manifest must list every parent directory for each asset.");
+            if (directories.Contains(path))
+                throw new InvalidDataException("Project manifest path cannot be both a file and a directory.");
+        }
+        foreach (var directory in directories)
+            if (paths.Contains(directory)) throw new InvalidDataException("Project manifest path cannot be both a file and a directory.");
     }
 
     private static void ValidateFiles(StudioProjectManifest manifest, IReadOnlyDictionary<string, byte[]> files)
@@ -344,7 +399,13 @@ public static class StudioProjectSourceArchive
                 if (!string.Equals(source.Definition.WorkflowId, file.Id, StringComparison.Ordinal))
                     throw new InvalidDataException($"Project asset '{file.Path}' does not match its workflow ID.");
             }
-            else ValidateLibraryAsset(file, content);
+            else if (file.Kind != "documentation") ValidateLibraryAsset(file, content);
+            else
+            {
+                try { _ = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true).GetString(content); }
+                catch (System.Text.DecoderFallbackException exception)
+                { throw new InvalidDataException($"Project documentation '{file.Path}' must be UTF-8 text.", exception); }
+            }
         }
     }
 
@@ -438,6 +499,50 @@ public static class StudioProjectSourceArchive
             $"{safeId}/{safeVersion}-{Hash(System.Text.Encoding.UTF8.GetBytes(version))[..8]}{extension}";
         return $"{directory}/{file}";
     }
+
+    public static string AssetPathInDirectory(string directory, string fileName, string extension, string contentHash)
+    {
+        ArgumentNullException.ThrowIfNull(directory);
+        if (string.IsNullOrWhiteSpace(fileName) || fileName.Any(character => !char.IsAsciiLetterOrDigit(character) && character is not '-' and not '_' and not '.'))
+            throw new ArgumentException("Project asset file names may contain letters, numbers, dots, hyphens, and underscores.", nameof(fileName));
+        if (extension is not (".workflow" or ".skill" or ".agent" or ".function" or ".md"))
+            throw new ArgumentException("A supported project asset extension is required.", nameof(extension));
+        if (contentHash.Length != 64 || !contentHash.All(Uri.IsHexDigit))
+            throw new ArgumentException("A SHA-256 content hash is required.", nameof(contentHash));
+        if (!string.IsNullOrEmpty(directory)) ValidatePath(directory);
+        var path = $"{fileName}-{contentHash[..12].ToLowerInvariant()}{extension}";
+        return string.IsNullOrEmpty(directory) ? path : $"{directory}/{path}";
+    }
+
+    public static ImmutableArray<string> DirectoriesForPaths(IEnumerable<string> paths, IEnumerable<string>? existing = null)
+    {
+        var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (existing is ImmutableArray<string> immutableExisting)
+        {
+            if (!immutableExisting.IsDefault)
+                foreach (var path in immutableExisting.Where(path => !string.IsNullOrWhiteSpace(path))) directories.Add(path);
+        }
+        else if (existing is not null)
+            foreach (var path in existing.Where(path => !string.IsNullOrWhiteSpace(path))) directories.Add(path);
+        foreach (var path in paths)
+        {
+            var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            for (var length = 1; length < parts.Length; length++)
+                directories.Add(string.Join('/', parts[..length]));
+        }
+        return directories.OrderBy(path => path.Count(character => character == '/'))
+            .ThenBy(path => path, StringComparer.OrdinalIgnoreCase).ThenBy(path => path, StringComparer.Ordinal)
+            .ToImmutableArray();
+    }
+
+    public static string SafeAssetFileStem(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        var safe = new string(value.Select(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '.' ? character : '_').ToArray());
+        return safe.Length is > 0 and <= 64 && safe is not "." and not ".." ? safe : "asset";
+    }
+
+    public static void ValidateProjectPath(string path) => ValidatePath(path);
 
     private static string Segment(string value)
     {
