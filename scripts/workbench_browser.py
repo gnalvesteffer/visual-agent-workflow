@@ -30,12 +30,14 @@ def inspect_control(designer, label):
 
 
 def show_runs(page):
+    from playwright.sync_api import expect
     legacy = page.get_by_role("button", name="Run inspector", exact=True)
     if legacy.is_visible():
         legacy.click()
     else:
         page.get_by_role("button", name="Configure test input", exact=True).click()
         page.get_by_role("button", name="Open run inspector", exact=True).click()
+    expect(page.get_by_role("region", name="Workflow run viewer", exact=True)).to_be_visible()
 
 
 def new_workflow_fixture(designer):

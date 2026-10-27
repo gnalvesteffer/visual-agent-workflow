@@ -9,3 +9,5 @@ For Blazor, await observable UI state and Playwright assertions. Network idle al
 Use disposable local data and deterministic providers/MCP fixtures. Do not contact live services or install additional tools solely because an upstream example does so. The optional server helper is not necessary when the existing server is running; call its `--help` before use. Keep upstream files unchanged and repository adaptations here.
 
 When switching IDE detail tabs, await the destination tab’s `aria-selected="true"` and scope actions to its visible named `tabpanel`. Runs and Output both contain an Inspect execution button; an unscoped locator can bind the previously visible button before the Blazor render and then wait indefinitely after that panel hides.
+
+When opening execution inspection, scope canvas actions to the named Workflow run viewer region after it becomes visible. The authoring canvas remains mounted while hidden and has identically named Fit graph controls. For source selection after a reload, navigate to `/projects/{projectId}?workflow={workflowId}` rather than selecting the IDE’s intentionally hidden synchronization select.

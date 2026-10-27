@@ -196,6 +196,21 @@ def agent_check():
     print("Framework agent/tool loop, recorded model rounds, denied tool preflight, and no-tool isolation passed (deterministic fixture).")
 
 
+def run_saved_workflow(designer, input_text, expected):
+    from playwright.sync_api import expect
+    designer.get_by_role("button", name="Configure test input", exact=True).click()
+    designer.get_by_label("Workflow input", exact=True).fill(input_text)
+    run = designer.get_by_role("button", name="Run workflow", exact=True)
+    expect(run).to_be_enabled()
+    run.click()
+    history = designer.get_by_label("Workflow run history", exact=True)
+    expect(history.locator('tr[aria-selected="true"]')).to_contain_text("completed", timeout=20000)
+    designer.get_by_role("button", name="Output", exact=True).click()
+    output = designer.get_by_role("region", name="Workflow output", exact=True)
+    expect(output).to_be_visible()
+    expect(output.locator(".vaw-workflow-result")).to_have_text(expected)
+
+
 def browser_check(executable):
     from playwright.sync_api import expect, sync_playwright
 
@@ -208,21 +223,23 @@ def browser_check(executable):
             page = browser.new_page(viewport={"width": 1280, "height": 1000})
             errors = []
             page.on("pageerror", lambda error: errors.append(str(error)))
-            page.goto(BASE)
-            show_runs(page)
-            start = page.get_by_role("button", name="Start independent run", exact=True)
-            expect(start).to_be_enabled()
-            page.get_by_role("textbox", name="Input", exact=True).fill("browser proof")
-            start.click()
-            page.get_by_role("button", name="Fit graph", exact=True).click()
-            page.get_by_role("button", name="Inspect node output", exact=True).click()
+            page.goto(BASE, wait_until="networkidle")
+            designer = page.get_by_role("region", name="Workflow designer", exact=True)
+            new_workflow_fixture(designer)
+            designer.locator("[data-graph-save]").click()
+            expect(designer.get_by_role("button", name="Run workflow", exact=True)).to_be_enabled()
+            run_saved_workflow(designer, "browser proof", "BROWSER PROOF")
+            designer.get_by_role("button", name="Configure test input", exact=True).click()
+            designer.get_by_role("button", name="Open run inspector", exact=True).click()
+            viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
+            viewer.get_by_role("button", name="Fit graph", exact=True).click()
+            viewer.get_by_role("button", name="Inspect node output", exact=True).click()
             inspector = page.get_by_role("region", name="Selected node payloads")
-            expect(inspector.locator("pre").last).to_have_text("FOORP RESWORB")
+            expect(inspector.locator("pre").last).to_have_text("BROWSER PROOF")
             page.get_by_role("button", name="Previous event", exact=True).click()
             page.get_by_text("Recorded playback", exact=True).wait_for()
             page.reload()
-            show_runs(page)
-            expect(page.get_by_role("button", name="Start independent run", exact=True)).to_be_enabled()
+            expect(page.get_by_role("button", name="Run workflow", exact=True)).to_be_enabled()
             page.set_viewport_size({"width": 390, "height": 844})
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), "Mobile horizontal overflow"
             assert not errors, errors
@@ -240,8 +257,7 @@ def project_workspace_check(browser):
 
     page = browser.new_page(viewport={"width": 1280, "height": 1000})
     page_name = "Smoke project " + uuid.uuid4().hex[:8]
-    page.goto(BASE + "/projects")
-    page.wait_for_timeout(1500)  # Allow the interactive-server circuit to attach before form events.
+    page.goto(BASE + "/projects", wait_until="networkidle")
     page.get_by_label("Project name", exact=True).fill(page_name)
     page.get_by_role("button", name="Create project", exact=True).click()
     expect(page.get_by_text(f"Created {page_name}.", exact=True)).to_be_visible()
@@ -250,11 +266,9 @@ def project_workspace_check(browser):
     project_url = project_card.get_by_role("link", name="Open project", exact=True).get_attribute("href")
     project_card.get_by_role("link", name="Open project", exact=True).click()
     page.wait_for_url("**" + project_url)
-    page.wait_for_timeout(1500)
-    expect(page.get_by_role("navigation", name="Studio navigation", exact=True)).to_contain_text(page_name)
+    expect(page.get_by_label("Current project", exact=True).locator("option:checked")).to_have_text(page_name)
 
-    page.goto(BASE + project_url + "/skills")
-    page.wait_for_timeout(1500)
+    page.goto(BASE + project_url + "/skills", wait_until="networkidle")
     page.get_by_label("Skill ID", exact=True).fill("smoke-project-skill")
     page.get_by_label("Version", exact=True).fill("1.0.0")
     page.get_by_label("Name", exact=True).fill("Project-only skill")
@@ -262,8 +276,7 @@ def project_workspace_check(browser):
     page.get_by_role("button", name="Save skill version", exact=True).click()
     expect(page.get_by_text("Skill revision saved.", exact=True)).to_be_visible()
 
-    page.goto(BASE + "/projects/default/skills")
-    page.wait_for_timeout(1500)
+    page.goto(BASE + "/projects/default/skills", wait_until="networkidle")
     expect(page.locator("main")).not_to_contain_text("Project-only skill")
     page.close()
     print("Browser project creation, selection, and project-scoped skill isolation passed.")
@@ -275,12 +288,12 @@ def designer_check(browser):
     page = browser.new_page(viewport={"width": 1280, "height": 1000})
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
-    page.goto(BASE)
+    page.goto(BASE, wait_until="networkidle")
     designer = page.get_by_role("region", name="Workflow designer", exact=True)
-    expect(workbench(designer).get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
+    expect(workbench(designer).get_by_role("button", name="Save", exact=True)).to_be_enabled()
     new_workflow_fixture(designer)
-    workbench(designer).get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for()
-    workflow_id = workbench(designer).get_by_label("Saved workflow", exact=True).input_value()
+    workbench(designer).get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for(state="attached")
+    workflow_id = workbench(designer).locator("[data-vaw-workflow-selector]").input_value()
     nodes = workbench(designer).locator('ol[aria-label="Editable workflow nodes"] > li')
     expect(nodes).to_have_count(3)
     inspect_control(designer, "New node operation").get_by_label("New node operation", exact=True).select_option("core.text.reverse")
@@ -297,53 +310,34 @@ def designer_check(browser):
     expect(nodes).to_have_count(4)
     workbench(designer).get_by_role("button", name="Redo edit", exact=True).click()
     expect(nodes).to_have_count(3)
-    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
-    workbench(designer).get_by_role("button", name="Publish & activate", exact=True).click()
-    workbench(designer).get_by_text("Published and activated version 1.", exact=True).wait_for()
-    inspect_control(designer, "Add node after step-1").get_by_role("button", name="Add node after step-1", exact=True).click()
-    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
-    workbench(designer).get_by_role("button", name="Publish & activate", exact=True).click()
-    workbench(designer).get_by_text("Published and activated version 2.", exact=True).wait_for()
-    workbench(designer).get_by_label("Published run input", exact=True).fill("abc")
-    workbench(designer).get_by_role("button", name="Run selected version", exact=True).click()
-    show_runs(page)
-    page.get_by_role("button", name="Fit graph", exact=True).click()
-    page.get_by_role("button", name="Inspect node output", exact=True).click()
-    expect(page.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("CBA")
-    version_select = workbench(designer).get_by_label("Published version", exact=True)
-    version_one = version_select.locator("option").evaluate_all("options => options.find(o => o.textContent.startsWith('Version 1 ')).value")
-    version_select.select_option(version_one)
-    workbench(designer).get_by_role("button", name="View selected version", exact=True).click()
-    workbench(designer).get_by_text("Viewing published version 1 (read-only).", exact=True).wait_for()
-    expect(nodes).to_have_count(3)
-    # Read-only published revisions omit insertion controls and their disclosure entirely.
-    expect(designer.get_by_role("button", name="Add node after input", exact=True)).to_have_count(0)
-    workbench(designer).get_by_role("button", name="Return to draft", exact=True).click()
-    expect(nodes).to_have_count(4)
-    workbench(designer).get_by_role("button", name="Restore selected to draft", exact=True).click()
-    expect(nodes).to_have_count(3)
-    workbench(designer).get_by_role("button", name="Publish & activate", exact=True).click()
-    workbench(designer).get_by_text("Published and activated version 3.", exact=True).wait_for()
+    workbench(designer).get_by_role("button", name="Save", exact=True).click()
+    run_saved_workflow(designer, "abc", "ABC")
 
-    other = browser.new_page()
+    other = browser.new_page(viewport={"width": 1280, "height": 1000})
     other.on("pageerror", lambda error: errors.append(str(error)))
-    other.goto(BASE)
+    other.goto(BASE, wait_until="networkidle")
     second = other.get_by_role("region", name="Workflow designer", exact=True)
-    expect(workbench(second).get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
-    workbench(second).get_by_label("Saved workflow", exact=True).select_option(workflow_id)
-    expect(workbench(second).get_by_label("Published version", exact=True).locator("option")).to_have_count(3)
+    expect(workbench(second).get_by_role("button", name="Save", exact=True)).to_be_enabled()
+    expect(workbench(second).locator("[data-vaw-workflow-selector]")).to_be_enabled()
+    other.goto(BASE + "/projects/default?workflow=" + workflow_id, wait_until="networkidle")
     inspect_control(designer, "Operation for step-1").get_by_label("Operation for step-1", exact=True).select_option("core.text.reverse")
-    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
-    workbench(designer).get_by_text("Draft saved.", exact=True).wait_for()
+    workbench(designer).get_by_role("button", name="Save", exact=True).click()
+    workbench(designer).get_by_text("Draft saved.", exact=True).wait_for(state="attached")
     inspect_control(second, "Add node after input").get_by_role("button", name="Add node after input", exact=True).click()
-    workbench(second).get_by_role("button", name="Save draft", exact=True).click()
+    workbench(second).get_by_role("button", name="Save", exact=True).click()
     expect(workbench(second).get_by_role("alert")).to_contain_text("Your local edits are preserved")
     expect(workbench(second).locator('ol[aria-label="Editable workflow nodes"] > li')).to_have_count(4)
+    second.get_by_role("button", name="Workflow settings", exact=True).click()
     workbench(second).get_by_role("button", name="Discard local changes and reload", exact=True).click()
     expect(workbench(second).locator('ol[aria-label="Editable workflow nodes"] > li')).to_have_count(3)
+    second.get_by_role("button", name="Workflow settings", exact=True).click()
     expect(inspect_control(second, "Operation for step-1").get_by_label("Operation for step-1", exact=True)).to_have_value("core.text.reverse")
     other.close()
 
+    designer.get_by_role("button", name="Workflow settings", exact=True).click()
+    secondary = designer.locator("details.vaw-secondary-workflow-tools")
+    if not secondary.evaluate("element => element.open"):
+        secondary.locator(":scope > summary").click()
     workbench(designer).get_by_text("Import / export definition", exact=True).click()
     workbench(designer).get_by_role("button", name="Copy definition into JSON editor", exact=True).click()
     expect(workbench(designer).get_by_label("Workflow JSON", exact=True)).not_to_have_value("")
@@ -353,42 +347,40 @@ def designer_check(browser):
     exported["nodes"]["step-1"]["type"] = "core.text.uppercase"
     workbench(designer).get_by_label("Workflow JSON", exact=True).fill(json.dumps(exported))
     workbench(designer).get_by_role("button", name="Import JSON into draft", exact=True).click()
+    designer.get_by_role("button", name="Workflow settings", exact=True).click()
     expect(inspect_control(designer, "Operation for step-1").get_by_label("Operation for step-1", exact=True)).to_have_value("core.text.uppercase")
-    assert workbench(designer).get_by_label("Saved workflow", exact=True).input_value() == workflow_id
+    assert workbench(designer).locator("[data-vaw-workflow-selector]").input_value() == workflow_id
     workbench(designer).get_by_role("button", name="Undo edit", exact=True).click()
     expect(inspect_control(designer, "Operation for step-1").get_by_label("Operation for step-1", exact=True)).to_have_value("core.text.reverse")
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), "Designer mobile overflow"
     assert not errors, errors
     page.close()
-    print("Browser graph edits/undo, publication, pinned run, version preview/restore, cross-tab conflicts, and JSON import passed.")
+    print("Browser graph edits/undo, saved-source run, cross-tab conflicts, and JSON import passed.")
 
 
 def mcp_designer_check(browser):
     from playwright.sync_api import expect
 
     page = browser.new_page(viewport={"width": 1280, "height": 1000})
-    page.goto(BASE)
+    page.goto(BASE, wait_until="networkidle")
     designer = page.get_by_role("region", name="Workflow designer", exact=True)
-    expect(workbench(designer).get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
+    expect(workbench(designer).get_by_role("button", name="Save", exact=True)).to_be_enabled()
     new_workflow_fixture(designer)
-    workbench(designer).get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for()
-    workflow_id = workbench(designer).get_by_label("Saved workflow", exact=True).input_value()
+    workbench(designer).get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for(state="attached")
+    workflow_id = workbench(designer).locator("[data-vaw-workflow-selector]").input_value()
     inspect_control(designer, "Operation for step-1").get_by_label("Operation for step-1", exact=True).select_option(label="MCP · reverse")
     workbench(designer).get_by_text("MCP binding: demo.reverse", exact=False).wait_for()
-    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
-    workbench(designer).get_by_role("button", name="Publish & activate", exact=True).click()
-    workbench(designer).get_by_text("Published and activated version 1.", exact=True).wait_for()
-    workbench(designer).get_by_label("Published run input", exact=True).fill("abc")
+    workbench(designer).get_by_role("button", name="Save", exact=True).click()
     previous_run_ids = {run["header"]["runId"] for run in get("/api/runs")}
-    workbench(designer).get_by_role("button", name="Run selected version", exact=True).click()
+    run_saved_workflow(designer, "abc", "cba")
     deadline = time.monotonic() + 15
     while True:
         new_runs = [run for run in get("/api/runs") if run["header"]["runId"] not in previous_run_ids]
         if new_runs:
             run_id = new_runs[0]["header"]["runId"]
             break
-        assert time.monotonic() < deadline, "Studio did not start the published workflow run"
+        assert time.monotonic() < deadline, "Studio did not start the saved workflow run"
         time.sleep(0.05)
     while True:
         recorded = get("/api/runs/" + run_id)
@@ -397,32 +389,34 @@ def mcp_designer_check(browser):
         assert time.monotonic() < deadline, "Workflow run did not finish"
         time.sleep(0.05)
     assert recorded["status"] == "completed" and recorded["events"][-1]["data"] == "cba"
+    show_runs(page)
     viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
     viewer.get_by_text("Recorded events at this position", exact=False).click()
     viewer.get_by_role("cell", name="tool.completed", exact=True).wait_for()
     assert get("/api/workflows/" + workflow_id)["definition"]["schemaVersion"] == "1.1"
     page.reload()
-    expect(workbench(designer).get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
-    workbench(designer).get_by_label("Saved workflow", exact=True).select_option(workflow_id)
+    expect(workbench(designer).get_by_role("button", name="Save", exact=True)).to_be_enabled()
+    page.goto(BASE + "/projects/default?workflow=" + workflow_id, wait_until="networkidle")
     saved_tool = get("/api/workflows/" + workflow_id)["definition"]["nodes"]["step-1"]["tool"]
     expect(inspect_control(designer, "Operation for step-1").get_by_label("Operation for step-1", exact=True)).to_have_value(
         "mcp:demo.reverse:" + saved_tool["contractHash"] + ":" + saved_tool["descriptionHash"])
     page.close()
-    print("Browser MCP binding selection, published execution, recorded tool result, and reload passed.")
+    print("Browser MCP binding selection, saved-source execution, recorded tool result, and reload passed.")
 
 
 def agent_designer_check(browser):
     from playwright.sync_api import expect
 
     page = browser.new_page(viewport={"width": 1280, "height": 1000})
-    page.goto(BASE)
+    page.goto(BASE, wait_until="networkidle")
     designer = page.get_by_role("region", name="Workflow designer", exact=True)
-    expect(workbench(designer).get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
+    expect(workbench(designer).get_by_role("button", name="Save", exact=True)).to_be_enabled()
     new_workflow_fixture(designer)
-    workbench(designer).get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for()
-    workflow_id = workbench(designer).get_by_label("Saved workflow", exact=True).input_value()
+    workbench(designer).get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for(state="attached")
+    workflow_id = workbench(designer).locator("[data-vaw-workflow-selector]").input_value()
     inspect_control(designer, "Operation for step-1").get_by_label("Operation for step-1", exact=True).select_option(label="Deterministic demo agent")
     inspect_control(designer, "Agent instructions for step-1").get_by_label("Agent instructions for step-1", exact=True).fill("Respond concisely.")
+    designer.get_by_role("button", name="Workflow settings", exact=True).click()
     parameters = workbench(designer).locator("details.vaw-parameter-editor")
     parameters.locator("summary").click()
     parameters.get_by_label("Parameter ID", exact=True).fill("response-limit")
@@ -433,13 +427,11 @@ def agent_designer_check(browser):
     # accessible name in every Playwright/browser combination; the fieldset
     # is keyed by parameter ID and its only select is the parameter type.
     parameters.locator("fieldset").last.locator("select").select_option("integer")
+    designer.get_by_role("button", name="Workflow settings", exact=True).click()
     inspect_control(designer, "Output token limit source for step-1").get_by_label("Output token limit source for step-1", exact=True).select_option(label="Workflow input: Response token cap")
-    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
-    workbench(designer).get_by_role("button", name="Publish & activate", exact=True).click()
-    workbench(designer).get_by_text("Published and activated version 1.", exact=True).wait_for()
-    workbench(designer).get_by_label("Published run input", exact=True).fill("abc")
+    workbench(designer).get_by_role("button", name="Save", exact=True).click()
     previous_run_ids = {run["header"]["runId"] for run in get("/api/runs")}
-    workbench(designer).get_by_role("button", name="Run selected version", exact=True).click()
+    run_saved_workflow(designer, "abc", "Demo agent: abc")
     deadline = time.monotonic() + 15
     while True:
         new_runs = [run for run in get("/api/runs") if run["header"]["runId"] not in previous_run_ids]
@@ -459,12 +451,13 @@ def agent_designer_check(browser):
     model_requested = next(event for event in recorded["events"] if event["kind"] == "model.requested")
     assert json.loads(agent_started["data"])["maxOutputTokens"] == 2048
     assert json.loads(model_requested["data"])["maxOutputTokens"] == 2048
+    show_runs(page)
     viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
     viewer.get_by_text("Recorded events at this position", exact=False).click()
     expect(viewer.get_by_role("cell", name="model.responded", exact=True)).to_have_count(1)
     page.reload()
-    expect(workbench(designer).get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
-    workbench(designer).get_by_label("Saved workflow", exact=True).select_option(workflow_id)
+    expect(workbench(designer).get_by_role("button", name="Save", exact=True)).to_be_enabled()
+    page.goto(BASE + "/projects/default?workflow=" + workflow_id, wait_until="networkidle")
     expect(inspect_control(designer, "Agent instructions for step-1").get_by_label("Agent instructions for step-1", exact=True)).to_have_value("Respond concisely.")
     expect(inspect_control(designer, "Output token limit source for step-1").get_by_label("Output token limit source for step-1", exact=True)).to_have_value("parameter:response-limit")
     saved_definition = get("/api/workflows/" + workflow_id)["definition"]
@@ -473,7 +466,7 @@ def agent_designer_check(browser):
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), "Agent editor mobile overflow"
     page.close()
-    print("Browser agent instructions, workflow parameter binding, published execution limits, model evidence, and reload passed.")
+    print("Browser agent instructions, workflow parameter binding, saved-source execution limits, model evidence, and reload passed.")
 
 
 if __name__ == "__main__":
