@@ -20,10 +20,22 @@
     apply();
     window.vawStudioTheme = {
         get: read,
+        navigationComplete: clearNavigationStatus,
         set: value => {
             if (!themes.has(value)) return;
             root.dataset.vawTheme = value;
             try { localStorage.setItem(key, value); } catch { }
+        }
+    };
+    window.vawStudioIde = {
+        selectWorkflow: id => {
+            const select = document.querySelector('[data-vaw-workflow-selector]');
+            if (!select) return 0;
+            if (select.disabled) return -1;
+            if (![...select.options].some(option => option.value === id)) return 0;
+            select.value = id;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            return 1;
         }
     };
 

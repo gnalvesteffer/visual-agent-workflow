@@ -13,6 +13,9 @@ public partial class WorkflowStudio
     [Parameter] public IAgentProfileLibrary? AgentProfileLibrary { get; set; }
     [Parameter] public IGraphFunctionCatalog? FunctionCatalog { get; set; }
     [Parameter] public string ProjectId { get; set; } = "default";
+    [Parameter] public bool IdeMode { get; set; }
+    [Parameter] public string? InitialWorkflowId { get; set; }
+    [Parameter] public Func<Task>? DraftSaved { get; set; }
     private string workspaceView = "designer";
     private string runFilter = "";
     private void ShowDesigner() => workspaceView = "designer";

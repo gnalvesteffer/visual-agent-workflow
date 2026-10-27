@@ -10,12 +10,16 @@ public partial class WorkflowDesigner
     [Parameter, EditorRequired] public IWorkflowCatalog Catalog { get; set; } = default!;
     [Parameter, EditorRequired] public IPublishedWorkflowClient Client { get; set; } = default!;
     [Parameter] public EventCallback<RunSnapshot> OnRunStarted { get; set; }
+    [Parameter] public EventCallback OpenRunInspector { get; set; }
     [Parameter] public IToolBindingCatalog? ToolCatalog { get; set; }
     [Parameter] public IAgentProviderCatalog? AgentCatalog { get; set; }
     [Parameter] public ISkillLibrary? SkillLibrary { get; set; }
     [Parameter] public IAgentProfileLibrary? AgentProfileLibrary { get; set; }
     [Parameter] public IGraphFunctionCatalog? FunctionCatalog { get; set; }
     [Parameter] public string ProjectId { get; set; } = "default";
+    [Parameter] public bool IdeMode { get; set; }
+    [Parameter] public string? InitialWorkflowId { get; set; }
+    [Parameter] public Func<Task>? DraftSaved { get; set; }
 
     private sealed record Binding(IWorkflowCatalog Catalog, IPublishedWorkflowClient Client, CancellationToken Token);
     private Binding? binding;
@@ -50,6 +54,14 @@ public partial class WorkflowDesigner
     private bool dirty => definition is not null && DesignHash != savedHash;
     private bool busy;
     private bool interactive;
+    private string bottomTab = "run";
+    private bool bottomTrayExpanded;
+    private Task RequestRunInspector() => OpenRunInspector.InvokeAsync();
+    private void SelectBottomTab(string tab)
+    {
+        bottomTab = tab;
+        bottomTrayExpanded = true;
+    }
     private bool loadingWorkflow = true;
     private bool mcpChoicesLoading;
     private bool providerChoicesLoading;
@@ -140,7 +152,10 @@ public partial class WorkflowDesigner
         {
             var drafts = await current.Catalog.ListDraftsAsync().WaitAsync(current.Token);
             if (!Current(current)) return;
-            if (drafts.Count > 0) await Load(drafts[0], current); else NewWorkflow();
+            var initial = drafts.FirstOrDefault(draft => draft.Definition.WorkflowId == InitialWorkflowId);
+            if (initial is not null) await Load(initial, current);
+            else if (drafts.Count > 0) await Load(drafts[0], current);
+            else NewWorkflow();
             if (Current(current))
             {
                 loadingWorkflow = false;
@@ -369,6 +384,7 @@ public partial class WorkflowDesigner
             : await current.Catalog.SaveDraftAsync(definition!, generation).WaitAsync(current.Token);
         await Load(draft, current, resetHistory: false);
         if (Current(current)) message = "Draft saved.";
+        if (Current(current) && DraftSaved is not null) await DraftSaved();
     });
 
     private Task Publish() => Perform(async current =>

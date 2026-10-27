@@ -1,13 +1,11 @@
 @page "/agents"
 @page "/projects/{ProjectId}/agents"
-@rendermode InteractiveServer
 @using System.Collections.Immutable
 @inject StudioProjectWorkspace ProjectWorkspace
 @inject IAgentProviderCatalog ProviderCatalog
 @inject IToolBindingCatalog ToolCatalog
 
 <PageTitle>Agent Designer · Visual Agent Workflow</PageTitle>
-<StudioNavigation />
 <main class="vaw-provider-settings">
     <header class="vaw-settings-heading"><div><h1>Agent Designer</h1>
         <p class="vaw-settings-intro">Create immutable specialist-agent profiles with their own model, instructions, skills, and MCP tools. Assign a profile to an agent node to expose it as a bounded delegate tool.</p></div></header>

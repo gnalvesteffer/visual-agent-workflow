@@ -1,18 +1,16 @@
 @page "/"
 @page "/projects/{ProjectId}"
 @attribute [StreamRendering]
-@rendermode InteractiveServer
 @inject IToolBindingCatalog Tools
 @inject IAgentProviderCatalog Agents
 @inject StudioProjectWorkspace ProjectWorkspace
 @inject NavigationManager Navigation
 
 <PageTitle>Visual Agent Workflow</PageTitle>
-<StudioNavigation />
-<main>
+<main class="vaw-main-ide-route">
     <WorkflowErrorBoundary>
         <ChildContent>
-            <WorkflowStudio @key="ProjectWorkspace.CurrentProjectId" ProjectId="ProjectWorkspace.CurrentProjectId" Client="ProjectWorkspace.Client" Catalog="ProjectWorkspace.Catalog" ToolCatalog="Tools" AgentCatalog="Agents" SkillLibrary="ProjectWorkspace.Skills" AgentProfileLibrary="ProjectWorkspace.AgentProfiles" FunctionCatalog="ProjectWorkspace.Functions" />
+            <WorkflowStudio @key="(ProjectWorkspace.CurrentProjectId, WorkflowId)" ProjectId="ProjectWorkspace.CurrentProjectId" InitialWorkflowId="WorkflowId" IdeMode="true" DraftSaved="RefreshProjectExplorer" Client="ProjectWorkspace.Client" Catalog="ProjectWorkspace.Catalog" ToolCatalog="Tools" AgentCatalog="Agents" SkillLibrary="ProjectWorkspace.Skills" AgentProfileLibrary="ProjectWorkspace.AgentProfiles" FunctionCatalog="ProjectWorkspace.Functions" />
         </ChildContent>
         <ErrorContent>
             <section class="vaw-viewer" role="alert">
@@ -26,6 +24,8 @@
 
 @code {
     [Parameter] public string? ProjectId { get; set; }
+    [SupplyParameterFromQuery(Name = "workflow")] public string? WorkflowId { get; set; }
+    [CascadingParameter(Name = "RefreshProjectExplorer")] public Func<Task>? RefreshProjectExplorer { get; set; }
 
     protected override void OnParametersSet()
     {

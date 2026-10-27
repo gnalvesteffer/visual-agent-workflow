@@ -1,20 +1,33 @@
 @implements IAsyncDisposable
 @attribute [StreamRendering]
 
-<section class="vaw-designer" aria-label="Workflow designer">
+<section class="vaw-designer @(IdeMode ? "vaw-designer-in-ide" : null)" aria-label="Workflow designer">
     <header class="vaw-section-header"><div><h2>Workflow designer</h2>
     <p>Compose a string workflow with tools, agents and conditional paths.</p></div><span class="vaw-badge">Draft workspace</span></header>
     <fieldset class="vaw-designer-fields" disabled="@(!interactive || busy)">
     @if (definition is not null)
     {
         <div class="vaw-controls vaw-designer-toolbar">
-            <label class="vaw-workflow-search">Find workflow <input aria-label="Find workflow" @bind="workflowFilter" @bind:event="oninput" placeholder="Filter by name or ID" /></label>
-            <label>Saved workflow
-                <select @key="(definition.WorkflowId, generation, workflows)" aria-label="Saved workflow" value="@definition.WorkflowId" @onchange="SelectWorkflow" disabled="@(busy || dirty)">
+            @if (IdeMode)
+            {
+                <span class="vaw-active-workflow" title="@definition.WorkflowId">@WorkflowDisplayName(definition)</span>
+                <select hidden aria-hidden="true" tabindex="-1" data-vaw-workflow-selector
+                    @key="(definition.WorkflowId, generation, workflows)" value="@definition.WorkflowId"
+                    @onchange="SelectWorkflow" disabled="@(busy || dirty)">
                     @if (generation == 0) { <option value="@definition.WorkflowId">@WorkflowDisplayName(definition) · New workflow</option> }
-                    @foreach (var item in workflows.Where(w => w.Definition.WorkflowId == definition.WorkflowId || WorkflowMatchesFilter(w.Definition))) { <option @key="item.Definition.WorkflowId" value="@item.Definition.WorkflowId">@WorkflowDisplayName(item.Definition)</option> }
+                    @foreach (var item in workflows) { <option @key="item.Definition.WorkflowId" value="@item.Definition.WorkflowId">@WorkflowDisplayName(item.Definition)</option> }
                 </select>
-            </label>
+            }
+            else
+            {
+                <label class="vaw-workflow-search">Find workflow <input aria-label="Find workflow" @bind="workflowFilter" @bind:event="oninput" placeholder="Filter by name or ID" /></label>
+                <label>Saved workflow
+                    <select @key="(definition.WorkflowId, generation, workflows)" aria-label="Saved workflow" value="@definition.WorkflowId" @onchange="SelectWorkflow" disabled="@(busy || dirty)">
+                        @if (generation == 0) { <option value="@definition.WorkflowId">@WorkflowDisplayName(definition) · New workflow</option> }
+                        @foreach (var item in workflows.Where(w => w.Definition.WorkflowId == definition.WorkflowId || WorkflowMatchesFilter(w.Definition))) { <option @key="item.Definition.WorkflowId" value="@item.Definition.WorkflowId">@WorkflowDisplayName(item.Definition)</option> }
+                    </select>
+                </label>
+            }
             <button type="button" @onclick="NewWorkflow" disabled="@(busy || dirty)">New workflow</button>
             <button type="button" @onclick="Discard" disabled="@busy">Discard local changes and reload</button>
         </div>
@@ -37,7 +50,7 @@
             </details>
         }
         @if (Catalog is not IWorkflowDesignCatalog) { <p class="vaw-help">This host does not save graph layout. Position and annotation editing are disabled.</p> }
-        <WorkflowEditor ProjectId="ProjectId" Layout="@(preview is not null ? previewLayout ?? WorkflowLayout.Create(preview.Revision.Definition) : layout)" LayoutChanged="ChangedLayout" LayoutReadOnly="@(Catalog is not IWorkflowDesignCatalog)" Definition="@(preview?.Revision.Definition ?? definition)" DefinitionChanged="Changed" ReadOnly="@(preview is not null)" Disabled="@busy" Bindings="bindings" Providers="providers" ProviderChoicesLoading="providerChoicesLoading" SkillLibrary="SkillLibrary" AgentProfileLibrary="AgentProfileLibrary" FunctionCatalog="FunctionCatalog" GraphEdited="ChangedGraph">
+        <WorkflowEditor ProjectId="ProjectId" HideNodeLibrary="IdeMode" Layout="@(preview is not null ? previewLayout ?? WorkflowLayout.Create(preview.Revision.Definition) : layout)" LayoutChanged="ChangedLayout" LayoutReadOnly="@(Catalog is not IWorkflowDesignCatalog)" Definition="@(preview?.Revision.Definition ?? definition)" DefinitionChanged="Changed" ReadOnly="@(preview is not null)" Disabled="@busy" Bindings="bindings" Providers="providers" ProviderChoicesLoading="providerChoicesLoading" SkillLibrary="SkillLibrary" AgentProfileLibrary="AgentProfileLibrary" FunctionCatalog="FunctionCatalog" GraphEdited="ChangedGraph">
             <EditorActions>
                 @if (preview is null)
                 {
@@ -50,6 +63,68 @@
                 else { <button type="button" disabled>Save draft</button> }
             </EditorActions>
         </WorkflowEditor>
+        <section class="vaw-bottom-tray @(IdeMode && !bottomTrayExpanded ? "is-collapsed" : "is-expanded")" aria-label="Workflow runs, versions and issues">
+            <nav aria-label="Workflow details tabs">
+                <button type="button" aria-pressed="@(bottomTab == "run" ? "true" : "false")" @onclick='() => SelectBottomTab("run")'>Run</button>
+                <button type="button" aria-pressed="@(bottomTab == "versions" ? "true" : "false")" @onclick='() => SelectBottomTab("versions")'>Versions</button>
+                <button type="button" aria-pressed="@(bottomTab == "issues" ? "true" : "false")" @onclick='() => SelectBottomTab("issues")'>Issues <span class="vaw-bottom-count">@WorkflowValidator.Validate(definition).Length</span></button>
+                @if (IdeMode)
+                { <button type="button" class="vaw-bottom-toggle" aria-expanded="@(bottomTrayExpanded ? "true" : "false")" aria-label="@(bottomTrayExpanded ? "Collapse workflow details" : "Expand workflow details")" title="@(bottomTrayExpanded ? "Collapse details" : "Expand details")" @onclick="() => bottomTrayExpanded = !bottomTrayExpanded"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></button> }
+            </nav>
+            <section class="vaw-bottom-panel" aria-label="Run controls" hidden="@(bottomTab != "run")">
+                <div class="vaw-version-run">
+                    <label>Published run input <textarea @bind="runInput" maxlength="16384" rows="2"></textarea></label>
+                    @foreach (var (parameterId, parameter) in SelectedRunParameters)
+                    {
+                        <label @key="parameterId">@parameter.DisplayName · @parameterId
+                            @if (!string.IsNullOrWhiteSpace(parameter.Description)) { <span class="vaw-help">@parameter.Description</span> }
+                            @if (parameter.Type == "choice")
+                            { <select value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)">@foreach (var choice in parameter.Choices ?? []) { <option value="@choice">@choice</option> }</select> }
+                            else if (parameter.Type == "boolean")
+                            { <select value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)"><option value="true">True</option><option value="false">False</option></select> }
+                            else if (parameter.Type is "integer" or "number")
+                            { <input type="number" step="@(parameter.Type == "integer" ? "1" : "any")" value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)" /> }
+                            else
+                            { <textarea value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)" maxlength="16384" rows="2"></textarea> }
+                        </label>
+                    }
+                    @if (SelectedRunParameters.Count > 0) { <p class="vaw-help">Per-run values override defaults and are included in the run evidence. Do not enter secrets.</p> }
+                    @if (Client is IPublishedWorkflowRunControl) { <label class="vaw-run-option"><input type="checkbox" @bind="startPublishedPaused" />Start published run paused</label> }
+                    <button type="button" class="vaw-primary" @onclick="RunPublished" disabled="@(busy || selectedRevisionId is null)">Run selected version</button>
+                    <button type="button" @onclick="RequestRunInspector" disabled="@(!interactive || !OpenRunInspector.HasDelegate)">Open run inspector</button>
+                    <p class="vaw-help">Runs a published version, including when the draft has unsaved edits. Recorded history and execution evidence open in Run inspector.</p>
+                </div>
+            </section>
+            <section class="vaw-bottom-panel" aria-label="Workflow issues" hidden="@(bottomTab != "issues")">
+                @if (WorkflowValidator.Validate(definition) is { Length: > 0 } issues)
+                {
+                    <ul class="vaw-bottom-issues">@foreach (var issue in issues) { <li @key="(issue.Path, issue.Code)"><strong>@issue.Path</strong><span>@issue.Message</span></li> }</ul>
+                    <p class="vaw-help">Save this draft if needed; resolve every issue before publishing or running it.</p>
+                }
+                else { <p class="vaw-bottom-empty">No workflow issues. The current graph is valid for its schema.</p> }
+            </section>
+            <section class="vaw-bottom-panel" aria-label="Published workflow versions" hidden="@(bottomTab != "versions")">
+                <section class="vaw-version-panel">
+                    <div class="vaw-version-management">
+                        <h3>Published versions</h3>
+                        <p class="vaw-help">Active version: @(versions.FirstOrDefault(v => v.Revision.RevisionId == activeRevisionId)?.Version.ToString() ?? "None")</p>
+                        <label>Published version
+                            <select aria-label="Published version" value="@selectedRevisionId" @onchange="SelectRevision" disabled="@(busy || versions.Count == 0)">
+                                @foreach (var version in versions)
+                                { <option @key="version.Revision.RevisionId" value="@version.Revision.RevisionId">Version @version.Version · @version.Revision.CreatedAt.ToString("u")</option> }
+                            </select>
+                        </label>
+                        <div class="vaw-controls">
+                            <button type="button" @onclick="Preview" disabled="@(busy || selectedRevisionId is null)">View selected version</button>
+                            <button type="button" @onclick="Restore" disabled="@(busy || dirty || selectedRevisionId is null)">Restore selected to draft</button>
+                            <button type="button" @onclick="Activate" disabled="@(busy || dirty || !CurrentDraftIsValid || selectedRevisionId is null)">Activate selected version</button>
+                        </div>
+                    </div>
+                </section>
+            </section>
+        </section>
+        <details class="vaw-secondary-workflow-tools">
+            <summary>Reusable assets, import / export, and audit</summary>
         <details class="vaw-reuse-panel">
             <summary>Reusable workflows</summary>
             @if (WorkflowGraph.HasControlNodes(definition)) { <p class="vaw-help">Reusable workflow extraction and insertion currently require a linear workflow. Control-flow graphs can still be shared as complete packages.</p> }
@@ -181,52 +256,7 @@
                 }
             </section>
         </details>
-        <section class="vaw-version-panel" aria-label="Published workflow versions">
-            <div class="vaw-version-management">
-            <h3>Published versions</h3>
-            <p class="vaw-help">Active version: @(versions.FirstOrDefault(v => v.Revision.RevisionId == activeRevisionId)?.Version.ToString() ?? "None")</p>
-            <label>Published version
-                <select aria-label="Published version" value="@selectedRevisionId" @onchange="SelectRevision" disabled="@(busy || versions.Count == 0)">
-                    @foreach (var version in versions)
-                    { <option @key="version.Revision.RevisionId" value="@version.Revision.RevisionId">Version @version.Version · @version.Revision.CreatedAt.ToString("u")</option> }
-                </select>
-            </label>
-            <div class="vaw-controls">
-                <button type="button" @onclick="Preview" disabled="@(busy || selectedRevisionId is null)">View selected version</button>
-                <button type="button" @onclick="Restore" disabled="@(busy || dirty || selectedRevisionId is null)">Restore selected to draft</button>
-                <button type="button" @onclick="Activate" disabled="@(busy || dirty || !CurrentDraftIsValid || selectedRevisionId is null)">Activate selected version</button>
-            </div>
-            </div>
-            <div class="vaw-version-run">
-            <h3>Run a published version</h3>
-            <label>Published run input <textarea @bind="runInput" maxlength="16384" rows="2"></textarea></label>
-            @foreach (var (parameterId, parameter) in SelectedRunParameters)
-            {
-                <label @key="parameterId">@parameter.DisplayName · @parameterId
-                    @if (!string.IsNullOrWhiteSpace(parameter.Description)) { <span class="vaw-help">@parameter.Description</span> }
-                    @if (parameter.Type == "choice")
-                    {
-                        <select value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)">
-                            @foreach (var choice in parameter.Choices ?? []) { <option value="@choice">@choice</option> }
-                        </select>
-                    }
-                    else if (parameter.Type == "boolean")
-                    {
-                        <select value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)"><option value="true">True</option><option value="false">False</option></select>
-                    }
-                    else if (parameter.Type is "integer" or "number")
-                    { <input type="@(parameter.Type == "integer" ? "number" : "number")" step="@(parameter.Type == "integer" ? "1" : "any")" value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)" /> }
-                    else
-                    { <textarea value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)" maxlength="16384" rows="2"></textarea> }
-                </label>
-            }
-            @if (SelectedRunParameters.Count > 0) { <p class="vaw-help">Per-run values are type-checked, override workflow defaults, and are included in audit and replay. Do not enter secrets.</p> }
-            @if (Client is IPublishedWorkflowRunControl)
-            { <label class="vaw-run-option"><input type="checkbox" @bind="startPublishedPaused" />Start published run paused</label> }
-            <button type="button" class="vaw-primary" @onclick="RunPublished" disabled="@(busy || selectedRevisionId is null)">Run selected version</button>
-            <p class="vaw-help">Uses the selected published version, including when the draft has unsaved edits.</p>
-            </div>
-        </section>
+
         <details>
             <summary>Import / export definition</summary>
             <p>Import replaces this draft's graph and keeps its workflow ID. It does not grant capabilities or execute code.</p>
@@ -252,6 +282,7 @@
         <details>
             <summary>Catalog audit (@audit.Count entries)</summary>
             <ul>@foreach (var entry in audit) { <li @key="entry.Sequence">@entry.Timestamp.ToString("u") · @entry.Actor · @entry.Kind · generation @entry.Generation</li> }</ul>
+        </details>
         </details>
     }
     else if (loadingWorkflow)

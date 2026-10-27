@@ -1,37 +1,11 @@
 @page "/source-project"
 @page "/source-project/folder/{FolderProjectId}"
-@rendermode InteractiveServer
 @using VisualAgentWorkflow.Blazor
 @inject StudioProjectStore ProjectStore
 @inject StudioOpenWorkspaceStore OpenWorkspace
 
 <PageTitle>Project workspace · Visual Agent Workflow</PageTitle>
-<main class="vaw-provider-settings vaw-source-project vaw-open-project-workspace vaw-ide-shell">
-    <header class="vaw-ide-titlebar" aria-label="Workflow Studio workspace">
-        <a class="vaw-ide-brand" href="/projects" aria-label="Visual Agent Workflow Studio home">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18V6h5l4 5 4-5h5v12h-5v-5l-4 5-4-5v5z" /></svg>
-        </a>
-        <span class="vaw-ide-product-name">Visual Agent Workflow Studio</span>
-        <span class="vaw-ide-title-separator" aria-hidden="true"></span>
-        <span class="vaw-ide-project-name" title="@CurrentProjectName">@CurrentProjectName</span>
-        <nav class="vaw-ide-title-actions" aria-label="Workspace actions">
-            <a href="/projects" title="Open or create a project">Projects</a>
-            <a href="/mcp" title="Configure host MCP connections">Connections</a>
-            <a href="/settings" title="Configure model connections">Models</a>
-            <StudioThemePicker />
-        </nav>
-    </header>
-    <div class="vaw-ide-layout">
-        <aside class="vaw-ide-activitybar" aria-label="Studio views">
-            <a class="is-active" href="@CurrentProjectRoute" aria-current="page" title="Project Explorer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5h7l2 2h9v11H3zM3 8h18" /></svg><span>Explorer</span></a>
-            <a href="/agents" title="Agent profiles"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 20c.5-4 2.8-6 7-6s6.5 2 7 6M4 5l2 1m14-1-2 1"/></svg><span>Agents</span></a>
-            <a href="/skills" title="Skill library"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM14 3v5h5M8 13h8m-8 4h6"/></svg><span>Skills</span></a>
-            <a href="/functions" title="Reusable functions"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5-6 7 6 7m8-14 6 7-6 7m-2-16-4 18"/></svg><span>Functions</span></a>
-            <a href="/mcp" title="MCP connections"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M8 7.5 11 16m5-8.5L13 16m-5-10h8"/></svg><span>MCP</span></a>
-            <a href="/settings" title="Model connections"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/><circle cx="12" cy="12" r="5"/></svg><span>Models</span></a>
-            <a href="/observe" title="Run history"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8m0-5v5h5m4-1v5l4 2"/></svg><span>Observe</span></a>
-        </aside>
-        <section class="vaw-ide-main" aria-label="Project workspace">
+<main class="vaw-provider-settings vaw-source-project vaw-open-project-workspace">
     <header class="vaw-settings-heading vaw-workspace-page-heading">
         <div><h1>Project workspace</h1><p class="vaw-settings-intro">Edit portable workflow source files. Run history and host credentials stay outside the project.</p></div>
         @if (openProjectIds.Count > 0)
@@ -114,8 +88,6 @@
             </section>
         </div>
     }
-        </section>
-    </div>
 </main>
 
 @code {
@@ -128,8 +100,6 @@
     private readonly HashSet<string> dirtyProjects = new(StringComparer.Ordinal);
     private IReadOnlyList<string> openProjectIds => OpenWorkspace.ProjectIds;
     private string? activeProjectId => OpenWorkspace.SelectedProjectId;
-    private string CurrentProjectName => activeProjectId is { } projectId ? ProjectStore.GetActive(projectId).Name : "No project open";
-    private string CurrentProjectRoute => activeProjectId is { } projectId ? $"/source-project/folder/{Uri.EscapeDataString(projectId)}" : "/source-project";
 
     protected override void OnParametersSet()
     {

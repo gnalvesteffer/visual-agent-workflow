@@ -9,11 +9,11 @@
     <link rel="stylesheet" href="studio.css" />
     <link rel="stylesheet" href="studio-theme-polish.css" />
     <link rel="stylesheet" href="VisualAgentWorkflow.Studio.styles.css" />
-    <HeadOutlet />
+    <HeadOutlet @rendermode="InteractiveServer" />
 </head>
 <body class="vaw-app">
     <div class="vaw-navigation-status" role="status" aria-live="polite" hidden><span>Loading page…</span></div>
-    <Routes />
+    <Routes @rendermode="InteractiveServer" />
     <script src="_framework/blazor.web.js"></script>
 </body>
 </html>

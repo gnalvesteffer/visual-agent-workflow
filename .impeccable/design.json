@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-27T01:11:50Z",
+  "title": "Design System: Visual Agent Workflow Studio",
+  "extensions": {
+    "colorMeta": {
+      "primary": { "role": "primary", "displayName": "Workbench Blue", "canonical": "#0e639c", "tonalRamp": ["#071b27", "#0a2b3d", "#0b3d56", "#0c4d6d", "#0e639c", "#368ab7", "#72b2d2", "#c5e4f2"] },
+      "accent": { "role": "primary", "displayName": "Signal Cyan", "canonical": "#4fc1ff", "tonalRamp": ["#062233", "#0a3854", "#0b527a", "#126e9f", "#168dc9", "#4fc1ff", "#8fd7ff", "#d7f2ff"] },
+      "canvas": { "role": "neutral", "displayName": "Graphite Canvas", "canonical": "#181818", "tonalRamp": ["#111111", "#181818", "#202020", "#2a2a2a", "#383838", "#666666", "#999999", "#cccccc"] },
+      "surface": { "role": "neutral", "displayName": "Panel Graphite", "canonical": "#202020", "tonalRamp": ["#151515", "#202020", "#2a2a2a", "#383838", "#525252", "#777777", "#aaaaaa", "#dddddd"] },
+      "control": { "role": "neutral", "displayName": "Control Charcoal", "canonical": "#2a2d2e", "tonalRamp": ["#151617", "#202223", "#2a2d2e", "#383c3e", "#52585c", "#747c82", "#a3aaaf", "#d8dcdf"] },
+      "text": { "role": "neutral", "displayName": "Soft Ink", "canonical": "#cccccc", "tonalRamp": ["#202020", "#383838", "#525252", "#777777", "#999999", "#b5b5b5", "#cccccc", "#eeeeee"] },
+      "muted": { "role": "neutral", "displayName": "Muted Steel", "canonical": "#9da5ac", "tonalRamp": ["#202427", "#343a3f", "#4b5359", "#646e76", "#7e8991", "#9da5ac", "#c0c6cb", "#e4e7e9"] },
+      "border": { "role": "neutral", "displayName": "Divider Gray", "canonical": "#383838", "tonalRamp": ["#181818", "#242424", "#303030", "#383838", "#525252", "#747474", "#999999", "#c9c9c9"] },
+      "success": { "role": "tertiary", "displayName": "Completion Green", "canonical": "#89d185", "tonalRamp": ["#18271a", "#27462a", "#356b39", "#4c914e", "#69b66b", "#89d185", "#b2e6af", "#dcf5da"] },
+      "error": { "role": "tertiary", "displayName": "Issue Coral", "canonical": "#f48771", "tonalRamp": ["#351a17", "#5a2921", "#873b2d", "#b55340", "#d56c58", "#f48771", "#ffb09f", "#ffddd5"] },
+      "warning": { "role": "tertiary", "displayName": "Caution Amber", "canonical": "#cca700", "tonalRamp": ["#2d2500", "#514400", "#796700", "#a78900", "#cca700", "#e7c43a", "#f5dc83", "#fff0c7"] }
+    },
+    "typographyMeta": {
+      "title": { "displayName": "Title", "purpose": "Section and inspector headings." },
+      "body": { "displayName": "Body", "purpose": "Workflow properties and explanatory text." },
+      "label": { "displayName": "Label", "purpose": "Compact field, navigation, and tool labels." },
+      "code": { "displayName": "Code", "purpose": "Identifiers and technical values." }
+    },
+    "shadows": [
+      { "name": "neon-primary-glow", "value": "0 0 0 1px #60f6ff24, 0 0 12px #60f6ff20", "purpose": "Theme-specific emphasis on primary actions in Neon Glow." },
+      { "name": "neon-selection-glow", "value": "0 0 14px #60f6ff24", "purpose": "Theme-specific emphasis for selected graph nodes in Neon Glow." }
+    ],
+    "motion": [
+      { "name": "state-transition", "value": "150ms ease-out", "purpose": "Small state changes such as the details tray chevron." }
+    ],
+    "breakpoints": [
+      { "name": "compact-ide", "value": "62rem" },
+      { "name": "narrow-header", "value": "42rem" }
+    ],
+    "components": [
+      {
+        "name": "Primary Button",
+        "kind": "button",
+        "refersTo": "button-primary",
+        "description": "A clear, compact action for the main task in a panel.",
+        "html": "<button class=\"ds-button-primary\">Run workflow</button>",
+        "css": ".ds-button-primary { min-height: 2.75rem; padding: .5rem .75rem; border: 1px solid #0e639c; border-radius: 6px; background: #0e639c; color: #fff; font: 600 .75rem/1.4 \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif; cursor: pointer; } .ds-button-primary:hover { background: #0b4f7c; } .ds-button-primary:focus-visible { outline: 2px solid #4fc1ff; outline-offset: 2px; } .ds-button-primary:active { background: #093e61; }"
+      },
+      {
+        "name": "Secondary Button",
+        "kind": "button",
+        "refersTo": "button-secondary",
+        "description": "A low-emphasis command beside the primary action.",
+        "html": "<button class=\"ds-button-secondary\">Fit graph</button>",
+        "css": ".ds-button-secondary { min-height: 2.75rem; padding: .5rem .75rem; border: 1px solid #52585c; border-radius: 6px; background: #2a2d2e; color: #cccccc; font: 600 .75rem/1.4 \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif; cursor: pointer; } .ds-button-secondary:hover { background: #34383a; } .ds-button-secondary:focus-visible { outline: 2px solid #4fc1ff; outline-offset: 2px; } .ds-button-secondary:active { background: #202020; }"
+      },
+      {
+        "name": "Text Field",
+        "kind": "input",
+        "refersTo": "input",
+        "description": "A clearly bounded field for names and graph properties.",
+        "html": "<label class=\"ds-field\">Workflow name<input type=\"text\" value=\"Support triage\"></label>",
+        "css": ".ds-field { display: grid; gap: .375rem; color: #cccccc; font: 600 .75rem/1.4 \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif; } .ds-field input { box-sizing: border-box; min-height: 2.75rem; padding: .5rem; border: 1px solid #52585c; border-radius: 6px; background: #181818; color: #cccccc; font: 400 .9375rem/1.45 \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif; } .ds-field input:hover { border-color: #9da5ac; } .ds-field input:focus-visible { border-color: #4fc1ff; outline: 2px solid #4fc1ff; outline-offset: 1px; }"
+      },
+      {
+        "name": "Document Navigation",
+        "kind": "nav",
+        "refersTo": "explorer-item",
+        "description": "A compact open-file tab with a clear selected state.",
+        "html": "<nav class=\"ds-tabs\" aria-label=\"Open views\"><a href=\"#\" aria-current=\"page\">Workflow</a><a href=\"#\">Projects</a></nav>",
+        "css": ".ds-tabs { display: flex; align-items: stretch; min-height: 2.8rem; background: #202020; border-bottom: 1px solid #383838; font: 400 .75rem/1.4 \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif; } .ds-tabs a { display: inline-flex; align-items: center; padding: 0 .75rem; color: #9da5ac; text-decoration: none; border-bottom: 2px solid transparent; } .ds-tabs a:hover { color: #cccccc; background: #2a2d2e; } .ds-tabs a[aria-current=\"page\"] { color: #cccccc; background: #263746; border-bottom-color: #4fc1ff; } .ds-tabs a:focus-visible { outline: 2px solid #4fc1ff; outline-offset: -2px; }"
+      },
+      {
+        "name": "Workflow Node",
+        "kind": "custom",
+        "refersTo": "panel",
+        "description": "A graph card with a semantic top edge and typed port.",
+        "html": "<article class=\"ds-node\"><strong>Research Agent</strong><small>Agent · Running</small><span class=\"ds-port\" aria-hidden=\"true\"></span></article>",
+        "css": ".ds-node { position: relative; display: grid; gap: .5rem; width: 14rem; padding: .75rem; border: 1px solid #52585c; border-top: 2px solid #4fc1ff; border-radius: 6px; background: #202020; color: #cccccc; font: 600 .9375rem/1.4 \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif; } .ds-node small { color: #9da5ac; font: 400 .75rem/1.4 \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif; } .ds-port { position: absolute; top: 50%; right: -.4rem; width: .65rem; height: .65rem; border: 2px solid #4fc1ff; border-radius: 50%; background: #181818; transform: translateY(-50%); } .ds-node:focus-within { outline: 2px solid #4fc1ff; outline-offset: 2px; }"
+      }
+    ],
+    "narrative": {
+      "northStar": "The Workflow Workbench",
+      "overview": "Visual Agent Workflow Studio is a developer tool for composing agent systems as inspectable programs. Its interface uses the familiar frame of a desktop IDE: project and asset navigation stay at hand, the active document occupies the main workspace, and contextual properties remain beside the graph. The visual workflow editor borrows Blueprint conventions so data and execution paths can be read directly from the graph.\n\nThe interface favors compact, steady surfaces and clear state over decorative atmosphere. A restrained blue-cyan accent indicates focus and active navigation; graph node and run states use semantic green, amber, and coral. The user-selected theme is persisted across navigation, with named alternatives available for different developer preferences.",
+      "keyCharacteristics": [
+        "IDE shell with project picker, open-view tabs, activity rail, and project Explorer.",
+        "Graph canvas is the central work surface, with node properties at its edge.",
+        "Run, version, and issue details collapse to preserve canvas space.",
+        "Cool neutral dark default with concise status colors and an optional theme palette."
+      ],
+      "rules": [
+        { "name": "The State-First Color Rule", "body": "Use semantic colors to explain workflow or execution state, not as decoration. Keep cyan available for interaction and focus.", "section": "colors" },
+        { "name": "The Scannable Density Rule", "body": "Use compact labels and supporting text to keep editor tools visible, while preserving comfortable line height for body content.", "section": "typography" },
+        { "name": "The Structural Surface Rule", "body": "Separate IDE regions with surface tone and borders first; apply glow only when the selected theme calls for it.", "section": "elevation" }
+      ],
+      "dos": [
+        "Do keep the graph central and the selected node's properties close to it.",
+        "Do use the persistent Explorer and tabs as the primary navigation model.",
+        "Do use semantic color for success, failure, and warnings.",
+        "Do keep theme tokens semantic so alternate themes preserve the same hierarchy.",
+        "Do preserve visible keyboard focus and clear disabled states."
+      ],
+      "donts": [
+        "Don't use large marketing-style headings or broad whitespace in the authoring workspace.",
+        "Don't add decorative gradients or glow to the default theme.",
+        "Don't encode node state with color alone; keep labels and execution details visible.",
+        "Don't put the graph's main controls below the fold or behind unrelated library content."
+      ]
+    }
+  }
+}

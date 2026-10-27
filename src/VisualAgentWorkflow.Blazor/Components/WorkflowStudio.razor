@@ -1,15 +1,15 @@
 @implements IAsyncDisposable
 @attribute [StreamRendering]
 
-<section class="vaw-studio">
-    <header class="vaw-studio-header">
+<section class="vaw-studio @(workspaceView == "designer" ? "vaw-studio-authoring" : null) @(IdeMode ? "vaw-studio-in-ide" : null)">
+    <header class="vaw-studio-header" hidden="@IdeMode">
         <div class="vaw-brand">
             <svg class="vaw-brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M7 8h8v7h10v9H15v-9H7z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="7" cy="8" r="3" fill="currentColor"/><circle cx="25" cy="24" r="3" fill="currentColor"/></svg>
             <div><p class="vaw-product-name">Visual Agent Workflow</p><h1>Workflow Studio</h1></div>
         </div>
         <p class="vaw-notice">Local development prototype</p>
     </header>
-    <p class="vaw-studio-description">Design a workflow. Run it independently. Inspect every recorded step.</p>
+    <p class="vaw-studio-description" hidden="@IdeMode">Design a workflow. Run it independently. Inspect every recorded step.</p>
     <div class="vaw-workspace @(workspaceView == "designer" ? "vaw-authoring-workspace" : "")">
         <aside class="vaw-sidebar" hidden="@(workspaceView == "designer")">
             <h2>Quick template run</h2>
@@ -65,7 +65,7 @@
             <div hidden="@(workspaceView != "designer")">
             @if (Catalog is not null && Client is IPublishedWorkflowClient publishedClient)
             {
-                <WorkflowDesigner @key="(Catalog, publishedClient)" ProjectId="ProjectId" Catalog="Catalog" Client="publishedClient" OnRunStarted="PublishedCallback(publishedClient)" ToolCatalog="ToolCatalog" AgentCatalog="AgentCatalog" SkillLibrary="SkillLibrary" AgentProfileLibrary="AgentProfileLibrary" FunctionCatalog="FunctionCatalog" />
+                <WorkflowDesigner @key="(Catalog, publishedClient, InitialWorkflowId)" ProjectId="ProjectId" IdeMode="IdeMode" InitialWorkflowId="InitialWorkflowId" DraftSaved="DraftSaved" Catalog="Catalog" Client="publishedClient" OnRunStarted="PublishedCallback(publishedClient)" OpenRunInspector="ShowRun" ToolCatalog="ToolCatalog" AgentCatalog="AgentCatalog" SkillLibrary="SkillLibrary" AgentProfileLibrary="AgentProfileLibrary" FunctionCatalog="FunctionCatalog" />
             }
             </div>
             <div hidden="@(workspaceView != "run")">
