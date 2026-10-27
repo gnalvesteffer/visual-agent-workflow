@@ -321,9 +321,19 @@ function draw(state) {
 
 function updateTooltipState(root) {
     for (const anchor of root.querySelectorAll('[data-tooltip-anchor]')) {
-        const source = anchor.querySelector('.vaw-node-comment');
+        // The compact card clamps the inner text span, so measuring the outer
+        // comment box misses the overflow that the user actually sees.
+        const source = anchor.querySelector('.vaw-node-comment-text') ?? anchor.querySelector('.vaw-node-comment');
         const tooltip = anchor.querySelector('[role="tooltip"]');
-        const truncated = source && (source.scrollHeight > source.clientHeight + 1 || source.scrollWidth > source.clientWidth + 1);
+        let truncated = false;
+        if (source) {
+            const range = document.createRange();
+            range.selectNodeContents(source);
+            const content = range.getBoundingClientRect();
+            const visible = source.getBoundingClientRect();
+            truncated = source.scrollHeight > source.clientHeight + 1 || source.scrollWidth > source.clientWidth + 1 ||
+                content.height > visible.height + 1 || content.bottom > visible.bottom + 1;
+        }
         anchor.dataset.tooltipTruncated = truncated ? 'true' : 'false';
         if (truncated && tooltip?.id) anchor.setAttribute('aria-describedby', tooltip.id);
         else anchor.removeAttribute('aria-describedby');
