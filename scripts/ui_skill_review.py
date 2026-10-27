@@ -18,7 +18,7 @@ from pathlib import Path
 from playwright.sync_api import expect, sync_playwright
 
 BASE = os.environ.get("VAW_STUDIO_BASE_URL", "http://127.0.0.1:5099")
-THEMES = ("dark", "light", "vs-code-dark-plus", "solarized-dark", "nord", "monokai", "github-dark", "github-light", "dracula", "high-contrast", "neon")
+THEMES = ("dark", "light", "vs-code-dark-plus", "solarized-dark", "nord", "monokai", "github-dark", "github-light", "dracula", "high-contrast", "neon", "retro-drive")
 
 
 def luminance(rgb):

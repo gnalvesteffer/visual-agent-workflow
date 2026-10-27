@@ -156,7 +156,11 @@ Schema 1.9 adds a JSON-typed entry output and a bounded RFC 6901 selector that e
 
 ## Persistent Studio theme selector
 
-The Studio navigation now offers Dark Modern, Light Modern, VS Code Dark+, Solarized Dark, Nord, Monokai, and High Contrast themes. A small synchronous bootstrap applies the browser's saved choice before the stylesheet paints; the interactive selector updates and persists it. A Blazor enhanced-navigation callback restores the root theme after route transitions, and each selector reads the saved preference. Theme tokens adapt the standalone shell and graph together, while embedded components continue to inherit their host's own theme.
+The Studio navigation now offers Dark Modern, Light Modern, VS Code Dark+, Solarized Dark, Nord, Monokai, GitHub Dark, GitHub Light, Dracula, Neon Glow, and High Contrast themes. A small synchronous bootstrap applies the browser's saved choice before the stylesheet paints; the interactive selector updates and persists it. A Blazor enhanced-navigation callback restores the root theme after route transitions, and each selector reads the saved preference. Theme tokens adapt the standalone shell and graph together, while embedded components continue to inherit their host's own theme.
+
+## Retro Drive Studio theme
+
+The Studio theme selector now includes Retro Drive, a dashboard-inspired palette based on smoked instrument panels, amber indicators, warm ivory labels, and cyan/green display traces. It remains a standalone Studio theme; embeddable components continue to inherit host-owned tokens.
 
 ## Flat Studio theme and fitted graph viewport
 

@@ -244,6 +244,45 @@
     --vaw-graph-color-grid: #cfcfc218;
 }
 
+:root[data-vaw-theme="retro-drive"] .vaw-app {
+    --vaw-color-scheme: dark;
+    --vaw-color-canvas: #090a0a;
+    --vaw-color-surface: #151716;
+    --vaw-color-control: #222524;
+    --vaw-color-control-hover: #303431;
+    --vaw-color-text: #eee9d9;
+    --vaw-color-muted: #b5b09f;
+    --vaw-color-border: #47443a;
+    --vaw-color-control-border: #766f5f;
+    --vaw-color-focus: #ffbd32;
+    --vaw-color-accent: #19dfbd;
+    --vaw-color-primary: #96331f;
+    --vaw-color-on-primary: #fff5df;
+    --vaw-color-selected: #34311e;
+    --vaw-color-success: #57e5a1;
+    --vaw-color-error: #ff684b;
+    --vaw-color-error-text: #ffc0ad;
+    --vaw-color-warning: #ffc23a;
+    --vaw-color-danger-surface: #3d211b;
+    --vaw-color-info-surface: #16342f;
+    --vaw-color-code: #8bf2d7;
+    --vaw-graph-color-canvas: #080a0a;
+    --vaw-graph-color-surface: #171a18;
+    --vaw-graph-color-control: #242826;
+    --vaw-graph-color-text: #f0ecdf;
+    --vaw-graph-color-muted: #bdb7a5;
+    --vaw-graph-color-border: #4d4a3d;
+    --vaw-graph-color-control-border: #7f7764;
+    --vaw-graph-color-focus: #ffc13a;
+    --vaw-graph-color-accent: #1be0bd;
+    --vaw-graph-color-primary: #96331f;
+    --vaw-graph-color-success: #57e5a1;
+    --vaw-graph-color-error: #ff684b;
+    --vaw-graph-color-warning: #ffc23a;
+    --vaw-graph-color-grid: #19dfbd1a;
+    --vaw-font-mono: "Lucida Console", "Courier New", ui-monospace, monospace;
+}
+
 :root[data-vaw-theme="high-contrast"] .vaw-app {
     --vaw-color-scheme: dark;
     --vaw-color-canvas: #000000;

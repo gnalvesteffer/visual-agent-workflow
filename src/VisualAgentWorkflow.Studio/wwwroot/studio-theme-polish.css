@@ -220,6 +220,55 @@
 
 :root[data-vaw-theme="neon"] .vaw-ide-titlebar { box-shadow: 0 1px 0 #60f6ff24, 0 5px 18px -14px #60f6ff88; }
 
+/* Retro Drive: smoked instrument panels, amber indicators, and cyan display traces. */
+:root[data-vaw-theme="retro-drive"] .vaw-app {
+    background-image: none;
+    font-variant-numeric: tabular-nums;
+}
+
+:root[data-vaw-theme="retro-drive"] .vaw-ide-titlebar,
+:root[data-vaw-theme="retro-drive"] .vaw-studio-navigation {
+    border-block-start: 2px solid #ffbd32;
+    box-shadow: inset 0 -1px #19dfbd36, 0 5px 18px -14px #19dfbd99;
+}
+
+:root[data-vaw-theme="retro-drive"] .vaw-app .vaw-primary:not(:disabled) {
+    border-color: #ffbd32;
+    background: #96331f;
+    box-shadow: inset 0 1px #ffcf5c55, 0 0 14px #96331f55;
+}
+
+:root[data-vaw-theme="retro-drive"] .vaw-app .vaw-node-drag[aria-pressed="true"],
+:root[data-vaw-theme="retro-drive"] .vaw-app .vaw-node-multi-selected article {
+    box-shadow: inset 0 0 0 1px #ffbd32aa, 0 0 18px #ffbd3230;
+}
+
+:root[data-vaw-theme="retro-drive"] .vaw-studio-navigation a[aria-current="page"],
+:root[data-vaw-theme="retro-drive"] .vaw-app .vaw-ide-activitybar > a.is-active,
+:root[data-vaw-theme="retro-drive"] .vaw-app .vaw-ide-document-tabs a[aria-current="page"],
+:root[data-vaw-theme="retro-drive"] .vaw-app .vaw-file-tab.is-active,
+:root[data-vaw-theme="retro-drive"] .vaw-app .vaw-workflow-document-tab:has([aria-current="page"]),
+:root[data-vaw-theme="retro-drive"] .vaw-app .vaw-explorer-file.is-selected {
+    box-shadow: inset 0 -2px #19dfbd, inset 0 0 0 1px #19dfbd52;
+}
+
+:root[data-vaw-theme="retro-drive"] .vaw-app .vaw-canvas-viewport {
+    box-shadow: inset 0 0 42px #19dfbd0c, 0 0 20px #19dfbd18;
+}
+
+:root[data-vaw-theme="retro-drive"] .vaw-app .vaw-wire {
+    filter: drop-shadow(0 0 2px #19dfbd66);
+}
+
+:root[data-vaw-theme="retro-drive"] .vaw-app .vaw-node-heading-icon,
+:root[data-vaw-theme="retro-drive"] .vaw-app .vaw-map-node-icon {
+    filter: drop-shadow(0 0 3px #19dfbd55);
+}
+
+:root[data-vaw-theme="retro-drive"] .vaw-app :where(button, input, select, textarea, a, summary):focus-visible {
+    box-shadow: 0 0 0 2px #ffbd3266, 0 0 12px #ffbd3233;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .vaw-app *, .vaw-app *::before, .vaw-app *::after {
         scroll-behavior: auto !important;
