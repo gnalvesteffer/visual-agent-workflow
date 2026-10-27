@@ -1,0 +1,80 @@
+        <details class="vaw-parameter-editor">
+            <summary>Workflow parameters <span class="vaw-help">@ParameterDefinitions.Count configurable values</span></summary>
+            <p class="vaw-help">Define non-secret string, integer, number, boolean, or choice inputs. Workflow value nodes pass the validated value through the graph.</p>
+            @foreach (var (parameterId, parameter) in ParameterDefinitions)
+            {
+                <fieldset @key="parameterId" disabled="@Disabled">
+                    <legend>@parameter.DisplayName · @parameterId</legend>
+                    <label>Display name <input value="@parameter.DisplayName" maxlength="128" @onchange="args => UpdateParameter(parameterId, args, true)" /></label>
+                    <label>Default value <textarea value="@parameter.DefaultValue" maxlength="16384" rows="2" @onchange="args => UpdateParameter(parameterId, args, false)"></textarea></label>
+                    <label>Description <textarea value="@parameter.Description" maxlength="512" rows="2" placeholder="Explain what this value controls" @onchange="args => UpdateParameterDescription(parameterId, args)"></textarea></label>
+                    <label>Type <select value="@(parameter.Type ?? "string")" @onchange="args => ChangeParameterType(parameterId, args)">
+                        <option value="string">Text</option><option value="integer">Integer</option><option value="number">Number</option><option value="boolean">True / false</option><option value="choice">Choice</option>
+                    </select></label>
+                    @if (parameter.Type == "choice")
+                    { <label>Allowed choices <input value="@string.Join(",", parameter.Choices ?? [])" @onchange="args => ChangeChoices(parameterId, args)" placeholder="default,low,medium,high" /></label> }
+            <button type="button" @onclick="() => Edit(() => WorkflowParameterEditing.Remove(Definition, parameterId))" disabled="@(Disabled || ParameterIsReferenced(parameterId))">Remove parameter</button>
+                </fieldset>
+            }
+            <div class="vaw-controls">
+                <label>Parameter ID <input @bind="newParameterId" maxlength="64" placeholder="model-name" disabled="@Disabled" /></label>
+                <label>Display name <input @bind="newParameterName" maxlength="128" placeholder="Model name" disabled="@Disabled" /></label>
+                <label>Default value <input @bind="newParameterDefault" maxlength="16384" placeholder="qwen3.8-9b" disabled="@Disabled" /></label>
+                <label>Description <input @bind="newParameterDescription" maxlength="512" placeholder="Model to use for each agent" disabled="@Disabled" /></label>
+                <button type="button" @onclick="AddParameter" disabled="@Disabled">Add parameter</button>
+            </div>
+            @if (error is not null) { <p class="vaw-error" role="alert">@error</p> }
+        </details>
+
+@code {
+    [Parameter, EditorRequired] public WorkflowDefinition Definition { get; set; } = default!;
+    [Parameter] public EventCallback<WorkflowDefinition> DefinitionChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    private string newParameterId = "", newParameterName = "", newParameterDefault = "", newParameterDescription = "";
+    private string? error;
+    private ImmutableSortedDictionary<string, WorkflowParameterDefinition> ParameterDefinitions => Definition.Parameters ?? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
+    private async Task AddParameter()
+    {
+        var id = newParameterId.Trim();
+        await Edit(() => WorkflowParameterEditing.Add(Definition, id,
+            string.IsNullOrWhiteSpace(newParameterName) ? id : newParameterName.Trim(), newParameterDefault, EmptyToNull(newParameterDescription)));
+        if (error is null) { newParameterId = ""; newParameterName = ""; newParameterDefault = ""; newParameterDescription = ""; }
+    }
+    private Task UpdateParameter(string id, ChangeEventArgs args, bool displayName)
+    {
+        var existing = ParameterDefinitions[id];
+        var name = displayName ? args.Value?.ToString() ?? "" : existing.DisplayName;
+        var value = displayName ? existing.DefaultValue : args.Value?.ToString() ?? "";
+        return Edit(() => WorkflowParameterEditing.Update(Definition, id, name, value));
+    }
+    private Task UpdateParameterDescription(string id, ChangeEventArgs args) =>
+        Edit(() => WorkflowParameterEditing.UpdateDescription(Definition, id, EmptyToNull(args.Value?.ToString())));
+    private static string? EmptyToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private Task ChangeParameterType(string id, ChangeEventArgs args)
+    {
+        var type = args.Value?.ToString() ?? "string";
+        return Edit(() => WorkflowParameterEditing.SetType(Definition, id, type,
+            type == "boolean" ? "false" : ParameterDefinitions[id].DefaultValue,
+            type == "choice" ? [ParameterDefinitions[id].DefaultValue] : null));
+    }
+    private Task ChangeChoices(string id, ChangeEventArgs args)
+    {
+        var choices = System.Collections.Immutable.ImmutableArray.CreateRange((args.Value?.ToString() ?? "").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
+        var defaultValue = choices.Contains(ParameterDefinitions[id].DefaultValue) ? ParameterDefinitions[id].DefaultValue : choices.FirstOrDefault() ?? "";
+        return Edit(() => WorkflowParameterEditing.SetType(Definition, id, "choice", defaultValue, choices));
+    }
+    private bool ParameterIsReferenced(string parameterId) => Definition.Nodes.Values.Any(node =>
+        node.Type == NodeTypes.WorkflowValue && node.ParameterId == parameterId ||
+        node.TextTemplate?.Parts.Any(part => part.Kind == "parameter" && part.Value == parameterId) == true ||
+        node.Agent?.ReasoningEffortParameterId == parameterId ||
+        node.Agent?.MaxOutputTokensParameterId == parameterId ||
+        node.Agent?.MaxTotalTokensParameterId == parameterId ||
+        node.Agent?.UserMessage?.Parts.Any(part => part.Kind == "parameter" && part.Value == parameterId) == true);
+
+    private async Task Edit(Func<WorkflowDefinition> change)
+    {
+        if (Disabled) return;
+        try { error = null; await DefinitionChanged.InvokeAsync(change()); }
+        catch (ArgumentException exception) { error = exception.Message; }
+    }
+}

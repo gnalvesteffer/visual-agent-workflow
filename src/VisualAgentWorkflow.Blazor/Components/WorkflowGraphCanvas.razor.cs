@@ -122,6 +122,27 @@ public partial class WorkflowGraphCanvas
         node.Type == NodeTypes.BooleanBranch ? "Boolean routing" : node.Type is NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.WorkflowValue ? "Pure value" :
         node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform";
 
+    private static string NodeIcon(string type)
+    {
+        var shape = type switch
+        {
+            NodeTypes.Input => "<path d=\"M4 4h12v12H4zM10 1v5m-3-2 3 2 3-2\"/>",
+            NodeTypes.Output or NodeTypes.Terminate => "<path d=\"M4 10h11m-4-4 4 4-4 4\"/><circle cx=\"17\" cy=\"10\" r=\"2\"/>",
+            NodeTypes.Agent => "<rect x=\"4\" y=\"5\" width=\"12\" height=\"11\" rx=\"3\"/><path d=\"M8 9h.01M12 9h.01M8 13h4M10 2v3m-7 4H4m12 0h3\"/>",
+            NodeTypes.McpTool => "<path d=\"M10 2v5m-3-3h6M7 7v4a3 3 0 0 0 6 0V7m-3 7v4m-3 0h6\"/>",
+            NodeTypes.Condition or NodeTypes.BooleanBranch or NodeTypes.Merge => "<path d=\"m10 2 8 8-8 8-8-8z\"/><path d=\"M10 6v5m0 3h.01\"/>",
+            NodeTypes.Approval => "<path d=\"M3 10 8 15 17 5\"/><circle cx=\"10\" cy=\"10\" r=\"8\"/>",
+            NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous => "<circle cx=\"4\" cy=\"10\" r=\"1.5\"/><circle cx=\"16\" cy=\"4\" r=\"1.5\"/><circle cx=\"16\" cy=\"16\" r=\"1.5\"/><path d=\"M5.5 10h3a3 3 0 0 0 3-3V4m-3 6h3a3 3 0 0 1 3 3v1.5\"/>",
+            NodeTypes.Loop or NodeTypes.LoopBody => "<path d=\"M16 7h3V4m-1 3a8 8 0 0 0-14 2m0 6H1v3m1-3a8 8 0 0 0 14-2\"/>",
+            NodeTypes.WorkflowCall or NodeTypes.FunctionCall => "<rect x=\"3\" y=\"3\" width=\"14\" height=\"14\" rx=\"2\"/><path d=\"M7 7h6m-6 3h6m-6 3h4\"/>",
+            NodeTypes.StringConstant or NodeTypes.IntegerConstant or NodeTypes.BooleanConstant or NodeTypes.WorkflowValue => "<path d=\"M4 4h12v12H4zM7 8h6M7 12h4\"/>",
+            NodeTypes.FunctionInput or NodeTypes.FunctionOutput => "<path d=\"M3 10h14m-5-5 5 5-5 5\"/><circle cx=\"4\" cy=\"10\" r=\"2\"/>",
+            NodeTypes.JsonProject or NodeTypes.JsonSelectString => "<path d=\"M7 3H5v5l-2 2 2 2v5h2m6-14h2v5l2 2-2 2v5h-2M9 7h2m-2 3h2m-2 3h2\"/>",
+            _ => "<path d=\"M4 5h12M4 10h12M4 15h8\"/><circle cx=\"2.5\" cy=\"5\" r=\".5\"/><circle cx=\"2.5\" cy=\"10\" r=\".5\"/><circle cx=\"2.5\" cy=\"15\" r=\".5\"/>"
+        };
+        return $"<svg viewBox=\"0 0 20 20\" focusable=\"false\">{shape}</svg>";
+    }
+
     protected override void OnParametersSet()
     {
         WorkflowLayoutJson.Validate(Layout, Definition);

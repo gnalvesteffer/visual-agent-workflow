@@ -1,0 +1,16 @@
+<span class="vaw-file-icon vaw-file-icon-@Kind" aria-hidden="true">@((MarkupString)Icon)</span>
+
+@code {
+    [Parameter, EditorRequired] public string Kind { get; set; } = "file";
+
+    private string Icon => Kind switch
+    {
+        "workflow" => "<svg viewBox=\"0 0 20 20\"><rect x=\"3\" y=\"3\" width=\"5\" height=\"5\" rx=\"1\"/><rect x=\"12\" y=\"12\" width=\"5\" height=\"5\" rx=\"1\"/><path d=\"M8 5.5h3a2 2 0 0 1 2 2v4.5\"/></svg>",
+        "agent" => "<svg viewBox=\"0 0 20 20\"><rect x=\"4\" y=\"5\" width=\"12\" height=\"11\" rx=\"3\"/><path d=\"M8 9h.01M12 9h.01M8 13h4M10 2v3\"/></svg>",
+        "skill" => "<svg viewBox=\"0 0 20 20\"><path d=\"M10 2.5 12 7l4.5 2-4.5 2-2 4.5L8 11l-4.5-2L8 7z\"/><path d=\"m15.5 13 .8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8z\"/></svg>",
+        "function" => "<svg viewBox=\"0 0 20 20\"><path d=\"m7 4-5 6 5 6m6-12 5 6-5 6m-1-14-2 16\"/></svg>",
+        "documentation" => "<svg viewBox=\"0 0 20 20\"><path d=\"M4 2.5h8l4 4v11H4zM12 2.5v4h4M7 10h6m-6 3h6\"/></svg>",
+        "mcp" => "<svg viewBox=\"0 0 20 20\"><path d=\"M10 2v5m-3-3h6M7 7v4a3 3 0 0 0 6 0V7m-3 7v4m-3 0h6\"/></svg>",
+        _ => "<svg viewBox=\"0 0 20 20\"><path d=\"M4 2.5h8l4 4v11H4zM12 2.5v4h4\"/></svg>"
+    };
+}

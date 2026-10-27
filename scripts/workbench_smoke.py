@@ -32,7 +32,7 @@ def show_library(designer):
 def new_blank(designer):
     workbench(designer)
     settings(designer, True)
-    designer.get_by_role("button", name="New workflow", exact=True).click()
+    __import__("workbench_browser").create_workflow(designer.page)
     designer.get_by_text(re.compile("^New workflow created")).wait_for(state="attached")
     settings(designer, False)
 

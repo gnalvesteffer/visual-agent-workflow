@@ -122,11 +122,18 @@
     @if (manifest is not null && source is not null)
     {
         <section class="vaw-settings-section vaw-source-workspace" aria-label="Project explorer and project editor">
-            <aside class="vaw-project-explorer" aria-label="Project explorer">
-                <header @oncontextmenu="args => OpenTreeContext(args, string.Empty)" @oncontextmenu:preventDefault="true">
+            <aside class="vaw-project-explorer" aria-label="Project explorer" tabindex="0" @oncontextmenu="args => OpenTreeContext(args, string.Empty)" @oncontextmenu:preventDefault="true">
+                <header>
                     <h2 title="@manifest.ProjectName">@manifest.ProjectName</h2><button type="button" class="vaw-tree-more" aria-label="Project tools" title="Project tools" @onclick="() => projectToolsOpen = !projectToolsOpen"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="4" cy="10" r="1"/><circle cx="10" cy="10" r="1"/><circle cx="16" cy="10" r="1"/></svg></button>
                     <button type="button" class="vaw-tree-more" aria-label="Create project item" title="Create project item" @onclick="() => OpenTreeContext(null, string.Empty)">＋</button>
                 </header>
+                <div class="vaw-project-tree-filter">
+                    <label class="vaw-sr-only" for="project-file-filter">Filter project files</label>
+                    <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg>
+                    <input id="project-file-filter" type="search" placeholder="Filter files…" @bind="projectTreeFilter" @bind:event="oninput" />
+                    @if (!string.IsNullOrWhiteSpace(projectTreeFilter))
+                    { <button type="button" aria-label="Clear file filter" title="Clear filter" @onclick="() => projectTreeFilter = string.Empty">×</button> }
+                </div>
                 <ul class="vaw-project-tree">
                     @if (fileTree.Count == 0)
                     { <li><p class="vaw-empty-state">No source files yet. Right-click the project root to create a file or folder.</p></li> }
@@ -134,16 +141,22 @@
                     {
                         @foreach (var node in fileTree)
                         {
+                            @if (MatchesProjectTreeFilter(node))
+                            {
                             <li @key="node.Name + node.File?.Path">
-                                <ProjectFileTreeItem Node="@node" SelectedPath="@SelectedFilePath"
+                                <ProjectFileTreeItem Node="@node" SelectedPath="@SelectedFilePath" Filter="@projectTreeFilter"
                                     WorkflowNames="@workflowNames" FileNames="@fileNames" CanOpenFiles="@(!busy && !HasUnsavedEdits)"
                                     ClipboardPath="@treeClipboard?.Path" ClipboardIsCut="@(treeClipboard?.IsCut == true)"
                                     OnOpenWorkflow="@OpenWorkflow" OnOpenSkill="@OpenSkill" OnOpenAgentProfile="@OpenAgentProfile" OnOpenGraphFunction="@OpenGraphFunction"
                                     OnOpenDocumentation="@OpenDocumentation" OnContextMenu="@OpenTreeContext" />
                             </li>
+                            }
                         }
                     }
-                    <li><span class="vaw-project-tree-file is-read-only" aria-label="Project manifest vaw.project.json, read only" title="Edit this file with your normal source-control tools"><svg class="vaw-project-tree-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.75h6l4 4v8.5H3zM9 1.75v4h4M6 8.5l-1.25 1.25L6 11m4-2.5 1.25 1.25L10 11M8.75 8l-1.5 3.5" /></svg><span class="vaw-project-tree-file-name">vaw.project.json</span></span></li>
+                    @if (string.IsNullOrWhiteSpace(projectTreeFilter) || "vaw.project.json".Contains(projectTreeFilter.Trim(), StringComparison.OrdinalIgnoreCase))
+                    { <li><span class="vaw-project-tree-file is-read-only" aria-label="Project manifest vaw.project.json, read only" title="Edit this file with your normal source-control tools"><StudioFileIcon Kind="file"/><span class="vaw-project-tree-file-name">vaw.project.json</span></span></li> }
+                    @if (!string.IsNullOrWhiteSpace(projectTreeFilter) && !fileTree.Any(MatchesProjectTreeFilter) && !"vaw.project.json".Contains(projectTreeFilter.Trim(), StringComparison.OrdinalIgnoreCase))
+                    { <li><p class="vaw-empty-state" role="status">No files match “@projectTreeFilter”.</p></li> }
                 </ul>
                 @if (!manifest.Files.IsEmpty) { <p class="vaw-project-tree-legend">W Workflow · S Skill · A Agent preset · F Graph function · M Markdown</p> }
                 @if (HasUnsavedEdits) { <p class="vaw-help">Save or discard the current edits before opening another file.</p> }
@@ -152,9 +165,11 @@
             @if (treeContext is { } context)
             {
                 <div class="vaw-tree-menu-backdrop" @onclick="CloseTreeContext" @onkeydown="HandleTreeMenuKey" @onkeydown:stopPropagation="true">
-                    <div class="vaw-tree-context-menu" role="menu" aria-label="@(context.IsDirectory ? $"Actions for {context.Path}" : $"Actions for {TreeFileLabel(context.File!)}")"
+                    <div class="vaw-tree-context-menu" @ref="treeMenuElement" tabindex="-1" role="menu" aria-label="@(context.IsDirectory ? $"Actions for {context.Path}" : $"Actions for {TreeFileLabel(context.File!)}")"
                          style="left:@(context.ClientX)px;top:@(context.ClientY)px" @onclick:stopPropagation="true">
                         <p class="vaw-tree-menu-heading">@(context.IsDirectory ? (string.IsNullOrEmpty(context.Path) ? manifest.ProjectName : Path.GetFileName(context.Path)) : TreeFileLabel(context.File!))</p>
+                        @if (!CanManageTree)
+                        { <p class="vaw-tree-menu-error" role="status">@(HasUnsavedEdits ? "Save or discard your edits before changing project files." : externalSourceChanged ? "Reload the changed project before changing its files." : "Wait for the current operation to finish.")</p> }
                         @if (context.IsDirectory)
                         {
                             @if (treeClipboard is not null)
@@ -216,9 +231,9 @@
                         @foreach (var file in editorTabs)
                         {
                             var active = file.Path == SelectedFilePath;
-                            <div class="vaw-file-tab @(active ? "is-active" : null)" @key="file.Path">
+                            <div class="vaw-file-tab @(active ? "is-active" : null)" @key="file.Path" data-vaw-closable-tab @onmousedown="args => CloseFileMiddle(file, args)">
                                 <button type="button" role="tab" aria-selected="@(active ? "true" : "false")" aria-label="Open @EditorFileName(file)" @onclick="() => ActivateFile(file)">
-                                    <span class="vaw-file-kind vaw-file-kind-@file.Kind" aria-hidden="true">@FileKindGlyph(file.Kind)</span>@EditorFileName(file)
+                                    <StudioFileIcon Kind="@FileIconKind(file.Kind)" />@EditorFileName(file)
                                 </button>
                                 <button type="button" class="vaw-file-tab-close" aria-label="Close @EditorFileName(file)" title="Close file" @onclick="() => CloseFileTab(file)">×</button>
                             </div>
@@ -352,7 +367,14 @@
                     { <div class="vaw-inspection-document-bar"><button type="button" @onclick="() => folderInspectRun = false">Back to workflow</button><span>Execution inspection</span></div><WorkflowRunViewer Snapshot="folderRun" Layout="folderRun.Header.Layout" /> }
                     else
                     {
-                    <WorkflowEditor IdeMode="true" ShowWorkflowSettings="folderSettingsOpen" @key="definition.WorkflowId" ProjectId="@ProjectId" Definition="definition" DefinitionChanged="DefinitionChanged" HideNodeLibrary="true"
+                    @if (folderSettingsOpen)
+                    {
+                        <section class="vaw-document-settings is-open" role="region" aria-label="Workflow settings panel" @onkeydown='args => { if (args.Key == "Escape") folderSettingsOpen = false; }'>
+                            <header class="vaw-settings-heading"><h2>Workflow settings</h2><button type="button" aria-label="Close workflow settings" @onclick="() => folderSettingsOpen = false">Close</button></header>
+                            <WorkflowParameterSettings @key="definition.WorkflowId" Definition="definition" DefinitionChanged="DefinitionChanged" Disabled="busy" />
+                        </section>
+                    }
+                    <WorkflowEditor IdeMode="true" ShowWorkflowSettings="false" @key="definition.WorkflowId" ProjectId="@ProjectId" Definition="definition" DefinitionChanged="DefinitionChanged" HideNodeLibrary="true"
                         Layout="layout" LayoutChanged="LayoutChanged" Bindings="bindings" Providers="providers" SkillLibrary="skillSource"
                         AgentProfileLibrary="profileSource" FunctionCatalog="graphFunctionCatalog">
                     </WorkflowEditor>
@@ -420,6 +442,12 @@
     }
 
 </section>
+<TabCloseBehavior />
+@if (pendingCloseFile is { } closingFile)
+{
+    <DiscardChangesDialog Name="@EditorFileName(closingFile)" Cancel="CancelCloseFile" Confirm="ConfirmCloseFile" />
+}
+
 @code {
     [Parameter, EditorRequired] public string ProjectId { get; set; } = "";
     [Parameter, EditorRequired] public string PanelId { get; set; } = "";
@@ -430,6 +458,8 @@
     private string directoryPath = "";
     private string? openDirectory;
     private StudioProjectTreeContext? treeContext;
+    private ElementReference treeMenuElement;
+    private bool focusTreeMenu;
     private StudioProjectTreeClipboard? treeClipboard;
     private string treeOperationName = "";
     private bool treeRenameEditing;
@@ -438,6 +468,7 @@
     private string? creationDirectory;
     private StudioProjectManifest? manifest;
     private IReadOnlyList<StudioProjectFileTreeNode> fileTree = [];
+    private string projectTreeFilter = "";
     private readonly List<StudioProjectFile> editorTabs = [];
     private StudioFolderWorkflowSource? source;
     private StudioFolderSkillSource? skillSource;
@@ -542,6 +573,19 @@
     private bool projectToolsOpen;
     private bool folderInspectRun;
     private string? SelectedFilePath => openedWorkflow?.RelativePath ?? openedSkill?.RelativePath ?? openedProfile?.RelativePath ?? openedGraphFunction?.RelativePath ?? openedDocumentationPath;
+    private bool MatchesProjectTreeFilter(StudioProjectFileTreeNode node)
+    {
+        if (string.IsNullOrWhiteSpace(projectTreeFilter)) return true;
+        var query = projectTreeFilter.Trim();
+        if (node.Name.Contains(query, StringComparison.OrdinalIgnoreCase)) return true;
+        if (node.File is { } file)
+        {
+            if (file.Path.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || fileNames.GetValueOrDefault(file.Path, "").Contains(query, StringComparison.OrdinalIgnoreCase)
+                || workflowNames.GetValueOrDefault(file.Id, "").Contains(query, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return node.Children.Any(MatchesProjectTreeFilter);
+    }
     private string EditorDescription => openedWorkflow is not null
         ? "Workflow drafts save directly to source files. A stale edit is rejected if the project changed since it was loaded."
         : openedSkill is not null || creatingNewSkill
@@ -635,6 +679,11 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (IsActive && treeContext is { } menu)
+        {
+            await JavaScript.InvokeVoidAsync("vawStudioIde.layoutExplorerMenu", treeMenuElement, menu.ClientX, menu.ClientY, focusTreeMenu);
+            focusTreeMenu = false;
+        }
         if (IsActive && IsMarkdownEditorOpen)
             await EnsureMarkdownEditorAsync();
         else if (markdownEditorModule is not null)
@@ -1317,7 +1366,8 @@
 
     private void OpenTreeContext(StudioProjectTreeContext target)
     {
-        if (!CanManageTree) return;
+        if (manifest is null || openDirectory is null) return;
+        focusTreeMenu = true;
         treeContext = target;
         treeOperationName = "";
         treeRenameEditing = false;
@@ -1328,7 +1378,8 @@
 
     private void OpenTreeContext(Microsoft.AspNetCore.Components.Web.MouseEventArgs? args, string path)
     {
-        if (!CanManageTree) return;
+        if (manifest is null || openDirectory is null) return;
+        focusTreeMenu = true;
         treeContext = new(path, null, true, args?.ClientX ?? 64, args?.ClientY ?? 64);
         treeOperationName = "";
         treeRenameEditing = false;
@@ -1933,30 +1984,54 @@
         _ => Task.CompletedTask
     };
 
-    private async Task CloseFileTab(StudioProjectFile file)
+    private StudioProjectFile? pendingCloseFile;
+
+    private Task CloseFileMiddle(StudioProjectFile file, MouseEventArgs args) =>
+        args.Button == 1 ? CloseFileTab(file) : Task.CompletedTask;
+
+    private Task CloseFileTab(StudioProjectFile file)
     {
-        if (HasUnsavedEdits || busy) return;
-        var wasSelected = string.Equals(file.Path, SelectedFilePath, StringComparison.Ordinal);
-        editorTabs.RemoveAll(item => string.Equals(item.Path, file.Path, StringComparison.Ordinal));
-        if (wasSelected)
+        if (busy || pendingCloseFile is not null) return Task.CompletedTask;
+        if (file.Path == SelectedFilePath && HasUnsavedEdits)
         {
-            if (editorTabs.LastOrDefault() is { } next) await ActivateFile(next);
-            else SetWorkflow(null);
+            pendingCloseFile = file;
+            return Task.CompletedTask;
         }
+        return CompleteCloseFile(file);
+    }
+
+    private void CancelCloseFile() => pendingCloseFile = null;
+
+    private async Task ConfirmCloseFile()
+    {
+        if (pendingCloseFile is not { } file) return;
+        pendingCloseFile = null;
+        await CompleteCloseFile(file);
+    }
+
+    private async Task CompleteCloseFile(StudioProjectFile file)
+    {
+        var index = editorTabs.FindIndex(item => item.Path == file.Path);
+        if (index < 0) return;
+        var wasSelected = file.Path == SelectedFilePath;
+        editorTabs.RemoveAt(index);
+        if (!wasSelected) return;
+        SetWorkflow(null);
+        if (editorTabs.Count > 0) await ActivateFile(editorTabs[Math.Min(index, editorTabs.Count - 1)]);
     }
 
     private string EditorFileName(StudioProjectFile file) => file.Kind == "workflow"
         ? $"{workflowNames.GetValueOrDefault(file.Id, Path.GetFileNameWithoutExtension(file.Path))}.workflow"
         : fileNames.GetValueOrDefault(file.Path, Path.GetFileName(file.Path));
 
-    private static string FileKindGlyph(string kind) => kind switch
+    private static string FileIconKind(string kind) => kind switch
     {
-        "workflow" => "W",
-        "agent-profile" => "A",
-        "skill" => "S",
-        "graph-function" => "ƒ",
-        "documentation" => "M",
-        _ => "·"
+        "workflow" => "workflow",
+        "agent-profile" => "agent",
+        "skill" => "skill",
+        "graph-function" => "function",
+        "documentation" => "documentation",
+        _ => "file"
     };
 
     private string RunParameterValue(string parameterId) => runParameters.GetValueOrDefault(parameterId, "");

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Components.Web;
 using System.Text;
 using Microsoft.AspNetCore.Components;
 using VisualAgentWorkflow.Core;
@@ -356,6 +357,8 @@ public partial class WorkflowDesigner
         catch (ObjectDisposedException) { }
     }
 
+    private void CloseSettingsOnEscape(KeyboardEventArgs args) { if (args.Key == "Escape") documentSettingsOpen = false; }
+
     private void Changed(WorkflowDefinition next) => ChangeDefinition(next, resetLayout: false);
     private void ChangedImported(WorkflowDefinition next) => ChangeDefinition(next, resetLayout: true);
 
@@ -384,6 +387,56 @@ public partial class WorkflowDesigner
 
     private void Undo() { if (undo.TryPop(out var previous)) { redo.Push(new(definition!, layout!)); SetDesign(previous.Definition, previous.Layout); message = null; } }
     private void Redo() { if (redo.TryPop(out var next)) { undo.Push(new(definition!, layout!)); SetDesign(next.Definition, next.Layout); message = null; } }
+
+    private string? pendingCloseWorkflowId;
+
+    private Task CloseWorkflowMiddle(string id, Microsoft.AspNetCore.Components.Web.MouseEventArgs args) =>
+        args.Button == 1 ? RequestCloseWorkflow(id) : Task.CompletedTask;
+
+    private Task RequestCloseWorkflow(string id)
+    {
+        if (busy || pendingCloseWorkflowId is not null || !openWorkflowIds.Contains(id)) return Task.CompletedTask;
+        if (definition?.WorkflowId == id && (dirty || generation == 0))
+        {
+            pendingCloseWorkflowId = id;
+            return Task.CompletedTask;
+        }
+        return CloseWorkflow(id);
+    }
+
+    private void CancelCloseWorkflow() => pendingCloseWorkflowId = null;
+
+    private Task ConfirmCloseWorkflow()
+    {
+        var id = pendingCloseWorkflowId;
+        pendingCloseWorkflowId = null;
+        return id is null ? Task.CompletedTask : CloseWorkflow(id);
+    }
+
+    private Task CloseWorkflow(string id) => Perform(async current =>
+    {
+        var index = openWorkflowIds.IndexOf(id);
+        if (index < 0) return;
+        if (definition?.WorkflowId != id)
+        {
+            openWorkflowIds.RemoveAt(index);
+            return;
+        }
+        var nextId = openWorkflowIds.Count > 1 ? openWorkflowIds[index + 1 < openWorkflowIds.Count ? index + 1 : index - 1] : null;
+        if (nextId is not null)
+        {
+            var draft = await current.Catalog.GetDraftAsync(nextId).WaitAsync(current.Token) ?? throw new KeyNotFoundException();
+            await Load(draft, current);
+            if (Current(current)) openWorkflowIds.Remove(id);
+            return;
+        }
+        openWorkflowIds.Remove(id);
+        definition = null; layout = null; preview = null; previewLayout = null;
+        definitionHash = null; layoutHash = null; savedHash = null;
+        undo.Clear(); redo.Clear(); versions = []; audit = []; jsonText = "";
+        generation = 0; activeRevisionId = null; selectedRevisionId = null; notifiedWorkflowId = null;
+        ResetReuse();
+    });
 
     private Task SelectWorkflow(ChangeEventArgs args) => Perform(async current =>
     {

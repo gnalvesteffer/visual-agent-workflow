@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import re
 import uuid
 
 from playwright.sync_api import expect, sync_playwright
@@ -22,18 +23,29 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             assert response and response.status == 200
             expect(page.locator(".vaw-app-shell")).to_be_visible()
             expect(page.locator(".vaw-ide-titlebar")).to_be_visible()
+            expect(page.locator(".vaw-ide-titlebar").get_by_role("link", name="Projects", exact=True)).to_have_count(0)
             expect(page.locator(".vaw-ide-activitybar")).to_be_visible()
             expect(page.locator(".vaw-global-explorer")).to_be_visible()
+            expect(page.get_by_label("Filter project files", exact=True)).to_be_visible()
             canvas = page.locator(".vaw-canvas-viewport")
             expect(canvas).to_be_visible()
             expect(page.locator(".vaw-document-header")).to_be_visible()
+            expect(page.locator(".vaw-document-statusbar > span").first).to_have_text("Ready", timeout=15000)
             expect(page.locator(".vaw-document-settings")).not_to_be_visible()
             expect(page.get_by_role("navigation", name="Workspace views")).not_to_be_visible()
             expect(page.get_by_role("navigation", name="Open workflow documents")).to_be_visible()
+            canvas_bounds = canvas.bounding_box()
+            canvas_scroll = canvas.evaluate("e => [e.scrollLeft, e.scrollTop]")
             page.get_by_role("button", name="Workflow settings", exact=True).click()
+            expect(page.locator(".vaw-document-settings.is-open")).to_be_visible()
+            assert canvas.bounding_box() == canvas_bounds, "Opening workflow settings must not move or resize the graph canvas."
+            assert canvas.evaluate("e => [e.scrollLeft, e.scrollTop]") == canvas_scroll, "Opening workflow settings must preserve graph pan."
+            page.screenshot(path="/tmp/vaw-workflow-settings.png")
             workflow_name_control = page.get_by_label("Workflow name", exact=True)
             assert 30 <= workflow_name_control.evaluate("e => Math.round(e.getBoundingClientRect().height)") <= 40
             page.get_by_role("button", name="Workflow settings", exact=True).click()
+            assert canvas.bounding_box() == canvas_bounds, "Closing workflow settings must preserve graph canvas bounds."
+            assert canvas.evaluate("e => [e.scrollLeft, e.scrollTop]") == canvas_scroll, "Closing workflow settings must preserve graph pan."
             navigation_status = page.locator(".vaw-navigation-status")
             expect(navigation_status).to_have_count(1)
             expect(navigation_status).to_be_hidden()
@@ -50,13 +62,19 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             page.get_by_role("link", name="Agents", exact=True).click()
             expect(navigation_status).to_be_visible()
             expect(navigation_status).to_have_attribute("role", "status")
-            page.get_by_role("link", name="Models", exact=True).click()
+            page.locator(".vaw-host-settings > summary").click()
+            expect(page.get_by_role("link", name="MCP connections", exact=True)).to_be_visible()
+            page.keyboard.press("Escape")
+            expect(page.locator(".vaw-host-settings")).not_to_have_attribute("open", "")
+            page.locator(".vaw-host-settings > summary").click()
+            page.get_by_role("link", name="Model connections", exact=True).click()
             expect(page.get_by_role("heading", name="Model connections", exact=True)).to_be_visible()
             expect(navigation_status).to_be_hidden()
             page.get_by_role("link", name="Explorer", exact=True).click()
             expect(page.locator(".vaw-document-header")).to_be_visible()
             assert page.locator(".vaw-explorer-manifest svg").count() == 1, "Project metadata should use a non-wrapping file icon."
             expect(page.locator(".vaw-canvas-world [data-node-id]")).to_have_count(2)
+            expect(page.locator(".vaw-canvas-world .vaw-node-heading-icon svg")).to_have_count(2)
             page.wait_for_function("document.querySelector('.vaw-graph-editor')?.dataset.ready === 'true'")
             page.wait_for_function("""() => {
                 const canvas = document.querySelector('.vaw-canvas-viewport')?.getBoundingClientRect();
@@ -96,7 +114,7 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             expect(page.locator(".vaw-explorer-file.is-selected")).to_have_count(1)
             expect(workflow_file).to_have_attribute("aria-current", "page")
             page.get_by_role("button", name="Workflow settings", exact=True).click()
-            page.get_by_role("button", name="New workflow", exact=True).click()
+            __import__("workbench_browser").create_workflow(page)
             name = page.get_by_label("Workflow name", exact=True)
             name.fill(f"Reopen smoke {uuid.uuid4().hex[:8]}")
             name.press("Tab")
@@ -104,6 +122,14 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             workflow_name = name.input_value()
             page.get_by_role("button", name="Workflow settings", exact=True).click()
             workflow_file = page.locator(".vaw-global-explorer").get_by_role("button", name=f"{workflow_name}.workflow", exact=True)
+            expect(workflow_file).to_be_visible()
+            filter_files = page.get_by_label("Filter project files", exact=True)
+            filter_files.fill(workflow_name)
+            expect(workflow_file).to_be_visible()
+            expect(page.locator(".vaw-global-explorer .vaw-explorer-empty[role=status]")).to_have_count(0)
+            filter_files.fill("no matching file")
+            expect(page.locator(".vaw-global-explorer .vaw-explorer-empty[role=status]")).to_contain_text("No files match")
+            page.get_by_role("button", name="Clear file filter", exact=True).click()
             expect(workflow_file).to_be_visible()
             workflow_file.click()
             expect(workflow_file).to_have_class("vaw-explorer-file is-selected")
@@ -185,13 +211,22 @@ def verify(base_url: str, browser_executable: str | None) -> None:
 
             expect(page.get_by_label("Color theme", exact=True)).to_be_enabled()
             page.get_by_label("Color theme", exact=True).select_option("vs-code-dark-plus")
+            expect(page.locator(".vaw-ide-activitybar a[aria-label='MCP library']")).to_have_count(0)
             route_links = (
                 ("Agents", "/agents"), ("Skills", "/skills"), ("Functions", "/functions"),
-                ("MCP library", "/mcp"), ("Observe", "/observe"), ("Projects", "/projects"),
-                ("Models", "/settings"), ("Open folder", "/source-project"),
+                ("Observe", "/observe"), ("Manage projects…", "/projects"),
+                ("MCP connections", "/mcp"), ("Model connections", "/settings"), ("Open folder", "/source-project"),
             )
             for name, route in route_links:
-                page.get_by_role("link", name=name, exact=True).click()
+                if name in ("MCP connections", "Model connections"):
+                    settings = page.locator(".vaw-host-settings")
+                    if not settings.evaluate("element => element.open"):
+                        page.locator(".vaw-host-settings > summary").click()
+                if name == "Manage projects…":
+                    page.get_by_role("button", name=re.compile("^Current project:")).click()
+                    page.get_by_role("link", name=name, exact=True).click()
+                else:
+                    page.get_by_role("link", name=name, exact=True).click()
                 expect(page).to_have_url(f"{base_url}{route}")
                 expect(page.locator(".vaw-app-shell")).to_be_visible()
                 expect(page.locator(".vaw-ide-activitybar")).to_be_visible()
@@ -207,11 +242,17 @@ def verify(base_url: str, browser_executable: str | None) -> None:
                     assert all(40 <= height <= 50 for height in form_control_heights), (
                         f"Form controls should share a comfortable ~44px size on {route}: {form_control_heights}"
                     )
-                if route in ("/agents", "/skills", "/functions", "/mcp", "/observe", "/projects", "/settings"):
+                if route in ("/agents", "/skills", "/functions", "/mcp", "/observe", "/settings"):
+                    if name in ("MCP connections", "Model connections"):
+                        settings = page.locator(".vaw-host-settings")
+                        if not settings.evaluate("element => element.open"):
+                            page.locator(".vaw-host-settings > summary").click()
                     expect(page.get_by_role("link", name=name, exact=True)).to_have_attribute("aria-current", "page")
                     expect(page.get_by_role("link", name="Explorer", exact=True)).not_to_have_class("is-active")
                 if route == "/settings":
                     expect(page.locator(".vaw-ide-route-heading")).to_have_text("Model connections")
+                if route == "/projects":
+                    expect(page.get_by_role("heading", name="Projects", exact=True)).to_be_visible()
                 if route == "/agents":
                     description = page.get_by_label("Delegate description", exact=True)
                     assert description.evaluate("e => e.getBoundingClientRect().height") < 85, "Two-row descriptions should not inherit the instruction editor's tall minimum."

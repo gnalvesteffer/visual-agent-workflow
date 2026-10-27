@@ -1,0 +1,11 @@
+@using Microsoft.JSInterop
+@inject IServiceProvider Services
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        if (Services.GetService(typeof(IJSRuntime)) is not IJSRuntime javaScript) return;
+        await using var module = await javaScript.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/tabInteractions.js");
+        await module.InvokeVoidAsync("install");
+    }
+}

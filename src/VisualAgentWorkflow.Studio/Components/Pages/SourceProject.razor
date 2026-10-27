@@ -48,7 +48,7 @@
                 {
                     var project = ProjectStore.GetActive(projectId);
                     var selected = projectId == activeProjectId;
-                    <div class="vaw-project-tab @(selected ? "is-active" : null)" @key="projectId">
+                    <div class="vaw-project-tab @(selected ? "is-active" : null)" @key="projectId" data-vaw-closable-tab @onauxclick="args => CloseProjectAux(projectId, args)">
                         <button type="button" id="@($"project-tab-{projectId}")" role="tab"
                             aria-controls="@($"project-panel-{projectId}")" aria-selected="@(selected ? "true" : "false")"
                             aria-label="@(dirtyProjects.Contains(projectId) ? $"{project.Name}, unsaved changes" : project.Name)"
@@ -90,6 +90,8 @@
         </div>
     }
 </main>
+
+<TabCloseBehavior />
 
 @code {
     [Parameter] public string? FolderProjectId { get; set; }
@@ -160,8 +162,14 @@
         else dirtyProjects.Remove(projectId);
     }
 
+    private void CloseProjectAux(string projectId, MouseEventArgs args)
+    {
+        if (args.Button == 1) RequestClose(projectId);
+    }
+
     private void RequestClose(string projectId)
     {
+        if (pendingCloseProjectId is not null) return;
         if (dirtyProjects.Contains(projectId)) pendingCloseProjectId = projectId;
         else CloseProject(projectId);
     }

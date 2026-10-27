@@ -133,7 +133,10 @@ def verify(base_url: str, browser_executable: str | None) -> None:
                 page.set_viewport_size({"width": 1600, "height": 1000})
                 page.get_by_label("Color theme", exact=True).select_option("vs-code-dark-plus")
                 expect(page.get_by_label("Color theme", exact=True)).to_have_value("vs-code-dark-plus")
-                page.get_by_role("link", name="Connections", exact=True).click()
+                settings = page.locator(".vaw-host-settings")
+                if not settings.evaluate("element => element.open"):
+                    page.locator(".vaw-host-settings > summary").click()
+                page.get_by_role("link", name="MCP connections", exact=True).click()
                 expect(page.locator(".vaw-app-shell")).to_be_visible()
                 expect(page.locator(".vaw-ide-activitybar")).to_be_visible()
                 expect(page.get_by_label("Color theme", exact=True)).to_have_value("vs-code-dark-plus")

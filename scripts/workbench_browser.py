@@ -40,6 +40,13 @@ def show_runs(page):
     expect(page.get_by_role("region", name="Workflow run viewer", exact=True)).to_be_visible()
 
 
+def create_workflow(page):
+    """Create through the Explorer category menu, the IDE's file creation surface."""
+    explorer = page.locator('.vaw-global-explorer')
+    explorer.locator('summary').filter(has_text='workflows/').click(button='right')
+    page.get_by_role('menu', name='Project actions', exact=True).get_by_role('menuitem', name='New workflow', exact=True).click()
+
+
 def new_workflow_fixture(designer):
     """Import the explicit three-node fixture used by legacy configuration tests.
 
@@ -51,7 +58,7 @@ def new_workflow_fixture(designer):
     settings = designer.get_by_role("button", name="Workflow settings", exact=True)
     if settings.is_visible() and settings.get_attribute("aria-expanded") != "true":
         settings.click()
-    designer.get_by_role("button", name="New workflow", exact=True).click()
+    create_workflow(designer.page)
     designer.get_by_text(re.compile("^New workflow created")).wait_for(state="attached")
     definition = {
         "schemaVersion":"1.0", "workflowId":"fixture", "entryNodeId":"input",

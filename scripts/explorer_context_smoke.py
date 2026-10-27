@@ -1,0 +1,130 @@
+"""Right-click Explorer folders and empty space in catalog and folder projects."""
+import argparse
+import contextlib
+import json
+import tempfile
+from pathlib import Path
+from playwright.sync_api import expect, sync_playwright
+
+
+def blank_click(page, explorer):
+    box = explorer.bounding_box()
+    page.mouse.click(box['x'] + box['width'] / 2, box['y'] + box['height'] - 16, button='right')
+
+
+def verify(base, executable):
+    with tempfile.TemporaryDirectory(prefix='vaw-explorer-context-') as temporary, sync_playwright() as playwright:
+        root = Path(temporary)
+        (root / 'Support' / 'Nested').mkdir(parents=True)
+        (root / 'vaw.project.json').write_text(json.dumps({'formatVersion': '1.0', 'projectId': 'context-menu-proof', 'projectName': 'Context menu proof', 'files': [], 'directories': ['Support', 'Support/Nested']}))
+        options = {'headless': True}
+        if executable: options['executable_path'] = executable
+        browser = playwright.chromium.launch(**options)
+        page = browser.new_page(viewport={'width': 1440, 'height': 1000})
+        page.set_default_timeout(8000)
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        try:
+            page.goto(base + '/projects/default', wait_until='networkidle')
+            expect(page.get_by_role('button', name='Save', exact=True)).to_be_enabled()
+            explorer = page.locator('.vaw-global-explorer')
+            blank_click(page, explorer)
+            menu = page.get_by_role('menu', name='Project actions', exact=True)
+            expect(menu).to_be_visible()
+            menu.get_by_role('menuitem', name='New file', exact=False).click()
+            expect(menu.get_by_role('menuitem', name='Workflow', exact=True)).to_be_visible()
+            menu.get_by_role('menuitem', name='Workflow', exact=True).click()
+            expect(page.locator('.vaw-document-save-state')).to_contain_text('Not saved')
+            page.get_by_role('button', name='Save', exact=True).click()
+            expect(page.get_by_role('button', name='Run workflow', exact=True)).to_be_enabled()
+            for folder in ('workflows/', 'agents/', 'skills/', 'functions/'):
+                explorer.locator('summary').filter(has_text=folder).click(button='right')
+                expect(menu).to_be_visible()
+                page.keyboard.press('Escape')
+                expect(menu).not_to_be_visible()
+            explorer.locator('summary').filter(has_text='skills/').click(button='right')
+            menu.get_by_role('menuitem', name='New skill…', exact=True).click()
+            expect(page.get_by_role('heading', name='Create skill revision', exact=True)).to_be_visible()
+            page.goto(base + '/source-project', wait_until='networkidle')
+            disclosure = page.locator('.vaw-open-project-details')
+            if disclosure.count() and not disclosure.evaluate('e => e.open'): disclosure.locator(':scope > summary').click()
+            page.get_by_label('Absolute folder path', exact=True).fill(str(root))
+            page.get_by_role('button', name='Open folder', exact=True).click()
+            source_explorer = page.locator('.vaw-project-folder-editor:not([hidden]) .vaw-project-explorer')
+            expect(source_explorer).to_be_visible()
+            blank_click(page, source_explorer)
+            source_menu = page.locator('.vaw-tree-context-menu')
+            expect(source_menu).to_be_visible()
+            # Even near the bottom edge, the complete menu stays inside the viewport.
+            bounds = source_menu.bounding_box()
+            assert bounds['y'] + bounds['height'] <= 1001, bounds
+            source_menu.get_by_label('New subfolder', exact=True).fill('Root child')
+            source_menu.get_by_role('menuitem', name='Create folder', exact=True).click()
+            expect(source_explorer.locator('summary').filter(has_text='Root child')).to_be_visible()
+            source_explorer.locator('summary').filter(has_text='Nested').click(button='right')
+            expect(source_menu).to_be_visible()
+            expect(source_menu.locator('.vaw-tree-menu-heading')).to_have_text('Nested')
+            source_menu.get_by_role('menuitem', name='New file', exact=False).click()
+            source_menu.get_by_role('menuitem', name='Markdown .md', exact=True).click()
+            expect(page.locator('.monaco-editor')).to_be_visible(timeout=15000)
+            page.get_by_label('File name', exact=True).fill('Notes.md')
+            page.get_by_role('button', name='Save Markdown', exact=True).click()
+            expect(page.get_by_role('button', name='Save Markdown', exact=True)).to_be_disabled()
+            assert (root / 'Support' / 'Nested' / 'Notes.md').is_file()
+            tree_filter = source_explorer.get_by_label('Filter project files', exact=True)
+            tree_filter.fill('Notes.md')
+            expect(source_explorer.get_by_role('button', name='Edit Markdown document Notes.md', exact=True)).to_be_visible()
+            expect(source_explorer.locator('summary').filter(has_text='Support')).to_be_visible()
+            expect(source_explorer.locator('summary').filter(has_text='Nested')).to_be_visible()
+            tree_filter.fill('missing-file')
+            expect(source_explorer.get_by_role('status')).to_contain_text('No files match')
+            source_explorer.get_by_role('button', name='Clear file filter', exact=True).click()
+            expect(source_explorer.get_by_role('button', name='Edit Markdown document Notes.md', exact=True)).to_be_visible()
+            # Recursive file events must retain the documentation callback.
+            page.get_by_role('button', name='Edit Markdown document Notes.md', exact=True).click()
+            expect(page.locator('.monaco-editor')).to_be_visible()
+            page.locator('.monaco-editor').click(position={'x': 100, 'y': 30})
+            page.keyboard.press('Control+End')
+            page.keyboard.type(' Unsaved edits')
+            expect(page.get_by_role('button', name='Save Markdown', exact=True)).to_be_enabled()
+            source_explorer.locator('summary').filter(has_text='Nested').click(button='right')
+            expect(source_menu).to_be_visible()
+            expect(source_menu.get_by_role('status')).to_contain_text('Save or discard')
+            expect(source_menu.get_by_role('menuitem', name='New file', exact=False)).to_be_disabled()
+            page.keyboard.press('Escape')
+            expect(source_menu).not_to_be_visible()
+            blank_click(page, source_explorer)
+            expect(source_menu).to_be_visible()
+            expect(source_menu.get_by_role('status')).to_contain_text('Save or discard')
+            page.screenshot(path='/tmp/vaw-explorer-context-menu.png')
+            # Source-document tabs share the same explicit discard and middle-click close behavior.
+            page.keyboard.press('Escape')
+            file_tabs = page.get_by_role('navigation', name='Open project files', exact=True)
+            expect(file_tabs.locator('.vaw-file-tab')).to_have_count(1)
+            file_tabs.get_by_role('button', name='Close Notes.md', exact=True).click()
+            discard = page.get_by_role('dialog', name='Discard unsaved changes?')
+            expect(discard).to_be_visible()
+            discard.get_by_role('button', name='Keep tab open', exact=True).click()
+            expect(file_tabs.locator('.vaw-file-tab')).to_have_count(1)
+            file_tabs.get_by_role('button', name='Close Notes.md', exact=True).click()
+            discard.get_by_role('button', name='Discard and close', exact=True).click()
+            expect(file_tabs.locator('.vaw-file-tab')).to_have_count(0)
+            source_explorer.get_by_role('button', name='Edit Markdown document Notes.md', exact=True).click()
+            file_tabs = page.get_by_role('navigation', name='Open project files', exact=True)
+            expect(file_tabs.locator('.vaw-file-tab')).to_have_count(1)
+            file_tabs.locator('.vaw-file-tab.is-active').click(button='middle')
+            expect(file_tabs.locator('.vaw-file-tab')).to_have_count(0)
+            assert not errors, errors
+        except Exception:
+            with contextlib.suppress(Exception): page.screenshot(path='/tmp/vaw-explorer-context-failure.png')
+            raise
+        finally: browser.close()
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--base-url', default='http://127.0.0.1:5099')
+    parser.add_argument('--browser-executable')
+    args = parser.parse_args()
+    verify(args.base_url.rstrip('/'), args.browser_executable)
+    print('Explorer blank-space/folder menus, nested creation, edge positioning and dirty-state feedback passed.')

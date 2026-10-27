@@ -1,0 +1,24 @@
+@using Microsoft.JSInterop
+@inject IJSRuntime JavaScript
+<dialog @ref="dialog" class="vaw-discard-dialog" aria-labelledby="@titleId" aria-describedby="@descriptionId" @oncancel="Cancel" @oncancel:preventDefault="true">
+    <h2 id="@titleId">Discard unsaved changes?</h2>
+    <p id="@descriptionId">@Name has unsaved changes. Closing this tab will discard them.</p>
+    <div class="vaw-provider-actions">
+        <button type="button" class="vaw-secondary" autofocus @onclick="Cancel">Keep tab open</button>
+        <button type="button" class="vaw-danger" @onclick="Confirm">Discard and close</button>
+    </div>
+</dialog>
+@code {
+    [Parameter] public string Name { get; set; } = "This document";
+    [Parameter] public EventCallback Cancel { get; set; }
+    [Parameter] public EventCallback Confirm { get; set; }
+    private ElementReference dialog;
+    private readonly string titleId = "discard-title-" + Guid.NewGuid().ToString("N");
+    private readonly string descriptionId = "discard-description-" + Guid.NewGuid().ToString("N");
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await using var module = await JavaScript.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/tabInteractions.js");
+        await module.InvokeVoidAsync("showDiscardDialog", dialog);
+    }
+}

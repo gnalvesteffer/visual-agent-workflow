@@ -14,10 +14,14 @@
         <span class="vaw-ide-product-name">Visual Agent Workflow Studio</span>
         <span class="vaw-ide-title-separator" aria-hidden="true"></span>
         <StudioProjectPicker Projects="ProjectWorkspace.Projects" SelectedProjectId="@SelectedProjectId" Selected="ChangeProject" />
-        <nav class="vaw-ide-title-actions" aria-label="Host connections">
-            <a href="/projects" aria-current="@(ActivePage == "projects" ? "page" : null)" data-vaw-route-link>Projects</a>
-            <a href="/mcp" aria-current="@(ActivePage == "mcp" ? "page" : null)" data-vaw-route-link>Connections</a>
-            <a href="/settings" aria-current="@(ActivePage == "models" ? "page" : null)" data-vaw-route-link>Models</a>
+        <nav class="vaw-ide-title-actions" aria-label="Studio settings and theme">
+            <details class="vaw-host-settings">
+                <summary aria-label="Studio settings">Studio settings</summary>
+                <div class="vaw-host-settings-menu" aria-label="User-specific connections">
+                    <a href="/mcp" aria-current="@(ActivePage == "mcp" ? "page" : null)" data-vaw-route-link>MCP connections</a>
+                    <a href="/settings" aria-current="@(ActivePage == "models" ? "page" : null)" data-vaw-route-link>Model connections</a>
+                </div>
+            </details>
             <StudioThemePicker />
         </nav>
     </header>
@@ -27,43 +31,86 @@
             <a href="/agents" class="@(ActivePage == "agents" ? "is-active" : null)" aria-current="@(ActivePage == "agents" ? "page" : null)" aria-label="Agents" title="Agent library" data-vaw-route-link><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 20c.5-4 2.8-6 7-6s6.5 2 7 6"/></svg><span>Agents</span></a>
             <a href="/skills" class="@(ActivePage == "skills" ? "is-active" : null)" aria-current="@(ActivePage == "skills" ? "page" : null)" aria-label="Skills" title="Skill library" data-vaw-route-link><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM14 3v5h5M8 13h8m-8 4h6"/></svg><span>Skills</span></a>
             <a href="/functions" class="@(ActivePage == "functions" ? "is-active" : null)" aria-current="@(ActivePage == "functions" ? "page" : null)" aria-label="Functions" title="Function library" data-vaw-route-link><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5-6 7 6 7m8-14 6 7-6 7m-2-16-4 18"/></svg><span>Functions</span></a>
-            <a href="/mcp" class="@(ActivePage == "mcp" ? "is-active" : null)" aria-current="@(ActivePage == "mcp" ? "page" : null)" aria-label="MCP library" title="MCP connections" data-vaw-route-link><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M8 7.5 11 16m5-8.5L13 16m-5-10h8"/></svg><span>MCP</span></a>
             <a href="/observe" class="@(ActivePage == "observe" ? "is-active" : null)" aria-current="@(ActivePage == "observe" ? "page" : null)" aria-label="Observe" title="Run history" data-vaw-route-link><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8m0-5v5h5m4-1v5l4 2"/></svg><span>Observe</span></a>
         </nav>
         @if (!IsFolderWorkspace)
         {
-            <aside class="vaw-global-explorer" aria-label="Project explorer">
+            <aside class="vaw-global-explorer" aria-label="Project explorer" tabindex="0" @oncontextmenu="args => OpenExplorerContext(args, string.Empty)" @oncontextmenu:preventDefault="true">
                 <header><strong>EXPLORER</strong><span><button type="button" @onclick="RefreshExplorer" title="Refresh project files" aria-label="Refresh project files"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M5.5 9A7 7 0 0 1 18 6.5L20 12M4 12l2 5.5A7 7 0 0 0 18.5 15" /></svg></button><a href="/source-project" title="Open a folder project" data-vaw-route-link>Open folder</a></span></header>
                 @if (!string.IsNullOrWhiteSpace(explorerError)) { <p role="status" class="vaw-explorer-status">@explorerError</p> }
+                <div class="vaw-project-tree-filter vaw-global-explorer-filter">
+                    <label class="vaw-sr-only" for="catalog-file-filter">Filter project files</label>
+                    <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg>
+                    <input id="catalog-file-filter" type="search" placeholder="Filter files…" @bind="explorerFilter" @bind:event="oninput" />
+                    @if (!string.IsNullOrWhiteSpace(explorerFilter))
+                    { <button type="button" aria-label="Clear file filter" title="Clear filter" @onclick="() => explorerFilter = string.Empty">×</button> }
+                </div>
                 <div class="vaw-explorer-tree">
                     <p class="vaw-explorer-project">⌄ <span>@ProjectWorkspace.CurrentProjectName</span></p>
-                    <details open>
+                    @if (VisibleWorkflows.Count > 0 || string.IsNullOrWhiteSpace(explorerFilter))
+                    {
+                    <details open @oncontextmenu='args => OpenExplorerContext(args, "workflows")' @oncontextmenu:preventDefault="true" @oncontextmenu:stopPropagation="true">
                         <summary>workflows/</summary>
-                        @foreach (var workflow in workflows)
+                        @foreach (var workflow in VisibleWorkflows)
                         {
                             var selected = workflow.Definition.WorkflowId == selectedWorkflowId;
-                            <button type="button" class="vaw-explorer-file @(selected ? "is-selected" : null)" data-workflow-id="@workflow.Definition.WorkflowId" aria-current="@(selected ? "page" : null)" @onclick="() => SelectWorkflow(workflow.Definition.WorkflowId)" title="@workflow.Definition.WorkflowId"><span aria-hidden="true">W</span><span class="vaw-explorer-file-name">@(WorkflowName(workflow.Definition) + ".workflow")</span></button>
+                            <button type="button" class="vaw-explorer-file @(selected ? "is-selected" : null)" data-workflow-id="@workflow.Definition.WorkflowId" aria-current="@(selected ? "page" : null)" @onclick="() => SelectWorkflow(workflow.Definition.WorkflowId)" title="@workflow.Definition.WorkflowId"><StudioFileIcon Kind="workflow"/><span class="vaw-explorer-file-name">@(WorkflowName(workflow.Definition) + ".workflow")</span></button>
                         }
                         @if (workflows.Count == 0) { <span class="vaw-explorer-empty">No saved workflows</span> }
                     </details>
-                    <details>
+                    }
+                    @if (VisibleProfiles.Count > 0 || string.IsNullOrWhiteSpace(explorerFilter))
+                    { <details open="@(!string.IsNullOrWhiteSpace(explorerFilter))" @oncontextmenu='args => OpenExplorerContext(args, "agents")' @oncontextmenu:preventDefault="true" @oncontextmenu:stopPropagation="true">
                         <summary>agents/</summary>
-                        @foreach (var profile in profiles) { <a class="vaw-explorer-file" href="@($"/projects/{Uri.EscapeDataString(SelectedProjectId)}/agents")" data-vaw-route-link><span aria-hidden="true">A</span>@(profile.Profile.Name + ".agent")</a> }
+                        @foreach (var profile in VisibleProfiles) { <a class="vaw-explorer-file" href="@($"/projects/{Uri.EscapeDataString(SelectedProjectId)}/agents")" data-vaw-route-link><StudioFileIcon Kind="agent" />@(profile.Profile.Name + ".agent")</a> }
                         @if (profiles.Count == 0) { <span class="vaw-explorer-empty">No agent profiles</span> }
-                    </details>
-                    <details>
+                    </details> }
+                    @if (VisibleSkills.Count > 0 || string.IsNullOrWhiteSpace(explorerFilter))
+                    { <details open="@(!string.IsNullOrWhiteSpace(explorerFilter))" @oncontextmenu='args => OpenExplorerContext(args, "skills")' @oncontextmenu:preventDefault="true" @oncontextmenu:stopPropagation="true">
                         <summary>skills/</summary>
-                        @foreach (var skill in skills) { <a class="vaw-explorer-file" href="@($"/projects/{Uri.EscapeDataString(SelectedProjectId)}/skills")" data-vaw-route-link><span aria-hidden="true">S</span>@(skill.Skill.Name + ".skill")</a> }
+                        @foreach (var skill in VisibleSkills) { <a class="vaw-explorer-file" href="@($"/projects/{Uri.EscapeDataString(SelectedProjectId)}/skills")" data-vaw-route-link><StudioFileIcon Kind="skill" />@(skill.Skill.Name + ".skill")</a> }
                         @if (skills.Count == 0) { <span class="vaw-explorer-empty">No skills</span> }
-                    </details>
-                    <details>
+                    </details> }
+                    @if (VisibleFunctions.Count > 0 || string.IsNullOrWhiteSpace(explorerFilter))
+                    { <details open="@(!string.IsNullOrWhiteSpace(explorerFilter))" @oncontextmenu='args => OpenExplorerContext(args, "functions")' @oncontextmenu:preventDefault="true" @oncontextmenu:stopPropagation="true">
                         <summary>functions/</summary>
-                        @foreach (var function in functions) { <a class="vaw-explorer-file" href="@($"/projects/{Uri.EscapeDataString(SelectedProjectId)}/functions")" data-vaw-route-link><span aria-hidden="true">ƒ</span>@(function.Function.Definition.FunctionId + ".function")</a> }
+                        @foreach (var function in VisibleFunctions) { <a class="vaw-explorer-file" href="@($"/projects/{Uri.EscapeDataString(SelectedProjectId)}/functions")" data-vaw-route-link><StudioFileIcon Kind="function" />@(function.Function.Definition.FunctionId + ".function")</a> }
                         @if (functions.Count == 0) { <span class="vaw-explorer-empty">No functions</span> }
-                    </details>
-                    <button type="button" class="vaw-explorer-file vaw-explorer-manifest" title="Project metadata"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 3H7a2 2 0 0 0-2 2v2a3 3 0 0 1-3 3 3 3 0 0 1 3 3v2a2 2 0 0 0 2 2h1M12 3h1a2 2 0 0 1 2 2v2a3 3 0 0 0 3 3 3 3 0 0 0-3 3v2a2 2 0 0 1-2 2h-1" /></svg>vaw.project.json</button>
+                    </details> }
+                    @if (string.IsNullOrWhiteSpace(explorerFilter) || "vaw.project.json".Contains(explorerFilter.Trim(), StringComparison.OrdinalIgnoreCase))
+                    { <button type="button" class="vaw-explorer-file vaw-explorer-manifest" title="Project metadata"><StudioFileIcon Kind="file" />vaw.project.json</button> }
+                    @if (!string.IsNullOrWhiteSpace(explorerFilter) && VisibleWorkflows.Count + VisibleProfiles.Count + VisibleSkills.Count + VisibleFunctions.Count == 0 && !"vaw.project.json".Contains(explorerFilter.Trim(), StringComparison.OrdinalIgnoreCase))
+                    { <p class="vaw-explorer-empty" role="status">No files match “@explorerFilter”.</p> }
                 </div>
             </aside>
+        }
+        @if (explorerContext is not null)
+        {
+            <div class="vaw-tree-menu-backdrop" @onclick="CloseExplorerContext" @onkeydown="ExplorerMenuKey">
+                <div class="vaw-tree-context-menu" role="menu" aria-label="Project actions" tabindex="-1" @ref="explorerMenuElement" @onclick:stopPropagation="true">
+                    <p class="vaw-tree-menu-heading">@(explorerContext.Length == 0 ? ProjectWorkspace.CurrentProjectName : explorerContext)</p>
+                    @if (explorerContext.Length == 0)
+                    {
+                        <button type="button" role="menuitem" aria-expanded="@explorerCreateOpen" @onclick="() => explorerCreateOpen = !explorerCreateOpen">New file <span aria-hidden="true">›</span></button>
+                        @if (explorerCreateOpen)
+                        {
+                            <div class="vaw-tree-submenu">
+                                <button type="button" role="menuitem" @onclick="CreateExplorerWorkflow">Workflow</button>
+                                <button type="button" role="menuitem" @onclick='() => OpenExplorerLibrary("agents")'>Agent profile…</button>
+                                <button type="button" role="menuitem" @onclick='() => OpenExplorerLibrary("skills")'>Skill…</button>
+                                <button type="button" role="menuitem" @onclick='() => OpenExplorerLibrary("functions")'>Function…</button>
+                            </div>
+                        }
+                    }
+                    else if (explorerContext == "workflows")
+                    { <button type="button" role="menuitem" @onclick="CreateExplorerWorkflow">New workflow</button> }
+                    else
+                    { <button type="button" role="menuitem" @onclick="() => OpenExplorerLibrary(explorerContext)">@(explorerContext == "agents" ? "New agent profile…" : explorerContext == "skills" ? "New skill…" : "New function…")</button> }
+                    <button type="button" role="menuitem" @onclick="RefreshExplorerContext">Refresh Explorer</button>
+                    <button type="button" role="menuitem" @onclick="OpenFolderContext">Open folder project…</button>
+                    <p class="vaw-tree-menu-heading">Open a folder project for folders and Markdown files.</p>
+                </div>
+            </div>
         }
         <section class="vaw-ide-route-workspace" aria-label="Studio workspace">
             <div class="vaw-ide-route-heading" hidden="@(ActivePage == "workflow" && routeStatus is null)"><span>@CurrentViewName</span>@if (!string.IsNullOrWhiteSpace(routeStatus)) { <span role="status">@routeStatus</span> }</div>
@@ -86,9 +133,45 @@
     private string? selectedWorkflowId;
     private DotNetObjectReference<StudioIdeLayout>? selfReference;
     private string? explorerError;
+    private string explorerFilter = "";
     private string? routeStatus;
     private string? loadedExplorerProjectId;
     private bool disposed;
+    private string? explorerContext;
+    private double explorerMenuX, explorerMenuY;
+    private bool explorerCreateOpen, focusExplorerMenu;
+    private ElementReference explorerMenuElement;
+    private List<WorkflowDraft> VisibleWorkflows => workflows.Where(item => MatchesExplorerFilter(WorkflowName(item.Definition), item.Definition.WorkflowId)).ToList();
+    private List<AgentProfileLibraryItem> VisibleProfiles => profiles.Where(item => MatchesExplorerFilter(item.Profile.Name, item.Profile.Id)).ToList();
+    private List<SkillLibraryItem> VisibleSkills => skills.Where(item => MatchesExplorerFilter(item.Skill.Name, item.Skill.Id)).ToList();
+    private List<GraphFunctionCatalogEntry> VisibleFunctions => functions.Where(item => MatchesExplorerFilter(item.Function.Definition.FunctionId, item.Function.Definition.DisplayName)).ToList();
+    private bool MatchesExplorerFilter(params string?[] values) => string.IsNullOrWhiteSpace(explorerFilter)
+        || values.Any(value => value?.Contains(explorerFilter.Trim(), StringComparison.OrdinalIgnoreCase) == true);
+
+    private void OpenExplorerContext(Microsoft.AspNetCore.Components.Web.MouseEventArgs args, string category)
+    {
+        explorerContext = category;
+        explorerMenuX = args.ClientX; explorerMenuY = args.ClientY;
+        explorerCreateOpen = false; focusExplorerMenu = true;
+    }
+    private void CloseExplorerContext() => explorerContext = null;
+    private void ExplorerMenuKey(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs args)
+    { if (args.Key == "Escape") CloseExplorerContext(); }
+    private async Task RefreshExplorerContext() { CloseExplorerContext(); await RefreshExplorer(); }
+    private void OpenFolderContext() { CloseExplorerContext(); Navigation.NavigateTo("/source-project"); }
+    private void OpenExplorerLibrary(string category)
+    {
+        CloseExplorerContext();
+        Navigation.NavigateTo($"/projects/{Uri.EscapeDataString(SelectedProjectId)}/{category}#create-{category}");
+    }
+    private async Task CreateExplorerWorkflow()
+    {
+        CloseExplorerContext();
+        if (ActivePage != "workflow") { Navigation.NavigateTo(WorkflowRoute); return; }
+        var result = await JavaScript.InvokeAsync<int>("vawStudioIde.createWorkflow");
+        if (result < 0) routeStatus = "Save or discard your edits before creating another workflow.";
+        else if (result == 0) Navigation.NavigateTo(WorkflowRoute);
+    }
     private string SelectedProjectId => IsFolderWorkspace && OpenWorkspace.SelectedProjectId is { } folderId ? folderId : ProjectWorkspace.CurrentProjectId;
     private string SelectedProjectName => ProjectStore.GetActive(SelectedProjectId).Name;
     private string WorkflowRoute => ProjectStore.GetActive(SelectedProjectId).IsFolderBacked
@@ -119,6 +202,11 @@
                 selectedWorkflowId = await JavaScript.InvokeAsync<string?>("vawStudioIde.getSelectedWorkflow");
             }
             catch (Microsoft.JSInterop.JSDisconnectedException) { }
+        }
+        if (explorerContext is not null)
+        {
+            await JavaScript.InvokeVoidAsync("vawStudioIde.layoutExplorerMenu", explorerMenuElement, explorerMenuX, explorerMenuY, focusExplorerMenu);
+            focusExplorerMenu = false;
         }
         if (firstRender || !IsFolderWorkspace) await LoadExplorerAsync();
     }

@@ -34,6 +34,7 @@
                     {
                         <li @key="id" class="@(SelectedNodeId == id ? "is-selected" : null)">
                             <button type="button" aria-pressed="@(SelectedNodeId == id ? "true" : "false")" title="Select @Title(id)" @onclick="() => SelectNode(id)">
+                                <span class="vaw-map-node-icon" aria-hidden="true">@((MarkupString)NodeIcon(Definition.Nodes[id].Type))</span>
                                 <span class="vaw-workflow-map-title">@Title(id)</span>
                                 <span class="vaw-workflow-map-kind">@Kind(Definition.Nodes[id])</span>
                             </button>
@@ -79,7 +80,7 @@
                         <li @key="id" class="vaw-node vaw-edit-node @(NodeClass?.Invoke(id))" data-node-id="@id" data-node-type="@node.Type" data-x="@Number(presentation.Position.X)" data-y="@Number(presentation.Position.Y)" style="@PositionStyle(presentation.Position)">
                             <article>
                                 <button type="button" class="vaw-node-drag" data-drag-node="@id" title="Drag to move, or use arrow keys. Hold Shift for larger steps." aria-label="@(ReadOnly ? $"Inspect node {id}" : $"Move node {id}")" @onclick="() => SelectNode(id)" aria-pressed="@(CurrentSelection == id ? "true" : "false")" @onkeydown="args => NodeKey(id, args)">
-                                    <strong>@Title(id)</strong>@if (Title(id) != Kind(node)) { <span class="vaw-node-kind">@Kind(node)</span> }
+                                    <span class="vaw-node-heading-icon" aria-hidden="true">@((MarkupString)NodeIcon(node.Type))</span><strong>@Title(id)</strong>@if (Title(id) != Kind(node)) { <span class="vaw-node-kind">@Kind(node)</span> }
                                 </button>
                                 <div class="vaw-socket-row">
                                     <div class="vaw-input-ports">
@@ -123,7 +124,7 @@
     @if (NodeInspector is not null && selectedNode is { } selection)
     {
         <aside class="vaw-properties" aria-label="Selected node properties">
-            <header class="vaw-inspector-heading"><span class="vaw-inspector-node-icon" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M5 5h10v10H5zM10 2v3m0 10v3M2 10h3m10 0h3" /></svg></span><div><h3>@(IdeMode ? Title(selection) : InspectorTitle)</h3>@if (IdeMode) { <span>@Kind(Definition.Nodes[selection]) node</span> }</div></header>
+            <header class="vaw-inspector-heading"><span class="vaw-inspector-node-icon" aria-hidden="true">@((MarkupString)NodeIcon(Definition.Nodes[selection].Type))</span><div><h3>@(IdeMode ? Title(selection) : InspectorTitle)</h3>@if (IdeMode) { <span>@Kind(Definition.Nodes[selection]) node</span> }</div></header>
             <label class="vaw-node-selector">@(IdeMode ? "Selected node" : "Node to organize")
                 <select aria-label="Node to organize" value="@selectedNode" @onchange="args => SelectNode(args.Value?.ToString() ?? Definition.EntryNodeId)">
                     @foreach (var id in Order) { <option @key="id" value="@id">@Title(id) (@id)</option> }

@@ -50,15 +50,22 @@ def check(browser, screenshots):
             ("/projects/default/functions", "Functions"),
             ("/projects", "Projects"),
             ("/source-project", "Explorer"),
-            ("/mcp", "MCP library"),
-            ("/settings", "Models"),
+            ("/mcp", "MCP connections"),
+            ("/settings", "Model connections"),
             ("/observe", "Observe"),
         )
         for route, active_page in routes:
             response = page.goto(BASE + route, wait_until="networkidle")
             assert response and response.status == 200, f"Studio page failed to load: {route}"
             navigation = page.locator(".vaw-ide-titlebar")
-            expect(page.get_by_role("link", name=active_page, exact=True)).to_have_attribute("aria-current", "page")
+            if active_page in ("MCP connections", "Model connections"):
+                settings = page.locator(".vaw-host-settings")
+                if not settings.evaluate("element => element.open"):
+                    page.locator(".vaw-host-settings > summary").click()
+            if active_page == "Projects":
+                expect(page.get_by_role("heading", name="Projects", exact=True)).to_be_visible()
+            else:
+                expect(page.get_by_role("link", name=active_page, exact=True)).to_have_attribute("aria-current", "page")
             assert abs(navigation.bounding_box()["width"] - page.viewport_size["width"]) < 1, f"Navigation must span the viewport on {route}"
             assert "gradient" not in navigation.evaluate("element => getComputedStyle(element).backgroundImage"), f"Navigation should use a solid theme surface on {route}"
             if screenshots:
@@ -69,7 +76,14 @@ def check(browser, screenshots):
             response = page.goto(BASE + route, wait_until="networkidle")
             assert response and response.status == 200, f"Studio page failed to load on mobile: {route}"
             navigation = page.locator(".vaw-ide-titlebar")
-            expect(page.get_by_role("link", name=active_page, exact=True)).to_have_attribute("aria-current", "page")
+            if active_page in ("MCP connections", "Model connections"):
+                settings = page.locator(".vaw-host-settings")
+                if not settings.evaluate("element => element.open"):
+                    page.locator(".vaw-host-settings > summary").click()
+            if active_page == "Projects":
+                expect(page.get_by_role("heading", name="Projects", exact=True)).to_be_visible()
+            else:
+                expect(page.get_by_role("link", name=active_page, exact=True)).to_have_attribute("aria-current", "page")
             expect(current_project(page)).to_be_visible()
             assert abs(navigation.bounding_box()["width"] - page.viewport_size["width"]) < 1, f"Mobile navigation must span the viewport on {route}"
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), f"The page must not create horizontal scrolling on mobile: {route}"
@@ -81,9 +95,11 @@ def check(browser, screenshots):
                     .map(input => input.getAttribute('aria-label') || input.type || input.outerHTML)""")
                 assert not overflow, f"Project form fields must fit the page on mobile: {route}: {overflow}"
 
-        page.get_by_role("link", name="Models", exact=True).click()
+        page.locator(".vaw-host-settings > summary").click()
+        page.get_by_role("link", name="Model connections", exact=True).click()
         expect(page.get_by_role("heading", name="Model connections", exact=True)).to_be_visible()
-        page.get_by_role("link", name="Projects", exact=True).click()
+        current_project(page).click()
+        page.get_by_role("link", name="Manage projects…", exact=True).click()
         expect(page.get_by_role("heading", name="Projects", exact=True)).to_be_visible()
 
         page.goto(BASE + "/projects/default/functions", wait_until="networkidle")
@@ -160,7 +176,8 @@ def check(browser, screenshots):
         assert page.locator("body").evaluate("element=>getComputedStyle(element).backgroundColor") == "rgb(0, 0, 0)"
         theme_picker.select_option("nord")
         page.wait_for_function("document.documentElement.dataset.vawTheme === 'nord'")
-        page.get_by_role("link", name="Models", exact=True).click()
+        page.locator(".vaw-host-settings > summary").click()
+        page.get_by_role("link", name="Model connections", exact=True).click()
         expect(page.get_by_role("heading", name="Model connections", exact=True)).to_be_visible()
         expect(page.get_by_label("Color theme", exact=True)).to_have_value("nord")
         expect(page.locator("html")).to_have_attribute("data-vaw-theme", "nord")
