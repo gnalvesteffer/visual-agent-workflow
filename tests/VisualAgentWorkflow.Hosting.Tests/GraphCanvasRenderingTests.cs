@@ -61,10 +61,12 @@ public sealed class GraphCanvasRenderingTests
         var events = ImmutableArray.Create(
             new ExecutionEvent(runId, revision.RevisionId, 1, DateTimeOffset.UtcNow, ExecutionEventKinds.NodeStarted, "step-1", invocationId),
             new ExecutionEvent(runId, revision.RevisionId, 2, DateTimeOffset.UtcNow, ExecutionEventKinds.AgentStarted, "step-1", invocationId,
-                Data: """{"provider":{"ModelId":"test-model","ContextWindowTokens":8000,"InputCostPerMillionTokens":1.5,"OutputCostPerMillionTokens":3.0,"CacheReadCostPerMillionTokens":0.2,"CacheWriteCostPerMillionTokens":0.4}}"""),
-            new ExecutionEvent(runId, revision.RevisionId, 3, DateTimeOffset.UtcNow, ExecutionEventKinds.ModelResponded, "step-1", invocationId,
+                Data: """{"provider":{"ModelId":"test-model","ContextWindowTokens":8000,"InputCostPerMillionTokens":1.5,"OutputCostPerMillionTokens":3.0,"CacheReadCostPerMillionTokens":0.2,"CacheWriteCostPerMillionTokens":0.4},"maximumTurns":8}"""),
+            new ExecutionEvent(runId, revision.RevisionId, 3, DateTimeOffset.UtcNow, ExecutionEventKinds.ModelRequested, "step-1", invocationId,
+                Data: """{"modelCallId":"request-1"}"""),
+            new ExecutionEvent(runId, revision.RevisionId, 4, DateTimeOffset.UtcNow, ExecutionEventKinds.ModelResponded, "step-1", invocationId,
                 Data: """{"modelCallId":"response-1","ModelId":"test-model","usage":{"InputTokenCount":1200,"OutputTokenCount":200,"TotalTokenCount":1400,"CachedInputTokenCount":200,"cacheWriteInputTokenCount":100,"ReasoningTokenCount":50}}"""),
-            new ExecutionEvent(runId, revision.RevisionId, 4, DateTimeOffset.UtcNow, ExecutionEventKinds.AgentContextCompacted, "step-1", invocationId));
+            new ExecutionEvent(runId, revision.RevisionId, 5, DateTimeOffset.UtcNow, ExecutionEventKinds.AgentContextCompacted, "step-1", invocationId));
         var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
             revision.ContentHash, definition, "question"), events);
         using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
@@ -78,12 +80,49 @@ public sealed class GraphCanvasRenderingTests
         });
 
         Assert.Contains("Tokens · 1,200 in / 200 out", html);
+        Assert.Contains("Model turns · 1 / 8", html);
         Assert.Contains("Cache · 200 read / 100 write", html);
         Assert.Contains("Reasoning · 50 tokens (included in output)", html);
-        Assert.Contains("Context · 1,200 / 8,000 (15%)", html);
+        Assert.Contains("Last completed context · 1,200 / 8,000 (15%)", html);
         Assert.Contains("Host context compactions · 1", html);
         Assert.Contains("Estimated cost · $0.002030", html);
         Assert.Contains("test-model", html);
+    }
+
+    [Fact]
+    public async Task AgentNodeDoesNotRenderMissingProviderUsageAsZeroes()
+    {
+        var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.2" };
+        var definition = baseline with { Nodes = baseline.Nodes.SetItem("step-1", new(NodeTypes.Agent, "1.0.0",
+            Agent: new("connection.current", null, "Answer the question.", []))) };
+        var revision = WorkflowRevision.Create(definition, "test");
+        var runId = Guid.NewGuid();
+        var invocationId = Guid.NewGuid();
+        var events = ImmutableArray.Create(
+            new ExecutionEvent(runId, revision.RevisionId, 1, DateTimeOffset.UtcNow, ExecutionEventKinds.NodeStarted, "step-1", invocationId),
+            new ExecutionEvent(runId, revision.RevisionId, 2, DateTimeOffset.UtcNow, ExecutionEventKinds.AgentStarted, "step-1", invocationId,
+                Data: """{"provider":{"ModelId":"test-model","ContextWindowTokens":128000},"maximumTurns":16}"""),
+            new ExecutionEvent(runId, revision.RevisionId, 3, DateTimeOffset.UtcNow, ExecutionEventKinds.ModelRequested, "step-1", invocationId,
+                Data: """{"modelCallId":"request-1"}"""),
+            new ExecutionEvent(runId, revision.RevisionId, 4, DateTimeOffset.UtcNow, ExecutionEventKinds.ModelResponded, "step-1", invocationId,
+                Data: """{"modelCallId":"response-1","ModelId":"test-model","finishReason":"stop"}"""));
+        var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
+            revision.ContentHash, definition, "question"), events);
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<WorkflowRunViewer>(ParameterView.FromDictionary(
+                new Dictionary<string, object?> { [nameof(WorkflowRunViewer.Snapshot)] = snapshot }));
+            return component.ToHtmlString();
+        });
+
+        Assert.Contains("Model turns · 1 / 16", html);
+        Assert.Contains("Tokens · unavailable (provider did not report usage)", html);
+        Assert.Contains("Context window · 128,000 tokens; prompt usage pending", html);
+        Assert.DoesNotContain("Tokens · 0 in / 0 out", html);
+        Assert.DoesNotContain("Context · 0 / 0", html);
     }
 
     [Fact]

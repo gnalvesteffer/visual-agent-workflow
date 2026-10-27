@@ -41,8 +41,8 @@
                 @if (node.Type == NodeTypes.Agent && AgentMetrics(nodeId) is { } metrics)
                 {
                     <div class="vaw-agent-metrics" aria-label="Agent usage statistics">
-                        <span title="Counts recorded model requests for this agent and its delegated agents.">Model turns · @metrics.ModelTurns</span>
-                        @if (metrics.ResponseCount == 0) { <span>Waiting for provider usage</span> }
+                        <span title="Counts recorded model requests for this agent and its delegated agents.">Model turns · @metrics.ModelTurns@(metrics.ModelTurnLimit is { } turnLimit ? $" / {turnLimit:N0}" : null)</span>
+                        @if (!metrics.HasReportedUsage) { <span>Tokens · unavailable (provider did not report usage)</span> }
                         else
                         {
                             <span>Tokens · @metrics.InputTokens.ToString("N0") in / @metrics.OutputTokens.ToString("N0") out</span>
@@ -63,7 +63,7 @@
                                 <span>Cost estimate · unavailable (configure prices and token usage)</span>
                             }
                         }
-                        @if (metrics.ContextWindowTokens is { } contextWindow && metrics.LatestInputTokens is { } contextInput)
+                        @if (metrics.ContextWindowTokens is > 0 and { } contextWindow && metrics.LatestInputTokens is { } contextInput)
                         {
                             var percent = Math.Clamp((int)Math.Round(contextInput * 100d / contextWindow), 0, 100);
                             <label>@(metrics.ModelRequestInFlight ? "Last completed context" : "Context") · @contextInput.ToString("N0") / @contextWindow.ToString("N0") (@percent%)
@@ -302,7 +302,7 @@
     private sealed record AgentUsageStatistics(long InputTokens, long OutputTokens, int ResponseCount,
         long? LatestInputTokens, int? ContextWindowTokens, decimal EstimatedCost, bool CostIsComplete, string? ModelId,
         bool ModelRequestInFlight, int ModelTurns, int CompactionCount, long? CachedInputTokens,
-        long? CacheWriteInputTokens, long? ReasoningTokens);
+        long? CacheWriteInputTokens, long? ReasoningTokens, bool HasReportedUsage, int? ModelTurnLimit);
 
     private AgentUsageStatistics? AgentMetrics(string nodeId)
     {
@@ -321,11 +321,12 @@
         var responseCallIds = responses.Select(ModelCallId).Where(id => id is not null).ToHashSet(StringComparer.Ordinal);
         var requestInFlight = requests.Any(request => ModelCallId(request) is { } callId && !responseCallIds.Contains(callId));
         var compactionCount = modelEvents.Count(evt => evt.Kind == ExecutionEventKinds.AgentContextCompacted);
+        var rootProvider = providers.GetValueOrDefault(invocation.Value);
+        var modelTurnLimit = rootProvider?.MaximumTurns;
         if (responses.Length == 0)
         {
-            var rootProvider = providers.GetValueOrDefault(invocation.Value);
             return rootProvider is null ? null : new(0, 0, 0, null, rootProvider.ContextWindowTokens, 0, false,
-                rootProvider.ModelId, requestInFlight, requests.Length, compactionCount, null, null, null);
+                rootProvider.ModelId, requestInFlight, requests.Length, compactionCount, null, null, null, false, modelTurnLimit);
         }
 
         long inputTokens = 0;
@@ -337,10 +338,11 @@
         var allCacheReadsReported = true;
         var allCacheWritesReported = true;
         var allReasoningCountsReported = true;
-        int? contextWindow = null;
+        int? contextWindow = rootProvider?.ContextWindowTokens;
         decimal estimatedCost = 0;
         var costComplete = true;
         string? modelId = null;
+        var reportedResponseCount = 0;
         foreach (var response in responses)
         {
             var provider = providers[response.InvocationId!.Value];
@@ -351,6 +353,7 @@
                 allCacheReadsReported = allCacheWritesReported = allReasoningCountsReported = false;
                 continue;
             }
+            reportedResponseCount++;
 
             var input = usage.InputTokens;
             var output = usage.OutputTokens;
@@ -390,11 +393,11 @@
             if (cacheWriteTokens > 0) estimatedCost += cacheWriteTokens * provider.CacheWriteCostPerMillionTokens!.Value / 1_000_000m;
         }
 
-        return new(inputTokens, outputTokens, responses.Length, latestInputTokens, contextWindow, estimatedCost, costComplete,
+        return new(inputTokens, outputTokens, reportedResponseCount, latestInputTokens, contextWindow, estimatedCost, costComplete,
             modelId, requestInFlight, requests.Length, compactionCount,
             allCacheReadsReported ? cachedInputTokens : null,
             allCacheWritesReported ? cacheWriteInputTokens : null,
-            allReasoningCountsReported ? reasoningTokens : null);
+            allReasoningCountsReported ? reasoningTokens : null, reportedResponseCount > 0, modelTurnLimit);
     }
 
     private static string? ModelCallId(ExecutionEvent evt) =>
@@ -403,14 +406,14 @@
 
     private sealed record ProviderUsage(int? ContextWindowTokens, decimal? InputCostPerMillionTokens,
         decimal? OutputCostPerMillionTokens, decimal? CacheReadCostPerMillionTokens,
-        decimal? CacheWriteCostPerMillionTokens, string? ModelId);
+        decimal? CacheWriteCostPerMillionTokens, string? ModelId, int? MaximumTurns);
 
     private static ProviderUsage? ProviderUsageFromAgentStart(ExecutionEvent evt)
     {
         if (!TryParse(evt.Data, out var root) || !TryGet(root, "provider", out var provider)) return null;
         var context = TryGet(provider, "ContextWindowTokens", out var contextElement) &&
             contextElement.ValueKind == JsonValueKind.Number && contextElement.TryGetInt32(out var contextValue)
-                ? contextValue : (int?)null;
+                ? Math.Max(0, contextValue) : (int?)null;
         var inputRate = TryGet(provider, "InputCostPerMillionTokens", out var inputElement) &&
             inputElement.ValueKind == JsonValueKind.Number && inputElement.TryGetDecimal(out var inputValue)
                 ? inputValue : (decimal?)null;
@@ -425,7 +428,10 @@
                 ? cacheWriteValue : (decimal?)null;
         var model = TryGet(provider, "ModelId", out var modelElement) && modelElement.ValueKind == JsonValueKind.String
             ? modelElement.GetString() : null;
-        return new(context, inputRate, outputRate, cacheReadRate, cacheWriteRate, model);
+        var maximumTurns = TryGet(root, "maximumTurns", out var turnsElement) &&
+            turnsElement.ValueKind == JsonValueKind.Number && turnsElement.TryGetInt32(out var turnsValue) && turnsValue > 0
+                ? turnsValue : (int?)null;
+        return new(context is > 0 ? context : null, inputRate, outputRate, cacheReadRate, cacheWriteRate, model, maximumTurns);
     }
 
     private sealed record RecordedUsage(long InputTokens, long OutputTokens, long? CachedInputTokens,

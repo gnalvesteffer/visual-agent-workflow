@@ -33,6 +33,7 @@ public sealed class McpToolConnection(McpClient client, IAsyncDisposable? lifeti
 
 public sealed class McpToolBroker : INodeToolBroker
 {
+    private const int MaximumInvocationsPerScope = 16;
     private IReadOnlyDictionary<string, McpToolRegistration> registrations;
     private readonly IToolAuthorizationPolicy policy;
     private readonly TimeSpan timeout;
@@ -171,7 +172,7 @@ public sealed class McpToolBroker : INodeToolBroker
                 { toolCallId, parentToolCallId = invocation.ParentToolCallId, bindingId, reason = "No effective node grant." });
                 throw new ToolAccessDeniedException();
             }
-            if (Interlocked.Increment(ref calls) > 8 || arguments.ValueKind != JsonValueKind.Object || arguments.GetRawText().Length > 16_384)
+            if (Interlocked.Increment(ref calls) > MaximumInvocationsPerScope || arguments.ValueKind != JsonValueKind.Object || arguments.GetRawText().Length > 16_384)
             {
                 await Record(ExecutionEventKinds.ToolDenied, new
                 { toolCallId, parentToolCallId = invocation.ParentToolCallId, bindingId, reason = "Invocation budget exceeded." });

@@ -317,6 +317,22 @@ public class BrokerTests
     }
 
     [Fact]
+    public async Task InvocationScopeAllowsSixteenCallsAndDeniesTheSeventeenth()
+    {
+        var broker = CreateBroker(policy: new DemoToolPolicy());
+        var reverse = (await broker.ListBindingsAsync()).Single(binding => binding.BindingId == "demo.reverse");
+        var events = new List<string>();
+        await using var scope = broker.OpenScope(Invocation(Revision(reverse), events));
+
+        for (var index = 0; index < 16; index++)
+            Assert.Equal("x", await scope.InvokeAsync(reverse.BindingId, "x"));
+
+        await Assert.ThrowsAsync<ToolInvocationException>(() => scope.InvokeAsync(reverse.BindingId, "call 16"));
+        Assert.Equal(16, events.Count(kind => kind == ExecutionEventKinds.ToolCompleted));
+        Assert.Equal(1, events.Count(kind => kind == ExecutionEventKinds.ToolDenied));
+    }
+
+    [Fact]
     public async Task NonReadOnlyRegistrationsFailClosedEvenWithAHostGrant()
     {
         var descriptor = new ToolBindingDescriptor("demo.reverse", "reverse", "demo-text", "reverse", new string('0', 64));
