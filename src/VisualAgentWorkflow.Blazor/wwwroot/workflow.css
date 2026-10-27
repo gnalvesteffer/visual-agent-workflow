@@ -335,6 +335,12 @@
 .vaw-properties { padding: var(--vaw-space-4); border: 1px solid var(--vaw-border); border-inline-start: 0; background: var(--vaw-surface); max-block-size: 40rem; overflow: auto; min-inline-size: 0; }
 .vaw-properties h3 { margin-block-start: 0; }
 .vaw-properties :where(input:not([type="checkbox"]), textarea, select) { inline-size: 100%; min-inline-size: 0; font-size: .875rem; }
+.vaw-comment-editor { position: relative; display: block; }
+.vaw-comment-editor textarea { padding-inline-end: 2.75rem; resize: vertical; }
+.vaw-comment-expand { position: absolute; inset-inline-end: .35rem; inset-block-end: .35rem; display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; padding: 0; border: 1px solid var(--vaw-control-border); border-radius: var(--vaw-control-radius); color: var(--vaw-muted); background: var(--vaw-control); }
+.vaw-comment-expand:hover { color: var(--vaw-text); border-color: var(--vaw-accent); }
+.vaw-comment-expand:focus-visible { color: var(--vaw-text); border-color: var(--vaw-focus); outline: 3px solid var(--vaw-focus); outline-offset: 2px; }
+.vaw-comment-expand svg { inline-size: 1rem; block-size: 1rem; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.35; }
 .vaw-properties fieldset { border: 0; padding: 0; margin: 0; min-inline-size: 0; }
 .vaw-json-value-schema { min-inline-size: 0; margin-block: var(--vaw-space-3); padding-inline-start: var(--vaw-space-3); border-inline-start: 2px solid var(--vaw-border); }
 .vaw-json-value-schema > fieldset { min-inline-size: 0; margin-block: var(--vaw-space-3); padding: var(--vaw-space-3); border: 1px solid var(--vaw-border); border-radius: var(--vaw-panel-radius); background: color-mix(in srgb, var(--vaw-surface) 72%, var(--vaw-canvas)); }

@@ -14,6 +14,24 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
     private readonly string directory = Path.Combine(Path.GetTempPath(), "vaw-source-archive-" + Guid.NewGuid().ToString("N"));
 
     [Fact]
+    public void WorkflowLayout_PersistsCommentEditorExpansion()
+    {
+        var definition = WorkflowTemplates.Create("uppercase-reverse");
+        var initial = WorkflowLayout.Create(definition);
+        var layout = initial with
+        {
+            Nodes = initial.Nodes.SetItem("step-1",
+                initial.Nodes["step-1"] with
+                { Comment = "A long annotation.", CommentExpanded = true })
+        };
+
+        var restored = WorkflowLayoutJson.Deserialize(WorkflowLayoutJson.Serialize(layout, definition), definition);
+
+        Assert.True(restored.Nodes["step-1"].CommentExpanded);
+        Assert.Equal("A long annotation.", restored.Nodes["step-1"].Comment);
+    }
+
+    [Fact]
     public async Task CreateAsync_ExportsDeterministicManifestAndWorkflowAndSkillFiles()
     {
         var projectStore = new StudioProjectStore(directory);

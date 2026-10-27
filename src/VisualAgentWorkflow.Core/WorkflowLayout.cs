@@ -81,7 +81,7 @@ public sealed record WorkflowLayout(string SchemaVersion,
 }
 
 public sealed record GraphPoint(double X, double Y);
-public sealed record NodePresentation(GraphPoint Position, string Label = "", string Comment = "");
+public sealed record NodePresentation(GraphPoint Position, string Label = "", string Comment = "", bool CommentExpanded = false);
 /// <summary>Angle is an optional pinned tangent in degrees, clockwise in screen coordinates.</summary>
 public sealed record WireWaypoint(GraphPoint Position, double? Angle = null);
 public sealed record WirePresentation(string Style, ImmutableArray<WireWaypoint> Points);

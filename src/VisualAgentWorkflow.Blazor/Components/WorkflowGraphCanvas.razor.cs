@@ -382,6 +382,9 @@ public partial class WorkflowGraphCanvas
         { Nodes = Layout.Nodes.SetItem(id, Layout.Nodes[id] with { Label = args.Value?.ToString() ?? "" }) });
     private Task Comment(string id, ChangeEventArgs args) => Emit(Layout with
         { Nodes = Layout.Nodes.SetItem(id, Layout.Nodes[id] with { Comment = args.Value?.ToString() ?? "" }) });
+    private Task ToggleCommentExpanded(string id) => Layout.Nodes.TryGetValue(id, out var node)
+        ? Emit(Layout with { Nodes = Layout.Nodes.SetItem(id, node with { CommentExpanded = !node.CommentExpanded }) })
+        : Task.CompletedTask;
     private Task Coordinate(string id, ChangeEventArgs args, bool x) => Parse(args, out var value)
         ? MoveNode(id, x ? value : Layout.Nodes[id].Position.X, x ? Layout.Nodes[id].Position.Y : value) : Task.CompletedTask;
     private void ToggleMember(string id, ChangeEventArgs args) { if (args.Value is true) members.Add(id); else members.Remove(id); }

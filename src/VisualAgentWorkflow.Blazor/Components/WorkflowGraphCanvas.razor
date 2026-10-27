@@ -161,7 +161,19 @@
                     @if (selectedNode is { } nodeId && Layout.Nodes.TryGetValue(nodeId, out var detail))
                     {
                         <label>Node label <input aria-label="Node label" value="@detail.Label" maxlength="160" @onchange="args => Label(nodeId, args)" /></label>
-                        <label>Node comment <textarea aria-label="Node comment" rows="6" maxlength="4000" value="@detail.Comment" @onchange="args => Comment(nodeId, args)"></textarea></label>
+                        <label>Node comment
+                            <span class="vaw-comment-editor">
+                                <textarea aria-label="Node comment" rows="@(detail.CommentExpanded ? 12 : 6)" maxlength="4000" value="@detail.Comment" @onchange="args => Comment(nodeId, args)"></textarea>
+                                <button type="button" class="vaw-comment-expand" aria-label="@(detail.CommentExpanded ? "Collapse node comment" : "Expand node comment")" aria-expanded="@(detail.CommentExpanded ? "true" : "false")" title="@(detail.CommentExpanded ? "Collapse comment editor" : "Expand comment editor")" @onclick="() => ToggleCommentExpanded(nodeId)">
+                                    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                                        @if (detail.CommentExpanded)
+                                        { <path d="m3 6 5 5 5-5M3 10l5 5 5-5" /> }
+                                        else
+                                        { <path d="m3 10 5-5 5 5M3 6l5-5 5 5" /> }
+                                    </svg>
+                                </button>
+                            </span>
+                        </label>
                         <div class="vaw-coordinate-fields">
                             <label>Node X <input type="number" min="0" max="32768" step="8" value="@Number(detail.Position.X)" @onchange="args => Coordinate(nodeId, args, true)" /></label>
                             <label>Node Y <input type="number" min="0" max="32768" step="8" value="@Number(detail.Position.Y)" @onchange="args => Coordinate(nodeId, args, false)" /></label>
@@ -195,7 +207,19 @@
                     @if (selectedNode is { } nodeId && Layout.Nodes.TryGetValue(nodeId, out var detail))
                     {
                         <label>Node label <input aria-label="Node label" value="@detail.Label" maxlength="160" @onchange="args => Label(nodeId, args)" /></label>
-                        <label>Node comment <textarea aria-label="Node comment" rows="6" maxlength="4000" value="@detail.Comment" @onchange="args => Comment(nodeId, args)"></textarea></label>
+                        <label>Node comment
+                            <span class="vaw-comment-editor">
+                                <textarea aria-label="Node comment" rows="@(detail.CommentExpanded ? 12 : 6)" maxlength="4000" value="@detail.Comment" @onchange="args => Comment(nodeId, args)"></textarea>
+                                <button type="button" class="vaw-comment-expand" aria-label="@(detail.CommentExpanded ? "Collapse node comment" : "Expand node comment")" aria-expanded="@(detail.CommentExpanded ? "true" : "false")" title="@(detail.CommentExpanded ? "Collapse comment editor" : "Expand comment editor")" @onclick="() => ToggleCommentExpanded(nodeId)">
+                                    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                                        @if (detail.CommentExpanded)
+                                        { <path d="m3 6 5 5 5-5M3 10l5 5 5-5" /> }
+                                        else
+                                        { <path d="m3 10 5-5 5 5M3 6l5-5 5 5" /> }
+                                    </svg>
+                                </button>
+                            </span>
+                        </label>
                         <div class="vaw-coordinate-fields">
                             <label>Node X <input type="number" min="0" max="32768" step="8" value="@Number(detail.Position.X)" @onchange="args => Coordinate(nodeId, args, true)" /></label>
                             <label>Node Y <input type="number" min="0" max="32768" step="8" value="@Number(detail.Position.Y)" @onchange="args => Coordinate(nodeId, args, false)" /></label>

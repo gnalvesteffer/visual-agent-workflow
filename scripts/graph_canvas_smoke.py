@@ -91,6 +91,10 @@ def check(browser, screenshots):
     inspect_control(designer, "Move node step-1")
     expect(workbench(designer).get_by_role("spinbutton", name="Node X", exact=True)).to_have_value(str(moved_x))
     expect(workbench(designer).get_by_label("Node comment", exact=True)).to_have_attribute("rows", "6")
+    expand_comment = workbench(designer).get_by_role("button", name="Expand node comment", exact=True)
+    expand_comment.click()
+    expect(workbench(designer).get_by_label("Node comment", exact=True)).to_have_attribute("rows", "12")
+    expect(expand_comment).to_have_attribute("aria-expanded", "true")
     workbench(designer).get_by_label("Node label", exact=True).fill("Normalize input")
     short_comment = "Short note."
     workbench(designer).get_by_label("Node comment", exact=True).fill(short_comment)
@@ -214,6 +218,7 @@ def check(browser, screenshots):
     saved = design()
     assert saved["draft"]["definition"] == definition, "Presentation editing changed executable JSON"
     assert saved["layout"]["nodes"]["step-1"]["label"] == "Normalize input"
+    assert saved["layout"]["nodes"]["step-1"]["commentExpanded"] is True
     assert saved["layout"]["wires"]["link-1"]["points"][0]["angle"] == 90
     assert list(saved["layout"]["sections"].values())[0]["label"] == "Text preparation"
 
@@ -223,6 +228,15 @@ def check(browser, screenshots):
     designer = open_editor()
     canvas = workbench(designer).locator(".vaw-graph-editor")
     expect(inspect_control(designer, "Move node step-1").get_by_role("button", name="Move node step-1", exact=True)).to_contain_text("Normalize input")
+    expect(inspect_control(designer, "Move node step-1").get_by_label("Node comment", exact=True)).to_have_attribute("rows", "12")
+    collapse_comment = inspect_control(designer, "Move node step-1").get_by_role("button", name="Collapse node comment", exact=True)
+    collapse_comment.click()
+    expect(inspect_control(designer, "Move node step-1").get_by_label("Node comment", exact=True)).to_have_attribute("rows", "6")
+    expect(inspect_control(designer, "Move node step-1").get_by_role("button", name="Expand node comment", exact=True)).to_have_attribute("aria-expanded", "false")
+    workbench(designer).locator("[data-graph-save]").click()
+    expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Draft saved")
+    saved = design()
+    assert saved["layout"]["nodes"]["step-1"]["commentExpanded"] is False
     expect(canvas.get_by_role("button", name="Reroute 1 on link-1", exact=True)).to_be_attached()
     expect(inspect_control(designer, "Move section Text preparation").get_by_role("button", name="Move section Text preparation", exact=True)).to_be_attached()
     header = inspect_control(designer, "Move node step-1").get_by_role("button", name="Move node step-1", exact=True)
