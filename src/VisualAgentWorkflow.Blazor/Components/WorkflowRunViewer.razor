@@ -46,6 +46,8 @@
                         else
                         {
                             <span>Tokens · @metrics.InputTokens.ToString("N0") in / @metrics.OutputTokens.ToString("N0") out</span>
+                            @if (metrics.CacheReadTokens > 0 || metrics.CacheWriteTokens > 0)
+                            { <span>Cache · @metrics.CacheReadTokens.ToString("N0") read / @metrics.CacheWriteTokens.ToString("N0") write</span> }
                             @if (metrics.CostIsComplete && metrics.ResponseCount > 0)
                             {
                                 <span>Estimated cost · $@metrics.EstimatedCost.ToString("0.000000")</span>
@@ -72,7 +74,6 @@
                         }
                         @if (metrics.ModelRequestInFlight) { <span>Model request in progress · current usage updates when it responds</span> }
                         <span>Host context compactions · @metrics.CompactionCount</span>
-                        <small>Provider-internal compactions are not observable.</small>
                         @if (metrics.ModelId is { Length: > 0 } modelId) { <small>@modelId</small> }
                     </div>
                 }
@@ -288,7 +289,7 @@
         return description;
     }
 
-    private sealed record AgentUsageStatistics(long InputTokens, long OutputTokens, int ResponseCount,
+    private sealed record AgentUsageStatistics(long InputTokens, long OutputTokens, long CacheReadTokens, long CacheWriteTokens, int ResponseCount,
         long? LatestInputTokens, int? ContextWindowTokens, decimal EstimatedCost, bool CostIsComplete, string? ModelId,
         bool ModelRequestInFlight, int ModelTurns, int CompactionCount);
 
@@ -312,12 +313,14 @@
         if (responses.Length == 0)
         {
             var rootProvider = providers.GetValueOrDefault(invocation.Value);
-            return rootProvider is null ? null : new(0, 0, 0, null, rootProvider.ContextWindowTokens, 0, false,
+            return rootProvider is null ? null : new(0, 0, 0, 0, 0, null, rootProvider.ContextWindowTokens, 0, false,
                 rootProvider.ModelId, requestInFlight, requests.Length, compactionCount);
         }
 
         long inputTokens = 0;
         long outputTokens = 0;
+        long cacheReadTokens = 0;
+        long cacheWriteTokens = 0;
         long? latestInputTokens = null;
         int? contextWindow = null;
         decimal estimatedCost = 0;
@@ -327,7 +330,7 @@
         {
             var provider = providers[response.InvocationId!.Value];
             modelId = ModelIdFromResponse(response) ?? provider?.ModelId ?? modelId;
-            if (!TryGetUsage(response.Data, out var input, out var output))
+            if (!TryGetUsage(response.Data, out var input, out var output, out var cacheRead, out var cacheWrite))
             {
                 costComplete = false;
                 continue;
@@ -335,15 +338,32 @@
 
             inputTokens = checked(inputTokens + input);
             outputTokens = checked(outputTokens + output);
+            cacheReadTokens = checked(cacheReadTokens + cacheRead.GetValueOrDefault());
+            cacheWriteTokens = checked(cacheWriteTokens + cacheWrite.GetValueOrDefault());
             latestInputTokens = input;
             contextWindow = provider?.ContextWindowTokens;
-            if (provider is not null && provider.InputCostPerMillionTokens is { } inputRate && provider.OutputCostPerMillionTokens is { } outputRate)
-                estimatedCost += input * inputRate / 1_000_000m + output * outputRate / 1_000_000m;
-            else
+            if (provider is null || provider.InputCostPerMillionTokens is not { } inputRate || provider.OutputCostPerMillionTokens is not { } outputRate)
                 costComplete = false;
+            else
+            {
+                var uncachedInput = cacheRead is { } readUsage ? Math.Max(0, input - readUsage) : input;
+                estimatedCost += uncachedInput * inputRate / 1_000_000m + output * outputRate / 1_000_000m;
+                if (cacheRead is { } readCost && readCost > 0)
+                {
+                    if (provider.CacheReadCostPerMillionTokens is { } cacheReadRate)
+                        estimatedCost += readCost * cacheReadRate / 1_000_000m;
+                    else costComplete = false;
+                }
+                if (cacheWrite is { } write && write > 0)
+                {
+                    if (provider.CacheWriteCostPerMillionTokens is { } cacheWriteRate)
+                        estimatedCost += write * cacheWriteRate / 1_000_000m;
+                    else costComplete = false;
+                }
+            }
         }
 
-        return new(inputTokens, outputTokens, responses.Length, latestInputTokens, contextWindow, estimatedCost, costComplete,
+        return new(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, responses.Length, latestInputTokens, contextWindow, estimatedCost, costComplete,
             modelId, requestInFlight, requests.Length, compactionCount);
     }
 
@@ -352,7 +372,8 @@
             ? callId.GetString() : null;
 
     private sealed record ProviderUsage(int? ContextWindowTokens, decimal? InputCostPerMillionTokens,
-        decimal? OutputCostPerMillionTokens, string? ModelId);
+        decimal? OutputCostPerMillionTokens, decimal? CacheReadCostPerMillionTokens,
+        decimal? CacheWriteCostPerMillionTokens, string? ModelId);
 
     private static ProviderUsage? ProviderUsageFromAgentStart(ExecutionEvent evt)
     {
@@ -366,18 +387,29 @@
         var outputRate = TryGet(provider, "OutputCostPerMillionTokens", out var outputElement) &&
             outputElement.ValueKind == JsonValueKind.Number && outputElement.TryGetDecimal(out var outputValue)
                 ? outputValue : (decimal?)null;
+        var cacheReadRate = TryGet(provider, "CacheReadCostPerMillionTokens", out var cacheReadElement) &&
+            cacheReadElement.ValueKind == JsonValueKind.Number && cacheReadElement.TryGetDecimal(out var cacheReadValue)
+                ? cacheReadValue : (decimal?)null;
+        var cacheWriteRate = TryGet(provider, "CacheWriteCostPerMillionTokens", out var cacheWriteElement) &&
+            cacheWriteElement.ValueKind == JsonValueKind.Number && cacheWriteElement.TryGetDecimal(out var cacheWriteValue)
+                ? cacheWriteValue : (decimal?)null;
         var model = TryGet(provider, "ModelId", out var modelElement) && modelElement.ValueKind == JsonValueKind.String
             ? modelElement.GetString() : null;
-        return new(context, inputRate, outputRate, model);
+        return new(context, inputRate, outputRate, cacheReadRate, cacheWriteRate, model);
     }
 
-    private static bool TryGetUsage(string? data, out long inputTokens, out long outputTokens)
+    private static bool TryGetUsage(string? data, out long inputTokens, out long outputTokens, out long? cacheReadTokens, out long? cacheWriteTokens)
     {
         inputTokens = outputTokens = 0;
+        cacheReadTokens = cacheWriteTokens = null;
         if (!TryParse(data, out var root) || !TryGet(root, "usage", out var usage) ||
             !TryGet(usage, "InputTokenCount", out var input) || !input.TryGetInt64(out inputTokens) ||
             !TryGet(usage, "OutputTokenCount", out var output) || !output.TryGetInt64(out outputTokens))
             return false;
+        if (TryGet(usage, "CachedInputTokenCount", out var cacheRead) && cacheRead.TryGetInt64(out var read) && read >= 0)
+            cacheReadTokens = read;
+        if (TryGet(usage, "CacheWriteTokenCount", out var cacheWrite) && cacheWrite.TryGetInt64(out var write) && write >= 0)
+            cacheWriteTokens = write;
         return inputTokens >= 0 && outputTokens >= 0;
     }
 

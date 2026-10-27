@@ -14,6 +14,10 @@ public sealed class OpenAIProviderOptions
     public decimal? InputCostPerMillionTokens { get; init; }
     /// <summary>Optional USD per million output tokens for cost estimates shown in run observations.</summary>
     public decimal? OutputCostPerMillionTokens { get; init; }
+    /// <summary>Optional USD per million provider-reported cached input tokens.</summary>
+    public decimal? CacheReadCostPerMillionTokens { get; init; }
+    /// <summary>Optional USD per million provider-reported cache-write tokens.</summary>
+    public decimal? CacheWriteCostPerMillionTokens { get; init; }
     /// <summary>Explicit opt-in for any plain-HTTP endpoint. Credentials are sent without transport encryption.</summary>
     public bool AllowInsecureHttp { get; init; }
     /// <summary>Legacy loopback-only option retained for source and configuration compatibility.</summary>

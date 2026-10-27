@@ -158,9 +158,11 @@ public sealed class StudioModelProviderStoreTests
                 services.GetRequiredService<IDataProtectionProvider>(), executor, broker, []);
 
             store.Save("unsloth.local", "Unsloth", "model-a", "https://models.example/v1", 45, "first-key", false,
-                contextWindowTokens: 32_768, inputCostPerMillionTokens: 0.2m, outputCostPerMillionTokens: 0.8m);
+                contextWindowTokens: 32_768, inputCostPerMillionTokens: 0.2m, outputCostPerMillionTokens: 0.8m,
+                cacheReadCostPerMillionTokens: 0.02m, cacheWriteCostPerMillionTokens: 0.1m);
             store.Save("unsloth.local", "Unsloth local", "model-b", "https://models.example/v1", 60, "", false,
-                contextWindowTokens: 65_536, inputCostPerMillionTokens: 0.3m, outputCostPerMillionTokens: 1.2m);
+                contextWindowTokens: 65_536, inputCostPerMillionTokens: 0.3m, outputCostPerMillionTokens: 1.2m,
+                cacheReadCostPerMillionTokens: 0.03m, cacheWriteCostPerMillionTokens: 0.12m);
 
             var connection = Assert.Single(store.List());
             var registration = Assert.Single(await executor.ListProvidersAsync());
@@ -171,6 +173,8 @@ public sealed class StudioModelProviderStoreTests
             Assert.Equal(65_536, connection.ContextWindowTokens);
             Assert.Equal(0.3m, connection.InputCostPerMillionTokens);
             Assert.Equal(1.2m, connection.OutputCostPerMillionTokens);
+            Assert.Equal(0.03m, connection.CacheReadCostPerMillionTokens);
+            Assert.Equal(0.12m, connection.CacheWriteCostPerMillionTokens);
             Assert.Equal("model-b", registration.ModelId);
         }
         finally

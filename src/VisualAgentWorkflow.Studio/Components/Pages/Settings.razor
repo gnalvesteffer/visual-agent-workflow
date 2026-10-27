@@ -49,7 +49,7 @@
                             <div><dt>Transport</dt><dd>@(provider.AllowInsecureHttp ? "HTTP · unencrypted" : "HTTPS · encrypted")</dd></div>
                             <div><dt>API key</dt><dd>@(provider.HasCredential ? "Stored securely" : "Not configured · endpoint must not require a key")</dd></div>
                             <div><dt>Context window</dt><dd>@(provider.ContextWindowTokens is { } contextTokens ? $"{contextTokens:N0} tokens" : "Not configured")</dd></div>
-                            <div><dt>Token pricing</dt><dd>@Pricing(provider.InputCostPerMillionTokens, provider.OutputCostPerMillionTokens)</dd></div>
+                            <div><dt>Token pricing</dt><dd>@Pricing(provider.InputCostPerMillionTokens, provider.OutputCostPerMillionTokens, provider.CacheReadCostPerMillionTokens, provider.CacheWriteCostPerMillionTokens)</dd></div>
                         </dl>
                         @if (pendingDelete == provider)
                         {
@@ -97,6 +97,8 @@
             <label>Context window <span class="vaw-input-suffix"><input type="number" min="128" max="2000000" step="1" @bind="form.ContextWindowTokens" /><span>tokens</span></span><small>Optional. Used to visualize prompt usage; this does not enforce a model limit.</small></label>
             <label>Input price <span class="vaw-input-suffix"><input type="number" min="0" max="100000" step="0.000001" @bind="form.InputCostPerMillionTokens" /><span>USD / 1M tokens</span></span></label>
             <label>Output price <span class="vaw-input-suffix"><input type="number" min="0" max="100000" step="0.000001" @bind="form.OutputCostPerMillionTokens" /><span>USD / 1M tokens</span></span><small>Optional. If both prices are set, runs show an estimate from provider-reported input and output usage.</small></label>
+            <label>Cache-read price <span class="vaw-input-suffix"><input type="number" min="0" max="100000" step="0.000001" @bind="form.CacheReadCostPerMillionTokens" /><span>USD / 1M tokens</span></span><small>Optional. Applies to provider-reported cached input tokens; they remain included in regular input usage.</small></label>
+            <label>Cache-write price <span class="vaw-input-suffix"><input type="number" min="0" max="100000" step="0.000001" @bind="form.CacheWriteCostPerMillionTokens" /><span>USD / 1M tokens</span></span><small>Optional. Applies only when the provider explicitly reports cache-write tokens.</small></label>
             <label class="vaw-provider-form-wide">API key (optional) <input type="password" autocomplete="new-password" @bind="form.ApiKey" @bind:after="ClearFormTest" placeholder="@(editing ? "Leave blank to keep the current key" : "Enter API key if required")" /><small>Encrypted when saved. If left blank on a new connection, no Authorization header is sent.</small></label>
             @if (editing && providerHasCredential)
             { <label class="vaw-provider-option"><input type="checkbox" @bind="form.RemoveApiKey" @bind:after="ClearFormTest" />Remove the saved API key</label> }
@@ -125,6 +127,8 @@
         public int? ContextWindowTokens { get; set; }
         public decimal? InputCostPerMillionTokens { get; set; }
         public decimal? OutputCostPerMillionTokens { get; set; }
+        public decimal? CacheReadCostPerMillionTokens { get; set; }
+        public decimal? CacheWriteCostPerMillionTokens { get; set; }
         public string ApiKey { get; set; } = "";
         public bool RemoveApiKey { get; set; }
         public bool AllowInsecureHttp { get; set; }
@@ -156,7 +160,9 @@
             Model = provider.Model, Endpoint = provider.Endpoint, TimeoutSeconds = provider.TimeoutSeconds,
             AllowInsecureHttp = provider.AllowInsecureHttp, ContextWindowTokens = provider.ContextWindowTokens,
             InputCostPerMillionTokens = provider.InputCostPerMillionTokens,
-            OutputCostPerMillionTokens = provider.OutputCostPerMillionTokens };
+            OutputCostPerMillionTokens = provider.OutputCostPerMillionTokens,
+            CacheReadCostPerMillionTokens = provider.CacheReadCostPerMillionTokens,
+            CacheWriteCostPerMillionTokens = provider.CacheWriteCostPerMillionTokens };
         editing = true;
         formError = error = null;
         message = null;
@@ -214,7 +220,8 @@
         {
             Providers.Save(form.ProviderId, form.DisplayName, form.Model, form.Endpoint, form.TimeoutSeconds,
                 form.ApiKey, form.AllowInsecureHttp, form.RemoveApiKey,
-                form.ContextWindowTokens, form.InputCostPerMillionTokens, form.OutputCostPerMillionTokens);
+                form.ContextWindowTokens, form.InputCostPerMillionTokens, form.OutputCostPerMillionTokens,
+                form.CacheReadCostPerMillionTokens, form.CacheWriteCostPerMillionTokens);
             providers = Providers.List();
             var savedName = form.DisplayName;
             editing = false;
@@ -262,7 +269,13 @@
         finally { testingProviderIds.Remove(provider.ProviderId); }
     }
 
-    private static string Pricing(decimal? input, decimal? output) => input is { } inputRate && output is { } outputRate
-        ? $"${inputRate:0.######} in · ${outputRate:0.######} out / 1M tokens"
-        : "Not configured";
+    private static string Pricing(decimal? input, decimal? output, decimal? cacheRead, decimal? cacheWrite)
+    {
+        var rates = new List<string>();
+        if (input is { } inputRate) rates.Add($"${inputRate:0.######} in");
+        if (output is { } outputRate) rates.Add($"${outputRate:0.######} out");
+        if (cacheRead is { } cacheReadRate) rates.Add($"${cacheReadRate:0.######} cache read");
+        if (cacheWrite is { } cacheWriteRate) rates.Add($"${cacheWriteRate:0.######} cache write");
+        return rates.Count == 0 ? "Not configured" : string.Join(" · ", rates) + " / 1M tokens";
+    }
 }

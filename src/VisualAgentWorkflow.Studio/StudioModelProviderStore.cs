@@ -10,10 +10,12 @@ namespace VisualAgentWorkflow.Studio;
 
 public sealed record StudioModelProvider(string ProviderId, string DisplayName, string Model,
     string Endpoint, int TimeoutSeconds, string ProtectedApiKey, bool AllowInsecureLoopback = false, bool AllowInsecureHttp = false,
-    int? ContextWindowTokens = null, decimal? InputCostPerMillionTokens = null, decimal? OutputCostPerMillionTokens = null);
+    int? ContextWindowTokens = null, decimal? InputCostPerMillionTokens = null, decimal? OutputCostPerMillionTokens = null,
+    decimal? CacheReadCostPerMillionTokens = null, decimal? CacheWriteCostPerMillionTokens = null);
 public sealed record StudioModelProviderView(string ProviderId, string DisplayName, string Model,
     string Endpoint, int TimeoutSeconds, bool HasCredential, bool AllowInsecureHttp, int? ContextWindowTokens,
-    decimal? InputCostPerMillionTokens, decimal? OutputCostPerMillionTokens);
+    decimal? InputCostPerMillionTokens, decimal? OutputCostPerMillionTokens,
+    decimal? CacheReadCostPerMillionTokens, decimal? CacheWriteCostPerMillionTokens);
 public sealed record StudioModelConnectionTestResult(bool Succeeded, string Message);
 
 /// <summary>Local Studio settings. Credentials are protected at rest and never returned by the settings view.</summary>
@@ -49,12 +51,14 @@ public sealed class StudioModelProviderStore
         lock (gate) return saved.Select(provider => new StudioModelProviderView(provider.ProviderId,
             provider.DisplayName, provider.Model, provider.Endpoint, provider.TimeoutSeconds,
             ReadApiKey(provider).Length > 0, provider.AllowInsecureHttp || provider.AllowInsecureLoopback,
-            provider.ContextWindowTokens, provider.InputCostPerMillionTokens, provider.OutputCostPerMillionTokens)).ToArray();
+            provider.ContextWindowTokens, provider.InputCostPerMillionTokens, provider.OutputCostPerMillionTokens,
+            provider.CacheReadCostPerMillionTokens, provider.CacheWriteCostPerMillionTokens)).ToArray();
     }
 
     public void Save(string id, string name, string model, string endpoint, int timeoutSeconds, string apiKey,
         bool allowInsecureHttp, bool removeApiKey = false,
-        int? contextWindowTokens = null, decimal? inputCostPerMillionTokens = null, decimal? outputCostPerMillionTokens = null)
+        int? contextWindowTokens = null, decimal? inputCostPerMillionTokens = null, decimal? outputCostPerMillionTokens = null,
+        decimal? cacheReadCostPerMillionTokens = null, decimal? cacheWriteCostPerMillionTokens = null)
     {
         var uri = Uri.TryCreate(endpoint, UriKind.Absolute, out var parsed) ? parsed : null;
         var options = new OpenAIProviderOptions
@@ -67,7 +71,9 @@ public sealed class StudioModelProviderStore
             AllowInsecureHttp = allowInsecureHttp,
             ContextWindowTokens = contextWindowTokens,
             InputCostPerMillionTokens = inputCostPerMillionTokens,
-            OutputCostPerMillionTokens = outputCostPerMillionTokens
+            OutputCostPerMillionTokens = outputCostPerMillionTokens,
+            CacheReadCostPerMillionTokens = cacheReadCostPerMillionTokens,
+            CacheWriteCostPerMillionTokens = cacheWriteCostPerMillionTokens
         };
         lock (gate)
         {
@@ -80,7 +86,9 @@ public sealed class StudioModelProviderStore
             var replacement = new StudioModelProvider(id, name, model, uri!.AbsoluteUri,
                 timeoutSeconds, protector.Protect(credential), AllowInsecureHttp: allowInsecureHttp,
                 ContextWindowTokens: contextWindowTokens, InputCostPerMillionTokens: inputCostPerMillionTokens,
-                OutputCostPerMillionTokens: outputCostPerMillionTokens);
+                OutputCostPerMillionTokens: outputCostPerMillionTokens,
+                CacheReadCostPerMillionTokens: cacheReadCostPerMillionTokens,
+                CacheWriteCostPerMillionTokens: cacheWriteCostPerMillionTokens);
             var updated = saved.ToList();
             if (previous is null) updated.Add(replacement);
             else updated[updated.FindIndex(provider => provider.ProviderId == id)] = replacement;
@@ -211,7 +219,9 @@ public sealed class StudioModelProviderStore
                 AllowInsecureHttp = provider.AllowInsecureHttp || provider.AllowInsecureLoopback,
                 ContextWindowTokens = provider.ContextWindowTokens,
                 InputCostPerMillionTokens = provider.InputCostPerMillionTokens,
-                OutputCostPerMillionTokens = provider.OutputCostPerMillionTokens
+                OutputCostPerMillionTokens = provider.OutputCostPerMillionTokens,
+                CacheReadCostPerMillionTokens = provider.CacheReadCostPerMillionTokens,
+                CacheWriteCostPerMillionTokens = provider.CacheWriteCostPerMillionTokens
             };
             return OpenAIProviders.Create(options, () => ReadApiKey(provider));
         });

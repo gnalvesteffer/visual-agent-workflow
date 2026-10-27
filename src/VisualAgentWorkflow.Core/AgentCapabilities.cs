@@ -174,6 +174,10 @@ public sealed record AgentProviderDescriptor(string ProviderId, string DisplayNa
     public decimal? InputCostPerMillionTokens { get; init; }
     /// <summary>Optional USD per million output tokens, for a labeled cost estimate.</summary>
     public decimal? OutputCostPerMillionTokens { get; init; }
+    /// <summary>Optional USD per million provider-reported cached input tokens.</summary>
+    public decimal? CacheReadCostPerMillionTokens { get; init; }
+    /// <summary>Optional USD per million provider-reported cache-write tokens.</summary>
+    public decimal? CacheWriteCostPerMillionTokens { get; init; }
 }
 
 public interface IAgentProviderCatalog

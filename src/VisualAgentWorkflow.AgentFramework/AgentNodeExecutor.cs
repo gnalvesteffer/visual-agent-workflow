@@ -12,6 +12,8 @@ namespace VisualAgentWorkflow.AgentFramework;
 public sealed record AgentProviderRegistration(AgentProviderDescriptor Descriptor, Func<IChatClient> Create)
 {
     public TimeSpan InvocationTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    /// <summary>Optional trusted adapter mapping for provider-specific cache-write usage.</summary>
+    public Func<ChatResponse, long?>? CacheWriteTokenCount { get; init; }
 }
 
 public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> providers, INodeToolBroker tools) : IAgentNodeExecutor
@@ -161,6 +163,11 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             maxOutputTokensParameterId = configuration.MaxOutputTokensParameterId,
             maxTotalTokensParameterId = configuration.MaxTotalTokensParameterId,
             maxTotalTokens = tokenBudget?.Maximum,
+            usageNormalization = new
+            {
+                cacheRead = "provider-reported cached input tokens; included in input token count",
+                cacheWrite = provider.CacheWriteTokenCount is null ? "unavailable" : "trusted provider adapter mapping"
+            },
             structuredResultRequired = configuration.RequireStructuredResult == true,
             reasoningEffort,
             requestedTools = configuration.Tools.Select((binding, index) => new { functionName = $"tool_{index}", binding.BindingId, binding.ContractHash }),
@@ -546,7 +553,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                 ? int.MaxValue
                 : configuredMaximumTurns;
             using var client = new FunctionInvokingChatClient(new RecordingClient(provider.Create(), invocation, executionMaximumTurns,
-                tokenBudget, response => lastFinishReason = response.FinishReason?.ToString() ?? ""))
+                tokenBudget, provider.CacheWriteTokenCount, response => lastFinishReason = response.FinishReason?.ToString() ?? ""))
             {
                 MaximumIterationsPerRequest = executionMaximumTurns,
                 MaximumConsecutiveErrorsPerRequest = 1,
@@ -797,6 +804,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
     }
 
     private sealed class RecordingClient(IChatClient inner, NodeInvocationContext invocation, int maximumTurns, AgentTokenBudget? tokenBudget,
+        Func<ChatResponse, long?>? cacheWriteTokenCount,
         Action<ChatResponse>? responseObserved = null) : DelegatingChatClient(inner)
     {
         private int turns;
@@ -827,13 +835,23 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                     .Select(tool => new { tool.Name, tool.Description, inputSchema = tool.JsonSchema }).ToArray()
             });
             var response = await InnerClient.GetResponseAsync(snapshot, effectiveOptions, cancellationToken).WaitAsync(cancellationToken);
+            var cacheReadTokens = response.Usage?.CachedInputTokenCount;
+            var cacheWriteTokens = cacheWriteTokenCount?.Invoke(response) is { } reportedCacheWrite && reportedCacheWrite >= 0
+                ? reportedCacheWrite : (long?)null;
             await Record(ExecutionEventKinds.ModelResponded, new
             {
                 modelCallId,
                 response.ModelId,
                 response.ResponseId,
                 finishReason = response.FinishReason?.ToString(),
-                usage = response.Usage is { } recordedUsage ? new { recordedUsage.InputTokenCount, recordedUsage.OutputTokenCount, recordedUsage.TotalTokenCount } : null,
+                usage = response.Usage is { } recordedUsage ? (object)new
+                {
+                    recordedUsage.InputTokenCount,
+                    recordedUsage.OutputTokenCount,
+                    recordedUsage.TotalTokenCount,
+                    recordedUsage.CachedInputTokenCount,
+                    cacheWriteTokenCount = cacheWriteTokens
+                } : cacheWriteTokens is { } explicitCacheWrite ? new { cacheWriteTokenCount = (long?)explicitCacheWrite } : null,
                 messages = Project(response.Messages)
             });
             responseObserved?.Invoke(response);

@@ -28,7 +28,7 @@ Schema 1.21 adds a configurable model-response limit (positive integer, default 
 
 ## Completed increment: agent telemetry and timeout precedence
 
-Agent-node timeouts now take priority over model-connection defaults; leaving the node timeout blank uses the connection setting. The node reports the effective timeout in run evidence. Live graph cards show cumulative provider-reported tokens, the last completed prompt's context-window usage while another request is in flight, configured cost estimates, and counts of recorded host context compactions. The adapter does not enable host-side compaction, and provider-internal compactions are not observable. Regression tests verify a 300-second node timeout over a 120-second connection default, stale in-flight context labeling, context-window-unconfigured behavior, and recorded compaction counts. See [model provider runtime evidence](model-providers.md).
+Agent-node timeouts now take priority over model-connection defaults; leaving the node timeout blank uses the connection setting. The node reports the effective timeout in run evidence. Live graph cards show cumulative provider-reported tokens, explicitly reported cache reads/writes, the last completed prompt's context-window usage while another request is in flight, configured component cost estimates, and counts of recorded host context compactions. Regression tests verify a 300-second node timeout over a 120-second connection default, stale in-flight context labeling, context-window-unconfigured behavior, and recorded compaction counts. See [model provider runtime evidence](model-providers.md).
 
 ## Completed stage: bounded Boolean branch topologies
 

@@ -80,7 +80,8 @@ public sealed class OpenAIProviderTests
             created = 1_700_000_000,
             model = "fixture-resolved-model",
             choices = new[] { new { index = 0, message = new { role = "assistant", content = text }, finish_reason = "stop" } },
-            usage = new { prompt_tokens = 7, completion_tokens = 3, total_tokens = 10 }
+            usage = new { prompt_tokens = 7, completion_tokens = 3, total_tokens = 10,
+                prompt_tokens_details = new { cached_tokens = 2 } }
         }), Encoding.UTF8, "application/json")
     };
     private static NodeInvocationContext Context(WorkflowRevision revision, List<(string Kind, string? Data)> events) => new(Guid.NewGuid(), revision, "step-1", Guid.NewGuid(),
@@ -118,6 +119,7 @@ public sealed class OpenAIProviderTests
         Assert.Equal("fixture-resolved-model", response.RootElement.GetProperty("ModelId").GetString());
         Assert.Equal("chatcmpl-fixture", response.RootElement.GetProperty("ResponseId").GetString());
         Assert.Equal(10, response.RootElement.GetProperty("usage").GetProperty("TotalTokenCount").GetInt64());
+        Assert.Equal(2, response.RootElement.GetProperty("usage").GetProperty("CachedInputTokenCount").GetInt64());
     }
 
     [Fact]

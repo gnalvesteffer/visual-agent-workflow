@@ -27,7 +27,9 @@ public static class OpenAIProviders
             SupportsReasoningEffort = true,
             ContextWindowTokens = options.ContextWindowTokens,
             InputCostPerMillionTokens = options.InputCostPerMillionTokens,
-            OutputCostPerMillionTokens = options.OutputCostPerMillionTokens
+            OutputCostPerMillionTokens = options.OutputCostPerMillionTokens,
+            CacheReadCostPerMillionTokens = options.CacheReadCostPerMillionTokens,
+            CacheWriteCostPerMillionTokens = options.CacheWriteCostPerMillionTokens
         };
         return new(descriptor, () =>
         {
@@ -82,7 +84,9 @@ public static class OpenAIProviders
                 AllowInsecureHttp = allowHttp || legacyLoopback,
                 ContextWindowTokens = OptionalInt(entry["ContextWindowTokens"], "context window", 128, 2_000_000),
                 InputCostPerMillionTokens = OptionalRate(entry["InputCostPerMillionTokens"], "input token price"),
-                OutputCostPerMillionTokens = OptionalRate(entry["OutputCostPerMillionTokens"], "output token price")
+                OutputCostPerMillionTokens = OptionalRate(entry["OutputCostPerMillionTokens"], "output token price"),
+                CacheReadCostPerMillionTokens = OptionalRate(entry["CacheReadCostPerMillionTokens"], "cache-read token price"),
+                CacheWriteCostPerMillionTokens = OptionalRate(entry["CacheWriteCostPerMillionTokens"], "cache-write token price")
             };
             registrations.Add(Create(options, () => entry["ApiKey"] ?? ""));
         }
@@ -112,6 +116,8 @@ public static class OpenAIProviders
             throw new ArgumentOutOfRangeException(nameof(options), "Model context window must be between 128 and 2,000,000 tokens.");
         ValidateRate(options.InputCostPerMillionTokens, "input token price");
         ValidateRate(options.OutputCostPerMillionTokens, "output token price");
+        ValidateRate(options.CacheReadCostPerMillionTokens, "cache-read token price");
+        ValidateRate(options.CacheWriteCostPerMillionTokens, "cache-write token price");
     }
 
     private static int? OptionalInt(string? text, string name, int minimum, int maximum)

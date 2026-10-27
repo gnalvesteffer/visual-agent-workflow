@@ -19,6 +19,44 @@ public class AgentExecutionTests
     }
 
     [Fact]
+    public async Task ProviderUsageEvidenceKeepsCacheReadAndTrustedCacheWriteCountsSeparate()
+    {
+        var fixture = DeterministicDemoChatClient.Registration() with
+        {
+            Descriptor = DeterministicDemoChatClient.Registration().Descriptor with
+            {
+                InputCostPerMillionTokens = 1m,
+                OutputCostPerMillionTokens = 2m,
+                CacheReadCostPerMillionTokens = 0.1m,
+                CacheWriteCostPerMillionTokens = 0.2m
+            },
+            Create = () => new CallbackClient((_, _, _) => Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "cached"))
+            {
+                FinishReason = ChatFinishReason.Stop,
+                Usage = new UsageDetails
+                {
+                    InputTokenCount = 10,
+                    OutputTokenCount = 2,
+                    TotalTokenCount = 12,
+                    CachedInputTokenCount = 4
+                }
+            })),
+            CacheWriteTokenCount = _ => 3
+        };
+        var events = new List<ExecutionEvent>();
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+
+        Assert.Equal("cached", await new WorkflowRunner(broker, new AgentNodeExecutor([fixture], broker)).ExecuteAsync(
+            Guid.NewGuid(), Revision(), "question", evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        using var response = JsonDocument.Parse(Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded).Data!);
+        var usage = response.RootElement.GetProperty("usage");
+        Assert.Equal(10, usage.GetProperty("InputTokenCount").GetInt64());
+        Assert.Equal(4, usage.GetProperty("CachedInputTokenCount").GetInt64());
+        Assert.Equal(3, usage.GetProperty("cacheWriteTokenCount").GetInt64());
+    }
+
+    [Fact]
     public async Task StableProviderConnectionUsesItsCurrentModelConfigurationForEachNewRun()
     {
         var definition = Revision().Definition;
