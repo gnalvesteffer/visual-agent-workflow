@@ -67,6 +67,9 @@ public partial class WorkflowDesigner
     private string? draggedWorkflowTabId;
     private string? workflowDropTargetId;
     private ElementReference workflowTabStrip;
+    private ElementReference designerRoot;
+    private IJSObjectReference? paneModule;
+    private IJSObjectReference? paneSession;
     [Parameter] public RenderFragment? RunHistoryContent { get; set; }
     [Parameter] public RenderFragment? OutputContent { get; set; }
     private Task RequestRunInspector() => OpenRunInspector.InvokeAsync();
@@ -216,6 +219,12 @@ public partial class WorkflowDesigner
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender && !disposed && Services.GetService(typeof(IJSRuntime)) is IJSRuntime layoutJs)
+        {
+            var layoutModule = await layoutJs.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/paneLayout.js");
+            paneModule = layoutModule;
+            paneSession = await layoutModule.InvokeAsync<IJSObjectReference>("attach", designerRoot);
+        }
         if (IdeMode && definition is not null && Services.GetService(typeof(IJSRuntime)) is IJSRuntime js)
             await js.InvokeVoidAsync("vawStudioIde.revealActiveTab", workflowTabStrip);
         if (runDialogOpen && !runDialogShown && Services.GetService(typeof(IJSRuntime)) is IJSRuntime dialogJs)
@@ -693,5 +702,11 @@ public partial class WorkflowDesigner
         choicesLifetime?.Dispose();
         contextLifetime?.Dispose();
         lifetime.Dispose();
+        if (paneSession is not null)
+        {
+            try { await paneSession.InvokeVoidAsync("dispose"); await paneSession.DisposeAsync(); if (paneModule is not null) await paneModule.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+            catch (ObjectDisposedException) { }
+        }
     }
 }

@@ -40,6 +40,10 @@
         }
     };
     window.vawStudioIde = {
+        resetLayout: () => {
+            try { localStorage.removeItem('visual-agent-workflow.layout.v1'); } catch { /* Storage may be unavailable. */ }
+            window.dispatchEvent(new Event('vaw-layout-reset'));
+        },
         workflowSelectionListenerInstalled: false,
         revealActiveTab: strip => {
             const active = strip?.querySelector('.is-active');

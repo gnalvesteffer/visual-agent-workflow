@@ -44,6 +44,8 @@ public partial class WorkflowGraphCanvas
     private ElementReference root;
     private IJSObjectReference? module;
     private IJSObjectReference? browserSession;
+    private IJSObjectReference? paneModule;
+    private IJSObjectReference? paneSession;
     private DotNetObjectReference<WorkflowGraphCanvas>? callback;
     private bool disposed;
     private bool ready;
@@ -183,6 +185,8 @@ public partial class WorkflowGraphCanvas
                     return;
                 }
                 browserSession = session;
+                paneModule = await js.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/paneLayout.js");
+                paneSession = await paneModule.InvokeAsync<IJSObjectReference>("attach", root);
                 zoom = Math.Clamp(await browserSession.InvokeAsync<double>("center"), 0.25, 1.5);
                 ready = true;
                 StateHasChanged();
@@ -459,6 +463,8 @@ public partial class WorkflowGraphCanvas
                     await browserSession.InvokeVoidAsync("dispose");
                     await browserSession.DisposeAsync();
                 }
+                if (paneSession is not null) { await paneSession.InvokeVoidAsync("dispose"); await paneSession.DisposeAsync(); }
+                if (paneModule is not null) await paneModule.DisposeAsync();
                 await module.DisposeAsync();
             }
             catch (JSDisconnectedException) { }

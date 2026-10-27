@@ -1,7 +1,7 @@
 @implements IAsyncDisposable
 @attribute [StreamRendering]
 
-<section class="vaw-designer @(IdeMode ? "vaw-designer-in-ide" : null)" aria-label="Workflow designer">
+<section @ref="designerRoot" class="vaw-designer @(IdeMode ? "vaw-designer-in-ide" : null)" aria-label="Workflow designer">
     <header class="vaw-section-header"><div><h2>Workflow designer</h2>
     <p>Compose a string workflow with tools, agents and conditional paths.</p></div><span class="vaw-badge">Draft workspace</span></header>
     <fieldset class="vaw-designer-fields" disabled="@(!interactive || busy)">
@@ -250,6 +250,7 @@
                 else { <button type="button" disabled>Save draft</button> }
             </EditorActions>
         </WorkflowEditor>
+        <button type="button" class="vaw-pane-resizer vaw-pane-resizer-vertical" data-pane-resizer="bottom" role="separator" aria-orientation="horizontal" aria-label="Resize workflow details panel" aria-valuemin="128" aria-valuemax="520" aria-valuenow="192" title="Resize workflow details panel"></button>
         <section class="vaw-bottom-tray @(IdeMode && !bottomTrayExpanded ? "is-collapsed" : "is-expanded")" aria-label="Workflow runs, output and problems">
             <nav aria-label="Workflow details tabs">
                 @if (IdeMode)

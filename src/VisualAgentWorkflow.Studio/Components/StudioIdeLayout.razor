@@ -20,6 +20,7 @@
                 <div class="vaw-host-settings-menu" aria-label="User-specific connections">
                     <a href="/mcp" aria-current="@(ActivePage == "mcp" ? "page" : null)" data-vaw-route-link>MCP connections</a>
                     <a href="/settings" aria-current="@(ActivePage == "models" ? "page" : null)" data-vaw-route-link>Model connections</a>
+                    <button type="button" @onclick="ResetLayout">Reset editor layout</button>
                 </div>
             </details>
             <StudioThemePicker />
@@ -179,6 +180,7 @@
 </div>
 
 @code {
+    private async Task ResetLayout() => await JavaScript.InvokeVoidAsync("vawStudioIde.resetLayout");
     private IReadOnlyList<WorkflowDraft> workflows = [];
     private IReadOnlyList<AgentProfileLibraryItem> profiles = [];
     private IReadOnlyList<SkillLibraryItem> skills = [];
