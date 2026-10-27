@@ -7,5 +7,7 @@ export function install() {
     });
 }
 export function showDiscardDialog(dialog) {
-    if (!dialog.open) dialog.showModal();
+    showModalDialog(dialog);
 }
+export function showModalDialog(dialog) { if (!dialog.open) dialog.showModal(); }
+export function closeModalDialog(dialog) { if (dialog.open) dialog.close(); }

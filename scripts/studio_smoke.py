@@ -198,9 +198,10 @@ def agent_check():
 
 def run_saved_workflow(designer, input_text, expected):
     from playwright.sync_api import expect
-    designer.get_by_role("button", name="Configure test input", exact=True).click()
-    designer.get_by_label("Workflow input", exact=True).fill(input_text)
-    run = designer.get_by_role("button", name="Run workflow", exact=True)
+    designer.get_by_role("button", name="Run workflow", exact=True).click()
+    dialog = designer.locator(".vaw-run-dialog")
+    dialog.get_by_label("Workflow input", exact=True).fill(input_text)
+    run = dialog.get_by_role("button", name="Run workflow", exact=True)
     expect(run).to_be_enabled()
     run.click()
     history = designer.get_by_label("Workflow run history", exact=True)
@@ -229,8 +230,7 @@ def browser_check(executable):
             designer.locator("[data-graph-save]").click()
             expect(designer.get_by_role("button", name="Run workflow", exact=True)).to_be_enabled()
             run_saved_workflow(designer, "browser proof", "BROWSER PROOF")
-            designer.get_by_role("button", name="Configure test input", exact=True).click()
-            designer.get_by_role("button", name="Open run inspector", exact=True).click()
+            designer.get_by_label("Workflow run history", exact=True).get_by_role("button", name="Inspect run", exact=False).last.click()
             viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
             viewer.get_by_role("button", name="Fit graph", exact=True).click()
             viewer.get_by_role("button", name="Inspect node output", exact=True).click()

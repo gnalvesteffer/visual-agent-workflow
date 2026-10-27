@@ -69,6 +69,33 @@ public partial class WorkflowDesigner
     [Parameter] public RenderFragment? RunHistoryContent { get; set; }
     [Parameter] public RenderFragment? OutputContent { get; set; }
     private Task RequestRunInspector() => OpenRunInspector.InvokeAsync();
+    private bool runDialogOpen;
+    private bool runDialogShown;
+    private ElementReference runDialog;
+
+    private void OpenRunDialog()
+    {
+        if (!IdeMode || busy || dirty || generation == 0 || !CurrentDraftIsValid) return;
+        error = null;
+        message = null;
+        runDialogOpen = true;
+    }
+
+    private async Task CloseRunDialog()
+    {
+        if (runDialogShown && Services.GetService(typeof(IJSRuntime)) is IJSRuntime js)
+        {
+            try
+            {
+                await using var module = await js.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/tabInteractions.js");
+                await module.InvokeVoidAsync("closeModalDialog", runDialog);
+            }
+            catch (JSException) { }
+        }
+        runDialogShown = false;
+        runDialogOpen = false;
+    }
+
     private void SelectBottomTab(string tab)
     {
         bottomTab = tab;
@@ -183,6 +210,12 @@ public partial class WorkflowDesigner
     {
         if (IdeMode && definition is not null && Services.GetService(typeof(IJSRuntime)) is IJSRuntime js)
             await js.InvokeVoidAsync("vawStudioIde.revealActiveTab", workflowTabStrip);
+        if (runDialogOpen && !runDialogShown && Services.GetService(typeof(IJSRuntime)) is IJSRuntime dialogJs)
+        {
+            await using var module = await dialogJs.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/tabInteractions.js");
+            await module.InvokeVoidAsync("showModalDialog", runDialog);
+            runDialogShown = true;
+        }
         if (firstRender && !disposed)
         {
             interactive = true;
@@ -580,7 +613,12 @@ public partial class WorkflowDesigner
         var run = await request.WaitAsync(current.Token);
         if (!Current(current)) return;
         await OnRunStarted.InvokeAsync(run);
-        if (IdeMode) { bottomTab = "runs"; bottomTrayExpanded = true; }
+        if (IdeMode)
+        {
+            bottomTab = "runs";
+            bottomTrayExpanded = true;
+            await CloseRunDialog();
+        }
         if (Current(current)) message = startPublishedPaused
             ? "Workflow run created paused. Resume it from the run controls."
             : IdeMode ? "Workflow run started. You can keep editing while it runs."

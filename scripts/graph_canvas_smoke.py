@@ -217,9 +217,10 @@ def check(browser, screenshots):
     assert current_node.evaluate("e=>[e.style.left,e.style.top]") == canonical_position
     expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Draft saved")
     # IDE runs use the saved source directly and must capture its presentation.
-    workbench(designer).get_by_role("button", name="Configure test input", exact=True).click()
-    workbench(designer).get_by_label("Workflow input", exact=True).fill("canvas proof")
     workbench(designer).get_by_role("button", name="Run workflow", exact=True).click()
+    run_dialog = workbench(designer).locator(".vaw-run-dialog")
+    run_dialog.get_by_label("Workflow input", exact=True).fill("canvas proof")
+    run_dialog.get_by_role("button", name="Run workflow", exact=True).click()
     history = workbench(designer).get_by_label("Workflow run history", exact=True)
     expect(history.locator("tbody tr").first).to_contain_text("completed")
     inspect = history.get_by_role("button", name=re.compile("^Inspect run ")).first

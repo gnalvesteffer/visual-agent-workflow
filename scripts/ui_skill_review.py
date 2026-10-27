@@ -194,7 +194,6 @@ def check(browser, screenshots):
         theme_picker.select_option("dark")
         page.wait_for_function("document.documentElement.dataset.vawTheme === 'dark'")
         designer = page.get_by_role("region", name="Workflow designer", exact=True)
-        designer.get_by_role("button", name="Configure test input", exact=True).click()
         for theme in THEMES:
             theme_picker.select_option(theme)
             page.wait_for_function("theme => document.documentElement.dataset.vawTheme === theme", arg=theme)
@@ -209,7 +208,7 @@ def check(browser, screenshots):
                     text: pair('.vaw-studio', '.vaw-studio'),
                     primary: pair('.vaw-primary', '.vaw-primary'),
                     graphText: pair('.vaw-node-drag', '.vaw-node-drag'),
-                    input: pair('.vaw-bottom-panel textarea', '.vaw-bottom-panel textarea'),
+                    input: pair('.vaw-theme-picker select', '.vaw-theme-picker select'),
                     notice: pair('.vaw-document-breadcrumb', '.vaw-studio')
                 };
             }""")
@@ -372,15 +371,14 @@ def check(browser, screenshots):
             form.addEventListener('submit', event => {event.preventDefault(); window.hostSubmissions++;});
             studio.replaceWith(form); form.append(studio);
         }""")
-        designer.get_by_role("button", name="Configure test input", exact=True).click()
-        field = designer.get_by_role("textbox", name="Workflow input", exact=True)
-
         def run_and_check(value, expected):
-            designer.get_by_role("button", name="Configure test input", exact=True).click()
+            start.click()
+            dialog = designer.locator(".vaw-run-dialog")
+            field = dialog.get_by_role("textbox", name="Workflow input", exact=True)
             field.fill(value)
             selected = designer.locator('.vaw-ide-run-table tr[aria-selected="true"] code')
             previous_run = selected.inner_text() if selected.count() else None
-            start.click()
+            dialog.get_by_role("button", name="Run workflow", exact=True).click()
             history = designer.get_by_label("Workflow run history", exact=True)
             row = history.locator('tr[aria-selected="true"]')
             if previous_run:
@@ -393,13 +391,15 @@ def check(browser, screenshots):
         assert page.evaluate("window.hostSubmissions") == 0
         # Near-limit input must reach the server without disconnecting SignalR.
         run_and_check("x" * 16384, "X" * 16384)
-        designer.get_by_role("button", name="Configure test input", exact=True).click()
+        start.click()
+        dialog = designer.locator(".vaw-run-dialog")
+        field = dialog.get_by_role("textbox", name="Workflow input", exact=True)
         # Successful polling must not immediately erase a failed user action.
         field.evaluate("element => element.removeAttribute('maxlength')")
         field.fill("x" * 16385)
         field.press("Tab")
-        start.click()
-        alert = designer.get_by_role("alert").first
+        dialog.get_by_role("button", name="Run workflow", exact=True).click()
+        alert = dialog.get_by_role("alert").first
         expect(alert).to_be_visible()
         definition = page.request.get(BASE + "/api/templates/default").json()
         response = page.request.post(BASE + "/api/runs", data={"definition": definition, "input": "history refresh proof"})

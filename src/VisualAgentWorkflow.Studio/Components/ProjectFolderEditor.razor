@@ -359,8 +359,7 @@
                     <div class="vaw-studio-in-ide vaw-folder-workflow-document">
                     <header class="vaw-document-breadcrumb"><strong>@openedWorkflow.RelativePath</strong><span class="vaw-document-save-state">@(dirty ? "Unsaved changes" : "Source saved")</span><div class="vaw-document-actions">
                         <button type="button" data-graph-save data-vaw-file-save @onclick="SaveWorkflow" disabled="@(busy || !dirty)">Save source file</button>
-                        <button type="button" @onclick='() => bottomTab = "test"'>Test input</button>
-                        <button type="button" class="vaw-primary" @onclick="RunSavedWorkflow" disabled="@(!CanRunSavedWorkflow)">@(folderRunActive ? "Running…" : "Run workflow")</button>
+                        <button type="button" class="vaw-primary" @onclick="OpenRunDialog" disabled="@(!CanRunSavedWorkflow)">Run workflow</button>
                         @if (folderRunActive && folderRun is not null) { <button type="button" @onclick="CancelFolderRun">Cancel run</button> }
                         <button type="button" @onclick="() => folderSettingsOpen = !folderSettingsOpen" aria-label="Workflow settings" aria-expanded="@(folderSettingsOpen ? "true" : "false")">Settings</button>
                     </div></header>
@@ -387,37 +386,12 @@
                             <button type="button" role="tab" aria-selected="@(bottomTab == "output" ? "true" : "false")" @onclick='() => bottomTab = "output"'>Output</button>
                         </nav>
                         <section class="vaw-bottom-panel" role="tabpanel" aria-label="Workflow run history" hidden="@(bottomTab != "runs")">
-                            @if (folderRun is null) { <p class="vaw-panel-empty">No run started in this editor session. Choose Test input, then Run workflow.</p> }
+                            @if (folderRun is null) { <p class="vaw-panel-empty">No run started in this editor session. Choose Run workflow to provide inputs and start a run.</p> }
                             else
                             {
                                 <table class="vaw-ide-run-table"><thead><tr><th scope="col">Status</th><th scope="col">Workflow</th><th scope="col">Started</th><th scope="col">Run</th><th scope="col">Actions</th></tr></thead><tbody><tr><td><span class="vaw-run-state" data-status="@folderRun.Status">@folderRun.Status</span></td><td>@WorkflowName(folderRun.Header.Definition)</td><td>@folderRun.Header.CreatedAt.ToLocalTime().ToString("MMM d, HH:mm:ss")</td><td><code>@folderRun.Header.RunId.ToString()[..8]</code></td><td><button type="button" @onclick="() => folderInspectRun = true">Inspect execution</button></td></tr></tbody></table>
                             }
                             @if (folderRunError is not null) { <p role="alert" class="vaw-error">@folderRunError</p> }
-                        </section>
-                        <section class="vaw-bottom-panel" role="tabpanel" aria-label="Workflow run controls" hidden="@(bottomTab != "test")">
-                            <div class="vaw-folder-run-controls">
-                                <label>Workflow input <textarea @bind="runInput" rows="2" maxlength="16384" disabled="@folderRunActive"></textarea></label>
-                                @if (definition.Parameters is { Count: > 0 } runParameterDefinitions)
-                                {
-                                    @foreach (var (parameterId, parameter) in runParameterDefinitions)
-                                    {
-                                        <label @key="parameterId">@(string.IsNullOrWhiteSpace(parameter.DisplayName) ? parameterId : parameter.DisplayName)
-                                            @if (parameter.Type == "choice" && parameter.Choices is { } choices)
-                                            { <select value="@RunParameterValue(parameterId)" @onchange="args => SetRunParameter(parameterId, args.Value?.ToString())" disabled="@folderRunActive">@foreach (var choice in choices) { <option value="@choice">@choice</option> }</select> }
-                                            else if (parameter.Type == "boolean")
-                                            { <select value="@RunParameterValue(parameterId)" @onchange="args => SetRunParameter(parameterId, args.Value?.ToString())" disabled="@folderRunActive"><option value="true">True</option><option value="false">False</option></select> }
-                                            else { <input value="@RunParameterValue(parameterId)" @oninput="args => SetRunParameter(parameterId, args.Value?.ToString())" disabled="@folderRunActive" /> }
-                                            @if (!string.IsNullOrWhiteSpace(parameter.Description)) { <small>@parameter.Description</small> }
-                                        </label>
-                                    }
-                                }
-
-                            </div>
-                            @if (dirty) { <p class="vaw-help">Save your edits before running. Runs use saved source.</p> }
-                            @if (externalSourceChanged) { <p class="vaw-error">Reload the externally changed project before running this workflow.</p> }
-                            @if (folderRunError is not null) { <p role="alert" class="vaw-error">@folderRunError</p> }
-                            @if (folderRun is not null) { <p class="vaw-definition-status">Run @folderRun.Header.RunId · @folderRun.Status</p> }
-                            <p class="vaw-help">Run history is stored by Studio outside the project. Do not enter secrets in workflow inputs.</p>
                         </section>
                         <section class="vaw-bottom-panel" role="tabpanel" aria-label="Workflow issues" hidden="@(bottomTab != "issues")">
                             @if (mcpChoicesError is not null) { <p class="vaw-error">@mcpChoicesError</p> }
@@ -443,6 +417,37 @@
     }
 
 </section>
+@if (IsActive && runDialogOpen && definition is not null)
+{
+    <dialog @ref="runDialog" class="vaw-run-dialog" aria-labelledby="folder-run-dialog-title" @oncancel="CloseRunDialog" @oncancel:preventDefault="true">
+        <h2 id="folder-run-dialog-title">Run @WorkflowName(definition)</h2>
+        <p>Enter test values for this run. Studio runs the saved workflow; unsaved edits must be saved first.</p>
+        <label>Workflow input <textarea @bind="runInput" rows="5" maxlength="16384" autofocus="autofocus"></textarea></label>
+        @if (definition.Parameters is { Count: > 0 } runParameterDefinitions)
+        {
+            @foreach (var (parameterId, parameter) in runParameterDefinitions)
+            {
+                <label @key="parameterId">@(string.IsNullOrWhiteSpace(parameter.DisplayName) ? parameterId : parameter.DisplayName)
+                    @if (parameter.Type == "choice" && parameter.Choices is { } choices)
+                    { <select value="@RunParameterValue(parameterId)" @onchange="args => SetRunParameter(parameterId, args.Value?.ToString())">@foreach (var choice in choices) { <option value="@choice">@choice</option> }</select> }
+                    else if (parameter.Type == "boolean")
+                    { <select value="@RunParameterValue(parameterId)" @onchange="args => SetRunParameter(parameterId, args.Value?.ToString())"><option value="true">True</option><option value="false">False</option></select> }
+                    else if (parameter.Type == "integer" || parameter.Type == "number")
+                    { <input type="number" step="@(parameter.Type == "integer" ? "1" : "any")" value="@RunParameterValue(parameterId)" @oninput="args => SetRunParameter(parameterId, args.Value?.ToString())" /> }
+                    else
+                    { <input value="@RunParameterValue(parameterId)" @oninput="args => SetRunParameter(parameterId, args.Value?.ToString())" /> }
+                    @if (!string.IsNullOrWhiteSpace(parameter.Description)) { <small class="vaw-help">@parameter.Description</small> }
+                </label>
+            }
+        }
+        <p class="vaw-help">Run history is stored by Studio outside the project. Do not enter secrets in workflow inputs.</p>
+        @if (folderRunError is not null) { <p role="alert" class="vaw-error">@folderRunError</p> }
+        <div class="vaw-run-dialog-actions">
+            <button type="button" @onclick="CloseRunDialog" disabled="@folderRunActive">Cancel</button>
+            <button type="button" class="vaw-primary" @onclick="RunSavedWorkflow" disabled="@(!CanRunSavedWorkflow)">@(folderRunActive ? "Starting…" : "Run workflow")</button>
+        </div>
+    </dialog>
+}
 <TabCloseBehavior />
 @if (pendingCloseFile is { } closingFile)
 {
@@ -548,6 +553,9 @@
     private string? TreeOperationError { get; set; }
     private string runInput = "";
     private Dictionary<string, string> runParameters = new(StringComparer.Ordinal);
+    private bool runDialogOpen;
+    private bool runDialogShown;
+    private ElementReference runDialog;
     private RunSnapshot? folderRun;
     private bool folderRunActive;
     private string? folderRunError;
@@ -692,6 +700,12 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (IsActive && runDialogOpen && !runDialogShown)
+        {
+            await using var dialogModule = await JavaScript.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/tabInteractions.js");
+            await dialogModule.InvokeVoidAsync("showModalDialog", runDialog);
+            runDialogShown = true;
+        }
         if (IsActive && editorTabs.Count > 0)
             await JavaScript.InvokeVoidAsync("vawStudioIde.revealActiveTab", fileTabStrip);
         if (IsActive && treeContext is { } menu)
@@ -2081,6 +2095,28 @@
 
     private void SetRunParameter(string parameterId, string? value) => runParameters[parameterId] = value ?? "";
 
+    private void OpenRunDialog()
+    {
+        if (!CanRunSavedWorkflow) return;
+        folderRunError = null;
+        runDialogOpen = true;
+    }
+
+    private async Task CloseRunDialog()
+    {
+        if (runDialogShown)
+        {
+            try
+            {
+                await using var dialogModule = await JavaScript.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/tabInteractions.js");
+                await dialogModule.InvokeVoidAsync("closeModalDialog", runDialog);
+            }
+            catch (JSException) { }
+        }
+        runDialogShown = false;
+        runDialogOpen = false;
+    }
+
     private async Task RunSavedWorkflow()
     {
         if (!CanRunSavedWorkflow || openedWorkflow is null || openDirectory is null || manifest is null) return;
@@ -2110,6 +2146,7 @@
         {
             folderRun = await start();
             bottomTab = "runs";
+            if (runDialogOpen) await CloseRunDialog();
             await InvokeAsync(StateHasChanged);
             while (!folderRun.IsTerminal)
             {

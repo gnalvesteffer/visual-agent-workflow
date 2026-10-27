@@ -35,8 +35,11 @@ def show_runs(page):
     if legacy.is_visible():
         legacy.click()
     else:
-        page.get_by_role("button", name="Configure test input", exact=True).click()
-        page.get_by_role("button", name="Open run inspector", exact=True).click()
+        page.get_by_role("button", name="Run workflow", exact=True).click()
+        dialog = page.locator(".vaw-run-dialog")
+        dialog.get_by_role("button", name="Run workflow", exact=True).click()
+        history = page.get_by_role("region", name="Workflow run history", exact=True)
+        history.get_by_role("button", name="Inspect run", exact=False).first.click()
     expect(page.get_by_role("region", name="Workflow run viewer", exact=True)).to_be_visible()
 
 

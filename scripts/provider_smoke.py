@@ -126,10 +126,11 @@ def parallel_user_template_check(page, base, get, state, state_lock):
     inspect_control(designer, "Move node agent_1")
     expect(designer.get_by_role("textbox", name="User message template", exact=True)).to_have_value(
         "Research: verify {{input}} for audience {{parameter:audience}}")
-    designer.get_by_role("button", name="Configure test input", exact=True).click()
-    designer.get_by_label("Workflow input", exact=True).fill("climate adaptation")
-    designer.get_by_label("Audience · audience", exact=True).fill("city planners")
     designer.get_by_role("button", name="Run workflow", exact=True).click()
+    run_dialog = designer.locator(".vaw-run-dialog")
+    run_dialog.get_by_label("Workflow input", exact=True).fill("climate adaptation")
+    run_dialog.get_by_label("Audience · audience", exact=True).fill("city planners")
+    run_dialog.get_by_role("button", name="Run workflow", exact=True).click()
     history = designer.get_by_label("Workflow run history", exact=True)
     expect(history.locator("tbody tr").filter(has_text="Parallel template authoring proof")).to_contain_text("completed", timeout=25000)
     run_id = next(item for item in get("/api/runs") if item["header"]["definition"]["workflowId"] == workflow_id)["header"]["runId"]
@@ -335,9 +336,10 @@ def check(dotnet, browser_executable, template_only=False):
                     publication = page.request.post(base + f"/api/workflows/{workflow_id}/publish", data={"expectedGeneration": saved["generation"]})
                     assert publication.ok, publication.text()
                     revision = publication.json()["revision"]
-                    workbench(designer).get_by_role("button",name="Configure test input",exact=True).click()
-                    workbench(designer).get_by_label("Workflow input",exact=True).fill("abc")
                     workbench(designer).get_by_role("button",name="Run workflow",exact=True).click()
+                    run_dialog = workbench(designer).locator(".vaw-run-dialog")
+                    run_dialog.get_by_label("Workflow input",exact=True).fill("abc")
+                    run_dialog.get_by_role("button",name="Run workflow",exact=True).click()
                     history = designer.get_by_label("Workflow run history", exact=True)
                     expect(history.locator("tbody tr").first).to_contain_text("completed", timeout=20000)
                     history.get_by_role("button",name=re.compile("^Inspect run ")).first.click()
