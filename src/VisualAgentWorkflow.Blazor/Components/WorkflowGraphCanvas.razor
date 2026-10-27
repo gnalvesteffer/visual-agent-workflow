@@ -132,7 +132,8 @@
     {
         <svg class="vaw-canvas-minimap" data-canvas-minimap viewBox="@($"0 0 {Number(Width)} {Number(Height)}")" role="img" aria-label="Graph overview. Click to navigate.">
             @foreach (var id in Order)
-            { <rect @key="id" x="@Number(Layout.Nodes[id].Position.X)" y="@Number(Layout.Nodes[id].Position.Y)" width="220" height="120" rx="8" class="@(id == selectedNode ? "is-selected" : null)" /> }
+            { <rect @key="id" x="@Number(Layout.Nodes[id].Position.X)" y="@Number(Layout.Nodes[id].Position.Y)" width="220" height="120" rx="8" class="vaw-minimap-node @(id == selectedNode ? "is-selected" : null)" /> }
+            <rect class="vaw-minimap-viewport" data-minimap-viewport x="0" y="0" width="0" height="0" rx="8" aria-hidden="true" />
         </svg>
     }
     @if (NodeInspector is not null && selectedNode is { } selection)

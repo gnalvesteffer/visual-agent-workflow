@@ -12,7 +12,7 @@ export function attach(root, callback) {
     state.viewport = root.querySelector('.vaw-canvas-viewport');
     state.world = root.querySelector('.vaw-canvas-world');
     state.observer = new ResizeObserver(() => schedule(state));
-    state.scroll = () => updateGrid(state);
+    state.scroll = () => { updateGrid(state); schedule(state); };
     state.down = event => pointerDown(state, event);
     state.move = event => pointerMove(state, event);
     state.up = event => pointerEnd(state, event, false);
@@ -33,9 +33,7 @@ export function attach(root, callback) {
         }
         const minimap = event.target.closest('[data-canvas-minimap]');
         if (minimap) {
-            const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(minimap.getScreenCTM().inverse());
-            state.viewport.scrollTo(margin + (point.x + state.camera.x) * scale(state) - state.viewport.clientWidth / 2,
-                margin + (point.y + state.camera.y) * scale(state) - state.viewport.clientHeight / 2);
+            moveCameraToMinimapPoint(state, event);
             return;
         }
         if (event.target.closest('[data-fullscreen-toggle]')) { toggleFullscreen(state); return; }
@@ -266,6 +264,18 @@ function updateGrid(state) {
     state.viewport.style.backgroundSize = `${spacing}px ${spacing}px`;
     state.viewport.style.backgroundPosition = `${modulo(margin + state.camera.x * zoom - state.viewport.scrollLeft)}px ${modulo(margin + state.camera.y * zoom - state.viewport.scrollTop)}px`;
 }
+
+function moveCameraToMinimapPoint(state, event) {
+    const minimap = event.target.closest('[data-canvas-minimap]') ?? state.root.querySelector('[data-canvas-minimap]');
+    const transform = minimap?.getScreenCTM();
+    if (!transform) return;
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(transform.inverse());
+    const zoom = scale(state);
+    state.viewport.scrollTo(
+        margin + (point.x + state.camera.x) * zoom - state.viewport.clientWidth / 2,
+        margin + (point.y + state.camera.y) * zoom - state.viewport.clientHeight / 2);
+}
+
 function local(state, event) {
     const rect = state.world.getBoundingClientRect(), zoom = scale(state);
     return { x: (event.clientX - rect.left) / zoom, y: (event.clientY - rect.top) / zoom };
@@ -325,6 +335,17 @@ function draw(state) {
     const maxPointY = Math.max(0, ...state.paths.flatMap(path => JSON.parse(path.dataset.points).map(p => p.position.y + 100)));
     const width = Math.max(right, maxPointX), height = Math.max(bottom, maxPointY);
     state.world.style.width = `${width}px`; state.world.style.height = `${height}px`;
+    const minimapViewport = state.root.querySelector('[data-minimap-viewport]');
+    if (minimapViewport) {
+        const visibleLeft = Math.max(0, Math.min(width, (state.viewport.scrollLeft - margin) / zoom - state.camera.x));
+        const visibleTop = Math.max(0, Math.min(height, (state.viewport.scrollTop - margin) / zoom - state.camera.y));
+        const visibleWidth = Math.min(width - visibleLeft, state.viewport.clientWidth / zoom);
+        const visibleHeight = Math.min(height - visibleTop, state.viewport.clientHeight / zoom);
+        minimapViewport.setAttribute('x', String(visibleLeft));
+        minimapViewport.setAttribute('y', String(visibleTop));
+        minimapViewport.setAttribute('width', String(Math.max(0, visibleWidth)));
+        minimapViewport.setAttribute('height', String(Math.max(0, visibleHeight)));
+    }
     const extent = state.world.parentElement;
     extent.style.width = `${margin * 2 + (width + state.camera.x) * zoom}px`;
     extent.style.height = `${margin * 2 + (height + state.camera.y) * zoom}px`;
@@ -409,6 +430,14 @@ function orthogonal(a, b) {
 
 function pointerDown(state, event) {
     if (state.drag || state.faulted || (event.button !== 0 && event.button !== 1)) return;
+    const minimap = event.target.closest('[data-canvas-minimap]');
+    if (minimap && event.button === 0) {
+        state.drag = { kind: 'minimap', pointer: event.pointerId, target: minimap, moved: false };
+        minimap.setPointerCapture(event.pointerId);
+        moveCameraToMinimapPoint(state, event);
+        event.preventDefault();
+        return;
+    }
     const pin = event.target.closest('.vaw-output-ports [data-socket]');
     if (pin && state.root.dataset.disabled !== 'true' && event.button === 0) {
         const box=pin.getBoundingClientRect(),start=local(state,{clientX:box.left+box.width/2,clientY:box.top+box.height/2});
@@ -473,6 +502,8 @@ function pointerMove(state, event) {
         state.root.querySelectorAll('.vaw-socket-drop-target').forEach(socket => socket.classList.remove('vaw-socket-drop-target'));
         const candidate=document.elementFromPoint(event.clientX,event.clientY)?.closest('.vaw-input-ports [data-socket]');
         if (candidate && candidate.dataset.socketType === drag.socketType && candidate.dataset.socketKind === drag.socketKind) candidate.classList.add('vaw-socket-drop-target');
+    } else if (drag.kind === 'minimap') {
+        moveCameraToMinimapPoint(state, event);
     } else if (drag.kind === 'pan') {
         state.viewport.scrollLeft = drag.scrollX - (event.clientX - drag.screenX);
         state.viewport.scrollTop = drag.scrollY - (event.clientY - drag.screenY);
@@ -521,6 +552,11 @@ function pointerEnd(state, event, cancelled) {
             }
         }
         schedule(state); return;
+    }
+    if (drag.kind === 'minimap') {
+        moveCameraToMinimapPoint(state, event);
+        schedule(state);
+        return;
     }
     if (drag.kind === 'select' && state.box) { state.box.hidden = true; state.box = null; }
     if (drag.kind === 'select') {

@@ -693,8 +693,9 @@
 .vaw-inspector-ports dd { margin: .25rem 0 .65rem; color: var(--vaw-muted); font-size: .75rem; }
 .vaw-studio-in-ide .vaw-canvas-workspace { position: relative; }
 .vaw-canvas-minimap { position: absolute; inset-inline-end: calc(var(--vaw-inspector-width, 19rem) + .75rem); inset-block-end: .75rem; inline-size: 10rem; block-size: 6rem; border: 1px solid var(--vaw-border); border-radius: .25rem; background: var(--vaw-surface); opacity: .95; cursor: crosshair; }
-.vaw-canvas-minimap rect { fill: var(--vaw-control); stroke: var(--vaw-accent); stroke-width: 8; }
-.vaw-canvas-minimap rect.is-selected { fill: var(--vaw-accent); }
+.vaw-canvas-minimap rect.vaw-minimap-node { fill: var(--vaw-control); stroke: var(--vaw-accent); stroke-width: 8; }
+.vaw-canvas-minimap rect.vaw-minimap-node.is-selected { fill: var(--vaw-accent); }
+.vaw-canvas-minimap rect.vaw-minimap-viewport { fill: color-mix(in srgb, var(--vaw-focus) 12%, transparent); stroke: var(--vaw-focus); stroke-width: 12; vector-effect: non-scaling-stroke; pointer-events: none; }
 .vaw-studio-in-ide .vaw-canvas-toolbar [data-canvas-mode][aria-pressed="true"] { border-color: var(--vaw-accent); color: var(--vaw-accent); background: var(--vaw-control); }
 .vaw-graph-editor[data-canvas-mode="pan"] .vaw-canvas-viewport { cursor: grab; }
 .vaw-graph-editor[data-canvas-mode="pan"] .vaw-canvas-viewport:active { cursor: grabbing; }

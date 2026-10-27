@@ -40,6 +40,30 @@ public sealed class GraphCanvasRenderingTests
     }
 
     [Fact]
+    public async Task IdeGraphMinimapIncludesViewportIndicator()
+    {
+        var definition = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.14" };
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<WorkflowEditor>(ParameterView.FromDictionary(
+                new Dictionary<string, object?>
+                {
+                    [nameof(WorkflowEditor.Definition)] = definition,
+                    [nameof(WorkflowEditor.IdeMode)] = true,
+                    [nameof(WorkflowEditor.ShowWorkflowSettings)] = false
+                }));
+            return component.ToHtmlString();
+        });
+
+        Assert.Contains("data-canvas-minimap", html);
+        Assert.Contains("data-minimap-viewport", html);
+        Assert.Contains("vaw-minimap-node", html);
+    }
+
+    [Fact]
     public async Task CommentExpansionStaysOnNodeAndDoesNotResizeInspectorEditor()
     {
         var definition = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.14" };

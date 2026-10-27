@@ -201,6 +201,16 @@ def check(browser, screenshots):
 
     # Drag-select a group, move it in one layout update, pan into the surrounding canvas, and reset.
     viewport = canvas.locator(".vaw-canvas-viewport")
+    minimap = canvas.locator("[data-canvas-minimap]")
+    minimap_viewport = minimap.locator("[data-minimap-viewport]")
+    assert float(minimap_viewport.get_attribute("width")) > 0 and float(minimap_viewport.get_attribute("height")) > 0, "The minimap should show the current viewport area."
+    minimap_box = minimap.bounding_box()
+    minimap_scroll_before = viewport.evaluate("e=>[e.scrollLeft,e.scrollTop]")
+    page.mouse.move(minimap_box["x"] + minimap_box["width"] * .5, minimap_box["y"] + minimap_box["height"] * .5)
+    page.mouse.down()
+    page.mouse.move(minimap_box["x"] + minimap_box["width"] * .75, minimap_box["y"] + minimap_box["height"] * .65, steps=4)
+    page.mouse.up()
+    assert viewport.evaluate("e=>[e.scrollLeft,e.scrollTop]") != minimap_scroll_before, "Dragging the minimap should move the graph camera."
     input_node = canvas.locator("li[data-node-id='input']")
     input_node.scroll_into_view_if_needed()
     step.scroll_into_view_if_needed()
