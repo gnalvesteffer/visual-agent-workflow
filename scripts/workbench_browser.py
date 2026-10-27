@@ -46,8 +46,11 @@ def new_workflow_fixture(designer):
     import json
     from playwright.sync_api import expect
     designer = workbench(designer)
+    settings = designer.get_by_role("button", name="Workflow settings", exact=True)
+    if settings.is_visible() and settings.get_attribute("aria-expanded") != "true":
+        settings.click()
     designer.get_by_role("button", name="New workflow", exact=True).click()
-    designer.get_by_text("New workflow created locally. Save its draft before publishing.", exact=True).wait_for()
+    designer.get_by_text(re.compile("^New workflow created")).wait_for(state="attached")
     definition = {
         "schemaVersion":"1.0", "workflowId":"fixture", "entryNodeId":"input",
         "nodes":{name:{"type":kind,"typeVersion":"1.0.0"} for name,kind in
@@ -55,10 +58,15 @@ def new_workflow_fixture(designer):
         "connections":{
             "link-1":{"source":{"nodeId":"input","portId":"out"},"target":{"nodeId":"step-1","portId":"in"},"kind":"data"},
             "link-output":{"source":{"nodeId":"step-1","portId":"out"},"target":{"nodeId":"output","portId":"in"},"kind":"data"}}}
+    secondary = designer.locator("details.vaw-secondary-workflow-tools")
+    if secondary.count() and not secondary.evaluate("element => element.open"):
+        secondary.locator(":scope > summary").click()
     details=designer.get_by_text("Import / export definition",exact=True).locator("..")
     if not details.evaluate("element=>element.open"): details.locator("summary").click()
     designer.get_by_label("Workflow JSON",exact=True).fill(json.dumps(definition))
     designer.get_by_role("button",name="Import JSON into draft",exact=True).click()
-    designer.get_by_text("Definition imported locally. Save and publish explicitly.",exact=True).wait_for()
+    designer.get_by_text("Definition imported locally. Save and publish explicitly.",exact=True).wait_for(state="attached")
     expect(designer.locator("li[data-node-id]")).to_have_count(3)
     details.locator("summary").click()
+    if settings.is_visible() and settings.get_attribute("aria-expanded") == "true":
+        settings.click()

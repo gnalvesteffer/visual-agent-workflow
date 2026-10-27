@@ -6,6 +6,7 @@ processes, uses ephemeral credentials, and executes deterministic local response
 
 from workbench_browser import workbench, inspect_control, new_workflow_fixture, show_runs
 import argparse
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -99,17 +100,16 @@ def parallel_user_template_check(page, base, get, state, state_lock):
     assert response.ok, response.text()
     calls_before = len(state["calls"])
 
-    page.reload(wait_until="networkidle")
+    page.goto(base + "/projects/default?workflow=" + workflow_id, wait_until="networkidle")
     designer = page.get_by_role("region", name="Workflow designer", exact=True)
-    expect(designer.get_by_role("button", name="New workflow", exact=True)).to_be_enabled()
-    designer.get_by_label("Saved workflow", exact=True).select_option(workflow_id)
+    expect(designer.locator("[data-graph-save]")).to_be_enabled()
     expect(designer.get_by_label("Workflow name", exact=True)).to_have_value("Parallel template authoring proof")
-    designer.get_by_label("Node to organize", exact=True).select_option("agent_1")
+    inspect_control(designer, "Move node agent_1")
     editor = designer.get_by_role("textbox", name="User message template", exact=True)
     editor.fill("Research: verify {{input}} for audience {{parameter:audience}}")
     editor.press("Tab")
     expect(designer.locator(".vaw-definition-status")).to_contain_text("Unsaved changes", timeout=15_000)
-    designer.get_by_role("button", name="Save draft", exact=True).click()
+    designer.locator("[data-graph-save]").click()
     expect(designer).to_contain_text("Draft saved.")
 
     design = get(f"/api/workflows/{workflow_id}/design")
@@ -120,20 +120,19 @@ def parallel_user_template_check(page, base, get, state, state_lock):
         {"kind": "literal", "value": " for audience "}, {"kind": "parameter", "value": "audience"},
     ]
 
-    page.reload(wait_until="networkidle")
+    page.goto(base + "/projects/default?workflow=" + workflow_id, wait_until="networkidle")
     designer = page.get_by_role("region", name="Workflow designer", exact=True)
-    expect(designer.get_by_role("button", name="New workflow", exact=True)).to_be_enabled()
-    designer.get_by_label("Saved workflow", exact=True).select_option(workflow_id)
-    designer.get_by_label("Node to organize", exact=True).select_option("agent_1")
+    expect(designer.locator("[data-graph-save]")).to_be_enabled()
+    inspect_control(designer, "Move node agent_1")
     expect(designer.get_by_role("textbox", name="User message template", exact=True)).to_have_value(
         "Research: verify {{input}} for audience {{parameter:audience}}")
-    designer.get_by_role("button", name="Publish & activate", exact=True).click()
-    expect(designer).to_contain_text("Published and activated version 1.")
-    revision = get(f"/api/workflows/{workflow_id}/revisions")[0]["revision"]
-    response = page.request.post(base + f"/api/revisions/{revision['revisionId']}/runs",
-                                 data={"input": "climate adaptation", "parameters": {"audience": "city planners"}})
-    assert response.status == 202, response.text()
-    run_id = response.json()["header"]["runId"]
+    designer.get_by_role("button", name="Configure test input", exact=True).click()
+    designer.get_by_label("Workflow input", exact=True).fill("climate adaptation")
+    designer.get_by_label("Audience · audience", exact=True).fill("city planners")
+    designer.get_by_role("button", name="Run workflow", exact=True).click()
+    history = designer.get_by_label("Workflow run history", exact=True)
+    expect(history.locator("tbody tr").filter(has_text="Parallel template authoring proof")).to_contain_text("completed", timeout=25000)
+    run_id = next(item for item in get("/api/runs") if item["header"]["definition"]["workflowId"] == workflow_id)["header"]["runId"]
     deadline = time.monotonic() + 25
     while time.monotonic() < deadline:
         run = get(f"/api/runs/{run_id}")
@@ -155,11 +154,7 @@ def parallel_user_template_check(page, base, get, state, state_lock):
     with state_lock:
         assert len(state["calls"]) == calls_before + 3
 
-    page.get_by_role("button", name="Run inspector", exact=True).click()
-    page.get_by_role("button", name="Refresh history", exact=True).click()
-    run_row = page.locator(".vaw-history button").filter(has_text=run_id[:8])
-    expect(run_row).to_be_visible(timeout=15_000)
-    run_row.click()
+    history.get_by_role("button", name="Inspect run " + run_id, exact=True).click()
     viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
     viewer.get_by_role("button", name="Previous event", exact=True).click()
     expect(viewer).to_contain_text("Recorded playback")
@@ -168,6 +163,43 @@ def parallel_user_template_check(page, base, get, state, state_lock):
         expect(viewer.get_by_role("region", name="Selected node payloads")).to_contain_text(message)
     with state_lock:
         assert len(state["calls"]) == calls_before + 3, "Playback must not issue another model request"
+
+
+def model_connection_form_check(page, base, endpoint, key, state, state_lock):
+    page.goto(base + "/settings", wait_until="networkidle")
+    form = page.locator("#add-provider")
+    form.get_by_label("Connection ID", exact=False).fill("ui.fixture")
+    form.get_by_label("Connection name", exact=False).fill("Protocol UI connection")
+    form.get_by_label("Model ID", exact=False).fill("fixture-ui-model")
+    form.get_by_label("API base URL", exact=False).fill(endpoint)
+    form.get_by_label("Allow unencrypted HTTP for this endpoint", exact=True).check()
+    form.get_by_label("API key (optional)", exact=False).fill(key)
+    with state_lock:
+        before = len(state["calls"])
+    form.get_by_role("button", name="Test connection", exact=True).click()
+    expect(form.get_by_role("status")).to_contain_text("Connection succeeded")
+    with state_lock:
+        assert len(state["calls"]) == before + 1
+        assert state["calls"][-1]["model"] == "fixture-ui-model"
+        assert state["calls"][-1].get("max_completion_tokens", state["calls"][-1].get("max_tokens")) == 1
+    form.get_by_role("button", name="Add connection", exact=True).click()
+    card = page.locator(".vaw-provider-card").filter(has_text="Protocol UI connection")
+    expect(card).to_be_visible()
+    assert key not in page.content()
+    card.get_by_role("button", name="Test connection", exact=True).click()
+    expect(card.get_by_role("status")).to_contain_text("Connection succeeded")
+    card.get_by_role("button", name="Edit connection", exact=True).click()
+    expect(form.get_by_label("Connection ID", exact=False)).to_be_disabled()
+    expect(form.get_by_label("Model ID", exact=False)).to_have_value("fixture-ui-model")
+    form.get_by_label("Model ID", exact=False).fill("fixture-ui-edited")
+    form.get_by_label("Model ID", exact=False).press("Tab")
+    form.get_by_role("button", name="Save connection", exact=True).click()
+    expect(card).to_contain_text("fixture-ui-edited")
+    with state_lock:
+        assert len(state["calls"]) == before + 2, "Saving and editing must not invoke the model"
+    card.get_by_role("button", name="Delete connection", exact=True).click()
+    card.get_by_role("button", name="Confirm delete", exact=True).click()
+    expect(card).to_have_count(0)
 
 
 def check(dotnet, browser_executable, template_only=False):
@@ -261,30 +293,31 @@ def check(dotnet, browser_executable, template_only=False):
                     if template_only:
                         page.goto(base)
                         designer = page.get_by_role("region", name="Workflow designer", exact=True)
-                        expect(designer.get_by_role("button", name="New workflow", exact=True)).to_be_enabled()
+                        expect(designer.locator("[data-graph-save]")).to_be_enabled()
                         parallel_user_template_check(page, base, get, state, state_lock)
                         assert not errors, errors
-                        print("Parallel Agent user-message template: edit/save/reload/publish/run/exact playback evidence passed.")
+                        print("Parallel Agent user-message template: edit/save/reload/direct-run/exact playback evidence passed.")
                         return
+                    model_connection_form_check(page, base, endpoint, key, state, state_lock)
                     page.goto(base)
                     designer = page.get_by_role("region",name="Workflow designer",exact=True)
-                    expect(workbench(designer).get_by_role("button",name="New workflow",exact=True)).to_be_enabled()
+                    expect(workbench(designer).locator("[data-graph-save]")).to_be_enabled()
                     new_workflow_fixture(designer)
                     expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Unsaved changes")
-                    workflow_id = workbench(designer).locator(".vaw-definition-status strong").inner_text()
+                    workflow_id = workbench(designer).locator(".vaw-definition-status code").inner_text()
                     inspect_control(designer, "Operation for step-1").get_by_label("Operation for step-1",exact=True).select_option("agent:openai.fixture")
                     expect(workbench(designer).get_by_text("External model: fixture-model.",exact=False)).to_be_visible()
                     instructions = inspect_control(designer, "Agent instructions for step-1").get_by_label("Agent instructions for step-1",exact=True)
                     instructions.fill("Local protocol test instructions"); instructions.press("Tab")
                     inspect_control(designer, "Assign demo.reverse to step-1").get_by_label("Assign demo.reverse to step-1",exact=True).check()
-                    save_draft = workbench(designer).get_by_role("button",name="Save draft",exact=True)
+                    save_draft = workbench(designer).locator("[data-graph-save]")
                     save_draft.click()
-                    workbench(designer).get_by_text("Draft saved.",exact=True).wait_for()
+                    expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Draft saved")
                     turns = inspect_control(designer, "Maximum model turns for step-1").get_by_label("Maximum model turns for step-1",exact=True)
                     turns.fill("17"); turns.press("Tab")
                     expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Unsaved changes")
                     save_draft.click()
-                    workbench(designer).get_by_text("Draft saved.",exact=True).wait_for()
+                    expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Draft saved")
                     saved_turns = get(f"/api/workflows/{workflow_id}")["definition"]["nodes"]["step-1"]["agent"]["maxTurns"]
                     assert saved_turns == 17, f"Expected 17 turns after the first edit, got {saved_turns}"
                     turns.fill("-1"); turns.press("Tab")
@@ -292,21 +325,27 @@ def check(dotnet, browser_executable, template_only=False):
                     timeout = inspect_control(designer, "Agent timeout in seconds for step-1").get_by_label("Agent timeout in seconds for step-1",exact=True)
                     timeout.fill("150"); timeout.press("Tab")
                     save_draft.click()
-                    workbench(designer).get_by_text("Draft saved.",exact=True).wait_for()
+                    expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Draft saved")
                     configured_draft = get(f"/api/workflows/{workflow_id}")["definition"]
                     assert configured_draft["schemaVersion"] == "1.21"
                     assert configured_draft["nodes"]["step-1"]["agent"]["maxTurns"] == -1
                     assert configured_draft["nodes"]["step-1"]["agent"]["timeoutSeconds"] == 150
-                    workbench(designer).get_by_role("button",name="Publish & activate",exact=True).click()
-                    workbench(designer).get_by_text("Published and activated version 1.",exact=True).wait_for()
-                    revision = get(f"/api/workflows/{workflow_id}/revisions")[0]["revision"]
-                    workbench(designer).get_by_label("Published run input",exact=True).fill("abc")
-                    workbench(designer).get_by_role("button",name="Run selected version",exact=True).click()
+                    # Publication is an API consumer proof; the IDE runs saved source directly.
+                    saved = get(f"/api/workflows/{workflow_id}")
+                    publication = page.request.post(base + f"/api/workflows/{workflow_id}/publish", data={"expectedGeneration": saved["generation"]})
+                    assert publication.ok, publication.text()
+                    revision = publication.json()["revision"]
+                    workbench(designer).get_by_role("button",name="Configure test input",exact=True).click()
+                    workbench(designer).get_by_label("Workflow input",exact=True).fill("abc")
+                    workbench(designer).get_by_role("button",name="Run workflow",exact=True).click()
+                    history = designer.get_by_label("Workflow run history", exact=True)
+                    expect(history.locator("tbody tr").first).to_contain_text("completed", timeout=20000)
+                    history.get_by_role("button",name=re.compile("^Inspect run ")).first.click()
                     viewer = page.get_by_role("region",name="Workflow run viewer",exact=True)
                     viewer.locator('li[data-node-id="output"] button.vaw-node-drag').click()
                     expect(viewer.get_by_role("region",name="Selected node payloads").locator("pre").last).to_have_text("Protocol fixture: cba")
                     runs = get("/api/runs")
-                    recorded = next(r for r in runs if r["header"]["revisionId"] == revision["revisionId"])
+                    recorded = next(r for r in runs if r["header"]["definition"]["workflowId"] == workflow_id)
                     assert recorded["status"] == "completed"
                     assert sum(e["kind"] == "model.responded" for e in recorded["events"]) == 2
                     assert sum(e["kind"] == "tool.completed" for e in recorded["events"]) == 1
@@ -387,7 +426,7 @@ def check(dotnet, browser_executable, template_only=False):
             if process:
                 stop(process)
             server.shutdown(); server.server_close()
-    print("Configured official-SDK protocol fixture: Studio catalog/authoring, brokered MCP loop, bounded evidence, no retry/credential capture, read-only playback and independent direct/queued service execution passed. No live model was contacted.")
+    print("Configured official-SDK protocol fixture: model connection add/test/edit/delete, Studio authoring, brokered MCP loop, bounded evidence, no retry/credential capture, read-only playback and independent direct/queued service execution passed. No live model was contacted.")
 
 
 if __name__ == "__main__":

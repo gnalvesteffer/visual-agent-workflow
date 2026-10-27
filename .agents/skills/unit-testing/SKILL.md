@@ -24,6 +24,8 @@ Use this skill for focused tests of one unit's observable behavior. For broader 
 - Give each test its own mutable state and temporary directory. Tests must not depend on execution order, shared static state, ambient culture, timezone, or machine-specific paths.
 - If filesystem durability, SQLite transactions, subprocesses, HTTP, framework integration, or browser behavior is material to the guarantee, use the repository's integration tests instead of disguising it as a unit test with mocks.
 
+For subprocess protocol fixtures, isolate working-directory configuration as well as environment variables. The pure MCP demo uses a host builder with defaults disabled, so caller appsettings cannot crash or reconfigure the fixture or allocate unnecessary file watchers. `StudioStdioMcpTests.DemoFixtureDoesNotLoadCallerApplicationConfiguration` verifies discovery from a directory containing invalid application JSON.
+
 ## Make failures useful
 
 - For a bug fix, add the smallest regression test that fails for the reported behavior before changing the implementation when practical. Confirm that the failure is the intended assertion, then rerun after the fix.

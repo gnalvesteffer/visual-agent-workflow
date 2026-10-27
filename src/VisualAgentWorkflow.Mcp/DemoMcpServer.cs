@@ -19,7 +19,8 @@ public static class DemoMcpServer
 
     public static async Task RunAsync(string protocolVersion = ProtocolVersion)
     {
-        var builder = Host.CreateApplicationBuilder();
+        // This pure fixture must not read or watch the calling application's configuration.
+        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { DisableDefaults = true });
         builder.Logging.ClearProviders();
         builder.Services.AddMcpServer(options => options.ProtocolVersion = protocolVersion)
             .WithStdioServerTransport().WithTools<TextTools>();

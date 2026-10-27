@@ -85,6 +85,25 @@ public sealed class StudioStdioMcpTests : IDisposable
     }
 
     [Fact]
+    public async Task DemoFixtureDoesNotLoadCallerApplicationConfiguration()
+    {
+        Directory.CreateDirectory(directory);
+        await File.WriteAllTextAsync(Path.Combine(directory, "appsettings.json"), "{not valid application JSON}");
+        var services = new ServiceCollection();
+        services.AddDataProtection();
+        using var serviceProvider = services.BuildServiceProvider();
+        var policy = new StudioToolPolicy();
+        var library = new StudioMcpLibrary(directory, serviceProvider.GetRequiredService<IDataProtectionProvider>(),
+            new McpToolBroker([], policy), policy, []);
+        var draft = new StudioMcpConnectionDraft("isolated-demo", "Isolated demo", "Tests", StudioMcpTransport.Stdio,
+            "", "", DotnetExecutable(), [StudioExecutable(), "--mcp-demo-server"], directory, new Dictionary<string, string>());
+
+        var tools = await library.DiscoverAsync(draft);
+
+        Assert.Contains(tools, tool => tool.Name == "reverse" && tool.IsSupported);
+    }
+
+    [Fact]
     public async Task ProcessExitingBeforeInitializationGetsAStdioSpecificDiagnostic()
     {
         var services = new ServiceCollection();
