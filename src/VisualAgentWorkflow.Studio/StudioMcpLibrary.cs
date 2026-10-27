@@ -139,11 +139,11 @@ public sealed class StudioMcpLibrary
         }
         catch (Exception exception) when (exception is not OutOfMemoryException and not OperationCanceledException)
         {
-            return new(0, 0, 0, ConnectionFailureMessage(exception));
+            return new(0, 0, 0, ConnectionFailureMessage(exception, draft.Transport));
         }
     }
 
-    private static string ConnectionFailureMessage(Exception exception)
+    private static string ConnectionFailureMessage(Exception exception, StudioMcpTransport transport)
     {
         var current = exception;
         while (current.InnerException is not null) current = current.InnerException;
@@ -154,7 +154,8 @@ public sealed class StudioMcpLibrary
             System.ComponentModel.Win32Exception => "Studio could not start the MCP executable. Check that it exists and is runnable by the current user.",
             HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden } => "The MCP server rejected authentication. Check the bearer token and its permissions.",
             HttpRequestException => "Could not reach the MCP endpoint. Check its URL, network access, and server availability.",
-            IOException => "The MCP server process or connection ended unexpectedly. Check the command, endpoint, and server logs.",
+            IOException when transport == StudioMcpTransport.Stdio => "Studio could not start the MCP executable or its process exited before tool discovery. Check the executable path, arguments, working directory, and server logs.",
+            IOException => "The MCP connection ended unexpectedly. Check the endpoint and server logs.",
             TimeoutException => "The MCP server did not finish initialization or tool discovery before the timeout.",
             _ when current.GetType().Name.Contains("Protocol", StringComparison.OrdinalIgnoreCase) => "The server responded, but MCP initialization or tool discovery failed. Check protocol compatibility and server logs.",
             _ => "Could not connect, initialize MCP, or list tools. Check the executable or endpoint, credentials, and server logs."

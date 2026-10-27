@@ -21,7 +21,9 @@ internal static class RunStoreRecords
             Layout = revision.Layout,
             SourceProvenance = revision.SourceProvenance
         };
-        return new(header, []);
+        var snapshot = new RunSnapshot(header, []);
+        Validate(snapshot, header.RunId);
+        return snapshot;
     }
 
     public static RunSnapshot Apply(RunSnapshot snapshot, long expectedSequence, IReadOnlyList<ExecutionEvent> events)
@@ -64,8 +66,8 @@ internal static class RunStoreRecords
                 provenance.SnapshotContentHash is { } snapshotHash && !IsSha256(snapshotHash))
                 throw new InvalidDataException("Run source provenance does not match its captured definition and layout.");
         }
-        else if (snapshot.Header.Layout is not null)
-            throw new InvalidDataException("Run layout requires source provenance.");
+        else if (snapshot.Header.Layout is { } presentation && !ValidPresentation(presentation, snapshot.Header.Definition))
+            throw new InvalidDataException("Run layout does not match the captured definition or layout limits.");
         // This is immutable historical evidence. Do not reapply today's workflow validator to a
         // definition that was captured when the run was accepted; new runs are strictly validated
         // through WorkflowRevision.Create before they reach the store.
@@ -90,6 +92,12 @@ internal static class RunStoreRecords
 
     private static bool IsSha256(string value) => value is { Length: 64 } && value.All(character =>
         character is >= '0' and <= '9' or >= 'a' and <= 'f');
+
+    private static bool ValidPresentation(WorkflowLayout layout, WorkflowDefinition definition)
+    {
+        try { _ = WorkflowLayoutJson.Serialize(layout, definition); return true; }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or NullReferenceException) { return false; }
+    }
 
     private static bool MatchesLayoutHash(WorkflowLayout layout, WorkflowDefinition definition, string hash)
     {

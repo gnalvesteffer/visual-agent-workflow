@@ -104,7 +104,7 @@ public sealed class ParallelCollaborationJournalTests : IDisposable
 
         if (sqlite)
         {
-            using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = DatabasePath }.ToString());
+            using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = DatabasePath, Pooling = false }.ToString());
             connection.Open();
             using var command = connection.CreateCommand();
             command.CommandText = "UPDATE run_events SET event_json=$event WHERE run_id=$runId AND sequence=$sequence;";

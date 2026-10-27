@@ -85,6 +85,28 @@ public sealed class StudioStdioMcpTests : IDisposable
     }
 
     [Fact]
+    public async Task ProcessExitingBeforeInitializationGetsAStdioSpecificDiagnostic()
+    {
+        var services = new ServiceCollection();
+        services.AddDataProtection();
+        using var serviceProvider = services.BuildServiceProvider();
+        var policy = new StudioToolPolicy();
+        var library = new StudioMcpLibrary(directory, serviceProvider.GetRequiredService<IDataProtectionProvider>(),
+            new McpToolBroker([], policy), policy, []);
+        var command = OperatingSystem.IsWindows() ? Path.Combine(Environment.SystemDirectory, "cmd.exe") : "/bin/sh";
+        string[] arguments = OperatingSystem.IsWindows() ? ["/d", "/c", "exit", "/b", "1"] : ["-c", "exit 1"];
+        var draft = new StudioMcpConnectionDraft("exits-early", "Exits early", "Tests", StudioMcpTransport.Stdio,
+            "", "", command, arguments, "", new Dictionary<string, string> { ["VAW_TEST_SECRET"] = "never-show-this-value" });
+        library.Save(draft, []);
+
+        var result = await library.TestSavedConnectionAsync("exits-early");
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("MCP executable", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("never-show-this-value", result.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task StdioConnectionNegotiatesTheCurrentDiscoverProtocol()
     {
         var services = new ServiceCollection();

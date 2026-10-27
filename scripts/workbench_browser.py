@@ -3,9 +3,14 @@ import re
 
 
 def workbench(designer):
-    tab = designer.page.get_by_role("button", name="Designer", exact=True)
-    if tab.get_attribute("aria-pressed") != "true":
-        tab.click()
+    page = designer.page
+    back = page.get_by_role("button", name="Back to workflow", exact=True)
+    if back.is_visible():
+        back.click()
+    else:
+        tab = page.get_by_role("button", name="Designer", exact=True)
+        if tab.is_visible() and tab.get_attribute("aria-pressed") != "true":
+            tab.click()
     from playwright.sync_api import expect
     expect(designer).to_be_visible()
     return designer
@@ -16,7 +21,8 @@ def inspect_control(designer, label):
     ids = designer.locator("li[data-node-id]").evaluate_all("nodes => nodes.map(node => node.dataset.nodeId)")
     matches = [node_id for node_id in ids if re.search(r"(?:^| )" + re.escape(node_id) + r"(?:$|[ .])", label)]
     if matches:
-        designer.get_by_label("Node to organize", exact=True).select_option(max(matches, key=len))
+        node_id = max(matches, key=len)
+        designer.locator(f'li[data-node-id="{node_id}"] [data-drag-node]').click()
     if label.startswith("New node operation") or label.startswith(("Add node after ", "Add conditional after ", "Add condition after ")):
         summary=designer.get_by_text("Insertion options",exact=True)
         if not summary.evaluate("element=>element.parentElement.open"): summary.click()
@@ -24,7 +30,12 @@ def inspect_control(designer, label):
 
 
 def show_runs(page):
-    page.get_by_role("button", name="Run inspector", exact=True).click()
+    legacy = page.get_by_role("button", name="Run inspector", exact=True)
+    if legacy.is_visible():
+        legacy.click()
+    else:
+        page.get_by_role("button", name="Configure test input", exact=True).click()
+        page.get_by_role("button", name="Open run inspector", exact=True).click()
 
 
 def new_workflow_fixture(designer):

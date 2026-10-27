@@ -42,13 +42,17 @@ def check(browser, screenshots):
         return response.json()
 
     def select_workflow(workflow_id):
+        page.wait_for_function("""id => {
+            const select = document.querySelector('[data-vaw-workflow-selector]');
+            return select && !select.matches(':disabled') && [...select.options].some(option => option.value === id);
+        }""", arg=workflow_id)
         result = page.evaluate("id => window.vawStudioIde.selectWorkflow(id)", workflow_id)
         assert result == 1, f"IDE workflow selector could not select {workflow_id}: {result}"
 
     def open_editor():
         page.goto(BASE)
         designer = page.get_by_role("region", name="Workflow designer", exact=True)
-        expect(workbench(designer).get_by_role("button", name="Save draft", exact=True)).to_be_enabled()
+        expect(workbench(designer).locator("[data-graph-save]")).to_be_enabled()
         select_workflow(workflow_id)
         expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text(workflow_id)
         expect(workbench(designer).locator(".vaw-graph-editor")).to_have_attribute("data-ready", "true")
@@ -81,7 +85,7 @@ def check(browser, screenshots):
     moved_x = before_x + logical_delta(64) + 8
     expect(step).to_have_css("left", f"{moved_x}px")
     workbench(designer).get_by_text("Labels, comments, sections, and wire routing", exact=True).click()
-    workbench(designer).get_by_label("Node to organize", exact=True).select_option("step-1")
+    inspect_control(designer, "Move node step-1")
     expect(workbench(designer).get_by_role("spinbutton", name="Node X", exact=True)).to_have_value(str(moved_x))
     workbench(designer).get_by_label("Node label", exact=True).fill("Normalize input")
     workbench(designer).get_by_label("Node comment", exact=True).fill("Convert the incoming text before forwarding it.")
@@ -184,9 +188,8 @@ def check(browser, screenshots):
     assert viewport.evaluate("e=>[e.scrollLeft,e.scrollTop]") != scroll_before
     workbench(designer).get_by_role("button", name="Reset view", exact=True).click()
     expect(canvas.locator(".vaw-canvas-toolbar > span").filter(has_text="100%")).to_have_text("100%")
-    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
-    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
-    workbench(designer).get_by_text("Draft saved.", exact=True).wait_for()
+    workbench(designer).locator("[data-graph-save]").click()
+    expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Draft saved")
     saved = design()
     assert saved["draft"]["definition"] == definition, "Presentation editing changed executable JSON"
     assert saved["layout"]["nodes"]["step-1"]["label"] == "Normalize input"
@@ -213,13 +216,17 @@ def check(browser, screenshots):
     page.mouse.up()
     assert current_node.evaluate("e=>[e.style.left,e.style.top]") == canonical_position
     expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Draft saved")
-    workbench(designer).get_by_role("button", name="Publish & activate", exact=True).click()
-    workbench(designer).get_by_text("Published and activated version 1.", exact=True).wait_for()
-    revision = page.request.get(path + "/revisions").json()[0]["revision"]
-    pinned = page.request.get(BASE + "/api/revisions/" + revision["revisionId"] + "/layout").json()
-    assert pinned == saved["layout"]
-    workbench(designer).get_by_label("Published run input", exact=True).fill("canvas proof")
-    workbench(designer).get_by_role("button", name="Run selected version", exact=True).click()
+    # IDE runs use the saved source directly and must capture its presentation.
+    workbench(designer).get_by_role("button", name="Configure test input", exact=True).click()
+    workbench(designer).get_by_label("Workflow input", exact=True).fill("canvas proof")
+    workbench(designer).get_by_role("button", name="Run workflow", exact=True).click()
+    history = workbench(designer).get_by_label("Workflow run history", exact=True)
+    expect(history.locator("tbody tr").first).to_contain_text("completed")
+    inspect = history.get_by_role("button", name=re.compile("^Inspect run ")).first
+    run_id = inspect.get_attribute("aria-label").removeprefix("Inspect run ")
+    recorded = page.request.get(BASE + "/api/runs/" + run_id).json()
+    assert recorded["header"]["layout"] == saved["layout"], "Execution lost the saved graph presentation"
+    inspect.click()
     viewer = page.get_by_role("region", name="Workflow run viewer", exact=True)
     viewer.locator('li[data-node-id="output"] button.vaw-node-drag').click()
     expect(viewer.get_by_role("region", name="Selected node payloads").locator("pre").last).to_have_text("FOORP SAVNAC")
@@ -228,36 +235,32 @@ def check(browser, screenshots):
     old_layout = design()["layout"]
     drag(page, viewer.get_by_role("button", name="Inspect node step-1", exact=True), 48, 0)
     assert design()["layout"] == old_layout, "Playback changed the saved layout"
-    # Published previews and restores must carry the original presentation, not today's draft.
-    workbench(designer).get_by_text("Labels, comments, sections, and wire routing", exact=True).click()
-    workbench(designer).get_by_label("Node to organize", exact=True).select_option("step-1")
+    # Later edits cannot rewrite the presentation captured by an existing run.
+    inspect_control(designer, "Move node step-1")
     workbench(designer).get_by_label("Node label", exact=True).fill("Changed draft label")
     workbench(designer).get_by_label("Node label", exact=True).press("Tab")
-    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
-    workbench(designer).get_by_text("Draft saved.", exact=True).wait_for()
-    workbench(designer).get_by_role("button", name="Publish & activate", exact=True).click()
-    workbench(designer).get_by_text("Published and activated version 2.", exact=True).wait_for()
-    workbench(designer).get_by_label("Published version", exact=True).select_option(revision["revisionId"])
-    workbench(designer).get_by_role("button", name="View selected version", exact=True).click()
-    workbench(designer).get_by_text("Viewing published version 1 (read-only).", exact=True).wait_for()
-    expect(workbench(designer).get_by_role("button", name="Inspect node step-1", exact=True)).to_contain_text("Normalize input")
-    workbench(designer).get_by_role("button", name="Return to draft", exact=True).click()
-    workbench(designer).get_by_role("button", name="Restore selected to draft", exact=True).click()
-    workbench(designer).get_by_text("Version restored to draft. Publish to create a new version; active runs are unchanged.", exact=True).wait_for()
-    assert design()["layout"] == pinned
+    workbench(designer).locator("[data-graph-save]").click()
+    expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Draft saved")
+    assert page.request.get(BASE + "/api/runs/" + run_id).json()["header"]["layout"] == saved["layout"]
+    workbench(designer).get_by_role("button", name="Undo edit", exact=True).click()
+    workbench(designer).locator("[data-graph-save]").click()
+    expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Draft saved")
+    assert page.request.get(path + "/revisions").json() == [], "An IDE run should not publish a source revision"
     # Existing wires can be disconnected, saved as an invalid draft, and rewired to a matching pin.
     canvas = workbench(designer).locator(".vaw-graph-editor")
     workbench(designer).locator("details.vaw-layout-inspector").evaluate("e=>e.open=true")
     workbench(designer).get_by_label("Wire to organize", exact=True).select_option("link-1")
     workbench(designer).get_by_role("button", name="Disconnect wire", exact=True).click()
     expect(workbench(designer).get_by_role("alert", name="Workflow validation issues")).to_contain_text("unresolved issue")
-    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
-    workbench(designer).get_by_text("Draft saved.", exact=True).wait_for()
-    expect(workbench(designer).get_by_role("button", name="Publish & activate", exact=True)).to_be_disabled()
-    expect(workbench(designer).get_by_role("button", name="Activate selected version", exact=True)).to_be_disabled()
+    workbench(designer).locator("[data-graph-save]").click()
+    expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Draft saved")
+    expect(workbench(designer).get_by_role("button", name="Run workflow", exact=True)).to_be_disabled()
     assert "link-1" not in design()["draft"]["definition"]["connections"]
     source_pin = canvas.locator("li[data-node-id='input'] .vaw-output-ports [data-socket='out']")
     target_pin = canvas.locator("li[data-node-id='step-1'] .vaw-input-ports [data-socket='in']")
+    workbench(designer).get_by_role("button", name="Fit graph", exact=True).click()
+    expect(source_pin).to_be_in_viewport(ratio=0.99)
+    expect(target_pin).to_be_in_viewport(ratio=0.99)
     source_box, target_box = source_pin.bounding_box(), target_pin.bounding_box()
     page.mouse.move(source_box["x"] + source_box["width"] / 2, source_box["y"] + source_box["height"] / 2)
     page.mouse.down()
@@ -265,9 +268,9 @@ def check(browser, screenshots):
     expect(target_pin).to_have_class(re.compile("vaw-socket-drop-target"))
     page.mouse.up()
     expect(workbench(designer).get_by_role("alert", name="Workflow validation issues")).to_have_count(0)
-    workbench(designer).get_by_role("button", name="Save draft", exact=True).click()
-    workbench(designer).get_by_text("Draft saved.", exact=True).wait_for()
-    expect(workbench(designer).get_by_role("button", name="Publish & activate", exact=True)).to_be_enabled()
+    workbench(designer).locator("[data-graph-save]").click()
+    expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text("Draft saved")
+    expect(workbench(designer).get_by_role("button", name="Run workflow", exact=True)).to_be_enabled()
     saved_rewire = design()["draft"]["definition"]["connections"]
     assert any(edge["source"] == {"nodeId": "input", "portId": "out"} and edge["target"] == {"nodeId": "step-1", "portId": "in"} for edge in saved_rewire.values())
     # Agent-only controls stay scoped to an agent node and are persisted independently.
@@ -288,12 +291,12 @@ def check(browser, screenshots):
     page.goto(BASE)
     agent_designer = page.get_by_role("region", name="Workflow designer", exact=True)
     select_workflow(agent_definition["workflowId"])
-    workbench(agent_designer).get_by_label("Node to organize", exact=True).select_option("step-1")
+    inspect_control(agent_designer, "Move node step-1")
     token_limit = workbench(agent_designer).get_by_label("Maximum output tokens for step-1", exact=True)
     token_limit.fill("4096")
     token_limit.press("Tab")
-    workbench(agent_designer).get_by_role("button", name="Save draft", exact=True).click()
-    workbench(agent_designer).get_by_text("Draft saved.", exact=True).wait_for()
+    workbench(agent_designer).locator("[data-graph-save]").click()
+    expect(workbench(agent_designer).locator(".vaw-definition-status")).to_contain_text("Draft saved")
     configured_agent = page.request.get(agent_path + "/design").json()["draft"]["definition"]
     assert configured_agent["schemaVersion"] == "1.10"
     assert configured_agent["nodes"]["step-1"]["agent"]["maxOutputTokens"] == 4096
@@ -314,8 +317,8 @@ def check(browser, screenshots):
     pointer = json_canvas.locator("input[aria-label^='JSON pointer for']")
     pointer.fill("/customer/name")
     pointer.press("Tab")
-    workbench(json_designer).get_by_role("button", name="Save draft", exact=True).click()
-    workbench(json_designer).get_by_text("Draft saved.", exact=True).wait_for()
+    workbench(json_designer).locator("[data-graph-save]").click()
+    expect(workbench(json_designer).locator(".vaw-definition-status")).to_contain_text("Draft saved")
     json_saved = page.request.get(json_path + "/design").json()["draft"]["definition"]
     assert json_saved["schemaVersion"] == "1.9"
     assert json_saved["nodes"]["input"]["inputDataType"] == "json"
@@ -327,7 +330,7 @@ def check(browser, screenshots):
         expect(viewer).to_be_visible()
         viewer.screenshot(path=str(screenshots / "canvas-playback.png"))
     assert not errors, errors
-    print("Edge sockets, wire disconnect/rewire, invalid draft save and publish/activate gating, per-agent output-token editing, cancellation, pointer/keyboard moves, undo/redo, comments, box selection/group moves, free pan/reset, section moves, wire reroutes/angles, zoom, JSON-input authoring, reload, CAS conflicts, publication, version preview/restore, and recorded layout playback passed.")
+    print("Edge sockets, wire disconnect/rewire, invalid draft save and execution gating, per-agent output-token editing, cancellation, pointer/keyboard moves, undo/redo, comments, box selection/group moves, free pan/reset, section moves, wire reroutes/angles, zoom, JSON-input authoring, reload, CAS conflicts, saved-source execution, immutable run presentation, and recorded layout playback passed.")
     page.close()
 
 

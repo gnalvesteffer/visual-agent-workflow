@@ -220,6 +220,11 @@ public partial class WorkflowStudio
 
     private async Task LoadRunLayout(RunSnapshot? run, long selection, IWorkflowClient client, long version)
     {
+        if (run?.Header.Layout is { } captured)
+        {
+            if (Current(client, version) && selection == selectionVersion) runLayout = captured;
+            return;
+        }
         var catalog = Catalog;
         if (run is null || catalog is not IWorkflowDesignCatalog designs) return;
         try
