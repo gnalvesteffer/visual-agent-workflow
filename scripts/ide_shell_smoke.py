@@ -186,6 +186,11 @@ def verify(base_url: str, browser_executable: str | None) -> None:
                     assert all(40 <= height <= 50 for height in form_control_heights), (
                         f"Form controls should share a comfortable ~44px size on {route}: {form_control_heights}"
                     )
+                if route in ("/agents", "/skills", "/functions", "/mcp", "/observe", "/projects", "/settings"):
+                    expect(page.get_by_role("link", name=name, exact=True)).to_have_attribute("aria-current", "page")
+                    expect(page.get_by_role("link", name="Explorer", exact=True)).not_to_have_class("is-active")
+                if route == "/settings":
+                    expect(page.locator(".vaw-ide-route-heading")).to_have_text("Model connections")
                 if route == "/agents":
                     description = page.get_by_label("Delegate description", exact=True)
                     assert description.evaluate("e => e.getBoundingClientRect().height") < 85, "Two-row descriptions should not inherit the instruction editor's tall minimum."

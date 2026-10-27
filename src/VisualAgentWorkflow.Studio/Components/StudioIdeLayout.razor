@@ -20,20 +20,20 @@
             </select>
         </label>
         <nav class="vaw-ide-title-actions" aria-label="Host connections">
-            <a href="/projects" data-vaw-route-link>Projects</a>
-            <a href="/mcp" data-vaw-route-link>Connections</a>
-            <a href="/settings" data-vaw-route-link>Models</a>
+            <a href="/projects" aria-current="@(ActivePage == "projects" ? "page" : null)" data-vaw-route-link>Projects</a>
+            <a href="/mcp" aria-current="@(ActivePage == "mcp" ? "page" : null)" data-vaw-route-link>Connections</a>
+            <a href="/settings" aria-current="@(ActivePage == "models" ? "page" : null)" data-vaw-route-link>Models</a>
             <StudioThemePicker />
         </nav>
     </header>
     <div class="vaw-global-ide-layout @(IsFolderWorkspace ? "vaw-folder-ide-layout" : null)">
         <nav class="vaw-ide-activitybar" aria-label="Studio views">
-            <a href="@WorkflowRoute" class="@(ActivePage == "workflow" ? "is-active" : null)" aria-label="Explorer" title="Workflow editor" data-vaw-route-link><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5h7l2 2h9v11H3zM3 8h18" /></svg><span>Explorer</span></a>
-            <a href="/agents" class="@(ActivePage == "agents" ? "is-active" : null)" aria-label="Agents" title="Agent library" data-vaw-route-link><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 20c.5-4 2.8-6 7-6s6.5 2 7 6"/></svg><span>Agents</span></a>
-            <a href="/skills" class="@(ActivePage == "skills" ? "is-active" : null)" aria-label="Skills" title="Skill library" data-vaw-route-link><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM14 3v5h5M8 13h8m-8 4h6"/></svg><span>Skills</span></a>
-            <a href="/functions" class="@(ActivePage == "functions" ? "is-active" : null)" aria-label="Functions" title="Function library" data-vaw-route-link><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5-6 7 6 7m8-14 6 7-6 7m-2-16-4 18"/></svg><span>Functions</span></a>
-            <a href="/mcp" class="@(ActivePage == "mcp" ? "is-active" : null)" aria-label="MCP library" title="MCP connections" data-vaw-route-link><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M8 7.5 11 16m5-8.5L13 16m-5-10h8"/></svg><span>MCP</span></a>
-            <a href="/observe" class="@(ActivePage == "observe" ? "is-active" : null)" aria-label="Observe" title="Run history" data-vaw-route-link><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8m0-5v5h5m4-1v5l4 2"/></svg><span>Observe</span></a>
+            <a href="@WorkflowRoute" class="@(ActivePage == "workflow" ? "is-active" : null)" aria-current="@(ActivePage == "workflow" ? "page" : null)" aria-label="Explorer" title="Workflow editor" data-vaw-route-link><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5h7l2 2h9v11H3zM3 8h18" /></svg><span>Explorer</span></a>
+            <a href="/agents" class="@(ActivePage == "agents" ? "is-active" : null)" aria-current="@(ActivePage == "agents" ? "page" : null)" aria-label="Agents" title="Agent library" data-vaw-route-link><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 20c.5-4 2.8-6 7-6s6.5 2 7 6"/></svg><span>Agents</span></a>
+            <a href="/skills" class="@(ActivePage == "skills" ? "is-active" : null)" aria-current="@(ActivePage == "skills" ? "page" : null)" aria-label="Skills" title="Skill library" data-vaw-route-link><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM14 3v5h5M8 13h8m-8 4h6"/></svg><span>Skills</span></a>
+            <a href="/functions" class="@(ActivePage == "functions" ? "is-active" : null)" aria-current="@(ActivePage == "functions" ? "page" : null)" aria-label="Functions" title="Function library" data-vaw-route-link><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5-6 7 6 7m8-14 6 7-6 7m-2-16-4 18"/></svg><span>Functions</span></a>
+            <a href="/mcp" class="@(ActivePage == "mcp" ? "is-active" : null)" aria-current="@(ActivePage == "mcp" ? "page" : null)" aria-label="MCP library" title="MCP connections" data-vaw-route-link><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M8 7.5 11 16m5-8.5L13 16m-5-10h8"/></svg><span>MCP</span></a>
+            <a href="/observe" class="@(ActivePage == "observe" ? "is-active" : null)" aria-current="@(ActivePage == "observe" ? "page" : null)" aria-label="Observe" title="Run history" data-vaw-route-link><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8m0-5v5h5m4-1v5l4 2"/></svg><span>Observe</span></a>
         </nav>
         @if (!IsFolderWorkspace)
         {
@@ -104,9 +104,9 @@
         : PathName.EndsWith("/skills", StringComparison.Ordinal) || PathName == "skills" ? "skills"
         : PathName.EndsWith("/functions", StringComparison.Ordinal) || PathName == "functions" ? "functions"
         : PathName == "mcp" ? "mcp" : PathName == "observe" ? "observe"
-        : PathName == "projects" ? "projects" : "workflow";
+        : PathName == "projects" ? "projects" : PathName == "settings" ? "models" : "workflow";
     private bool IsFolderWorkspace => PathName.StartsWith("source-project", StringComparison.Ordinal);
-    private string CurrentViewName => ActivePage switch { "agents" => "Agent library", "skills" => "Skill library", "functions" => "Function library", "mcp" => "MCP connections", "observe" => "Run history", "projects" => "Projects", _ => "Workflow" };
+    private string CurrentViewName => ActivePage switch { "agents" => "Agent library", "skills" => "Skill library", "functions" => "Function library", "mcp" => "MCP connections", "observe" => "Run history", "projects" => "Projects", "models" => "Model connections", _ => "Workflow" };
 
     protected override void OnInitialized()
     {

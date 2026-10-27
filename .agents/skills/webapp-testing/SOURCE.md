@@ -7,3 +7,5 @@ Read [quality assurance](../quality-assurance/SKILL.md) and [run and validate](.
 For Blazor, await observable UI state and Playwright assertions. Network idle alone does not prove a circuit or workflow is ready. Prefer role/name locators, bounded condition waits, and explicit synchronization over arbitrary timeouts. Check browser errors and verify backend evidence as well as rendered state. Screenshots establish appearance, not accessibility conformance or execution correctness.
 
 Use disposable local data and deterministic providers/MCP fixtures. Do not contact live services or install additional tools solely because an upstream example does so. The optional server helper is not necessary when the existing server is running; call its `--help` before use. Keep upstream files unchanged and repository adaptations here.
+
+When switching IDE detail tabs, await the destination tab’s `aria-selected="true"` and scope actions to its visible named `tabpanel`. Runs and Output both contain an Inspect execution button; an unscoped locator can bind the previously visible button before the Blazor render and then wait indefinitely after that panel hides.
