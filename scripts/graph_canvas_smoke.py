@@ -64,6 +64,9 @@ def check(browser, screenshots):
     # target the stable canvas implementation rather than a copy-specific label.
     nodes = workbench(designer).locator("ol.vaw-free-graph > li")
     step = nodes.filter(has=page.get_by_role("button", name="Move node step-1", exact=True))
+    # The whole node card is a selection/drag surface; selection must not require the header.
+    step.locator(".vaw-node-body").click(position={"x": 8, "y": 8})
+    expect(step.locator("[data-drag-node]")).to_have_attribute("aria-pressed", "true")
     original = design()
     before_x = original["layout"]["nodes"]["step-1"]["position"]["x"]
     before_y = original["layout"]["nodes"]["step-1"]["position"]["y"]
@@ -87,11 +90,16 @@ def check(browser, screenshots):
     workbench(designer).get_by_text("Labels, comments, sections, and wire routing", exact=True).click()
     inspect_control(designer, "Move node step-1")
     expect(workbench(designer).get_by_role("spinbutton", name="Node X", exact=True)).to_have_value(str(moved_x))
+    expect(workbench(designer).get_by_label("Node comment", exact=True)).to_have_attribute("rows", "6")
     workbench(designer).get_by_label("Node label", exact=True).fill("Normalize input")
     workbench(designer).get_by_label("Node comment", exact=True).fill("Convert the incoming text before forwarding it.")
     workbench(designer).get_by_label("Node comment", exact=True).press("Tab")
     expect(handle).to_contain_text("Normalize input")
     expect(step.locator(".vaw-node-comment")).to_have_text("Convert the incoming text before forwarding it.")
+    tooltip = step.locator("[role='tooltip']")
+    step.locator(".vaw-tooltip-anchor").hover()
+    expect(tooltip).to_be_visible()
+    expect(tooltip).to_have_text("Convert the incoming text before forwarding it.")
 
     # Membership is explicit; moving the section moves only its nodes in one edit.
     workbench(designer).get_by_label("New section label", exact=True).fill("Text preparation")

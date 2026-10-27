@@ -1,0 +1,10 @@
+<span class="vaw-tooltip-anchor" tabindex="0" aria-describedby="@Id">
+    @ChildContent
+    <span id="@Id" class="vaw-tooltip" role="tooltip">@Text</span>
+</span>
+
+@code {
+    [Parameter, EditorRequired] public string Id { get; set; } = "";
+    [Parameter, EditorRequired] public string Text { get; set; } = "";
+    [Parameter, EditorRequired] public RenderFragment ChildContent { get; set; } = default!;
+}

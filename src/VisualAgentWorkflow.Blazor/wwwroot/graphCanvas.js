@@ -361,14 +361,17 @@ function pointerDown(state, event) {
             target: state.viewport, scrollX: state.viewport.scrollLeft, scrollY: state.viewport.scrollTop, moved: false, items: [] };
         state.viewport.setPointerCapture(event.pointerId); event.preventDefault(); return;
     }
-    const handle = event.target.closest('[data-drag-node], [data-drag-section], [data-drag-wire]');
+    const node = event.target.closest('li[data-node-id]');
+    const nodeSurface = node && !event.target.closest('button, input, select, textarea, summary, path, [data-socket]') ? node : null;
+    const handle = event.target.closest('[data-drag-node], [data-drag-section], [data-drag-wire]') || nodeSurface;
     if (handle && state.root.dataset.disabled === 'true') return;
     const background = !event.target.closest('li[data-node-id], button, input, select, textarea, summary, path');
     if (!handle && (!background || !state.viewport.contains(event.target))) return;
     const drag = { pointer: event.pointerId, start: local(state, event), screenX: event.clientX, screenY: event.clientY,
         target: handle || state.viewport, moved: false, items: [] };
-    if (handle?.dataset.dragNode) {
-        drag.kind = 'node'; drag.id = handle.dataset.dragNode;
+    const nodeId = handle?.dataset.dragNode || nodeSurface?.dataset.nodeId;
+    if (nodeId) {
+        drag.kind = 'node'; drag.id = nodeId;
         if (event.shiftKey || event.ctrlKey || event.metaKey) toggleNodeSelection(state, drag.id);
         else if (!state.selection.has(drag.id)) { state.selection = new Set([drag.id]); applySelection(state); }
         drag.ids = [...state.selection];

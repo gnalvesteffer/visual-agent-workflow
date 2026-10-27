@@ -93,7 +93,11 @@
                                     </div>
                                 </div>
                                 @if (!string.IsNullOrWhiteSpace(presentation.Comment))
-                                { <p class="vaw-node-comment" title="@presentation.Comment"><span>@presentation.Comment</span></p> }
+                                {
+                                    <WorkflowTooltip Id="@TooltipId(id)" Text="@presentation.Comment">
+                                        <div class="vaw-node-comment"><span class="vaw-node-comment-text">@presentation.Comment</span></div>
+                                    </WorkflowTooltip>
+                                }
                                 <div class="vaw-node-body">@NodeContent(id)</div>
                             </article>
                         </li>
@@ -157,7 +161,7 @@
                     @if (selectedNode is { } nodeId && Layout.Nodes.TryGetValue(nodeId, out var detail))
                     {
                         <label>Node label <input aria-label="Node label" value="@detail.Label" maxlength="160" @onchange="args => Label(nodeId, args)" /></label>
-                        <label>Node comment <textarea aria-label="Node comment" rows="3" maxlength="4000" value="@detail.Comment" @onchange="args => Comment(nodeId, args)"></textarea></label>
+                        <label>Node comment <textarea aria-label="Node comment" rows="6" maxlength="4000" value="@detail.Comment" @onchange="args => Comment(nodeId, args)"></textarea></label>
                         <div class="vaw-coordinate-fields">
                             <label>Node X <input type="number" min="0" max="32768" step="8" value="@Number(detail.Position.X)" @onchange="args => Coordinate(nodeId, args, true)" /></label>
                             <label>Node Y <input type="number" min="0" max="32768" step="8" value="@Number(detail.Position.Y)" @onchange="args => Coordinate(nodeId, args, false)" /></label>
@@ -191,7 +195,7 @@
                     @if (selectedNode is { } nodeId && Layout.Nodes.TryGetValue(nodeId, out var detail))
                     {
                         <label>Node label <input aria-label="Node label" value="@detail.Label" maxlength="160" @onchange="args => Label(nodeId, args)" /></label>
-                        <label>Node comment <textarea aria-label="Node comment" rows="3" maxlength="4000" value="@detail.Comment" @onchange="args => Comment(nodeId, args)"></textarea></label>
+                        <label>Node comment <textarea aria-label="Node comment" rows="6" maxlength="4000" value="@detail.Comment" @onchange="args => Comment(nodeId, args)"></textarea></label>
                         <div class="vaw-coordinate-fields">
                             <label>Node X <input type="number" min="0" max="32768" step="8" value="@Number(detail.Position.X)" @onchange="args => Coordinate(nodeId, args, true)" /></label>
                             <label>Node Y <input type="number" min="0" max="32768" step="8" value="@Number(detail.Position.Y)" @onchange="args => Coordinate(nodeId, args, false)" /></label>
