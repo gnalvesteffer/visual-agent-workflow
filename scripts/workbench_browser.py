@@ -72,3 +72,8 @@ def new_workflow_fixture(designer):
     details.locator("summary").click()
     if settings.is_visible() and settings.get_attribute("aria-expanded") == "true":
         settings.click()
+
+
+def current_project(page):
+    """The named titlebar button exposes its current project to assistive technology."""
+    return page.get_by_role("button", name=re.compile(r"^Current project:"))

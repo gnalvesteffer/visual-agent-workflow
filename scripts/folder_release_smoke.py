@@ -1,5 +1,7 @@
 """Export selected folder workflows and execute the bundle in the standalone consumer."""
 
+from workbench_browser import current_project
+
 import argparse
 import hashlib
 import json
@@ -78,7 +80,7 @@ def verify(base_url: str, browser_executable: str | None, dotnet: str) -> None:
                     folder_form.locator(":scope > summary").click()
                 page.get_by_label("Absolute folder path", exact=True).fill(str(project_directory))
                 page.get_by_role("button", name="Open folder", exact=True).click()
-                expect(page.get_by_label("Current project", exact=True).locator("option:checked")).to_have_text("Folder release smoke project")
+                expect(current_project(page)).to_have_text("Folder release smoke project")
                 page.get_by_role("button", name="Project tools", exact=True).click()
                 utility = page.locator('details.vaw-project-utility[aria-label="Build a consumer release"]')
                 utility.locator(":scope > summary").click()

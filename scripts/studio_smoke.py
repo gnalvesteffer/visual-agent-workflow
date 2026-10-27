@@ -4,7 +4,7 @@ Uses only the standard library unless --browser is selected. Creates workflows,
 publications, audit entries, and recorded runs; use disposable local data.
 """
 
-from workbench_browser import workbench, inspect_control, new_workflow_fixture, show_runs
+from workbench_browser import current_project, workbench, inspect_control, new_workflow_fixture, show_runs
 
 import argparse
 import json
@@ -266,7 +266,7 @@ def project_workspace_check(browser):
     project_url = project_card.get_by_role("link", name="Open project", exact=True).get_attribute("href")
     project_card.get_by_role("link", name="Open project", exact=True).click()
     page.wait_for_url("**" + project_url)
-    expect(page.get_by_label("Current project", exact=True).locator("option:checked")).to_have_text(page_name)
+    expect(current_project(page)).to_have_text(page_name)
 
     page.goto(BASE + project_url + "/skills", wait_until="networkidle")
     page.get_by_label("Skill ID", exact=True).fill("smoke-project-skill")

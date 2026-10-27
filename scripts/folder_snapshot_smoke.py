@@ -1,5 +1,7 @@
 """Exercise local project restore-point capture, preview, and manifest-pointer restore."""
 
+from workbench_browser import current_project
+
 import argparse
 import contextlib
 import hashlib
@@ -73,7 +75,7 @@ def verify(base_url: str, browser_executable: str | None) -> None:
                     folder_form.locator(":scope > summary").click()
                 page.get_by_label("Absolute folder path", exact=True).fill(str(project_directory))
                 page.get_by_role("button", name="Open folder", exact=True).click()
-                expect(page.get_by_label("Current project", exact=True).locator("option:checked")).to_have_text("Folder snapshot smoke project")
+                expect(current_project(page)).to_have_text("Folder snapshot smoke project")
                 page.get_by_role("button", name="Project tools", exact=True).click()
                 utility = page.locator('details.vaw-project-utility[aria-label="Local restore points"]')
                 utility.locator(":scope > summary").click()

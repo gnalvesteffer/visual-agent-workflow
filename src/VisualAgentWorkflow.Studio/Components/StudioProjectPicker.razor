@@ -1,0 +1,69 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JavaScript
+
+<div class="vaw-project-switcher" @ref="root">
+    <button type="button" class="vaw-project-switcher-trigger" aria-label="@($"Current project: {Current?.Name ?? "Choose a project"}")" aria-haspopup="dialog" aria-expanded="false" popovertarget="@popupId" title="@CurrentContext" disabled="@(!ready)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 2h9v12H3z" /></svg>
+        <span>@Current?.Name</span>
+        <svg class="vaw-project-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
+    </button>
+    <div id="@popupId" class="vaw-project-switcher-panel" popover="auto" role="dialog" aria-label="Switch project">
+        <header><strong>Switch project</strong><span>Esc to close</span></header>
+        <div class="vaw-project-search">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8" cy="8" r="5" /><path d="m12 12 5 5" /></svg>
+            <input role="combobox" aria-label="Search projects" aria-autocomplete="list" aria-expanded="true" aria-controls="@listId" autocomplete="off" placeholder="Search projects by name or folder…" />
+        </div>
+        <div id="@listId" class="vaw-project-results" role="listbox" aria-label="Projects">
+            @foreach (var project in ActiveProjects)
+            {
+                <button @key="project.Id" id="@(listId + project.Id)" type="button" role="option" tabindex="-1" aria-selected="@(project.Id == SelectedProjectId ? "true" : "false")" data-project-id="@project.Id" data-project-search="@(project.Name + " " + Context(project))" title="@Context(project)" @onclick="() => Choose(project.Id)">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 2h9v12H3z" /></svg>
+                    <span class="vaw-project-result-text"><strong>@project.Name</strong><span>@Context(project)</span></span>
+                    @if (project.Id == SelectedProjectId) { <span class="vaw-project-current">Current</span> }
+                </button>
+            }
+        </div>
+        <p class="vaw-project-result-status" role="status">@(ActiveProjects.Count == 0 ? "No matching projects. Try another name or folder." : $"{ActiveProjects.Count} {(ActiveProjects.Count == 1 ? "project" : "projects")}")</p>
+        <footer><a href="/source-project" data-vaw-route-link>Open folder…</a><a href="/projects" data-vaw-route-link>Manage projects…</a></footer>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<StudioProject> Projects { get; set; } = [];
+    [Parameter, EditorRequired] public string SelectedProjectId { get; set; } = "default";
+    [Parameter] public EventCallback<string> Selected { get; set; }
+    private readonly string popupId = "project-picker-" + Guid.NewGuid().ToString("N");
+    private string listId => popupId + "-results";
+    private bool ready;
+    private ElementReference root;
+    private IJSObjectReference? module;
+    private StudioProject? Current => Projects.FirstOrDefault(project => project.Id == SelectedProjectId);
+    private string CurrentContext => Current is { } current ? Context(current) : "Choose a project";
+    private IReadOnlyList<StudioProject> ActiveProjects => Projects.Where(project => !project.IsArchived).ToArray();
+    private static string Context(StudioProject project) => project.FolderPath ?? "Catalog project";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            module = await JavaScript.InvokeAsync<IJSObjectReference>("import", "./studioProjectPicker.js");
+            await module.InvokeVoidAsync("initialize", root);
+            ready = true;
+            StateHasChanged();
+        }
+        else if (module is not null) await module.InvokeVoidAsync("refresh", root);
+    }
+
+    private async Task Choose(string id)
+    {
+        if (module is not null) await module.InvokeVoidAsync("close", root, id == SelectedProjectId);
+        if (id != SelectedProjectId) await Selected.InvokeAsync(id);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (module is null) return;
+        try { await module.InvokeVoidAsync("dispose", root); await module.DisposeAsync(); }
+        catch (JSDisconnectedException) { }
+    }
+}

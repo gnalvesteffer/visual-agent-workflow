@@ -121,7 +121,7 @@ jobs:
           python3 scripts/with_owned_server.py \
             --server "env ASPNETCORE_ENVIRONMENT=Development WorkflowStudio__Port=5103 WorkflowStudio__DataDirectory=/tmp/vaw-ide-documents dotnet run --project src/VisualAgentWorkflow.Studio --configuration Release --no-build" \
             --port 5103 --timeout 60 -- bash -c \
-            'python3 scripts/ide_shell_smoke.py --base-url http://127.0.0.1:5103 && python3 scripts/folder_workflow_ide_smoke.py --base-url http://127.0.0.1:5103'
+            'python3 scripts/ide_shell_smoke.py --base-url http://127.0.0.1:5103 && python3 scripts/folder_workflow_ide_smoke.py --base-url http://127.0.0.1:5103 && python3 scripts/project_picker_smoke.py --base-url http://127.0.0.1:5103'
       - name: Exercise the SQLite-backed studio API and browser
         shell: bash
         run: |

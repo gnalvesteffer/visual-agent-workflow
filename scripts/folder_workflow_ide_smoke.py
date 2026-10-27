@@ -1,4 +1,6 @@
 """Verify the approved workflow document layout and execution in a folder project."""
+from workbench_browser import current_project
+
 import argparse
 import json
 import os
@@ -31,7 +33,7 @@ def verify(base_url, browser_executable):
                 page.get_by_label('Absolute folder path', exact=True).fill(str(project))
                 page.get_by_role('button', name='Open folder', exact=True).click()
                 page.get_by_role('button', name='Open workflow service-pure.workflow', exact=True).click()
-                expect(page.get_by_label('Current project', exact=True).locator('option:checked')).to_have_text('Folder execution smoke project')
+                expect(current_project(page)).to_have_text('Folder execution smoke project')
                 document = page.locator('.vaw-folder-workflow-document')
                 expect(document).to_be_visible()
                 expect(page.get_by_role('navigation', name='Open project files')).to_be_visible()

@@ -4,7 +4,7 @@ Requires Playwright and Chromium. Uses only non-sensitive fixture text; creates
 recorded development runs. Run studio_smoke.py separately for the full editor flow.
 """
 
-from workbench_browser import workbench
+from workbench_browser import current_project, workbench
 
 import argparse
 import contextlib
@@ -70,7 +70,7 @@ def check(browser, screenshots):
             assert response and response.status == 200, f"Studio page failed to load on mobile: {route}"
             navigation = page.locator(".vaw-ide-titlebar")
             expect(page.get_by_role("link", name=active_page, exact=True)).to_have_attribute("aria-current", "page")
-            expect(page.get_by_label("Current project", exact=True)).to_be_visible()
+            expect(current_project(page)).to_be_visible()
             assert abs(navigation.bounding_box()["width"] - page.viewport_size["width"]) < 1, f"Mobile navigation must span the viewport on {route}"
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), f"The page must not create horizontal scrolling on mobile: {route}"
             if screenshots and route == "/settings":
@@ -110,6 +110,9 @@ def check(browser, screenshots):
                 "files": [],
             }, indent=2) + "\n", encoding="utf-8")
             page.goto(BASE + "/source-project", wait_until="networkidle")
+            folder_form = page.locator(".vaw-open-project-details")
+            if folder_form.count() and not folder_form.evaluate("e => e.open"):
+                folder_form.locator(":scope > summary").click()
             page.get_by_label("Absolute folder path", exact=True).fill(str(project_path))
             page.get_by_role("button", name="Open folder", exact=True).click()
             expect(page.get_by_role("heading", name="UI skill project", exact=True)).to_be_visible()
@@ -170,6 +173,7 @@ def check(browser, screenshots):
         page.get_by_role("link", name="Explorer", exact=True).first.click()
         expect(page.get_by_role("region", name="Workflow designer", exact=True)).to_be_visible()
         expect(page.get_by_label("Color theme", exact=True)).to_have_value("nord")
+        page.goto(audit_url, wait_until="networkidle")
         theme_picker.select_option("dark")
         page.wait_for_function("document.documentElement.dataset.vawTheme === 'dark'")
         designer = page.get_by_role("region", name="Workflow designer", exact=True)

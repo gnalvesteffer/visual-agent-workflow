@@ -13,12 +13,7 @@
         </a>
         <span class="vaw-ide-product-name">Visual Agent Workflow Studio</span>
         <span class="vaw-ide-title-separator" aria-hidden="true"></span>
-        <label class="vaw-ide-project-picker">Project
-            <select aria-label="Current project" value="@SelectedProjectId" @onchange="ChangeProject">
-                @foreach (var project in ProjectWorkspace.Projects.Where(item => !item.IsArchived))
-                { <option value="@project.Id">@project.Name</option> }
-            </select>
-        </label>
+        <StudioProjectPicker Projects="ProjectWorkspace.Projects" SelectedProjectId="@SelectedProjectId" Selected="ChangeProject" />
         <nav class="vaw-ide-title-actions" aria-label="Host connections">
             <a href="/projects" aria-current="@(ActivePage == "projects" ? "page" : null)" data-vaw-route-link>Projects</a>
             <a href="/mcp" aria-current="@(ActivePage == "mcp" ? "page" : null)" data-vaw-route-link>Connections</a>
@@ -161,9 +156,8 @@
         });
     }
 
-    private async Task ChangeProject(ChangeEventArgs args)
+    private async Task ChangeProject(string id)
     {
-        var id = args.Value?.ToString();
         if (string.IsNullOrWhiteSpace(id)) return;
         try
         {
