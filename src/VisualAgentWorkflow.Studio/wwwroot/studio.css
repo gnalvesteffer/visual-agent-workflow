@@ -540,7 +540,7 @@
 .vaw-project-tree, .vaw-project-tree ul { display: grid; gap: .12rem; margin: 0; padding: 0; list-style: none; }
 .vaw-project-tree ul { margin-inline-start: .45rem; border-inline-start: 1px solid var(--vaw-color-border); padding-inline-start: .55rem; }
 .vaw-project-tree-directory > summary { display: flex; align-items: center; gap: .35rem; min-block-size: 2rem; padding-inline: .3rem; border-radius: .25rem; color: var(--vaw-color-text); cursor: pointer; font-weight: 600; }
-.vaw-project-tree-directory > summary:hover, .vaw-project-tree-file:hover:not(:disabled) { background: var(--vaw-color-hover); }
+.vaw-project-tree-directory > summary:hover, .vaw-project-tree-file:hover:not(:disabled) { background: var(--vaw-color-control-hover); }
 .vaw-project-tree-directory > summary::-webkit-details-marker { display: none; }
 .vaw-project-tree-icon { display: inline-grid; flex: 0 0 1.25rem; place-items: center; inline-size: 1rem; block-size: 1rem; color: var(--vaw-color-muted); font-size: .72rem; font-weight: 700; }
 .vaw-project-tree-icon:is(svg) { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.15; }
@@ -554,12 +554,12 @@ button.vaw-project-tree-file { cursor: pointer; }
 .vaw-project-tree-file.is-read-only { color: var(--vaw-color-muted); cursor: default; }
 .vaw-project-tree-file-name { min-inline-size: 0; overflow-wrap: anywhere; }
 .vaw-tree-more { inline-size: 1.7rem; min-block-size: 1.7rem; padding: 0; border: 1px solid transparent; border-radius: .25rem; background: transparent; color: var(--vaw-color-muted); font-size: 1rem; line-height: 1; }
-.vaw-tree-more:hover, .vaw-tree-more:focus-visible { border-color: var(--vaw-color-border); background: var(--vaw-color-hover); color: var(--vaw-color-text); }
+.vaw-tree-more:hover, .vaw-tree-more:focus-visible { border-color: var(--vaw-color-border); background: var(--vaw-color-control-hover); color: var(--vaw-color-text); }
 .vaw-tree-menu-backdrop { position: fixed; z-index: 10000; inset: 0; background: transparent; }
 .vaw-tree-context-menu { position: fixed; z-index: 1; display: grid; inline-size: min(15rem, calc(100vw - 1rem)); max-block-size: min(70vh, 34rem); overflow: auto; padding: .3rem; border: 1px solid var(--vaw-color-border); border-radius: .35rem; background: var(--vaw-color-surface); color: var(--vaw-color-text); box-shadow: 0 8px 24px rgb(0 0 0 / .35); font-size: .8rem; }
 .vaw-tree-menu-heading { margin: .15rem .35rem .3rem; overflow: hidden; color: var(--vaw-color-muted); font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
 .vaw-tree-context-menu > button, .vaw-tree-submenu > button { display: flex; align-items: center; justify-content: space-between; gap: .6rem; inline-size: 100%; min-block-size: 1.9rem; padding: .3rem .45rem; border: 0; border-radius: .2rem; background: transparent; color: inherit; font: inherit; text-align: start; }
-.vaw-tree-context-menu > button:hover:not(:disabled), .vaw-tree-submenu > button:hover:not(:disabled), .vaw-tree-context-menu > button:focus-visible, .vaw-tree-submenu > button:focus-visible { background: var(--vaw-color-hover); outline: none; }
+.vaw-tree-context-menu > button:hover:not(:disabled), .vaw-tree-submenu > button:hover:not(:disabled), .vaw-tree-context-menu > button:focus-visible, .vaw-tree-submenu > button:focus-visible { background: var(--vaw-color-control-hover); outline: none; }
 .vaw-tree-context-menu > button:disabled, .vaw-tree-submenu > button:disabled { opacity: .55; }
 .vaw-tree-context-menu > button.is-danger { color: var(--vaw-color-error); }
 .vaw-tree-context-menu button span { color: var(--vaw-color-muted); font-size: .72rem; }

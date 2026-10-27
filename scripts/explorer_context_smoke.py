@@ -48,6 +48,11 @@ def verify(base, executable):
             for action in ('Open', 'Duplicate', 'Copy', 'Rename', 'Delete'):
                 expect(menu.get_by_role('menuitem', name=action, exact=True)).to_be_visible()
             expect(menu.get_by_role('menuitem', name='Refresh Explorer', exact=True)).to_have_count(0)
+            open_action = menu.get_by_role('menuitem', name='Open', exact=True)
+            idle_background = open_action.evaluate('(element) => getComputedStyle(element).backgroundColor')
+            open_action.hover()
+            hover_background = open_action.evaluate('(element) => getComputedStyle(element).backgroundColor')
+            assert hover_background != idle_background and hover_background != 'rgba(0, 0, 0, 0)', (idle_background, hover_background)
             right_click_at_locator(page, explorer.locator('summary').filter(has_text='skills/'))
             expect(menu.locator('.vaw-tree-menu-heading').first).to_have_text('skills/')
             right_click_at_locator(page, workflow_file)
@@ -163,4 +168,4 @@ if __name__ == '__main__':
     parser.add_argument('--browser-executable')
     args = parser.parse_args()
     verify(args.base_url.rstrip('/'), args.browser_executable)
-    print('Explorer blank-space/folder menus, nested creation, edge positioning and dirty-state feedback passed.')
+    print('Explorer context-menu hover, switching, file actions, blank-space/folder menus, nested creation, edge positioning and dirty-state feedback passed.')
