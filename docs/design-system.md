@@ -25,7 +25,7 @@ The library, graph, and properties panel use one workbench grid. On narrower com
 
 ## Components and states
 
-The graph is the visual focus. Node headers are drag handles, sockets sit on node edges, and wires represent definition connections. Labels, comments, and named sections are supporting organization tools. Selection and focus use a clear outline rather than decorative elevation.
+The graph is the visual focus. Node headers are drag handles, sockets sit on node edges, and wires represent definition connections. Labels, comments, and named sections are supporting organization tools. Selection and focus use a clear outline rather than decorative elevation. Run cards use a balanced status chip with a dedicated recorded-events icon; completed, failed, cancelled, and waiting states retain distinct semantic treatments. Secondary agent telemetry stays behind a Usage details disclosure so execution state remains primary.
 
 Buttons expose default, hover, focus, pressed, and disabled states. Save and error feedback remains visible text. Node types describe workflow definition; only recorded run events drive completed, failed, or delivered states. Playback controls do not imply execution or issue model calls.
 

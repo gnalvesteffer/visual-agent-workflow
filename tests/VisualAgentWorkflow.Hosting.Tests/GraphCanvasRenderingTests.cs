@@ -198,6 +198,41 @@ public sealed class GraphCanvasRenderingTests
     }
 
     [Fact]
+    public async Task RunViewerDistinguishesCancellationAndShowsRecordedCauseAndRecoveryGuidance()
+    {
+        var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.2" };
+        var definition = baseline with { Nodes = baseline.Nodes.SetItem("step-1", new(NodeTypes.Agent, "1.0.0",
+            Agent: new("connection.current", null, "Answer the question.", []))) };
+        var revision = WorkflowRevision.Create(definition, "test");
+        var runId = Guid.NewGuid();
+        var invocationId = Guid.NewGuid();
+        var events = ImmutableArray.Create(
+            new ExecutionEvent(runId, revision.RevisionId, 1, DateTimeOffset.UtcNow, ExecutionEventKinds.NodeStarted, "step-1", invocationId),
+            new ExecutionEvent(runId, revision.RevisionId, 2, DateTimeOffset.UtcNow, ExecutionEventKinds.AgentFailed, "step-1", invocationId,
+                Data: "{\"outcome\":\"cancelled\",\"reason\":\"The host cancelled the agent invocation.\"}"),
+            new ExecutionEvent(runId, revision.RevisionId, 3, DateTimeOffset.UtcNow, ExecutionEventKinds.NodeCancelled, "step-1", invocationId,
+                Data: "Node execution cancelled."),
+            new ExecutionEvent(runId, revision.RevisionId, 4, DateTimeOffset.UtcNow, ExecutionEventKinds.Cancelled, "step-1", invocationId,
+                Data: "Run cancelled by host."));
+        var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
+            revision.ContentHash, definition, "question"), events);
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<WorkflowRunViewer>(ParameterView.FromDictionary(
+                new Dictionary<string, object?> { [nameof(WorkflowRunViewer.Snapshot)] = snapshot }));
+            return component.ToHtmlString();
+        });
+
+        Assert.Contains("vaw-cancelled", html);
+        Assert.Contains("Cancelled by host while the agent was running.", html);
+        Assert.Contains("Run ended · start a new run to retry.", html);
+        Assert.DoesNotContain("vaw-failed", html);
+    }
+
+    [Fact]
     public async Task AgentNodeDoesNotRenderMissingProviderUsageAsZeroes()
     {
         var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.2" };
@@ -227,7 +262,7 @@ public sealed class GraphCanvasRenderingTests
         });
 
         Assert.Contains("Model turns · 1 / 16", html);
-        Assert.Contains("Tokens · unavailable (provider did not report usage)", html);
+        Assert.Contains("Usage · not reported by provider", html);
         Assert.Contains("Context window · 128,000 tokens; prompt usage pending", html);
         Assert.DoesNotContain("Tokens · 0 in / 0 out", html);
         Assert.DoesNotContain("Context · 0 / 0", html);

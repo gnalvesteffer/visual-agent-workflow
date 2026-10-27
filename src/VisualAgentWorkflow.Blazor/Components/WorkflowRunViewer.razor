@@ -14,6 +14,7 @@
             <h2>@(string.IsNullOrWhiteSpace(Snapshot.Header.Definition.DisplayName) ? Snapshot.Header.Definition.WorkflowId : Snapshot.Header.Definition.DisplayName)</h2>
             <div><strong>@(follow ? "Live / latest" : "Recorded playback")</strong> · Latest run status: @Snapshot.Status</div>
             @if (VisibleStatus == "terminated") { <p class="vaw-help" role="status">The workflow ended successfully without returning a result.</p> }
+            @if (Snapshot.Status is "failed" or "cancelled") { <p class="vaw-run-recovery" role="status">Run ended · start a new run to retry.</p> }
             <p class="vaw-help">State at recorded position: @VisibleStatus</p>
             <small>Run @Snapshot.Header.RunId · revision @Snapshot.Header.RevisionId</small>
             @if (Snapshot.Header.Parameters is { Count: > 0 } parameters)
@@ -36,21 +37,27 @@
         </div>
             </ToolbarContent>
             <NodeContent Context="nodeId">
-                @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); var evaluation = DataEvaluation(nodeId); var pendingNode = PendingRootNodeId; var label = pendingNode == nodeId ? PendingApproval?.Action.ScopeId is null ? "Awaiting approval" : "Child awaiting approval" : PausedBefore(nodeId) && state is null ? "Paused before execution" : node.Type == NodeTypes.Terminate && state?.Kind == ExecutionEventKinds.NodeCompleted ? "Terminated successfully" : evaluation is not null ? "Evaluated" : StateLabel(state); var activity = ActiveActivity(nodeId); }
+                @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); var evaluation = DataEvaluation(nodeId); var pendingNode = PendingRootNodeId; var label = pendingNode == nodeId ? PendingApproval?.Action.ScopeId is null ? "Awaiting approval" : "Child awaiting approval" : PausedBefore(nodeId) && state is null ? "Paused before execution" : node.Type == NodeTypes.Terminate && state?.Kind == ExecutionEventKinds.NodeCompleted ? "Terminated successfully" : evaluation is not null ? "Evaluated" : StateLabel(state); var activity = ActiveActivity(nodeId); var outcome = OutcomeSummary(nodeId, state); }
                 <div class="vaw-node-status-chip" role="group" aria-label="@($"{label} status and recorded events")">
                     <button type="button" class="vaw-node-button" aria-label="@($"{nodeId} {node.Type} {label}")" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId ? "true" : "false")">
                         <span>@label</span>
                     </button>
                     <button type="button" class="vaw-node-events-button" aria-label="View events for @nodeId" @onclick:stopPropagation="true" @onclick="() => OpenNodeEvents(nodeId)">
-                        <span aria-hidden="true">↗</span>
+                        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 3.5h10v9H3zM5.5 1.5v3M10.5 1.5v3M5 7h6M5 9.5h4" /></svg>
                     </button>
                 </div>
+                @if (outcome is not null) { <p class="vaw-node-outcome @(state?.Kind == ExecutionEventKinds.NodeCancelled ? "is-cancelled" : "is-failed")">@outcome</p> }
+                @if (selectedNode == nodeId && state is { Kind: ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled })
+                {
+                    <p class="vaw-node-recovery">Run ended · start a new run to retry.</p>
+                }
                 @if (activity is not null) { <p class="vaw-node-activity" role="status">@activity</p> }
                 @if (node.Type == NodeTypes.Agent && AgentMetrics(nodeId) is { } metrics)
                 {
-                    <div class="vaw-agent-metrics" aria-label="Agent usage statistics">
-                        <span title="Counts recorded model requests for this agent and its delegated agents.">Model turns · @metrics.ModelTurns@(metrics.ModelTurnLimit is { } turnLimit ? $" / {turnLimit:N0}" : null)</span>
-                        @if (!metrics.HasReportedUsage) { <span>Tokens · unavailable (provider did not report usage)</span> }
+                    <details class="vaw-agent-metrics">
+                        <summary><span>Usage details</span><span class="vaw-agent-metrics-summary">Model turns · @metrics.ModelTurns@(metrics.ModelTurnLimit is { } turnLimit ? $" / {turnLimit:N0}" : null)</span></summary>
+                        <div class="vaw-agent-metrics-body" aria-label="Agent usage statistics">
+                        @if (!metrics.HasReportedUsage) { <span>Usage · not reported by provider</span> }
                         else
                         {
                             <span>Tokens · @metrics.InputTokens.ToString("N0") in / @metrics.OutputTokens.ToString("N0") out</span>
@@ -89,7 +96,8 @@
                         @if (metrics.ModelRequestInFlight) { <span>Model request in progress · current usage updates when it responds</span> }
                         <span>Host context compactions · @metrics.CompactionCount</span>
                         @if (metrics.ModelId is { Length: > 0 } modelId) { <small>@modelId</small> }
-                    </div>
+                        </div>
+                    </details>
                 }
                 @if (BranchPort(nodeId) is { } chosenPort) { <p class="vaw-help">Selected output: @chosenPort</p> }
             </NodeContent>
@@ -571,7 +579,8 @@
     private string NodeStateClass(string id) => PendingRootNodeId == id ? "vaw-waiting-approval" : DataEvaluation(id) is not null ? "vaw-complete" : State(id)?.Kind switch
     {
         ExecutionEventKinds.NodeCompleted => "vaw-complete",
-        ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled => "vaw-failed",
+        ExecutionEventKinds.NodeFailed => "vaw-failed",
+        ExecutionEventKinds.NodeCancelled => "vaw-cancelled",
         _ => PausedBefore(id) ? "vaw-paused-boundary" : ""
     };
     private IReadOnlySet<string> Delivered => VisibleEvents.Where(e => e.Kind is ExecutionEventKinds.Transfer or ExecutionEventKinds.ExecutionActivated or ExecutionEventKinds.DataEvaluated && e.ConnectionId is not null).Select(e => e.ConnectionId!).ToHashSet(StringComparer.Ordinal);
@@ -680,6 +689,34 @@
         ExecutionEventKinds.NodeCancelled => "Cancelled",
         _ => "Running"
     };
+    private string? OutcomeSummary(string id, ExecutionEvent? state)
+    {
+        if (state?.Kind is not (ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled)) return null;
+        var reason = EventReason(state.Data);
+        if (state.Kind == ExecutionEventKinds.NodeCancelled &&
+            (string.IsNullOrWhiteSpace(reason) || reason.Equals("Node execution cancelled.", StringComparison.OrdinalIgnoreCase)))
+        {
+            var detail = RootEvents.LastOrDefault(evt => evt.NodeId == id && evt.Kind == ExecutionEventKinds.AgentFailed && evt.Timestamp <= state.Timestamp);
+            reason = EventReason(detail?.Data);
+        }
+        if (state.Kind == ExecutionEventKinds.NodeCancelled)
+        {
+            if (reason?.Contains("host cancelled", StringComparison.OrdinalIgnoreCase) == true)
+                return "Cancelled by host while the agent was running.";
+            return string.IsNullOrWhiteSpace(reason) || reason.Equals("Node execution cancelled.", StringComparison.OrdinalIgnoreCase)
+                ? "Cancelled by the host or a parent scope."
+                : $"Cancellation reason: {reason}";
+        }
+        return string.IsNullOrWhiteSpace(reason) || reason.Equals("Node execution failed.", StringComparison.OrdinalIgnoreCase)
+            ? "Execution failed without a recorded detail."
+            : $"Failure reason: {reason}";
+    }
+    private static string? EventReason(string? data)
+    {
+        if (TryParse(data, out var root) && TryGet(root, "reason", out var reason) && reason.ValueKind == JsonValueKind.String)
+            return reason.GetString();
+        return data;
+    }
     private void Next() { cursor = Math.Min(Snapshot!.Events.Length, Position + 1); follow = false; }
     private void Scrub(ChangeEventArgs args)
     {
