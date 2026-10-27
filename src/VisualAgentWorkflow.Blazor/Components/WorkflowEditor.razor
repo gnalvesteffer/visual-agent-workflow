@@ -1,12 +1,4 @@
 <section class="vaw-workflow-editor" aria-label="Visual workflow editor">
-    @if (!ReadOnly && WorkflowValidator.Validate(Definition) is { Length: > 0 } validationIssues)
-    {
-        <section class="vaw-graph-issues" role="alert" aria-label="Workflow validation issues">
-            <h3>Workflow has @validationIssues.Length unresolved issue(s)</h3>
-            <p>Save is allowed. Publishing and execution require fixing every issue.</p>
-            <ul>@foreach (var issue in validationIssues) { <li><strong>@issue.Path</strong> · @issue.Message</li> }</ul>
-        </section>
-    }
     @if (!ReadOnly && ShowWorkflowSettings)
     {
         <WorkflowParameterSettings @key='(Definition.WorkflowId, "settings")' Definition="Definition" DefinitionChanged="next => Edit(() => next)" Disabled="Disabled" />

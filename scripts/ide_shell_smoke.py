@@ -226,7 +226,9 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             expect(page.get_by_role("button", name="Expand workflow details")).to_have_attribute("aria-expanded", "false")
             expect(page.locator(".vaw-bottom-tray")).to_have_class("vaw-bottom-tray is-collapsed")
 
-            # An invalid draft remains editable, with a clear problem list and a disabled Run action.
+            # An invalid draft remains editable and saveable. Run is an explicit validation
+            # attempt: it opens Problems with a compact blocking diagnostic instead of
+            # interrupting editing with a persistent banner.
             invalid = page.request.get(f"{base_url}/api/templates/default").json()
             invalid["workflowId"] = "invalid-ide-" + uuid.uuid4().hex
             invalid["displayName"] = "Incomplete wiring"
@@ -235,8 +237,10 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             assert saved.ok, saved.text()
             page.get_by_role("button", name="Refresh project files", exact=True).click()
             page.locator(".vaw-global-explorer").get_by_role("button", name="Incomplete wiring.workflow", exact=True).click()
-            expect(page.get_by_role("button", name="Run workflow", exact=True)).to_be_disabled()
+            expect(page.get_by_role("button", name="Run workflow", exact=True)).to_be_enabled()
+            page.get_by_role("button", name="Run workflow", exact=True).click()
             page.locator(".vaw-bottom-tray nav").get_by_role("button", name="Problems", exact=False).click()
+            expect(page.get_by_role("alert").filter(has_text="Run blocked")).to_be_visible()
             expect(page.locator(".vaw-bottom-issues li").first).to_be_visible()
             expect(page.locator("[data-graph-save]")).to_be_enabled()
             workflow_file.click()

@@ -23,7 +23,7 @@
                 </nav>
                 <div class="vaw-document-actions">
                     <button type="button" data-graph-save @onclick="Save" disabled="@(busy || !interactive)" title="Save workflow">Save</button>
-                    <button type="button" class="vaw-primary" @onclick="OpenRunDialog" disabled="@(busy || dirty || generation == 0 || !CurrentDraftIsValid)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 3 10 7-10 7z" /></svg>Run workflow</button>
+                    <button type="button" class="vaw-primary" @onclick="OpenRunDialog" disabled="@(busy || dirty || generation == 0)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 3 10 7-10 7z" /></svg>Run workflow</button>
                     <button type="button" @onclick="() => documentSettingsOpen = !documentSettingsOpen" aria-label="Workflow settings" aria-expanded="@(documentSettingsOpen ? "true" : "false")" title="Workflow settings"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 2-.5 2-2 .8L3.7 4 2 7l1.5 1.4v3.2L2 13l1.7 3 1.8-.8 2 .8.5 2h4l.5-2 2-.8 1.8.8 1.7-3-1.5-1.4V8.4L18 7l-1.7-3-1.8.8-2-.8L12 2z"/><circle cx="10" cy="10" r="3"/></svg></button>
                 </div>
             </header>
@@ -298,6 +298,10 @@
             </section>
             }
             <section class="vaw-bottom-panel" aria-label="Workflow issues" hidden="@(bottomTab != "issues")">
+                @if (runValidationRequested && WorkflowValidator.Validate(definition).Length > 0)
+                {
+                    <p class="vaw-run-validation" role="alert"><strong>Run blocked.</strong> Resolve the workflow issues below before starting a run. Saving this draft is still allowed.</p>
+                }
                 @if (mcpChoicesError is not null) { <p class="vaw-error">@mcpChoicesError</p><button type="button" @onclick="RefreshTools" disabled="@busy">Retry MCP connections</button> }
                 @if (providerChoicesError is not null) { <p class="vaw-error">@providerChoicesError</p> }
                 @if (WorkflowValidator.Validate(definition) is { Length: > 0 } issues)

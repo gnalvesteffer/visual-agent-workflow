@@ -471,6 +471,7 @@
 .vaw-bottom-panel > :first-child { margin-block-start: 0; }
 .vaw-bottom-issues { display: grid; gap: var(--vaw-space-2); margin: 0; padding-inline-start: 1.25rem; }
 .vaw-bottom-issues li { display: grid; grid-template-columns: minmax(8rem, .35fr) minmax(0, 1fr); gap: var(--vaw-space-2); }
+.vaw-run-validation { margin: 0 0 var(--vaw-space-3); padding: var(--vaw-space-2) var(--vaw-space-3); border: 1px solid color-mix(in srgb, var(--vaw-error) 60%, var(--vaw-border)); border-radius: var(--vaw-control-radius); color: var(--vaw-text); background: color-mix(in srgb, var(--vaw-error) 8%, var(--vaw-surface)); }
 .vaw-bottom-empty { color: var(--vaw-success); }
 .vaw-bottom-panel .vaw-version-panel { border: 0; margin: 0; padding: 0; }
 @container vaw-designer (min-width: 70rem) {

@@ -61,6 +61,7 @@ public partial class WorkflowDesigner
     private bool interactive;
     private string bottomTab = "runs";
     private bool bottomTrayExpanded = true;
+    private bool runValidationRequested;
     private bool documentSettingsOpen;
     private readonly List<string> openWorkflowIds = [];
     private string? draggedWorkflowTabId;
@@ -75,7 +76,13 @@ public partial class WorkflowDesigner
 
     private void OpenRunDialog()
     {
-        if (!IdeMode || busy || dirty || generation == 0 || !CurrentDraftIsValid) return;
+        if (!IdeMode || busy || dirty || generation == 0) return;
+        if (!CurrentDraftIsValid)
+        {
+            runValidationRequested = true;
+            SelectBottomTab("issues");
+            return;
+        }
         error = null;
         message = null;
         runDialogOpen = true;
@@ -181,6 +188,7 @@ public partial class WorkflowDesigner
         bottomTab = IdeMode ? "runs" : "run";
         openWorkflowIds.Clear();
         definition = null; layout = null; previewLayout = null; layoutHash = null; definitionHash = null; savedHash = null;
+        runValidationRequested = false;
         workflows = []; versions = []; audit = []; bindings = []; providers = [];
         loadingWorkflow = true;
         mcpChoicesLoading = ToolCatalog is not null;
@@ -406,7 +414,7 @@ public partial class WorkflowDesigner
     {
         if (definition is null || layout is null || WorkflowJson.ComputeDraftHash(next) == definitionHash) return;
         undo.Push(new(definition, layout)); redo.Clear();
-        SetDesign(next, resetLayout ? WorkflowLayout.Create(next) : layout.Reconcile(next)); error = null; message = null;
+        SetDesign(next, resetLayout ? WorkflowLayout.Create(next) : layout.Reconcile(next)); error = null; message = null; runValidationRequested = false;
     }
 
     private void ChangedGraph(WorkflowGraphEdit next)
@@ -415,14 +423,14 @@ public partial class WorkflowDesigner
         if (WorkflowJson.ComputeDraftHash(next.Definition) == definitionHash && WorkflowLayoutJson.ComputeHash(next.Layout, next.Definition) == layoutHash) return;
         WorkflowLayoutJson.Validate(next.Layout, next.Definition);
         undo.Push(new(definition, layout)); redo.Clear();
-        SetDesign(next.Definition, next.Layout); error = null; message = null;
+        SetDesign(next.Definition, next.Layout); error = null; message = null; runValidationRequested = false;
     }
 
     private void ChangedLayout(WorkflowLayout next)
     {
         if (definition is null || layout is null || WorkflowLayoutJson.ComputeHash(next, definition) == layoutHash) return;
         undo.Push(new(definition, layout)); redo.Clear();
-        SetDesign(definition, next); error = null; message = null;
+        SetDesign(definition, next); error = null; message = null; runValidationRequested = false;
     }
 
     private void Undo() { if (undo.TryPop(out var previous)) { redo.Push(new(definition!, layout!)); SetDesign(previous.Definition, previous.Layout); message = null; } }

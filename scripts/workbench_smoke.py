@@ -669,6 +669,14 @@ def check(browser, screenshots):
     expect(canvas.locator("li[data-node-id]")).to_have_count(4)
     assert canvas.locator("li[data-node-type='core.condition']").count() == 1
     assert canvas.locator("li[data-node-type='core.merge']").count() == 0
+    # An unconnected condition is an intentionally invalid draft, but it remains
+    # removable without surfacing an edit-time validation exception.
+    branch = canvas.locator("li[data-node-type='core.condition']").get_attribute("data-node-id")
+    canvas.get_by_role("button", name=f"Move node {branch}", exact=True).click()
+    page.keyboard.press("Delete")
+    expect(canvas.locator("li[data-node-id]")).to_have_count(3)
+    library.get_by_role("button",name="Add Condition",exact=True).click()
+    expect(canvas.locator("li[data-node-id]")).to_have_count(4)
     canvas.get_by_role("button",name="Fit graph",exact=True).click()
     branch=canvas.locator("li[data-node-type='core.condition']").get_attribute("data-node-id")
     false_pin=canvas.locator(f"li[data-node-id='{branch}'] [data-socket='false']")
@@ -679,7 +687,9 @@ def check(browser, screenshots):
     menu.get_by_role("button",name="Add Reverse",exact=True).click()
     expect(canvas.locator("li[data-node-id]")).to_have_count(5)
     assert canvas.locator(f"path[data-source='{branch}'][data-source-port='false']").count() == 0
-    expect(designer.get_by_role("alert",name="Workflow validation issues")).to_contain_text("unresolved issue")
+    expect(designer.get_by_role("alert",name="Workflow validation issues")).to_have_count(0)
+    designer.get_by_role("button", name="Problems", exact=True).click()
+    expect(designer.get_by_role("region", name="Workflow issues", exact=True)).to_contain_text("graph")
     canvas.get_by_role("button",name="Undo edit",exact=True).click()
     expect(canvas.locator("li[data-node-id]")).to_have_count(4)
     canvas.get_by_role("button",name="Undo edit",exact=True).click()

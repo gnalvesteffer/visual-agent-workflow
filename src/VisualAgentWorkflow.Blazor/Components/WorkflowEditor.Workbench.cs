@@ -323,6 +323,15 @@ public partial class WorkflowEditor
         CancelBlockRemoval();
         try
         {
+            // A newly added condition is intentionally allowed to be an invalid,
+            // unconnected draft. Block removal requires a valid topology, so remove
+            // this incomplete node directly and let the Problems pane report any
+            // remaining issues.
+            if (!WorkflowValidator.Validate(Definition).IsEmpty)
+            {
+                await Edit(() => GraphEditing.RemoveNode(Definition, id));
+                return;
+            }
             pendingBlockNodes = ConditionalBlockEditing.Nodes(Definition, id);
             pendingBlockRemoval = id;
             await SelectNode(id);

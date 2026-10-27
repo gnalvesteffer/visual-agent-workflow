@@ -359,7 +359,7 @@
                     <div class="vaw-studio-in-ide vaw-folder-workflow-document">
                     <header class="vaw-document-breadcrumb"><strong>@openedWorkflow.RelativePath</strong><span class="vaw-document-save-state">@(dirty ? "Unsaved changes" : "Source saved")</span><div class="vaw-document-actions">
                         <button type="button" data-graph-save data-vaw-file-save @onclick="SaveWorkflow" disabled="@(busy || !dirty)">Save source file</button>
-                        <button type="button" class="vaw-primary" @onclick="OpenRunDialog" disabled="@(!CanRunSavedWorkflow)">Run workflow</button>
+                        <button type="button" class="vaw-primary" @onclick="OpenRunDialog" disabled="@(!CanOpenRunDialog)">Run workflow</button>
                         @if (folderRunActive && folderRun is not null) { <button type="button" @onclick="CancelFolderRun">Cancel run</button> }
                         <button type="button" @onclick="() => folderSettingsOpen = !folderSettingsOpen" aria-label="Workflow settings" aria-expanded="@(folderSettingsOpen ? "true" : "false")">Settings</button>
                     </div></header>
@@ -394,6 +394,8 @@
                             @if (folderRunError is not null) { <p role="alert" class="vaw-error">@folderRunError</p> }
                         </section>
                         <section class="vaw-bottom-panel" role="tabpanel" aria-label="Workflow issues" hidden="@(bottomTab != "issues")">
+                            @if (folderRunValidationRequested && WorkflowValidator.Validate(definition).Length > 0)
+                            { <p class="vaw-run-validation" role="alert"><strong>Run blocked.</strong> Resolve the workflow issues below before starting a run. Saving this source file is still allowed.</p> }
                             @if (mcpChoicesError is not null) { <p class="vaw-error">@mcpChoicesError</p> }
                             @if (providerChoicesError is not null) { <p class="vaw-error">@providerChoicesError</p> }
                             @if (WorkflowValidator.Validate(definition) is { Length: > 0 } issues)
@@ -559,9 +561,12 @@
     private RunSnapshot? folderRun;
     private bool folderRunActive;
     private string? folderRunError;
+    private bool folderRunValidationRequested;
     private CancellationTokenSource? folderRunPolling;
     private bool CanRunSavedWorkflow => !busy && !dirty && !externalSourceChanged && !folderRunActive && openedWorkflow is not null &&
         definition is not null && layout is not null && WorkflowValidator.Validate(definition).IsEmpty;
+    private bool CanOpenRunDialog => !busy && !dirty && !externalSourceChanged && !folderRunActive && openedWorkflow is not null &&
+        definition is not null && layout is not null;
     private bool CanRunRestorePoint => !busy && !dirty && !folderRunActive && openedWorkflow is not null && definition is not null &&
         WorkflowValidator.Validate(definition).IsEmpty;
     private bool externalSourceChanged;
@@ -2097,7 +2102,13 @@
 
     private void OpenRunDialog()
     {
-        if (!CanRunSavedWorkflow) return;
+        if (!CanOpenRunDialog) return;
+        if (!WorkflowValidator.Validate(definition!).IsEmpty)
+        {
+            folderRunValidationRequested = true;
+            bottomTab = "issues";
+            return;
+        }
         folderRunError = null;
         runDialogOpen = true;
     }
