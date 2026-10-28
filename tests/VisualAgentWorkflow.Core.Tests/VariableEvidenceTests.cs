@@ -48,6 +48,25 @@ public sealed class VariableEvidenceTests
     }
 
     [Fact]
+    public void Playback_reconstructs_every_valid_event_prefix_without_execution()
+    {
+        var events = new[]
+        {
+            Event(1, ExecutionEventKinds.VariableWritten, "set", new { variableId = "count", dataType = "integer", previousValue = 1, value = 2, version = 2L, loopIteration = 1 }),
+            Event(2, ExecutionEventKinds.VariableRead, "get", new { variableId = "count", dataType = "integer", value = 2, version = 2L, loopIteration = 1 }),
+            Event(3, ExecutionEventKinds.VariableWritten, "set", new { variableId = "count", dataType = "integer", previousValue = 2, value = 3, version = 3L, loopIteration = 2 }),
+            Event(4, ExecutionEventKinds.VariableRead, "get", new { variableId = "count", dataType = "integer", value = 3, version = 3L, loopIteration = 2 })
+        };
+
+        for (var length = 1; length <= events.Length; length++)
+        {
+            Assert.True(VariableEvidence.TryReconstructPlayback(events.Take(length), out var snapshot));
+            Assert.Equal(length < 3 ? "2" : "3", snapshot!.Values["count"].Value);
+            Assert.Equal(length < 3 ? 2L : 3L, snapshot.Values["count"].Version);
+        }
+    }
+
+    [Fact]
     public void Playback_rejects_a_read_that_disagrees_with_the_recorded_version()
     {
         var events = new[]

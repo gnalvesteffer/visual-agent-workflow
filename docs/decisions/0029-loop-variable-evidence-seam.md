@@ -39,7 +39,8 @@ composite checkpoint cursor before execution is promoted.
 - Core tests cover future iteration parsing and negative-value rejection; the
   Agent Framework regression confirms current linear events remain at zero and
   cancellation or recorder failure after a committed write preserves the
-  recorded prefix.
+  recorded prefix, and Core playback tests reconstruct every valid prefix of a
+  repeated, iteration-tagged operation sequence without execution.
 
 See [the mutable-variable proof gate](0027-run-scoped-variable-proof-gate.md)
 and [the variable checkpoint frame](0028-variable-checkpoint-frame.md).
