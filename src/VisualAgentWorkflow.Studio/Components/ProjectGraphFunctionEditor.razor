@@ -18,19 +18,19 @@
     <details class="vaw-function-interface" open>
         <summary>Function interface <span class="vaw-help">@inputPorts.Count inputs · @outputPorts.Count outputs</span></summary>
         <div class="vaw-layout-columns">
-            <section aria-label="Function inputs"><h3>Inputs</h3>
+                    <section aria-label="Function inputs"><h3>Inputs</h3>
                 @foreach (var (portId, port) in inputPorts)
                 {
-                    <div class="vaw-function-port" @key="portId"><label>@portId name <input value="@port.DisplayName" maxlength="160" @onchange="args => RenamePort(true, portId, args)" /></label><label>Type <select value="@port.DataType" @onchange="args => UpdatePortType(true, portId, args)"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option></select></label><button type="button" class="vaw-danger-quiet" aria-label="Remove input @port.DisplayName" @onclick="() => RemovePort(true, portId)">Remove</button></div>
+                    <div class="vaw-function-port" @key="portId"><label>@portId name <input value="@port.DisplayName" maxlength="160" @onchange="args => RenamePort(true, portId, args)" /></label><label>Type <select value="@port.DataType" @onchange="args => UpdatePortType(true, portId, args)"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="number">Number</option></select></label><button type="button" class="vaw-danger-quiet" aria-label="Remove input @port.DisplayName" @onclick="() => RemovePort(true, portId)">Remove</button></div>
                 }
-                <div class="vaw-function-add-port"><label>Input ID <input maxlength="128" @bind="newInputId" /></label><label>Name <input maxlength="160" @bind="newInputName" /></label><label>Type <select @bind="newInputType"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option></select></label><button type="button" class="vaw-secondary" @onclick="() => AddPort(true)">Add input</button></div>
+                    <div class="vaw-function-add-port"><label>Input ID <input maxlength="128" @bind="newInputId" /></label><label>Name <input maxlength="160" @bind="newInputName" /></label><label>Type <select @bind="newInputType"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="number">Number</option></select></label><button type="button" class="vaw-secondary" @onclick="() => AddPort(true)">Add input</button></div>
             </section>
             <section aria-label="Function outputs"><h3>Outputs</h3>
                 @foreach (var (portId, port) in outputPorts)
                 {
-                    <div class="vaw-function-port" @key="portId"><label>@portId name <input value="@port.DisplayName" maxlength="160" @onchange="args => RenamePort(false, portId, args)" /></label><label>Type <select value="@port.DataType" @onchange="args => UpdatePortType(false, portId, args)"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option></select></label><button type="button" class="vaw-danger-quiet" aria-label="Remove output @port.DisplayName" @onclick="() => RemovePort(false, portId)">Remove</button></div>
+                    <div class="vaw-function-port" @key="portId"><label>@portId name <input value="@port.DisplayName" maxlength="160" @onchange="args => RenamePort(false, portId, args)" /></label><label>Type <select value="@port.DataType" @onchange="args => UpdatePortType(false, portId, args)"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="number">Number</option></select></label><button type="button" class="vaw-danger-quiet" aria-label="Remove output @port.DisplayName" @onclick="() => RemovePort(false, portId)">Remove</button></div>
                 }
-                <div class="vaw-function-add-port"><label>Output ID <input maxlength="128" @bind="newOutputId" /></label><label>Name <input maxlength="160" @bind="newOutputName" /></label><label>Type <select @bind="newOutputType"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option></select></label><button type="button" class="vaw-secondary" @onclick="() => AddPort(false)">Add output</button></div>
+                    <div class="vaw-function-add-port"><label>Output ID <input maxlength="128" @bind="newOutputId" /></label><label>Name <input maxlength="160" @bind="newOutputName" /></label><label>Type <select @bind="newOutputType"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="number">Number</option></select></label><button type="button" class="vaw-secondary" @onclick="() => AddPort(false)">Add output</button></div>
             </section>
         </div>
     </details>
@@ -47,12 +47,15 @@
             <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.BooleanNot)">Boolean NOT</button>
             <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.IntegerConstant)">Integer constant</button>
             <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.IntegerAdd)">Add integers</button>
+            <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.NumberConstant)">Number constant</button>
+            <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.NumberAdd)">Add numbers</button>
             <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.IntegerEquals)">Compare integers</button>
         </NodeLibrary>
         <NodeContent Context="nodeId">
             @if (editor.Nodes.TryGetValue(nodeId, out var node) && node.Type == NodeTypes.StringConstant) { <span>@(node.StringConstant?.Value ?? "")</span> }
             else if (node?.Type == NodeTypes.BooleanConstant) { <span>@(node.BooleanConstant?.Value == true ? "True" : "False")</span> }
-            else if (node?.Type == NodeTypes.IntegerConstant) { <span>@node.IntegerConstant?.Value</span> }
+                    else if (node?.Type == NodeTypes.IntegerConstant) { <span>@node.IntegerConstant?.Value</span> }
+                    else if (node?.Type == NodeTypes.NumberConstant) { <span>@node.NumberConstant?.Value</span> }
             else if (node?.Type == NodeTypes.FunctionInput) { <span>Interface input · @node.OutputDataType</span> }
             else if (node?.Type == NodeTypes.FunctionOutput) { <span>Interface output · @node.InputDataType</span> }
             else if (node is not null) { <span>@NodeDescription(node)</span> }
@@ -62,8 +65,10 @@
             { <label>Constant value <textarea rows="4" maxlength="16384" value="@node.StringConstant?.Value" @onchange="args => SetStringConstant(nodeId, args)" /></label> }
             else if (node?.Type == NodeTypes.BooleanConstant)
             { <label>Constant value <select value="@node.BooleanConstant?.Value.ToString().ToLowerInvariant()" @onchange="args => SetBooleanConstant(nodeId, args)"><option value="true">True</option><option value="false">False</option></select></label> }
-            else if (node?.Type == NodeTypes.IntegerConstant)
-            { <label>Constant value <input type="text" inputmode="numeric" pattern="-?[0-9]+" value="@node.IntegerConstant?.Value" @onchange="args => SetIntegerConstant(nodeId, args)" /></label> }
+                    else if (node?.Type == NodeTypes.IntegerConstant)
+                    { <label>Constant value <input type="text" inputmode="numeric" pattern="-?[0-9]+" value="@node.IntegerConstant?.Value" @onchange="args => SetIntegerConstant(nodeId, args)" /></label> }
+                    else if (node?.Type == NodeTypes.NumberConstant)
+                    { <label>Constant value <input type="number" step="any" value="@node.NumberConstant?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)" @onchange="args => SetNumberConstant(nodeId, args)" /></label> }
             else if (node?.Type is NodeTypes.FunctionInput or NodeTypes.FunctionOutput)
             { <p class="vaw-help">This boundary is part of the function's declared interface. Change its name or type above.</p> }
             else { <p class="vaw-help">This node is deterministic and has no additional settings.</p> }
@@ -110,7 +115,7 @@
     private string? selectedNode;
     private string? error;
     private bool dirty;
-    private ImmutableArray<ValidationIssue> functionIssues => GraphFunctionJson.Validate(BuildFunction());
+    private ImmutableArray<ValidationIssue> functionIssues => GraphFunctionJson.Validate(BuildFunction(), allowNumber: true, allowNumberAdd: true);
 
     protected override void OnParametersSet()
     {
@@ -198,6 +203,7 @@
             NodeTypes.StringConstant => new NodeDefinition(type, "1.0.0") { StringConstant = new("") },
             NodeTypes.BooleanConstant => new NodeDefinition(type, "1.0.0") { BooleanConstant = new(false) },
             NodeTypes.IntegerConstant => new NodeDefinition(type, "1.0.0") { IntegerConstant = new(0) },
+            NodeTypes.NumberConstant => new NodeDefinition(type, "1.0.0") { NumberConstant = new(0d) },
             _ => new NodeDefinition(type, "1.0.0")
         };
         var previousNodeIds = editor.Nodes.Keys.ToHashSet(StringComparer.Ordinal);
@@ -343,12 +349,20 @@
         return Task.CompletedTask;
     }
 
+    private Task SetNumberConstant(string id, ChangeEventArgs args)
+    {
+        if (!double.TryParse(args.Value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value) || !double.IsFinite(value)) { error = "Enter a finite number."; return Task.CompletedTask; }
+        editor = editor with { Nodes = editor.Nodes.SetItem(id, editor.Nodes[id] with { NumberConstant = new(value) }) };
+        MarkDirty(); error = null; return Task.CompletedTask;
+    }
+
     private static string NodeDescription(NodeDefinition node) => node.Type switch
     {
         NodeTypes.TextConcat => "Join left + right",
         NodeTypes.StringEquals => "Ordinal string equality",
         NodeTypes.BooleanNot => "Invert Boolean value",
         NodeTypes.IntegerAdd => "Checked integer addition",
+        NodeTypes.NumberAdd => "Finite number addition",
         NodeTypes.IntegerEquals => "Integer equality",
         _ => "Pure function node"
     };

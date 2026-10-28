@@ -26,6 +26,7 @@ public static class WorkflowNodeDescriptorRegistry
         Descriptor(NodeTypes.BooleanConstant, "boolean-constant", [Output(WorkflowDataTypes.Boolean)]),
         Descriptor(NodeTypes.IntegerConstant, "integer-constant", [Output(WorkflowDataTypes.Integer)]),
         Descriptor(NodeTypes.NumberConstant, "number-constant", [Output(WorkflowDataTypes.Number)]),
+        Descriptor(NodeTypes.NumberAdd, "number-add", [Input("left", WorkflowDataTypes.Number), Input("right", WorkflowDataTypes.Number), Output(WorkflowDataTypes.Number)]),
         Descriptor(NodeTypes.TextConcat, "text-concat", [Input("left", WorkflowDataTypes.String), Input("right", WorkflowDataTypes.String), Output(WorkflowDataTypes.String)]),
         Descriptor(NodeTypes.StringEquals, "string-equals", [Input("left", WorkflowDataTypes.String), Input("right", WorkflowDataTypes.String), Output(WorkflowDataTypes.Boolean)]),
         Descriptor(NodeTypes.IntegerAdd, "integer-add", [Input("left", WorkflowDataTypes.Integer), Input("right", WorkflowDataTypes.Integer), Output(WorkflowDataTypes.Integer)]),

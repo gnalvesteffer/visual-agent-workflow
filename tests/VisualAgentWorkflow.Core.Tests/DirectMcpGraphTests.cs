@@ -132,6 +132,32 @@ public sealed class DirectMcpGraphTests
         Assert.Empty(WorkflowValidator.Validate(upgraded));
     }
 
+    [Fact]
+    public void Number_addition_promotes_a_number_parameter_graph_without_changing_mcp_pins()
+    {
+        var baseline = NumberPinDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.NumberPropagationGraph,
+            Nodes = NumberPinDefinition().Nodes.Remove("amount"),
+            Connections = NumberPinDefinition().Connections.Remove("amount")
+        };
+        var withAdd = GraphEditing.AddUnconnectedNode(baseline, new(NodeTypes.NumberAdd, "1.0.0"));
+        var sumId = withAdd.Nodes.Single(pair => pair.Value.Type == NodeTypes.NumberAdd).Key;
+        var withLeft = GraphEditing.AddUnconnectedNode(withAdd, new(NodeTypes.NumberConstant, "1.0.0") { NumberConstant = new(2.5d) });
+        var leftId = withLeft.Nodes.Single(pair => pair.Value.Type == NodeTypes.NumberConstant).Key;
+        var withRight = GraphEditing.AddUnconnectedNode(withLeft, new(NodeTypes.NumberConstant, "1.0.0") { NumberConstant = new(3.25d) });
+        var rightId = withRight.Nodes.Single(pair => pair.Value.Type == NodeTypes.NumberConstant && pair.Key != leftId).Key;
+        var definition = GraphEditing.ConnectPins(withRight, leftId, "out", sumId, "left");
+        definition = GraphEditing.ConnectPins(definition, rightId, "out", sumId, "right");
+        definition = GraphEditing.ConnectPins(definition, sumId, "out", "tool", "arg.amount");
+
+        var upgraded = definition;
+
+        Assert.Equal(WorkflowSchemaVersions.NumberArithmeticGraph, upgraded.SchemaVersion);
+        Assert.Equal(definition.Nodes["tool"].McpInputPorts, upgraded.Nodes["tool"].McpInputPorts);
+        Assert.Empty(WorkflowValidator.Validate(upgraded));
+    }
+
     [Theory]
     [InlineData(double.NaN)]
     [InlineData(double.PositiveInfinity)]

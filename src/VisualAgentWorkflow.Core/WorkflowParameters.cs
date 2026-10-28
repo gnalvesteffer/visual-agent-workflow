@@ -40,9 +40,10 @@ public static class WorkflowParameters
                 : parameter.DefaultValue;
             if (value is null || value.Length > 16_384)
                 throw new ArgumentException($"Parameter '{id}' must be a string up to 16,384 characters.", nameof(overrides));
-            if (!IsValidValue(parameter, value, definition.SchemaVersion == WorkflowSchemaVersions.NumberPropagationGraph))
+            var allowsFiniteNumbers = definition.SchemaVersion is WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph;
+            if (!IsValidValue(parameter, value, allowsFiniteNumbers))
                 throw new ArgumentException($"Value for workflow parameter '{id}' does not match its {parameter.Type ?? "string"} type.", nameof(overrides));
-            resolved.Add(id, NormalizeValue(parameter, value, definition.SchemaVersion == WorkflowSchemaVersions.NumberPropagationGraph));
+            resolved.Add(id, NormalizeValue(parameter, value, allowsFiniteNumbers));
         }
         var values = resolved.ToImmutable();
         ValidateAgentLimits(definition, values);

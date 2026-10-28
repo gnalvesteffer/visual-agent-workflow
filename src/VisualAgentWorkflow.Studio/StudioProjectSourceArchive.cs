@@ -439,7 +439,7 @@ public static class StudioProjectSourceArchive
                 if (item?.Function is not { } function ||
                     !int.TryParse(file.Version, System.Globalization.CultureInfo.InvariantCulture, out var version) ||
                     function.Definition.FunctionId != file.Id || function.Definition.Version != version ||
-                    !ValidFolder(item.Folder) || !GraphFunctionJson.Validate(function.Definition).IsEmpty ||
+                    !ValidFolder(item.Folder) || !GraphFunctionJson.Validate(function.Definition, allowNumber: true, allowNumberAdd: true).IsEmpty ||
                     function.ContentHash != GraphFunctionJson.ComputeHash(function.Definition))
                     throw new InvalidDataException($"Project graph function '{file.Path}' is invalid or does not match its manifest entry.");
                 break;

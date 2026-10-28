@@ -134,6 +134,7 @@ public static class NodeTypes
     public const string IntegerEquals = "core.integer.equals";
     public const string StringToInteger = "core.convert.string-to-integer";
     public const string NumberConstant = "core.constant.number";
+    public const string NumberAdd = "core.number.add";
     public const string FunctionInput = "core.function.input";
     public const string FunctionOutput = "core.function.output";
     public const string FunctionCall = "core.function.call";
@@ -161,14 +162,15 @@ public static class WorkflowSchemaVersions
     public const string StringIntegerConversionGraph = "1.39";
     public const string NumberGraph = "1.40";
     public const string NumberPropagationGraph = "1.41";
+    public const string NumberArithmeticGraph = "1.42";
 
-    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph or PureGraphFunctions or AgentGraphFunctionTools or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph;
+    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph or PureGraphFunctions or AgentGraphFunctionTools or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph or NumberArithmeticGraph;
 
-    public static bool UsesDirectMcpPins(string? version) => version is DirectMcpPinsGraph or NumberGraph or NumberPropagationGraph;
+    public static bool UsesDirectMcpPins(string? version) => version is DirectMcpPinsGraph or NumberGraph or NumberPropagationGraph or NumberArithmeticGraph;
 
     public static bool UsesExplicitGraph(WorkflowDefinition definition) =>
         UsesExplicitGraph(definition.SchemaVersion) ||
-        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph && definition.ExecutionConnections is not null;
+        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph or NumberArithmeticGraph && definition.ExecutionConnections is not null;
 }
 
 public sealed record StringConstantConfiguration(string Value);

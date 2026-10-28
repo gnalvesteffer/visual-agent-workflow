@@ -75,7 +75,7 @@ public static class GraphFunctionJson
             ?? throw new JsonException("A graph function definition is required.");
     }
 
-    public static ImmutableArray<ValidationIssue> Validate(GraphFunctionDefinition? function, bool allowNumber = true)
+    public static ImmutableArray<ValidationIssue> Validate(GraphFunctionDefinition? function, bool allowNumber = true, bool allowNumberAdd = false)
     {
         var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
@@ -118,7 +118,7 @@ public static class GraphFunctionJson
             var currentNode = node;
             var supportedNode = currentNode.Type is (NodeTypes.FunctionInput or NodeTypes.FunctionOutput or NodeTypes.StringConstant or
                 NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals);
-            supportedNode |= allowNumber && currentNode.Type == NodeTypes.NumberConstant;
+            supportedNode |= allowNumber && (currentNode.Type == NodeTypes.NumberConstant || allowNumberAdd && currentNode.Type == NodeTypes.NumberAdd);
             if (!supportedNode)
             {
                 Error("function.node.unsupported", $"graphFunction.definition.nodes.{id}", "Function bodies support only function boundaries and deterministic string, Boolean, integer, and finite number value nodes.");
@@ -247,6 +247,7 @@ public static class GraphFunctionJson
                         string.Equals(ResolveInput(nodeId, "left", "string").Value as string, ResolveInput(nodeId, "right", "string").Value as string, StringComparison.Ordinal), []),
                     NodeTypes.IntegerConstant when portId == "out" => new GraphFunctionEvaluation("integer", node.IntegerConstant!.Value, []),
                     NodeTypes.NumberConstant when portId == "out" && node.NumberConstant is { Value: var number } && double.IsFinite(number) => new GraphFunctionEvaluation("number", number, []),
+                    NodeTypes.NumberAdd when portId == "out" => new GraphFunctionEvaluation("number", AddNumbers(nodeId), []),
                     NodeTypes.IntegerAdd when portId == "out" => new GraphFunctionEvaluation("integer", AddIntegers(nodeId), []),
                     NodeTypes.IntegerEquals when portId == "out" => new GraphFunctionEvaluation("boolean", IntegersEqual(nodeId), []),
                     NodeTypes.BooleanConstant when portId == "out" => new GraphFunctionEvaluation("boolean", node.BooleanConstant!.Value, []),
@@ -293,6 +294,18 @@ public static class GraphFunctionJson
             return checked(leftInteger + rightInteger);
         }
 
+        double AddNumbers(string nodeId)
+        {
+            var left = ResolveInput(nodeId, "left", "number").Value;
+            var right = ResolveInput(nodeId, "right", "number").Value;
+            if (left is not double leftNumber || !double.IsFinite(leftNumber) || right is not double rightNumber || !double.IsFinite(rightNumber))
+                throw new InvalidOperationException("Number addition requires finite IEEE-754 double inputs.");
+            var result = leftNumber + rightNumber;
+            if (!double.IsFinite(result))
+                throw new InvalidOperationException("Number addition overflowed to a non-finite result.");
+            return result;
+        }
+
         bool IntegersEqual(string nodeId)
         {
             var left = ResolveInput(nodeId, "left", "integer").Value;
@@ -333,6 +346,7 @@ public static class GraphFunctionJson
         NodeTypes.FunctionOutput when node.FunctionPortId is { } id && function.Outputs.TryGetValue(id, out var output) => [new("in", node.InputDataType ?? output.DataType)],
         NodeTypes.TextConcat or NodeTypes.StringEquals => [new("left", "string"), new("right", "string")],
         NodeTypes.IntegerAdd or NodeTypes.IntegerEquals => [new("left", "integer"), new("right", "integer")],
+        NodeTypes.NumberAdd => [new("left", "number"), new("right", "number")],
         NodeTypes.NumberConstant => [],
         NodeTypes.BooleanNot => [new("value", "boolean")],
         _ => []
@@ -343,7 +357,7 @@ public static class GraphFunctionJson
         NodeTypes.FunctionInput when node.FunctionPortId is { } id && function.Inputs.TryGetValue(id, out var input) => [new("out", node.OutputDataType ?? input.DataType)],
         NodeTypes.StringConstant or NodeTypes.TextConcat => [new("out", "string")],
         NodeTypes.IntegerConstant or NodeTypes.IntegerAdd => [new("out", "integer")],
-        NodeTypes.NumberConstant => [new("out", "number")],
+        NodeTypes.NumberConstant or NodeTypes.NumberAdd => [new("out", "number")],
         NodeTypes.StringEquals or NodeTypes.IntegerEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", "boolean")],
         _ => []
     };

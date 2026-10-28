@@ -676,6 +676,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                             ResolveStringInput(nodeId, "right", evaluated, cache, active), StringComparison.Ordinal)),
                     NodeTypes.IntegerConstant when outputPort == "out" => new ExplicitGraphValue("integer", node.IntegerConstant!.Value),
                     NodeTypes.NumberConstant when outputPort == "out" && node.NumberConstant is { Value: var value } && double.IsFinite(value) => new ExplicitGraphValue("number", value),
+                    NodeTypes.NumberAdd when outputPort == "out" => new ExplicitGraphValue("number", AddNumbers(nodeId, evaluated, cache, active)),
                     NodeTypes.StringToInteger when outputPort == "out" => ConvertStringToInteger(nodeId, evaluated, cache, active),
                     NodeTypes.IntegerAdd when outputPort == "out" => new ExplicitGraphValue("integer", AddIntegers(nodeId, evaluated, cache, active)),
                     NodeTypes.IntegerEquals when outputPort == "out" => new ExplicitGraphValue("boolean", IntegersEqual(nodeId, evaluated, cache, active)),
@@ -752,9 +753,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (node.ParameterId is not { } parameterId || parameters is null || !parameters.TryGetValue(parameterId, out var value) ||
                 definition.Parameters is not { } declared || !declared.TryGetValue(parameterId, out var parameter))
                 throw new InvalidOperationException("The workflow parameter value is unavailable.");
-            if (definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph && definition.SchemaVersion != WorkflowSchemaVersions.NumberPropagationGraph)
+            if (definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph && definition.SchemaVersion != WorkflowSchemaVersions.NumberPropagationGraph && definition.SchemaVersion != WorkflowSchemaVersions.NumberArithmeticGraph)
                 return new("string", value);
-            var allowNumber = definition.SchemaVersion == WorkflowSchemaVersions.NumberPropagationGraph;
+            var allowNumber = definition.SchemaVersion is WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph;
             var dataType = WorkflowParameterGraphTypes.DataType(parameter, allowNumber);
             if (dataType is null || node.OutputDataType is { } expectedType && expectedType != dataType)
                 throw new InvalidOperationException("The workflow parameter has an unsupported graph data type.");
@@ -799,6 +800,20 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             return new ExplicitGraphValue(WorkflowDataTypes.Integer, result.Value!.Value);
         }
 
+        private double AddNumbers(string nodeId,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            var left = ResolveNumberInput(nodeId, "left", evaluated, cache, active);
+            var right = ResolveNumberInput(nodeId, "right", evaluated, cache, active);
+            var result = left + right;
+            if (!double.IsFinite(result))
+                throw new GraphDataEvaluationException(nodeId, "number.add.nonfinite-result",
+                    new InvalidOperationException("Number addition overflowed to a non-finite result."));
+            return result;
+        }
+
         private bool IntegersEqual(string nodeId,
             ImmutableArray<EvaluatedDataValue>.Builder evaluated,
             Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
@@ -816,6 +831,18 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (value.DataType != "integer" || value.Value is not long integer)
                 throw new InvalidOperationException("The pure data input requires a signed 64-bit integer.");
             return integer;
+        }
+
+        private double ResolveNumberInput(string nodeId, string inputPort,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            var edge = definition.Connections.Single(connection => connection.Value.Target.NodeId == nodeId && connection.Value.Target.PortId == inputPort);
+            var value = ResolveOutput(edge.Value.Source.NodeId, edge.Value.Source.PortId, edge.Key, evaluated, cache, active);
+            if (value.DataType != WorkflowDataTypes.Number || value.Value is not double number || !double.IsFinite(number))
+                throw new InvalidOperationException("The pure data input requires a finite IEEE-754 double.");
+            return number;
         }
 
         private string ResolveStringInput(string nodeId, string inputPort,
@@ -1030,7 +1057,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         ? throw new InvalidOperationException("The workflow parameter was not resolved for this run.") : value,
                     NodeTypes.Uppercase => message.ToUpperInvariant(),
                     NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
-                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph
+                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph
                         ? await InvokeDirectMcpTool(message, invocation, toolArgumentEvaluations, cancellationToken)
                         : await InvokeTool(message, invocation, cancellationToken),
                     NodeTypes.WorkflowCall => childOutcome?.Output ?? string.Empty,

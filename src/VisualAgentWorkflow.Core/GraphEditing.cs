@@ -76,6 +76,18 @@ public static class GraphEditing
         return upgraded;
     }
 
+    /// <summary>Promotes a number-propagation graph so it can use pure finite-number arithmetic.</summary>
+    public static WorkflowDefinition EnableNumberArithmeticGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.NumberPropagationGraph || definition.ExecutionConnections is null)
+            throw new ArgumentException("Enable finite-number propagation before adding number arithmetic nodes.", nameof(definition));
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var upgraded = definition with { SchemaVersion = WorkflowSchemaVersions.NumberArithmeticGraph };
+        WorkflowValidator.ThrowIfInvalid(upgraded);
+        return upgraded;
+    }
+
     /// <summary>Upgrades a valid schema 1.24 branch preview to the bounded Boolean primitive subset.</summary>
     public static WorkflowDefinition EnableTypedBooleanGraph(WorkflowDefinition definition)
     {
@@ -333,7 +345,7 @@ public static class GraphEditing
             NodeTypes.Agent => "agent", NodeTypes.McpTool => "mcp", NodeTypes.StringConstant => "constant", NodeTypes.TextConcat => "concat",
             NodeTypes.StringEquals => "equals", NodeTypes.BooleanBranch => "branch",
             NodeTypes.BooleanConstant => "boolean", NodeTypes.BooleanNot => "not", NodeTypes.IntegerConstant => "integer", NodeTypes.NumberConstant => "number",
-            NodeTypes.IntegerAdd => "add", NodeTypes.IntegerEquals => "integer-equals", _ => node.Type
+            NodeTypes.IntegerAdd => "add", NodeTypes.NumberAdd => "number-add", NodeTypes.IntegerEquals => "integer-equals", _ => node.Type
         };
         var id = NewId(prefix);
         return definition with

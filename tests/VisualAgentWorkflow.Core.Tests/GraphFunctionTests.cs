@@ -182,6 +182,29 @@ public sealed class GraphFunctionTests
         }), issue => issue.Code == "function.port.type");
     }
 
+    [Fact]
+    public void Number_addition_requires_the_arithmetic_schema_and_preserves_finite_double_results()
+    {
+        var function = NumberAdditionFunction();
+
+        Assert.Contains(GraphFunctionJson.Validate(function), issue => issue.Code == "function.node.unsupported");
+        Assert.Empty(GraphFunctionJson.Validate(function, allowNumber: true, allowNumberAdd: true));
+        var result = GraphFunctionJson.Evaluate(function,
+            new Dictionary<string, GraphFunctionEvaluation>
+            {
+                ["left"] = new("number", 2.5d, []),
+                ["right"] = new("number", 3.25d, [])
+            }, "result", () => 1);
+
+        Assert.Equal(5.75d, result.Value);
+        Assert.Throws<InvalidOperationException>(() => GraphFunctionJson.Evaluate(function,
+            new Dictionary<string, GraphFunctionEvaluation>
+            {
+                ["left"] = new("number", double.MaxValue, []),
+                ["right"] = new("number", double.MaxValue, [])
+            }, "result", () => 1));
+    }
+
     private static GraphFunctionDefinition IncrementIntegerFunction() => new(
         "integer.increment", 1, "Increment integer", "Adds one to a signed 64-bit integer.",
         ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
@@ -196,5 +219,22 @@ public sealed class GraphFunctionTests
         ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
             .Add("left", new(new("input", "out"), new("sum", "left"), "data"))
             .Add("right", new(new("one", "out"), new("sum", "right"), "data"))
+            .Add("result", new(new("sum", "out"), new("output", "in"), "data")));
+
+    private static GraphFunctionDefinition NumberAdditionFunction() => new(
+        "number.add", 1, "Add numbers", "Adds two finite numbers.",
+        ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("left", new("Left", "number"))
+            .Add("right", new("Right", "number")),
+        ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("result", new("Result", "number")),
+        ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("left", new(NodeTypes.FunctionInput, "1.0.0") { FunctionPortId = "left", OutputDataType = "number" })
+            .Add("right", new(NodeTypes.FunctionInput, "1.0.0") { FunctionPortId = "right", OutputDataType = "number" })
+            .Add("sum", new(NodeTypes.NumberAdd, "1.0.0"))
+            .Add("output", new(NodeTypes.FunctionOutput, "1.0.0") { FunctionPortId = "result", InputDataType = "number" }),
+        ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("left", new(new("left", "out"), new("sum", "left"), "data"))
+            .Add("right", new(new("right", "out"), new("sum", "right"), "data"))
             .Add("result", new(new("sum", "out"), new("output", "in"), "data")));
 }

@@ -542,7 +542,7 @@
                     }
                     else if (node.Type == NodeTypes.WorkflowValue)
                     {
-                        var parameterChoices = ParameterDefinitions.Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph) || WorkflowParameterGraphTypes.DataType(pair.Value, Definition.SchemaVersion == WorkflowSchemaVersions.NumberPropagationGraph) is not null).ToDictionary(pair => pair.Key, pair => pair.Value);
+                        var parameterChoices = ParameterDefinitions.Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) || WorkflowParameterGraphTypes.DataType(pair.Value, Definition.SchemaVersion is WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) is not null).ToDictionary(pair => pair.Key, pair => pair.Value);
                         @if (!ReadOnly && parameterChoices.Count > 0)
                         {
                             <label>Workflow parameter
@@ -552,7 +552,7 @@
                             </label>
                         }
                         else if (node.ParameterId is { } parameterId && parameterChoices.TryGetValue(parameterId, out var parameter))
-                        { <p>@parameter.DisplayName · @parameterId · @(WorkflowParameterGraphTypes.DataType(parameter, Definition.SchemaVersion == WorkflowSchemaVersions.NumberPropagationGraph) ?? "string")</p><p class="vaw-help">Passes the declared parameter value and type onward, replacing the incoming value.</p> }
+                        { <p>@parameter.DisplayName · @parameterId · @(WorkflowParameterGraphTypes.DataType(parameter, Definition.SchemaVersion is WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) ?? "string")</p><p class="vaw-help">Passes the declared parameter value and type onward, replacing the incoming value.</p> }
                     }
                     else if (node.Type == NodeTypes.IntegerConstant)
                     {
@@ -867,7 +867,7 @@
         return LayoutChanged.InvokeAsync(value);
     }
     [Parameter] public IReadOnlyList<ToolBindingDescriptor> Bindings { get; set; } = [];
-    private bool DirectMcpAuthoring => Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph;
+    private bool DirectMcpAuthoring => Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph;
     private bool SchemaDrivenMcpPins => WorkflowSchemaVersions.UsesDirectMcpPins(Definition.SchemaVersion);
     [Parameter] public IReadOnlyList<AgentProviderDescriptor> Providers { get; set; } = [];
     [Parameter] public bool ProviderChoicesLoading { get; set; }
@@ -1303,6 +1303,7 @@
         if (value == NodeTypes.NumberConstant)
             return new(NodeTypes.NumberConstant, "1.0.0") { NumberConstant = existing?.NumberConstant ?? new(0d) };
         if (value == NodeTypes.IntegerAdd) return new(NodeTypes.IntegerAdd, "1.0.0");
+        if (value == NodeTypes.NumberAdd) return new(NodeTypes.NumberAdd, "1.0.0");
         if (value == NodeTypes.IntegerEquals) return new(NodeTypes.IntegerEquals, "1.0.0");
         if (value == NodeTypes.JsonSelectString)
             return new(NodeTypes.JsonSelectString, "1.0.0") { JsonPropertySelection = existing?.JsonPropertySelection ?? new("/name") };
@@ -1313,10 +1314,10 @@
         if (value == NodeTypes.WorkflowValue)
         {
             var parameterId = ParameterDefinitions
-                .Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph) || WorkflowParameterGraphTypes.DataType(pair.Value, Definition.SchemaVersion == WorkflowSchemaVersions.NumberPropagationGraph) is not null)
+                .Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) || WorkflowParameterGraphTypes.DataType(pair.Value, Definition.SchemaVersion is WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) is not null)
                 .Select(pair => pair.Key).FirstOrDefault();
-            var outputType = (Definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph) && parameterId is not null
-                ? WorkflowParameterGraphTypes.DataType(ParameterDefinitions[parameterId], Definition.SchemaVersion == WorkflowSchemaVersions.NumberPropagationGraph)
+            var outputType = (Definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) && parameterId is not null
+                ? WorkflowParameterGraphTypes.DataType(ParameterDefinitions[parameterId], Definition.SchemaVersion is WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph)
                 : null;
             return new(NodeTypes.WorkflowValue, "1.0.0") { ParameterId = parameterId, OutputDataType = outputType };
         }

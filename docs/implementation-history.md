@@ -58,6 +58,10 @@ legacy definitions and 1.40 hashes remain unchanged. Numeric operators,
 conversions, containers, nested numeric expansion, and generic numeric outputs
 remain deferred. See [finite number propagation](decisions/0007-finite-number-propagation.md).
 
+## Finite-number addition
+
+Schema 1.42 adds the pure `core.number.add` node with exact finite-double `left`, `right`, and `out` pins. Inserting it into an editable schema-1.41 direct-MCP graph promotes the draft to 1.42; older definitions remain unchanged and reject the node. The Agent Framework evaluates the node lazily, records typed data evidence, and reports non-finite results with a stable diagnostic. Pure graph functions and the Studio function editors expose the same number contract. Core and Agent Framework regression suites cover schema gating, typed MCP payloads, function evaluation, evidence, and overflow. See [finite number addition](decisions/0010-finite-number-addition.md).
+
 ## Actionable typed-wire diagnostics
 
 Core validation and editor connection edits now identify the source and target

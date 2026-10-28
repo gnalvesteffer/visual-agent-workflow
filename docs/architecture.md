@@ -112,9 +112,13 @@ ports remain deferred. See [finite number primitive](decisions/0006-finite-numbe
 Schema 1.41 ships the next bounded slice: finite number workflow parameters
 may feed typed Workflow value nodes and existing persisted direct-MCP number
 pins, while pure graph functions may expose finite number inputs/outputs and
-number constants. Operators, conversions, containers, mutable variables,
-nested MCP numbers, and generic numeric workflow outputs remain deferred. See
-[finite number propagation](decisions/0007-finite-number-propagation.md).
+number constants. Schema 1.42 adds the pure `core.number.add` operator with
+typed `left`, `right`, and `out` pins. It uses finite IEEE-754 doubles, performs
+no implicit coercion, and fails deterministically when the result is
+non-finite. Operators beyond addition, conversions, containers, nested MCP
+numbers, and generic numeric workflow outputs remain deferred. See [finite
+number propagation](decisions/0007-finite-number-propagation.md) and [finite
+number addition](decisions/0010-finite-number-addition.md).
 
 Parameter overrides belong to a run, never its immutable published definition. The host resolves defaults and bounded caller overrides before enqueueing, rejects unknown IDs, and stores the complete effective string map in the run header for audit/playback. Workflow packages carry parameter contracts and defaults, but not run overrides or credentials. Values are not secret: consumers should not put credentials or sensitive payloads into parameters because current local run stores record them in plaintext.
 

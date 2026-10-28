@@ -98,6 +98,21 @@ public sealed class DirectMcpExecutionTests
         Assert.Contains("\"dataType\":\"number\"", evidence.Data, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Schema_1_42_evaluates_number_addition_before_building_mcp_arguments()
+    {
+        var broker = new RecordingBroker();
+        var events = new List<ExecutionEvent>();
+        var result = await new WorkflowRunner(broker).ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(NumberAdditionPinDefinition(), "test"), "ignored", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        using var arguments = JsonDocument.Parse(broker.Input!);
+        Assert.Equal(5.75d, arguments.RootElement.GetProperty("amount").GetDouble());
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "sum" && evt.Data?.Contains("5.75", StringComparison.Ordinal) == true);
+    }
+
     private static WorkflowDefinition Definition() => new(
         WorkflowSchemaVersions.DirectMcpGraph, "direct-mcp-runtime", "input",
         new Dictionary<string, NodeDefinition>
@@ -181,6 +196,24 @@ public sealed class DirectMcpExecutionTests
         Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
             .Add("amount", new WorkflowParameterDefinition("Amount", "12.5") { Type = "number" })
     };
+
+    private static WorkflowDefinition NumberAdditionPinDefinition()
+    {
+        var baseline = NumberPinDefinition() with { SchemaVersion = WorkflowSchemaVersions.NumberArithmeticGraph };
+        return baseline with
+        {
+            Nodes = baseline.Nodes
+                .Remove("amount")
+                .Add("left", new(NodeTypes.NumberConstant, "1.0.0") { NumberConstant = new(2.5d) })
+                .Add("right", new(NodeTypes.NumberConstant, "1.0.0") { NumberConstant = new(3.25d) })
+                .Add("sum", new(NodeTypes.NumberAdd, "1.0.0")),
+            Connections = baseline.Connections
+                .Remove("amount")
+                .Add("left", new(new("left", "out"), new("sum", "left"), "data"))
+                .Add("right", new(new("right", "out"), new("sum", "right"), "data"))
+                .Add("amount", new(new("sum", "out"), new("tool", "arg.amount"), "data"))
+        };
+    }
 
     private sealed class RecordingBroker : INodeToolBroker
     {
