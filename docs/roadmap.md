@@ -103,7 +103,7 @@ Descriptor progress: Core now has a canonical node-family catalog for stable dis
 
 ### Deferred parity decision: bounded Sequence dispatch
 
-`core.sequence` and schema 1.38 are not implemented. The independent proponent/opponent/adjudicator review keeps the feature deferred until a non-public Agent Framework proof establishes active-activation accounting, partial-dispatch/failure/cancellation semantics, playback correlation, and the explicit pause/restart boundary. The proof now covers ordered dispatch, concurrent downstream admission, completion-order divergence, cancellation between outputs, and a private completion-gated streaming runner harness. That harness now routes descendant start/completion facts through runner-owned active-node accounting; production graph-runner lineage, playback correlation, and pause/host-stop semantics remain open. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md). Mutable variables remain deferred for the same contract/evidence reasons.
+`core.sequence` and schema 1.38 are not implemented. The independent proponent/opponent/adjudicator review keeps the feature deferred until a non-public Agent Framework proof establishes active-activation accounting, partial-dispatch/failure/cancellation semantics, playback correlation, and the explicit pause/restart boundary. The proof now covers ordered dispatch, concurrent downstream admission, completion-order divergence, cancellation between outputs, a private completion-gated streaming runner harness, and distinct failed/cancelled terminal outcomes with skipped later outputs. That harness now routes descendant start/completion facts through runner-owned active-node accounting; production graph-runner lineage, playback correlation, and pause/host-stop semantics remain open. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md). Mutable variables remain deferred for the same contract/evidence reasons.
 
 Sequence proof checklist:
 
@@ -115,7 +115,8 @@ Sequence proof checklist:
 - [x] Prove conversion of coordinator lifecycle facts into passive `ExecutionEvent` records.
 - [x] Exercise completion-gated continuation and terminal accounting through a private pinned streaming-runner harness.
 - [ ] Emit that lineage from real Sequence runner executions and expose it in passive playback.
-- [ ] Prove partial dispatch, failure, cancellation, pause, and host-stop outcomes against the real runner.
+- [x] Prove partial dispatch, downstream failure, and cancellation outcomes against the private streaming runner proof.
+- [ ] Prove pause and host-stop outcomes against the production runner.
 - [ ] Only then add schema 1.38, validator rules, persistence compatibility, Studio authoring, and public runtime behavior.
 
 ### Sequencing and exit criteria

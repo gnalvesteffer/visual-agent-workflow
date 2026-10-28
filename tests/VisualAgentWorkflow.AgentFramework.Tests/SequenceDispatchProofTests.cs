@@ -31,6 +31,25 @@ public sealed class SequenceDispatchProofTests
         Assert.DoesNotContain(result.Events, evt => evt.Kind is ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled);
     }
 
+    [Theory]
+    [InlineData("Failed", "sequence.output.failed", "sequence.failed")]
+    [InlineData("Cancelled", "sequence.output.cancelled", "sequence.cancelled")]
+    public async Task Runner_owned_sequence_proof_skips_outputs_after_terminal_failure_or_cancellation(
+        string terminalStateName, string outputTerminalKind, string sequenceTerminalKind)
+    {
+        var terminalState = Enum.Parse<SequenceTerminalState>(terminalStateName);
+        var result = await SequenceRunnerProof.ExecuteAsync(Guid.NewGuid(), Guid.NewGuid(), "second", terminalState);
+
+        Assert.Equal(["first", "second"], result.DispatchOrder);
+        Assert.Equal(result.DispatchOrder, result.CompletionOrder);
+        Assert.DoesNotContain("third", result.DispatchOrder);
+        Assert.Contains(result.Events, evt => evt.Kind == outputTerminalKind && evt.NodeId == "sequence-proof");
+        Assert.Contains(result.Events, evt => evt.Kind == sequenceTerminalKind);
+        Assert.Equal(["third"], result.Events.Where(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped)
+            .Select(evt => SequenceEvidence.TryRead(evt, out var evidence) ? evidence!.OutputId : null));
+        Assert.DoesNotContain(result.Events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+    }
+
     [Fact]
     public async Task Direct_dispatch_can_admit_the_next_output_while_the_first_is_still_active()
     {

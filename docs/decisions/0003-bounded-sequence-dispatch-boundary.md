@@ -76,7 +76,10 @@ executor is reached only after the third output, so the proof does not rely on
 ordinary fan-out or an early root result. This establishes the continuation
 shape needed for a completion-ordered Sequence, but it is still a proof harness:
 it is not wired to `WorkflowRunner`'s production graph messages, and it does
-not yet cover failure, pause, or host stop. Its synthetic descendant executors
+not yet cover pause or host stop. It supports a controlled terminal disposition
+for a selected output: failure and cancellation both stop further dispatch,
+mark later outputs skipped, and preserve distinct Sequence terminal lifecycle
+kinds. Its synthetic descendant executors
 do, however, pass their start/completion facts through the runner-owned
 `ExecutionActivationLedger`, and the proof rejects terminal output if that
 ledger still contains active work.

@@ -11,13 +11,19 @@ namespace VisualAgentWorkflow.AgentFramework;
 internal static class SequenceRunnerProof
 {
     internal static async Task<SequenceRunnerProofResult> ExecuteAsync(Guid runId, Guid revisionId,
+        string? terminalOutputId = null, SequenceTerminalState? terminalState = null,
         CancellationToken cancellationToken = default)
     {
         var outputIds = new[] { "first", "second", "third" };
+        if (terminalOutputId is not null && !outputIds.Contains(terminalOutputId, StringComparer.Ordinal))
+            throw new ArgumentException("The proof terminal output must be one of the declared outputs.", nameof(terminalOutputId));
+        if (terminalOutputId is null && terminalState is not null)
+            throw new ArgumentException("A terminal output is required when a terminal state is supplied.", nameof(terminalState));
+        terminalState ??= SequenceTerminalState.Completed;
         var connectionIds = outputIds.ToDictionary(id => id, id => $"sequence-proof:{id}", StringComparer.Ordinal);
         var sequenceInvocationId = Guid.NewGuid();
         var coordinator = new SequenceRuntimeCoordinator(sequenceInvocationId, "sequence-proof", outputIds, connectionIds);
-        var fixture = new ProofFixture(runId, revisionId, coordinator);
+        var fixture = new ProofFixture(runId, revisionId, coordinator, terminalOutputId, terminalState.Value);
         await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(fixture.Build(),
             new SequenceMessage("start", null, Guid.Empty),
             cancellationToken: cancellationToken);
@@ -33,7 +39,8 @@ internal static class SequenceRunnerProof
             fixture.DispatchOrder.ToArray(), fixture.CompletionOrder.ToArray());
     }
 
-    private sealed class ProofFixture(Guid runId, Guid revisionId, SequenceRuntimeCoordinator coordinator)
+    private sealed class ProofFixture(Guid runId, Guid revisionId, SequenceRuntimeCoordinator coordinator,
+        string? terminalOutputId, SequenceTerminalState terminalState)
     {
         private readonly Queue<string> dispatchOrder = new();
         private readonly Queue<string> completionOrder = new();
@@ -69,7 +76,7 @@ internal static class SequenceRunnerProof
             var dispatcher = new Dispatcher(this, coordinator);
             var outputs = new Dictionary<string, Output>(StringComparer.Ordinal);
             foreach (var outputId in new[] { "first", "second", "third" })
-                outputs[outputId] = new(outputId, this);
+                outputs[outputId] = new(outputId, this, terminalOutputId, terminalState);
 
             var sink = new Sink();
             var terminal = new Terminal();
@@ -106,8 +113,8 @@ internal static class SequenceRunnerProof
                 }
 
                 if (message.Kind != "completed") throw new InvalidOperationException("Unexpected Sequence proof message.");
-                coordinator.Complete(message.ActivationId, SequenceTerminalState.Completed);
-                if (message.OutputId == "third")
+                coordinator.Complete(message.ActivationId, message.TerminalState);
+                if (message.TerminalState != SequenceTerminalState.Completed || message.OutputId == "third")
                 {
                     fixture.Complete(Id, invocationId, "sequence-complete");
                     return new("terminal", null, Guid.Empty);
@@ -118,7 +125,8 @@ internal static class SequenceRunnerProof
             }
         }
 
-        private sealed class Output(string outputId, ProofFixture fixture)
+        private sealed class Output(string outputId, ProofFixture fixture, string? terminalOutputId,
+            SequenceTerminalState terminalState)
             : Executor<SequenceMessage, SequenceMessage>($"output:{outputId}", declareCrossRunShareable: true)
         {
             public override async ValueTask<SequenceMessage> HandleAsync(SequenceMessage message, IWorkflowContext context,
@@ -128,7 +136,8 @@ internal static class SequenceRunnerProof
                 fixture.completionOrder.Enqueue(message.OutputId!);
                 await Task.Yield();
                 fixture.Complete(Id, message.ActivationId, message.OutputId);
-                return new("completed", message.OutputId, message.ActivationId);
+                var outputState = terminalOutputId == message.OutputId ? terminalState : SequenceTerminalState.Completed;
+                return new("completed", message.OutputId, message.ActivationId, outputState);
             }
         }
 
@@ -155,7 +164,8 @@ internal static class SequenceRunnerProof
         }
     }
 
-    private sealed record SequenceMessage(string Kind, string? OutputId, Guid ActivationId);
+    private sealed record SequenceMessage(string Kind, string? OutputId, Guid ActivationId,
+        SequenceTerminalState TerminalState = SequenceTerminalState.Completed);
 }
 
 internal sealed record SequenceRunnerProofResult(
