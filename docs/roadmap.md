@@ -43,6 +43,10 @@ Make every Blueprint-inspired authoring affordance traceable to a stable definit
 
 Descriptor progress: Core now has a canonical node-family catalog for stable display/category/description, pin-shape, purity, dynamic-pin, and host-capability metadata, and the Studio node library consumes that catalog for built-in actions. Runtime limits, activation/failure/evidence fields, and full descriptor-driven configuration remain part of the unchecked descriptor work.
 
+### Deferred parity decision: bounded Sequence dispatch
+
+`core.sequence` and schema 1.38 are not implemented. The independent proponent/opponent/adjudicator review deferred the feature until a non-public Agent Framework proof establishes active-activation accounting, partial-dispatch/failure/cancellation semantics, playback correlation, and the explicit pause/restart boundary. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md). Mutable variables remain deferred for the same contract/evidence reasons.
+
 ### Sequencing and exit criteria
 
 1. Baseline matrix and terminology.
