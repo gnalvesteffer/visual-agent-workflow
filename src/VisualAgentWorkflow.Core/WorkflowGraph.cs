@@ -62,29 +62,29 @@ public static class WorkflowPorts
 
     public static ImmutableArray<WorkflowPort> ExplicitDataInputs(NodeDefinition node) => node.Type switch
     {
-        NodeTypes.FunctionOutput => [new("in", node.InputDataType ?? "string")],
-        NodeTypes.Output => [new("in", node.OutputDataType ?? "string")],
-        NodeTypes.TextConcat => [new("left", "string"), new("right", "string")],
-        NodeTypes.StringEquals => [new("left", "string"), new("right", "string")],
-        NodeTypes.IntegerAdd or NodeTypes.IntegerEquals => [new("left", "integer"), new("right", "integer")],
-        NodeTypes.BooleanBranch => [new("condition", "boolean")],
-        NodeTypes.BooleanNot => [new("value", "boolean")],
+        NodeTypes.FunctionOutput => [new("in", node.InputDataType ?? WorkflowDataTypes.String)],
+        NodeTypes.Output => [new("in", node.OutputDataType ?? WorkflowDataTypes.String)],
+        NodeTypes.TextConcat => [new("left", WorkflowDataTypes.String), new("right", WorkflowDataTypes.String)],
+        NodeTypes.StringEquals => [new("left", WorkflowDataTypes.String), new("right", WorkflowDataTypes.String)],
+        NodeTypes.IntegerAdd or NodeTypes.IntegerEquals => [new("left", WorkflowDataTypes.Integer), new("right", WorkflowDataTypes.Integer)],
+        NodeTypes.BooleanBranch => [new("condition", WorkflowDataTypes.Boolean)],
+        NodeTypes.BooleanNot => [new("value", WorkflowDataTypes.Boolean)],
         NodeTypes.McpTool when node.McpInputPorts is { } ports => [.. ports.Select(port => new WorkflowPort(port.Id, port.DataType))],
-        NodeTypes.McpTool => [new("in", "string")],
+        NodeTypes.McpTool => [new("in", WorkflowDataTypes.String)],
         NodeTypes.FunctionCall when node.GraphFunction?.Definition?.Inputs is { } inputs => [.. inputs.Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))],
         _ => []
     };
 
     public static ImmutableArray<WorkflowPort> ExplicitDataOutputs(NodeDefinition node) => node.Type switch
     {
-        NodeTypes.FunctionInput => [new("out", node.OutputDataType ?? "string")],
-        NodeTypes.Input or NodeTypes.StringConstant or NodeTypes.TextConcat => [new("out", "string")],
-        NodeTypes.IntegerConstant or NodeTypes.IntegerAdd => [new("out", "integer")],
-        NodeTypes.WorkflowValue => [new("out", node.OutputDataType ?? "string")],
-        NodeTypes.Agent => [new("out", node.Agent?.RequireStructuredResult == true ? "json" : "string")],
-        NodeTypes.McpTool => [new("out", "string")],
-        NodeTypes.ParallelJoin => [new("out", "json")],
-        NodeTypes.StringEquals or NodeTypes.IntegerEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", "boolean")],
+        NodeTypes.FunctionInput => [new("out", node.OutputDataType ?? WorkflowDataTypes.String)],
+        NodeTypes.Input or NodeTypes.StringConstant or NodeTypes.TextConcat => [new("out", WorkflowDataTypes.String)],
+        NodeTypes.IntegerConstant or NodeTypes.IntegerAdd => [new("out", WorkflowDataTypes.Integer)],
+        NodeTypes.WorkflowValue => [new("out", node.OutputDataType ?? WorkflowDataTypes.String)],
+        NodeTypes.Agent => [new("out", node.Agent?.RequireStructuredResult == true ? WorkflowDataTypes.Json : WorkflowDataTypes.String)],
+        NodeTypes.McpTool => [new("out", WorkflowDataTypes.String)],
+        NodeTypes.ParallelJoin => [new("out", WorkflowDataTypes.Json)],
+        NodeTypes.StringEquals or NodeTypes.IntegerEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", WorkflowDataTypes.Boolean)],
         NodeTypes.FunctionCall when node.GraphFunction?.Definition?.Outputs is { } outputs => [.. outputs.Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))],
         _ => []
     };
@@ -114,39 +114,39 @@ public static class WorkflowPorts
     public static ImmutableArray<WorkflowPort> Inputs(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input => [],
-        NodeTypes.JsonSelectString or NodeTypes.JsonProject => [new("in", "json")],
-        NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Loop or NodeTypes.LoopBody => [new("in", "string")],
+        NodeTypes.JsonSelectString or NodeTypes.JsonProject => [new("in", WorkflowDataTypes.Json)],
+        NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Loop or NodeTypes.LoopBody => [new("in", WorkflowDataTypes.String)],
         NodeTypes.ParallelJoin when node.ParallelJoin is not null => [],
-        NodeTypes.ParallelJoin => [new("branch_1", "string"), new("branch_2", "string")],
-        NodeTypes.Output => [new("in", node.OutputDataType ?? "string")],
+        NodeTypes.ParallelJoin => [new("branch_1", WorkflowDataTypes.String), new("branch_2", WorkflowDataTypes.String)],
+        NodeTypes.Output => [new("in", node.OutputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.WorkflowCall => [new("in", WorkflowCallInputType(node))],
-        NodeTypes.Terminate => [new("in", "string")],
-        _ => [new("in", "string")]
+        NodeTypes.Terminate => [new("in", WorkflowDataTypes.String)],
+        _ => [new("in", WorkflowDataTypes.String)]
     };
     public static ImmutableArray<WorkflowPort> Outputs(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Output or NodeTypes.Terminate => [],
         NodeTypes.WorkflowCall => [new("out", WorkflowCallOutputType(node))],
-        NodeTypes.Agent when node.Agent?.RequireStructuredResult == true => [new("out", "json")],
-        NodeTypes.Condition => [new("true", "string"), new("false", "string")],
-        NodeTypes.Input when node.InputDataType == "json" => [new("out", "json")],
-        NodeTypes.JsonProject => [new("out", "json")],
+        NodeTypes.Agent when node.Agent?.RequireStructuredResult == true => [new("out", WorkflowDataTypes.Json)],
+        NodeTypes.Condition => [new("true", WorkflowDataTypes.String), new("false", WorkflowDataTypes.String)],
+        NodeTypes.Input when node.InputDataType == WorkflowDataTypes.Json => [new("out", WorkflowDataTypes.Json)],
+        NodeTypes.JsonProject => [new("out", WorkflowDataTypes.Json)],
         NodeTypes.ParallelFork when node.ParallelFork is not null => [],
-        NodeTypes.ParallelFork => [new("branch_1", "string"), new("branch_2", "string")],
-        NodeTypes.ParallelJoin => [new("out", "json")],
-        NodeTypes.Loop => [new("body", "string"), new("done", "string")],
-        _ => [new("out", "string")]
+        NodeTypes.ParallelFork => [new("branch_1", WorkflowDataTypes.String), new("branch_2", WorkflowDataTypes.String)],
+        NodeTypes.ParallelJoin => [new("out", WorkflowDataTypes.Json)],
+        NodeTypes.Loop => [new("body", WorkflowDataTypes.String), new("done", WorkflowDataTypes.String)],
+        _ => [new("out", WorkflowDataTypes.String)]
     };
 
     private static string WorkflowCallInputType(NodeDefinition node) =>
         node.WorkflowCall?.Definition is { Nodes: { } nodes } definition && nodes.TryGetValue(definition.EntryNodeId, out var entry) && entry is not null
-            ? Outputs(entry).SingleOrDefault()?.DataType ?? "string"
-            : "string";
+            ? Outputs(entry).SingleOrDefault()?.DataType ?? WorkflowDataTypes.String
+            : WorkflowDataTypes.String;
 
     private static string WorkflowCallOutputType(NodeDefinition node) =>
         node.WorkflowCall?.Definition?.Nodes is { } nodes && nodes.Values.FirstOrDefault(candidate => candidate?.Type == NodeTypes.Output) is { } output
-            ? Inputs(output).SingleOrDefault()?.DataType ?? "string"
-            : "string";
+            ? Inputs(output).SingleOrDefault()?.DataType ?? WorkflowDataTypes.String
+            : WorkflowDataTypes.String;
 }
 
 public static class ParallelGraphLimits
@@ -229,7 +229,7 @@ public static class WorkflowGraph
     public static bool HasControlNodes(WorkflowDefinition definition) => HasRouting(definition) || definition.Nodes.Values.Any(n => n?.Type == NodeTypes.Approval);
 
     public static bool HasTypedJson(WorkflowDefinition definition) => definition.Nodes.Values.Any(node =>
-        node?.Type is NodeTypes.JsonSelectString or NodeTypes.JsonProject || node?.InputDataType == "json" || node?.OutputDataType == "json");
+        node?.Type is NodeTypes.JsonSelectString or NodeTypes.JsonProject || node?.InputDataType == WorkflowDataTypes.Json || node?.OutputDataType == WorkflowDataTypes.Json);
 
     /// <summary>Deterministic presentation/analysis order, never a runtime scheduler.</summary>
     public static ImmutableArray<string> OrderedNodes(WorkflowDefinition definition)

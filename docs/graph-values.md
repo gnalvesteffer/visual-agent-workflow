@@ -124,7 +124,7 @@ flowchart LR
 
 ## Delivery sequence
 
-1. Expand a versioned type registry for bounded scalar and JSON contracts, with stable serialization and compatibility rules.
+1. Extend the versioned type registry beyond the current bounded string/Boolean/integer/JSON set only when stable serialization, nullability, bounds, and compatibility rules are defined.
 2. Add typed constant/literal nodes and a small pure operator set with exhaustive deterministic tests.
 3. Expose selected node options as typed pins, with visible defaults and validation errors for incompatible connections.
 4. Add declared record/enum/collection types and workflow parameter bindings where there is a clear portability need.
