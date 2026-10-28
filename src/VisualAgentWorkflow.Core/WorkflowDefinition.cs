@@ -146,6 +146,32 @@ public static class NodeTypes
     public static bool IsSupported(string? type) => WorkflowNodeContractCatalog.TryGet(type, out _);
 }
 
+public sealed record WorkflowSchemaDescriptor(string Version, bool Supported, bool UsesExplicitGraph, bool UsesDirectMcpPins);
+
+/// <summary>Exact compatibility metadata for serialized workflow schema versions.</summary>
+/// <remarks>This is a support/capability catalog, not a migration registry.</remarks>
+public static class WorkflowSchemaCatalog
+{
+    public static ImmutableArray<WorkflowSchemaDescriptor> All { get; } =
+        [.. Enumerable.Range(0, 44).Select(number =>
+        {
+            var version = $"1.{number}";
+            var explicitGraph = version is "1.23" or "1.24" or "1.25" or "1.26" or "1.27" or "1.28" or
+                "1.30" or "1.31" or "1.32" or "1.33" or "1.34" or "1.35" or "1.36" or "1.37" or
+                "1.38" or "1.39" or "1.40" or "1.41" or "1.42" or "1.43";
+            var directMcpPins = version is "1.37" or "1.40" or "1.41" or "1.42" or "1.43";
+            return new WorkflowSchemaDescriptor(version, true, explicitGraph, directMcpPins);
+        })];
+
+    public static bool IsSupported(string? version) => TryGet(version, out var descriptor) && descriptor.Supported;
+
+    public static bool TryGet(string? version, out WorkflowSchemaDescriptor descriptor)
+    {
+        descriptor = All.FirstOrDefault(candidate => string.Equals(candidate.Version, version, StringComparison.Ordinal))!;
+        return descriptor is not null;
+    }
+}
+
 public static class WorkflowSchemaVersions
 {
     public const string ExplicitGraph = "1.23";
@@ -171,9 +197,13 @@ public static class WorkflowSchemaVersions
     /// <summary>Bounded, disjoint linear downstream paths from ordered Sequence outputs.</summary>
     public const string SequencePathGraph = "1.43";
 
-    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph or PureGraphFunctions or AgentGraphFunctionTools or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or SequenceGraph or SequencePathGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph or NumberArithmeticGraph;
+    public static bool IsSupported(string? version) => WorkflowSchemaCatalog.IsSupported(version);
 
-    public static bool UsesDirectMcpPins(string? version) => version is DirectMcpPinsGraph or SequencePathGraph or NumberGraph or NumberPropagationGraph or NumberArithmeticGraph;
+    public static bool UsesExplicitGraph(string? version) =>
+        WorkflowSchemaCatalog.TryGet(version, out var descriptor) && descriptor.UsesExplicitGraph;
+
+    public static bool UsesDirectMcpPins(string? version) =>
+        WorkflowSchemaCatalog.TryGet(version, out var descriptor) && descriptor.UsesDirectMcpPins;
 
     public static bool UsesExplicitGraph(WorkflowDefinition definition) =>
         UsesExplicitGraph(definition.SchemaVersion) ||

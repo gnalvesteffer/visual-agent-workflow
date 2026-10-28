@@ -57,3 +57,4 @@ Documentation changes follow [documentation-maintenance](../.agents/skills/docum
 - [Sequence-to-Agent path proof gate](decisions/0011-sequence-agent-path-proof.md) — records the non-public Agent descendant proof and the gate for a future schema 1.44.
 - [Dynamic pin descriptor resolution](decisions/0012-dynamic-pin-descriptor-resolution.md) — defines the schema-neutral Core projection for configured dynamic pins and transient MCP discovery.
 - [Static descriptor validation boundary](decisions/0013-static-descriptor-validation-boundary.md) — validates registered static descriptor metadata without making dynamic authoring projections an admission contract.
+- [Schema capability catalog](decisions/0014-schema-capability-catalog.md) — centralizes exact supported schema identities and selected feature flags without claiming migration support.
