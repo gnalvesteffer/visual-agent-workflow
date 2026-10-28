@@ -152,11 +152,11 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   prefix with component/composite hashes. A test-only seam now persists that
   frame with the SQLite checkpoint/evidence transaction and resumes through the
   real Agent Framework serializer from independent processes, including two
-  successive suspensions, without duplicating committed loop-body writes. A
-  deterministic cancellation-position regression distinguishes cancellation
-  before capture from cancellation after a saved suspension. Schema 1.45 remains
-  outside checkpoint admission until failure/publication races, process-loss,
-  and all exact admission semantics are proven. See [loop checkpoint proof
+  successive suspensions and owner process loss after publication, without
+  duplicating committed loop-body writes. A deterministic cancellation-position
+  regression distinguishes cancellation before capture from cancellation after
+  a saved suspension. Schema 1.45 remains outside checkpoint admission until
+  failure/publication races and all exact admission semantics are proven. See [loop checkpoint proof
   frame](decisions/0031-loop-checkpoint-proof-frame.md).
   Cancellation-position is proven at the atomic variable-store boundary: a
   pre-cancelled write cannot mutate state or advance its version; a separate

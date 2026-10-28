@@ -27,19 +27,21 @@ anchor.
 The frame is not portable workflow data, ordinary playback state, or a second
 scheduler. It is not wired into `CheckpointWorkflowHost` yet. Production
 admission remains fail-closed for schema 1.45 until native Agent Framework
-checkpoint round-tripping, atomic capture/publication, repeated suspension and
-resume, cancellation/failure races, and process-loss behavior are proven.
+checkpoint round-tripping, failure/publication race handling, and the remaining
+exact admission restrictions are proven.
 
 A test-only adapter seam exercises the real Agent Framework native checkpoint
 serializer for a schema 1.45 loop-variable graph. It suspends after a body
 write, publishes the composite frame with the checkpoint/evidence transaction,
-and resumes it twice from independent test processes. The proof preserves the
-evidence prefix and monotonic versions without duplicating committed writes. A
-separate deterministic boundary test distinguishes cancellation before capture
-from cancellation after a captured suspension. It is still not durable
-recovery admission: the test seam bypasses production host admission, and
-failure/publication races, process loss, and the remaining promotion
-restrictions are not established by this proof.
+and resumes it twice from independent test processes. It also holds the owner
+after publication, terminates that process, and recovers from the released
+ownership handle in a fresh process. The proof preserves the evidence prefix
+and monotonic versions without duplicating committed writes. A separate
+deterministic boundary test distinguishes cancellation before capture from
+cancellation after a captured suspension. It is still not durable recovery
+admission: the test seam bypasses production host admission, and
+failure/publication races plus the remaining promotion restrictions are not
+established by this proof.
 
 ## Required promotion gates
 
@@ -56,6 +58,8 @@ restrictions are not established by this proof.
   a body activation; preserve monotonic variable versions and loop stop reason.
 - [x] Distinguish cancellation before capture from cancellation after a
   captured suspension; preserve the saved boundary in the latter case.
+- [x] Recover after the owner process is terminated after durable publication;
+  verify ownership release, exact frame identity, and no duplicate writes.
 - Reject stale, advanced, foreign, malformed, oversized, tampered, terminal,
   and unsettled frames before native execution begins.
 - Preserve schema 1.44 and older checkpoint formats and behavior unchanged.

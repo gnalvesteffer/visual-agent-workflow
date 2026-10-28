@@ -204,8 +204,8 @@ public sealed class MutableVariableExecutionTests
         var finalResumeResult = Path.Combine(directory, "resume-final.json");
         try
         {
-            var start = await RunCheckpointProbeAsync(database, startResult, "start");
-            Assert.True(start.ExitCode == 0, start.StandardOutput + Environment.NewLine + start.StandardError);
+            var start = await RunCheckpointProbeAndKillAsync(database, startResult, "start");
+            Assert.NotEqual(0, start.ExitCode);
             var started = await ReadProbeResultAsync(startResult);
             Assert.NotEqual(Environment.ProcessId, started.ProcessId);
 
@@ -266,6 +266,7 @@ public sealed class MutableVariableExecutionTests
         var resultPath = Environment.GetEnvironmentVariable("VAW_CHECKPOINT_RESULT")!;
         var input = "continue";
         var store = new SqliteWorkflowRunStore(database);
+        using var ownership = store.AcquireRuntimeOwnership();
         Guid runId;
         string? expectedCheckpoint = null;
         WorkflowRevision revision;
@@ -313,6 +314,8 @@ public sealed class MutableVariableExecutionTests
         }
         var result = new ProbeResult(runId, sink.LastCheckpointId ?? expectedCheckpoint ?? "", Environment.ProcessId, output);
         await File.WriteAllTextAsync(resultPath, JsonSerializer.Serialize(result));
+        if (Environment.GetEnvironmentVariable("VAW_CHECKPOINT_HOLD") == "1")
+            await Task.Delay(Timeout.InfiniteTimeSpan);
     }
 
     private static WorkflowDefinition Definition()
@@ -410,6 +413,28 @@ public sealed class MutableVariableExecutionTests
     private static async Task<ProbeProcessResult> RunCheckpointProbeAsync(string database, string resultPath, string operation,
         Guid? runId = null, string? checkpointId = null, int? suspendAfterCompletedNodes = null)
     {
+        using var process = Process.Start(CreateCheckpointProbeStartInfo(database, resultPath, operation,
+            runId, checkpointId, suspendAfterCompletedNodes, holdAfterCapture: false))!;
+        return await CompleteCheckpointProbeAsync(process, resultPath);
+    }
+
+    private static async Task<ProbeProcessResult> RunCheckpointProbeAndKillAsync(string database, string resultPath, string operation,
+        Guid? runId = null, string? checkpointId = null, int? suspendAfterCompletedNodes = null)
+    {
+        using var process = Process.Start(CreateCheckpointProbeStartInfo(database, resultPath, operation,
+            runId, checkpointId, suspendAfterCompletedNodes, holdAfterCapture: true))!;
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+        for (var attempt = 0; attempt < 100 && !File.Exists(resultPath); attempt++) await Task.Delay(20);
+        Assert.True(File.Exists(resultPath), "The checkpoint probe did not publish its result before process loss.");
+        process.Kill(entireProcessTree: true);
+        await process.WaitForExitAsync();
+        return new ProbeProcessResult(process.ExitCode, await stdoutTask, await stderrTask);
+    }
+
+    private static ProcessStartInfo CreateCheckpointProbeStartInfo(string database, string resultPath, string operation,
+        Guid? runId, string? checkpointId, int? suspendAfterCompletedNodes, bool holdAfterCapture)
+    {
         var project = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
             "../../../../VisualAgentWorkflow.AgentFramework.Tests/VisualAgentWorkflow.AgentFramework.Tests.csproj"));
         var startInfo = new ProcessStartInfo("dotnet")
@@ -428,11 +453,16 @@ public sealed class MutableVariableExecutionTests
         startInfo.Environment["VAW_CHECKPOINT_PROBE"] = operation;
         startInfo.Environment["VAW_CHECKPOINT_DATABASE"] = database;
         startInfo.Environment["VAW_CHECKPOINT_RESULT"] = resultPath;
+        if (holdAfterCapture) startInfo.Environment["VAW_CHECKPOINT_HOLD"] = "1";
         if (suspendAfterCompletedNodes is { } threshold)
             startInfo.Environment["VAW_CHECKPOINT_SUSPEND_AFTER"] = threshold.ToString(System.Globalization.CultureInfo.InvariantCulture);
         if (runId is { } id) startInfo.Environment["VAW_CHECKPOINT_RUN_ID"] = id.ToString("D");
         if (checkpointId is not null) startInfo.Environment["VAW_CHECKPOINT_ID"] = checkpointId;
-        using var process = Process.Start(startInfo)!;
+        return startInfo;
+    }
+
+    private static async Task<ProbeProcessResult> CompleteCheckpointProbeAsync(Process process, string resultPath)
+    {
         var stdout = await process.StandardOutput.ReadToEndAsync();
         var stderr = await process.StandardError.ReadToEndAsync();
         await process.WaitForExitAsync();
