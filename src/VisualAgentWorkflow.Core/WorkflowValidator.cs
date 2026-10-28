@@ -62,8 +62,8 @@ public static class WorkflowValidator
         var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
 
-        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" or "1.25" or "1.26" or "1.27" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.StringIntegerConversionGraph))
-            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.37 and 1.39.");
+        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" or "1.25" or "1.26" or "1.27" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.NumberGraph))
+            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.37, 1.39, and 1.40.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.DisplayName is { } displayName &&
@@ -210,7 +210,7 @@ public static class WorkflowValidator
                  mcpArguments.Length > 65_536 || !IsJsonObject(mcpArguments)))
                 Error("mcp.arguments", $"nodes.{id}.mcpArgumentsJson", "MCP arguments must be a JSON object of at most 65,536 characters.");
             if (node.McpInputPorts is not null &&
-                (definition.SchemaVersion != WorkflowSchemaVersions.DirectMcpPinsGraph || node.Type != NodeTypes.McpTool ||
+                (definition.SchemaVersion is not (WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph) || node.Type != NodeTypes.McpTool ||
                  node.McpInputPorts.Value.Any(port => port is null || string.IsNullOrWhiteSpace(port.Id) || string.IsNullOrWhiteSpace(port.Name) ||
                      port.Id.Length > 256 || port.Name.Length > 256 || !WorkflowDataTypeCatalog.IsSupported(port.DataType) ||
                      !port.Id.StartsWith("arg.", StringComparison.Ordinal))))
@@ -419,11 +419,18 @@ public static class WorkflowValidator
                 Error("constant.unexpected", $"nodes.{id}.booleanConstant", "Only Boolean constant nodes may declare a Boolean value.");
             if (node.Type == NodeTypes.IntegerConstant)
             {
-                if (definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.StringIntegerConversionGraph) || node.IntegerConstant is null)
+                if (definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.NumberGraph) || node.IntegerConstant is null)
                     Error("constant.configuration", $"nodes.{id}.integerConstant", "Integer constants require schema 1.31 and an explicit signed 64-bit value.");
             }
             else if (node.IntegerConstant is not null)
                 Error("constant.unexpected", $"nodes.{id}.integerConstant", "Only integer constant nodes may declare an integer value.");
+            if (node.Type == NodeTypes.NumberConstant)
+            {
+                if (definition.SchemaVersion != WorkflowSchemaVersions.NumberGraph || node.NumberConstant is not { Value: var value } || !double.IsFinite(value))
+                    Error("constant.configuration", $"nodes.{id}.numberConstant", "Number constants require schema 1.40 and a finite IEEE-754 double value.");
+            }
+            else if (node.NumberConstant is not null)
+                Error("constant.unexpected", $"nodes.{id}.numberConstant", "Only number constant nodes may declare a number value.");
             if (node.Type is NodeTypes.IntegerAdd or NodeTypes.IntegerEquals && definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph))
                 Error("node.schema", $"nodes.{id}", "Integer arithmetic nodes require schema 1.31.");
             if (node.Type == NodeTypes.StringToInteger && definition.SchemaVersion != WorkflowSchemaVersions.StringIntegerConversionGraph)
@@ -544,7 +551,7 @@ public static class WorkflowValidator
 
         if (WorkflowSchemaVersions.UsesExplicitGraph(definition))
         {
-            if (definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph)
+            if (definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph)
                 ValidateDirectMcpGraph(definition, Error);
             else if (definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph)
                 ValidateExplicitGraph(definition, Error);
@@ -673,7 +680,7 @@ public static class WorkflowValidator
 
     private static void ValidateDirectMcpGraph(WorkflowDefinition definition, Action<string, string, string> error)
     {
-        var pinsGraph = definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpPinsGraph;
+        var pinsGraph = definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph;
         if (definition.ExecutionConnections is null)
         {
             error("execution.missing", "executionConnections", $"Schema {definition.SchemaVersion} requires explicit execution connections.");
@@ -685,9 +692,13 @@ public static class WorkflowValidator
             NodeTypes.Input, NodeTypes.Output, NodeTypes.StringConstant, NodeTypes.TextConcat,
             NodeTypes.IntegerConstant, NodeTypes.BooleanConstant, NodeTypes.McpTool
         };
+        if (definition.SchemaVersion == WorkflowSchemaVersions.NumberGraph)
+        {
+            supportedTypes.Add(NodeTypes.NumberConstant);
+        }
         foreach (var (id, node) in definition.Nodes)
             if (node is null || !supportedTypes.Contains(node.Type))
-                error("execution.node.unsupported", $"nodes.{id}", $"Schema {definition.SchemaVersion} supports input, output, deterministic text nodes, and direct MCP tool nodes.");
+                error("execution.node.unsupported", $"nodes.{id}", $"Schema {definition.SchemaVersion} supports input, output, deterministic data nodes, and direct MCP tool nodes.");
 
         var input = definition.Nodes.SingleOrDefault(pair => pair.Value?.Type == NodeTypes.Input).Key;
         var output = definition.Nodes.SingleOrDefault(pair => pair.Value?.Type == NodeTypes.Output).Key;
@@ -780,7 +791,7 @@ public static class WorkflowValidator
             foreach (var port in executionOutputs)
                 if (port.Required && port.Cardinality == WorkflowPortCardinality.ExactlyOne && executionOutgoing.GetValueOrDefault((id, port.Id)) != 1)
                     error("graph.degree", $"nodes.{id}.outputs.{port.Id}", "Every execution output pin must connect exactly once, except the output node which has none.");
-            if ((node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.IntegerConstant or NodeTypes.BooleanConstant or NodeTypes.StringToInteger) &&
+            if ((node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.IntegerConstant or NodeTypes.BooleanConstant or NodeTypes.StringToInteger or NodeTypes.NumberConstant) &&
                 !definition.Connections.Values.Any(edge => edge.Source.NodeId == id))
                 error("data.unused", $"nodes.{id}", "Every pure data node must contribute to a tool input or output value.");
         }
@@ -813,7 +824,7 @@ public static class WorkflowValidator
             foreach (var dependency in dataDependencies.GetValueOrDefault(current) ?? []) pending.Push(dependency);
         }
         foreach (var (id, node) in definition.Nodes)
-            if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringToInteger && !reachedData.Contains(id))
+            if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringToInteger or NodeTypes.NumberConstant && !reachedData.Contains(id))
                 error("graph.unreachable", $"nodes.{id}", "Every pure data node must contribute to a tool input or output value.");
     }
 

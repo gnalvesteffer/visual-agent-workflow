@@ -95,6 +95,50 @@ public sealed class DirectMcpGraphTests
     }
 
     [Fact]
+    public void Schema_1_40_accepts_a_finite_number_mcp_pin_and_constant()
+    {
+        var definition = NumberPinDefinition();
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        Assert.Equal(WorkflowDataTypes.Number, Assert.Single(WorkflowPorts.ExplicitDataOutputs(definition.Nodes["amount"])).DataType);
+        Assert.Equal(WorkflowDataTypes.Number, definition.Nodes["tool"].McpInputPorts!.Value[0].DataType);
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void Schema_1_40_rejects_non_finite_number_constants(double value)
+    {
+        var definition = NumberPinDefinition() with
+        {
+            Nodes = NumberPinDefinition().Nodes.SetItem("amount", new(NodeTypes.NumberConstant, "1.0.0") { NumberConstant = new(value) })
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "constant.configuration");
+    }
+
+    [Fact]
+    public void Number_constants_are_not_accepted_by_schema_1_37()
+    {
+        var definition = NumberPinDefinition() with { SchemaVersion = WorkflowSchemaVersions.DirectMcpPinsGraph };
+
+        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code is "constant.configuration" or "execution.node.unsupported");
+    }
+
+    [Fact]
+    public void Direct_mcp_pin_graph_can_upgrade_to_number_schema_without_changing_pins()
+    {
+        var definition = PinDefinition();
+
+        var upgraded = GraphEditing.EnableNumberGraph(definition);
+
+        Assert.Equal(WorkflowSchemaVersions.NumberGraph, upgraded.SchemaVersion);
+        Assert.Equal(definition.Nodes["tool"].McpInputPorts, upgraded.Nodes["tool"].McpInputPorts);
+        Assert.Empty(WorkflowValidator.Validate(upgraded));
+    }
+
+    [Fact]
     public void Explicit_port_descriptors_expose_mcp_cardinality_and_static_fallback()
     {
         var tool = new NodeDefinition(NodeTypes.McpTool, "1.0.0", new ToolBindingRequest("demo.search", new string('a', 64)))
@@ -209,6 +253,31 @@ public sealed class DirectMcpGraphTests
         {
             ["path"] = new(new("path", "out"), new("tool", "arg.path"), "data"),
             ["max"] = new(new("max", "out"), new("tool", "arg.maxBytes"), "data"),
+            ["output-value"] = new(new("tool", "out"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+    {
+        ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+        {
+            ["activate-tool"] = new(new("input", "then"), new("tool", "execute"), "execution"),
+            ["complete"] = new(new("tool", "then"), new("output", "execute"), "execution")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+    };
+
+    private static WorkflowDefinition NumberPinDefinition() => new(
+        WorkflowSchemaVersions.NumberGraph, "direct-mcp-number", "input",
+        new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["amount"] = new(NodeTypes.NumberConstant, "1.0.0") { NumberConstant = new(12.5d) },
+            ["tool"] = new(NodeTypes.McpTool, "1.0.0", new ToolBindingRequest("demo.number", new string('a', 64)))
+            {
+                McpInputPorts = [new("arg.amount", "amount", WorkflowDataTypes.Number, true)]
+            },
+            ["output"] = new(NodeTypes.Output, "1.0.0")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+        new Dictionary<string, ConnectionDefinition>
+        {
+            ["amount"] = new(new("amount", "out"), new("tool", "arg.amount"), "data"),
             ["output-value"] = new(new("tool", "out"), new("output", "in"), "data")
         }.ToImmutableSortedDictionary(StringComparer.Ordinal))
     {

@@ -26,6 +26,12 @@ The repository already has this phase; no second Blueprint-parity phase is neede
 
 The high-level work is therefore tracked in the checklist below. Items marked as shipped in the capability matrix are evidence for the baseline, not a claim that unrestricted Unreal Blueprint compatibility exists. The next implementation increments should close one unchecked contract boundary at a time and update the matrix, tests, and user documentation together.
 
+The first numeric vertical slice is now shipped in schema 1.40: a finite number
+type, Number constant, top-level numeric direct-MCP pins, and JSON-number
+serialization. Integer/number conversion, numeric operators, numeric
+parameters, nested numeric pin expansion, and graph-function number ports remain
+explicitly deferred. See [finite number primitive](decisions/0006-finite-number-primitive.md).
+
 | Workstream | Current audit finding | Required outcome before calling it aligned |
 | --- | --- | --- |
 | Node and pin contracts | Core has stable node-family metadata and centralized port enumeration, but pin-level defaults, nullability, conversions, multiplicity, and dynamic identity are not one complete contract. | A versioned descriptor can derive editor pins, validator rules, runtime limits, and compatibility diagnostics without duplicating node-family knowledge. |

@@ -28,6 +28,16 @@ Schema 1.31 adds `Int64` constants, checked addition, equality, and string/Boole
 
 Schema 1.39 adds the first explicit conversion node: `core.convert.string-to-integer`. The Studio upgrade path and Values library expose its typed string input and integer output. The shared Core parser enforces the portable ASCII grammar and bounds, while the Agent Framework records stable failure evidence against the conversion node before propagating failure to the requesting node. Existing schemas remain unchanged; graph functions and checkpoint recovery deliberately reject the node. Core regression tests cover parser boundaries, schema compatibility, typed ports, graph-function rejection, and legacy hash stability. Agent Framework tests cover successful typed output and deterministic failure evidence. Full Studio end-to-end coverage and broader conversion families remain follow-up work.
 
+## Finite-number direct MCP pins
+
+Schema 1.40 adds the bounded finite-number slice: a Number constant and
+top-level numeric input pins for direct MCP tools. Core validation rejects
+non-finite values and preserves the existing schema 1.37 contract; runtime
+serialization emits JSON numbers. Core and Agent Framework tests cover schema
+upgrade, pin compatibility, rejection, round-trip behavior, and broker payload
+kind. Numeric operators, parameter/function number ports, and nested numeric
+pins remain deferred. See [finite number primitive](decisions/0006-finite-number-primitive.md).
+
 ## Agent-selected execution routes
 
 Schema 1.30 lets an Agent node declare up to 16 stable route IDs, labels, and descriptions. Studio renders labeled execution pins and preserves stable pin IDs when labels change. The Agent Framework adapter exposes an invocation-scoped `select_route` function constrained to those authored IDs; it is an internal function and grants no MCP or graph access. The runner requires exactly one valid selection, latches it, and dispatches only after successful agent completion. Missing, duplicate, unknown, or later-discarded proposals fail without activating a route. Proposed, rejected, committed, and discarded selections are recorded for replay. Removing a route preserves its old edge as an invalid draft issue; save remains available while publish and execution validation stay strict. Runtime tests cover selected dispatch, missing selection, and provider failure after proposal; a validator regression covers removed-route edges. The Playwright smoke exercises route editing, pin labels, save, and incomplete-draft validation. Providers must support function calling. See [agent-selected routes](graph-values.md#agent-selected-routes).

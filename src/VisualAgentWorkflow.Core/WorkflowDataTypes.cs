@@ -7,6 +7,7 @@ public static class WorkflowDataTypes
     public const string String = "string";
     public const string Boolean = "boolean";
     public const string Integer = "integer";
+    public const string Number = "number";
     public const string Json = "json";
 }
 
@@ -28,6 +29,7 @@ public static class WorkflowDataTypeCatalog
         new(WorkflowDataTypes.String, "1.0.0", "String", "Bounded UTF-16 text value.", false, false, false),
         new(WorkflowDataTypes.Boolean, "1.0.0", "Boolean", "True or false value.", false, false, false),
         new(WorkflowDataTypes.Integer, "1.0.0", "Integer", "Signed 64-bit integer value.", false, false, false),
+        new(WorkflowDataTypes.Number, "1.0.0", "Number", "Finite IEEE-754 double value.", false, false, false),
         new(WorkflowDataTypes.Json, "1.0.0", "JSON", "Bounded structured JSON value.", true, false, false)
     ];
 

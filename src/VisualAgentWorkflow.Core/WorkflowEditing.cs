@@ -115,6 +115,7 @@ public static class WorkflowEditing
     }
 
     internal static string SchemaFor(WorkflowDefinition definition, NodeDefinition node) =>
+        node.Type == NodeTypes.NumberConstant && definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpPinsGraph ? WorkflowSchemaVersions.NumberGraph :
         WorkflowSchemaVersions.UsesExplicitGraph(definition) ? definition.SchemaVersion :
         node.Type == NodeTypes.WorkflowCall ? definition.SchemaVersion is "1.22" or "1.21" or "1.20" ? definition.SchemaVersion : "1.19" :
         node.Type == NodeTypes.Terminate ? definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" ? definition.SchemaVersion : "1.18" :

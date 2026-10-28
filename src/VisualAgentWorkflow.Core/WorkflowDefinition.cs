@@ -64,6 +64,8 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IntegerConstantConfiguration? IntegerConstant { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public NumberConstantConfiguration? NumberConstant { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public PromptTemplate? TextTemplate { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public LoopConfiguration? Loop { get; init; }
@@ -131,6 +133,7 @@ public static class NodeTypes
     public const string IntegerAdd = "core.integer.add";
     public const string IntegerEquals = "core.integer.equals";
     public const string StringToInteger = "core.convert.string-to-integer";
+    public const string NumberConstant = "core.constant.number";
     public const string FunctionInput = "core.function.input";
     public const string FunctionOutput = "core.function.output";
     public const string FunctionCall = "core.function.call";
@@ -156,17 +159,19 @@ public static class WorkflowSchemaVersions
     public const string DirectMcpGraph = "1.36";
     public const string DirectMcpPinsGraph = "1.37";
     public const string StringIntegerConversionGraph = "1.39";
+    public const string NumberGraph = "1.40";
 
-    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph or PureGraphFunctions or AgentGraphFunctionTools or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or StringIntegerConversionGraph;
+    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph or PureGraphFunctions or AgentGraphFunctionTools or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or StringIntegerConversionGraph or NumberGraph;
 
     public static bool UsesExplicitGraph(WorkflowDefinition definition) =>
         UsesExplicitGraph(definition.SchemaVersion) ||
-        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or StringIntegerConversionGraph && definition.ExecutionConnections is not null;
+        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or StringIntegerConversionGraph or NumberGraph && definition.ExecutionConnections is not null;
 }
 
 public sealed record StringConstantConfiguration(string Value);
 public sealed record BooleanConstantConfiguration(bool Value);
 public sealed record IntegerConstantConfiguration(long Value);
+public sealed record NumberConstantConfiguration(double Value);
 
 public sealed record ParallelForkConfiguration(ImmutableArray<ParallelBranchDescriptor> Branches);
 public sealed record ParallelBranchDescriptor(string Id, string Label, string AnchorNodeId);

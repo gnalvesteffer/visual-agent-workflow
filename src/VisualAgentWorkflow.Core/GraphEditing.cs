@@ -52,6 +52,18 @@ public static class GraphEditing
         return upgraded;
     }
 
+    /// <summary>Upgrades a valid direct-MCP pin graph to the finite-number pin schema.</summary>
+    public static WorkflowDefinition EnableNumberGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.DirectMcpPinsGraph || definition.ExecutionConnections is null)
+            throw new ArgumentException("Enable direct MCP tools before adding typed number pins.", nameof(definition));
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var upgraded = definition with { SchemaVersion = WorkflowSchemaVersions.NumberGraph };
+        WorkflowValidator.ThrowIfInvalid(upgraded);
+        return upgraded;
+    }
+
     /// <summary>Upgrades a valid schema 1.24 branch preview to the bounded Boolean primitive subset.</summary>
     public static WorkflowDefinition EnableTypedBooleanGraph(WorkflowDefinition definition)
     {
@@ -308,7 +320,7 @@ public static class GraphEditing
             NodeTypes.Condition => "condition", NodeTypes.Terminate => "terminate", NodeTypes.Merge => "merge",
             NodeTypes.Agent => "agent", NodeTypes.McpTool => "mcp", NodeTypes.StringConstant => "constant", NodeTypes.TextConcat => "concat",
             NodeTypes.StringEquals => "equals", NodeTypes.BooleanBranch => "branch",
-            NodeTypes.BooleanConstant => "boolean", NodeTypes.BooleanNot => "not", NodeTypes.IntegerConstant => "integer",
+            NodeTypes.BooleanConstant => "boolean", NodeTypes.BooleanNot => "not", NodeTypes.IntegerConstant => "integer", NodeTypes.NumberConstant => "number",
             NodeTypes.IntegerAdd => "add", NodeTypes.IntegerEquals => "integer-equals", _ => node.Type
         };
         var id = NewId(prefix);
@@ -580,7 +592,7 @@ public static class GraphEditing
     {
         if (!WorkflowDraftEditing.HasOnlyDraftableIssues(definition)) WorkflowValidator.ThrowIfInvalid(definition);
         if (!definition.Nodes.TryGetValue(id, out var existing)) throw new ArgumentException("Unknown node.");
-        if (existing.Type == node.Type && existing.Type is NodeTypes.Condition or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.StringConstant or NodeTypes.BooleanConstant or NodeTypes.IntegerConstant)
+        if (existing.Type == node.Type && existing.Type is NodeTypes.Condition or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.StringConstant or NodeTypes.BooleanConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant)
             return WorkflowDraftEditing.ValidateEdit(definition with { Nodes = definition.Nodes.SetItem(id, node) });
         RequireProcessing(existing.Type);
         RequireProcessing(node.Type);

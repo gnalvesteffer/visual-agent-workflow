@@ -82,6 +82,14 @@
                 <button type="button" @onclick="EnableStringIntegerConversionPreview" disabled="@Disabled">Enable string-to-integer conversion</button>
             </section>
         }
+        @if (CanUpgradeNumberGraph)
+        {
+            <section class="vaw-library-note" aria-label="Finite number graph values">
+                <strong>Finite number graph values</strong>
+                <p class="vaw-help">Upgrade direct MCP pins to add Number constants and top-level numeric MCP argument pins. Values must be finite and are sent as JSON numbers.</p>
+                <button type="button" @onclick="EnableNumberGraphPreview" disabled="@Disabled">Enable number graph values</button>
+            </section>
+        }
         @if (CanCreateConfigurableParallelGraph)
         {
             <section class="vaw-library-note" aria-label="Configurable parallel graph">
@@ -545,6 +553,13 @@
                         </label>
                         <p class="vaw-help">Signed 64-bit integer. Arithmetic uses checked overflow and fails the run if the result is out of range.</p>
                     }
+                    else if (node.Type == NodeTypes.NumberConstant)
+                    {
+                        <label>Number value
+                            <input aria-label="Number constant for @id" type="number" step="any" value="@node.NumberConstant?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)" @onchange="args => ChangeNumberConstant(id, args)" disabled="@Disabled" />
+                        </label>
+                        <p class="vaw-help">Finite IEEE-754 double value. Number pins are available for top-level numeric MCP arguments.</p>
+                    }
                     else if (node.Type is NodeTypes.IntegerAdd or NodeTypes.IntegerEquals)
                     {
                         <p>@(node.Type == NodeTypes.IntegerAdd ? "Adds two signed 64-bit integers." : "Returns true when both signed 64-bit integers are equal.")</p>
@@ -844,8 +859,8 @@
         return LayoutChanged.InvokeAsync(value);
     }
     [Parameter] public IReadOnlyList<ToolBindingDescriptor> Bindings { get; set; } = [];
-    private bool DirectMcpAuthoring => Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph;
-    private bool SchemaDrivenMcpPins => Definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpPinsGraph;
+    private bool DirectMcpAuthoring => Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph;
+    private bool SchemaDrivenMcpPins => Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph;
     [Parameter] public IReadOnlyList<AgentProviderDescriptor> Providers { get; set; } = [];
     [Parameter] public bool ProviderChoicesLoading { get; set; }
     [Parameter] public ISkillLibrary? SkillLibrary { get; set; }
@@ -891,6 +906,7 @@
         NodeTypes.BooleanConstant => node.BooleanConstant?.Value == true ? "True" : "False",
         NodeTypes.BooleanNot => "Invert Boolean value",
         NodeTypes.IntegerConstant => $"Integer · {node.IntegerConstant?.Value}",
+        NodeTypes.NumberConstant => $"Number · {node.NumberConstant?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}",
         NodeTypes.IntegerAdd => "Checked integer addition",
         NodeTypes.IntegerEquals => "Integer equality",
         NodeTypes.FunctionCall => node.GraphFunction is { } function
@@ -1217,7 +1233,7 @@
     }
 
     private static string McpPortDataType(System.Text.Json.JsonElement schema) =>
-        schema.TryGetProperty("type", out var type) && type.ValueKind == System.Text.Json.JsonValueKind.String && type.GetString() is "string" or "integer" or "boolean"
+        schema.TryGetProperty("type", out var type) && type.ValueKind == System.Text.Json.JsonValueKind.String && type.GetString() is "string" or "integer" or "number" or "boolean"
             ? type.GetString()!
             : "json";
 
@@ -1247,6 +1263,8 @@
         if (value == NodeTypes.BooleanNot) return new(NodeTypes.BooleanNot, "1.0.0");
         if (value == NodeTypes.IntegerConstant)
             return new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = existing?.IntegerConstant ?? new(0) };
+        if (value == NodeTypes.NumberConstant)
+            return new(NodeTypes.NumberConstant, "1.0.0") { NumberConstant = existing?.NumberConstant ?? new(0d) };
         if (value == NodeTypes.IntegerAdd) return new(NodeTypes.IntegerAdd, "1.0.0");
         if (value == NodeTypes.IntegerEquals) return new(NodeTypes.IntegerEquals, "1.0.0");
         if (value == NodeTypes.JsonSelectString)
@@ -1287,6 +1305,14 @@
                 System.Globalization.CultureInfo.InvariantCulture, out var value))
             throw new ArgumentException("Enter a whole number from -9,223,372,036,854,775,808 to 9,223,372,036,854,775,807.");
         return GraphEditing.ReplaceNode(Definition, id, Definition.Nodes[id] with { IntegerConstant = new(value) });
+    });
+
+    private Task ChangeNumberConstant(string id, ChangeEventArgs args) => Edit(() =>
+    {
+        if (!double.TryParse(args.Value?.ToString(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var value) || !double.IsFinite(value))
+            throw new ArgumentException("Enter a finite number.");
+        return GraphEditing.ReplaceNode(Definition, id, Definition.Nodes[id] with { NumberConstant = new(value) });
     });
 
     private Task McpArguments(string id, string? value) => Edit(() => GraphEditing.ReplaceNode(Definition, id,

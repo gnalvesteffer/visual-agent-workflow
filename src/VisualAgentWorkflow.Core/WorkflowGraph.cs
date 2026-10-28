@@ -96,6 +96,7 @@ public static class WorkflowPorts
         NodeTypes.FunctionInput => [new("out", node.OutputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.Input or NodeTypes.StringConstant or NodeTypes.TextConcat => [new("out", WorkflowDataTypes.String)],
         NodeTypes.IntegerConstant or NodeTypes.IntegerAdd => [new("out", WorkflowDataTypes.Integer)],
+        NodeTypes.NumberConstant => [new("out", WorkflowDataTypes.Number)],
         NodeTypes.StringToInteger => [new("out", WorkflowDataTypes.Integer)],
         NodeTypes.WorkflowValue => [new("out", node.OutputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.Agent => [new("out", node.Agent?.RequireStructuredResult == true ? WorkflowDataTypes.Json : WorkflowDataTypes.String)],

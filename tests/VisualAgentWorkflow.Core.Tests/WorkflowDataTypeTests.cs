@@ -9,7 +9,7 @@ public sealed class WorkflowDataTypeTests
     public void Catalog_contains_only_the_supported_portable_graph_types()
     {
         Assert.Equal(
-            new[] { WorkflowDataTypes.String, WorkflowDataTypes.Boolean, WorkflowDataTypes.Integer, WorkflowDataTypes.Json },
+            new[] { WorkflowDataTypes.String, WorkflowDataTypes.Boolean, WorkflowDataTypes.Integer, WorkflowDataTypes.Number, WorkflowDataTypes.Json },
             WorkflowDataTypeCatalog.All.Select(contract => contract.Id));
         Assert.All(WorkflowDataTypeCatalog.All, contract =>
         {
@@ -25,9 +25,10 @@ public sealed class WorkflowDataTypeTests
     {
         Assert.True(WorkflowDataTypeCatalog.AreCompatible(WorkflowDataTypes.String, WorkflowDataTypes.String));
         Assert.True(WorkflowDataTypeCatalog.AreCompatible(WorkflowDataTypes.Json, WorkflowDataTypes.Json));
+        Assert.True(WorkflowDataTypeCatalog.AreCompatible(WorkflowDataTypes.Number, WorkflowDataTypes.Number));
         Assert.False(WorkflowDataTypeCatalog.AreCompatible(WorkflowDataTypes.String, WorkflowDataTypes.Json));
         Assert.False(WorkflowDataTypeCatalog.AreCompatible("number", WorkflowDataTypes.String));
         Assert.False(WorkflowDataTypeCatalog.AreCompatible(null, WorkflowDataTypes.String));
-        Assert.Throws<KeyNotFoundException>(() => WorkflowDataTypeCatalog.Get("number"));
+        Assert.Equal(WorkflowDataTypes.Number, WorkflowDataTypeCatalog.Get("number").Id);
     }
 }

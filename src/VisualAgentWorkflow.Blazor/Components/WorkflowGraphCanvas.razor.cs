@@ -101,7 +101,7 @@ public partial class WorkflowGraphCanvas
         NodeTypes.Loop => "Bounded loop", NodeTypes.LoopBody => "Loop body", NodeTypes.Terminate => "Terminate workflow",
         NodeTypes.WorkflowCall => $"Workflow · {node.WorkflowCall?.WorkflowId} v{node.WorkflowCall?.Version}",
         NodeTypes.StringConstant => "String constant", NodeTypes.TextConcat => "Text concatenation",
-        NodeTypes.IntegerConstant => "Integer constant", NodeTypes.IntegerAdd => "Add integers", NodeTypes.IntegerEquals => "Compare integers",
+        NodeTypes.IntegerConstant => "Integer constant", NodeTypes.NumberConstant => "Number constant", NodeTypes.IntegerAdd => "Add integers", NodeTypes.IntegerEquals => "Compare integers",
         NodeTypes.StringEquals => "Compare strings", NodeTypes.BooleanBranch => "Boolean Branch",
         NodeTypes.BooleanConstant => "Boolean constant", NodeTypes.BooleanNot => "Boolean NOT", NodeTypes.WorkflowValue => "Workflow value",
         NodeTypes.FunctionInput => "Function input", NodeTypes.FunctionOutput => "Function output",
@@ -124,7 +124,7 @@ public partial class WorkflowGraphCanvas
         node.Type == NodeTypes.Loop ? "Bounded loop" : node.Type == NodeTypes.LoopBody ? "Loop body" : node.Type == NodeTypes.Terminate ? "Successful exit · no result" :
         node.Type == NodeTypes.WorkflowCall ? "Pinned workflow call" : node.Type == NodeTypes.FunctionCall ? "Pure function" :
         node.Type is NodeTypes.FunctionInput or NodeTypes.FunctionOutput ? "Function boundary" :
-        node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals ? "Pure value" :
+        node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals ? "Pure value" :
         node.Type == NodeTypes.BooleanBranch ? "Boolean routing" : node.Type is NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.WorkflowValue ? "Pure value" :
         node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform";
 
@@ -141,7 +141,7 @@ public partial class WorkflowGraphCanvas
             NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous => "<circle cx=\"4\" cy=\"10\" r=\"1.5\"/><circle cx=\"16\" cy=\"4\" r=\"1.5\"/><circle cx=\"16\" cy=\"16\" r=\"1.5\"/><path d=\"M5.5 10h3a3 3 0 0 0 3-3V4m-3 6h3a3 3 0 0 1 3 3v1.5\"/>",
             NodeTypes.Loop or NodeTypes.LoopBody => "<path d=\"M16 7h3V4m-1 3a8 8 0 0 0-14 2m0 6H1v3m1-3a8 8 0 0 0 14-2\"/>",
             NodeTypes.WorkflowCall or NodeTypes.FunctionCall => "<rect x=\"3\" y=\"3\" width=\"14\" height=\"14\" rx=\"2\"/><path d=\"M7 7h6m-6 3h6m-6 3h4\"/>",
-            NodeTypes.StringConstant or NodeTypes.IntegerConstant or NodeTypes.BooleanConstant or NodeTypes.WorkflowValue => "<path d=\"M4 4h12v12H4zM7 8h6M7 12h4\"/>",
+            NodeTypes.StringConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.BooleanConstant or NodeTypes.WorkflowValue => "<path d=\"M4 4h12v12H4zM7 8h6M7 12h4\"/>",
             NodeTypes.FunctionInput or NodeTypes.FunctionOutput => "<path d=\"M3 10h14m-5-5 5 5-5 5\"/><circle cx=\"4\" cy=\"10\" r=\"2\"/>",
             NodeTypes.JsonProject or NodeTypes.JsonSelectString => "<path d=\"M7 3H5v5l-2 2 2 2v5h2m6-14h2v5l2 2-2 2v5h-2M9 7h2m-2 3h2m-2 3h2\"/>",
             _ => "<path d=\"M4 5h12M4 10h12M4 15h8\"/><circle cx=\"2.5\" cy=\"5\" r=\".5\"/><circle cx=\"2.5\" cy=\"10\" r=\".5\"/><circle cx=\"2.5\" cy=\"15\" r=\".5\"/>"

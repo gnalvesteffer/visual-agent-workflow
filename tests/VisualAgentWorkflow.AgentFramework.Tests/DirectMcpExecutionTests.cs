@@ -66,6 +66,20 @@ public sealed class DirectMcpExecutionTests
         Assert.Equal(50000, arguments.RootElement.GetProperty("maxBytes").GetInt64());
     }
 
+    [Fact]
+    public async Task Schema_1_40_emits_number_mcp_arguments_as_json_numbers()
+    {
+        var broker = new RecordingBroker();
+        var result = await new WorkflowRunner(broker).ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(NumberPinDefinition(), "test"), "ignored", null,
+            _ => ValueTask.CompletedTask);
+
+        Assert.False(result.Failed);
+        using var arguments = JsonDocument.Parse(broker.Input!);
+        Assert.Equal(JsonValueKind.Number, arguments.RootElement.GetProperty("amount").ValueKind);
+        Assert.Equal(12.5d, arguments.RootElement.GetProperty("amount").GetDouble());
+    }
+
     private static WorkflowDefinition Definition() => new(
         WorkflowSchemaVersions.DirectMcpGraph, "direct-mcp-runtime", "input",
         new Dictionary<string, NodeDefinition>
@@ -104,6 +118,31 @@ public sealed class DirectMcpExecutionTests
         {
             ["path"] = new(new("path", "out"), new("tool", "arg.path"), "data"),
             ["max"] = new(new("max", "out"), new("tool", "arg.maxBytes"), "data"),
+            ["output-value"] = new(new("tool", "out"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+    {
+        ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+        {
+            ["activate-tool"] = new(new("input", "then"), new("tool", "execute"), "execution"),
+            ["complete"] = new(new("tool", "then"), new("output", "execute"), "execution")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+    };
+
+    private static WorkflowDefinition NumberPinDefinition() => new(
+        WorkflowSchemaVersions.NumberGraph, "direct-mcp-number-runtime", "input",
+        new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["amount"] = new(NodeTypes.NumberConstant, "1.0.0") { NumberConstant = new(12.5d) },
+            ["tool"] = new(NodeTypes.McpTool, "1.0.0", new ToolBindingRequest("demo.number", new string('a', 64)))
+            {
+                McpInputPorts = [new("arg.amount", "amount", WorkflowDataTypes.Number, true)]
+            },
+            ["output"] = new(NodeTypes.Output, "1.0.0")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+        new Dictionary<string, ConnectionDefinition>
+        {
+            ["amount"] = new(new("amount", "out"), new("tool", "arg.amount"), "data"),
             ["output-value"] = new(new("tool", "out"), new("output", "in"), "data")
         }.ToImmutableSortedDictionary(StringComparer.Ordinal))
     {

@@ -671,6 +671,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         string.Equals(ResolveStringInput(nodeId, "left", evaluated, cache, active),
                             ResolveStringInput(nodeId, "right", evaluated, cache, active), StringComparison.Ordinal)),
                     NodeTypes.IntegerConstant when outputPort == "out" => new ExplicitGraphValue("integer", node.IntegerConstant!.Value),
+                    NodeTypes.NumberConstant when outputPort == "out" && node.NumberConstant is { Value: var value } && double.IsFinite(value) => new ExplicitGraphValue("number", value),
                     NodeTypes.StringToInteger when outputPort == "out" => ConvertStringToInteger(nodeId, evaluated, cache, active),
                     NodeTypes.IntegerAdd when outputPort == "out" => new ExplicitGraphValue("integer", AddIntegers(nodeId, evaluated, cache, active)),
                     NodeTypes.IntegerEquals when outputPort == "out" => new ExplicitGraphValue("boolean", IntegersEqual(nodeId, evaluated, cache, active)),
@@ -1023,7 +1024,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         ? throw new InvalidOperationException("The workflow parameter was not resolved for this run.") : value,
                     NodeTypes.Uppercase => message.ToUpperInvariant(),
                     NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
-                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph
+                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph
                         ? await InvokeDirectMcpTool(message, invocation, toolArgumentEvaluations, cancellationToken)
                         : await InvokeTool(message, invocation, cancellationToken),
                     NodeTypes.WorkflowCall => childOutcome?.Output ?? string.Empty,
@@ -1315,7 +1316,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         {
             if (tools is null) throw new InvalidOperationException("No tool broker is configured.");
             JsonObject arguments;
-            if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpPinsGraph && node.McpInputPorts is not null && node.McpArgumentsJson is null)
+            if (revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph && node.McpInputPorts is not null && node.McpArgumentsJson is null)
             {
                 arguments = new();
             }
@@ -1329,7 +1330,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 try { arguments = JsonNode.Parse(input)?.AsObject() ?? throw new InvalidOperationException("A direct MCP node requires a JSON object of tool arguments. For text tools, use {\"text\":\"...\"}."); }
                 catch (JsonException exception) { throw new InvalidOperationException("A direct MCP node requires a JSON object of tool arguments. For text tools, use {\"text\":\"...\"}.", exception); }
             }
-            if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpPinsGraph && node.McpInputPorts is { } inputPorts)
+            if (revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph && node.McpInputPorts is { } inputPorts)
             {
                 foreach (var port in inputPorts)
                 {
@@ -1350,6 +1351,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         {
             "string" when value.Value is string text => JsonValue.Create(text)!,
             "integer" when value.Value is long integer => JsonValue.Create(integer)!,
+            "number" when value.Value is double number && double.IsFinite(number) => JsonValue.Create(number)!,
             "boolean" when value.Value is bool boolean => JsonValue.Create(boolean)!,
             "json" when value.Value is JsonElement json => JsonNode.Parse(json.GetRawText())!,
             _ => throw new InvalidOperationException($"MCP argument data type '{value.DataType}' is not supported.")
