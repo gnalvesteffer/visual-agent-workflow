@@ -28,6 +28,56 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Catalog_effect_and_authoring_metadata_is_conformant()
+    {
+        Assert.Empty(WorkflowNodeContractConformance.ValidateCatalog());
+
+        var pure = WorkflowNodeContractCatalog.Get(NodeTypes.StringConstant);
+        var branch = WorkflowNodeContractCatalog.Get(NodeTypes.BooleanBranch);
+        var approval = WorkflowNodeContractCatalog.Get(NodeTypes.Approval);
+        var agent = WorkflowNodeContractCatalog.Get(NodeTypes.Agent);
+        var tool = WorkflowNodeContractCatalog.Get(NodeTypes.McpTool);
+        var call = WorkflowNodeContractCatalog.Get(NodeTypes.WorkflowCall);
+
+        Assert.Equal(WorkflowNodeEffectFlags.None, pure.Effects);
+        Assert.True(pure.Authoring.HasFlag(WorkflowNodeAuthoringFlags.InlineEditable));
+        Assert.True(branch.Effects.HasFlag(WorkflowNodeEffectFlags.RunScopedState));
+        Assert.True(approval.Effects.HasFlag(WorkflowNodeEffectFlags.HostInteraction));
+        Assert.True(agent.Effects.HasFlag(WorkflowNodeEffectFlags.ExternalCapability));
+        Assert.True(tool.Effects.HasFlag(WorkflowNodeEffectFlags.ExternalCapability));
+        Assert.True(call.Effects.HasFlag(WorkflowNodeEffectFlags.ChildWorkflow));
+        Assert.True(agent.Authoring.HasFlag(WorkflowNodeAuthoringFlags.DynamicPins));
+    }
+
+    [Fact]
+    public void Contract_metadata_is_not_workflow_definition_data_or_hash_input()
+    {
+        var definition = new WorkflowDefinition(
+            WorkflowSchemaVersions.ExplicitGraph, "metadata-boundary", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["data"] = new(new("input", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["execution"] = new(new("input", "then"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+        };
+        var before = WorkflowJson.ComputeHash(definition);
+
+        _ = WorkflowNodeContractCatalog.Get(NodeTypes.Agent).Effects;
+
+        Assert.Equal(before, WorkflowJson.ComputeHash(definition));
+        Assert.DoesNotContain("ExternalCapability", WorkflowJson.Serialize(definition), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Capability_nodes_are_marked_as_dynamic_and_host_authorized()
     {
         var agent = WorkflowNodeContractCatalog.Get(NodeTypes.Agent);
