@@ -248,7 +248,7 @@ public sealed class GraphCanvasRenderingTests
             new ExecutionEvent(runId, revision.RevisionId, 3, DateTimeOffset.UtcNow, ExecutionEventKinds.ModelRequested, "step-1", invocationId,
                 Data: """{"modelCallId":"request-1"}"""),
             new ExecutionEvent(runId, revision.RevisionId, 4, DateTimeOffset.UtcNow, ExecutionEventKinds.ModelResponded, "step-1", invocationId,
-                Data: """{"modelCallId":"response-1","ModelId":"test-model","finishReason":"stop"}"""));
+                Data: """{"modelCallId":"request-1","ModelId":"test-model","finishReason":"stop"}"""));
         var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
             revision.ContentHash, definition, "question"), events);
         using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
@@ -266,6 +266,106 @@ public sealed class GraphCanvasRenderingTests
         Assert.Contains("Context window · 128,000 tokens; prompt usage pending", html);
         Assert.DoesNotContain("Tokens · 0 in / 0 out", html);
         Assert.DoesNotContain("Context · 0 / 0", html);
+    }
+
+    [Fact]
+    public async Task AgentNodeRendersUsageWhenProviderSerializesOptionalCountsAsNull()
+    {
+        var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.2" };
+        var definition = baseline with { Nodes = baseline.Nodes.SetItem("step-1", new(NodeTypes.Agent, "1.0.0",
+            Agent: new("connection.current", null, "Answer the question.", []))) };
+        var revision = WorkflowRevision.Create(definition, "test");
+        var runId = Guid.NewGuid();
+        var invocationId = Guid.NewGuid();
+        var events = ImmutableArray.Create(
+            new ExecutionEvent(runId, revision.RevisionId, 1, DateTimeOffset.UtcNow, ExecutionEventKinds.NodeStarted, "step-1", invocationId),
+            new ExecutionEvent(runId, revision.RevisionId, 2, DateTimeOffset.UtcNow, ExecutionEventKinds.AgentStarted, "step-1", invocationId,
+                Data: """{"provider":{"ModelId":"test-model","ContextWindowTokens":128000},"maximumTurns":10}"""),
+            new ExecutionEvent(runId, revision.RevisionId, 3, DateTimeOffset.UtcNow, ExecutionEventKinds.ModelResponded, "step-1", invocationId,
+                Data: """{"modelCallId":"model-1","ModelId":"test-model","usage":{"InputTokenCount":602,"OutputTokenCount":111,"TotalTokenCount":713,"CachedInputTokenCount":null,"ReasoningTokenCount":65,"cacheWriteInputTokenCount":0}}"""));
+        var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
+            revision.ContentHash, definition, "question"), events);
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<WorkflowRunViewer>(ParameterView.FromDictionary(
+                new Dictionary<string, object?> { [nameof(WorkflowRunViewer.Snapshot)] = snapshot }));
+            return component.ToHtmlString();
+        });
+
+        Assert.Contains("Tokens · 602 in / 111 out", html);
+        Assert.Contains("Model turns · 0 / 10", html);
+        Assert.Contains("Reasoning · 65 tokens (included in output)", html);
+        Assert.DoesNotContain("Usage · not reported by provider", html);
+    }
+
+    [Fact]
+    public async Task AgentNodeRendersOpenAiCompatibleUsageAliases()
+    {
+        var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.2" };
+        var definition = baseline with { Nodes = baseline.Nodes.SetItem("step-1", new(NodeTypes.Agent, "1.0.0",
+            Agent: new("connection.current", null, "Answer the question.", []))) };
+        var revision = WorkflowRevision.Create(definition, "test");
+        var runId = Guid.NewGuid();
+        var invocationId = Guid.NewGuid();
+        var events = ImmutableArray.Create(
+            new ExecutionEvent(runId, revision.RevisionId, 1, DateTimeOffset.UtcNow, ExecutionEventKinds.NodeStarted, "step-1", invocationId),
+            new ExecutionEvent(runId, revision.RevisionId, 2, DateTimeOffset.UtcNow, ExecutionEventKinds.AgentStarted, "step-1", invocationId,
+                Data: """{"provider":{"ModelId":"test-model","ContextWindowTokens":10000},"maximumTurns":30}"""),
+            new ExecutionEvent(runId, revision.RevisionId, 3, DateTimeOffset.UtcNow, ExecutionEventKinds.ModelResponded, "step-1", invocationId,
+                Data: """{"ModelId":"test-model","usage":{"prompt_tokens":400,"completion_tokens":50,"prompt_tokens_details":{"cached_tokens":25},"completion_tokens_details":{"reasoning_tokens":10}}}"""));
+        var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
+            revision.ContentHash, definition, "question"), events);
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<WorkflowRunViewer>(ParameterView.FromDictionary(
+                new Dictionary<string, object?> { [nameof(WorkflowRunViewer.Snapshot)] = snapshot }));
+            return component.ToHtmlString();
+        });
+
+        Assert.Contains("Tokens · 400 in / 50 out", html);
+        Assert.Contains("Cache · 25 read", html);
+        Assert.Contains("write", html);
+        Assert.Contains("Reasoning · 10 tokens (included in output)", html);
+        Assert.Contains("Context · 400 / 10,000 (4%)", html);
+        Assert.DoesNotContain("Usage · not reported by provider", html);
+    }
+
+    [Fact]
+    public async Task RunningAgentNodeExplainsThatUsageIsPendingBeforeFirstResponse()
+    {
+        var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.2" };
+        var definition = baseline with { Nodes = baseline.Nodes.SetItem("step-1", new(NodeTypes.Agent, "1.0.0",
+            Agent: new("connection.current", null, "Answer the question.", []))) };
+        var revision = WorkflowRevision.Create(definition, "test");
+        var runId = Guid.NewGuid();
+        var invocationId = Guid.NewGuid();
+        var events = ImmutableArray.Create(
+            new ExecutionEvent(runId, revision.RevisionId, 1, DateTimeOffset.UtcNow, ExecutionEventKinds.NodeStarted, "step-1", invocationId),
+            new ExecutionEvent(runId, revision.RevisionId, 2, DateTimeOffset.UtcNow, ExecutionEventKinds.AgentStarted, "step-1", invocationId,
+                Data: """{"provider":{"ModelId":"test-model","ContextWindowTokens":128000},"maximumTurns":30}"""),
+            new ExecutionEvent(runId, revision.RevisionId, 3, DateTimeOffset.UtcNow, ExecutionEventKinds.ModelRequested, "step-1", invocationId,
+                Data: """{"modelCallId":"request-1"}"""));
+        var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
+            revision.ContentHash, definition, "question"), events);
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<WorkflowRunViewer>(ParameterView.FromDictionary(
+                new Dictionary<string, object?> { [nameof(WorkflowRunViewer.Snapshot)] = snapshot }));
+            return component.ToHtmlString();
+        });
+
+        Assert.Contains("Usage · waiting for the provider response", html);
+        Assert.Contains("Context window · 128,000 tokens; awaiting first response usage", html);
+        Assert.DoesNotContain("Usage · not reported by provider", html);
     }
 
     [Fact]

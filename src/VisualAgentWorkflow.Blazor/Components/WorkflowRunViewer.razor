@@ -57,7 +57,11 @@
                     <details class="vaw-agent-metrics">
                         <summary><span>Usage details</span><span class="vaw-agent-metrics-summary">Model turns · @metrics.ModelTurns@(metrics.ModelTurnLimit is { } turnLimit ? $" / {turnLimit:N0}" : null)</span></summary>
                         <div class="vaw-agent-metrics-body" aria-label="Agent usage statistics">
-                        @if (!metrics.HasReportedUsage) { <span>Usage · not reported by provider</span> }
+                        @if (!metrics.HasReportedUsage && metrics.ResponseCount == 0 && metrics.ModelRequestInFlight)
+                        {
+                            <span>Usage · waiting for the provider response</span>
+                        }
+                        else if (!metrics.HasReportedUsage) { <span>Usage · not reported by provider</span> }
                         else
                         {
                             <span>Tokens · @metrics.InputTokens.ToString("N0") in / @metrics.OutputTokens.ToString("N0") out</span>
@@ -84,6 +88,10 @@
                             <label>@(metrics.ModelRequestInFlight ? "Last completed context" : "Context") · @contextInput.ToString("N0") / @contextWindow.ToString("N0") (@percent%)
                                 <progress max="100" value="@percent" aria-label="Latest provider-reported prompt context usage"></progress>
                             </label>
+                        }
+                        else if (metrics.ContextWindowTokens is { } pendingWindow && metrics.ResponseCount == 0 && metrics.ModelRequestInFlight)
+                        {
+                            <span>Context window · @pendingWindow.ToString("N0") tokens; awaiting first response usage</span>
                         }
                         else if (metrics.ContextWindowTokens is { } configuredWindow)
                         {
@@ -502,29 +510,63 @@
     {
         usageResult = default!;
         if (!TryParse(data, out var root) || !TryGet(root, "usage", out var usage) ||
-            !TryGet(usage, "InputTokenCount", out var input) || !input.TryGetInt64(out var inputTokens) ||
-            !TryGet(usage, "OutputTokenCount", out var output) || !output.TryGetInt64(out var outputTokens))
+            !TryGetTokenCount(usage, out var inputTokens, "InputTokenCount", "input_tokens", "prompt_tokens") ||
+            !TryGetTokenCount(usage, out var outputTokens, "OutputTokenCount", "output_tokens", "completion_tokens"))
             return false;
-        if (inputTokens < 0 || outputTokens < 0) return false;
-        bool OptionalCount(string name, out long? count)
+        bool OptionalCount(out long? count, params string[] names)
         {
             count = null;
-            if (!TryGet(usage, name, out var value)) return true;
-            if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt64(out var parsedCount) || parsedCount < 0) return false;
+            if (!TryGetAny(usage, out var value, names)) return true;
+            if (value.ValueKind == JsonValueKind.Null) return true;
+            if (!TryGetTokenCount(value, out var parsedCount)) return false;
             count = parsedCount;
             return true;
         }
-        if (!OptionalCount("CachedInputTokenCount", out var cachedInput) ||
-            !OptionalCount("ReasoningTokenCount", out var reasoning) ||
-            !OptionalCount("cacheWriteInputTokenCount", out var cacheWrite)) return false;
+        if (!OptionalCount(out var cachedInput, "CachedInputTokenCount", "cached_input_tokens") ||
+            !OptionalCount(out var reasoning, "ReasoningTokenCount", "reasoning_tokens") ||
+            !OptionalCount(out var cacheWrite, "cacheWriteInputTokenCount", "cache_write_input_tokens", "cache_creation_input_tokens")) return false;
+
+        if (cachedInput is null && TryGet(usage, "prompt_tokens_details", out var promptDetails))
+            OptionalCountFromNested(promptDetails, out cachedInput, "cached_tokens");
+        if (reasoning is null && TryGet(usage, "completion_tokens_details", out var completionDetails))
+            OptionalCountFromNested(completionDetails, out reasoning, "reasoning_tokens");
+
         long? cacheWriteFromAdditional = null;
         if (TryGet(usage, "AdditionalCounts", out var additional) && TryGet(additional, "cache_write_input_tokens", out var writeValue))
         {
-            if (writeValue.ValueKind != JsonValueKind.Number || !writeValue.TryGetInt64(out var writeCount) || writeCount < 0) return false;
+            if (!TryGetTokenCount(writeValue, out var writeCount)) return false;
             cacheWriteFromAdditional = writeCount;
         }
         usageResult = new(inputTokens, outputTokens, cachedInput, cacheWrite ?? cacheWriteFromAdditional, reasoning);
         return true;
+    }
+
+    private static bool TryGetAny(JsonElement element, out JsonElement value, params string[] names)
+    {
+        foreach (var name in names)
+            if (TryGet(element, name, out value)) return true;
+        value = default;
+        return false;
+    }
+
+    private static bool TryGetTokenCount(JsonElement element, out long count, params string[] names)
+    {
+        count = 0;
+        JsonElement value;
+        if (names.Length > 0)
+        {
+            if (!TryGetAny(element, out value, names)) return false;
+        }
+        else
+        {
+            value = element;
+        }
+        return value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out count) && count >= 0;
+    }
+
+    private static void OptionalCountFromNested(JsonElement element, out long? count, params string[] names)
+    {
+        count = TryGetTokenCount(element, out var value, names) ? value : null;
     }
 
     private static string? ModelIdFromResponse(ExecutionEvent evt) =>

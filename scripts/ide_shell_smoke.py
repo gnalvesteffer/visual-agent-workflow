@@ -29,6 +29,10 @@ def verify(base_url: str, browser_executable: str | None) -> None:
                 const shadow = host.attachShadow({ mode: 'open' });
                 const dialog = document.createElement('div');
                 dialog.className = 'components-reconnect-dialog';
+                const animation = document.createElement('div');
+                animation.className = 'components-rejoining-animation';
+                animation.append(document.createElement('div'), document.createElement('div'));
+                dialog.appendChild(animation);
                 shadow.appendChild(dialog);
                 document.body.appendChild(host);
             }""")
@@ -36,11 +40,24 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             reconnect_layout = page.evaluate("""() => {
                 const dialog = document.querySelector('#components-reconnect-modal').shadowRoot.querySelector('.components-reconnect-dialog');
                 dialog.classList.add('components-reconnect-visible');
+                const animation = dialog.querySelector('.components-rejoining-animation');
                 const style = getComputedStyle(dialog);
-                return { position: style.position, background: style.backgroundColor, width: style.width };
+                const animationStyle = getComputedStyle(animation.querySelector('div'));
+                const dialogBounds = dialog.getBoundingClientRect();
+                const animationBounds = animation.getBoundingClientRect();
+                return {
+                    position: style.position,
+                    background: style.backgroundColor,
+                    width: style.width,
+                    animationName: animationStyle.animationName,
+                    animationInsideDialog: animationBounds.left >= dialogBounds.left && animationBounds.right <= dialogBounds.right &&
+                        animationBounds.top >= dialogBounds.top && animationBounds.bottom <= dialogBounds.bottom,
+                };
             }""")
             assert reconnect_layout['position'] == 'relative', f"Studio should replace the blocking reconnect dialog layout: {reconnect_layout}"
             assert reconnect_layout['background'] not in ('rgb(255, 255, 255)', 'white'), f"Reconnect dialog should use Studio theme colors: {reconnect_layout}"
+            assert reconnect_layout['animationName'] == 'vaw-rejoining-ripple', f"Reconnect animation should use the contained ripple: {reconnect_layout}"
+            assert reconnect_layout['animationInsideDialog'], f"Reconnect animation should stay inside the notification: {reconnect_layout}"
             expect(page.locator(".vaw-ide-titlebar").get_by_role("link", name="Projects", exact=True)).to_have_count(0)
             expect(page.locator(".vaw-ide-activitybar")).to_be_visible()
             expect(page.locator(".vaw-global-explorer")).to_be_visible()

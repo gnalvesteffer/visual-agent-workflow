@@ -43,7 +43,34 @@
             inline-size: 2.25rem;
             block-size: 2.25rem;
         }
-        .components-rejoining-animation div { border-color: var(--vaw-color-accent, #c4b5fd); }
+        .components-rejoining-animation div {
+            box-sizing: border-box;
+            border-color: var(--vaw-color-accent, #c4b5fd);
+            animation-name: vaw-rejoining-ripple;
+        }
+        @keyframes vaw-rejoining-ripple {
+            0%, 4.9% {
+                top: 50%;
+                left: 50%;
+                width: 0;
+                height: 0;
+                opacity: 0;
+            }
+            5% {
+                top: 50%;
+                left: 50%;
+                width: 0;
+                height: 0;
+                opacity: 1;
+            }
+            100% {
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                opacity: 0;
+            }
+        }
         .components-reconnect-overlay button {
             grid-area: action;
             justify-self: start;
