@@ -12,8 +12,10 @@ proof now stores that frame with the checkpoint/evidence transaction and
 resumes the loop from independent test processes, preserving the evidence
 prefix and variable versions without duplicating the committed write. This
 proves a cross-process serializer/storage boundary, not production loop
-admission: cancellation/failure races, repeated recovery, process loss, and
-the remaining admission restrictions are still open. See [decision
+admission: cancellation/failure races, process loss, and the remaining
+admission restrictions are still open. The proof now also covers two successive
+loop suspensions from independent processes and the cancellation boundary
+before versus after a captured suspension. See [decision
 0031](decisions/0031-loop-checkpoint-proof-frame.md).
 
 ## Use the host API

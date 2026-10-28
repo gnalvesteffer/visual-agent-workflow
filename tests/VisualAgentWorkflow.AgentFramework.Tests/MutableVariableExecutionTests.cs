@@ -171,13 +171,37 @@ public sealed class MutableVariableExecutionTests
     }
 
     [Fact]
+    public async Task Cancellation_before_capture_is_terminal_but_cancellation_after_capture_keeps_saved_boundary()
+    {
+        var beforeEvents = new List<ExecutionEvent>();
+        using var before = new CancellationTokenSource();
+        before.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new WorkflowRunner().ExecuteCheckpointedProofAsync(
+            Guid.NewGuid(), WorkflowRevision.Create(Definition(), "checkpoint-cancel-before"), "before",
+            evt => { beforeEvents.Add(evt); return ValueTask.CompletedTask; }, new ProofCheckpointSink(beforeEvents), before.Token));
+        Assert.Contains(beforeEvents, evt => evt.Kind == ExecutionEventKinds.Cancelled);
+
+        var afterEvents = new List<ExecutionEvent>();
+        using var after = new CancellationTokenSource();
+        var sink = new CancelAfterCaptureSink(after);
+        var result = await new WorkflowRunner().ExecuteCheckpointedProofAsync(
+            Guid.NewGuid(), WorkflowRevision.Create(Definition(), "checkpoint-cancel-after"), "after",
+            evt => { afterEvents.Add(evt); return ValueTask.CompletedTask; }, sink, after.Token);
+        Assert.Null(result);
+        Assert.True(after.IsCancellationRequested);
+        Assert.DoesNotContain(afterEvents, evt => evt.Kind is ExecutionEventKinds.Cancelled or ExecutionEventKinds.Failed or ExecutionEventKinds.Completed);
+        Assert.NotNull(sink.Last);
+    }
+
+    [Fact]
     public async Task Loop_checkpoint_round_trips_through_independent_test_processes_and_durable_frame()
     {
         var directory = Path.Combine(Path.GetTempPath(), "vaw-loop-process-" + Guid.NewGuid());
         Directory.CreateDirectory(directory);
         var database = Path.Combine(directory, "runs.sqlite3");
         var startResult = Path.Combine(directory, "start.json");
-        var resumeResult = Path.Combine(directory, "resume.json");
+        var secondResumeResult = Path.Combine(directory, "resume-2.json");
+        var finalResumeResult = Path.Combine(directory, "resume-final.json");
         try
         {
             var start = await RunCheckpointProbeAsync(database, startResult, "start");
@@ -193,12 +217,30 @@ public sealed class MutableVariableExecutionTests
             Assert.True(WorkflowCheckpointRecovery.Assess(snapshot, checkpoint).CanResume);
             Assert.Equal(1, snapshot.Events.Count(evt => evt.Kind == ExecutionEventKinds.VariableWritten));
 
-            var resume = await RunCheckpointProbeAsync(database, resumeResult, "resume", started.RunId,
-                started.CheckpointId);
-            Assert.True(resume.ExitCode == 0, resume.StandardOutput + Environment.NewLine + resume.StandardError);
-            var resumed = await ReadProbeResultAsync(resumeResult);
+            var secondResume = await RunCheckpointProbeAsync(database, secondResumeResult, "resume", started.RunId,
+                started.CheckpointId, suspendAfterCompletedNodes: 8);
+            Assert.True(secondResume.ExitCode == 0, secondResume.StandardOutput + Environment.NewLine + secondResume.StandardError);
+            var resumed = await ReadProbeResultAsync(secondResumeResult);
             Assert.NotEqual(started.ProcessId, resumed.ProcessId);
             Assert.Equal(started.RunId, resumed.RunId);
+            Assert.Null(resumed.Output);
+            Assert.NotEqual(started.CheckpointId, resumed.CheckpointId);
+
+            var repeatedStore = new SqliteWorkflowRunStore(database);
+            var repeated = repeatedStore.Get(started.RunId)!;
+            var repeatedCheckpoint = repeatedStore.GetCheckpoint(started.RunId)!;
+            Assert.Equal("suspended", repeated.Status);
+            Assert.True(WorkflowCheckpointRecovery.Assess(repeated, repeatedCheckpoint).CanResume);
+            Assert.Equal(new long[] { 2, 3 }, repeated.Events.Where(evt => evt.Kind == ExecutionEventKinds.VariableWritten)
+                .Select(evt => JsonDocument.Parse(evt.Data!).RootElement.GetProperty("version").GetInt64()).ToArray());
+
+            var finalResume = await RunCheckpointProbeAsync(database, finalResumeResult, "resume", started.RunId,
+                resumed.CheckpointId);
+            Assert.True(finalResume.ExitCode == 0, finalResume.StandardOutput + Environment.NewLine + finalResume.StandardError);
+            var completedResult = await ReadProbeResultAsync(finalResumeResult);
+            Assert.NotEqual(resumed.ProcessId, completedResult.ProcessId);
+            Assert.Equal(started.RunId, completedResult.RunId);
+            Assert.Equal("continue", completedResult.Output);
 
             var finalStore = new SqliteWorkflowRunStore(database);
             var completed = finalStore.Get(started.RunId)!;
@@ -248,8 +290,10 @@ public sealed class MutableVariableExecutionTests
                 snapshot.Header.Author, snapshot.Header.ParentRevisionId, snapshot.Header.CreatedAt, snapshot.Header.ContentHash);
         }
 
-        var sink = new DurableLoopProofSink(store, snapshot, revision, restored,
-            operation == "start" ? 4 : null);
+        int? suspendAfter = operation == "start" ? 4 : null;
+        if (suspendAfter is null && int.TryParse(Environment.GetEnvironmentVariable("VAW_CHECKPOINT_SUSPEND_AFTER"), out var threshold))
+            suspendAfter = threshold;
+        var sink = new DurableLoopProofSink(store, snapshot, revision, restored, suspendAfter);
         var events = new List<ExecutionEvent>();
         async ValueTask Record(ExecutionEvent evt)
         {
@@ -350,8 +394,21 @@ public sealed class MutableVariableExecutionTests
         }
     }
 
+    private sealed class CancelAfterCaptureSink(CancellationTokenSource cancellation) : IWorkflowCheckpointSink
+    {
+        public NativeWorkflowCheckpoint? RestoredCheckpoint => null;
+        public NativeWorkflowCheckpoint? Last { get; private set; }
+
+        public ValueTask<bool> CaptureAsync(NativeWorkflowCheckpoint checkpoint)
+        {
+            Last = checkpoint;
+            cancellation.Cancel();
+            return ValueTask.FromResult(true);
+        }
+    }
+
     private static async Task<ProbeProcessResult> RunCheckpointProbeAsync(string database, string resultPath, string operation,
-        Guid? runId = null, string? checkpointId = null)
+        Guid? runId = null, string? checkpointId = null, int? suspendAfterCompletedNodes = null)
     {
         var project = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
             "../../../../VisualAgentWorkflow.AgentFramework.Tests/VisualAgentWorkflow.AgentFramework.Tests.csproj"));
@@ -371,6 +428,8 @@ public sealed class MutableVariableExecutionTests
         startInfo.Environment["VAW_CHECKPOINT_PROBE"] = operation;
         startInfo.Environment["VAW_CHECKPOINT_DATABASE"] = database;
         startInfo.Environment["VAW_CHECKPOINT_RESULT"] = resultPath;
+        if (suspendAfterCompletedNodes is { } threshold)
+            startInfo.Environment["VAW_CHECKPOINT_SUSPEND_AFTER"] = threshold.ToString(System.Globalization.CultureInfo.InvariantCulture);
         if (runId is { } id) startInfo.Environment["VAW_CHECKPOINT_RUN_ID"] = id.ToString("D");
         if (checkpointId is not null) startInfo.Environment["VAW_CHECKPOINT_ID"] = checkpointId;
         using var process = Process.Start(startInfo)!;

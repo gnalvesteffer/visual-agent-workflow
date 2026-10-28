@@ -33,12 +33,13 @@ resume, cancellation/failure races, and process-loss behavior are proven.
 A test-only adapter seam exercises the real Agent Framework native checkpoint
 serializer for a schema 1.45 loop-variable graph. It suspends after a body
 write, publishes the composite frame with the checkpoint/evidence transaction,
-and resumes it from independent test processes. The proof preserves the
-evidence prefix and monotonic versions without duplicating the committed write.
-It is still not durable recovery admission: the test seam bypasses production
-host admission, and cancellation/failure races, repeated recovery, process
-loss, and the remaining promotion restrictions are not established by this
-proof.
+and resumes it twice from independent test processes. The proof preserves the
+evidence prefix and monotonic versions without duplicating committed writes. A
+separate deterministic boundary test distinguishes cancellation before capture
+from cancellation after a captured suspension. It is still not durable
+recovery admission: the test seam bypasses production host admission, and
+failure/publication races, process loss, and the remaining promotion
+restrictions are not established by this proof.
 
 ## Required promotion gates
 
@@ -49,10 +50,12 @@ proof.
 - [x] Persist and validate the composite frame, including the exact evidence
   prefix, loop anchor, variable snapshot, and component/composite hashes, in
   the test-only loop proof path.
-- Capture native state, variable state, loop cursor, event prefix, and
+- [x] Capture native state, variable state, loop cursor, event prefix, and
   suspension marker at one quiescent boundary.
-- Resume without duplicating completed Set/Get operations or skipping a body
-  activation; preserve monotonic variable versions and loop stop reason.
+- [x] Resume twice without duplicating completed Set/Get operations or skipping
+  a body activation; preserve monotonic variable versions and loop stop reason.
+- [x] Distinguish cancellation before capture from cancellation after a
+  captured suspension; preserve the saved boundary in the latter case.
 - Reject stale, advanced, foreign, malformed, oversized, tampered, terminal,
   and unsettled frames before native execution begins.
 - Preserve schema 1.44 and older checkpoint formats and behavior unchanged.

@@ -151,9 +151,11 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   now binds native JSON, loop cursor, variable state, and the exact evidence
   prefix with component/composite hashes. A test-only seam now persists that
   frame with the SQLite checkpoint/evidence transaction and resumes through the
-  real Agent Framework serializer from independent processes without duplicating
-  a committed loop-body write. Schema 1.45 remains outside checkpoint admission
-  until quiescent capture, cancellation/failure, repeated recovery, process-loss,
+  real Agent Framework serializer from independent processes, including two
+  successive suspensions, without duplicating committed loop-body writes. A
+  deterministic cancellation-position regression distinguishes cancellation
+  before capture from cancellation after a saved suspension. Schema 1.45 remains
+  outside checkpoint admission until failure/publication races, process-loss,
   and all exact admission semantics are proven. See [loop checkpoint proof
   frame](decisions/0031-loop-checkpoint-proof-frame.md).
   Cancellation-position is proven at the atomic variable-store boundary: a
@@ -163,8 +165,8 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   coverage reconstructs every valid operation prefix without execution. The bounded
   linear schema 1.44 checkpoint frame captures a hashed variable snapshot with
   native state, validates it against the pinned definition, and restores it
-  before resumed execution. Failure-injection, cancellation-race,
-  repeated-recovery, and process-loss proofs remain. See [loop-variable
+  before resumed execution. Failure-injection, cancellation-race around durable
+  publication, and process-loss proofs remain. See [loop-variable
   evidence seam](decisions/0029-loop-variable-evidence-seam.md), [loop-variable
   topology proof](decisions/0030-loop-variable-topology-proof.md), and
   [variable checkpoint frame](decisions/0028-variable-checkpoint-frame.md).
