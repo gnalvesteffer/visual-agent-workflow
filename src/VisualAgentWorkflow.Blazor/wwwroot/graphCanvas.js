@@ -543,7 +543,11 @@ function pointerEnd(state, event, cancelled) {
             const target=document.elementFromPoint(event.clientX,event.clientY);
             const input=target?.closest('.vaw-input-ports [data-socket]');
             if (input && input.dataset.socketType === drag.socketType && input.dataset.socketKind === drag.socketKind) invoke(state,'ConnectPins',drag.id,drag.port,input.closest('[data-node-id]').dataset.nodeId,input.dataset.socket);
-            else if (target?.closest('li[data-node-id]')) state.root.querySelector('[data-pin-hint]').hidden=false;
+            else if (input) {
+                const targetNode=input.closest('[data-node-id]')?.dataset.nodeId;
+                invoke(state,'OpenContextMenu',targetNode,null,0,clamp(local(state,event).x),clamp(local(state,event).y),
+                    Math.max(8,Math.min(event.clientX,innerWidth-320)),Math.max(8,Math.min(event.clientY,innerHeight-440)),drag.id,drag.port,input.dataset.socket);
+            } else if (target?.closest('li[data-node-id]')) state.root.querySelector('[data-pin-hint]').hidden=false;
             else if (state.root.dataset.contextMenu === 'true') {
                 const edge=state.paths.find(path=>path.dataset.source===drag.id&&path.dataset.sourcePort===drag.port);
                 const point=local(state,event);

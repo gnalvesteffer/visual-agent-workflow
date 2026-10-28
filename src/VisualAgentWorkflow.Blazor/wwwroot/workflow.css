@@ -493,6 +493,10 @@
 .vaw-library-entry small { color: var(--vaw-muted); margin-block-start: var(--vaw-space-1); font-size: .75rem; }
 .vaw-insertion-hint { color: var(--vaw-accent); font-size: .8125rem; overflow-wrap: anywhere; }
 .vaw-context-menu { position: fixed; inset: auto; margin: 0; inline-size: 19rem; max-inline-size: calc(100vw - 16px); max-block-size: min(30rem,calc(100dvh - 16px)); overflow: auto; padding: var(--vaw-space-3); color: var(--vaw-text); background: var(--vaw-surface); border: 1px solid var(--vaw-control-border); border-radius: var(--vaw-panel-radius); box-shadow: none; }
+.vaw-context-recovery { display: grid; gap: var(--vaw-space-2); margin-block: var(--vaw-space-3); padding: var(--vaw-space-3); border: 1px solid color-mix(in srgb, var(--vaw-accent) 55%, var(--vaw-border)); border-radius: var(--vaw-control-radius); background: color-mix(in srgb, var(--vaw-accent) 8%, var(--vaw-surface)); }
+.vaw-context-recovery strong { color: var(--vaw-text); font-size: .8125rem; }
+.vaw-context-recovery p { margin: 0; }
+.vaw-context-recovery button { inline-size: 100%; }
 .vaw-context-actions { display: grid; gap: var(--vaw-space-2); border-block-start: 1px solid var(--vaw-border); padding-block-start: var(--vaw-space-3); }
 .vaw-canvas-viewport[data-node-drop="true"] { outline: 2px solid var(--vaw-accent); outline-offset: -3px; }
 .vaw-with-library.vaw-with-properties { grid-template-columns: 14rem minmax(0, 1fr) var(--vaw-inspector-width, 19rem); }

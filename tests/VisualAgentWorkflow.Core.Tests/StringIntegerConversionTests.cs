@@ -95,6 +95,50 @@ public sealed class StringIntegerConversionTests
         Assert.Contains(GraphFunctionJson.Validate(function), issue => issue.Code == "function.node.unsupported");
     }
 
+    [Fact]
+    public void Explicit_insertion_connects_an_empty_target_without_implicit_coercion()
+    {
+        var definition = IntegerInputGraph();
+
+        var inserted = GraphEditing.InsertStringIntegerConversion(definition, "input", "out", "add", "left");
+
+        Assert.Equal(WorkflowSchemaVersions.StringIntegerConversionGraph, inserted.SchemaVersion);
+        var conversion = Assert.Single(inserted.Nodes, pair => pair.Value.Type == NodeTypes.StringToInteger).Key;
+        Assert.Contains(inserted.Connections.Values, edge =>
+            edge.Source == new PortReference("input", "out") &&
+            edge.Target == new PortReference(conversion, "in"));
+        Assert.Contains(inserted.Connections.Values, edge =>
+            edge.Source == new PortReference(conversion, "out") &&
+            edge.Target == new PortReference("add", "left"));
+        Assert.Contains(inserted.ExecutionConnections!, edge =>
+            edge.Value.Source == new PortReference("input", "then") &&
+            edge.Value.Target == new PortReference("output", "execute"));
+        Assert.Empty(WorkflowValidator.Validate(inserted));
+    }
+
+    [Fact]
+    public void Explicit_insertion_rejects_occupied_pins_and_unsupported_schema_without_mutation()
+    {
+        var definition = IntegerInputGraph() with
+        {
+            Nodes = IntegerInputGraph().Nodes.Add("left", new(NodeTypes.IntegerConstant, "1.0.0")
+            {
+                IntegerConstant = new(1)
+            }),
+            Connections = IntegerInputGraph().Connections.Add("occupied",
+                new(new("left", "out"), new("add", "left"), "data"))
+        };
+
+        var exception = Assert.Throws<ArgumentException>(() =>
+            GraphEditing.InsertStringIntegerConversion(definition, "input", "out", "add", "left"));
+
+        Assert.Contains("target input", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(WorkflowSchemaVersions.StringIntegerConversionGraph, definition.SchemaVersion);
+        Assert.Throws<ArgumentException>(() =>
+            GraphEditing.InsertStringIntegerConversion(definition with { SchemaVersion = WorkflowSchemaVersions.IntegerGraph },
+                "input", "out", "add", "left"));
+    }
+
     private static WorkflowDefinition ConversionWorkflow(string schema) => new(schema, "conversion", "input",
         ImmutableSortedDictionary<string, NodeDefinition>.Empty
             .Add("input", new(NodeTypes.Input, "1.0.0"))
@@ -103,6 +147,20 @@ public sealed class StringIntegerConversionTests
         ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
             .Add("value", new(new("input", "out"), new("convert", "in"), "data"))
             .Add("result", new(new("convert", "out"), new("output", "in"), "data")))
+    {
+        ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("activate", new(new("input", "then"), new("output", "execute"), "execution"))
+    };
+
+    private static WorkflowDefinition IntegerInputGraph() => new(WorkflowSchemaVersions.StringIntegerConversionGraph, "integer-input", "input",
+        ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("right", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(2) })
+            .Add("add", new(NodeTypes.IntegerAdd, "1.0.0"))
+            .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = "integer" }),
+        ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("right", new(new("right", "out"), new("add", "right"), "data"))
+            .Add("result", new(new("add", "out"), new("output", "in"), "data")))
     {
         ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
             .Add("activate", new(new("input", "then"), new("output", "execute"), "execution"))

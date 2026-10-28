@@ -61,3 +61,4 @@ Documentation changes follow [documentation-maintenance](../.agents/skills/docum
 - [Schema promotion inventory](decisions/0015-schema-promotion-inventory.md) — records individually named, non-executable promotion operations without implying composable migration.
 - [Dynamic descriptor conformance](decisions/0016-dynamic-descriptor-conformance.md) — applies schema-neutral pin metadata checks to resolved dynamic node projections without making discovery or incomplete drafts executable.
 - [Static Boolean Branch descriptor](decisions/0017-static-boolean-branch-descriptor.md) — routes the typed Boolean Branch pin projections through one canonical static descriptor without changing schema admission or runtime behavior.
+- [Explicit conversion insertion](decisions/0018-explicit-conversion-insertion.md) — bounds the opt-in schema-1.39 string-to-integer insertion action to unconnected typed pins.

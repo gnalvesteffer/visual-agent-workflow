@@ -140,6 +140,14 @@
                 @foreach (var port in SelectedOutputs) { <option value="@port.Id">@port.Id</option> }
             </select></label>
         }
+        @if (CanInsertStringIntegerConversion(context))
+        {
+            <section class="vaw-context-recovery" aria-label="Explicit conversion">
+                <strong>Explicit conversion available</strong>
+                <p class="vaw-help">Insert a visible string-to-integer node and reconnect both data pins. The draft remains schema 1.39.</p>
+                <button type="button" @onclick="() => InsertStringIntegerConversion(context)">Insert string → integer conversion</button>
+            </section>
+        }
         <WorkflowNodeLibrary @key="context.Id" Title="Add node" SearchLabel="Search node actions" Entries="LibraryEntries(context)"
             Disabled="Disabled" EmptyMessage="@ContextualLibraryEmptyMessage(context)"
             OnSelected="key => AddLibraryNode(key, context)" />

@@ -148,6 +148,47 @@ public static class GraphEditing
         return definition with { SchemaVersion = WorkflowSchemaVersions.StringIntegerConversionGraph };
     }
 
+    /// <summary>
+    /// Inserts the existing explicit string-to-integer conversion between an
+    /// incompatible data pair. This is opt-in authoring, not implicit coercion.
+    /// </summary>
+    public static WorkflowDefinition InsertStringIntegerConversion(
+        WorkflowDefinition definition, string sourceId, string sourcePortId, string targetId, string targetPortId)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.StringIntegerConversionGraph ||
+            definition.ExecutionConnections is null)
+            throw new ArgumentException("String-to-integer insertion requires an explicit schema 1.39 conversion graph.", nameof(definition));
+        if (sourceId == targetId || !definition.Nodes.TryGetValue(sourceId, out var source) ||
+            !definition.Nodes.TryGetValue(targetId, out var target))
+            throw new ArgumentException("Choose two existing nodes for the conversion.", nameof(sourceId));
+
+        var sourcePort = WorkflowPorts.Explicit(source).SingleOrDefault(port =>
+            port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Data && port.Id == sourcePortId);
+        var targetPort = WorkflowPorts.Explicit(target).SingleOrDefault(port =>
+            port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data && port.Id == targetPortId);
+        if (sourcePort?.DataType != WorkflowDataTypes.String || targetPort?.DataType != WorkflowDataTypes.Integer)
+            throw new ArgumentException("Only a string output to an integer input can use this explicit conversion.", nameof(targetPortId));
+        if (definition.Nodes.Count >= 256)
+            throw new ArgumentException("The conversion node would exceed the 256-node workflow limit.", nameof(definition));
+        if (definition.Connections.Values.Any(edge => edge.Target == new PortReference(targetId, targetPortId)))
+            throw new ArgumentException("Disconnect the target input before inserting an explicit conversion.", nameof(targetPortId));
+        if (definition.Connections.Values.Any(edge => edge.Source == new PortReference(sourceId, sourcePortId)))
+            throw new ArgumentException("Disconnect the source output before inserting an explicit conversion.", nameof(sourcePortId));
+
+        var conversionId = NewId("convert");
+        var connections = definition.Connections
+            .Add(NewId("link"), new(new(sourceId, sourcePortId), new(conversionId, "in"), "data"))
+            .Add(NewId("link"), new(new(conversionId, "out"), new(targetId, targetPortId), "data"));
+
+        return Checked(definition with
+        {
+            SchemaVersion = definition.SchemaVersion,
+            Nodes = definition.Nodes.Add(conversionId, new(NodeTypes.StringToInteger, "1.0.0")),
+            Connections = connections
+        });
+    }
+
     /// <summary>Inserts a named configurable parallel fan-out and barrier after the workflow input.</summary>
     public static WorkflowDefinition CreateConfigurableParallelGraph(WorkflowDefinition definition, int branchCount)
     {

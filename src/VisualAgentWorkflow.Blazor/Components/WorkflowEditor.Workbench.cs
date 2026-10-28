@@ -70,6 +70,29 @@ public partial class WorkflowEditor
             ? "No node in this graph accepts that output directly. Add an explicit conversion node, or drag to a compatible input pin."
             : "No matching actions. Try another name.";
 
+    private bool CanInsertStringIntegerConversion(GraphContextRequest context)
+    {
+        if (context.SourceNodeId is null || context.SourcePortId is null ||
+            context.TargetNodeId is null || context.TargetPortId is null ||
+            Definition.SchemaVersion != WorkflowSchemaVersions.StringIntegerConversionGraph)
+            return false;
+        try
+        {
+            GraphEditing.InsertStringIntegerConversion(Definition, context.SourceNodeId, context.SourcePortId,
+                context.TargetNodeId, context.TargetPortId);
+            return true;
+        }
+        catch (ArgumentException) { return false; }
+    }
+
+    private async Task InsertStringIntegerConversion(GraphContextRequest context)
+    {
+        if (!CanInsertStringIntegerConversion(context)) return;
+        await CloseMenu(context);
+        await Edit(() => GraphEditing.InsertStringIntegerConversion(Definition, context.SourceNodeId!, context.SourcePortId!,
+            context.TargetNodeId!, context.TargetPortId!), context);
+    }
+
     private IReadOnlyList<WorkflowNodeLibraryEntry> FilterBySourcePin(IReadOnlyList<WorkflowNodeLibraryEntry> entries, GraphContextRequest? context)
     {
         if (!WorkflowSchemaVersions.UsesExplicitGraph(Definition) || context?.SourceNodeId is not { } sourceNodeId ||
