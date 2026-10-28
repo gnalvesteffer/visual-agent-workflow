@@ -955,6 +955,22 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 ? new AgentRouteSelectionState(routes)
                 : null;
             string? agentRouteId = null;
+            string? AddSequenceLineage(string? data)
+            {
+                if (received.SequenceLineage is not { } sequenceLineage) return data;
+                if (string.IsNullOrWhiteSpace(data))
+                    return JsonSerializer.Serialize(new { eventData = data, sequenceLineage });
+                try
+                {
+                    if (JsonNode.Parse(data) is JsonObject payload)
+                    {
+                        payload["sequenceLineage"] = JsonSerializer.SerializeToNode(sequenceLineage);
+                        return payload.ToJsonString();
+                    }
+                }
+                catch (JsonException) { }
+                return JsonSerializer.Serialize(new { eventData = data, sequenceLineage });
+            }
             if (received.SourceNode is not null && received.TerminationSignal)
             {
                 if (node.Type != NodeTypes.Output || !revision.Definition.Nodes.TryGetValue(received.SourceNode, out var sourceNode) ||
@@ -1080,9 +1096,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.WorkflowCall => childOutcome?.Output ?? string.Empty,
                     NodeTypes.Agent => agents is null ? throw new InvalidOperationException("No agent executor is configured.") :
                         await agents.ExecuteAsync(new NodeInvocationContext(runId, revision, Id, invocation,
-                            (kind, data) => Emit(kind, Id, invocation, null, data))
+                            (kind, data) => Emit(kind, Id, invocation, null, AddSequenceLineage(data)))
                         {
                             Parameters = parameters,
+                            RecordWithInvocation = (eventInvocationId, kind, data) => Emit(kind, Id, eventInvocationId, null, AddSequenceLineage(data)),
                         CollaborationPhase = CollaborationGrant(Id, received.ParallelBranchId)?.Phase,
                         CollaborationRole = CollaborationGrant(Id, received.ParallelBranchId) is { } collaborationGrant
                             ? collaborationRuntime!.IsPhased ? collaborationGrant.Role : collaborationGrant.Phase
@@ -1094,7 +1111,6 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                                     await Emit(ExecutionEventKinds.AgentRouteRejected, Id, invocation, null,
                                         JsonSerializer.Serialize(new { routeId, reason = routeSelection.RejectionReason }));
                             },
-                            RecordWithInvocation = (eventInvocationId, kind, data) => Emit(kind, Id, eventInvocationId, null, data),
                             CollaborationSendChannels = CollaborationChannels(Id, received.ParallelBranchId, ParallelCollaborationRoles.Publish),
                             CollaborationReadChannels = CollaborationChannels(Id, received.ParallelBranchId, ParallelCollaborationRoles.Read),
                             CollaborationSend = collaborationRuntime is null || received.ParallelBranchId is not { } publishBranch ||

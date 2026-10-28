@@ -17,7 +17,8 @@ internal sealed class SequenceRuntimeCoordinator
     private SequenceTerminalState? terminalState;
 
     public SequenceRuntimeCoordinator(Guid sequenceInvocationId, string sequenceNodeId,
-        IReadOnlyList<string> outputIds, IReadOnlyDictionary<string, string> connectionIds)
+        IReadOnlyList<string> outputIds, IReadOnlyDictionary<string, string> connectionIds,
+        bool allowSingleOutput = false)
     {
         if (sequenceInvocationId == Guid.Empty) throw new ArgumentException("A sequence invocation ID is required.", nameof(sequenceInvocationId));
         if (string.IsNullOrWhiteSpace(sequenceNodeId)) throw new ArgumentException("A sequence node ID is required.", nameof(sequenceNodeId));
@@ -28,7 +29,7 @@ internal sealed class SequenceRuntimeCoordinator
         this.sequenceInvocationId = sequenceInvocationId;
         this.sequenceNodeId = sequenceNodeId;
         this.connectionIds = new Dictionary<string, string>(connectionIds, StringComparer.Ordinal);
-        ledger = new SequenceActivationLedger(outputIds);
+        ledger = new SequenceActivationLedger(outputIds, allowSingleOutput);
         events.Add(new SequenceRuntimeEvent(ExecutionEventKinds.SequenceStarted, sequenceNodeId, sequenceInvocationId, null, null, null, null));
     }
 

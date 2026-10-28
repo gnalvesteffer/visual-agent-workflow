@@ -125,6 +125,26 @@ public sealed class SequenceProductionRunnerTests
         Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
     }
 
+    [Fact]
+    public async Task Private_agent_sequence_proof_records_nested_agent_events_with_sequence_lineage()
+    {
+        var events = new List<ExecutionEvent>();
+        var agent = new SequenceProofAgentExecutor();
+        var result = await new WorkflowRunner(agents: agent).ExecuteSequenceAgentProductionProofAsync(
+            Guid.NewGuid(), "proof input", evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("proof input", result.Output);
+        Assert.True(agent.InvocationObserved);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted);
+        Assert.Contains(events.Where(evt => evt.Kind == ExecutionEventKinds.ModelRequested), evt =>
+            evt.Data?.Contains("sequenceLineage", StringComparison.Ordinal) == true);
+        Assert.Contains(events.Where(evt => evt.Kind == ExecutionEventKinds.ModelResponded), evt =>
+            evt.Data?.Contains("sequenceLineage", StringComparison.Ordinal) == true);
+        Assert.Equal(ExecutionEventKinds.Completed, events[^1].Kind);
+    }
+
     private static SequenceLifecycleEvidence ReadEvidence(ExecutionEvent executionEvent)
     {
         Assert.True(SequenceEvidence.TryRead(executionEvent, out var evidence));
@@ -181,6 +201,29 @@ public sealed class SequenceProductionRunnerTests
         {
             ExecutionConnections = execution
         };
+    }
+
+    private sealed class SequenceProofAgentExecutor : IAgentNodeExecutor
+    {
+        public bool InvocationObserved { get; private set; }
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>([new("sequence-proof", "Proof", "proof", false)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            InvocationObserved = true;
+            await invocation.RecordEventAsync(ExecutionEventKinds.AgentStarted,
+                JsonSerializer.Serialize(new { provider = new { modelId = "sequence-proof" } }));
+            var modelCallId = Guid.NewGuid();
+            await invocation.RecordEventForAsync(modelCallId, ExecutionEventKinds.ModelRequested,
+                JsonSerializer.Serialize(new { modelCallId, input }));
+            await invocation.RecordEventForAsync(modelCallId, ExecutionEventKinds.ModelResponded,
+                JsonSerializer.Serialize(new { modelCallId, output = input }));
+            await invocation.RecordEventAsync(ExecutionEventKinds.AgentCompleted, input);
+            return input;
+        }
     }
 
     private sealed class RecordingBroker : INodeToolBroker

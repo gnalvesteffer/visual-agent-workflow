@@ -128,3 +128,15 @@ The runner now has a separate `ExecutionActivationLedger` integrated at the even
 
 This is a deliberate progress gate, not a claim of Blueprint parity. Existing workflows should use ordinary sequential edges when completion ordering is required and the existing bounded fork/join when concurrent work with accounting is required. The roadmap tracks Sequence as deferred until the proof and contract are complete.
 
+## Addendum: persisted bounded paths and the Agent descendant gate (2026-10-28)
+
+The gate above has since been satisfied for the bounded public slices: schema
+1.38 provides direct Input → Sequence → Output execution, and schema 1.43
+provides bounded disjoint linear direct-MCP paths with persisted execution
+connections and passive playback diagnostics. Those releases preserve the
+original boundary; they do not make Sequence an arbitrary graph fan-out.
+
+Agent descendants remain deferred. The separate [Sequence-to-Agent path proof
+gate](0011-sequence-agent-path-proof.md) records the current internal proof and
+the evidence required before a future additive schema 1.44 can be advertised.
+

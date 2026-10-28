@@ -11,11 +11,12 @@ internal sealed class SequenceActivationLedger
     private readonly object gate = new();
     private readonly List<Entry> entries;
 
-    public SequenceActivationLedger(IReadOnlyList<string> outputIds)
+    public SequenceActivationLedger(IReadOnlyList<string> outputIds, bool allowSingleOutput = false)
     {
         ArgumentNullException.ThrowIfNull(outputIds);
-        if (outputIds.Count is < 2 or > 4)
-            throw new ArgumentOutOfRangeException(nameof(outputIds), "A bounded sequence must declare between 2 and 4 outputs.");
+        var minimumOutputCount = allowSingleOutput ? 1 : 2;
+        if (outputIds.Count < minimumOutputCount || outputIds.Count > 4)
+            throw new ArgumentOutOfRangeException(nameof(outputIds), $"A bounded sequence must declare between {minimumOutputCount} and 4 outputs.");
         if (outputIds.Any(string.IsNullOrWhiteSpace) || outputIds.Distinct(StringComparer.Ordinal).Count() != outputIds.Count)
             throw new ArgumentException("Sequence output IDs must be non-empty and unique.", nameof(outputIds));
 

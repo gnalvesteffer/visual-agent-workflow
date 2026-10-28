@@ -54,3 +54,4 @@ Documentation changes follow [documentation-maintenance](../.agents/skills/docum
 - [Initial graph execution decision](decisions/0001-initial-execution-subset.md) — why the first runtime used a deliberately small, validated graph subset.
 - [Execution and data edges decision](decisions/0002-execution-and-data-edges.md) — separates scheduler activations from typed value bindings and defines compatibility for the forthcoming pure-node language.
 - [Bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md) — defers a Blueprint-style Sequence node until scheduler and playback semantics are proven.
+- [Sequence-to-Agent path proof gate](decisions/0011-sequence-agent-path-proof.md) — records the non-public Agent descendant proof and the gate for a future schema 1.44.

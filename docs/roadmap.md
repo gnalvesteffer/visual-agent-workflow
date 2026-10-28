@@ -131,6 +131,7 @@ Sequence proof checklist:
 - [x] Add schema 1.43 Core and production regression tests for valid paths and shared-path rejection; preserve the existing private proof and schema 1.38 tests.
 - [x] Add Studio schema-promotion and MCP path-authoring controls; existing typed execution wires and stable Sequence output editing remain the authoring surface.
 - [x] Add passive playback diagnostics for per-path terminal evidence before considering this parity slice complete. The run inspector now derives each output's recorded dispatched/completed/failed/cancelled/skipped state and execution connection from the lifecycle evidence at the selected playback position; it does not re-execute the path.
+- [x] Add a non-public Sequence-to-Agent production proof: one bounded Agent invocation receives Sequence lineage through the normal runner recorder, and nested model/Agent events are correlated without exposing a new persisted schema.
 - [ ] Extend the bounded path contract to approved Agent nodes after capability, failure, cancellation, and replay coverage is reviewed separately.
 - [x] Add Studio configuration/editing for ordered output labels, stable ordering, and connected add/remove operations.
 - [ ] Add schema promotion and richer Sequence diagnostics for unsupported downstream topology.

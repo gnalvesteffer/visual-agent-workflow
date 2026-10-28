@@ -30,6 +30,23 @@ public sealed partial class WorkflowRunner
             rootRevision: revision, sequencePlan: plan);
     }
 
+    /// <summary>
+    /// Runs the non-public Sequence-to-Agent lifecycle proof. This deliberately uses a
+    /// validator-valid private definition and an injected host Agent executor; it is not
+    /// reachable from persisted workflow schemas or Studio authoring.
+    /// </summary>
+    internal Task<WorkflowExecutionResult> ExecuteSequenceAgentProductionProofAsync(Guid runId, string input,
+        Func<ExecutionEvent, ValueTask> record, IWorkflowExecutionGate? gate = null,
+        CancellationToken cancellationToken = default)
+    {
+        var revision = SequenceAgentProofRevision();
+        var plan = new SequenceProductionPlan("sequence", [
+            new SequenceProductionOutput("agent", 0, "agent", "sequence", "then", "sequence-proof:agent")
+        ], null, SequenceTerminalState.Completed, AllowSingleOutput: true);
+        return ExecuteCoreAsync(runId, revision, input, null, record, gate, cancellationToken,
+            rootRevision: revision, sequencePlan: plan);
+    }
+
     private Workflow BuildSequenceProductionWorkflow(Guid runId, WorkflowRevision revision,
         SequenceProductionPlan plan,
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit,
@@ -40,7 +57,7 @@ public sealed partial class WorkflowRunner
         var connectionIds = plan.Outputs.ToDictionary(output => output.OutputId, output => output.ConnectionId,
             StringComparer.Ordinal);
         var coordinator = new SequenceRuntimeCoordinator(sequenceInvocationId, plan.SequenceNodeId,
-            plan.Outputs.Select(output => output.OutputId).ToArray(), connectionIds);
+            plan.Outputs.Select(output => output.OutputId).ToArray(), connectionIds, plan.AllowSingleOutput);
         var sequenceEventGate = new SemaphoreSlim(1, 1);
 
         async ValueTask FlushSequenceEvents()
@@ -133,6 +150,32 @@ public sealed partial class WorkflowRunner
         return WorkflowRevision.Create(definition, "private-sequence-production-proof");
     }
 
+    private static WorkflowRevision SequenceAgentProofRevision()
+    {
+        var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0", Agent: new AgentConfiguration(
+            "sequence-proof", null, "Return the input unchanged.", []
+        ) { MaxTurns = 1 });
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.AgentExecutionRoutes, "sequence-agent-production-proof", "sequence",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["sequence"] = new(NodeTypes.Input, "1.0.0"),
+                ["agent"] = agent,
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["agent-output"] = new(new("agent", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary())
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["sequence-agent"] = new(new("sequence", "then"), new("agent", "execute"), "execution"),
+                ["agent-output"] = new(new("agent", "out"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+        return WorkflowRevision.Create(definition, "private-sequence-agent-production-proof");
+    }
+
     private SequenceProductionPlan? CreateSequenceProductionPlan(WorkflowRevision revision)
     {
         if (revision.Definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph)) return null;
@@ -149,7 +192,7 @@ public sealed partial class WorkflowRunner
     }
 
     private sealed record SequenceProductionPlan(string SequenceNodeId, IReadOnlyList<SequenceProductionOutput> Outputs,
-        string? TerminalOutputId, SequenceTerminalState TerminalState);
+        string? TerminalOutputId, SequenceTerminalState TerminalState, bool AllowSingleOutput = false);
 
     private sealed record SequenceProductionOutput(string OutputId, int Ordinal, string OutputNodeId,
         string SourceNodeId, string SourcePortId, string ConnectionId);
