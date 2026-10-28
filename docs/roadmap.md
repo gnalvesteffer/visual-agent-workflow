@@ -145,8 +145,8 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   committed write, and loop-aware checkpoint state before schema 1.45 admission.
   Cancellation-position is proven at the atomic variable-store boundary: a
   pre-cancelled write cannot mutate state or advance its version; a separate
-  runtime regression now proves cancellation after a committed write preserves
-  the recorded passive prefix. The bounded
+  runtime regressions now prove cancellation or recorder failure after a
+  committed write preserves the recorded passive prefix. The bounded
   linear schema 1.44 checkpoint frame captures a hashed variable snapshot with
   native state, validates it against the pinned definition, and restores it
   before resumed execution. Failure-injection, cancellation-race,

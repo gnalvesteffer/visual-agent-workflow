@@ -68,6 +68,31 @@ public sealed class MutableVariableExecutionTests
         Assert.Equal(2, playback.Values["message"].Version);
     }
 
+    [Fact]
+    public async Task Failure_after_a_committed_write_preserves_the_recorded_variable_prefix()
+    {
+        var revision = WorkflowRevision.Create(Definition(), "variable-failure-prefix");
+        var events = new List<ExecutionEvent>();
+        var injectFailure = true;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner().ExecuteAsync(
+            Guid.NewGuid(), revision, "committed", evt =>
+            {
+                events.Add(evt);
+                if (injectFailure && evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "set")
+                {
+                    injectFailure = false;
+                    throw new InvalidOperationException("injected recorder failure");
+                }
+                return ValueTask.CompletedTask;
+            }));
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.VariableWritten && evt.NodeId == "set");
+        Assert.True(VariableEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal("committed", playback!.Values["message"].Value);
+        Assert.Equal(2, playback.Values["message"].Version);
+    }
+
     private static WorkflowDefinition Definition()
     {
         var nodes = new Dictionary<string, NodeDefinition>
