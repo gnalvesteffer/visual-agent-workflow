@@ -90,7 +90,15 @@ Descriptor progress: Core now has a canonical node-family catalog for stable dis
 
 ### Deferred parity decision: bounded Sequence dispatch
 
-`core.sequence` and schema 1.38 are not implemented. The independent proponent/opponent/adjudicator review keeps the feature deferred until a non-public Agent Framework proof establishes active-activation accounting, partial-dispatch/failure/cancellation semantics, playback correlation, and the explicit pause/restart boundary. The proof now covers ordered dispatch, concurrent downstream admission, completion-order divergence, and cancellation between outputs; active-work accounting, descendant completion, playback lineage, and a continuation contract remain open. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md). Mutable variables remain deferred for the same contract/evidence reasons.
+`core.sequence` and schema 1.38 are not implemented. The independent proponent/opponent/adjudicator review keeps the feature deferred until a non-public Agent Framework proof establishes active-activation accounting, partial-dispatch/failure/cancellation semantics, playback correlation, and the explicit pause/restart boundary. The proof now covers ordered dispatch, concurrent downstream admission, completion-order divergence, and cancellation between outputs. A non-public activation ledger now proves the bounded two-to-four-output continuation contract and explicit skipped-output accounting; active runner integration, descendant completion, playback lineage, and pause/host-stop semantics remain open. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md). Mutable variables remain deferred for the same contract/evidence reasons.
+
+Sequence proof checklist:
+
+- [x] Define a non-public, two-to-four-output activation ledger with stable order and explicit terminal/skipped states.
+- [ ] Integrate the ledger with runner-owned activation and descendant-terminal accounting.
+- [ ] Add stable Sequence lineage to recorded events and passive playback.
+- [ ] Prove partial dispatch, failure, cancellation, pause, and host-stop outcomes against the real runner.
+- [ ] Only then add schema 1.38, validator rules, persistence compatibility, Studio authoring, and public runtime behavior.
 
 ### Sequencing and exit criteria
 

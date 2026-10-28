@@ -70,6 +70,14 @@ or passive playback lineage for a multi-output node.
 
 This is useful evidence, not a failure of the framework. It rules out treating ordinary `SendMessageAsync` fan-out as a Blueprint Sequence. A public Sequence must either define this as an explicitly concurrent dispatch primitive with full active-work accounting, or add a separate continuation mechanism that admits the next output only after the previous path's documented completion boundary.
 
+## Adjudicated next slice
+
+The required three-role design review (proponent, opponent, and adjudicator) rejected a public schema change at this stage. The existing runner has one framework output sink, no descendant-completion ledger, no per-output lineage in `GraphMessage`, and no defined inter-dispatch pause boundary. A public node would therefore be able to report completion while work from another output remained active.
+
+The first implementation slice is now a non-public `SequenceActivationLedger`. It is deliberately limited to in-process proof work: two to four stable output IDs, one active output at a time, explicit dispatched/completed/failed/cancelled/skipped states, and terminal failure/cancellation that marks later outputs skipped. It is not serialized, exposed in the Studio palette, or connected to the workflow runner. Its focused tests prove the bounded continuation contract and prevent a future implementation from using raw framework fan-out as a substitute for completion accounting.
+
+The next proof must connect this ledger to a runner-owned activation and descendant-terminal boundary, add stable playback lineage, and exercise pause, host stop, and partial-dispatch outcomes against the real runner. Until those checks pass, schema 1.38 remains reserved and deferred.
+
 ## Rejected alternatives
 
 - **Implicit sequential fan-out:** rejected because downstream asynchronous work may overlap and the graph would falsely promise completion ordering.
