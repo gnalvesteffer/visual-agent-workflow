@@ -103,7 +103,7 @@ Descriptor progress: Core now has a canonical node-family catalog for stable dis
 
 ### Deferred parity decision: bounded Sequence dispatch
 
-`core.sequence` and schema 1.38 are not implemented. The independent proponent/opponent/adjudicator review keeps the feature deferred until a non-public Agent Framework proof establishes active-activation accounting, partial-dispatch/failure/cancellation semantics, playback correlation, and the explicit pause/restart boundary. The proof now covers ordered dispatch, concurrent downstream admission, completion-order divergence, and cancellation between outputs. A non-public activation ledger now proves the bounded two-to-four-output continuation contract and explicit skipped-output accounting; active runner integration, descendant completion, playback lineage, and pause/host-stop semantics remain open. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md). Mutable variables remain deferred for the same contract/evidence reasons.
+`core.sequence` and schema 1.38 are not implemented. The independent proponent/opponent/adjudicator review keeps the feature deferred until a non-public Agent Framework proof establishes active-activation accounting, partial-dispatch/failure/cancellation semantics, playback correlation, and the explicit pause/restart boundary. The proof now covers ordered dispatch, concurrent downstream admission, completion-order divergence, cancellation between outputs, and a private completion-gated streaming runner harness. A non-public activation ledger now proves the bounded two-to-four-output continuation contract and explicit skipped-output accounting; VAW runner-ledger integration, playback lineage, and pause/host-stop semantics remain open. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md). Mutable variables remain deferred for the same contract/evidence reasons.
 
 Sequence proof checklist:
 
@@ -113,6 +113,7 @@ Sequence proof checklist:
 - [x] Prove stable Sequence invocation/output/ordinal/connection lifecycle identity in a private coordinator.
 - [x] Define a versioned, fail-closed passive evidence payload and reader for Sequence lifecycle events.
 - [x] Prove conversion of coordinator lifecycle facts into passive `ExecutionEvent` records.
+- [x] Exercise completion-gated continuation and terminal accounting through a private pinned streaming-runner harness.
 - [ ] Emit that lineage from real Sequence runner executions and expose it in passive playback.
 - [ ] Prove partial dispatch, failure, cancellation, pause, and host-stop outcomes against the real runner.
 - [ ] Only then add schema 1.38, validator rules, persistence compatibility, Studio authoring, and public runtime behavior.

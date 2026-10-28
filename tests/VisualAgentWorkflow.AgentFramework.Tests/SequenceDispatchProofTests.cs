@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.Agents.AI.Workflows;
+using VisualAgentWorkflow.Core;
 using Xunit;
 
 namespace VisualAgentWorkflow.AgentFramework.Tests;
@@ -10,6 +11,24 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 /// </summary>
 public sealed class SequenceDispatchProofTests
 {
+    [Fact]
+    public async Task Runner_owned_sequence_proof_gates_each_output_and_records_lineage()
+    {
+        var result = await SequenceRunnerProof.ExecuteAsync(Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.Equal(["first", "second", "third"], result.DispatchOrder);
+        Assert.Equal(result.DispatchOrder, result.CompletionOrder);
+        Assert.Equal(1, result.Events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceStarted));
+        Assert.Equal(1, result.Events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceCompleted));
+
+        var dispatched = result.Events.Where(evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched).ToArray();
+        Assert.Equal(3, dispatched.Length);
+        Assert.Equal([0, 1, 2], dispatched.Select(evt => SequenceEvidence.TryRead(evt, out var evidence) ? evidence!.Ordinal : -1));
+        Assert.Equal(["first", "second", "third"], dispatched.Select(evt => SequenceEvidence.TryRead(evt, out var evidence) ? evidence!.OutputId : null));
+        Assert.All(dispatched, evt => Assert.NotNull(evt.ConnectionId));
+        Assert.DoesNotContain(result.Events, evt => evt.Kind is ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled);
+    }
+
     [Fact]
     public async Task Direct_dispatch_can_admit_the_next_output_while_the_first_is_still_active()
     {
