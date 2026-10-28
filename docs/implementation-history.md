@@ -2,6 +2,20 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Non-serialized node capability projection
+
+Core now exposes a versioned in-memory capability projection that composes the
+canonical node-family contract catalog with resolved static or configured pin
+metadata. It covers static pure/control nodes and configured Agent, Sequence,
+parallel, graph-function, and direct MCP nodes, while marking transient MCP
+discovery enrichment separately. The projection is intentionally outside
+workflow JSON, hashes, schema admission, runtime authority, and host grants;
+persisted MCP pins remain authoritative. Focused tests cover dynamic pin order,
+discovery precedence, hash stability, and fail-closed projection versions.
+Full descriptor-driven validation, runtime enforcement, migration, and Studio
+convergence remain on the Blueprint parity roadmap. See [node capability
+projection](decisions/0019-node-capability-projection.md).
+
 ## Sequence path promotion diagnostics
 
 The schema 1.38 to 1.43 promotion is now paired with actionable validation

@@ -333,6 +333,84 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Capability_projection_composes_static_and_configured_contracts_without_authority()
+    {
+        var pure = WorkflowNodeCapabilityProjectionResolver.Resolve(new NodeDefinition(NodeTypes.BooleanBranch, "1.0.0"));
+        var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0",
+            Agent: new AgentConfiguration("provider", null, "instructions", [])
+            {
+                Routes = [new("review", "Review", "Review path")]
+            });
+        var sequence = new NodeDefinition(NodeTypes.Sequence, "1.0.0")
+        {
+            Sequence = new([new("first", "First"), new("second", "Second")])
+        };
+        var configured = WorkflowNodeCapabilityProjectionResolver.Resolve(agent);
+        var ordered = WorkflowNodeCapabilityProjectionResolver.Resolve(sequence);
+
+        Assert.Equal(WorkflowNodeCapabilityResolutionKind.Static, pure.ResolutionKind);
+        Assert.Equal(NodeTypes.BooleanBranch, pure.NodeType);
+        Assert.Contains(pure.Ports, port => port.Id == "true" && port.Kind == WorkflowPortKind.Execution);
+        Assert.Equal(WorkflowNodeCapabilityResolutionKind.Configured, configured.ResolutionKind);
+        Assert.True(configured.RequiresHostCapability);
+        Assert.Contains(configured.Ports, port => port.Id == "route.review");
+        Assert.Equal(["execute", "then.first", "then.second"], ordered.Ports.Select(port => port.Id));
+        Assert.Contains(ordered.Limits, limit => limit.Id == "output-count");
+    }
+
+    [Fact]
+    public void Capability_projection_marks_transient_mcp_discovery_without_replacing_persisted_pins_or_hashes()
+    {
+        var tool = new NodeDefinition(NodeTypes.McpTool, "1.0.0")
+        {
+            Tool = new ToolBindingRequest("demo.search", new string('a', 64)),
+            McpInputPorts = [new("arg.query", "query", WorkflowDataTypes.String, false)]
+        };
+        var discovered = ImmutableArray.Create(new McpInputPortDefinition("arg.path", "path", WorkflowDataTypes.String, true));
+        var descriptions = new Dictionary<string, string> { ["arg.path"] = "A repository path." };
+        var definition = new WorkflowDefinition(
+            WorkflowSchemaVersions.ExplicitGraph, "projection", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }
+                .ToImmutableSortedDictionary(StringComparer.Ordinal),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["data"] = new(new("input", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["execution"] = new(new("input", "then"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+        };
+        var hash = WorkflowJson.ComputeHash(definition);
+
+        var projection = WorkflowNodeCapabilityProjectionResolver.Resolve(tool,
+            discoveredMcpInputPorts: discovered, discoveredMcpInputDescriptions: descriptions);
+
+        Assert.Equal(WorkflowNodeCapabilityResolutionKind.DiscoveryEnriched, projection.ResolutionKind);
+        Assert.True(projection.RequiresHostCapability);
+        Assert.Equal("arg.query", Assert.Single(projection.Ports.Where(port =>
+            port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data)).Id);
+        Assert.Equal(hash, WorkflowJson.ComputeHash(definition));
+        Assert.Equal("arg.query", tool.McpInputPorts!.Value.Single().Id);
+        Assert.Equal("A repository path.", WorkflowNodeDescriptorResolver.Resolve(
+            tool with { McpInputPorts = null }, discovered, descriptions).Ports.Single(port => port.Id == "arg.path").Description);
+    }
+
+    [Fact]
+    public void Capability_projection_rejects_unknown_projection_versions_without_fallback()
+    {
+        var node = new NodeDefinition(NodeTypes.StringConstant, "1.0.0");
+
+        Assert.False(WorkflowNodeCapabilityProjectionResolver.TryResolve(node, out _, "9.9.9"));
+        Assert.Throws<KeyNotFoundException>(() => WorkflowNodeCapabilityProjectionResolver.Resolve(node, "9.9.9"));
+    }
+
+    [Fact]
     public void Dynamic_descriptor_resolution_preserves_parallel_and_function_pin_contracts()
     {
         var fork = new NodeDefinition(NodeTypes.ParallelFork, "1.0.0")
