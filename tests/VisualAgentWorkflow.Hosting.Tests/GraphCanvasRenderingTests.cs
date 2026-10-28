@@ -200,6 +200,34 @@ public sealed class GraphCanvasRenderingTests
     }
 
     [Fact]
+    public async Task RunViewerEventEvidenceExposesInvocationAndConnectionIdentity()
+    {
+        var definition = WorkflowTemplates.Create("uppercase");
+        var revision = WorkflowRevision.Create(definition, "test");
+        var runId = Guid.NewGuid();
+        var invocationId = Guid.NewGuid();
+        var events = ImmutableArray.Create(
+            new ExecutionEvent(runId, revision.RevisionId, 1, DateTimeOffset.UtcNow, ExecutionEventKinds.NodeStarted,
+                definition.EntryNodeId, invocationId, ConnectionId: "input.then", Data: "input"));
+        var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
+            revision.ContentHash, definition, "question"), events);
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<WorkflowRunViewer>(ParameterView.FromDictionary(
+                new Dictionary<string, object?> { [nameof(WorkflowRunViewer.Snapshot)] = snapshot }));
+            return component.ToHtmlString();
+        });
+
+        Assert.Contains("Invocation", html);
+        Assert.Contains("Connection", html);
+        Assert.Contains(invocationId.ToString(), html);
+        Assert.Contains("input.then", html);
+    }
+
+    [Fact]
     public async Task RunViewerDistinguishesCancellationAndShowsRecordedCauseAndRecoveryGuidance()
     {
         var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.2" };

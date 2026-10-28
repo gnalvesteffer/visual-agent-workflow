@@ -173,8 +173,8 @@
                     <summary>Recorded events at this position (@Position)</summary>
                     <div class="vaw-table-scroll">
                         <table><caption>Execution evidence</caption>
-                            <colgroup><col class="vaw-event-sequence-column" /><col class="vaw-event-time-column" /><col class="vaw-event-kind-column" /><col class="vaw-event-node-column" /><col class="vaw-event-node-column" /><col /></colgroup>
-                            <thead><tr><th>Sequence</th><th>Time (local)</th><th>Event</th><th>Scope</th><th>Node</th><th>Data</th></tr></thead>
+                            <colgroup><col class="vaw-event-sequence-column" /><col class="vaw-event-time-column" /><col class="vaw-event-kind-column" /><col class="vaw-event-node-column" /><col class="vaw-event-node-column" /><col class="vaw-event-identity-column" /><col class="vaw-event-identity-column" /><col /></colgroup>
+                            <thead><tr><th>Sequence</th><th>Time (local)</th><th>Event</th><th>Scope</th><th>Node</th><th>Invocation</th><th>Connection</th><th>Data</th></tr></thead>
                             <tbody>
                                 @foreach (var evt in VisibleEvents)
                                 {
@@ -182,7 +182,7 @@
                                     var preciseTimestamp = evt.Timestamp.ToString("O");
                                     var accessibleTimestamp = localTimestamp.ToString("yyyy-MM-dd HH:mm:ss.fff zzz");
                                     var displayTimestamp = localTimestamp.ToString("HH:mm:ss.fff");
-                                    <tr @key="evt.Sequence"><td>@evt.Sequence</td><td><time datetime="@preciseTimestamp" title="@preciseTimestamp" aria-label="@accessibleTimestamp">@displayTimestamp</time></td><td>@evt.Kind</td><td>@evt.ScopeId</td><td>@evt.NodeId</td><td><pre>@evt.Data</pre></td></tr>
+                                    <tr @key="evt.Sequence"><td>@evt.Sequence</td><td><time datetime="@preciseTimestamp" title="@preciseTimestamp" aria-label="@accessibleTimestamp">@displayTimestamp</time></td><td>@evt.Kind</td><td>@(evt.ScopeId ?? "root")</td><td>@(evt.NodeId ?? "workflow")</td><td><code>@EventIdentity(evt.InvocationId)</code></td><td><code>@(evt.ConnectionId ?? "—")</code></td><td><pre>@evt.Data</pre></td></tr>
                                 }
                             </tbody>
                         </table>
@@ -214,15 +214,15 @@
                     <div class="vaw-table-scroll vaw-node-events-table">
                         <table>
                             <caption>Events for @modalLabel</caption>
-                            <colgroup><col class="vaw-event-sequence-column" /><col class="vaw-event-time-column" /><col class="vaw-event-kind-column" /><col class="vaw-event-node-column" /><col /></colgroup>
-                            <thead><tr><th>Sequence</th><th>Time (local)</th><th>Event</th><th>Scope</th><th>Data</th></tr></thead>
+                            <colgroup><col class="vaw-event-sequence-column" /><col class="vaw-event-time-column" /><col class="vaw-event-kind-column" /><col class="vaw-event-node-column" /><col class="vaw-event-identity-column" /><col class="vaw-event-identity-column" /><col /></colgroup>
+                            <thead><tr><th>Sequence</th><th>Time (local)</th><th>Event</th><th>Scope</th><th>Invocation</th><th>Connection</th><th>Data</th></tr></thead>
                             <tbody>
                                 @foreach (var evt in nodeEvents)
                                 {
                                     var localTimestamp = evt.Timestamp.ToLocalTime();
                                     var preciseTimestamp = evt.Timestamp.ToString("O");
                                     var accessibleTimestamp = localTimestamp.ToString("yyyy-MM-dd HH:mm:ss.fff zzz");
-                                    <tr @key="evt.Sequence"><td>@evt.Sequence</td><td><time datetime="@preciseTimestamp" aria-label="@accessibleTimestamp">@localTimestamp.ToString("HH:mm:ss.fff")</time></td><td>@evt.Kind</td><td>@(evt.ScopeId ?? "root")</td><td><pre>@evt.Data</pre></td></tr>
+                                    <tr @key="evt.Sequence"><td>@evt.Sequence</td><td><time datetime="@preciseTimestamp" aria-label="@accessibleTimestamp">@localTimestamp.ToString("HH:mm:ss.fff")</time></td><td>@evt.Kind</td><td>@(evt.ScopeId ?? "root")</td><td><code>@EventIdentity(evt.InvocationId)</code></td><td><code>@(evt.ConnectionId ?? "—")</code></td><td><pre>@evt.Data</pre></td></tr>
                                 }
                             </tbody>
                         </table>
@@ -673,6 +673,8 @@
 
     private IEnumerable<ExecutionEvent> EventsForNode(string nodeId) => VisibleEvents.Where(evt =>
         evt.NodeId == nodeId || evt.ScopeId == nodeId || evt.ScopeId?.StartsWith(nodeId + "/", StringComparison.Ordinal) == true);
+
+    private static string EventIdentity(Guid? identity) => identity?.ToString() ?? "—";
 
     private SequencePlaybackSnapshot? SequencePlayback(string nodeId)
     {

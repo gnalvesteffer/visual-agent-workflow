@@ -256,6 +256,8 @@
 .vaw-node-events-table { max-block-size: min(62dvh, 36rem); margin: 0 1.25rem 1.25rem; overflow: auto; }
 .vaw-node-events-dialog table { min-inline-size: 48rem; }
 .vaw-node-events-dialog td pre { max-block-size: 10rem; overflow: auto; }
+.vaw-event-identity-column { inline-size: 10rem; }
+.vaw-run-events-pane td code, .vaw-node-events-dialog td code { color: var(--vaw-accent); font-family: var(--vaw-mono); font-size: .68rem; white-space: nowrap; }
 :where(.vaw-viewer, .vaw-designer, .vaw-workflow-editor) pre { font-family: var(--vaw-mono); font-size: 0.875rem; white-space: pre-wrap; overflow-wrap: anywhere; background-color: var(--vaw-canvas); padding: var(--vaw-space-3); }
 .vaw-table-scroll { max-inline-size: 100%; overflow-x: auto; }
 .vaw-viewer table { inline-size: 100%; table-layout: fixed; border-collapse: collapse; text-align: start; }
