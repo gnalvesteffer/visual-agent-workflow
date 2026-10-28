@@ -101,8 +101,19 @@ public sealed record WorkflowCheckpointFrame(
             throw new InvalidDataException("The loop checkpoint evidence prefix hash is invalid.");
 
         _ = WorkflowVariableStore.FromSnapshot(revision.Definition, Variables);
+        var variableEvents = evidence.Where(evt => VariableEvidence.IsStateEvent(evt.Kind)).ToArray();
+        if (variableEvents.Length > 0 &&
+            (!VariableEvidence.TryReconstructPlayback(variableEvents, out var playback) || playback is null ||
+             playback.Values.Any(pair => !MatchesSnapshot(Variables, pair.Key, pair.Value))))
+            throw new InvalidDataException("The loop checkpoint variable snapshot does not match its evidence prefix.");
         ValidateLoopCursor(revision.Definition, Loop, evidence);
     }
+
+    private static bool MatchesSnapshot(WorkflowVariableSnapshot snapshot, string variableId, VariablePlaybackValue value) =>
+        snapshot.Values.FirstOrDefault(entry => entry.VariableId == variableId) is { } entry &&
+        string.Equals(entry.DataType, value.DataType, StringComparison.Ordinal) &&
+        string.Equals(entry.Value, value.Value, StringComparison.Ordinal) &&
+        entry.Version == value.Version;
 
     public static string ComputeEvidenceHash(IReadOnlyList<ExecutionEvent> evidence) =>
         Hash(JsonSerializer.Serialize(evidence));

@@ -71,6 +71,9 @@ established by this proof.
 - [x] Bind the trusted outer checkpoint envelope to the proof frame's native
   payload, evidence sequence, variable snapshot, and recorded loop iteration;
   reject mismatched components before recovery.
+- [x] Compare the captured variable snapshot with the recorded variable
+  evidence prefix when state events are present; reject a snapshot that is
+  internally hashed but disagrees with its passive history.
 - [x] Inject loop checkpoint publication failure and verify the SQLite
   transaction leaves no capture marker, checkpoint pointer, or resumable
   boundary.

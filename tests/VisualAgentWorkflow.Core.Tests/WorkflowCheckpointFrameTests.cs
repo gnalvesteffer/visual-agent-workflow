@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Collections.Immutable;
 using VisualAgentWorkflow.Core;
 using Xunit;
 
@@ -48,6 +49,29 @@ public sealed class WorkflowCheckpointFrameTests
             new("loop", "body", 2, 3, "body", "execute", "loop", "body", 2), variables, events);
 
         Assert.Throws<InvalidDataException>(() => frame.Validate(revision, events));
+    }
+
+    [Fact]
+    public void Proof_frame_rejects_a_variable_snapshot_that_disagrees_with_evidence()
+    {
+        var revision = WorkflowRevision.Create(LoopVariableTopologyTests.Candidate(), "checkpoint-proof");
+        var runId = Guid.NewGuid();
+        var store = new WorkflowVariableStore(revision.Definition);
+        var written = store.Write("message", WorkflowDataTypes.String, "changed");
+        var events = Evidence(runId, revision.RevisionId).Append(
+            new ExecutionEvent(runId, revision.RevisionId, 3, DateTimeOffset.UtcNow, ExecutionEventKinds.VariableWritten, "set",
+                Data: JsonSerializer.Serialize(new { variableId = "message", dataType = WorkflowDataTypes.String,
+                    previousValue = "default", value = "changed", version = written.Version, loopIteration = 1 }))).ToArray();
+        var frame = WorkflowCheckpointFrame.Create(revision, runId, "{}",
+            new("loop", "body", 1, 3, "body", "execute", "loop", "body", 2), store.Snapshot(), events);
+        frame.Validate(revision, events);
+
+        var tamperedValues = frame.Variables.Values.SetItem(0, frame.Variables.Values[0] with { Value = "tampered" });
+        var tamperedSnapshot = frame.Variables with { Values = tamperedValues };
+        var tampered = frame with { Variables = tamperedSnapshot, VariableStateHash = tamperedSnapshot.ComputeHash(), FrameHash = null };
+        tampered = tampered with { FrameHash = tampered.ComputeFrameHash() };
+
+        Assert.Throws<InvalidDataException>(() => tampered.Validate(revision, events));
     }
 
     private static List<ExecutionEvent> Evidence(Guid runId, Guid revisionId) =>

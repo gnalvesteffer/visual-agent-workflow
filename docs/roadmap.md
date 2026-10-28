@@ -168,7 +168,9 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   coverage reconstructs every valid operation prefix without execution. The
   loop-specific SQLite publication-failure proof now also verifies that a
   failed frame transaction leaves no capture marker, checkpoint pointer, or
-  resumable boundary. The bounded
+  resumable boundary. Frame validation also compares any recorded variable
+  read/write prefix with the captured scalar snapshot, rejecting a
+  hash-consistent but evidence-inconsistent state. The bounded
   linear schema 1.44 checkpoint frame captures a hashed variable snapshot with
   native state, validates it against the pinned definition, and restores it
   before resumed execution. Failure-injection, cancellation-race around durable

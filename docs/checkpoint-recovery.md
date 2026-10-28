@@ -22,7 +22,9 @@ variable snapshot, and recorded loop iteration, so component substitution is
 rejected before native recovery. This remains a proof boundary, not production
 loop admission. A loop-specific publication-failure regression also verifies
 that the atomic SQLite transaction leaves no partial capture marker or
-checkpoint pointer. See [decision
+checkpoint pointer. When variable evidence is present, validation also checks
+that the captured scalar snapshot agrees with that passive prefix. See
+[decision
 0031](decisions/0031-loop-checkpoint-proof-frame.md).
 
 ## Use the host API
