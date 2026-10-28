@@ -35,6 +35,45 @@ public sealed class MutableVariableContractTests
     }
 
     [Fact]
+    public void Variable_package_round_trip_preserves_state_contract_layout_and_requirements()
+    {
+        var definition = Definition();
+        var layout = WorkflowLayout.Create(definition) with
+        {
+            Nodes = WorkflowLayout.Create(definition).Nodes.SetItem("set",
+                new(new(384, 192), "Write count", "Persists the current research count."))
+        };
+        var json = WorkflowPackageJson.Serialize(definition, layout);
+        var imported = WorkflowPackageJson.Deserialize(json);
+
+        Assert.Equal(json, WorkflowPackageJson.Serialize(imported.Definition, imported.Layout));
+        Assert.Equal(definition.Variables, imported.Definition.Variables);
+        Assert.Equal(definition.Nodes["set"], imported.Definition.Nodes["set"]);
+        Assert.Equal("Write count", imported.Layout.Nodes["set"].Label);
+        Assert.Equal(WorkflowJson.ComputeHash(definition), imported.DefinitionHash);
+        Assert.Contains(imported.Requirements, requirement => requirement is { Kind: "node", Id: NodeTypes.VariableSet });
+    }
+
+    [Fact]
+    public void Incomplete_variable_draft_round_trips_but_strict_package_export_rejects_it()
+    {
+        var definition = Definition() with
+        {
+            Nodes = Definition().Nodes.Add("orphan-get", new(NodeTypes.VariableGet, "1.0.0")
+            {
+                VariableId = "count",
+                OutputDataType = WorkflowDataTypes.Integer
+            })
+        };
+
+        var saved = WorkflowJson.DeserializeDraft(WorkflowJson.SerializeDraft(definition));
+
+        Assert.Equal(WorkflowJson.ComputeDraftHash(definition), WorkflowJson.ComputeDraftHash(saved));
+        Assert.Contains(WorkflowValidator.Validate(saved), issue => issue.Code == "graph.unreachable");
+        Assert.Throws<ArgumentException>(() => WorkflowPackageJson.Create(saved, WorkflowLayout.Create(saved)));
+    }
+
+    [Fact]
     public void Blank_explicit_graph_can_be_promoted_to_the_variable_proof()
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
