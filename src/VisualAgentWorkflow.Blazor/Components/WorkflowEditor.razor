@@ -141,7 +141,8 @@
             </select></label>
         }
         <WorkflowNodeLibrary @key="context.Id" Title="Add node" SearchLabel="Search node actions" Entries="LibraryEntries(context)"
-            Disabled="Disabled" OnSelected="key => AddLibraryNode(key, context)" />
+            Disabled="Disabled" EmptyMessage="@ContextualLibraryEmptyMessage(context)"
+            OnSelected="key => AddLibraryNode(key, context)" />
         @if (context.NodeId is { } contextNode)
         {
             <div class="vaw-context-actions">
