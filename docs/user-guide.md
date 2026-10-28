@@ -108,8 +108,10 @@ default, description, and type, then add **Get variable** or **Set variable**
 from the Variables section of the node picker. Bind each node to a declaration
 in its properties pane and wire both execution and typed value pins explicitly.
 Each workflow run receives an isolated store; reads and writes are recorded as
-`variable.get` and `variable.set` evidence with a write version. This first
-slice is deliberately linear and rejects parallel, Sequence, collaboration,
+`variable.get` and `variable.set` evidence with a write version. In the run
+inspector, scrubbing a recorded prefix reconstructs the selected variable's
+value, version, and read/write history from those events only; it never reruns
+the graph. This first slice is deliberately linear and rejects parallel, Sequence, collaboration,
 async, graph-function, and shared child-workflow variable writes. Loop ordering,
 checkpoint admission, passive playback, and richer variable types remain future
 parity work.

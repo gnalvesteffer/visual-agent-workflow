@@ -229,6 +229,12 @@
 .vaw-sequence-path.is-skipped { border-inline-start-color: var(--vaw-muted); }
 .vaw-sequence-path.is-dispatched { border-inline-start-color: var(--vaw-accent); }
 .vaw-sequence-playback.is-detailed { margin-block: .75rem; }
+.vaw-variable-playback { display: grid; gap: .3rem; margin-block-start: .5rem; padding: .45rem .5rem; border: 1px solid var(--vaw-border); border-radius: var(--vaw-control-radius); background: color-mix(in srgb, var(--vaw-control) 42%, var(--vaw-canvas)); font-size: .68rem; }
+.vaw-variable-playback-heading { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; color: var(--vaw-text); overflow-wrap: anywhere; }
+.vaw-variable-playback-heading strong { font-size: .7rem; }
+.vaw-variable-playback p { margin: 0; color: var(--vaw-muted); }
+.vaw-variable-playback ol { display: grid; gap: .2rem; margin: 0; padding-inline-start: 1.2rem; color: var(--vaw-muted); }
+.vaw-variable-playback.is-detailed { margin-block: .75rem; }
 .vaw-node-status-chip { display: inline-flex; align-items: center; max-inline-size: 100%; min-block-size: 2rem; margin-block-start: .45rem; border: 1px solid var(--vaw-border); border-radius: var(--vaw-control-radius); overflow: hidden; background: color-mix(in srgb, var(--vaw-control) 55%, var(--vaw-canvas)); }
 .vaw-node-status-chip .vaw-node-button { display: flex; align-items: center; inline-size: auto; block-size: 2rem; min-block-size: 2rem; min-inline-size: 0; max-inline-size: calc(100% - 2.1rem); margin: 0; padding: .3rem .65rem; border: 0; border-inline-end: 1px solid color-mix(in srgb, var(--vaw-border) 72%, transparent); border-radius: 0; background: transparent; line-height: 1.2; }
 .vaw-node-status-label { display: flex; align-items: center; gap: .4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

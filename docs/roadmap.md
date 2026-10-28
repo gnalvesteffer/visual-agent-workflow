@@ -12,6 +12,13 @@ Schema 1.42 adds the bounded `core.number.add` pure data operator to the Bluepri
 
 Schema 1.43 is the shipped Sequence parity slice: each ordered output may enter one bounded, acyclic, disjoint direct-MCP path ending at the workflow Output barrier. It is definition-driven and preserves schema 1.38 behavior unchanged. Agent paths, shared descendants, branches, loops, nested workflows, and durable resume remain deferred until their separate lifecycle and evidence contracts are proven. A private Sequence-to-Agent feasibility proof exists, but it is not a persisted schema or a public authoring capability. Core now has a non-authoritative analyzer for the candidate topology, with explicit promotion gates; see [the proof gate decision](decisions/0011-sequence-agent-path-proof.md) and [the topology analyzer decision](decisions/0021-sequence-agent-topology-analyzer.md).
 
+Schema 1.44 is the shipped bounded mutable-variable slice: workflow-local scalar
+declarations, explicit typed Get/Set nodes, isolated run stores, variable
+evidence, Studio authoring, and passive prefix reconstruction. The inspector
+shows the reconstructed value/version and operation history without replaying
+the workflow. Concurrent, loop, Sequence, collaboration, checkpoint, and
+shared-child state semantics remain deferred.
+
 The backend owns execution. Schema 1.32's named 2–8 branch fork/join remains available. Schema 1.33 adds one graph-level shared-channel rendezvous and Studio authoring. Incomplete rendezvous and branch layouts can be saved but cannot publish or execute. The Studio/ordinary queued runs still interrupt after host failure; the separate opt-in host explicitly resumes deterministic saved checkpoints but collaboration regions do not support recovery or resume. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Socket rewiring is supported for matching typed pins, while incomplete drafts remain non-executable until validation succeeds. Sequential subagent calls, parallel agent-team calls, bounded graph fan-outs, and the first graph-level collaboration slice are explicit; nested collaboration remains planned. Conditional routing and parallel graph execution are validated operations.
 
 ## Planned phase: Blueprint-inspired authoring contracts and ergonomics
@@ -73,7 +80,7 @@ descriptions](decisions/0009-live-mcp-pin-descriptions.md).
 | Workstream | Current audit finding | Required outcome before calling it aligned |
 | --- | --- | --- |
 | Node and pin contracts | Core has stable node-family metadata and centralized port enumeration, but pin-level defaults, nullability, conversions, multiplicity, and dynamic identity are not one complete contract. | A versioned descriptor can derive editor pins, validator rules, runtime limits, and compatibility diagnostics without duplicating node-family knowledge. |
-| Runtime semantics | Current control flow is deliberately bounded; Sequence dispatch and mutable variables remain deferred because ordering, active work, cancellation, and replay contracts are not proven. | Each new control construct has explicit activation, state ownership, failure, cancellation, restart, and side-effect semantics with deterministic runtime tests. |
+| Runtime semantics | Current control flow and schema 1.44 variables are deliberately bounded; richer Sequence dispatch, loop-variable ordering, cancellation, checkpoint, and shared-state semantics remain unproven. | Each new control construct has explicit activation, state ownership, failure, cancellation, restart, and side-effect semantics with deterministic runtime tests. |
 | Persistence and compatibility | Canonical definitions, revisions, and package validation exist, but migration coverage is not represented by one registry. | Every supported schema/package transition has a round-trip, migration, invalid-draft, and publish/run admission proof. |
 | Authoring ergonomics | The editor supports typed wires, context-sensitive discovery, comments, reroutes, layout persistence, and diagnostics; broader Blueprint-style extraction and debugging remain bounded or planned. | Authoring affordances expose real contracts, preserve semantic undo/layout separation, and remain usable and accessible on large graphs. |
 | Evidence and debugging | Recorded playback and node/port identities exist, but each future affordance still needs an explicit event/evidence mapping and live-versus-historical boundary. | A run can explain activation, values, failure, cancellation, capability use, and nested identity without re-executing live services. |
@@ -128,8 +135,9 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   reviewed; prove default reads, ordered overwrites, isolated runs, and
   cancellation with deterministic runtime tests.
 - [ ] Add loop-order, cancellation-position, and checkpoint admission proofs.
-- [ ] Add passive playback and prefix reconstruction for variable reads/writes
-  without re-execution.
+- [x] Add passive playback and prefix reconstruction for variable reads/writes
+  without re-execution; the run inspector renders the reconstructed value,
+  version, and operation history.
 - [x] Add Studio declaration editing and typed nodes only after Core/runtime
   proof, compatibility, and invalid-draft tests pass.
 

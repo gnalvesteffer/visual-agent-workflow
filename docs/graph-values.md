@@ -11,6 +11,11 @@ pure `core.number.add` operator. See the [finite number decision](decisions/0006
 
 This is an active product capability, not a claim that the full Blueprint-style language exists. The graph engine supports string, Boolean, signed 64-bit integer, and bounded JSON values, deterministic text/JSON nodes, conditions, bounded loops, parallel blocks, and versioned workflow parameters. Schema 1.23 separates execution edges from pure data dependencies. Schema 1.24 adds ordinal, case-sensitive string equality and a Boolean Branch. Schema 1.25 adds an explicit Boolean constant and Boolean NOT. Schema 1.26 allows bounded branching and reconvergence with 1–8 Branch nodes and up to 16 Terminate nodes. Schema 1.27 adds immutable pure graph-function snapshots as lazy data nodes, first with string/Boolean pins. Schema 1.28 lets an agent expose its assigned function snapshots as bounded model tools. Schema 1.31 adds typed signed-64-bit integer constants, checked addition, integer equality, typed string/Boolean/integer workflow-value getters, and integer pins on pure graph functions. Schema 1.39 adds a strict, visible string-to-integer conversion node; it accepts only invariant ASCII decimal text and emits a signed 64-bit integer, with no implicit coercion. Branch arms may target another Branch, Output, or Terminate; shared targets accept alternative incoming routes and execute once when reached. Acyclicity, static reachability, and a structural Input-to-Output path are required. Static reachability is not predicate analysis, so a valid graph can still have no Output on a particular run if its Boolean values do not select that path. Pure values are evaluated on demand. Branch selection, evaluated values, function identity, inputs, nested values, and activated edge identities are audited; playback does not reevaluate them. Integer overflow and conversion failures are deterministic and record failure against the data node as well as the active node that requested the value. Studio can upgrade valid branch graphs and users add ordinary nodes unconnected. Its local Function library/editor creates immutable revisions; workflow call nodes and agent tools embed exact snapshots. Standalone function asset import/export remains unsupported. Legacy serialized `data` connections still activate downstream nodes under their original schemas, so they are not reinterpreted as pure value wires. General operators and migration of legacy node families remain unsupported. The toolbox should grow into a safe visual programming language for deterministic work, with reusable, packaged functions that feel like small integrated circuits.
 
+Schema 1.44 adds linear run-scoped scalar variables with explicit typed Get/Set
+nodes and passive evidence playback. Extend this slice to loop, concurrency,
+nested-workflow, checkpoint, and richer replay semantics only through separate
+reviewed contracts.
+
 ```mermaid
 flowchart LR
     Input[Input] -->|data: string| Compare[Compare strings]
@@ -137,7 +142,7 @@ flowchart LR
 2. Add typed constant/literal nodes and a small pure operator set with exhaustive deterministic tests.
 3. Expose selected node options as typed pins, with visible defaults and validation errors for incompatible connections.
 4. Add declared record/enum/collection types and workflow parameter bindings where there is a clear portability need.
-5. Add immutable scoped variable reads/writes only after concurrency, loop, nested workflow, and replay semantics are specified.
+5. Extend the bounded schema-1.44 variable proof to loop, concurrency, nested-workflow, checkpoint, and richer replay semantics before adding those regions.
 6. Add a function-graph asset format, editor/preview, immutable versions, package manifests, call node, dependency resolution, and end-to-end replay tests.
 7. Add broader control constructs in small bounded increments, with UX tests for rewiring, invalid drafts, and understandable validation messages.
 

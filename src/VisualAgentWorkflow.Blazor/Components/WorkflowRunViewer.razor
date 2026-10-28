@@ -127,6 +127,10 @@
                 {
                     @SequencePlaybackMarkup(node, playback, false)
                 }
+                @if (node.Type is (NodeTypes.VariableGet or NodeTypes.VariableSet) && VariablePlayback() is { } variablePlayback)
+                {
+                    @VariablePlaybackMarkup(node.VariableId, variablePlayback, false)
+                }
                 @if (BranchPort(nodeId) is { } chosenPort) { <p class="vaw-help">Selected output: @chosenPort</p> }
             </NodeContent>
             <NodeInspector Context="inspected">
@@ -154,6 +158,10 @@
                 @if (node.Type == NodeTypes.Sequence && SequencePlayback(selectedNode) is { } playback)
                 {
                     @SequencePlaybackMarkup(node, playback, true)
+                }
+                @if (node.Type is (NodeTypes.VariableGet or NodeTypes.VariableSet) && VariablePlayback() is { } variablePlayback)
+                {
+                    @VariablePlaybackMarkup(node.VariableId, variablePlayback, true)
                 }
                 @if (Snapshot.Header.Definition.Nodes[inspected].Type == NodeTypes.WorkflowCall)
                 {
@@ -681,6 +689,42 @@
         var sequenceEvents = VisibleEvents.Where(evt => evt.NodeId == nodeId && evt.ScopeId is null);
         return SequenceEvidence.TryReconstructPlayback(sequenceEvents, out var playback) ? playback : null;
     }
+
+    private VariablePlaybackSnapshot? VariablePlayback() =>
+        VariableEvidence.TryReconstructPlayback(VisibleEvents, out var playback) ? playback : null;
+
+    private static RenderFragment VariablePlaybackMarkup(string? variableId, VariablePlaybackSnapshot playback, bool detailed) => builder =>
+    {
+        if (variableId is null || !playback.Values.TryGetValue(variableId, out var value)) return;
+        var operations = playback.Operations.Where(operation => operation.VariableId == variableId).ToArray();
+        builder.OpenElement(0, "section");
+        builder.AddAttribute(1, "class", $"vaw-variable-playback {(detailed ? "is-detailed" : "")}");
+        builder.AddAttribute(2, "aria-label", "Recorded variable state");
+        builder.OpenElement(3, "div");
+        builder.AddAttribute(4, "class", "vaw-variable-playback-heading");
+        builder.OpenElement(5, "strong");
+        builder.AddContent(6, "Variable state");
+        builder.CloseElement();
+        builder.OpenElement(7, "span");
+        builder.AddContent(8, $"{value.Value} · version {value.Version}");
+        builder.CloseElement();
+        builder.CloseElement();
+        if (detailed)
+        {
+            builder.OpenElement(9, "p");
+            builder.AddContent(10, $"{operations.Length} recorded read/write operation{(operations.Length == 1 ? "" : "s")} at this position.");
+            builder.CloseElement();
+            builder.OpenElement(11, "ol");
+            foreach (var operation in operations)
+            {
+                builder.OpenElement(12, "li");
+                builder.AddContent(13, $"{operation.Kind} · {operation.Value} · version {operation.Version} · event {operation.Sequence}");
+                builder.CloseElement();
+            }
+            builder.CloseElement();
+        }
+        builder.CloseElement();
+    };
 
     private static RenderFragment SequencePlaybackMarkup(NodeDefinition node, SequencePlaybackSnapshot playback, bool detailed) => builder =>
     {

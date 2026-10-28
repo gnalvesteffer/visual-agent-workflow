@@ -50,7 +50,8 @@ activation point and records the observed write version.
 
 The shipped slice proves schema round-trip, bounded scalar declaration/default
 validation, typed pins, linear topology, isolated simultaneous runs, ordered
-write/read evidence, and Studio declaration plus typed node authoring.
+write/read evidence, passive prefix reconstruction, and Studio declaration plus
+typed node authoring.
 Unsupported concurrent/Sequence/collaboration/async, graph-function, and shared
 child-workflow regions are rejected by validation. Cancellation and checkpoint
 behavior remain explicit follow-up proofs.

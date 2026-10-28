@@ -261,6 +261,15 @@ Schema 1.5 approval nodes immediately precede a pinned MCP tool. The adapter cap
 `CheckpointWorkflowHost` is a separate opt-in consumer API over SQLite and the adapter's native Agent Framework JSON checkpoint path. It commits bounded native state, capture/suspension evidence and the current status together; explicit recovery validates the exact latest checkpoint/cursor and rebuilds identical executors without replaying completed nodes. Only deterministic linear/conditional graphs are admitted. It does not change Studio's process-owned queue, and model/MCP/approval recovery remains excluded. Both built-in stores now provide an exclusive local owner handle honored by the ordinary runtime and checkpoint host, while observers read independently. Run-database schema 2 added checkpoint storage; schema 3 adds the separate assertion table. The authoring catalog is unchanged. See [recovery scope and ownership](checkpoint-recovery.md).
 
 
+## Schema 1.44 variable state
+
+Schema 1.44 adds workflow-local scalar declarations and explicit typed Get/Set
+nodes. The runner creates an isolated store per workflow-call invocation,
+records `variable.get` and `variable.set` evidence with versions, and rejects
+parallel, loop, Sequence, collaboration, checkpoint, and shared-child state
+in the bounded first slice. Core's passive variable reader and the run
+inspector reconstruct a recorded prefix without invoking the workflow again.
+
 ## Reconciliation assessment and operator assertions
 
 Core's optional `IWorkflowRunReconciliationObserver` supplies cursor-bound metadata without changing the original observer contract. A pure work projection preserves unsettled model/tool/approval facts even after terminal status; new model/tool call IDs distinguish repeated calls without changing event envelopes. Hosting combines that evidence with checkpoint validation; SQLite reads both under one transaction. The protected observation group adds only a GET assessment route, and the Core-only HTTP client plus embeddable reconciliation panel validate identity/cursor alignment. The panel suppresses stale eligibility on source changes or outage and remains independent of playback. The optional `IWorkflowRunReconciliationDecisionStore` stores a separate append-only human assertion, with exact target and current-head checks in one SQLite write transaction. Assertions never alter the assessment or recovery gates. There is no HTTP mutation route or Studio control; a consuming host must provide authenticated actor identity and authorize access before exposing the capability. See [run reconciliation](run-reconciliation.md).
