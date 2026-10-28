@@ -37,6 +37,22 @@ public sealed class WorkflowNodeContractTests
         Assert.True(tool.HasDynamicPins);
         Assert.True(tool.RequiresHostCapability);
         Assert.False(tool.IsPure);
+        Assert.Equal(WorkflowNodeEvidenceKind.CapabilityInvocation, agent.Evidence);
+        Assert.Equal(WorkflowNodeStateKind.HostOwned, tool.State);
+    }
+
+    [Fact]
+    public void Descriptor_semantics_distinguish_pure_data_from_control_and_barriers()
+    {
+        var constant = WorkflowNodeContractCatalog.Get(NodeTypes.StringConstant);
+        var branch = WorkflowNodeContractCatalog.Get(NodeTypes.BooleanBranch);
+        var join = WorkflowNodeContractCatalog.Get(NodeTypes.ParallelJoin);
+
+        Assert.Equal(WorkflowNodeActivationKind.DataEvaluation, constant.Activation);
+        Assert.Equal(WorkflowNodeStateKind.Stateless, constant.State);
+        Assert.Equal(WorkflowNodeFailureKind.Routes, branch.Failure);
+        Assert.Equal(WorkflowNodeActivationKind.SchedulerBarrier, join.Activation);
+        Assert.Equal(WorkflowNodeFailureKind.AbortsRegion, join.Failure);
     }
 
     [Fact]
