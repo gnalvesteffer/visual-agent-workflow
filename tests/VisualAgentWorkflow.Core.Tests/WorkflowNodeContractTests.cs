@@ -368,6 +368,22 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Descriptor_resolver_covers_every_canonical_node_family_with_default_configuration()
+    {
+        foreach (var contract in WorkflowNodeContractCatalog.All)
+        {
+            var node = new NodeDefinition(contract.Type, contract.TypeVersion);
+            var issues = WorkflowNodeDescriptorConformance.ValidateResolved(node);
+
+            Assert.True(issues.IsEmpty,
+                $"{contract.Type} descriptor issues: {string.Join("; ", issues.Select(issue => issue.Code + ": " + issue.Message))}");
+            Assert.True(WorkflowNodeDescriptorResolver.TryResolve(node, null, null, out var descriptor));
+            Assert.Equal(contract.Type, descriptor.NodeType);
+            Assert.Equal(WorkflowNodeDescriptorRegistry.CurrentVersion, descriptor.DescriptorVersion);
+        }
+    }
+
+    [Fact]
     public void Validator_admits_valid_static_descriptors_without_descriptor_boundary_issues()
     {
         var definition = new WorkflowDefinition(
