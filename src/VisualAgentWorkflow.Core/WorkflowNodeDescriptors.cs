@@ -105,6 +105,8 @@ public static class WorkflowNodeDescriptorRegistry
 
     public static ImmutableArray<WorkflowNodeDescriptor> All { get; } =
     [
+        Descriptor(NodeTypes.Uppercase, "uppercase", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String)]),
+        Descriptor(NodeTypes.Reverse, "reverse", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String)]),
         Descriptor(NodeTypes.StringConstant, "string-constant", [Output(WorkflowDataTypes.String)]),
         Descriptor(NodeTypes.BooleanConstant, "boolean-constant", [Output(WorkflowDataTypes.Boolean)]),
         Descriptor(NodeTypes.IntegerConstant, "integer-constant", [Output(WorkflowDataTypes.Integer)]),

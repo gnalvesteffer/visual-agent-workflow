@@ -184,6 +184,22 @@ public sealed class WorkflowNodeContractTests
             WorkflowPorts.Explicit(node).Select(port => (port.Id, port.Direction, port.Kind, port.DataType)));
     }
 
+    [Theory]
+    [InlineData(NodeTypes.Uppercase, "uppercase")]
+    [InlineData(NodeTypes.Reverse, "reverse")]
+    public void Static_text_transformations_use_canonical_data_descriptors(string nodeType, string configurationKind)
+    {
+        var descriptor = WorkflowNodeDescriptorRegistry.Get(nodeType);
+
+        Assert.Equal(configurationKind, descriptor.ConfigurationKind);
+        Assert.Empty(WorkflowNodeDescriptorConformance.Validate(descriptor));
+        Assert.Equal(
+            [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String),
+             ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String)],
+            WorkflowPorts.Explicit(new NodeDefinition(nodeType, "1.0.0"))
+                .Select(port => (port.Id, port.Direction, port.Kind, port.DataType)));
+    }
+
     [Fact]
     public void Resolved_dynamic_descriptors_validate_pin_metadata_without_live_discovery()
     {
