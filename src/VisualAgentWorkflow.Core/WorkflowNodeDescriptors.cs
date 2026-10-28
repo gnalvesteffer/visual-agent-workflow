@@ -12,6 +12,69 @@ public sealed record WorkflowNodeDescriptor(
     public WorkflowNodeContract NodeContract => WorkflowNodeContractCatalog.Get(NodeType);
 }
 
+public sealed record WorkflowNodeDescriptorIssue(string Code, string Message);
+
+/// <summary>Checks the schema-neutral invariants of a registered static descriptor.</summary>
+/// <remarks>
+/// This is deliberately limited to descriptors whose pin shape is independent of node configuration.
+/// Dynamic node configuration remains validated by its schema-specific boundary.
+/// </remarks>
+public static class WorkflowNodeDescriptorConformance
+{
+    public static ImmutableArray<WorkflowNodeDescriptorIssue> Validate(WorkflowNodeDescriptor descriptor)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        var issues = ImmutableArray.CreateBuilder<WorkflowNodeDescriptorIssue>();
+        void Error(string code, string message) => issues.Add(new(code, message));
+
+        if (string.IsNullOrWhiteSpace(descriptor.NodeType) ||
+            !WorkflowNodeContractCatalog.TryGet(descriptor.NodeType, out var contract))
+        {
+            Error("node-type", "The descriptor must name a supported node family.");
+            return issues.ToImmutable();
+        }
+
+        if (!string.Equals(descriptor.DescriptorVersion, WorkflowNodeDescriptorRegistry.CurrentVersion, StringComparison.Ordinal))
+            Error("version", $"The descriptor version must be {WorkflowNodeDescriptorRegistry.CurrentVersion}.");
+        if (string.IsNullOrWhiteSpace(descriptor.ConfigurationKind))
+            Error("configuration-kind", "The descriptor must declare a configuration kind.");
+        if (descriptor.Ports.IsDefaultOrEmpty)
+            Error("ports", "A static descriptor must declare at least one port.");
+
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var port in descriptor.Ports)
+        {
+            if (string.IsNullOrWhiteSpace(port.Id) || !ids.Add(port.Id))
+                Error("port-id", $"Port IDs must be nonempty and unique (duplicate '{port.Id}').");
+            if (!Enum.IsDefined(port.Direction) || !Enum.IsDefined(port.Kind))
+                Error("port-kind", $"Port '{port.Id}' has an unsupported direction or kind.");
+            if (port.Kind == WorkflowPortKind.Data && !WorkflowDataTypeCatalog.IsSupported(port.DataType))
+                Error("data-type", $"Data port '{port.Id}' must declare a supported data type.");
+            if (port.Kind == WorkflowPortKind.Execution && port.DataType is not null)
+                Error("execution-type", $"Execution port '{port.Id}' cannot declare a data type.");
+            if (!Enum.IsDefined(port.Cardinality))
+                Error("cardinality", $"Port '{port.Id}' has an unsupported cardinality.");
+            if (port.SupportsStaticValue && (port.Direction != WorkflowPortDirection.Input || port.Kind != WorkflowPortKind.Data))
+                Error("static-value", $"Only data input ports may support a static value.");
+            if (port.Required && port.Direction != WorkflowPortDirection.Input)
+                Error("requiredness", $"Only input ports may be required.");
+        }
+
+        var hasExecution = descriptor.Ports.Any(port => port.Kind == WorkflowPortKind.Execution);
+        var hasData = descriptor.Ports.Any(port => port.Kind == WorkflowPortKind.Data);
+        if (contract.HasExecutionPins != hasExecution)
+            Error("contract-execution", $"Descriptor execution-pin presence disagrees with the '{contract.Type}' node contract.");
+        if (contract.HasDataPins != hasData)
+            Error("contract-data", $"Descriptor data-pin presence disagrees with the '{contract.Type}' node contract.");
+        if (contract.IsPure && hasExecution)
+            Error("contract-purity", $"Pure node contract '{contract.Type}' cannot declare execution pins.");
+        if (contract.HasDynamicPins)
+            Error("dynamic", $"Dynamic node contract '{contract.Type}' requires a configuration-derived descriptor.");
+
+        return issues.ToImmutable();
+    }
+}
+
 /// <summary>
 /// Exact descriptors for nodes whose pin shape is independent of node configuration.
 /// Dynamic/configuration-derived nodes remain on their specialized resolvers.

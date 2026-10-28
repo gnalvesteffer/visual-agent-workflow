@@ -56,3 +56,4 @@ Documentation changes follow [documentation-maintenance](../.agents/skills/docum
 - [Bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md) — defers a Blueprint-style Sequence node until scheduler and playback semantics are proven.
 - [Sequence-to-Agent path proof gate](decisions/0011-sequence-agent-path-proof.md) — records the non-public Agent descendant proof and the gate for a future schema 1.44.
 - [Dynamic pin descriptor resolution](decisions/0012-dynamic-pin-descriptor-resolution.md) — defines the schema-neutral Core projection for configured dynamic pins and transient MCP discovery.
+- [Static descriptor validation boundary](decisions/0013-static-descriptor-validation-boundary.md) — validates registered static descriptor metadata without making dynamic authoring projections an admission contract.

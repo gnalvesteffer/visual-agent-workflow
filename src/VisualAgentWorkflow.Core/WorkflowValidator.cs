@@ -205,6 +205,12 @@ public static class WorkflowValidator
             if (node is null || !NodeTypes.IsSupported(node.Type) || node.TypeVersion != "1.0.0")
                 Error("node.unsupported", $"nodes.{id}", "Unknown node type or implementation version.");
             if (node is null) continue;
+            if (WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor) &&
+                string.Equals(node.TypeVersion, staticDescriptor.NodeContract.TypeVersion, StringComparison.Ordinal))
+            {
+                foreach (var issue in WorkflowNodeDescriptorConformance.Validate(staticDescriptor))
+                    Error("node.descriptor", $"nodes.{id}.descriptor.{issue.Code}", issue.Message);
+            }
             if (node.McpArgumentsJson is { } mcpArguments &&
                 (node.Type != NodeTypes.McpTool ||
                  mcpArguments.Length > 65_536 || !IsJsonObject(mcpArguments)))

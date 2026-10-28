@@ -125,6 +125,53 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Static_descriptor_conformance_checks_port_and_contract_invariants()
+    {
+        var valid = WorkflowNodeDescriptorRegistry.Get(NodeTypes.StringConstant);
+        Assert.Empty(WorkflowNodeDescriptorConformance.Validate(valid));
+
+        var invalid = valid with
+        {
+            DescriptorVersion = "9.9.9",
+            ConfigurationKind = "",
+            Ports =
+            [
+                new("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, "not-a-type"),
+                new("out", WorkflowPortDirection.Output, WorkflowPortKind.Execution, WorkflowDataTypes.String)
+            ]
+        };
+
+        var issues = WorkflowNodeDescriptorConformance.Validate(invalid);
+
+        Assert.Contains(issues, issue => issue.Code == "version");
+        Assert.Contains(issues, issue => issue.Code == "configuration-kind");
+        Assert.Contains(issues, issue => issue.Code == "port-id");
+        Assert.Contains(issues, issue => issue.Code == "data-type");
+        Assert.Contains(issues, issue => issue.Code == "execution-type");
+    }
+
+    [Fact]
+    public void Validator_admits_valid_static_descriptors_without_descriptor_boundary_issues()
+    {
+        var definition = new WorkflowDefinition(
+            "1.43", "descriptor-validation", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["constant"] = new(NodeTypes.StringConstant, "1.0.0")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            new Dictionary<string, ConnectionDefinition>().ToImmutableSortedDictionary(StringComparer.Ordinal))
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>().ToImmutableSortedDictionary(StringComparer.Ordinal)
+        };
+
+        var issues = WorkflowValidator.Validate(definition);
+
+        Assert.DoesNotContain(issues, issue => issue.Code == "node.descriptor");
+        Assert.NotEmpty(issues);
+    }
+
+    [Fact]
     public void Dynamic_descriptor_resolution_preserves_authored_routes_and_sequence_order()
     {
         var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0",
