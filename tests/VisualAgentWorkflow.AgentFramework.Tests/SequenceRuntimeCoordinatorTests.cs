@@ -45,4 +45,20 @@ public sealed class SequenceRuntimeCoordinatorTests
             coordinator.Events.Skip(2).Select(evt => evt.Kind));
         Assert.Equal(["second", "third"], coordinator.Events.Where(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped).Select(evt => evt.OutputId));
     }
+
+    [Fact]
+    public void Lifecycle_events_can_be_recorded_as_passive_execution_events()
+    {
+        var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), "sequence",
+            ["first", "second"],
+            new Dictionary<string, string> { ["first"] = "connection-a", ["second"] = "connection-b" });
+        var activationId = Guid.NewGuid();
+        coordinator.DispatchNext(activationId);
+        coordinator.Complete(activationId, SequenceTerminalState.Completed);
+
+        var recorded = coordinator.ToExecutionEvents(Guid.NewGuid(), Guid.NewGuid(), 12, DateTimeOffset.UtcNow);
+        Assert.Equal(12, recorded[0].Sequence);
+        Assert.All(recorded, evt => Assert.True(SequenceEvidence.TryRead(evt, out _)));
+        Assert.Equal(ExecutionEventKinds.SequenceOutputDispatched, recorded[1].Kind);
+    }
 }

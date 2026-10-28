@@ -36,6 +36,22 @@ internal sealed class SequenceRuntimeCoordinator
         get { lock (gate) return events.ToArray(); }
     }
 
+    public IReadOnlyList<ExecutionEvent> ToExecutionEvents(Guid runId, Guid revisionId, long firstSequence,
+        DateTimeOffset recordedAt)
+    {
+        if (runId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(runId));
+        if (revisionId == Guid.Empty) throw new ArgumentException("A revision ID is required.", nameof(revisionId));
+
+        return Events.Select((runtimeEvent, index) =>
+        {
+            var evidence = new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId, runtimeEvent.SequenceNodeId,
+                runtimeEvent.OutputId, runtimeEvent.Ordinal, runtimeEvent.ActivationId, runtimeEvent.ConnectionId);
+            return new ExecutionEvent(runId, revisionId, checked(firstSequence + index), recordedAt,
+                runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
+                runtimeEvent.ConnectionId, SequenceEvidence.Serialize(evidence));
+        }).ToArray();
+    }
+
     public SequenceActivationSnapshot DispatchNext(Guid activationId)
     {
         var snapshot = ledger.DispatchNext(activationId);

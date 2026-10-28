@@ -99,7 +99,8 @@ Sequence proof checklist:
 - [ ] Connect Sequence-specific activations to that boundary and prove descendant completion.
 - [x] Prove stable Sequence invocation/output/ordinal/connection lifecycle identity in a private coordinator.
 - [x] Define a versioned, fail-closed passive evidence payload and reader for Sequence lifecycle events.
-- [ ] Emit that lineage through real recorded events and passive playback.
+- [x] Prove conversion of coordinator lifecycle facts into passive `ExecutionEvent` records.
+- [ ] Emit that lineage from real Sequence runner executions and expose it in passive playback.
 - [ ] Prove partial dispatch, failure, cancellation, pause, and host-stop outcomes against the real runner.
 - [ ] Only then add schema 1.38, validator rules, persistence compatibility, Studio authoring, and public runtime behavior.
 

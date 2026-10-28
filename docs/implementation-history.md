@@ -10,7 +10,7 @@ The runner now also owns an internal `ExecutionActivationLedger` at the recorded
 
 The private `SequenceRuntimeCoordinator` proof now assigns stable sequence invocation, output ID, ordinal, and connection identity to each lifecycle fact. It distinguishes successful completion from failed or cancelled termination and records later outputs as skipped after a short-circuit. These facts are not yet serialized into passive playback or connected to a public node.
 
-Core now defines the versioned `SequenceLifecycleEvidence` payload and a fail-closed passive reader for the reserved `sequence.*` event family. It accepts only version 1 payloads with stable sequence identity and ignores malformed, wrong-version, and non-Sequence records. This establishes the playback contract without claiming that the runtime emits these events yet.
+Core now defines the versioned `SequenceLifecycleEvidence` payload and a fail-closed passive reader for the reserved `sequence.*` event family. It accepts only version 1 payloads with stable sequence identity and ignores malformed, wrong-version, and non-Sequence records. The coordinator also proves conversion to passive `ExecutionEvent` records with monotonic sequence numbers. The real runner does not emit these events yet, so public Sequence playback remains deferred.
 
 ## Branch-local Boolean routing in schema 1.34
 
