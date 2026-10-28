@@ -7,6 +7,8 @@ namespace VisualAgentWorkflow.Mcp;
 /// <summary>Validated portable MCP input shapes supported by the agent adapter.</summary>
 public static class McpToolInputSchemas
 {
+    public const string DescriptorVersion = "1.0.0";
+
     /// <summary>Returns whether an MCP tool uses the supported bounded JSON schema subset.</summary>
     public static bool IsSupported(JsonElement schema) => McpInputSchema.IsSupported(schema);
 
@@ -18,6 +20,10 @@ public static class McpToolInputSchemas
 
     /// <summary>Returns a concise summary of supported fields, nested objects, and arrays.</summary>
     public static string Summarize(JsonElement schema) => McpInputSchema.Summarize(schema);
+
+    /// <summary>Builds a bounded, read-only schema view for authoring and diagnostics.</summary>
+    /// <remarks>The descriptor is derived metadata; it is not a workflow field or a runtime authority.</remarks>
+    public static McpToolSchemaDescriptor Describe(JsonElement schema) => McpInputSchema.Describe(schema);
 
     /// <summary>Validates JSON arguments against the supported schema subset and converts them to MCP call values.</summary>
     public static IReadOnlyDictionary<string, object?> ToCallArguments(JsonElement schema, JsonElement arguments) =>
@@ -84,6 +90,13 @@ internal sealed class McpInputSchema
         SummarizeObject(root, "", depth: 0, fields);
         var summary = string.Join(", ", fields);
         return summary.Length <= MaximumSummaryLength ? summary : summary[..(MaximumSummaryLength - 3)] + "...";
+    }
+
+    internal static McpToolSchemaDescriptor Describe(JsonElement schema)
+    {
+        var validated = Validate(schema).schema;
+        var normalized = Normalize(validated);
+        return McpToolSchemaDescriptorBuilder.Build(validated, normalized, McpToolInputSchemas.DescriptorVersion);
     }
 
     private static void SummarizeObject(JsonElement definition, string prefix, int depth, List<string> fields)

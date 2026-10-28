@@ -2,6 +2,16 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Derived MCP schema descriptor
+
+The MCP layer now exposes a versioned, read-only descriptor derived from its
+validated normalized input schema. Authors and diagnostics can inspect stable
+paths, nested object/array shape, requiredness, enums, bounds, bounded
+descriptions, and default annotations; only top-level scalar fields are marked
+eligible for the existing direct graph-pin model. The descriptor never creates
+nested pins, applies defaults, changes workflow hashes, or replaces the broker's
+runtime validation and contract-hash checks. See [MCP schema descriptor](decisions/0020-mcp-schema-descriptor.md).
+
 ## Non-serialized node capability projection
 
 Core now exposes a versioned in-memory capability projection that composes the

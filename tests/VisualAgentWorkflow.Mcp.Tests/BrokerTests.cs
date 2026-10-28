@@ -209,6 +209,58 @@ public class BrokerTests
     }
 
     [Fact]
+    public void Schema_descriptor_exposes_bounded_nested_metadata_without_flattening_or_defaults()
+    {
+        using var schema = JsonDocument.Parse("""
+            {"type":"object","properties":{"query":{"type":"string","description":"Search text","default":"private"},"request":{"type":"object","properties":{"count":{"type":"integer","minimum":1,"maximum":10}},"required":["count"]},"labels":{"type":"array","items":{"type":"string","enum":["blue","green"]},"minItems":1,"maxItems":2}},"required":["request"]}
+            """);
+
+        var descriptor = McpToolInputSchemas.Describe(schema.RootElement);
+        var query = descriptor.Root.Properties.Single(field => field.Name == "query");
+        var request = descriptor.Root.Properties.Single(field => field.Name == "request");
+        var count = request.Properties.Single(field => field.Name == "count");
+        var labels = descriptor.Root.Properties.Single(field => field.Name == "labels");
+
+        Assert.Equal(McpToolInputSchemas.DescriptorVersion, descriptor.DescriptorVersion);
+        Assert.Matches("^[0-9a-f]{64}$", descriptor.NormalizedSchemaHash);
+        Assert.Equal(["query", "request", "labels"], descriptor.Root.Properties.Select(field => field.Name));
+        Assert.False(query.Required);
+        Assert.True(query.DirectGraphPinEligible);
+        Assert.Equal("\"private\"", query.DefaultJson);
+        Assert.Equal("Search text", query.Description);
+        Assert.True(request.Required);
+        Assert.False(request.DirectGraphPinEligible);
+        Assert.Equal("$.request.count", count.Path);
+        Assert.Equal(1, count.Bounds.Minimum);
+        Assert.Equal(10, count.Bounds.Maximum);
+        Assert.False(labels.DirectGraphPinEligible);
+        Assert.Equal("string", labels.Items!.JsonType);
+        Assert.Equal(["\"blue\"", "\"green\""], labels.Items.EnumValues.ToArray());
+        Assert.Equal(1, labels.Bounds.MinimumItems);
+        Assert.Equal(2, labels.Bounds.MaximumItems);
+    }
+
+    [Fact]
+    public void Schema_descriptor_is_deterministic_and_does_not_apply_json_schema_defaults()
+    {
+        using var first = JsonDocument.Parse("""{"type":"object","properties":{"query":{"type":"string","default":"private"}}}""");
+        using var second = JsonDocument.Parse("""{"type":"object","properties":{"query":{"type":"string","default":"private"}}}""");
+
+        var firstDescriptor = McpToolInputSchemas.Describe(first.RootElement);
+        var secondDescriptor = McpToolInputSchemas.Describe(second.RootElement);
+        using var omitted = JsonDocument.Parse("{}");
+
+        Assert.Equal(firstDescriptor.DescriptorVersion, secondDescriptor.DescriptorVersion);
+        Assert.Equal(firstDescriptor.NormalizedSchemaHash, secondDescriptor.NormalizedSchemaHash);
+        Assert.Equal(firstDescriptor.Root.Properties.Select(field => (field.Path, field.JsonType, field.Required,
+            field.DefaultJson, field.DirectGraphPinEligible)),
+            secondDescriptor.Root.Properties.Select(field => (field.Path, field.JsonType, field.Required,
+                field.DefaultJson, field.DirectGraphPinEligible)));
+        Assert.DoesNotContain("query", McpToolInputSchemas.ToCallArguments(first.RootElement, omitted.RootElement).Keys);
+        Assert.Equal("\"private\"", firstDescriptor.Root.Properties.Single().DefaultJson);
+    }
+
+    [Fact]
     public async Task TypedScalarArgumentsAreValidatedAndPassedToMcp()
     {
         var broker = CreateBroker(policy: new DemoToolPolicy());
