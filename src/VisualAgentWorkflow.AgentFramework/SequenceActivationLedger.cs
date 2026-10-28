@@ -93,6 +93,16 @@ internal sealed class SequenceActivationLedger
         }
     }
 
+    public IReadOnlyList<SequenceActivationSnapshot> SkipPending()
+    {
+        lock (gate)
+        {
+            foreach (var entry in entries.Where(candidate => candidate.State == SequenceActivationState.Declared))
+                entry.State = SequenceActivationState.Skipped;
+            return entries.Select(entry => entry.ToSnapshot()).ToArray();
+        }
+    }
+
     private bool IsTerminalUnderLock() => entries.All(entry => entry.State is SequenceActivationState.Completed or SequenceActivationState.Skipped)
         || entries.Any(entry => entry.State is SequenceActivationState.Failed or SequenceActivationState.Cancelled);
 

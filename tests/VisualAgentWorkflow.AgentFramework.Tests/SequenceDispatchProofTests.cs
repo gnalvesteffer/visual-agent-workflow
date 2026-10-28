@@ -51,6 +51,40 @@ public sealed class SequenceDispatchProofTests
     }
 
     [Fact]
+    public async Task Pause_boundary_does_not_redispatch_or_skip_the_next_output()
+    {
+        var gate = new BoundaryGate(blockedBoundary: 2);
+        var execution = SequenceRunnerProof.ExecuteAsync(Guid.NewGuid(), Guid.NewGuid(), gate: gate);
+
+        await gate.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(execution.IsCompleted, "The paused continuation must not complete before it is released.");
+        gate.Release.TrySetResult();
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(["first", "second", "third"], result.DispatchOrder);
+        Assert.DoesNotContain(result.Events, evt => evt.Kind == ExecutionEventKinds.SequenceCancelled);
+    }
+
+    [Fact]
+    public async Task Host_stop_at_pause_boundary_cancels_sequence_without_redispatch()
+    {
+        var gate = new BoundaryGate(blockedBoundary: 2);
+        using var cancellation = new CancellationTokenSource();
+        var execution = SequenceRunnerProof.ExecuteAsync(Guid.NewGuid(), Guid.NewGuid(), gate: gate,
+            cancellationToken: cancellation.Token);
+
+        await gate.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(["first"], result.DispatchOrder);
+        Assert.True(result.Events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceCancelled),
+            $"Recorded kinds: {string.Join(", ", result.Events.Select(evt => evt.Kind))}");
+        Assert.Equal(["second", "third"], result.Events.Where(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped)
+            .Select(evt => SequenceEvidence.TryRead(evt, out var evidence) ? evidence!.OutputId : null));
+    }
+
+    [Fact]
     public async Task Direct_dispatch_can_admit_the_next_output_while_the_first_is_still_active()
     {
         var fixture = new DispatchFixture();
@@ -227,4 +261,21 @@ public sealed class SequenceDispatchProofTests
 
     private sealed record DispatchMessage(string Output);
     private sealed record ProbeResult(string Output);
+
+    private sealed class BoundaryGate(int blockedBoundary) : IWorkflowExecutionGate
+    {
+        private int calls;
+
+        public TaskCompletionSource Blocked { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async ValueTask WaitForBoundaryAsync(string? nextNodeId, CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref calls) == blockedBoundary)
+            {
+                Blocked.TrySetResult();
+                await Release.Task.WaitAsync(cancellationToken);
+            }
+        }
+    }
 }

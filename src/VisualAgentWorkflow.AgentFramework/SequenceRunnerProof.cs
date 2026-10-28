@@ -12,6 +12,7 @@ internal static class SequenceRunnerProof
 {
     internal static async Task<SequenceRunnerProofResult> ExecuteAsync(Guid runId, Guid revisionId,
         string? terminalOutputId = null, SequenceTerminalState? terminalState = null,
+        IWorkflowExecutionGate? gate = null,
         CancellationToken cancellationToken = default)
     {
         var outputIds = new[] { "first", "second", "third" };
@@ -23,14 +24,38 @@ internal static class SequenceRunnerProof
         var connectionIds = outputIds.ToDictionary(id => id, id => $"sequence-proof:{id}", StringComparer.Ordinal);
         var sequenceInvocationId = Guid.NewGuid();
         var coordinator = new SequenceRuntimeCoordinator(sequenceInvocationId, "sequence-proof", outputIds, connectionIds);
-        var fixture = new ProofFixture(runId, revisionId, coordinator, terminalOutputId, terminalState.Value);
-        await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(fixture.Build(),
-            new SequenceMessage("start", null, Guid.Empty),
-            cancellationToken: cancellationToken);
-        await foreach (var evt in run.WatchStreamAsync(cancellationToken))
+        var fixture = new ProofFixture(runId, revisionId, coordinator, terminalOutputId, terminalState.Value, gate);
+        try
         {
-            if (evt is WorkflowErrorEvent error)
-                throw new InvalidOperationException("The private Sequence runner proof failed.", error.Exception);
+            await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(fixture.Build(),
+                new SequenceMessage("start", null, Guid.Empty), cancellationToken: cancellationToken);
+            await foreach (var evt in run.WatchStreamAsync(cancellationToken))
+            {
+                if (evt is WorkflowErrorEvent error)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        coordinator.CancelPending();
+                        break;
+                    }
+                    throw new InvalidOperationException("The private Sequence runner proof failed.", error.Exception);
+                }
+                if (evt is ExecutorFailedEvent failed)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        coordinator.CancelPending();
+                        break;
+                    }
+                    throw new InvalidOperationException("The private Sequence runner proof executor failed.", failed.Data);
+                }
+            }
+            if (cancellationToken.IsCancellationRequested)
+                coordinator.CancelPending();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            coordinator.CancelPending();
         }
 
         fixture.ThrowIfActive();
@@ -40,7 +65,7 @@ internal static class SequenceRunnerProof
     }
 
     private sealed class ProofFixture(Guid runId, Guid revisionId, SequenceRuntimeCoordinator coordinator,
-        string? terminalOutputId, SequenceTerminalState terminalState)
+        string? terminalOutputId, SequenceTerminalState terminalState, IWorkflowExecutionGate? gate)
     {
         private readonly Queue<string> dispatchOrder = new();
         private readonly Queue<string> completionOrder = new();
@@ -59,6 +84,9 @@ internal static class SequenceRunnerProof
             nodeId, invocationId, data);
 
         internal void Complete(string nodeId, Guid invocationId, string? data = null) => Record(ExecutionEventKinds.NodeCompleted,
+            nodeId, invocationId, data);
+
+        internal void Cancel(string nodeId, Guid invocationId, string? data = null) => Record(ExecutionEventKinds.NodeCancelled,
             nodeId, invocationId, data);
 
         internal void ThrowIfActive() => activationLedger.ThrowIfActive();
@@ -107,9 +135,17 @@ internal static class SequenceRunnerProof
                 fixture.Begin(Id, invocationId, message.Kind);
                 if (message.Kind == "start")
                 {
-                    await fixture.DispatchNextAsync(coordinator, context, cancellationToken);
-                    fixture.Complete(Id, invocationId, "waiting-for-first-output");
-                    return new("continue", null, Guid.Empty);
+                    try
+                    {
+                        await fixture.DispatchNextAsync(coordinator, context, cancellationToken);
+                        fixture.Complete(Id, invocationId, "waiting-for-first-output");
+                        return new("continue", null, Guid.Empty);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        fixture.Cancel(Id, invocationId, "Sequence dispatch cancelled.");
+                        throw;
+                    }
                 }
 
                 if (message.Kind != "completed") throw new InvalidOperationException("Unexpected Sequence proof message.");
@@ -119,9 +155,17 @@ internal static class SequenceRunnerProof
                     fixture.Complete(Id, invocationId, "sequence-complete");
                     return new("terminal", null, Guid.Empty);
                 }
-                await fixture.DispatchNextAsync(coordinator, context, cancellationToken);
-                fixture.Complete(Id, invocationId, "waiting-for-next-output");
-                return new("continue", null, Guid.Empty);
+                try
+                {
+                    await fixture.DispatchNextAsync(coordinator, context, cancellationToken);
+                    fixture.Complete(Id, invocationId, "waiting-for-next-output");
+                    return new("continue", null, Guid.Empty);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    fixture.Cancel(Id, invocationId, "Sequence dispatch cancelled.");
+                    throw;
+                }
             }
         }
 
@@ -156,6 +200,8 @@ internal static class SequenceRunnerProof
         private async Task DispatchNextAsync(SequenceRuntimeCoordinator coordinator, IWorkflowContext context,
             CancellationToken cancellationToken)
         {
+            if (gate is not null)
+                await gate.WaitForBoundaryAsync("sequence-proof", cancellationToken);
             var activationId = Guid.NewGuid();
             var activation = coordinator.DispatchNext(activationId);
             dispatchOrder.Enqueue(activation.OutputId);

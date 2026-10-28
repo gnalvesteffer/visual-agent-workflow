@@ -88,6 +88,20 @@ internal sealed class SequenceRuntimeCoordinator
         return snapshot;
     }
 
+    public void CancelPending()
+    {
+        lock (gate)
+        {
+            if (ledger.IsTerminal) return;
+            ledger.SkipPending();
+            foreach (var skipped in ledger.Snapshot.Where(item => item.State == SequenceActivationState.Skipped))
+                if (!events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped && evt.OutputId == skipped.OutputId))
+                    Add(new(ExecutionEventKinds.SequenceOutputSkipped, sequenceNodeId, sequenceInvocationId, skipped.OutputId,
+                        skipped.Ordinal, null, connectionIds[skipped.OutputId]));
+            Add(new(ExecutionEventKinds.SequenceCancelled, sequenceNodeId, sequenceInvocationId, null, null, null, null));
+        }
+    }
+
     private void Add(SequenceRuntimeEvent runtimeEvent)
     {
         lock (gate) events.Add(runtimeEvent);
