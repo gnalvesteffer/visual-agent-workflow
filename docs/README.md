@@ -70,6 +70,7 @@ Documentation changes follow [documentation-maintenance](../.agents/skills/docum
 - [Static pin descriptor registry hardening](decisions/0024-static-pin-descriptor-registry-hardening.md) — validates the bounded non-serialized static pin descriptor subset and its drift boundary.
 - [Advisory host-admission report](decisions/0025-advisory-host-admission-report.md) — compares validated package dependencies with a host snapshot without granting authority or bypassing runtime checks.
 - [Fail-closed node descriptor resolution](decisions/0026-fail-closed-node-descriptor-resolution.md) — prevents unsupported node implementation versions from receiving current or fallback pin semantics.
+- [Run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md) — records the reviewed boundaries and proof gates required before Blueprint-style mutable variables become a shipped capability.
 
 ## Contract references
 

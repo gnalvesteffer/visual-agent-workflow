@@ -103,6 +103,32 @@ Make every Blueprint-inspired authoring affordance traceable to a stable definit
 - [ ] **Verification:** add deterministic contract/runtime tests, compatibility and failure cases, browser authoring smokes, package/playback proofs, and responsiveness/accessibility checks for each shipped increment.
 - [ ] **Expansion gate:** promote richer containers, mutable variables, events, nested control flow, interfaces, templates, or durable waits into separate roadmap phases only after their contracts, compatibility policy, security boundary, and evidence semantics are reviewed and proven.
 
+### Next parity phase: run-scoped mutable variable proof
+
+**Status: Planned.** The required adversarial proponent/opponent/adjudicator
+review completed on 2026-10-28. It recommends a bounded proof, not a broad
+Blueprint variable system. Mutable variables remain out of the Studio palette
+until the proof gates are met. See [the run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md).
+
+- [ ] Add a new schema version with an explicit variable declaration contract;
+  preserve all pre-variable hashes and behavior.
+- [ ] Define stable variable IDs, scalar types, bounded defaults,
+  non-nullability/size rules, descriptions, and non-secret classification.
+- [ ] Define ordered `Get variable` data and `Set variable` execution pin
+  contracts without relying on canvas order or implicit scheduler edges.
+- [ ] Define run/call ownership, loop iteration visibility, cancellation and
+  failure semantics, and the checkpoint admission boundary.
+- [ ] Reject variable writes in parallel, Sequence, collaboration,
+  asynchronous, graph-function, and shared child-workflow regions until their
+  separate ordering and merge contracts are proven.
+- [ ] Implement the store and evidence only after the preceding contracts are
+  reviewed; prove default reads, ordered overwrites, isolated runs, and
+  cancellation with deterministic runtime tests.
+- [ ] Add passive playback and prefix reconstruction for variable reads/writes
+  without re-execution.
+- [ ] Add Studio declaration editing and typed nodes only after Core/runtime
+  proof, compatibility, and invalid-draft tests pass.
+
 Descriptor progress: Core now has a canonical node-family catalog for stable display/category/description, pin-shape, purity, dynamic-pin presence and identity source, host-capability, activation, state ownership, failure disposition, cancellation, evidence metadata, and the existing node-specific runtime limits, and the Studio node library and definition validator consume that catalog for built-in actions and node identity/version admission. The canonical explicit port descriptors now also expose requiredness, connection cardinality, MCP static-value fallback semantics, transient live top-level MCP argument descriptions, and fail-closed null handling for malformed dynamic collections; the explicit-graph validators and Studio canvas consume the same resolver, including live MCP discovery without overriding persisted pin metadata. The bounded static descriptor registry now validates its complete internal slice and has independently authored pin-shape drift tests, but remains non-serialized and does not replace configuration-specific or schema-specific authorities. Core also has a versioned registry for the four currently supported graph data types with exact-identity compatibility and no implicit conversions, and schema-1.39 conversion plus the static text transformations now use static descriptors. Nullability, conversions beyond the explicit string-to-integer contract, authored/default adoption, dynamic-pin persistence/migration, historical descriptor compatibility, runtime enforcement driven directly from descriptors, and full descriptor-driven validation/configuration remain part of the unchecked descriptor work. See [canonical pin resolution](decisions/0005-canonical-pin-resolution.md) and [static pin descriptor registry hardening](decisions/0024-static-pin-descriptor-registry-hardening.md).
 
 ### Deferred parity decision: bounded Sequence dispatch
