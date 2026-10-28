@@ -45,6 +45,29 @@ public sealed class MutableVariableExecutionTests
         Assert.Equal("second", JsonDocument.Parse(second.Single(evt => evt.Kind == ExecutionEventKinds.VariableRead).Data!).RootElement.GetProperty("value").GetString());
     }
 
+    [Fact]
+    public async Task Cancellation_after_a_committed_write_preserves_the_recorded_variable_prefix()
+    {
+        var revision = WorkflowRevision.Create(Definition(), "variable-cancellation-prefix");
+        using var cancellation = new CancellationTokenSource();
+        var events = new List<ExecutionEvent>();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new WorkflowRunner().ExecuteAsync(
+            Guid.NewGuid(), revision, "committed", evt =>
+            {
+                events.Add(evt);
+                if (evt.Kind == ExecutionEventKinds.VariableWritten) cancellation.Cancel();
+                return ValueTask.CompletedTask;
+            }, cancellation.Token));
+
+        var written = events.Single(evt => evt.Kind == ExecutionEventKinds.VariableWritten);
+        using var payload = JsonDocument.Parse(written.Data!);
+        Assert.Equal("committed", payload.RootElement.GetProperty("value").GetString());
+        Assert.True(VariableEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal("committed", playback!.Values["message"].Value);
+        Assert.Equal(2, playback.Values["message"].Version);
+    }
+
     private static WorkflowDefinition Definition()
     {
         var nodes = new Dictionary<string, NodeDefinition>

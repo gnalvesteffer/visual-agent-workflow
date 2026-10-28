@@ -37,7 +37,8 @@ composite checkpoint cursor before execution is promoted.
 - Runtime variable events emit the current private graph-message iteration
   counter, which is zero for all currently admitted variable graphs.
 - Core tests cover future iteration parsing and negative-value rejection; the
-  Agent Framework regression confirms current linear events remain at zero.
+  Agent Framework regression confirms current linear events remain at zero and
+  cancellation after a committed write preserves the recorded prefix.
 
 See [the mutable-variable proof gate](0027-run-scoped-variable-proof-gate.md)
 and [the variable checkpoint frame](0028-variable-checkpoint-frame.md).
