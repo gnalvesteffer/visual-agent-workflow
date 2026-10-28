@@ -208,7 +208,7 @@ def run_saved_workflow(page, designer, input_text, expected):
     expect(run).to_be_enabled()
     run.click()
     expect(page.get_by_role("region", name="Workflow run viewer", exact=True)).to_be_visible()
-    page.get_by_role("button", name="Designer", exact=True).click()
+    page.get_by_role("button", name="Back to workflow", exact=True).click()
     history = designer.get_by_label("Workflow run history", exact=True)
     expect(history.locator('tr[aria-selected="true"]')).to_contain_text("completed", timeout=20000)
     designer.get_by_role("button", name="Output", exact=True).click()

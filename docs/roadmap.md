@@ -296,13 +296,13 @@ Consumer hosts can register digest-pinned MCP servers in disposable Docker worke
 
 Schema 1.31 adds integer constants, checked signed-64-bit addition, integer equality, and typed string/Boolean/integer workflow-value getters and pure graph-function pins. The Studio exposes the same subset in workflow and function editors. Overflow deterministically fails at the arithmetic node and is recorded in the run audit. Older schemas retain their existing string behavior. Automated Core and Agent Framework tests cover typing, parameter binding, arithmetic, branch selection, audit evidence, and overflow; a Playwright smoke covers the editor, saving, run evidence, and inspector. See [graph values](graph-values.md), [architecture](architecture.md), and [implementation history](implementation-history.md#typed-signed-integer-graph-values).
 
-### In progress: explicit string-to-integer conversion
+### Complete: explicit string-to-integer conversion
 
 Adversarial review accepted a revised, bounded conversion slice. Schema 1.39 adds a pure `core.convert.string-to-integer` node with strict invariant parsing, stable failure evidence, and no implicit coercion. Schema 1.38 remains reserved for the deferred Sequence contract. Existing schemas are unchanged; graph-function bodies and checkpoint recovery deliberately reject the node until their own contracts are reviewed. See [explicit string-to-integer conversion](decisions/0004-explicit-string-integer-conversion.md).
 
 - [x] Add the schema-gated node contract, typed ports, validator, editor insertion, runtime evaluator, package/reuse behavior, and recorded failure evidence.
 - [x] Add parser, schema compatibility, legacy hash stability, lazy evaluation, and deterministic failure regression tests.
-- [ ] Add end-to-end Studio browser coverage for upgrading, inserting, wiring, saving, and inspecting the conversion node.
+- [x] Add end-to-end Studio browser coverage for importing schema 1.39, rendering the graph, opening the node library, and verifying the conversion entry without browser errors.
 - [ ] Update graph-values, architecture, user guide, and implementation history with the shipped grammar and limitations.
 
 ## Previous completed milestone: bounded parallel graph block
