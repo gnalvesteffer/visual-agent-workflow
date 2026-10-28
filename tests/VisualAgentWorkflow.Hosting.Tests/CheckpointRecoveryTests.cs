@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using VisualAgentWorkflow.AgentFramework;
@@ -132,7 +133,9 @@ public sealed class CheckpointRecoveryTests : IDisposable
 
         Assert.Equal("completed", completed.Status);
         Assert.Equal("seed", completed.Events[^1].Data);
-        Assert.Contains(completed.Events, evt => evt.Kind == ExecutionEventKinds.VariableWritten);
+        var writes = completed.Events.Where(evt => evt.Kind == ExecutionEventKinds.VariableWritten).ToArray();
+        Assert.Equal(2, writes.Length);
+        Assert.Equal([2L, 3L], writes.Select(evt => JsonDocument.Parse(evt.Data!).RootElement.GetProperty("version").GetInt64()));
     }
 
     [Fact]
@@ -202,19 +205,23 @@ public sealed class CheckpointRecoveryTests : IDisposable
         {
             ["input"] = new(NodeTypes.Input, "1.0.0"),
             ["constant"] = new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("seed") },
+            ["constant-again"] = new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("seed") },
             ["set"] = new(NodeTypes.VariableSet, "1.0.0") { VariableId = "message", InputDataType = WorkflowDataTypes.String },
+            ["set-again"] = new(NodeTypes.VariableSet, "1.0.0") { VariableId = "message", InputDataType = WorkflowDataTypes.String },
             ["get"] = new(NodeTypes.VariableGet, "1.0.0") { VariableId = "message", OutputDataType = WorkflowDataTypes.String },
             ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.String }
         };
         var data = new Dictionary<string, ConnectionDefinition>
         {
             ["constant-value"] = new(new("constant", "out"), new("set", "value"), "data"),
+            ["constant-value-again"] = new(new("constant-again", "out"), new("set-again", "value"), "data"),
             ["get-value"] = new(new("get", "out"), new("output", "in"), "data")
         };
         var execution = new Dictionary<string, ConnectionDefinition>
         {
             ["input-set"] = new(new("input", "then"), new("set", "execute"), "execution"),
-            ["set-get"] = new(new("set", "then"), new("get", "execute"), "execution"),
+            ["set-again"] = new(new("set", "then"), new("set-again", "execute"), "execution"),
+            ["set-get"] = new(new("set-again", "then"), new("get", "execute"), "execution"),
             ["get-output"] = new(new("get", "then"), new("output", "execute"), "execution")
         };
         var definition = new WorkflowDefinition(WorkflowSchemaVersions.MutableVariablesGraph, "checkpoint-variable", "input",
