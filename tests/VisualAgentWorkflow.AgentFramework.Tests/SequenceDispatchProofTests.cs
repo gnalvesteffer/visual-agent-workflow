@@ -48,23 +48,49 @@ public sealed class SequenceDispatchProofTests
         Assert.Equal(["second", "first"], fixture.CompletionOrder.ToArray());
     }
 
-    private sealed class DispatchFixture
+    [Fact]
+    public async Task Cancellation_between_dispatches_prevents_later_output_admission()
+    {
+        var fixture = new DispatchFixture(holdBeforeSecondDispatch: true);
+        await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(fixture.Build(), "start");
+        var watch = Task.Run(async () =>
+        {
+            await foreach (var _ in run.WatchStreamAsync()) { }
+        });
+
+        await fixture.SecondDispatchReady.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(["first"], fixture.DispatchOrder.ToArray());
+        Assert.DoesNotContain("second", fixture.StartOrder);
+
+        await run.CancelRunAsync();
+        await watch.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(["first"], fixture.DispatchOrder.ToArray());
+        Assert.DoesNotContain("second", fixture.StartOrder);
+    }
+
+    private sealed class DispatchFixture(bool holdBeforeSecondDispatch = false)
     {
         private readonly TaskCompletionSource firstStarted = NewSignal();
         private readonly TaskCompletionSource secondStarted = NewSignal();
         private readonly TaskCompletionSource firstCompleted = NewSignal();
         private readonly TaskCompletionSource allCompleted = NewSignal();
         private readonly TaskCompletionSource releaseFirst = NewSignal();
+        private readonly TaskCompletionSource secondDispatchReady = NewSignal();
         private readonly ConcurrentQueue<string> dispatchOrder = new();
         private readonly ConcurrentQueue<string> startOrder = new();
         private readonly ConcurrentQueue<string> completionOrder = new();
         private int completedCount;
+
+        public bool HoldBeforeSecondDispatch { get; } = holdBeforeSecondDispatch;
 
         public TaskCompletionSource FirstStarted => firstStarted;
         public TaskCompletionSource SecondStarted => secondStarted;
         public TaskCompletionSource FirstCompleted => firstCompleted;
         public TaskCompletionSource AllCompleted => allCompleted;
         public TaskCompletionSource ReleaseFirst => releaseFirst;
+        public TaskCompletionSource SecondDispatchReady => secondDispatchReady;
+        public TaskCompletionSource ReleaseSecondDispatch { get; } = NewSignal();
         public IReadOnlyCollection<string> DispatchOrder => dispatchOrder.ToArray();
         public IReadOnlyCollection<string> StartOrder => startOrder.ToArray();
         public IReadOnlyCollection<string> CompletionOrder => completionOrder.ToArray();
@@ -109,6 +135,9 @@ public sealed class SequenceDispatchProofTests
         {
             fixture.RecordDispatch("first");
             await context.SendMessageAsync(new DispatchMessage("first"), "first", cancellationToken);
+            fixture.SecondDispatchReady.TrySetResult();
+            if (fixture.HoldBeforeSecondDispatch)
+                await fixture.ReleaseSecondDispatch.Task.WaitAsync(cancellationToken);
             fixture.RecordDispatch("second");
             await context.SendMessageAsync(new DispatchMessage("second"), "second", cancellationToken);
             return new DispatchMessage("dispatched");

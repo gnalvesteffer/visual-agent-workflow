@@ -61,6 +61,13 @@ The non-public `SequenceDispatchProofTests` test exercises Agent Framework 1.26.
 - the second executor can start while the first remains blocked and active;
 - completion order can therefore differ from dispatch order (the proof observes `second`, then `first`).
 
+The proof also covers the first cancellation boundary: when the dispatcher is
+held after the first send and before the second send, cancelling the framework
+run prevents the second output from being dispatched or started. This is only a
+local framework observation; it does not yet prove a public workflow Sequence,
+because there is still no VAW activation ledger, descendant completion contract,
+or passive playback lineage for a multi-output node.
+
 This is useful evidence, not a failure of the framework. It rules out treating ordinary `SendMessageAsync` fan-out as a Blueprint Sequence. A public Sequence must either define this as an explicitly concurrent dispatch primitive with full active-work accounting, or add a separate continuation mechanism that admits the next output only after the previous path's documented completion boundary.
 
 ## Rejected alternatives

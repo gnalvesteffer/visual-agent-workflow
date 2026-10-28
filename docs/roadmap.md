@@ -60,7 +60,7 @@ Descriptor progress: Core now has a canonical node-family catalog for stable dis
 
 ### Deferred parity decision: bounded Sequence dispatch
 
-`core.sequence` and schema 1.38 are not implemented. The independent proponent/opponent/adjudicator review deferred the feature until a non-public Agent Framework proof establishes active-activation accounting, partial-dispatch/failure/cancellation semantics, playback correlation, and the explicit pause/restart boundary. The first dispatch proof now passes and demonstrates that queued dispatch order does not guarantee downstream start or completion order; active-work accounting and a continuation contract remain open. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md). Mutable variables remain deferred for the same contract/evidence reasons.
+`core.sequence` and schema 1.38 are not implemented. The independent proponent/opponent/adjudicator review keeps the feature deferred until a non-public Agent Framework proof establishes active-activation accounting, partial-dispatch/failure/cancellation semantics, playback correlation, and the explicit pause/restart boundary. The proof now covers ordered dispatch, concurrent downstream admission, completion-order divergence, and cancellation between outputs; active-work accounting, descendant completion, playback lineage, and a continuation contract remain open. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md). Mutable variables remain deferred for the same contract/evidence reasons.
 
 ### Sequencing and exit criteria
 
