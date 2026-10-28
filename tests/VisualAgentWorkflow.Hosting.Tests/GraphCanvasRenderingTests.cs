@@ -165,6 +165,8 @@ public sealed class GraphCanvasRenderingTests
         Assert.Contains("Last completed context · 1,200 / 8,000 (15%)", html);
         Assert.Contains("Host context compactions · 1", html);
         Assert.Contains("Estimated cost · $0.002030", html);
+        Assert.Contains("vaw-agent-context-meter", html);
+        Assert.Contains("Cost · $0.002030", html);
         Assert.Contains("test-model", html);
     }
 
@@ -230,6 +232,48 @@ public sealed class GraphCanvasRenderingTests
         Assert.Contains("Cancelled by host while the agent was running.", html);
         Assert.Contains("Run ended · start a new run to retry.", html);
         Assert.DoesNotContain("vaw-failed", html);
+    }
+
+    [Fact]
+    public async Task RunViewerExplainsGenericAgentFailureWithRecordedToolContext()
+    {
+        var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.2" };
+        var definition = baseline with { Nodes = baseline.Nodes.SetItem("step-1", new(NodeTypes.Agent, "1.0.0",
+            Agent: new("connection.current", null, "Answer the question.", []))) };
+        var revision = WorkflowRevision.Create(definition, "test");
+        var runId = Guid.NewGuid();
+        var invocationId = Guid.NewGuid();
+        var toolCallId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var events = ImmutableArray.Create(
+            new ExecutionEvent(runId, revision.RevisionId, 1, now, ExecutionEventKinds.NodeStarted, "step-1", invocationId),
+            new ExecutionEvent(runId, revision.RevisionId, 2, now.AddMilliseconds(1), ExecutionEventKinds.ToolAuthorized, "step-1", invocationId,
+                Data: $"{{\"toolCallId\":\"{toolCallId}\",\"bindingId\":\"sandbox.read_file\",\"input\":{{\"path\":\"visual-agent-workflow-source/docs/architecture.md\"}}}}"),
+            new ExecutionEvent(runId, revision.RevisionId, 3, now.AddMilliseconds(2), ExecutionEventKinds.ToolFailed, "step-1", invocationId,
+                Data: $"{{\"toolCallId\":\"{toolCallId}\",\"bindingId\":\"sandbox.read_file\",\"reason\":\"Tool operation failed.\"}}"),
+            new ExecutionEvent(runId, revision.RevisionId, 4, now.AddMilliseconds(3), ExecutionEventKinds.ModelResponded, "step-1", invocationId,
+                Data: """{"messages":[{"content":[{"kind":"function-result","result":"Error: Function failed."}]}]}"""),
+            new ExecutionEvent(runId, revision.RevisionId, 5, now.AddMilliseconds(4), ExecutionEventKinds.AgentFailed, "step-1", invocationId,
+                Data: "{\"reason\":\"Agent execution failed.\"}"),
+            new ExecutionEvent(runId, revision.RevisionId, 6, now.AddMilliseconds(5), ExecutionEventKinds.NodeFailed, "step-1", invocationId,
+                Data: "Node execution failed."));
+        var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", now,
+            revision.ContentHash, definition, "question"), events);
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<WorkflowRunViewer>(ParameterView.FromDictionary(
+                new Dictionary<string, object?> { [nameof(WorkflowRunViewer.Snapshot)] = snapshot }));
+            return component.ToHtmlString();
+        });
+
+        Assert.Contains("Tool call", html);
+        Assert.Contains("sandbox.read_file", html);
+        Assert.Contains("visual-agent-workflow-source/docs/architecture.md", html);
+        Assert.Contains("Function failed.", html);
+        Assert.DoesNotContain("Execution failed without a recorded detail.", html);
     }
 
     [Fact]

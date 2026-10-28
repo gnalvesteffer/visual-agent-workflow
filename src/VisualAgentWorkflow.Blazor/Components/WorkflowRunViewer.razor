@@ -54,8 +54,24 @@
                 @if (activity is not null) { <p class="vaw-node-activity" role="status">@activity</p> }
                 @if (node.Type == NodeTypes.Agent && AgentMetrics(nodeId) is { } metrics)
                 {
+                    var compactContext = ContextUsage(metrics);
                     <details class="vaw-agent-metrics">
-                        <summary><span>Usage details</span><span class="vaw-agent-metrics-summary">Model turns · @metrics.ModelTurns@(metrics.ModelTurnLimit is { } turnLimit ? $" / {turnLimit:N0}" : null)</span></summary>
+                        <summary>
+                            <span class="vaw-agent-metrics-heading">Usage details</span>
+                            <span class="vaw-agent-metrics-summary">Model turns · @metrics.ModelTurns@(metrics.ModelTurnLimit is { } turnLimit ? $" / {turnLimit:N0}" : null)</span>
+                            @if (metrics.HasReportedUsage)
+                            {
+                                <span class="vaw-agent-metrics-summary">Tokens · @metrics.InputTokens.ToString("N0") in / @metrics.OutputTokens.ToString("N0") out</span>
+                            }
+                            @if (compactContext is { } context)
+                            {
+                                <span class="vaw-agent-context-summary">
+                                    <span>Context · @metrics.LatestInputTokens!.Value.ToString("N0") / @metrics.ContextWindowTokens!.Value.ToString("N0") (@context%)</span>
+                                    <span class="vaw-agent-context-meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@context" aria-label="Context window usage"><span style="--vaw-context-percent:@context%"></span></span>
+                                </span>
+                            }
+                            <span class="vaw-agent-cost-summary">Cost · @(metrics.CostIsComplete && metrics.ResponseCount > 0 ? $"${metrics.EstimatedCost:0.000000}" : "unavailable")</span>
+                        </summary>
                         <div class="vaw-agent-metrics-body" aria-label="Agent usage statistics">
                         @if (!metrics.HasReportedUsage && metrics.ResponseCount == 0 && metrics.ModelRequestInFlight)
                         {
@@ -372,6 +388,12 @@
         long? LatestInputTokens, int? ContextWindowTokens, decimal EstimatedCost, bool CostIsComplete, string? ModelId,
         bool ModelRequestInFlight, int ModelTurns, int CompactionCount, long? CachedInputTokens,
         long? CacheWriteInputTokens, long? ReasoningTokens, bool HasReportedUsage, int? ModelTurnLimit);
+
+    private static int? ContextUsage(AgentUsageStatistics metrics)
+    {
+        if (metrics.ContextWindowTokens is not > 0 || metrics.LatestInputTokens is not { } input) return null;
+        return Math.Clamp((int)Math.Round(input * 100d / metrics.ContextWindowTokens.Value), 0, 100);
+    }
 
     private AgentUsageStatistics? AgentMetrics(string nodeId)
     {
@@ -735,6 +757,30 @@
     {
         if (state?.Kind is not (ExecutionEventKinds.NodeFailed or ExecutionEventKinds.NodeCancelled)) return null;
         var reason = EventReason(state.Data);
+        if (state.Kind == ExecutionEventKinds.NodeFailed && IsGenericFailure(reason))
+        {
+            var toolFailure = RootEvents.LastOrDefault(evt => evt.NodeId == id &&
+                (evt.Kind is ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ToolDenied or ExecutionEventKinds.ToolUncertain) &&
+                evt.Timestamp <= state.Timestamp);
+            if (toolFailure is not null)
+            {
+                var binding = EventString(toolFailure.Data, "bindingId");
+                var toolReason = EventReason(toolFailure.Data);
+                var toolCallId = EventString(toolFailure.Data, "toolCallId");
+                var authorized = toolCallId is null ? null : RootEvents.LastOrDefault(evt => evt.NodeId == id &&
+                    evt.Kind == ExecutionEventKinds.ToolAuthorized && EventString(evt.Data, "toolCallId") == toolCallId && evt.Timestamp <= toolFailure.Timestamp);
+                var requestedPath = authorized is null ? null : EventInputPath(authorized.Data);
+                var modelDetail = ModelToolFailureDetail(id, toolFailure.Timestamp);
+                var detail = string.IsNullOrWhiteSpace(modelDetail) || !IsGenericFailure(toolReason) && toolReason is not null
+                    ? (string.IsNullOrWhiteSpace(toolReason) ? "The tool did not provide an error detail." : toolReason)
+                    : modelDetail;
+                var context = string.IsNullOrWhiteSpace(binding) ? "Tool call" : $"Tool call · {binding}";
+                if (!string.IsNullOrWhiteSpace(requestedPath)) context += $" · path {requestedPath}";
+                return $"{context}\n{detail}";
+            }
+            var agentFailure = RootEvents.LastOrDefault(evt => evt.NodeId == id && evt.Kind == ExecutionEventKinds.AgentFailed && evt.Timestamp <= state.Timestamp);
+            if (agentFailure is not null) reason = EventReason(agentFailure.Data);
+        }
         if (state.Kind == ExecutionEventKinds.NodeCancelled &&
             (string.IsNullOrWhiteSpace(reason) || reason.Equals("Node execution cancelled.", StringComparison.OrdinalIgnoreCase)))
         {
@@ -749,9 +795,53 @@
                 ? "Cancelled by the host or a parent scope."
                 : $"Cancellation reason: {reason}";
         }
-        return string.IsNullOrWhiteSpace(reason) || reason.Equals("Node execution failed.", StringComparison.OrdinalIgnoreCase)
+        return string.IsNullOrWhiteSpace(reason) || IsGenericFailure(reason)
             ? "Execution failed without a recorded detail."
             : $"Failure reason: {reason}";
+    }
+    private static bool IsGenericFailure(string? reason) => string.IsNullOrWhiteSpace(reason) ||
+        reason.Equals("Node execution failed.", StringComparison.OrdinalIgnoreCase) ||
+        reason.Equals("Agent execution failed.", StringComparison.OrdinalIgnoreCase) ||
+        reason.Equals("Tool operation failed.", StringComparison.OrdinalIgnoreCase);
+
+    private static string? EventString(string? data, string property) =>
+        TryParse(data, out var root) && TryGet(root, property, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString() : null;
+
+    private static string? EventInputPath(string? data)
+    {
+        if (!TryParse(data, out var root) || !TryGet(root, "input", out var input) || !TryGet(input, "path", out var path) || path.ValueKind != JsonValueKind.String)
+            return null;
+        return path.GetString();
+    }
+
+    private string? ModelToolFailureDetail(string nodeId, DateTimeOffset before)
+    {
+        foreach (var response in RootEvents.Where(evt => evt.NodeId == nodeId && evt.Kind == ExecutionEventKinds.ModelResponded && evt.Timestamp <= before).Reverse())
+        {
+            if (TryParse(response.Data, out var root) && FindErrorText(root) is { } detail) return detail;
+        }
+        return null;
+    }
+
+    private static string? FindErrorText(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            var text = element.GetString();
+            return text?.StartsWith("Error:", StringComparison.OrdinalIgnoreCase) == true ? text : null;
+        }
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+                if (FindErrorText(property.Value) is { } detail) return detail;
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+                if (FindErrorText(item) is { } detail) return detail;
+        }
+        return null;
     }
     private static string? EventReason(string? data)
     {

@@ -214,13 +214,15 @@ public sealed class McpToolBroker : INodeToolBroker
                 });
                 dispatched = true;
                 var result = await client.CallToolAsync(registration.ToolName, callArguments, cancellationToken: deadline.Token);
+                var output = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(c => c.Text));
                 if (result.IsError == true)
-                    throw new ToolInvocationException("The MCP server reported a tool failure.",
+                    throw new ToolInvocationException(string.IsNullOrWhiteSpace(output)
+                            ? "The MCP server reported a tool failure."
+                            : $"The MCP server reported a tool failure: {TrimFailureDetail(output)}",
                         registration.AllowModelRecoveryAfterFailure
                             ? ToolInvocationFailureDisposition.RecoverableFeedback
                             : ToolInvocationFailureDisposition.Fatal);
                 if (result.Content.Any(c => c is not TextContentBlock)) throw new ToolInvocationException("The tool returned unsupported non-text content.");
-                var output = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(c => c.Text));
                 if (output.Length > 16_384) throw new ToolInvocationException("Tool output exceeds the workflow limit.");
                 await Record(ExecutionEventKinds.ToolCompleted, new { toolCallId, parentToolCallId = invocation.ParentToolCallId, bindingId, output });
                 return output;
@@ -253,7 +255,8 @@ public sealed class McpToolBroker : INodeToolBroker
                         parentToolCallId = invocation.ParentToolCallId,
                         bindingId,
                         disposition = feedback.Disposition.ToString(),
-                        reason = "The host classified the server error as recoverable model feedback."
+                        reason = error.Message,
+                        detail = "The host classified the server error as recoverable model feedback."
                     });
                     throw feedback;
                 }
@@ -271,8 +274,9 @@ public sealed class McpToolBroker : INodeToolBroker
                         {
                             ToolContractMismatchException => "Input/output schema mismatch.",
                             ToolDescriptionMismatchException => "Description mismatch.",
-                            _ => "Tool operation failed."
-                        }
+                            _ => error.Message
+                        },
+                        errorType = error.GetType().Name
                     });
                 throw;
             }
@@ -287,6 +291,9 @@ public sealed class McpToolBroker : INodeToolBroker
             try { return registration.IsDefinitiveToolFailure(error); }
             catch { return false; }
         }
+
+        private static string TrimFailureDetail(string detail) =>
+            detail.Length <= 2_000 ? detail : detail[..2_000] + "…";
 
         private static async Task<McpToolConnection> Connect(McpToolRegistration registration,
             NodeInvocationContext invocation, CancellationToken cancellationToken) =>

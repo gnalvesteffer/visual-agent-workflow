@@ -200,8 +200,13 @@
 .vaw-node-recovery { margin: .3rem 0 0; color: var(--vaw-muted); font-size: .68rem; line-height: 1.3; }
 .vaw-run-recovery { margin: .25rem 0; color: var(--vaw-warning); font-size: .72rem; }
 .vaw-agent-metrics { margin-block-start: 0.5rem; padding: 0; border: 1px solid var(--vaw-border); border-radius: var(--vaw-control-radius); color: var(--vaw-muted); font-size: 0.7rem; line-height: 1.35; overflow-wrap: anywhere; }
-.vaw-agent-metrics > summary { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .4rem .5rem; color: var(--vaw-text); font-size: .72rem; }
+.vaw-agent-metrics > summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .22rem .5rem; padding: .4rem .5rem; color: var(--vaw-text); font-size: .72rem; }
+.vaw-agent-metrics-heading { color: var(--vaw-text); font-weight: 600; }
 .vaw-agent-metrics-summary { color: var(--vaw-muted); font-weight: 400; text-align: end; }
+.vaw-agent-context-summary { grid-column: 1 / -1; display: grid; gap: .22rem; color: var(--vaw-muted); }
+.vaw-agent-context-meter { display: block; block-size: .24rem; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--vaw-border) 75%, transparent); }
+.vaw-agent-context-meter > span { display: block; inline-size: var(--vaw-context-percent); block-size: 100%; border-radius: inherit; background: var(--vaw-accent); }
+.vaw-agent-cost-summary { color: var(--vaw-text); font-family: var(--vaw-mono); font-size: .68rem; text-align: end; }
 .vaw-agent-metrics-body { display: grid; gap: 0.25rem; padding: 0 .5rem .45rem; }
 .vaw-agent-metrics label { display: grid; gap: 0.15rem; }
 .vaw-agent-metrics progress { inline-size: 100%; block-size: 0.3rem; accent-color: var(--vaw-accent); }

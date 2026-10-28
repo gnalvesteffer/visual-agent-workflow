@@ -392,15 +392,20 @@ public class BrokerTests
         var registration = (await CreateBroker(policy: new DemoToolPolicy()).ListBindingsAsync())
             .Single(binding => binding.BindingId == "demo.protocol-failure");
         var hostRegistration = Registrations().Single(item => item.BindingId == registration.BindingId);
-        var events = new List<string>();
+        var events = new List<(string Kind, string? Data)>();
         var broker = CreateBroker([hostRegistration], new DemoToolPolicy());
-        await using var scope = broker.OpenScope(Invocation(Revision(registration), events));
+        var revision = Revision(registration);
+        var invocation = new NodeInvocationContext(Guid.NewGuid(), revision, "step-1", Guid.NewGuid(),
+            (kind, data) => { events.Add((kind, data)); return ValueTask.CompletedTask; });
+        await using var scope = broker.OpenScope(invocation);
 
         using var arguments = JsonDocument.Parse("{}");
         await Assert.ThrowsAnyAsync<Exception>(() => scope.InvokeJsonAsync(registration.BindingId, arguments.RootElement));
 
-        Assert.Contains(ExecutionEventKinds.ToolUncertain, events);
-        Assert.DoesNotContain(ExecutionEventKinds.ToolFailed, events);
+        var failure = Assert.Single(events, item => item.Kind == ExecutionEventKinds.ToolUncertain);
+        Assert.Contains("errorType", failure.Data);
+        Assert.DoesNotContain("Tool operation failed.", failure.Data);
+        Assert.DoesNotContain(events, item => item.Kind == ExecutionEventKinds.ToolFailed);
     }
 
     [Fact]
