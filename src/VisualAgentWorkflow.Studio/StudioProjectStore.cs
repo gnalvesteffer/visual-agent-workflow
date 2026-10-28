@@ -189,6 +189,7 @@ public sealed class StudioProjectWorkspace
     public StudioSkillLibrary Skills => RequireCatalogProject().Skills;
     public StudioAgentProfileLibrary AgentProfiles => RequireCatalogProject().AgentProfiles;
     public StudioGraphFunctionLibrary Functions => RequireCatalogProject().Functions;
+    public StudioGraphTemplateLibrary Templates => RequireCatalogProject().Templates;
     public bool IsReadOnly => store.GetActive(currentProjectId).IsArchived;
 
     public void Select(string? projectId)
@@ -211,7 +212,7 @@ public sealed class StudioProjectWorkspace
         if (id == StudioProjectStore.DefaultProjectId) MigrateLegacyAuthoringFiles(directory);
         var catalog = new SqliteWorkflowCatalog(Path.Combine(directory, "workflows.db"));
         var assets = new ProjectAssets(project, catalog, new PublishedWorkflowClient(catalog, runtime),
-            new StudioSkillLibrary(directory), new StudioAgentProfileLibrary(directory), new StudioGraphFunctionLibrary(directory));
+            new StudioSkillLibrary(directory), new StudioAgentProfileLibrary(directory), new StudioGraphFunctionLibrary(directory), new StudioGraphTemplateLibrary(directory));
         cache.Add(id, assets);
         return assets;
     }
@@ -246,5 +247,5 @@ public sealed class StudioProjectWorkspace
     }
 
     private sealed record ProjectAssets(StudioProject Project, IWorkflowCatalog Catalog, IWorkflowClient Client,
-        StudioSkillLibrary Skills, StudioAgentProfileLibrary AgentProfiles, StudioGraphFunctionLibrary Functions);
+        StudioSkillLibrary Skills, StudioAgentProfileLibrary AgentProfiles, StudioGraphFunctionLibrary Functions, StudioGraphTemplateLibrary Templates);
 }

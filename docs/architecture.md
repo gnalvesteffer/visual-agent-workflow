@@ -25,7 +25,10 @@ a template snapshot against the same bounded data graph, rejects effectful or
 dynamically pinned nodes, and can extract selected workflow data subgraphs when
 callers provide explicit typed boundaries. It expands snapshots with fresh node
 IDs and remapped data connections. Template documents use a strict versioned JSON
-envelope with a canonical definition hash and bounded import size. The source-node map is informational and non-live;
+envelope with a canonical definition hash and bounded import size. Catalog-backed
+Studio projects persist exact template revisions in a separate authoring-only
+catalog with logical folders; folder-backed source projects do not read that file.
+The source-node map is informational and non-live;
 no capabilities, credentials, or runtime subscriptions cross the boundary.
 Selected workflow-subgraph extraction, project persistence, layout/undo
 semantics, and Studio exposure remain deferred until those contracts are

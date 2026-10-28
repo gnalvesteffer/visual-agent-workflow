@@ -102,6 +102,7 @@ builder.Services.AddScoped<IWorkflowApprovalClient>(services => services.GetRequ
 builder.Services.AddScoped<ISkillLibrary>(services => services.GetRequiredService<StudioProjectWorkspace>().Skills);
 builder.Services.AddScoped<IAgentProfileLibrary>(services => services.GetRequiredService<StudioProjectWorkspace>().AgentProfiles);
 builder.Services.AddScoped<IGraphFunctionCatalog>(services => services.GetRequiredService<StudioProjectWorkspace>().Functions);
+builder.Services.AddScoped<IGraphTemplateCatalog>(services => services.GetRequiredService<StudioProjectWorkspace>().Templates);
 builder.Services.AddSingleton<ObservationSources>();
 var app = builder.Build();
 

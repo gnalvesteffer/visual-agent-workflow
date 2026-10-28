@@ -15,6 +15,14 @@ public sealed record GraphTemplateDefinition(
 
 public sealed record GraphTemplateConfiguration(GraphTemplateDefinition Definition, string ContentHash);
 public sealed record GraphTemplateDocument(string FormatVersion, GraphTemplateDefinition Definition, string ContentHash);
+public sealed record GraphTemplateCatalogEntry(GraphTemplateConfiguration Template, string Folder);
+
+/// <summary>Read-only catalog contract for authoring-only template revisions.</summary>
+public interface IGraphTemplateCatalog
+{
+    IReadOnlyList<GraphTemplateCatalogEntry> List();
+    GraphTemplateCatalogEntry? Get(string templateId, int version);
+}
 
 /// <summary>Result of expanding a template snapshot; source mapping is informational and not a live dependency.</summary>
 public sealed record GraphTemplateExpansion(

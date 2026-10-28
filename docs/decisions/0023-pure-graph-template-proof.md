@@ -27,6 +27,12 @@ content. Expansion rechecks generated IDs and the existing pure graph node and
 connection bounds; target-workflow combined limits remain the responsibility of a
 future insertion operation.
 
+Catalog-backed Studio projects now have a separate `graph-templates.json` authoring
+catalog with an outer catalog format, exact ID/version lookup, immutable additions,
+logical folder moves, bounded aggregate size, strict load validation, and atomic
+same-directory replacement. Folder-backed projects and the project source archive
+do not consume this catalog yet; that is an explicit future ownership decision.
+
 The source map is non-live provenance. Expansion does not synchronize with the source and does not transfer credentials, grants, model connections, MCP bindings, host capabilities, or runtime subscriptions.
 
 ## Boundaries
@@ -42,7 +48,7 @@ No Studio picker, project asset, workflow schema promotion, runtime template nod
 ## Follow-up gates
 
 Before editor exposure, add dependency closure, layout and undo semantics,
-project/catalog persistence, and a user-facing distinction between templates,
+folder-backed/source-archive persistence, and a user-facing distinction between templates,
 graph functions, and workflow calls. Revisit provenance and upgrade diagnostics
 before introducing a published project asset.
 
