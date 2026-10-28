@@ -2,9 +2,13 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Public Sequence contract slice
+
+Schema 1.38 now persists a bounded Blueprint-style `core.sequence` definition with two to four ordered output descriptors and stable `then.<outputId>` execution pins. Core validates the initial Input → Sequence → Output topology, preserves descriptor order through JSON round trips, and the Studio catalog can offer a safe two-output node when editing schema 1.38. The production runner still uses the private proof adapter; it does not execute authored Sequence definitions yet. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md) and the [Blueprint parity roadmap](roadmap.md).
+
 ## Non-public bounded Sequence activation ledger
 
-The Blueprint parity audit established that Agent Framework dispatch order does not guarantee downstream start or completion order. A three-role design review therefore kept schema 1.38 and `core.sequence` out of the public contract. The first follow-up slice adds an internal, non-serialized activation ledger with stable output order, one-active-output admission, explicit terminal states, and skipped-output accounting after failure or cancellation. Focused tests cover the two-to-four output bound, ordered continuation, terminal completion, and failure short-circuiting. This is proof infrastructure only; runner integration, playback lineage, pause/host-stop behavior, and a Studio node remain deferred. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md).
+The Blueprint parity audit established that Agent Framework dispatch order does not guarantee downstream start or completion order. A three-role design review therefore kept public Sequence execution out of the contract until its runtime boundary was proven. The first follow-up slice adds an internal, non-serialized activation ledger with stable output order, one-active-output admission, explicit terminal states, and skipped-output accounting after failure or cancellation. Focused tests cover the two-to-four output bound, ordered continuation, terminal completion, and failure short-circuiting. This proof infrastructure remains the basis for the unfinished runner integration.
 
 The runner now also owns an internal `ExecutionActivationLedger` at the recorded event boundary. It tracks started node invocations across workflow-call scopes and requires each invocation to reach a completed, failed, or cancelled event before a normal run completion or termination is emitted. Focused tests cover scoped identity and partial active-work detection. Sequence-specific lineage, continuation admission, and pause/host-stop semantics remain deferred.
 

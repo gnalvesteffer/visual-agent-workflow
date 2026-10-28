@@ -345,7 +345,7 @@ public static class GraphEditing
             NodeTypes.Agent => "agent", NodeTypes.McpTool => "mcp", NodeTypes.StringConstant => "constant", NodeTypes.TextConcat => "concat",
             NodeTypes.StringEquals => "equals", NodeTypes.BooleanBranch => "branch",
             NodeTypes.BooleanConstant => "boolean", NodeTypes.BooleanNot => "not", NodeTypes.IntegerConstant => "integer", NodeTypes.NumberConstant => "number",
-            NodeTypes.IntegerAdd => "add", NodeTypes.NumberAdd => "number-add", NodeTypes.IntegerEquals => "integer-equals", _ => node.Type
+            NodeTypes.IntegerAdd => "add", NodeTypes.NumberAdd => "number-add", NodeTypes.IntegerEquals => "integer-equals", NodeTypes.Sequence => "sequence", _ => node.Type
         };
         var id = NewId(prefix);
         return definition with

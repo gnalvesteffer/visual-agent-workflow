@@ -37,6 +37,7 @@ public enum WorkflowNodeEvidenceKind
     CapabilityInvocation,
     Approval,
     ParallelProgress,
+    SequenceProgress,
     ChildWorkflow
 }
 
@@ -46,6 +47,7 @@ public enum WorkflowDynamicPinIdentityKind
     AgentRouteId,
     McpArgumentId,
     ParallelBranchId,
+    SequenceOutputId,
     GraphFunctionPortId
 }
 
@@ -110,6 +112,7 @@ public static class WorkflowNodeContractCatalog
         Contract(NodeTypes.ParallelBranch, "Parallel branch", "Flow", "Anchors one named parallel branch.", true, true, state: WorkflowNodeStateKind.RunScoped, evidence: WorkflowNodeEvidenceKind.ParallelProgress),
         Contract(NodeTypes.ParallelJoin, "Parallel join", "Flow", "Waits for named parallel branch results.", true, true, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.ParallelBranchId, limits: [new("branch-count", ParallelGraphLimits.MaximumExplicitBranches, "Maximum named branches accepted by the barrier.")], activation: WorkflowNodeActivationKind.SchedulerBarrier, state: WorkflowNodeStateKind.RunScoped, failure: WorkflowNodeFailureKind.AbortsRegion, evidence: WorkflowNodeEvidenceKind.ParallelProgress),
         Contract(NodeTypes.ParallelRendezvous, "Collaboration rendezvous", "Collaboration", "Publishes or reads a bounded branch snapshot.", true, true, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.ParallelBranchId, requiresHostCapability: true, limits: [new("branch-count", ParallelGraphLimits.MaximumExplicitBranches, "Maximum named branches accepted by the rendezvous.")], activation: WorkflowNodeActivationKind.SchedulerBarrier, state: WorkflowNodeStateKind.RunScoped, failure: WorkflowNodeFailureKind.AbortsRegion, evidence: WorkflowNodeEvidenceKind.ParallelProgress),
+        Contract(NodeTypes.Sequence, "Sequence", "Flow", "Activates ordered execution outputs without waiting for earlier branches to complete.", true, false, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.SequenceOutputId, limits: [new("output-count", SequenceOutputLimits.MaximumOutputs, "Maximum ordered outputs in the sequence.")], activation: WorkflowNodeActivationKind.SchedulerFanOut, state: WorkflowNodeStateKind.RunScoped, evidence: WorkflowNodeEvidenceKind.SequenceProgress),
         Contract(NodeTypes.Loop, "Bounded loop", "Flow", "Repeats a linear body up to a hard iteration limit.", true, true, state: WorkflowNodeStateKind.RunScoped, limits: [new("iteration-count", WorkflowLoopLimits.MaximumIterations, "Maximum body iterations.")], failure: WorkflowNodeFailureKind.Routes, evidence: WorkflowNodeEvidenceKind.RouteDecision),
         Contract(NodeTypes.LoopBody, "Loop body", "Flow", "Marks the body entry of a bounded loop.", true, true, state: WorkflowNodeStateKind.RunScoped, evidence: WorkflowNodeEvidenceKind.ExecutionLifecycle),
         Contract(NodeTypes.Agent, "Agent", "Capabilities", "Invokes a host-authorized model agent.", true, true, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.AgentRouteId, requiresHostCapability: true, limits: [new("route-count", AgentExecutionRouteLimits.MaximumRoutes, "Maximum authored execution routes."), new("output-tokens", AgentOutputTokenLimits.Maximum, "Maximum configured response tokens."), new("total-tokens", AgentTotalTokenLimits.Maximum, "Maximum provider-reported total tokens."), new("function-tools", AgentGraphFunctionToolLimits.MaximumAssignedFunctions, "Maximum assigned pure graph-function tools.")], state: WorkflowNodeStateKind.HostOwned, evidence: WorkflowNodeEvidenceKind.CapabilityInvocation),

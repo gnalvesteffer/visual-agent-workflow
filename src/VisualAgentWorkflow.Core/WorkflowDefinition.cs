@@ -83,6 +83,9 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     public ParallelJoinConfiguration? ParallelJoin { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ParallelRendezvousConfiguration? ParallelRendezvous { get; init; }
+    /// <summary>Ordered, bounded execution outputs for a Blueprint-style sequence node.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SequenceConfiguration? Sequence { get; init; }
     /// <summary>Optional static JSON arguments for a direct MCP tool node; credentials and grants are never stored here.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? McpArgumentsJson { get; init; }
@@ -119,6 +122,7 @@ public static class NodeTypes
     public const string ParallelBranch = "core.parallel.branch";
     public const string ParallelJoin = "core.parallel.join";
     public const string ParallelRendezvous = "core.parallel.rendezvous";
+    public const string Sequence = "core.sequence";
     public const string Loop = "core.loop";
     public const string LoopBody = "core.loop.body";
     public const string Terminate = "core.terminate";
@@ -159,18 +163,19 @@ public static class WorkflowSchemaVersions
     public const string PhasedCollaborativeParallelGraph = "1.35";
     public const string DirectMcpGraph = "1.36";
     public const string DirectMcpPinsGraph = "1.37";
+    public const string SequenceGraph = "1.38";
     public const string StringIntegerConversionGraph = "1.39";
     public const string NumberGraph = "1.40";
     public const string NumberPropagationGraph = "1.41";
     public const string NumberArithmeticGraph = "1.42";
 
-    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph or PureGraphFunctions or AgentGraphFunctionTools or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph or NumberArithmeticGraph;
+    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph or PureGraphFunctions or AgentGraphFunctionTools or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or SequenceGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph or NumberArithmeticGraph;
 
     public static bool UsesDirectMcpPins(string? version) => version is DirectMcpPinsGraph or NumberGraph or NumberPropagationGraph or NumberArithmeticGraph;
 
     public static bool UsesExplicitGraph(WorkflowDefinition definition) =>
         UsesExplicitGraph(definition.SchemaVersion) ||
-        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph or NumberArithmeticGraph && definition.ExecutionConnections is not null;
+        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or SequenceGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph or NumberArithmeticGraph && definition.ExecutionConnections is not null;
 }
 
 public sealed record StringConstantConfiguration(string Value);
@@ -183,6 +188,8 @@ public sealed record ParallelBranchDescriptor(string Id, string Label, string An
 public sealed record ParallelBranchConfiguration(string ForkNodeId, string BranchId);
 public sealed record ParallelJoinConfiguration(string ForkNodeId, ImmutableArray<string> BranchIds);
 public sealed record ParallelRendezvousConfiguration(ImmutableArray<string> BranchIds);
+public sealed record SequenceConfiguration(ImmutableArray<SequenceOutputDescriptor> Outputs);
+public sealed record SequenceOutputDescriptor(string Id, string Label);
 public sealed record ParallelCollaborationRegion(string ForkNodeId, string RendezvousNodeId, string JoinNodeId,
     ImmutableArray<string> ChannelIds, int? TimeoutSeconds, ImmutableArray<ParallelCollaborationBranch> Branches)
 {

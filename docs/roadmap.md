@@ -103,7 +103,7 @@ Descriptor progress: Core now has a canonical node-family catalog for stable dis
 
 ### Deferred parity decision: bounded Sequence dispatch
 
-`core.sequence` and schema 1.38 are not implemented. The independent proponent/opponent/adjudicator review keeps the feature deferred until a non-public Agent Framework proof establishes active-activation accounting, partial-dispatch/failure/cancellation semantics, playback correlation, and the explicit pause/restart boundary. The proof now covers Blueprint-style ordered dispatch with overlapping active descendants, completion-order divergence, cancellation between outputs, distinct failed/cancelled terminal outcomes with skipped later outputs, and deterministic pause/host-stop behavior at the inter-dispatch boundary. That harness now routes descendant start/completion facts through runner-owned active-node accounting, and Core can reconstruct recorded Sequence prefixes passively. Production `GraphMessage` transport now also carries a private, non-persisted lineage envelope, and an internal `WorkflowRunner` adapter emits and records the private lifecycle proof; authored production workflows still cannot create or execute Sequence content. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md). Mutable variables remain deferred for the same contract/evidence reasons.
+The independent proponent/opponent/adjudicator review keeps public Sequence execution bounded until the non-public Agent Framework proof is promoted into a definition-driven runtime. The proof covers Blueprint-style ordered dispatch with overlapping active descendants, completion-order divergence, cancellation between outputs, distinct failed/cancelled terminal outcomes with skipped later outputs, and deterministic pause/host-stop behavior at the inter-dispatch boundary. That harness now routes descendant start/completion facts through runner-owned active-node accounting, and Core can reconstruct recorded Sequence prefixes passively. Production `GraphMessage` transport also carries a private, non-persisted lineage envelope, and an internal `WorkflowRunner` adapter emits and records the private lifecycle proof. Schema 1.38 now defines the first persisted contract and validator slice; authored production workflows still cannot execute Sequence content until the runtime consumes these descriptors. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md). Mutable variables remain deferred for the same contract/evidence reasons.
 
 Sequence proof checklist:
 
@@ -120,7 +120,11 @@ Sequence proof checklist:
 - [x] Prove partial dispatch, downstream failure, and cancellation outcomes against the private streaming runner proof.
 - [x] Prove pause and host-stop behavior at the private inter-dispatch boundary.
 - [x] Prove pause and host-stop outcomes against the private production runner adapter.
-- [ ] Only then add schema 1.38, validator rules, persistence compatibility, Studio authoring, and public runtime behavior.
+- [x] Add schema 1.38, persisted ordered output descriptors, stable `then.<outputId>` pins, round-trip coverage, and validator rules for the bounded Input → Sequence → Output slice.
+- [x] Register Sequence in the Core node contract catalog and expose it in the schema-gated Studio node library with a safe two-output default.
+- [ ] Adapt the production runner to consume the persisted Sequence definition and actual downstream topology; retain the private proof until this is complete.
+- [ ] Add full Studio configuration/editing for ordered outputs, schema promotion, and diagnostics.
+- [ ] Add public runtime evidence/playback binding, compatibility migration coverage, and broader supported downstream node topology.
 
 ### Sequencing and exit criteria
 
@@ -358,7 +362,7 @@ Schema 1.31 adds integer constants, checked signed-64-bit addition, integer equa
 
 ### Complete: explicit string-to-integer conversion
 
-Adversarial review accepted a revised, bounded conversion slice. Schema 1.39 adds a pure `core.convert.string-to-integer` node with strict invariant parsing, stable failure evidence, and no implicit coercion. Schema 1.38 remains reserved for the deferred Sequence contract. Existing schemas are unchanged; graph-function bodies and checkpoint recovery deliberately reject the node until their own contracts are reviewed. See [explicit string-to-integer conversion](decisions/0004-explicit-string-integer-conversion.md).
+Adversarial review accepted a revised, bounded conversion slice. Schema 1.39 adds a pure `core.convert.string-to-integer` node with strict invariant parsing, stable failure evidence, and no implicit coercion. Schema 1.38 is reserved for the bounded Sequence contract described above. Existing schemas are unchanged; graph-function bodies and checkpoint recovery deliberately reject the node until their own contracts are reviewed. See [explicit string-to-integer conversion](decisions/0004-explicit-string-integer-conversion.md).
 
 - [x] Add the schema-gated node contract, typed ports, validator, editor insertion, runtime evaluator, package/reuse behavior, and recorded failure evidence.
 - [x] Add parser, schema compatibility, legacy hash stability, lazy evaluation, and deterministic failure regression tests.

@@ -77,6 +77,8 @@ public static class WorkflowPorts
                  ? node.Agent?.Routes?.FirstOrDefault(route => route is not null && AgentExecutionRouteLimits.PinId(route.Id) == port)?.Label
                  : node.Type == NodeTypes.ParallelFork
                      ? node.ParallelFork?.Branches.FirstOrDefault(branch => branch is not null && ParallelBranchLimits.PinId(branch.Id) == port)?.Label
+                     : node.Type == NodeTypes.Sequence
+                         ? node.Sequence?.Outputs.FirstOrDefault(output => output is not null && SequenceOutputLimits.PinId(output.Id) == port)?.Label
                      : null)
          {
              Required = true,
@@ -125,7 +127,7 @@ public static class WorkflowPorts
 
     public static ImmutableArray<string> ExplicitExecutionInputs(NodeDefinition node) => node.Type switch
     {
-        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch => ["execute"],
+        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Sequence => ["execute"],
         NodeTypes.ParallelJoin when node.ParallelJoin is { } join => [.. join.BranchIds.Select(ParallelBranchLimits.PinId)],
         NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Select(ParallelBranchLimits.PinId)],
         _ => []
@@ -142,6 +144,7 @@ public static class WorkflowPorts
         NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Select(ParallelBranchLimits.PinId)],
         NodeTypes.ParallelBranch => ["then"],
         NodeTypes.ParallelJoin => ["then"],
+        NodeTypes.Sequence when node.Sequence is { } sequence => [.. sequence.Outputs.Select(output => SequenceOutputLimits.PinId(output.Id))],
         _ => []
     };
 
@@ -209,6 +212,19 @@ public static class ParallelBranchLimits
         id[0] is >= 'a' and <= 'z' && id.All(character => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '_' or '-');
 }
 
+public static class SequenceOutputLimits
+{
+    public const int MinimumOutputs = 2;
+    public const int MaximumOutputs = 4;
+    public const int MaximumIdLength = 32;
+    public const int MaximumLabelLength = 64;
+
+    public static string PinId(string outputId) => $"then.{outputId}";
+
+    public static bool IsValidId(string? id) => id is { Length: > 0 and <= MaximumIdLength } &&
+        id[0] is >= 'a' and <= 'z' && id.All(character => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '_' or '-');
+}
+
 public static class WorkflowLoopLimits
 {
     public const int MaximumIterations = 16;
@@ -264,7 +280,7 @@ public static class JsonProjectionLimits
 public static class WorkflowGraph
 {
     public static bool HasRouting(WorkflowDefinition definition) => definition.Nodes.Values.Any(n =>
-        n?.Type is NodeTypes.Condition or NodeTypes.BooleanBranch or NodeTypes.Merge or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous or NodeTypes.Loop or NodeTypes.Terminate);
+        n?.Type is NodeTypes.Condition or NodeTypes.BooleanBranch or NodeTypes.Merge or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous or NodeTypes.Sequence or NodeTypes.Loop or NodeTypes.Terminate);
 
     public static bool HasControlNodes(WorkflowDefinition definition) => HasRouting(definition) || definition.Nodes.Values.Any(n => n?.Type == NodeTypes.Approval);
 

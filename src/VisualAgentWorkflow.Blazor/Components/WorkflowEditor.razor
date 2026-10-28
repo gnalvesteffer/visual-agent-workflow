@@ -1298,6 +1298,12 @@
         if (value == NodeTypes.BooleanConstant)
             return new(NodeTypes.BooleanConstant, "1.0.0") { BooleanConstant = existing?.BooleanConstant ?? new(false) };
         if (value == NodeTypes.BooleanNot) return new(NodeTypes.BooleanNot, "1.0.0");
+        if (value == NodeTypes.Sequence)
+            return new(NodeTypes.Sequence, "1.0.0")
+            {
+                Sequence = existing?.Sequence ?? new SequenceConfiguration([
+                    new("first", "First"), new("second", "Second")])
+            };
         if (value == NodeTypes.IntegerConstant)
             return new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = existing?.IntegerConstant ?? new(0) };
         if (value == NodeTypes.NumberConstant)

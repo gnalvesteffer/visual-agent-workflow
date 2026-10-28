@@ -62,8 +62,8 @@ public static class WorkflowValidator
         var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
 
-        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" or "1.25" or "1.26" or "1.27" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph))
-            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.37, 1.39, 1.40, 1.41, and 1.42.");
+        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" or "1.25" or "1.26" or "1.27" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph))
+            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.38, 1.39, 1.40, 1.41, and 1.42.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.DisplayName is { } displayName &&
@@ -553,6 +553,9 @@ public static class WorkflowValidator
 
         if (WorkflowSchemaVersions.UsesExplicitGraph(definition))
         {
+            if (definition.SchemaVersion is WorkflowSchemaVersions.SequenceGraph)
+                ValidateSequenceGraph(definition, Error);
+            else
             if (definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph)
                 ValidateDirectMcpGraph(definition, Error);
             else if (definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph)
@@ -692,6 +695,90 @@ public static class WorkflowValidator
         {
             return false;
         }
+    }
+
+    private static void ValidateSequenceGraph(WorkflowDefinition definition, Action<string, string, string> error)
+    {
+        if (definition.ExecutionConnections is null)
+        {
+            error("execution.missing", "executionConnections", "Schema 1.38 requires explicit execution connections.");
+            return;
+        }
+
+        var supported = new HashSet<string>(StringComparer.Ordinal) { NodeTypes.Input, NodeTypes.Sequence, NodeTypes.Output };
+        foreach (var (id, node) in definition.Nodes)
+            if (node is null || !supported.Contains(node.Type))
+                error("execution.node.unsupported", $"nodes.{id}", "Schema 1.38 initially supports input, Sequence, and output nodes.");
+
+        var sequenceNodes = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Sequence).ToArray();
+        if (sequenceNodes.Length != 1)
+            error("sequence.count", "nodes", "A Sequence graph requires exactly one Sequence node.");
+
+        foreach (var (id, node) in definition.Nodes)
+        {
+            if (node is null) continue;
+            if (node.Type == NodeTypes.Sequence)
+            {
+                var outputs = node.Sequence?.Outputs ?? [];
+                if (node.Sequence is null || outputs.IsDefault || outputs.Length is < SequenceOutputLimits.MinimumOutputs or > SequenceOutputLimits.MaximumOutputs ||
+                    outputs.Any(output => output is null || !SequenceOutputLimits.IsValidId(output.Id) || string.IsNullOrWhiteSpace(output.Label) || output.Label.Length > SequenceOutputLimits.MaximumLabelLength) ||
+                    outputs.Select(output => output.Id).Distinct(StringComparer.Ordinal).Count() != outputs.Length)
+                    error("sequence.configuration", $"nodes.{id}.sequence", $"A Sequence requires {SequenceOutputLimits.MinimumOutputs}–{SequenceOutputLimits.MaximumOutputs} uniquely identified outputs with labels.");
+            }
+            else if (node.Sequence is not null)
+                error("sequence.unexpected", $"nodes.{id}.sequence", "Only Sequence nodes may declare ordered outputs.");
+        }
+
+        var input = definition.Nodes.SingleOrDefault(pair => pair.Value?.Type == NodeTypes.Input).Key;
+        var sequence = sequenceNodes.SingleOrDefault().Key;
+        var output = definition.Nodes.SingleOrDefault(pair => pair.Value?.Type == NodeTypes.Output).Key;
+        if (string.IsNullOrWhiteSpace(input) || string.IsNullOrWhiteSpace(sequence) || string.IsNullOrWhiteSpace(output) || input != definition.EntryNodeId)
+            error("workflow.terminals", "nodes", "A Sequence graph requires one input entry, one Sequence node, and one output node.");
+
+        var incoming = new Dictionary<(string Node, string Port), int>();
+        var outgoing = new Dictionary<(string Node, string Port), int>();
+        var adjacency = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var (id, edge) in definition.ExecutionConnections)
+        {
+            var path = $"executionConnections.{id}";
+            if (edge?.Source?.NodeId is not { } source || edge.Target?.NodeId is not { } target ||
+                !definition.Nodes.TryGetValue(source, out var sourceNode) || !definition.Nodes.TryGetValue(target, out var targetNode) ||
+                sourceNode is null || targetNode is null)
+            {
+                error("execution.reference", path, "Both execution-edge endpoints must reference existing nodes and ports.");
+                continue;
+            }
+            var validPorts = edge.Kind == "execution" && WorkflowPorts.ExplicitExecutionOutputs(sourceNode).Contains(edge.Source.PortId) &&
+                WorkflowPorts.ExplicitExecutionInputs(targetNode).Contains(edge.Target.PortId);
+            var validRoute = source == input && target == sequence && edge.Source.PortId == "then" && edge.Target.PortId == "execute" ||
+                source == sequence && target == output && edge.Target.PortId == "execute" &&
+                sourceNode.Sequence?.Outputs.Any(candidate => SequenceOutputLimits.PinId(candidate.Id) == edge.Source.PortId) == true;
+            if (!validPorts) error("execution.port", path, "Execution edges must connect declared Sequence execution ports.");
+            if (!validRoute) error("execution.target", path, "Schema 1.38 routes input to Sequence and each ordered Sequence output to the output node.");
+            incoming[(target, edge.Target.PortId)] = incoming.GetValueOrDefault((target, edge.Target.PortId)) + 1;
+            outgoing[(source, edge.Source.PortId)] = outgoing.GetValueOrDefault((source, edge.Source.PortId)) + 1;
+            if (!adjacency.TryGetValue(source, out var next)) adjacency[source] = next = [];
+            next.Add(target);
+        }
+
+        if (input is not null && definition.Nodes.TryGetValue(input, out var inputNode) &&
+            outgoing.GetValueOrDefault((input, "then")) != 1)
+            error("graph.degree", $"nodes.{input}", "Input must activate Sequence exactly once.");
+        if (sequence is not null && definition.Nodes.TryGetValue(sequence, out var sequenceNode))
+        {
+            if (incoming.GetValueOrDefault((sequence, "execute")) != 1)
+                error("graph.degree", $"nodes.{sequence}", "Sequence requires exactly one execution input.");
+            foreach (var pin in WorkflowPorts.ExplicitExecutionOutputs(sequenceNode))
+                if (outgoing.GetValueOrDefault((sequence, pin)) != 1)
+                    error("graph.degree", $"nodes.{sequence}.outputs.{pin}", "Every Sequence output must connect exactly once.");
+        }
+        if (output is not null && incoming.GetValueOrDefault((output, "execute")) != sequenceNodes.FirstOrDefault().Value?.Sequence?.Outputs.Length)
+            error("graph.degree", $"nodes.{output}", "Output must receive one activation from every Sequence output.");
+
+        var reached = new HashSet<string>(StringComparer.Ordinal);
+        if (input is not null) { var pending = new Stack<string>([input]); while (pending.TryPop(out var current)) { if (!reached.Add(current)) continue; foreach (var next in adjacency.GetValueOrDefault(current) ?? []) pending.Push(next); } }
+        if (reached.Count != definition.Nodes.Count)
+            error("graph.unreachable", "nodes", "Every node must be reachable from the input entry.");
     }
 
     private static void ValidateDirectMcpGraph(WorkflowDefinition definition, Action<string, string, string> error)

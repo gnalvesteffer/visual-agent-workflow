@@ -184,6 +184,9 @@ public partial class WorkflowEditor
                 explicitEntries.InsertRange(0, Bindings.Select(binding => new WorkflowNodeLibraryEntry(
                     ToolKey(binding), binding.DisplayName, "MCP tools", "Direct deterministic call; node grants and the pinned tool contract still apply",
                     !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));
+            if (Definition.SchemaVersion == WorkflowSchemaVersions.SequenceGraph)
+                explicitEntries.Insert(0, ContractEntry(NodeTypes.Sequence, !ReadOnly && !Disabled && Definition.Nodes.Count < 256,
+                    "Fan out ordered execution pins; each output must be connected exactly once."));
             if (Definition.SchemaVersion is WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph)
                 explicitEntries.Add(ContractEntry(NodeTypes.ParallelRendezvous, !ReadOnly && !Disabled && Definition.Nodes.Count < 256 && Definition.Nodes.Values.All(node => node.Type != NodeTypes.ParallelRendezvous), "Add one unwired communication barrier; configure its branch pins and grants in node properties"));
             return explicitEntries;
