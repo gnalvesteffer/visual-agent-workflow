@@ -38,7 +38,13 @@ public sealed record WorkflowRunCheckpoint(string SchemaVersion, string RuntimeV
             var revision = WorkflowRevision.Rehydrate(snapshot.Header.RevisionId, snapshot.Header.Definition,
                 snapshot.Header.Author, snapshot.Header.ParentRevisionId, snapshot.Header.CreatedAt, snapshot.Header.ContentHash);
             Frame.Validate(revision, snapshot.Events);
-            if (variableState is null || VariableStateHash is null || VariableStateHash != variableState.ComputeHash())
+            if (Frame.EvidenceCursor != Sequence ||
+                !string.Equals(Frame.NativePayload, Native.Payload, StringComparison.Ordinal) ||
+                !string.Equals(Frame.NativePayloadHash, PayloadHash, StringComparison.Ordinal) ||
+                variableState is null || VariableStateHash is null ||
+                VariableStateHash != variableState.ComputeHash() ||
+                !string.Equals(Frame.VariableStateHash, VariableStateHash, StringComparison.Ordinal) ||
+                Frame.Variables.ComputeHash() != variableState.ComputeHash())
                 throw new InvalidDataException("Loop variable checkpoint state is missing or has an invalid integrity hash.");
             _ = WorkflowVariableStore.FromSnapshot(snapshot.Header.Definition, variableState);
         }

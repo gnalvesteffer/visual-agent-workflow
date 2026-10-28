@@ -30,6 +30,14 @@ admission remains fail-closed for schema 1.45 until native Agent Framework
 checkpoint round-tripping, failure/publication race handling, and the remaining
 exact admission restrictions are proven.
 
+The trusted envelope validator also binds the frame back to the outer
+checkpoint: its evidence cursor must equal the committed sequence, its native
+payload and hash must equal the envelope payload and checksum, and its variable
+snapshot hash must equal the captured native variable state. The loop cursor's
+iteration must match the corresponding recorded loop event. These checks reject
+component substitution before native recovery; they do not by themselves make
+schema 1.45 production-admissible.
+
 A test-only adapter seam exercises the real Agent Framework native checkpoint
 serializer for a schema 1.45 loop-variable graph. It suspends after a body
 write, publishes the composite frame with the checkpoint/evidence transaction,
@@ -60,6 +68,9 @@ established by this proof.
   captured suspension; preserve the saved boundary in the latter case.
 - [x] Recover after the owner process is terminated after durable publication;
   verify ownership release, exact frame identity, and no duplicate writes.
+- [x] Bind the trusted outer checkpoint envelope to the proof frame's native
+  payload, evidence sequence, variable snapshot, and recorded loop iteration;
+  reject mismatched components before recovery.
 - Reject stale, advanced, foreign, malformed, oversized, tampered, terminal,
   and unsettled frames before native execution begins.
 - Preserve schema 1.44 and older checkpoint formats and behavior unchanged.

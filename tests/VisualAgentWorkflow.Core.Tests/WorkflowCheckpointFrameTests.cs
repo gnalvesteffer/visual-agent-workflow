@@ -37,6 +37,19 @@ public sealed class WorkflowCheckpointFrameTests
         Assert.Throws<InvalidDataException>(() => (frame with { Loop = frame.Loop with { NextInputPortId = "missing" } }).Validate(revision, events));
     }
 
+    [Fact]
+    public void Proof_frame_rejects_cursor_that_does_not_match_recorded_iteration()
+    {
+        var revision = WorkflowRevision.Create(LoopVariableTopologyTests.Candidate(), "checkpoint-proof");
+        var runId = Guid.NewGuid();
+        var events = Evidence(runId, revision.RevisionId);
+        var variables = new WorkflowVariableStore(revision.Definition).Snapshot();
+        var frame = WorkflowCheckpointFrame.Create(revision, runId, "{}",
+            new("loop", "body", 2, 3, "body", "execute", "loop", "body", 2), variables, events);
+
+        Assert.Throws<InvalidDataException>(() => frame.Validate(revision, events));
+    }
+
     private static List<ExecutionEvent> Evidence(Guid runId, Guid revisionId) =>
     [
         new(runId, revisionId, 1, DateTimeOffset.UtcNow, ExecutionEventKinds.Started),

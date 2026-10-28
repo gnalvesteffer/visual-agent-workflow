@@ -124,10 +124,31 @@ public sealed record WorkflowCheckpointFrame(
         if (loopEvent.NodeId != cursor.LoopNodeId ||
             loopEvent.Kind is not (ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped))
             throw new InvalidDataException("The loop checkpoint cursor is not anchored to loop evidence.");
+        if (loopEvent.Data is null || !TryReadLoopIteration(loopEvent, out var recordedIteration) ||
+            recordedIteration != cursor.Iteration)
+            throw new InvalidDataException("The loop checkpoint cursor does not match the recorded iteration.");
         if (cursor.SourceNodeId is { } sourceNode &&
             (!definition.Nodes.TryGetValue(sourceNode, out var source) || source is null ||
              cursor.SourceOutputPortId is null || !WorkflowPorts.ExplicitExecutionOutputs(source).Contains(cursor.SourceOutputPortId)))
             throw new InvalidDataException("The loop checkpoint source cursor is not a declared execution output.");
+        if (cursor.SourceNodeId is null && cursor.SourceOutputPortId is not null)
+            throw new InvalidDataException("The loop checkpoint source cursor is incomplete.");
+    }
+
+    private static bool TryReadLoopIteration(ExecutionEvent loopEvent, out int iteration)
+    {
+        iteration = 0;
+        try
+        {
+            using var document = JsonDocument.Parse(loopEvent.Data!);
+            var property = loopEvent.Kind == ExecutionEventKinds.LoopStopped ? "iterations" : "iteration";
+            return document.RootElement.TryGetProperty(property, out var value) &&
+                value.TryGetInt32(out iteration) && iteration >= 0;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private static bool IsSha256(string? value) => value is { Length: 64 } && value.All(character =>

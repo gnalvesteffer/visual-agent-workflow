@@ -215,6 +215,12 @@ public sealed class MutableVariableExecutionTests
             Assert.Equal("suspended", snapshot.Status);
             Assert.NotNull(checkpoint.Frame);
             Assert.True(WorkflowCheckpointRecovery.Assess(snapshot, checkpoint).CanResume);
+            var mismatchedNative = checkpoint with
+            {
+                Native = checkpoint.Native with { Payload = "{\"different\":true}" },
+                PayloadHash = WorkflowRunCheckpoint.Hash("{\"different\":true}")
+            };
+            Assert.False(WorkflowCheckpointRecovery.Assess(snapshot, mismatchedNative).CanResume);
             Assert.Equal(1, snapshot.Events.Count(evt => evt.Kind == ExecutionEventKinds.VariableWritten));
 
             var secondResume = await RunCheckpointProbeAsync(database, secondResumeResult, "resume", started.RunId,
@@ -512,7 +518,10 @@ public sealed class MutableVariableExecutionTests
             var bodyId = revision.Definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.LoopBody).Key;
             var loopEvent = snapshot.Events.Last(evt => evt.NodeId == loopId &&
                 evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped);
-            var cursor = new LoopCheckpointCursor(loopId, bodyId, 1, revision.Definition.Nodes[loopId].Loop!.MaximumIterations,
+            using var loopData = JsonDocument.Parse(loopEvent.Data!);
+            var iterationProperty = loopEvent.Kind == ExecutionEventKinds.LoopStopped ? "iterations" : "iteration";
+            var iteration = loopData.RootElement.GetProperty(iterationProperty).GetInt32();
+            var cursor = new LoopCheckpointCursor(loopId, bodyId, iteration, revision.Definition.Nodes[loopId].Loop!.MaximumIterations,
                 "set", "execute", bodyId, "then", loopEvent.Sequence);
             var frame = WorkflowCheckpointFrame.Create(revision, snapshot.Header.RunId, native.Payload, cursor,
                 native.VariableState!, evidence);

@@ -16,7 +16,11 @@ admission: cancellation/failure races and the remaining admission restrictions
 are still open. The proof now also covers two successive
 loop suspensions and owner process loss after publication, each recovered from
 independent processes, plus the cancellation boundary before versus after a
-captured suspension. See [decision
+captured suspension. The trusted checkpoint validator additionally binds the
+composite frame to the outer native payload, committed evidence sequence,
+variable snapshot, and recorded loop iteration, so component substitution is
+rejected before native recovery. This remains a proof boundary, not production
+loop admission. See [decision
 0031](decisions/0031-loop-checkpoint-proof-frame.md).
 
 ## Use the host API
