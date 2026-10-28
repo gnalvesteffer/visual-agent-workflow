@@ -148,6 +148,35 @@ public static class NodeTypes
 
 public sealed record WorkflowSchemaDescriptor(string Version, bool Supported, bool UsesExplicitGraph, bool UsesDirectMcpPins);
 
+/// <summary>Describes one reviewed, explicitly named schema-promotion operation.</summary>
+/// <remarks>This is discoverability metadata only. It is not executable migration or a composable version graph.</remarks>
+public sealed record WorkflowSchemaPromotionDescriptor(
+    string OperationId,
+    string FromSchema,
+    string ToSchema,
+    string GraphEditingMethod,
+    bool ChangesTopology);
+
+/// <summary>Exact promotion operations currently documented by the Core editing API.</summary>
+public static class WorkflowSchemaPromotionCatalog
+{
+    public static ImmutableArray<WorkflowSchemaPromotionDescriptor> All { get; } =
+    [
+        new("explicit-branch", "1.23", "1.24", nameof(GraphEditing.EnableExplicitBranchGraph), false),
+        new("typed-boolean", "1.24", "1.25", nameof(GraphEditing.EnableTypedBooleanGraph), false),
+        new("boolean-topology", "1.25", "1.26", nameof(GraphEditing.EnableBooleanTopologyGraph), false),
+        new("pure-graph-functions", "1.26", "1.27", nameof(GraphEditing.EnablePureGraphFunctions), false),
+        new("agent-graph-function-tools", "1.27", "1.28", nameof(GraphEditing.EnableAgentGraphFunctionTools), false),
+        new("agent-integer-values", "1.30", "1.31", nameof(GraphEditing.EnableIntegerGraph), false),
+        new("string-integer-conversion", "1.31", "1.39", nameof(GraphEditing.EnableStringIntegerConversionGraph), false),
+        new("direct-mcp-typed-pins", "1.23", "1.37", nameof(GraphEditing.EnableDirectMcpGraph), false),
+        new("finite-number-pins", "1.37", "1.40", nameof(GraphEditing.EnableNumberGraph), false),
+        new("number-parameter-propagation", "1.40", "1.41", nameof(GraphEditing.EnableNumberPropagationGraph), false),
+        new("number-addition", "1.41", "1.42", nameof(GraphEditing.EnableNumberArithmeticGraph), false),
+        new("sequence-paths", "1.38", "1.43", nameof(GraphEditing.EnableSequencePathGraph), false)
+    ];
+}
+
 /// <summary>Exact compatibility metadata for serialized workflow schema versions.</summary>
 /// <remarks>This is a support/capability catalog, not a migration registry.</remarks>
 public static class WorkflowSchemaCatalog

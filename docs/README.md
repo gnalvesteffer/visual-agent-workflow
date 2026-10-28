@@ -58,3 +58,4 @@ Documentation changes follow [documentation-maintenance](../.agents/skills/docum
 - [Dynamic pin descriptor resolution](decisions/0012-dynamic-pin-descriptor-resolution.md) — defines the schema-neutral Core projection for configured dynamic pins and transient MCP discovery.
 - [Static descriptor validation boundary](decisions/0013-static-descriptor-validation-boundary.md) — validates registered static descriptor metadata without making dynamic authoring projections an admission contract.
 - [Schema capability catalog](decisions/0014-schema-capability-catalog.md) — centralizes exact supported schema identities and selected feature flags without claiming migration support.
+- [Schema promotion inventory](decisions/0015-schema-promotion-inventory.md) — records individually named, non-executable promotion operations without implying composable migration.
