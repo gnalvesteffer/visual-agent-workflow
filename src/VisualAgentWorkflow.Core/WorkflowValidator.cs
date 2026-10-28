@@ -206,8 +206,7 @@ public static class WorkflowValidator
                 node.TypeVersion != nodeContract.TypeVersion)
                 Error("node.unsupported", $"nodes.{id}", "Unknown node type or implementation version.");
             if (node is null) continue;
-            if (WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor) &&
-                string.Equals(node.TypeVersion, staticDescriptor.NodeContract.TypeVersion, StringComparison.Ordinal))
+            if (WorkflowNodeDescriptorRegistry.TryGetForNode(node, out var staticDescriptor))
             {
                 foreach (var issue in WorkflowNodeDescriptorConformance.Validate(staticDescriptor))
                     Error("node.descriptor", $"nodes.{id}.descriptor.{issue.Code}", issue.Message);

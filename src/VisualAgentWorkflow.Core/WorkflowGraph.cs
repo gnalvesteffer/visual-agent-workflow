@@ -49,7 +49,7 @@ public static class WorkflowPorts
             : [];
 
     public static ImmutableArray<WorkflowPort> ExplicitDataInputs(NodeDefinition node) =>
-        WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor)
+        !IsSupportedNodeVersion(node) ? [] : WorkflowNodeDescriptorRegistry.TryGetForNode(node, out var staticDescriptor)
             ? [.. staticDescriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data).Select(port => new WorkflowPort(port.Id, port.DataType!))]
             : node.Type switch
     {
@@ -69,7 +69,7 @@ public static class WorkflowPorts
     };
 
     public static ImmutableArray<WorkflowPort> ExplicitDataOutputs(NodeDefinition node) =>
-        WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor)
+        !IsSupportedNodeVersion(node) ? [] : WorkflowNodeDescriptorRegistry.TryGetForNode(node, out var staticDescriptor)
             ? [.. staticDescriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Data).Select(port => new WorkflowPort(port.Id, port.DataType!))]
             : node.Type switch
     {
@@ -89,7 +89,7 @@ public static class WorkflowPorts
     };
 
     public static ImmutableArray<string> ExplicitExecutionInputs(NodeDefinition node) =>
-        WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var descriptor)
+        !IsSupportedNodeVersion(node) ? [] : WorkflowNodeDescriptorRegistry.TryGetForNode(node, out var descriptor)
             ? [.. descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Execution).Select(port => port.Id)]
             : ExplicitExecutionInputsFallback(node);
 
@@ -102,7 +102,7 @@ public static class WorkflowPorts
     };
 
     public static ImmutableArray<string> ExplicitExecutionOutputs(NodeDefinition node) =>
-        WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var descriptor)
+        !IsSupportedNodeVersion(node) ? [] : WorkflowNodeDescriptorRegistry.TryGetForNode(node, out var descriptor)
             ? [.. descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Execution).Select(port => port.Id)]
             : ExplicitExecutionOutputsFallback(node);
 
@@ -122,7 +122,7 @@ public static class WorkflowPorts
     };
 
     public static ImmutableArray<WorkflowPort> Inputs(NodeDefinition node) =>
-        WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor)
+        !IsSupportedNodeVersion(node) ? [] : WorkflowNodeDescriptorRegistry.TryGetForNode(node, out var staticDescriptor)
             ? [.. staticDescriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data).Select(port => new WorkflowPort(port.Id, port.DataType!))]
             : node.Type switch
     {
@@ -137,7 +137,7 @@ public static class WorkflowPorts
         _ => [new("in", WorkflowDataTypes.String)]
     };
     public static ImmutableArray<WorkflowPort> Outputs(NodeDefinition node) =>
-        WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor)
+        !IsSupportedNodeVersion(node) ? [] : WorkflowNodeDescriptorRegistry.TryGetForNode(node, out var staticDescriptor)
             ? [.. staticDescriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Data).Select(port => new WorkflowPort(port.Id, port.DataType!))]
             : node.Type switch
     {
@@ -163,6 +163,10 @@ public static class WorkflowPorts
         node.WorkflowCall?.Definition?.Nodes is { } nodes && nodes.Values.FirstOrDefault(candidate => candidate?.Type == NodeTypes.Output) is { } output
             ? Inputs(output).SingleOrDefault()?.DataType ?? WorkflowDataTypes.String
             : WorkflowDataTypes.String;
+
+    private static bool IsSupportedNodeVersion(NodeDefinition node) =>
+        WorkflowNodeContractCatalog.TryGet(node.Type, out var contract) &&
+        string.Equals(node.TypeVersion, contract.TypeVersion, StringComparison.Ordinal);
 }
 
 public static class ParallelGraphLimits

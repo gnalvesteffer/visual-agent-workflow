@@ -179,6 +179,14 @@ public static class WorkflowNodeDescriptorRegistry
         return descriptor is not null;
     }
 
+    /// <summary>Resolves the current non-serialized descriptor only when the node uses its exact implementation version.</summary>
+    public static bool TryGetForNode(NodeDefinition node, out WorkflowNodeDescriptor descriptor)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        return TryGet(node.Type, CurrentVersion, out descriptor) &&
+            string.Equals(node.TypeVersion, descriptor.NodeContract.TypeVersion, StringComparison.Ordinal);
+    }
+
     public static WorkflowNodeDescriptor Get(string nodeType, string descriptorVersion = CurrentVersion) =>
         TryGet(nodeType, descriptorVersion, out var descriptor)
             ? descriptor
@@ -228,13 +236,14 @@ public static class WorkflowNodeDescriptorResolver
         IReadOnlyDictionary<string, string>? discoveredMcpInputDescriptions,
         out WorkflowNodeDescriptor descriptor)
     {
-        if (!WorkflowNodeContractCatalog.TryGet(node.Type, out _))
+        if (!WorkflowNodeContractCatalog.TryGet(node.Type, out var contract) ||
+            !string.Equals(node.TypeVersion, contract.TypeVersion, StringComparison.Ordinal))
         {
             descriptor = null!;
             return false;
         }
 
-        if (WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out descriptor))
+        if (WorkflowNodeDescriptorRegistry.TryGetForNode(node, out descriptor))
             return true;
 
         var effectiveNode = node.Type == NodeTypes.McpTool && discoveredMcpInputPorts.HasValue && node.McpInputPorts is null

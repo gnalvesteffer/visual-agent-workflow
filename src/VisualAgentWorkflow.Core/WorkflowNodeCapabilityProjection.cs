@@ -58,7 +58,7 @@ public static class WorkflowNodeCapabilityProjectionResolver
             (discoveredMcpInputPorts.HasValue || discoveredMcpInputDescriptions is not null);
         var resolutionKind = hasDiscovery
             ? WorkflowNodeCapabilityResolutionKind.DiscoveryEnriched
-            : WorkflowNodeDescriptorRegistry.TryGet(node.Type, descriptor.DescriptorVersion, out _)
+            : WorkflowNodeDescriptorRegistry.TryGetForNode(node, out _)
                 ? WorkflowNodeCapabilityResolutionKind.Static
                 : WorkflowNodeCapabilityResolutionKind.Configured;
 

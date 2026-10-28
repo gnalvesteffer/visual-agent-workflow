@@ -69,6 +69,7 @@ Documentation changes follow [documentation-maintenance](../.agents/skills/docum
 - [Pure graph-template proof seam](decisions/0023-pure-graph-template-proof.md) — bounds authoring-only pure template extraction and expansion with catalog-backed Studio insertion authoring.
 - [Static pin descriptor registry hardening](decisions/0024-static-pin-descriptor-registry-hardening.md) — validates the bounded non-serialized static pin descriptor subset and its drift boundary.
 - [Advisory host-admission report](decisions/0025-advisory-host-admission-report.md) — compares validated package dependencies with a host snapshot without granting authority or bypassing runtime checks.
+- [Fail-closed node descriptor resolution](decisions/0026-fail-closed-node-descriptor-resolution.md) — prevents unsupported node implementation versions from receiving current or fallback pin semantics.
 
 ## Contract references
 

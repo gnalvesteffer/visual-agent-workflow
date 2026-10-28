@@ -210,6 +210,31 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Descriptor_resolution_requires_the_node_implementation_version_and_never_falls_back()
+    {
+        var current = new NodeDefinition(NodeTypes.StringConstant, "1.0.0");
+        var historical = current with { TypeVersion = "0.9.0" };
+        var dynamicHistorical = new NodeDefinition(NodeTypes.Agent, "0.9.0", Agent: new("demo.scripted", null, "Use no tools.", []));
+
+        Assert.True(WorkflowNodeDescriptorRegistry.TryGetForNode(current, out var descriptor));
+        Assert.Equal(WorkflowNodeDescriptorRegistry.CurrentVersion, descriptor.DescriptorVersion);
+        Assert.False(WorkflowNodeDescriptorRegistry.TryGetForNode(historical, out _));
+        Assert.False(WorkflowNodeDescriptorResolver.TryResolve(historical, null, null, out _));
+        Assert.False(WorkflowNodeDescriptorResolver.TryResolve(dynamicHistorical, null, null, out _));
+        Assert.Empty(WorkflowPorts.ExplicitDataOutputs(historical));
+        Assert.Empty(WorkflowPorts.ExplicitExecutionOutputs(dynamicHistorical));
+        Assert.Contains(WorkflowValidator.Validate(new WorkflowDefinition("1.2", "unsupported-version", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["constant"] = historical,
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>().ToImmutableSortedDictionary())),
+            issue => issue.Code == "node.unsupported");
+    }
+
+    [Fact]
     public void Static_descriptor_registry_is_explicit_and_matches_independent_pin_facts()
     {
         var expected = new Dictionary<string, (string ConfigurationKind, (string Id, WorkflowPortDirection Direction, WorkflowPortKind Kind, string? DataType)[] Ports)>(StringComparer.Ordinal)
