@@ -6,18 +6,19 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 public sealed class SequenceActivationLedgerTests
 {
     [Fact]
-    public void Dispatch_and_completion_are_bounded_and_ordered()
+    public void Dispatch_is_ordered_but_active_outputs_may_overlap()
     {
         var ledger = new SequenceActivationLedger(["first", "second", "third"]);
         var first = ledger.DispatchNext(Guid.NewGuid());
+        var second = ledger.DispatchNext(Guid.NewGuid());
+        var third = ledger.DispatchNext(Guid.NewGuid());
 
         Assert.Equal("first", first.OutputId);
-        Assert.Throws<InvalidOperationException>(() => ledger.DispatchNext(Guid.NewGuid()));
+        Assert.Equal("second", second.OutputId);
+        Assert.Equal("third", third.OutputId);
 
         ledger.RecordTerminal(first.ActivationId!.Value, SequenceTerminalState.Completed);
-        var second = ledger.DispatchNext(Guid.NewGuid());
         ledger.RecordTerminal(second.ActivationId!.Value, SequenceTerminalState.Completed);
-        var third = ledger.DispatchNext(Guid.NewGuid());
         ledger.RecordTerminal(third.ActivationId!.Value, SequenceTerminalState.Completed);
 
         Assert.True(ledger.IsTerminal);

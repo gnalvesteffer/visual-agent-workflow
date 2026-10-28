@@ -4,7 +4,7 @@ namespace VisualAgentWorkflow.AgentFramework;
 
 /// <summary>
 /// The bounded, in-process accounting model for a future Blueprint-style Sequence.
-/// This is intentionally not a workflow node or a persisted contract yet.
+/// Dispatch is ordered; active output paths may overlap until terminal accounting.
 /// </summary>
 internal sealed class SequenceActivationLedger
 {
@@ -36,8 +36,7 @@ internal sealed class SequenceActivationLedger
         get
         {
             lock (gate)
-                return entries.All(entry => entry.State is SequenceActivationState.Completed or SequenceActivationState.Skipped)
-                    || entries.Any(entry => entry.State is SequenceActivationState.Failed or SequenceActivationState.Cancelled);
+                return IsTerminalUnderLock();
         }
     }
 
@@ -53,9 +52,6 @@ internal sealed class SequenceActivationLedger
 
             var next = entries.FirstOrDefault(entry => entry.State == SequenceActivationState.Declared)
                 ?? throw new InvalidOperationException("All sequence outputs have already been dispatched.");
-
-            if (entries.Any(entry => entry.State == SequenceActivationState.Dispatched))
-                throw new InvalidOperationException("The next sequence output cannot be dispatched until the active output reaches a terminal state.");
 
             next.State = SequenceActivationState.Dispatched;
             next.ActivationId = activationId;
@@ -103,8 +99,24 @@ internal sealed class SequenceActivationLedger
         }
     }
 
-    private bool IsTerminalUnderLock() => entries.All(entry => entry.State is SequenceActivationState.Completed or SequenceActivationState.Skipped)
-        || entries.Any(entry => entry.State is SequenceActivationState.Failed or SequenceActivationState.Cancelled);
+    public IReadOnlyList<SequenceActivationSnapshot> CancelAll()
+    {
+        lock (gate)
+        {
+            foreach (var entry in entries)
+                entry.State = entry.State switch
+                {
+                    SequenceActivationState.Dispatched => SequenceActivationState.Cancelled,
+                    SequenceActivationState.Declared => SequenceActivationState.Skipped,
+                    _ => entry.State
+                };
+            return entries.Select(entry => entry.ToSnapshot()).ToArray();
+        }
+    }
+
+    private bool IsTerminalUnderLock() => !entries.Any(entry => entry.State == SequenceActivationState.Dispatched) &&
+        (entries.All(entry => entry.State is SequenceActivationState.Completed or SequenceActivationState.Skipped)
+            || entries.Any(entry => entry.State is SequenceActivationState.Failed or SequenceActivationState.Cancelled));
 
     private sealed class Entry(string outputId, int ordinal)
     {

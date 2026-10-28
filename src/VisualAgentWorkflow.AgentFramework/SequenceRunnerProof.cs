@@ -137,8 +137,9 @@ internal static class SequenceRunnerProof
                 {
                     try
                     {
-                        await fixture.DispatchNextAsync(coordinator, context, cancellationToken);
-                        fixture.Complete(Id, invocationId, "waiting-for-first-output");
+                        for (var index = 0; index < 3; index++)
+                            await fixture.DispatchNextAsync(coordinator, context, cancellationToken);
+                        fixture.Complete(Id, invocationId, "all-outputs-dispatched");
                         return new("continue", null, Guid.Empty);
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -150,22 +151,13 @@ internal static class SequenceRunnerProof
 
                 if (message.Kind != "completed") throw new InvalidOperationException("Unexpected Sequence proof message.");
                 coordinator.Complete(message.ActivationId, message.TerminalState);
-                if (message.TerminalState != SequenceTerminalState.Completed || message.OutputId == "third")
+                if (coordinator.IsTerminal)
                 {
                     fixture.Complete(Id, invocationId, "sequence-complete");
                     return new("terminal", null, Guid.Empty);
                 }
-                try
-                {
-                    await fixture.DispatchNextAsync(coordinator, context, cancellationToken);
-                    fixture.Complete(Id, invocationId, "waiting-for-next-output");
-                    return new("continue", null, Guid.Empty);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    fixture.Cancel(Id, invocationId, "Sequence dispatch cancelled.");
-                    throw;
-                }
+                fixture.Complete(Id, invocationId, "waiting-for-other-output");
+                return new("continue", null, Guid.Empty);
             }
         }
 

@@ -12,12 +12,12 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 public sealed class SequenceDispatchProofTests
 {
     [Fact]
-    public async Task Runner_owned_sequence_proof_gates_each_output_and_records_lineage()
+    public async Task Runner_owned_sequence_proof_dispatches_in_order_and_accounts_for_active_outputs()
     {
         var result = await SequenceRunnerProof.ExecuteAsync(Guid.NewGuid(), Guid.NewGuid());
 
         Assert.Equal(["first", "second", "third"], result.DispatchOrder);
-        Assert.Equal(result.DispatchOrder, result.CompletionOrder);
+        Assert.Equal(result.DispatchOrder.Order(StringComparer.Ordinal), result.CompletionOrder.Order(StringComparer.Ordinal));
         Assert.Equal(3, result.Events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
             evt.NodeId is not null && evt.NodeId.StartsWith("output:", StringComparison.Ordinal)));
         Assert.Equal(1, result.Events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceStarted));
@@ -40,13 +40,11 @@ public sealed class SequenceDispatchProofTests
         var terminalState = Enum.Parse<SequenceTerminalState>(terminalStateName);
         var result = await SequenceRunnerProof.ExecuteAsync(Guid.NewGuid(), Guid.NewGuid(), "second", terminalState);
 
-        Assert.Equal(["first", "second"], result.DispatchOrder);
-        Assert.Equal(result.DispatchOrder, result.CompletionOrder);
-        Assert.DoesNotContain("third", result.DispatchOrder);
+        Assert.Equal(["first", "second", "third"], result.DispatchOrder);
+        Assert.Equal(result.DispatchOrder.Order(StringComparer.Ordinal), result.CompletionOrder.Order(StringComparer.Ordinal));
         Assert.Contains(result.Events, evt => evt.Kind == outputTerminalKind && evt.NodeId == "sequence-proof");
         Assert.Contains(result.Events, evt => evt.Kind == sequenceTerminalKind);
-        Assert.Equal(["third"], result.Events.Where(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped)
-            .Select(evt => SequenceEvidence.TryRead(evt, out var evidence) ? evidence!.OutputId : null));
+        Assert.DoesNotContain(result.Events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped);
         Assert.DoesNotContain(result.Events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
     }
 

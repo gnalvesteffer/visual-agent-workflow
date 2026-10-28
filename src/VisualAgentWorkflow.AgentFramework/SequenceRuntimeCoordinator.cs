@@ -14,6 +14,7 @@ internal sealed class SequenceRuntimeCoordinator
     private readonly IReadOnlyDictionary<string, string> connectionIds;
     private readonly List<SequenceRuntimeEvent> events = [];
     private readonly object gate = new();
+    private SequenceTerminalState? terminalState;
 
     public SequenceRuntimeCoordinator(Guid sequenceInvocationId, string sequenceNodeId,
         IReadOnlyList<string> outputIds, IReadOnlyDictionary<string, string> connectionIds)
@@ -35,6 +36,8 @@ internal sealed class SequenceRuntimeCoordinator
     {
         get { lock (gate) return events.ToArray(); }
     }
+
+    public bool IsTerminal => ledger.IsTerminal;
 
     public IReadOnlyList<ExecutionEvent> ToExecutionEvents(Guid runId, Guid revisionId, long firstSequence,
         DateTimeOffset recordedAt)
@@ -63,6 +66,7 @@ internal sealed class SequenceRuntimeCoordinator
     public SequenceActivationSnapshot Complete(Guid activationId, SequenceTerminalState terminalState)
     {
         var snapshot = ledger.RecordTerminal(activationId, terminalState);
+        if (terminalState != SequenceTerminalState.Completed) this.terminalState ??= terminalState;
         var terminalKind = terminalState switch
         {
             SequenceTerminalState.Completed => ExecutionEventKinds.SequenceOutputCompleted,
@@ -80,9 +84,9 @@ internal sealed class SequenceRuntimeCoordinator
 
         if (ledger.IsTerminal)
         {
-            var sequenceTerminalKind = terminalState == SequenceTerminalState.Completed
+            var sequenceTerminalKind = this.terminalState is null
                 ? ExecutionEventKinds.SequenceCompleted
-                : terminalState == SequenceTerminalState.Failed ? ExecutionEventKinds.SequenceFailed : ExecutionEventKinds.SequenceCancelled;
+                : this.terminalState == SequenceTerminalState.Failed ? ExecutionEventKinds.SequenceFailed : ExecutionEventKinds.SequenceCancelled;
             Add(new(sequenceTerminalKind, sequenceNodeId, sequenceInvocationId, null, null, null, null));
         }
         return snapshot;
@@ -93,12 +97,17 @@ internal sealed class SequenceRuntimeCoordinator
         lock (gate)
         {
             if (ledger.IsTerminal) return;
-            ledger.SkipPending();
-            foreach (var skipped in ledger.Snapshot.Where(item => item.State == SequenceActivationState.Skipped))
+            var cancelled = ledger.CancelAll();
+            terminalState ??= SequenceTerminalState.Cancelled;
+            foreach (var active in cancelled.Where(item => item.State == SequenceActivationState.Cancelled))
+                Add(new(ExecutionEventKinds.SequenceOutputCancelled, sequenceNodeId, sequenceInvocationId, active.OutputId,
+                    active.Ordinal, active.ActivationId, connectionIds[active.OutputId]));
+            foreach (var skipped in cancelled.Where(item => item.State == SequenceActivationState.Skipped))
                 if (!events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped && evt.OutputId == skipped.OutputId))
                     Add(new(ExecutionEventKinds.SequenceOutputSkipped, sequenceNodeId, sequenceInvocationId, skipped.OutputId,
                         skipped.Ordinal, null, connectionIds[skipped.OutputId]));
-            Add(new(ExecutionEventKinds.SequenceCancelled, sequenceNodeId, sequenceInvocationId, null, null, null, null));
+            if (ledger.IsTerminal)
+                Add(new(ExecutionEventKinds.SequenceCancelled, sequenceNodeId, sequenceInvocationId, null, null, null, null));
         }
     }
 

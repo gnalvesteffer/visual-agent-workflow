@@ -68,19 +68,18 @@ local framework observation; it does not yet prove a public workflow Sequence,
 because there is still no VAW activation ledger, descendant completion contract,
 or passive playback lineage for a multi-output node.
 
-The private `SequenceRunnerProof` adds a stronger completion-gated variant on
-the same pinned streaming engine. It routes each output through a real executor,
-records stable output/ordinal/connection evidence, and admits the next output
-only after the prior output sends an explicit completion message. The terminal
-executor is reached only after the third output, so the proof does not rely on
-ordinary fan-out or an early root result. This establishes the continuation
-shape needed for a completion-ordered Sequence, but it is still a proof harness:
-it is not wired to `WorkflowRunner`'s production graph messages. It supports a
-controlled terminal disposition for a selected output: failure and cancellation
-both stop further dispatch, mark later outputs skipped, and preserve distinct
-Sequence terminal lifecycle kinds. It also pauses deterministically before the
-next output and records host cancellation there without redispatching. Its
-synthetic descendant executors
+The private `SequenceRunnerProof` now follows Blueprint's ordered-dispatch
+semantics on the same pinned streaming engine. It routes each output through a
+real executor in declared order without waiting for earlier descendants, records
+stable output/ordinal/connection evidence, and waits for all admitted output
+paths before terminal completion. The terminal executor is reached only after
+the final active output is accounted for, so the proof does not rely on ordinary
+fan-out or an early root result. It is still a proof harness: it is not wired to
+`WorkflowRunner`'s production graph messages. It supports a controlled terminal
+disposition for a selected output, preserving failed/cancelled lifecycle kinds;
+undispatched outputs are skipped while already-dispatched outputs remain
+accounted for. It also pauses deterministically before the next dispatch and
+records host cancellation there without redispatching. Its synthetic descendants
 do, however, pass their start/completion facts through the runner-owned
 `ExecutionActivationLedger`, and the proof rejects terminal output if that
 ledger still contains active work.
@@ -99,7 +98,7 @@ This is useful evidence, not a failure of the framework. It rules out treating o
 
 The required three-role design review (proponent, opponent, and adjudicator) rejected a public schema change at this stage. The existing runner has one framework output sink, no descendant-completion ledger, no per-output lineage in `GraphMessage`, and no defined inter-dispatch pause boundary. A public node would therefore be able to report completion while work from another output remained active.
 
-The first implementation slice is now a non-public `SequenceActivationLedger`. It is deliberately limited to in-process proof work: two to four stable output IDs, one active output at a time, explicit dispatched/completed/failed/cancelled/skipped states, and terminal failure/cancellation that marks later outputs skipped. A private completion-gated runner harness now exercises that coordinator through the pinned streaming engine, but neither is serialized, exposed in the Studio palette, or connected to the production workflow graph runner. Its focused tests prove the bounded continuation contract and prevent a future implementation from using raw framework fan-out as a substitute for completion accounting.
+The first implementation slice is now a non-public `SequenceActivationLedger`. It is deliberately limited to in-process proof work: two to four stable output IDs, ordered dispatch, overlapping dispatched states, explicit completed/failed/cancelled/skipped states, and terminal accounting that waits for active outputs. A private ordered-dispatch runner harness now exercises that coordinator through the pinned streaming engine, but neither is serialized, exposed in the Studio palette, or connected to the production workflow graph runner. Its focused tests prevent a future implementation from using raw framework fan-out without lineage and terminal accounting as a substitute for Sequence semantics.
 
 The runner now has a separate `ExecutionActivationLedger` integrated at the event boundary. It accounts for active node invocations by scope, node, and invocation ID, and rejects normal workflow completion or termination while any invocation lacks a terminal node event. A non-persisted `SequenceRuntimeCoordinator` now proves stable Sequence invocation, output, ordinal, and connection identity across dispatched, completed, failed, cancelled, and skipped lifecycle facts; failed and cancelled sequences receive distinct terminal facts rather than a misleading completion event. Core now defines a versioned passive `SequenceLifecycleEvidence` payload and reader for those lifecycle event kinds, including fail-closed malformed and unknown-version handling. The coordinator can map its proof events to recorded `ExecutionEvent` records, but the real runner does not emit them yet. These are evidence contracts, not public Sequence execution. The next proof must connect Sequence-specific state to the runner-owned boundary, emit the lifecycle facts through real run recording, and exercise pause, host stop, and partial-dispatch outcomes against the real runner. Until those checks pass, schema 1.38 remains reserved and deferred.
 
