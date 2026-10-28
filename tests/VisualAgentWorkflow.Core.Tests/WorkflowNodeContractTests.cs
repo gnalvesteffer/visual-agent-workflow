@@ -50,6 +50,16 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Capability_projection_exposes_catalog_effects_and_authoring_capabilities()
+    {
+        var projection = WorkflowNodeCapabilityProjectionResolver.Resolve(new NodeDefinition(NodeTypes.Agent, "1.0.0"));
+
+        Assert.True(projection.Effects.HasFlag(WorkflowNodeEffectFlags.ExternalCapability));
+        Assert.True(projection.Authoring.HasFlag(WorkflowNodeAuthoringFlags.DynamicPins));
+        Assert.True(projection.Authoring.HasFlag(WorkflowNodeAuthoringFlags.ContextInsertable));
+    }
+
+    [Fact]
     public void Contract_metadata_is_not_workflow_definition_data_or_hash_input()
     {
         var definition = new WorkflowDefinition(

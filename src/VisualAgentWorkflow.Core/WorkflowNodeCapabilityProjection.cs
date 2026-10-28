@@ -29,6 +29,8 @@ public sealed record WorkflowNodeCapabilityProjection(
     public string ConfigurationKind => Descriptor.ConfigurationKind;
     public ImmutableArray<WorkflowPortDescriptor> Ports => Descriptor.Ports;
     public ImmutableArray<WorkflowNodeLimit> Limits => Contract.Limits;
+    public WorkflowNodeEffectFlags Effects => Contract.Effects;
+    public WorkflowNodeAuthoringFlags Authoring => Contract.Authoring;
     public bool RequiresHostCapability => Contract.RequiresHostCapability;
 }
 

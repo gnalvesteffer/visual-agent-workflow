@@ -9,7 +9,11 @@ public partial class WorkflowEditor
     private static WorkflowNodeLibraryEntry ContractEntry(string type, bool enabled, string? description = null)
     {
         var contract = WorkflowNodeContractCatalog.Get(type);
-        return new(type, contract.DisplayName, contract.Category, description ?? contract.Description, enabled);
+        return new(type, contract.DisplayName, contract.Category, description ?? contract.Description, enabled)
+        {
+            Effects = contract.Effects,
+            Authoring = contract.Authoring
+        };
     }
 
     private string? insertionConnection;

@@ -33,7 +33,9 @@ specific behavior. They are suitable for capability-aware discovery and
 documentation, not a replacement for the editor's schema-gated operations.
 
 The catalog conformance checks require complete metadata, valid flags, dynamic
-pin consistency, and representative capability/effect relationships. Pure
+pin consistency, and representative capability/effect relationships. The
+non-serialized capability projection and Core-aware library entries expose the
+same metadata without creating a second family catalog. Pure
 nodes cannot declare an effect boundary; Agent and MCP nodes identify external
 capability interaction; approvals identify host interaction; and workflow calls
 identify child-workflow execution.
