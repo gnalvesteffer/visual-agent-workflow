@@ -32,7 +32,7 @@ This document records the stable contract boundaries identified by the Blueprint
 
 These are implementation/design gaps, not silently supported features:
 
-- Core now has a canonical node-family catalog and explicit port descriptors that expose requiredness, connection cardinality, and direct-MCP static-value fallback semantics; the direct-MCP validator consumes those semantics for degree checks. The descriptor registry still does not unify all editor affordances, validation rules, runtime limits, dynamic-pin identity, and evidence fields; `NodeTypes`, `WorkflowPorts`, and validator branches continue to provide some of those pieces separately.
+- Core now has a canonical node-family catalog and explicit port descriptors that expose requiredness, connection cardinality, and direct-MCP static-value fallback semantics; explicit-graph validators consume those semantics for typed data and execution-output degree checks. The descriptor registry still does not unify all editor affordances, validation rules, runtime limits, dynamic-pin identity, and evidence fields; `NodeTypes`, `WorkflowPorts`, and validator branches continue to provide some of those pieces separately.
 - Port type identity is currently string-based and bounded; nullability, richer containers, conversions, and optional/default semantics need a future versioned type contract.
 - Mutable variables, events, macros/templates, interfaces, generalized retries, and timeline-like latent work lack the ordering, ownership, cancellation, and replay contracts required for Blueprint-level support.
 - Schema migration policy is explicit in individual version gates, but there is no single migration registry covering every supported historical version and package form.

@@ -900,8 +900,8 @@ public static class WorkflowValidator
         foreach (var (id, node) in definition.Nodes)
         {
             if (node is null) continue;
-            foreach (var port in WorkflowPorts.ExplicitDataInputs(node))
-                if (dataIncoming.GetValueOrDefault((id, port.Id)) != 1)
+            foreach (var port in WorkflowPorts.Explicit(node).Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data))
+                if (port.Required && port.Cardinality == WorkflowPortCardinality.ExactlyOne && dataIncoming.GetValueOrDefault((id, port.Id)) != 1)
                     error("data.degree", $"nodes.{id}.inputs.{port.Id}", "Every required data input must have exactly one compatible data edge.");
             if (node.Type == NodeTypes.Input && executionIncoming.GetValueOrDefault((id, "execute")) != 0)
                 error("execution.degree", $"nodes.{id}", "The input entry has no execution input.");
@@ -1069,10 +1069,12 @@ public static class WorkflowValidator
         foreach (var (id, node) in definition.Nodes)
         {
             if (node is null) continue;
-            foreach (var port in WorkflowPorts.ExplicitDataInputs(node))
-                if (dataIncoming.GetValueOrDefault((id, port.Id)) != 1)
+            foreach (var port in WorkflowPorts.Explicit(node).Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data))
+                if (port.Required && port.Cardinality == WorkflowPortCardinality.ExactlyOne && dataIncoming.GetValueOrDefault((id, port.Id)) != 1)
                     error("data.degree", $"nodes.{id}.inputs.{port.Id}", "Every required data input must have exactly one compatible data edge.");
-            var actualExecutionInput = WorkflowPorts.ExplicitExecutionInputs(node).Sum(port => executionIncoming.GetValueOrDefault((id, port)));
+            var actualExecutionInput = WorkflowPorts.Explicit(node)
+                .Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Execution)
+                .Sum(port => executionIncoming.GetValueOrDefault((id, port.Id)));
             if (allowBooleanTopology)
             {
                 if (node.Type == NodeTypes.Input && actualExecutionInput != 0 ||
@@ -1088,9 +1090,9 @@ public static class WorkflowValidator
                 if (actualExecutionInput != expectedExecutionInput)
                     error("graph.degree", $"nodes.{id}", "Input has no execution input; output, Branch, and termination require one activation.");
             }
-            foreach (var port in WorkflowPorts.ExplicitExecutionOutputs(node))
-                if (executionOutgoing.GetValueOrDefault((id, port)) != 1)
-                    error("graph.degree", $"nodes.{id}.outputs.{port}", "Every execution output pin must connect exactly once.");
+            foreach (var port in WorkflowPorts.Explicit(node).Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Execution))
+                if (port.Required && port.Cardinality == WorkflowPortCardinality.ExactlyOne && executionOutgoing.GetValueOrDefault((id, port.Id)) != 1)
+                    error("graph.degree", $"nodes.{id}.outputs.{port.Id}", "Every execution output pin must connect exactly once.");
             if (node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals or NodeTypes.WorkflowValue or NodeTypes.FunctionCall &&
                 WorkflowPorts.ExplicitDataOutputs(node).Length > 0 && !definition.Connections.Values.Any(edge => edge.Source.NodeId == id))
                 error("data.unused", $"nodes.{id}", "Every pure data node must contribute to a Branch condition or Output value.");
