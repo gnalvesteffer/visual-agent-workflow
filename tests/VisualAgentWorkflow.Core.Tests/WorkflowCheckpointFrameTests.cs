@@ -74,6 +74,23 @@ public sealed class WorkflowCheckpointFrameTests
         Assert.Throws<InvalidDataException>(() => tampered.Validate(revision, events));
     }
 
+    [Fact]
+    public void Proof_frame_rejects_a_hash_consistent_but_graph_inconsistent_cursor()
+    {
+        var revision = WorkflowRevision.Create(LoopVariableTopologyTests.Candidate(), "checkpoint-proof");
+        var runId = Guid.NewGuid();
+        var events = Evidence(runId, revision.RevisionId);
+        var variables = new WorkflowVariableStore(revision.Definition).Snapshot();
+        var frame = WorkflowCheckpointFrame.Create(revision, runId, "{}",
+            new("loop", "body", 1, 3, "set", "execute", "body", "then", 2), variables, events);
+        frame.Validate(revision, events);
+
+        var tampered = frame with { Loop = frame.Loop with { NextNodeId = "get" }, FrameHash = null };
+        tampered = tampered with { FrameHash = tampered.ComputeFrameHash() };
+
+        Assert.Throws<InvalidDataException>(() => tampered.Validate(revision, events));
+    }
+
     private static List<ExecutionEvent> Evidence(Guid runId, Guid revisionId) =>
     [
         new(runId, revisionId, 1, DateTimeOffset.UtcNow, ExecutionEventKinds.Started),

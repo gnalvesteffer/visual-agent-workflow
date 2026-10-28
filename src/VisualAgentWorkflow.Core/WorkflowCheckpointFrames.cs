@@ -144,6 +144,11 @@ public sealed record WorkflowCheckpointFrame(
             throw new InvalidDataException("The loop checkpoint source cursor is not a declared execution output.");
         if (cursor.SourceNodeId is null && cursor.SourceOutputPortId is not null)
             throw new InvalidDataException("The loop checkpoint source cursor is incomplete.");
+        if (cursor.SourceNodeId is { } sourceId && cursor.SourceOutputPortId is { } sourcePort &&
+            definition.ExecutionConnections?.Values.Any(edge =>
+                edge.Source.NodeId == sourceId && edge.Source.PortId == sourcePort &&
+                edge.Target.NodeId == cursor.NextNodeId && edge.Target.PortId == cursor.NextInputPortId) != true)
+            throw new InvalidDataException("The loop checkpoint source cursor does not target the declared next activation.");
     }
 
     private static bool TryReadLoopIteration(ExecutionEvent loopEvent, out int iteration)

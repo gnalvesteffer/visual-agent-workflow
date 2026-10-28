@@ -74,6 +74,8 @@ established by this proof.
 - [x] Compare the captured variable snapshot with the recorded variable
   evidence prefix when state events are present; reject a snapshot that is
   internally hashed but disagrees with its passive history.
+- [x] Require a declared source port to target the declared next activation in
+  the authored execution graph; reject hash-consistent cursor substitution.
 - [x] Inject loop checkpoint publication failure and verify the SQLite
   transaction leaves no capture marker, checkpoint pointer, or resumable
   boundary.
