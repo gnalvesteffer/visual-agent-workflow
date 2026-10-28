@@ -22,6 +22,22 @@ public sealed record WorkflowNodeDescriptorIssue(string Code, string Message);
 public static class WorkflowNodeDescriptorConformance
 {
     public static ImmutableArray<WorkflowNodeDescriptorIssue> Validate(WorkflowNodeDescriptor descriptor)
+        => ValidateCore(descriptor, allowDynamic: false);
+
+    /// <summary>Validates the schema-neutral shape of a configuration-derived descriptor.</summary>
+    /// <remarks>Dynamic contract shape checks remain schema-specific; this only checks the resolved pin metadata.</remarks>
+    public static ImmutableArray<WorkflowNodeDescriptorIssue> ValidateResolved(
+        NodeDefinition node,
+        ImmutableArray<McpInputPortDefinition>? discoveredMcpInputPorts = null,
+        IReadOnlyDictionary<string, string>? discoveredMcpInputDescriptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        return WorkflowNodeDescriptorResolver.TryResolve(node, discoveredMcpInputPorts, discoveredMcpInputDescriptions, out var descriptor)
+            ? ValidateCore(descriptor, allowDynamic: true)
+            : [new("node-type", "The descriptor must name a supported node family.")];
+    }
+
+    private static ImmutableArray<WorkflowNodeDescriptorIssue> ValidateCore(WorkflowNodeDescriptor descriptor, bool allowDynamic)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
         var issues = ImmutableArray.CreateBuilder<WorkflowNodeDescriptorIssue>();
@@ -38,13 +54,17 @@ public static class WorkflowNodeDescriptorConformance
             Error("version", $"The descriptor version must be {WorkflowNodeDescriptorRegistry.CurrentVersion}.");
         if (string.IsNullOrWhiteSpace(descriptor.ConfigurationKind))
             Error("configuration-kind", "The descriptor must declare a configuration kind.");
-        if (descriptor.Ports.IsDefaultOrEmpty)
+        if (!allowDynamic && descriptor.Ports.IsDefaultOrEmpty)
             Error("ports", "A static descriptor must declare at least one port.");
 
         var ids = new HashSet<string>(StringComparer.Ordinal);
+        var resolvedIds = new HashSet<(WorkflowPortDirection Direction, WorkflowPortKind Kind, string Id)>();
         foreach (var port in descriptor.Ports)
         {
-            if (string.IsNullOrWhiteSpace(port.Id) || !ids.Add(port.Id))
+            var unique = allowDynamic
+                ? resolvedIds.Add((port.Direction, port.Kind, port.Id))
+                : ids.Add(port.Id);
+            if (string.IsNullOrWhiteSpace(port.Id) || !unique)
                 Error("port-id", $"Port IDs must be nonempty and unique (duplicate '{port.Id}').");
             if (!Enum.IsDefined(port.Direction) || !Enum.IsDefined(port.Kind))
                 Error("port-kind", $"Port '{port.Id}' has an unsupported direction or kind.");
@@ -56,19 +76,19 @@ public static class WorkflowNodeDescriptorConformance
                 Error("cardinality", $"Port '{port.Id}' has an unsupported cardinality.");
             if (port.SupportsStaticValue && (port.Direction != WorkflowPortDirection.Input || port.Kind != WorkflowPortKind.Data))
                 Error("static-value", $"Only data input ports may support a static value.");
-            if (port.Required && port.Direction != WorkflowPortDirection.Input)
-                Error("requiredness", $"Only input ports may be required.");
+            if (port.Required && port.Direction != WorkflowPortDirection.Input && port.Kind != WorkflowPortKind.Execution)
+                Error("requiredness", $"Only data input ports and execution outputs may be required.");
         }
 
         var hasExecution = descriptor.Ports.Any(port => port.Kind == WorkflowPortKind.Execution);
         var hasData = descriptor.Ports.Any(port => port.Kind == WorkflowPortKind.Data);
-        if (contract.HasExecutionPins != hasExecution)
+        if (!allowDynamic && contract.HasExecutionPins != hasExecution)
             Error("contract-execution", $"Descriptor execution-pin presence disagrees with the '{contract.Type}' node contract.");
-        if (contract.HasDataPins != hasData)
+        if (!allowDynamic && contract.HasDataPins != hasData)
             Error("contract-data", $"Descriptor data-pin presence disagrees with the '{contract.Type}' node contract.");
-        if (contract.IsPure && hasExecution)
+        if (!allowDynamic && contract.IsPure && hasExecution)
             Error("contract-purity", $"Pure node contract '{contract.Type}' cannot declare execution pins.");
-        if (contract.HasDynamicPins)
+        if (!allowDynamic && contract.HasDynamicPins)
             Error("dynamic", $"Dynamic node contract '{contract.Type}' requires a configuration-derived descriptor.");
 
         return issues.ToImmutable();

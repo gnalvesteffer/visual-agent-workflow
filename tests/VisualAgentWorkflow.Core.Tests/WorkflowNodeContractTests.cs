@@ -151,6 +151,31 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Resolved_dynamic_descriptors_validate_pin_metadata_without_live_discovery()
+    {
+        var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0");
+        var tool = new NodeDefinition(NodeTypes.McpTool, "1.0.0")
+        {
+            Tool = new ToolBindingRequest("demo.search", new string('a', 64)),
+            McpInputPorts = [new("arg.query", "query", WorkflowDataTypes.String, true)]
+        };
+        var sequence = new NodeDefinition(NodeTypes.Sequence, "1.0.0")
+        {
+            Sequence = new SequenceConfiguration([new("first", "First"), new("second", "Second")])
+        };
+
+        Assert.Empty(WorkflowNodeDescriptorConformance.ValidateResolved(agent));
+        Assert.Empty(WorkflowNodeDescriptorConformance.ValidateResolved(tool));
+        Assert.Empty(WorkflowNodeDescriptorConformance.ValidateResolved(sequence));
+        Assert.Empty(WorkflowNodeDescriptorConformance.ValidateResolved(
+            new NodeDefinition(NodeTypes.McpTool, "1.0.0")
+            {
+                Tool = new ToolBindingRequest("demo.search", new string('a', 64))
+            },
+            [new("arg.query", "query", WorkflowDataTypes.String, true)]));
+    }
+
+    [Fact]
     public void Validator_admits_valid_static_descriptors_without_descriptor_boundary_issues()
     {
         var definition = new WorkflowDefinition(

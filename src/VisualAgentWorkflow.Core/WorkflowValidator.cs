@@ -212,6 +212,11 @@ public static class WorkflowValidator
                 foreach (var issue in WorkflowNodeDescriptorConformance.Validate(staticDescriptor))
                     Error("node.descriptor", $"nodes.{id}.descriptor.{issue.Code}", issue.Message);
             }
+            else if (WorkflowNodeContractCatalog.TryGet(node.Type, out _))
+            {
+                foreach (var issue in WorkflowNodeDescriptorConformance.ValidateResolved(node))
+                    Error("node.descriptor", $"nodes.{id}.descriptor.{issue.Code}", issue.Message);
+            }
             if (node.McpArgumentsJson is { } mcpArguments &&
                 (node.Type != NodeTypes.McpTool ||
                  mcpArguments.Length > 65_536 || !IsJsonObject(mcpArguments)))
