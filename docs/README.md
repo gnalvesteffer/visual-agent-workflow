@@ -13,6 +13,7 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Blueprint authoring guidance](blueprint-authoring-guidance.md) | Project-specific principles for adapting Unreal Blueprint authoring concepts |
 | [Unreal Blueprint reference](unreal-blueprint-reference.md) | UE 5.7 Blueprint visual-scripting concepts translated into implementation guidance |
 | [Blueprint capability matrix](blueprint-capability-matrix.md) | Audited comparison of Blueprint capability targets, shipped workflow behavior, limits, and next proofs |
+| [Blueprint contract inventory](blueprint-contract-inventory.md) | Stable identity, portability, host authority, evidence, and compatibility boundaries for Blueprint-inspired constructs |
 | [Exact-action approvals](approvals.md) | Exact MCP action review, nested call-path binding, attribution, controls and process ownership |
 | [Conditional graphs](conditional-graphs.md) | Schema 1.4 predicates, typed string ports, exclusive merges, authoring and actual-path evidence |
 | [Parallel graphs](parallel-graphs.md) | Schema 1.14–1.35 parallel regions, JSON joins, collaboration, branch-local routing, concurrency and failure limits |
