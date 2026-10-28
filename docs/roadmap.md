@@ -152,8 +152,9 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   native state, validates it against the pinned definition, and restores it
   before resumed execution. Failure-injection, cancellation-race,
   repeated-recovery, and process-loss proofs remain. See [loop-variable
-  evidence seam](decisions/0029-loop-variable-evidence-seam.md) and [variable
-  checkpoint frame](decisions/0028-variable-checkpoint-frame.md).
+  evidence seam](decisions/0029-loop-variable-evidence-seam.md), [loop-variable
+  topology proof](decisions/0030-loop-variable-topology-proof.md), and
+  [variable checkpoint frame](decisions/0028-variable-checkpoint-frame.md).
 - [x] Add passive playback and prefix reconstruction for variable reads/writes
   without re-execution; the run inspector renders the reconstructed value,
   version, and operation history.
