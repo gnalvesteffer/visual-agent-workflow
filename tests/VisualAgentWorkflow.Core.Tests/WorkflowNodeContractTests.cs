@@ -441,6 +441,39 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Variable_descriptors_project_typed_execution_and_data_pins()
+    {
+        var get = new NodeDefinition(NodeTypes.VariableGet, "1.0.0")
+        {
+            VariableId = "research-count",
+            OutputDataType = WorkflowDataTypes.Integer
+        };
+        var set = new NodeDefinition(NodeTypes.VariableSet, "1.0.0")
+        {
+            VariableId = "research-count",
+            InputDataType = WorkflowDataTypes.Integer
+        };
+
+        var getDescriptor = WorkflowNodeDescriptorResolver.Resolve(get);
+        var setDescriptor = WorkflowNodeDescriptorResolver.Resolve(set);
+
+        Assert.Equal("variable-get", getDescriptor.ConfigurationKind);
+        Assert.Equal("variable-set", setDescriptor.ConfigurationKind);
+        Assert.Equal(
+            [("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Integer),
+             ("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution, (string?)null),
+             ("then", WorkflowPortDirection.Output, WorkflowPortKind.Execution, (string?)null)],
+            getDescriptor.Ports.Select(port => (port.Id, port.Direction, port.Kind, port.DataType)));
+        Assert.Equal(
+            [("value", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Integer),
+             ("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution, (string?)null),
+             ("then", WorkflowPortDirection.Output, WorkflowPortKind.Execution, (string?)null)],
+            setDescriptor.Ports.Select(port => (port.Id, port.Direction, port.Kind, port.DataType)));
+        Assert.Empty(WorkflowNodeDescriptorConformance.ValidateResolved(get));
+        Assert.Empty(WorkflowNodeDescriptorConformance.ValidateResolved(set));
+    }
+
+    [Fact]
     public void Dynamic_mcp_descriptor_uses_discovery_only_when_persisted_pins_are_absent()
     {
         var tool = new NodeDefinition(NodeTypes.McpTool, "1.0.0");

@@ -315,6 +315,8 @@ public static class WorkflowNodeDescriptorResolver
     {
         NodeTypes.McpTool => "mcp-tool",
         NodeTypes.Agent => "agent",
+        NodeTypes.VariableGet => "variable-get",
+        NodeTypes.VariableSet => "variable-set",
         NodeTypes.FunctionCall => "graph-function-call",
         NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous => "parallel",
         NodeTypes.Sequence => "sequence",
