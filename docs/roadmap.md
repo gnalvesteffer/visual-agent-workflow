@@ -384,7 +384,7 @@ Adversarial review accepted a revised, bounded conversion slice. Schema 1.39 add
 - [x] Add the schema-gated node contract, typed ports, validator, editor insertion, runtime evaluator, package/reuse behavior, and recorded failure evidence.
 - [x] Add parser, schema compatibility, legacy hash stability, lazy evaluation, and deterministic failure regression tests.
 - [x] Add end-to-end Studio browser coverage for importing schema 1.39, rendering the graph, opening the node library, and verifying the conversion entry without browser errors.
-- [ ] Update graph-values, architecture, user guide, and implementation history with the shipped grammar and limitations.
+- [x] Update graph-values, architecture, user guide, and implementation history with the shipped grammar and limitations.
 
 ## Previous completed milestone: bounded parallel graph block
 
