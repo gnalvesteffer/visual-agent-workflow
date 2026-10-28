@@ -47,6 +47,19 @@ public sealed partial class WorkflowRunner
             rootRevision: revision, sequencePlan: plan);
     }
 
+    /// <summary>Runs the private two-output Agent fan-out proof used to verify sibling settlement.</summary>
+    internal Task<WorkflowExecutionResult> ExecuteSequenceAgentFanoutProductionProofAsync(Guid runId, string input,
+        Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default)
+    {
+        var revision = SequenceAgentProofRevision();
+        var plan = new SequenceProductionPlan("sequence", [
+            new SequenceProductionOutput("failing", 0, "agent", "sequence", "then", "sequence-proof:failing"),
+            new SequenceProductionOutput("sibling", 1, "agent", "sequence", "then", "sequence-proof:sibling")
+        ], null, SequenceTerminalState.Completed);
+        return ExecuteCoreAsync(runId, revision, input, null, record, null, cancellationToken,
+            rootRevision: revision, sequencePlan: plan);
+    }
+
     private Workflow BuildSequenceProductionWorkflow(Guid runId, WorkflowRevision revision,
         SequenceProductionPlan plan,
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit,
@@ -91,6 +104,7 @@ public sealed partial class WorkflowRunner
                 emit, gate, null, rootRevision, workflowPath, collaborationOptions, null,
                 async (lineage, terminalState) =>
                 {
+                    if (coordinator.IsActivationTerminal(lineage.OutputActivationId)) return;
                     coordinator.Complete(lineage.OutputActivationId, terminalState);
                     await FlushSequenceEvents();
                 }), StringComparer.Ordinal);

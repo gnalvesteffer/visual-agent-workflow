@@ -78,8 +78,13 @@ Promotion gates, in order:
 - [x] Record Sequence output failure/cancellation in the private one-output
   proof before the runner propagates the outcome. Multi-output sibling
   settlement is still unproven and remains a public-promotion gate.
-- [ ] Settle skipped siblings when a descendant Agent fails or is cancelled;
-  never complete the workflow while descendant work remains active.
+- [x] Prove in a private two-invocation fan-out that a failed descendant
+  cancels an active sibling and skips undeclared outputs before Sequence
+  failure. Public Agent-path admission and real executor cancellation remain
+  gated.
+- [ ] Prove the same settlement contract for the public candidate with the
+  real Agent executor; never complete the workflow while descendant work
+  remains active.
 - [ ] Exercise the real Agent executor and host capability admission, including
   missing provider/grant denial, provider failure/timeout uncertainty, and
   finite resource limits for the public subset.

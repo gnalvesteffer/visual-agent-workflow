@@ -177,6 +177,23 @@ public sealed class SequenceProductionRunnerTests
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
     }
 
+    [Fact]
+    public async Task Private_agent_sequence_fanout_cancels_active_sibling_when_one_agent_fails()
+    {
+        var events = new List<ExecutionEvent>();
+        var agent = new SequenceProofAgentExecutor(failFirstConcurrentInvocation: true);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(agents: agent)
+            .ExecuteSequenceAgentFanoutProductionProofAsync(Guid.NewGuid(), "proof input",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed &&
+            ReadEvidence(evt).OutputId == "failing");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled &&
+            ReadEvidence(evt).OutputId == "sibling");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+    }
+
     private static SequenceLifecycleEvidence ReadEvidence(ExecutionEvent executionEvent)
     {
         Assert.True(SequenceEvidence.TryRead(executionEvent, out var evidence));
@@ -239,14 +256,19 @@ public sealed class SequenceProductionRunnerTests
     {
         private readonly bool fail;
         private readonly bool blockUntilCancellation;
+        private readonly bool failFirstConcurrentInvocation;
+        private int concurrentInvocationCount;
 
         public bool InvocationObserved { get; private set; }
         public TaskCompletionSource<bool> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private TaskCompletionSource<bool> BothConcurrentInvocationsStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public SequenceProofAgentExecutor(bool fail = false, bool blockUntilCancellation = false)
+        public SequenceProofAgentExecutor(bool fail = false, bool blockUntilCancellation = false,
+            bool failFirstConcurrentInvocation = false)
         {
             this.fail = fail;
             this.blockUntilCancellation = blockUntilCancellation;
+            this.failFirstConcurrentInvocation = failFirstConcurrentInvocation;
         }
 
         public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
@@ -257,6 +279,9 @@ public sealed class SequenceProductionRunnerTests
         {
             InvocationObserved = true;
             Started.TrySetResult(true);
+            var concurrentInvocationNumber = failFirstConcurrentInvocation
+                ? Interlocked.Increment(ref concurrentInvocationCount) : 0;
+            if (concurrentInvocationNumber == 2) BothConcurrentInvocationsStarted.TrySetResult(true);
             await invocation.RecordEventAsync(ExecutionEventKinds.AgentStarted,
                 JsonSerializer.Serialize(new { provider = new { modelId = "sequence-proof" } }));
             var modelCallId = Guid.NewGuid();
@@ -264,7 +289,14 @@ public sealed class SequenceProductionRunnerTests
                 JsonSerializer.Serialize(new { modelCallId, input }));
             if (fail)
                 throw new InvalidOperationException("proof agent failed");
-            if (blockUntilCancellation)
+            if (failFirstConcurrentInvocation)
+            {
+                await BothConcurrentInvocationsStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                if (concurrentInvocationNumber == 1)
+                    throw new InvalidOperationException("proof agent failed");
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            else if (blockUntilCancellation)
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             await invocation.RecordEventForAsync(modelCallId, ExecutionEventKinds.ModelResponded,
                 JsonSerializer.Serialize(new { modelCallId, output = input }));

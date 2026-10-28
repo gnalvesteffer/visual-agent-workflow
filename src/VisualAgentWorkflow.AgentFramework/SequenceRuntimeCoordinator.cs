@@ -93,6 +93,9 @@ internal sealed class SequenceRuntimeCoordinator
     {
         lock (gate)
         {
+            var existing = ledger.Snapshot.FirstOrDefault(item => item.ActivationId == activationId);
+            if (existing is not null && existing.State != SequenceActivationState.Dispatched)
+                return existing;
             var snapshot = ledger.RecordTerminal(activationId, terminalState);
             if (terminalState != SequenceTerminalState.Completed) this.terminalState ??= terminalState;
             var terminalKind = terminalState switch
@@ -105,7 +108,12 @@ internal sealed class SequenceRuntimeCoordinator
             Add(new(terminalKind, sequenceNodeId, sequenceInvocationId, snapshot.OutputId,
                 snapshot.Ordinal, activationId, connectionIds[snapshot.OutputId]));
 
-            foreach (var skipped in ledger.Snapshot.Where(item => item.State == SequenceActivationState.Skipped))
+            var settled = terminalState == SequenceTerminalState.Completed ? [] : ledger.CancelAll();
+            foreach (var cancelled in settled.Where(item => item.State == SequenceActivationState.Cancelled))
+                if (!events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled && evt.OutputId == cancelled.OutputId))
+                    Add(new(ExecutionEventKinds.SequenceOutputCancelled, sequenceNodeId, sequenceInvocationId, cancelled.OutputId,
+                        cancelled.Ordinal, cancelled.ActivationId, connectionIds[cancelled.OutputId]));
+            foreach (var skipped in settled.Where(item => item.State == SequenceActivationState.Skipped))
                 if (!events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped && evt.OutputId == skipped.OutputId))
                     Add(new(ExecutionEventKinds.SequenceOutputSkipped, sequenceNodeId, sequenceInvocationId, skipped.OutputId,
                         skipped.Ordinal, null, connectionIds[skipped.OutputId]));
@@ -120,6 +128,9 @@ internal sealed class SequenceRuntimeCoordinator
             return snapshot;
         }
     }
+
+    public bool IsActivationTerminal(Guid activationId) =>
+        ledger.Snapshot.Any(item => item.ActivationId == activationId && item.State is not SequenceActivationState.Dispatched);
 
     public void CancelPending()
     {

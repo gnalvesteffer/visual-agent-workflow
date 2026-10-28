@@ -47,6 +47,32 @@ public sealed class SequenceRuntimeCoordinatorTests
     }
 
     [Fact]
+    public void Failure_cancels_other_active_outputs_before_sequence_failure()
+    {
+        var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), "sequence",
+            ["first", "second", "third"],
+            new Dictionary<string, string>
+            {
+                ["first"] = "connection-a", ["second"] = "connection-b", ["third"] = "connection-c"
+            });
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+
+        coordinator.DispatchNext(first);
+        coordinator.DispatchNext(second);
+        coordinator.Complete(first, SequenceTerminalState.Failed);
+
+        Assert.Equal([
+            ExecutionEventKinds.SequenceOutputFailed,
+            ExecutionEventKinds.SequenceOutputCancelled,
+            ExecutionEventKinds.SequenceOutputSkipped,
+            ExecutionEventKinds.SequenceFailed
+        ], coordinator.Events.Skip(3).Select(evt => evt.Kind));
+        Assert.Equal("second", coordinator.Events.Single(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled).OutputId);
+        Assert.Equal("third", coordinator.Events.Single(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped).OutputId);
+    }
+
+    [Fact]
     public void Lifecycle_events_can_be_recorded_as_passive_execution_events()
     {
         var coordinator = new SequenceRuntimeCoordinator(Guid.NewGuid(), "sequence",
