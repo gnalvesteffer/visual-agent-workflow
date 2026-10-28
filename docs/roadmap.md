@@ -39,6 +39,13 @@ functions may expose number inputs/outputs and number constants. Operators,
 conversions, containers, mutable variables, Sequence, nested MCP numbers, and
 generic workflow outputs remain deferred. See [finite number propagation](decisions/0007-finite-number-propagation.md).
 
+The first static pin-descriptor increment is now implemented: schema-independent
+descriptors for the approved pure-value node family are resolved by Core's
+canonical port APIs, with exact-version lookup and fail-closed unknown-version
+behavior. Dynamic/configuration-derived pins and full descriptor-driven
+validation/runtime/editor convergence remain unchecked. See [static pure pin
+descriptors](decisions/0008-static-pure-pin-descriptors.md).
+
 | Workstream | Current audit finding | Required outcome before calling it aligned |
 | --- | --- | --- |
 | Node and pin contracts | Core has stable node-family metadata and centralized port enumeration, but pin-level defaults, nullability, conversions, multiplicity, and dynamic identity are not one complete contract. | A versioned descriptor can derive editor pins, validator rules, runtime limits, and compatibility diagnostics without duplicating node-family knowledge. |
@@ -56,8 +63,8 @@ Make every Blueprint-inspired authoring affordance traceable to a stable definit
 
 - [x] **Capability matrix:** inventory shipped, active, planned, deferred, and deliberately different concepts; link each item to its schema, implementation, tests, and user documentation. See [Blueprint capability matrix](blueprint-capability-matrix.md).
 - [x] **Contract inventory:** define the identity and compatibility rules for assets, graphs, nodes, ports, types, edges, parameters, dependencies, grants, and immutable revisions. See [Blueprint contract inventory](blueprint-contract-inventory.md). The inventory records the remaining descriptor-registry, type-system, migration, and capability-report gaps without presenting them as shipped.
-- [ ] **Pin semantics:** preserve the execution-wire/data-wire distinction; specify types, nullability, defaults, conversions, multiplicity, dynamic-port identity, stable labels, and invalid-connection diagnostics. The current increment now centralizes resolution of the existing typed/required/cardinality/static-fallback contract; nullability and richer defaults remain deferred.
-- [ ] **Node descriptors:** document activation behavior, state ownership, side effects, capabilities, limits, cancellation, failure dispositions, persistence, evidence, and editor affordances for each node family.
+- [ ] **Pin semantics:** preserve the execution-wire/data-wire distinction; specify types, nullability, defaults, conversions, multiplicity, dynamic-port identity, stable labels, and invalid-connection diagnostics. The static pure-value slice now centralizes exact typed/required/cardinality semantics; nullability, richer defaults, and dynamic-pin migration remain deferred.
+- [ ] **Node descriptors:** document activation behavior, state ownership, side effects, capabilities, limits, cancellation, failure dispositions, persistence, evidence, and editor affordances for each node family. The static pure-value descriptor slice is complete; dynamic/configuration-derived descriptors and full cross-layer enforcement remain.
 - [ ] **Validation boundary:** ensure imported/untrusted definitions are independently validated; cover reachability, boundedness, unsupported cycles, joins, capability requirements, and host admission separately from editor filtering.
 - [ ] **Proof slice:** exercise one pure value node, one Agent or direct MCP node, one conditional route, one workflow parameter getter, and one pinned child workflow from authoring through execution and playback.
 - [ ] **Persistence and compatibility:** prove canonical JSON round trips, stable hashes, layout separation, package round trips, legacy loading, schema migration, invalid-draft persistence, and publish/run rejection.

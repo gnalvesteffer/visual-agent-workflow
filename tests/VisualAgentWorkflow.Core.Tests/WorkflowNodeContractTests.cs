@@ -91,4 +91,35 @@ public sealed class WorkflowNodeContractTests
         Assert.False(WorkflowNodeContractCatalog.TryGet("gameplay.actor.spawn", out _));
         Assert.Throws<KeyNotFoundException>(() => WorkflowNodeContractCatalog.Get("gameplay.actor.spawn"));
     }
+
+    [Fact]
+    public void Static_pure_descriptors_are_unique_versioned_and_match_port_resolution()
+    {
+        var descriptors = WorkflowNodeDescriptorRegistry.All;
+
+        Assert.Equal(descriptors.Length, descriptors.Select(descriptor => (descriptor.NodeType, descriptor.DescriptorVersion)).Distinct().Count());
+        Assert.All(descriptors, descriptor =>
+        {
+            Assert.Equal(WorkflowNodeDescriptorRegistry.CurrentVersion, descriptor.DescriptorVersion);
+            Assert.Equal(descriptor.NodeType, descriptor.NodeContract.Type);
+            Assert.False(string.IsNullOrWhiteSpace(descriptor.ConfigurationKind));
+            Assert.NotEmpty(descriptor.Ports);
+            Assert.True(WorkflowNodeDescriptorRegistry.TryGet(descriptor.NodeType, descriptor.DescriptorVersion, out _));
+        });
+
+        foreach (var descriptor in descriptors)
+        {
+            var node = new NodeDefinition(descriptor.NodeType, "1.0.0");
+            Assert.Equal(descriptor.Ports, WorkflowPorts.Explicit(node));
+            Assert.Equal(
+                descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input).Select(port => (port.Id, port.DataType!)),
+                WorkflowPorts.ExplicitDataInputs(node).Select(port => (port.Id, port.DataType)));
+            Assert.Equal(
+                descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output).Select(port => (port.Id, port.DataType!)),
+                WorkflowPorts.ExplicitDataOutputs(node).Select(port => (port.Id, port.DataType)));
+        }
+
+        Assert.False(WorkflowNodeDescriptorRegistry.TryGet(NodeTypes.StringConstant, "9.9.9", out _));
+        Assert.Throws<KeyNotFoundException>(() => WorkflowNodeDescriptorRegistry.Get(NodeTypes.StringConstant, "9.9.9"));
+    }
 }

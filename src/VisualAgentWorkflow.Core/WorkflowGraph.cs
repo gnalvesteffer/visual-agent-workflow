@@ -48,7 +48,9 @@ public static class WorkflowPorts
     }
 
     private static ImmutableArray<WorkflowPortDescriptor> ExplicitCore(NodeDefinition node) =>
-        [.. ExplicitDataInputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType)
+        WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor)
+            ? staticDescriptor.Ports
+            : [.. ExplicitDataInputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType)
          {
              Required = node.Type != NodeTypes.McpTool || node.McpInputPorts is not { } inputPorts ||
                  inputPorts.FirstOrDefault(candidate => candidate.Id == port.Id)?.Required == true,
@@ -75,7 +77,10 @@ public static class WorkflowPorts
              Cardinality = WorkflowPortCardinality.ExactlyOne
          })];
 
-    public static ImmutableArray<WorkflowPort> ExplicitDataInputs(NodeDefinition node) => node.Type switch
+    public static ImmutableArray<WorkflowPort> ExplicitDataInputs(NodeDefinition node) =>
+        WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor)
+            ? [.. staticDescriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input).Select(port => new WorkflowPort(port.Id, port.DataType!))]
+            : node.Type switch
     {
         NodeTypes.FunctionOutput => [new("in", node.InputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.Output => [new("in", node.OutputDataType ?? WorkflowDataTypes.String)],
@@ -91,7 +96,10 @@ public static class WorkflowPorts
         _ => []
     };
 
-    public static ImmutableArray<WorkflowPort> ExplicitDataOutputs(NodeDefinition node) => node.Type switch
+    public static ImmutableArray<WorkflowPort> ExplicitDataOutputs(NodeDefinition node) =>
+        WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor)
+            ? [.. staticDescriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output).Select(port => new WorkflowPort(port.Id, port.DataType!))]
+            : node.Type switch
     {
         NodeTypes.FunctionInput => [new("out", node.OutputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.Input or NodeTypes.StringConstant or NodeTypes.TextConcat => [new("out", WorkflowDataTypes.String)],
@@ -129,7 +137,10 @@ public static class WorkflowPorts
         _ => []
     };
 
-    public static ImmutableArray<WorkflowPort> Inputs(NodeDefinition node) => node.Type switch
+    public static ImmutableArray<WorkflowPort> Inputs(NodeDefinition node) =>
+        WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor)
+            ? [.. staticDescriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input).Select(port => new WorkflowPort(port.Id, port.DataType!))]
+            : node.Type switch
     {
         NodeTypes.Input => [],
         NodeTypes.JsonSelectString or NodeTypes.JsonProject => [new("in", WorkflowDataTypes.Json)],
@@ -141,7 +152,10 @@ public static class WorkflowPorts
         NodeTypes.Terminate => [new("in", WorkflowDataTypes.String)],
         _ => [new("in", WorkflowDataTypes.String)]
     };
-    public static ImmutableArray<WorkflowPort> Outputs(NodeDefinition node) => node.Type switch
+    public static ImmutableArray<WorkflowPort> Outputs(NodeDefinition node) =>
+        WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor)
+            ? [.. staticDescriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output).Select(port => new WorkflowPort(port.Id, port.DataType!))]
+            : node.Type switch
     {
         NodeTypes.Output or NodeTypes.Terminate => [],
         NodeTypes.WorkflowCall => [new("out", WorkflowCallOutputType(node))],
