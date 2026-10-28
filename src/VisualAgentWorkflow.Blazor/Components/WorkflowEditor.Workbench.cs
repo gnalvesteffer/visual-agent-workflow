@@ -65,6 +65,11 @@ public partial class WorkflowEditor
         ? WorkflowGraphCanvas.FriendlyName(Definition.Nodes[id])
         : EffectiveLayout.Nodes[id].Label;
 
+    private string ContextualLibraryEmptyMessage(GraphContextRequest context) =>
+        context.SourceNodeId is not null
+            ? "No node in this graph accepts that output directly. Add an explicit conversion node, or drag to a compatible input pin."
+            : "No matching actions. Try another name.";
+
     private IReadOnlyList<WorkflowNodeLibraryEntry> FilterBySourcePin(IReadOnlyList<WorkflowNodeLibraryEntry> entries, GraphContextRequest? context)
     {
         if (!WorkflowSchemaVersions.UsesExplicitGraph(Definition) || context?.SourceNodeId is not { } sourceNodeId ||

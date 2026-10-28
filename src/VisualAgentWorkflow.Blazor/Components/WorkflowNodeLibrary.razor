@@ -12,7 +12,10 @@
             </button>
         }
     }
-    @if (!Entries.Any(Matches)) { <p class="vaw-help">No matching actions. Try another name.</p> }
+    @if (!Entries.Any(Matches))
+    {
+        <p class="vaw-help" role="status">@(Entries.Count == 0 ? EmptyMessage : "No matching actions. Try another name.")</p>
+    }
 </section>
 
 @code {
@@ -21,6 +24,7 @@
     [Parameter] public string Title { get; set; } = "Node library";
     [Parameter] public string SearchLabel { get; set; } = "Search nodes";
     [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string EmptyMessage { get; set; } = "No matching actions. Try another name.";
     private string filter = "";
     private bool Matches(WorkflowNodeLibraryEntry entry) => string.IsNullOrWhiteSpace(filter) ||
         entry.Key.Contains(filter, StringComparison.OrdinalIgnoreCase) || entry.Label.Contains(filter, StringComparison.OrdinalIgnoreCase) || entry.Category.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
