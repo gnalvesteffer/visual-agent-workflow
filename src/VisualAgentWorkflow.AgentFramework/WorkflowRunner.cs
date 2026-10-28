@@ -671,6 +671,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         string.Equals(ResolveStringInput(nodeId, "left", evaluated, cache, active),
                             ResolveStringInput(nodeId, "right", evaluated, cache, active), StringComparison.Ordinal)),
                     NodeTypes.IntegerConstant when outputPort == "out" => new ExplicitGraphValue("integer", node.IntegerConstant!.Value),
+                    NodeTypes.StringToInteger when outputPort == "out" => ConvertStringToInteger(nodeId, evaluated, cache, active),
                     NodeTypes.IntegerAdd when outputPort == "out" => new ExplicitGraphValue("integer", AddIntegers(nodeId, evaluated, cache, active)),
                     NodeTypes.IntegerEquals when outputPort == "out" => new ExplicitGraphValue("boolean", IntegersEqual(nodeId, evaluated, cache, active)),
                     NodeTypes.BooleanConstant when outputPort == "out" => new ExplicitGraphValue("boolean",
@@ -769,6 +770,26 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             var left = ResolveIntegerInput(nodeId, "left", evaluated, cache, active);
             var right = ResolveIntegerInput(nodeId, "right", evaluated, cache, active);
             return checked(left + right);
+        }
+
+        private ExplicitGraphValue ConvertStringToInteger(string nodeId,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            var input = ResolveStringInput(nodeId, "in", evaluated, cache, active);
+            var result = StringIntegerConversion.Parse(input);
+            if (!result.Success)
+                throw new GraphDataEvaluationException(nodeId,
+                    JsonSerializer.Serialize(new
+                    {
+                        code = result.Failure?.Code,
+                        parserVersion = result.Failure?.ParserVersion,
+                        reason = result.Failure?.Reason,
+                        inputLength = result.Failure?.InputLength
+                    }),
+                    new InvalidOperationException(result.Failure?.Reason ?? "invalid"));
+            return new ExplicitGraphValue(WorkflowDataTypes.Integer, result.Value!.Value);
         }
 
         private bool IntegersEqual(string nodeId,

@@ -102,6 +102,16 @@ public static class GraphEditing
         return definition with { SchemaVersion = WorkflowSchemaVersions.IntegerGraph };
     }
 
+    /// <summary>Upgrades a valid integer graph to the strict explicit string-to-integer conversion schema.</summary>
+    public static WorkflowDefinition EnableStringIntegerConversionGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph || definition.ExecutionConnections is null)
+            throw new ArgumentException("Enable typed integer graph values before adding explicit conversions.", nameof(definition));
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition with { SchemaVersion = WorkflowSchemaVersions.StringIntegerConversionGraph };
+    }
+
     /// <summary>Inserts a named configurable parallel fan-out and barrier after the workflow input.</summary>
     public static WorkflowDefinition CreateConfigurableParallelGraph(WorkflowDefinition definition, int branchCount)
     {

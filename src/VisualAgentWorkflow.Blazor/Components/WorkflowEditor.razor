@@ -74,6 +74,14 @@
                 <button type="button" @onclick="EnableIntegerGraphPreview" disabled="@Disabled">Enable integer graph values</button>
             </section>
         }
+        @if (CanUpgradeStringIntegerConversionGraph)
+        {
+            <section class="vaw-library-note" aria-label="Explicit conversions">
+                <strong>Explicit conversions</strong>
+                <p class="vaw-help">Upgrade this valid integer graph to add a strict, visible string-to-Int64 conversion node. No implicit coercion is applied.</p>
+                <button type="button" @onclick="EnableStringIntegerConversionPreview" disabled="@Disabled">Enable string-to-integer conversion</button>
+            </section>
+        }
         @if (CanCreateConfigurableParallelGraph)
         {
             <section class="vaw-library-note" aria-label="Configurable parallel graph">

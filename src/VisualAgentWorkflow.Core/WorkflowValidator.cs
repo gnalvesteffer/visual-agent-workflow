@@ -62,8 +62,8 @@ public static class WorkflowValidator
         var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
 
-        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" or "1.25" or "1.26" or "1.27" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph))
-            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.37.");
+        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" or "1.25" or "1.26" or "1.27" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.StringIntegerConversionGraph))
+            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.37 and 1.39.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.DisplayName is { } displayName &&
@@ -297,7 +297,7 @@ public static class WorkflowValidator
                 Error("input.dataType", $"nodes.{id}.inputDataType", "Only schema 1.9 or later input nodes can declare the JSON data type.");
             if (node.OutputDataType is not null && node.Type is not (NodeTypes.WorkflowValue or NodeTypes.Output) ||
                 node.OutputDataType is not null && node.Type == NodeTypes.Output &&
-                    (definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph
+                    (definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph
                         ? node.OutputDataType is not ("string" or "integer" or "boolean" or "json")
                         : node.OutputDataType != "json" || definition.SchemaVersion is not ("1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)) ||
                 node.OutputDataType is not null && node.Type == NodeTypes.WorkflowValue && definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph))
@@ -419,13 +419,15 @@ public static class WorkflowValidator
                 Error("constant.unexpected", $"nodes.{id}.booleanConstant", "Only Boolean constant nodes may declare a Boolean value.");
             if (node.Type == NodeTypes.IntegerConstant)
             {
-                if (definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpPinsGraph) || node.IntegerConstant is null)
+                if (definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.StringIntegerConversionGraph) || node.IntegerConstant is null)
                     Error("constant.configuration", $"nodes.{id}.integerConstant", "Integer constants require schema 1.31 and an explicit signed 64-bit value.");
             }
             else if (node.IntegerConstant is not null)
                 Error("constant.unexpected", $"nodes.{id}.integerConstant", "Only integer constant nodes may declare an integer value.");
-            if (node.Type is NodeTypes.IntegerAdd or NodeTypes.IntegerEquals && definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph))
+            if (node.Type is NodeTypes.IntegerAdd or NodeTypes.IntegerEquals && definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph))
                 Error("node.schema", $"nodes.{id}", "Integer arithmetic nodes require schema 1.31.");
+            if (node.Type == NodeTypes.StringToInteger && definition.SchemaVersion != WorkflowSchemaVersions.StringIntegerConversionGraph)
+                Error("node.schema", $"nodes.{id}", "String-to-integer conversion requires schema 1.39.");
             if (node.Type == NodeTypes.TextConcat && !WorkflowSchemaVersions.UsesExplicitGraph(definition))
                 Error("node.schema", $"nodes.{id}", "Pure text concatenation requires an explicit graph schema.");
             if (node.Type is NodeTypes.StringEquals or NodeTypes.BooleanBranch && definition.SchemaVersion is not (WorkflowSchemaVersions.ExplicitBranchGraph or WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph))
@@ -570,6 +572,8 @@ public static class WorkflowValidator
                     allowAgentNodes: true, allowConfigurableParallel: true);
                 ValidateConfigurableParallelGraph(definition, Error, allowBranchLocalRouting: true);
             }
+            else if (definition.SchemaVersion == WorkflowSchemaVersions.StringIntegerConversionGraph)
+                ValidateExplicitBranchGraph(definition, Error, allowSimpleDataGraph: true);
             else if (definition.SchemaVersion is WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)
                 ValidateExplicitBranchGraph(definition, Error, allowBooleanTopology: true,
                     allowGraphFunctions: definition.SchemaVersion is WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph,
@@ -776,7 +780,7 @@ public static class WorkflowValidator
             foreach (var port in executionOutputs)
                 if (port.Required && port.Cardinality == WorkflowPortCardinality.ExactlyOne && executionOutgoing.GetValueOrDefault((id, port.Id)) != 1)
                     error("graph.degree", $"nodes.{id}.outputs.{port.Id}", "Every execution output pin must connect exactly once, except the output node which has none.");
-            if ((node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.IntegerConstant or NodeTypes.BooleanConstant) &&
+            if ((node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.IntegerConstant or NodeTypes.BooleanConstant or NodeTypes.StringToInteger) &&
                 !definition.Connections.Values.Any(edge => edge.Source.NodeId == id))
                 error("data.unused", $"nodes.{id}", "Every pure data node must contribute to a tool input or output value.");
         }
@@ -809,7 +813,7 @@ public static class WorkflowValidator
             foreach (var dependency in dataDependencies.GetValueOrDefault(current) ?? []) pending.Push(dependency);
         }
         foreach (var (id, node) in definition.Nodes)
-            if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat && !reachedData.Contains(id))
+            if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringToInteger && !reachedData.Contains(id))
                 error("graph.unreachable", $"nodes.{id}", "Every pure data node must contribute to a tool input or output value.");
     }
 
@@ -907,7 +911,7 @@ public static class WorkflowValidator
                 error("execution.degree", $"nodes.{id}", "The input entry has no execution input.");
             if (node.Type == NodeTypes.Output && executionIncoming.GetValueOrDefault((id, "execute")) != 1)
                 error("execution.degree", $"nodes.{id}", "The output node requires exactly one execution activation.");
-            if (node.Type is NodeTypes.Input or NodeTypes.StringConstant or NodeTypes.TextConcat)
+            if (node.Type is NodeTypes.Input or NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringToInteger)
                 if (WorkflowPorts.ExplicitDataOutputs(node).Length != 0 &&
                     definition.Connections.Values.Count(edge => edge?.Source?.NodeId == id) == 0 && node.Type != NodeTypes.Input)
                     error("data.unused", $"nodes.{id}", "Every pure data node must contribute to the output value.");
@@ -915,7 +919,7 @@ public static class WorkflowValidator
                 error("execution.degree", $"nodes.{id}", "The input entry requires exactly one execution output connection.");
             if (node.Type == NodeTypes.Output && executionOutgoing.GetValueOrDefault(id)?.Count > 0)
                 error("execution.degree", $"nodes.{id}", "The output node cannot have execution outputs.");
-            if (node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat && executionOutgoing.GetValueOrDefault(id)?.Count > 0)
+            if (node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringToInteger && executionOutgoing.GetValueOrDefault(id)?.Count > 0)
                 error("execution.pure", $"nodes.{id}", "Pure data nodes do not expose execution pins.");
         }
 
@@ -938,14 +942,14 @@ public static class WorkflowValidator
                 foreach (var dependency in dataOutgoing.GetValueOrDefault(current) ?? []) pending.Push(dependency);
             }
             foreach (var (id, node) in definition.Nodes)
-                if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat && !visited.Contains(id))
+                if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringToInteger && !visited.Contains(id))
                     error("data.unreachable", $"nodes.{id}", "Every pure data node must be reachable from an output input.");
         }
     }
 
     private static void ValidateExplicitBranchGraph(WorkflowDefinition definition, Action<string, string, string> error,
         bool allowBooleanTopology = false, bool allowGraphFunctions = false, bool allowAgentNodes = false,
-        bool allowConfigurableParallel = false, bool allowCollaborativeParallel = false)
+        bool allowConfigurableParallel = false, bool allowCollaborativeParallel = false, bool allowSimpleDataGraph = false)
     {
         if (definition.ExecutionConnections is null)
         {
@@ -974,12 +978,13 @@ public static class WorkflowValidator
             supportedTypes.Add(NodeTypes.ParallelJoin);
         }
         if (allowCollaborativeParallel) supportedTypes.Add(NodeTypes.ParallelRendezvous);
-        if (definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)
+        if (definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph)
         {
             supportedTypes.Add(NodeTypes.WorkflowValue);
             supportedTypes.Add(NodeTypes.IntegerConstant);
             supportedTypes.Add(NodeTypes.IntegerAdd);
             supportedTypes.Add(NodeTypes.IntegerEquals);
+            supportedTypes.Add(NodeTypes.StringToInteger);
         }
         foreach (var (id, node) in definition.Nodes)
             if (node is null || !supportedTypes.Contains(node.Type))
@@ -995,7 +1000,12 @@ public static class WorkflowValidator
         var terminators = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Terminate).Select(pair => pair.Key).ToArray();
         if (inputs.Length != 1 || outputs.Length != 1 || inputs.FirstOrDefault() != definition.EntryNodeId)
             error("workflow.terminals", "nodes", "An explicit graph requires one configured input entry and one output node.");
-        if (allowBooleanTopology)
+        if (allowSimpleDataGraph)
+        {
+            if (branches.Length != 0 || terminators.Length != 0)
+                error("graph.degree", "nodes", "Schema 1.39 conversion graphs do not contain Boolean Branch or Terminate nodes.");
+        }
+        else if (allowBooleanTopology)
         {
             if ((!allowAgentNodes && branches.Length < 1) || branches.Length > 8)
                 error("graph.limit", "nodes", "Schema 1.26 requires 1–8 Boolean Branch nodes.");
@@ -1052,7 +1062,7 @@ public static class WorkflowValidator
                     !IsAllowedCollaborativeParallelEdge(sourceNode, edge.Source.PortId, targetNode, edge.Target.PortId) ||
                 definition.SchemaVersion != WorkflowSchemaVersions.BranchLocalParallelGraph && allowConfigurableParallel && !allowCollaborativeParallel &&
                     !IsAllowedConfigurableParallelEdge(sourceNode, edge.Source.PortId, targetNode, edge.Target.PortId) ||
-                allowBooleanTopology && !allowConfigurableParallel && (sourceNode.Type == NodeTypes.Input && targetNode.Type is not (NodeTypes.BooleanBranch or NodeTypes.Agent) ||
+                !allowSimpleDataGraph && allowBooleanTopology && !allowConfigurableParallel && (sourceNode.Type == NodeTypes.Input && targetNode.Type is not (NodeTypes.BooleanBranch or NodeTypes.Agent) ||
                 sourceNode.Type == NodeTypes.BooleanBranch && targetNode.Type is not (NodeTypes.BooleanBranch or NodeTypes.Output or NodeTypes.Terminate or NodeTypes.Agent) ||
                 sourceNode.Type == NodeTypes.Agent && targetNode.Type is not (NodeTypes.BooleanBranch or NodeTypes.Output or NodeTypes.Terminate)))
                 error("execution.target", path, allowAgentNodes
@@ -1075,7 +1085,13 @@ public static class WorkflowValidator
             var actualExecutionInput = WorkflowPorts.Explicit(node)
                 .Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Execution)
                 .Sum(port => executionIncoming.GetValueOrDefault((id, port.Id)));
-            if (allowBooleanTopology)
+            if (allowSimpleDataGraph)
+            {
+                if (node.Type == NodeTypes.Input && actualExecutionInput != 0 ||
+                    node.Type == NodeTypes.Output && actualExecutionInput != 1)
+                    error("graph.degree", $"nodes.{id}", "Input has no execution input and Output requires one activation.");
+            }
+            else if (allowBooleanTopology)
             {
                 if (node.Type == NodeTypes.Input && actualExecutionInput != 0 ||
                     node.Type is NodeTypes.Agent or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate or NodeTypes.ParallelRendezvous && actualExecutionInput is < 1 or > 16 ||
@@ -1100,7 +1116,7 @@ public static class WorkflowValidator
                 error("termination.outcome", $"nodes.{id}.termination.outcome", "Termination outcome must be success or failure.");
         }
 
-        if (!allowBooleanTopology && branches.Length == 1 && inputs.Length == 1 && outputs.Length == 1 && terminators.Length == 1)
+        if (!allowSimpleDataGraph && !allowBooleanTopology && branches.Length == 1 && inputs.Length == 1 && outputs.Length == 1 && terminators.Length == 1)
         {
             var inputId = inputs[0];
             var outputId = outputs[0];
@@ -1146,7 +1162,7 @@ public static class WorkflowValidator
             foreach (var dependency in dataDependencies.GetValueOrDefault(current) ?? []) pendingData.Push(dependency);
         }
         foreach (var (id, node) in definition.Nodes)
-            if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals or NodeTypes.WorkflowValue or NodeTypes.FunctionCall && !reachedData.Contains(id))
+            if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals or NodeTypes.StringToInteger or NodeTypes.WorkflowValue or NodeTypes.FunctionCall && !reachedData.Contains(id))
                 error("graph.unreachable", $"nodes.{id}", "Every pure data node must contribute to a Branch condition or Output value.");
     }
 

@@ -134,6 +134,40 @@ public sealed class ExplicitGraphExecutionTests
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.BranchSelected);
     }
 
+    [Fact]
+    public async Task String_to_integer_conversion_is_lazy_typed_and_recorded()
+    {
+        var events = new List<ExecutionEvent>();
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(StringIntegerConversionDefinition(), "test"), " +0042 ".Trim(), null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("42", result.Output);
+        var conversion = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "convert");
+        using var evidence = JsonDocument.Parse(conversion.Data!);
+        Assert.Equal("integer", evidence.RootElement.GetProperty("dataType").GetString());
+        Assert.Equal(42, evidence.RootElement.GetProperty("value").GetInt64());
+    }
+
+    [Fact]
+    public async Task String_to_integer_failure_records_stable_node_evidence_and_no_output()
+    {
+        var events = new List<ExecutionEvent>();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(StringIntegerConversionDefinition(), "test"), "not-an-integer", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        var failure = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "convert");
+        using var evidence = JsonDocument.Parse(failure.Data!);
+        Assert.Equal("string-to-integer.invalid", evidence.RootElement.GetProperty("code").GetString());
+        Assert.Equal("syntax", evidence.RootElement.GetProperty("reason").GetString());
+        Assert.Equal(14, evidence.RootElement.GetProperty("inputLength").GetInt32());
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId == "output");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "output");
+    }
+
     [Theory]
     [InlineData(false, false, "failure", true, null, 1)]
     [InlineData(true, false, "success", true, null, 2)]
@@ -377,6 +411,24 @@ public sealed class ExplicitGraphExecutionTests
             ["success"] = new(new("branch", "true"), new("output", "execute"), "execution"),
             ["failure"] = new(new("branch", "false"), new("failure", "execute"), "execution")
         }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+    };
+
+    private static WorkflowDefinition StringIntegerConversionDefinition() => new WorkflowDefinition(
+        WorkflowSchemaVersions.StringIntegerConversionGraph, "string-integer", "input",
+        new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["convert"] = new(NodeTypes.StringToInteger, "1.0.0"),
+            ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = "integer" }
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+        new Dictionary<string, ConnectionDefinition>
+        {
+            ["input"] = new(new("input", "out"), new("convert", "in"), "data"),
+            ["output"] = new(new("convert", "out"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+    {
+        ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("activate", new(new("input", "then"), new("output", "execute"), "execution"))
     };
 
     private static WorkflowDefinition BooleanTopologyDefinition(bool rootChoice, bool nestedChoice) => new WorkflowDefinition(
