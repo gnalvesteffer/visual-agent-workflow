@@ -94,6 +94,57 @@ public sealed class DirectMcpGraphTests
         Assert.Equal(definition.Nodes["tool"].McpInputPorts, restored!.Nodes["tool"].McpInputPorts);
     }
 
+    [Fact]
+    public void Explicit_port_descriptors_expose_mcp_cardinality_and_static_fallback()
+    {
+        var tool = new NodeDefinition(NodeTypes.McpTool, "1.0.0", new ToolBindingRequest("demo.search", new string('a', 64)))
+        {
+            McpInputPorts =
+            [
+                new("arg.query", "query", "string", true),
+                new("arg.limit", "limit", "integer", false)
+            ]
+        };
+
+        var ports = WorkflowPorts.Explicit(tool);
+
+        Assert.Collection(ports,
+            port =>
+            {
+                Assert.Equal("arg.query", port.Id);
+                Assert.Equal(WorkflowPortDirection.Input, port.Direction);
+                Assert.True(port.Required);
+                Assert.Equal(WorkflowPortCardinality.AtMostOne, port.Cardinality);
+                Assert.True(port.SupportsStaticValue);
+            },
+            port =>
+            {
+                Assert.Equal("arg.limit", port.Id);
+                Assert.False(port.Required);
+                Assert.Equal(WorkflowPortCardinality.AtMostOne, port.Cardinality);
+                Assert.True(port.SupportsStaticValue);
+            },
+            port =>
+            {
+                Assert.Equal("out", port.Id);
+                Assert.Equal(WorkflowPortDirection.Output, port.Direction);
+                Assert.Equal(WorkflowPortCardinality.Many, port.Cardinality);
+            },
+            port =>
+            {
+                Assert.Equal("execute", port.Id);
+                Assert.Equal(WorkflowPortDirection.Input, port.Direction);
+                Assert.Equal(WorkflowPortCardinality.ExactlyOne, port.Cardinality);
+            },
+            port =>
+            {
+                Assert.Equal("then", port.Id);
+                Assert.Equal(WorkflowPortDirection.Output, port.Direction);
+                Assert.Equal(WorkflowPortCardinality.ExactlyOne, port.Cardinality);
+                Assert.True(port.Required);
+            });
+    }
+
     private static WorkflowDefinition Definition() => new(
         WorkflowSchemaVersions.DirectMcpGraph, "direct-mcp", "input",
         new Dictionary<string, NodeDefinition>

@@ -5,7 +5,18 @@ namespace VisualAgentWorkflow.Core;
 public sealed record WorkflowPort(string Id, string DataType);
 public enum WorkflowPortKind { Execution, Data }
 public enum WorkflowPortDirection { Input, Output }
-public sealed record WorkflowPortDescriptor(string Id, WorkflowPortDirection Direction, WorkflowPortKind Kind, string? DataType = null, string? DisplayName = null);
+public enum WorkflowPortCardinality { AtMostOne, ExactlyOne, Many }
+public sealed record WorkflowPortDescriptor(string Id, WorkflowPortDirection Direction, WorkflowPortKind Kind, string? DataType = null, string? DisplayName = null)
+{
+    /// <summary>Whether the pin must receive or emit a connection in an executable graph.</summary>
+    public bool Required { get; init; }
+
+    /// <summary>How many edges may be attached to this pin.</summary>
+    public WorkflowPortCardinality Cardinality { get; init; } = WorkflowPortCardinality.Many;
+
+    /// <summary>Whether a data input can be satisfied by node-local authored configuration.</summary>
+    public bool SupportsStaticValue { get; init; }
+}
 public sealed record StringCondition(string Operator, string Operand)
 {
     public bool Evaluate(string input) => Operator switch
@@ -22,15 +33,32 @@ public sealed record StringCondition(string Operator, string Operand)
 public static class WorkflowPorts
 {
     public static ImmutableArray<WorkflowPortDescriptor> Explicit(NodeDefinition node) =>
-        [.. ExplicitDataInputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType)),
-         .. ExplicitDataOutputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType)),
-         .. ExplicitExecutionInputs(node).Select(port => new WorkflowPortDescriptor(port, WorkflowPortDirection.Input, WorkflowPortKind.Execution)),
+        [.. ExplicitDataInputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType)
+         {
+             Required = node.Type != NodeTypes.McpTool || node.McpInputPorts is not { } inputPorts ||
+                 inputPorts.FirstOrDefault(candidate => candidate.Id == port.Id)?.Required == true,
+             Cardinality = node.Type == NodeTypes.McpTool ? WorkflowPortCardinality.AtMostOne : WorkflowPortCardinality.ExactlyOne,
+             SupportsStaticValue = node.Type == NodeTypes.McpTool
+         }),
+         .. ExplicitDataOutputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType)
+         {
+             Cardinality = WorkflowPortCardinality.Many
+         }),
+         .. ExplicitExecutionInputs(node).Select(port => new WorkflowPortDescriptor(port, WorkflowPortDirection.Input, WorkflowPortKind.Execution)
+         {
+             Required = true,
+             Cardinality = WorkflowPortCardinality.ExactlyOne
+         }),
          .. ExplicitExecutionOutputs(node).Select(port => new WorkflowPortDescriptor(port, WorkflowPortDirection.Output, WorkflowPortKind.Execution,
              DisplayName: node.Type == NodeTypes.Agent
                  ? node.Agent?.Routes?.FirstOrDefault(route => route is not null && AgentExecutionRouteLimits.PinId(route.Id) == port)?.Label
                  : node.Type == NodeTypes.ParallelFork
                      ? node.ParallelFork?.Branches.FirstOrDefault(branch => branch is not null && ParallelBranchLimits.PinId(branch.Id) == port)?.Label
-                     : null))];
+                     : null)
+         {
+             Required = true,
+             Cardinality = WorkflowPortCardinality.ExactlyOne
+         })];
 
     public static ImmutableArray<WorkflowPort> ExplicitDataInputs(NodeDefinition node) => node.Type switch
     {

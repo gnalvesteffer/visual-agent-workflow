@@ -156,8 +156,19 @@ public class WorkflowTests
         Assert.Equal(json, WorkflowJson.Serialize(restored));
         Assert.Equal(WorkflowJson.ComputeHash(definition), WorkflowJson.ComputeHash(restored));
         Assert.Collection(WorkflowPorts.Explicit(restored.Nodes["output"]),
-            port => Assert.Equal(new WorkflowPortDescriptor("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, "string"), port),
-            port => Assert.Equal(new WorkflowPortDescriptor("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution), port));
+            port =>
+            {
+                Assert.Equal(new WorkflowPortDescriptor("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, "string")
+                {
+                    Required = true,
+                    Cardinality = WorkflowPortCardinality.ExactlyOne
+                }, port);
+            },
+            port => Assert.Equal(new WorkflowPortDescriptor("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution)
+            {
+                Required = true,
+                Cardinality = WorkflowPortCardinality.ExactlyOne
+            }, port));
     }
 
     [Fact]
@@ -169,10 +180,26 @@ public class WorkflowTests
         Assert.Empty(WorkflowValidator.Validate(restored));
         Assert.Equal(json, WorkflowJson.Serialize(restored));
         Assert.Collection(WorkflowPorts.Explicit(restored.Nodes["branch"]),
-            port => Assert.Equal(new WorkflowPortDescriptor("condition", WorkflowPortDirection.Input, WorkflowPortKind.Data, "boolean"), port),
-            port => Assert.Equal(new WorkflowPortDescriptor("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution), port),
-            port => Assert.Equal(new WorkflowPortDescriptor("true", WorkflowPortDirection.Output, WorkflowPortKind.Execution), port),
-            port => Assert.Equal(new WorkflowPortDescriptor("false", WorkflowPortDirection.Output, WorkflowPortKind.Execution), port));
+            port => Assert.Equal(new WorkflowPortDescriptor("condition", WorkflowPortDirection.Input, WorkflowPortKind.Data, "boolean")
+            {
+                Required = true,
+                Cardinality = WorkflowPortCardinality.ExactlyOne
+            }, port),
+            port => Assert.Equal(new WorkflowPortDescriptor("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution)
+            {
+                Required = true,
+                Cardinality = WorkflowPortCardinality.ExactlyOne
+            }, port),
+            port => Assert.Equal(new WorkflowPortDescriptor("true", WorkflowPortDirection.Output, WorkflowPortKind.Execution)
+            {
+                Required = true,
+                Cardinality = WorkflowPortCardinality.ExactlyOne
+            }, port),
+            port => Assert.Equal(new WorkflowPortDescriptor("false", WorkflowPortDirection.Output, WorkflowPortKind.Execution)
+            {
+                Required = true,
+                Cardinality = WorkflowPortCardinality.ExactlyOne
+            }, port));
 
         var mismatchedType = definition with
         {
