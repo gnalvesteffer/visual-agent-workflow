@@ -66,4 +66,9 @@ Documentation changes follow [documentation-maintenance](../.agents/skills/docum
 - [MCP schema descriptor](decisions/0020-mcp-schema-descriptor.md) — exposes bounded normalized tool-schema metadata without changing workflow pins or runtime authority.
 - [Sequence Agent topology analyzer](decisions/0021-sequence-agent-topology-analyzer.md) — analyzes a future bounded terminal-Agent path without promoting schema 1.44 or changing runtime admission.
 - [Node effect and authoring metadata](decisions/0022-node-effect-and-authoring-metadata.md) — adds descriptive, non-serialized effect and editor-capability metadata to the canonical node catalog.
-- [Pure graph-template proof seam](decisions/0023-pure-graph-template-proof.md) — bounds authoring-only pure template extraction and expansion before Studio exposure.
+- [Pure graph-template proof seam](decisions/0023-pure-graph-template-proof.md) — bounds authoring-only pure template extraction and expansion with catalog-backed Studio insertion authoring.
+- [Static pin descriptor registry hardening](decisions/0024-static-pin-descriptor-registry-hardening.md) — validates the bounded non-serialized static pin descriptor subset and its drift boundary.
+
+## Contract references
+
+- [Node contract reference](node-contracts.md) — activation, state, failure, evidence, authority, limits, and authoring metadata for every canonical node family.

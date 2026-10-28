@@ -30,9 +30,11 @@ Studio projects persist exact template revisions in a separate authoring-only
 catalog with logical folders; folder-backed source projects do not read that file.
 The source-node map is informational and non-live;
 no capabilities, credentials, or runtime subscriptions cross the boundary.
-Selected workflow-subgraph extraction, project persistence, layout/undo
-semantics, and Studio exposure remain deferred until those contracts are
-separately proven. See [pure graph-template proof seam](decisions/0023-pure-graph-template-proof.md).
+Selected workflow-subgraph extraction and folder-source persistence remain
+deferred until those contracts are separately proven. Catalog-backed Studio
+projects expose exact template revisions through a typed insertion dialog with
+replacement preview and one editor change. See [pure graph-template proof
+seam](decisions/0023-pure-graph-template-proof.md).
 
 The arrows below mean project dependencies, not network requests. Core has no external package dependencies. The Razor library depends on Core and rendering support, not the concrete runtime, SQLite, or MCP transport. Its CSS and graph assets are local and self-contained; theming is scoped to the component and inherited tokens without changing unrelated host controls. Studio chooses concrete services at the composition root. Its local Settings page manages OpenAI-compatible Chat Completions connections keyed by stable IDs; edits replace the live executor registration for that ID and affect future runs. API keys are protected in the Studio data directory and omitted from descriptors. Deletion removes a locally saved registration without checking workflow references. AgentStarted evidence snapshots the selected model descriptor, optional context window and all configured pricing metadata; model responses capture provider-reported token usage plus nullable cache dimensions. The run viewer displays token totals, cache counts, latest completed prompt usage against the configured context size, and an estimated cost when every observed priced component has a rate. It marks those context figures as last completed while a newer request is in flight, and counts explicit host context-compaction evidence. These estimates are observational, not billing guarantees. This local management surface inherits the development host’s loopback-only, unauthenticated boundary. Architecture tests enforce these inward boundaries.
 
