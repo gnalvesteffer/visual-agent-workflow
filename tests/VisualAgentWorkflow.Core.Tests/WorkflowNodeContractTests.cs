@@ -57,6 +57,20 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Contracts_report_existing_runtime_limits_without_inventing_new_bounds()
+    {
+        var agent = WorkflowNodeContractCatalog.Get(NodeTypes.Agent);
+        var loop = WorkflowNodeContractCatalog.Get(NodeTypes.Loop);
+        var call = WorkflowNodeContractCatalog.Get(NodeTypes.WorkflowCall);
+
+        Assert.Contains(agent.Limits, limit => limit.Id == "route-count" && limit.Maximum == AgentExecutionRouteLimits.MaximumRoutes);
+        Assert.Contains(agent.Limits, limit => limit.Id == "output-tokens" && limit.Maximum == AgentOutputTokenLimits.Maximum);
+        Assert.Contains(loop.Limits, limit => limit.Id == "iteration-count" && limit.Maximum == WorkflowLoopLimits.MaximumIterations);
+        Assert.Contains(call.Limits, limit => limit.Id == "expanded-nodes" && limit.Maximum == WorkflowCallLimits.MaximumExpandedNodes);
+        Assert.Empty(WorkflowNodeContractCatalog.Get(NodeTypes.BooleanBranch).Limits);
+    }
+
+    [Fact]
     public void Descriptor_semantics_distinguish_pure_data_from_control_and_barriers()
     {
         var constant = WorkflowNodeContractCatalog.Get(NodeTypes.StringConstant);
