@@ -84,4 +84,13 @@ public static class ExecutionEventKinds
     public const string ModelRequested = "model.requested";
     public const string ModelResponded = "model.responded";
     public const string AgentContextCompacted = "agent.context_compacted";
+    public const string SequenceStarted = "sequence.started";
+    public const string SequenceOutputDispatched = "sequence.output.dispatched";
+    public const string SequenceOutputCompleted = "sequence.output.completed";
+    public const string SequenceOutputFailed = "sequence.output.failed";
+    public const string SequenceOutputCancelled = "sequence.output.cancelled";
+    public const string SequenceOutputSkipped = "sequence.output.skipped";
+    public const string SequenceCompleted = "sequence.completed";
+    public const string SequenceFailed = "sequence.failed";
+    public const string SequenceCancelled = "sequence.cancelled";
 }

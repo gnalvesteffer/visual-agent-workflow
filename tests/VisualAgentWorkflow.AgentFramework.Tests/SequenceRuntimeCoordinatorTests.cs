@@ -1,4 +1,5 @@
 using VisualAgentWorkflow.AgentFramework;
+using VisualAgentWorkflow.Core;
 using Xunit;
 
 namespace VisualAgentWorkflow.AgentFramework.Tests;
@@ -18,7 +19,7 @@ public sealed class SequenceRuntimeCoordinatorTests
         coordinator.Complete(activationId, SequenceTerminalState.Completed);
 
         var events = coordinator.Events;
-        Assert.Equal("sequence.started", events[0].Kind);
+        Assert.Equal(ExecutionEventKinds.SequenceStarted, events[0].Kind);
         Assert.Equal(["first", "first"], events.Skip(1).Select(evt => evt.OutputId));
         Assert.All(events, evt => Assert.Equal(sequenceInvocationId, evt.SequenceInvocationId));
         Assert.Equal("connection-a", events[1].ConnectionId);
@@ -39,8 +40,9 @@ public sealed class SequenceRuntimeCoordinatorTests
         coordinator.DispatchNext(activationId);
         coordinator.Complete(activationId, SequenceTerminalState.Failed);
 
-        Assert.Equal(["sequence.output.failed", "sequence.output.skipped", "sequence.output.skipped", "sequence.failed"],
+        Assert.Equal([ExecutionEventKinds.SequenceOutputFailed, ExecutionEventKinds.SequenceOutputSkipped,
+            ExecutionEventKinds.SequenceOutputSkipped, ExecutionEventKinds.SequenceFailed],
             coordinator.Events.Skip(2).Select(evt => evt.Kind));
-        Assert.Equal(["second", "third"], coordinator.Events.Where(evt => evt.Kind == "sequence.output.skipped").Select(evt => evt.OutputId));
+        Assert.Equal(["second", "third"], coordinator.Events.Where(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped).Select(evt => evt.OutputId));
     }
 }

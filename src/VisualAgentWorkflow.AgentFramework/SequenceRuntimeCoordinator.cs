@@ -1,3 +1,5 @@
+using VisualAgentWorkflow.Core;
+
 namespace VisualAgentWorkflow.AgentFramework;
 
 /// <summary>
@@ -26,7 +28,7 @@ internal sealed class SequenceRuntimeCoordinator
         this.sequenceNodeId = sequenceNodeId;
         this.connectionIds = new Dictionary<string, string>(connectionIds, StringComparer.Ordinal);
         ledger = new SequenceActivationLedger(outputIds);
-        events.Add(new SequenceRuntimeEvent("sequence.started", sequenceNodeId, sequenceInvocationId, null, null, null, null));
+        events.Add(new SequenceRuntimeEvent(ExecutionEventKinds.SequenceStarted, sequenceNodeId, sequenceInvocationId, null, null, null, null));
     }
 
     public IReadOnlyList<SequenceRuntimeEvent> Events
@@ -37,7 +39,7 @@ internal sealed class SequenceRuntimeCoordinator
     public SequenceActivationSnapshot DispatchNext(Guid activationId)
     {
         var snapshot = ledger.DispatchNext(activationId);
-        Add(new("sequence.output.dispatched", sequenceNodeId, sequenceInvocationId, snapshot.OutputId,
+        Add(new(ExecutionEventKinds.SequenceOutputDispatched, sequenceNodeId, sequenceInvocationId, snapshot.OutputId,
             snapshot.Ordinal, activationId, connectionIds[snapshot.OutputId]));
         return snapshot;
     }
@@ -47,24 +49,24 @@ internal sealed class SequenceRuntimeCoordinator
         var snapshot = ledger.RecordTerminal(activationId, terminalState);
         var terminalKind = terminalState switch
         {
-            SequenceTerminalState.Completed => "sequence.output.completed",
-            SequenceTerminalState.Failed => "sequence.output.failed",
-            SequenceTerminalState.Cancelled => "sequence.output.cancelled",
+            SequenceTerminalState.Completed => ExecutionEventKinds.SequenceOutputCompleted,
+            SequenceTerminalState.Failed => ExecutionEventKinds.SequenceOutputFailed,
+            SequenceTerminalState.Cancelled => ExecutionEventKinds.SequenceOutputCancelled,
             _ => throw new ArgumentOutOfRangeException(nameof(terminalState))
         };
         Add(new(terminalKind, sequenceNodeId, sequenceInvocationId, snapshot.OutputId,
             snapshot.Ordinal, activationId, connectionIds[snapshot.OutputId]));
 
         foreach (var skipped in ledger.Snapshot.Where(item => item.State == SequenceActivationState.Skipped))
-            if (!events.Any(evt => evt.Kind == "sequence.output.skipped" && evt.OutputId == skipped.OutputId))
-                Add(new("sequence.output.skipped", sequenceNodeId, sequenceInvocationId, skipped.OutputId,
+            if (!events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped && evt.OutputId == skipped.OutputId))
+                Add(new(ExecutionEventKinds.SequenceOutputSkipped, sequenceNodeId, sequenceInvocationId, skipped.OutputId,
                     skipped.Ordinal, null, connectionIds[skipped.OutputId]));
 
         if (ledger.IsTerminal)
         {
             var sequenceTerminalKind = terminalState == SequenceTerminalState.Completed
-                ? "sequence.completed"
-                : terminalState == SequenceTerminalState.Failed ? "sequence.failed" : "sequence.cancelled";
+                ? ExecutionEventKinds.SequenceCompleted
+                : terminalState == SequenceTerminalState.Failed ? ExecutionEventKinds.SequenceFailed : ExecutionEventKinds.SequenceCancelled;
             Add(new(sequenceTerminalKind, sequenceNodeId, sequenceInvocationId, null, null, null, null));
         }
         return snapshot;
