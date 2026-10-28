@@ -19,6 +19,16 @@ grant host capabilities, select runtime behavior, or replace schema-specific
 validation. Configuration-derived pins remain owned by the descriptor resolver.
 See [node effect and authoring metadata](decisions/0022-node-effect-and-authoring-metadata.md).
 
+The Core-only graph-template proof seam builds on the pure graph-function
+contract without changing workflow schemas or runtime execution. It validates
+a template snapshot against the same bounded data graph, rejects effectful or
+dynamically pinned nodes, and can expand the snapshot with fresh node IDs and
+remapped data connections. The source-node map is informational and non-live;
+no capabilities, credentials, or runtime subscriptions cross the boundary.
+Selected workflow-subgraph extraction, project persistence, layout/undo
+semantics, and Studio exposure remain deferred until those contracts are
+separately proven. See [pure graph-template proof seam](decisions/0023-pure-graph-template-proof.md).
+
 The arrows below mean project dependencies, not network requests. Core has no external package dependencies. The Razor library depends on Core and rendering support, not the concrete runtime, SQLite, or MCP transport. Its CSS and graph assets are local and self-contained; theming is scoped to the component and inherited tokens without changing unrelated host controls. Studio chooses concrete services at the composition root. Its local Settings page manages OpenAI-compatible Chat Completions connections keyed by stable IDs; edits replace the live executor registration for that ID and affect future runs. API keys are protected in the Studio data directory and omitted from descriptors. Deletion removes a locally saved registration without checking workflow references. AgentStarted evidence snapshots the selected model descriptor, optional context window and all configured pricing metadata; model responses capture provider-reported token usage plus nullable cache dimensions. The run viewer displays token totals, cache counts, latest completed prompt usage against the configured context size, and an estimated cost when every observed priced component has a rate. It marks those context figures as last completed while a newer request is in flight, and counts explicit host context-compaction evidence. These estimates are observational, not billing guarantees. This local management surface inherits the development host’s loopback-only, unauthenticated boundary. Architecture tests enforce these inward boundaries.
 
 Agent tool failures retain their dispatch disposition, binding, safe exception detail, and bounded diagnostic context in evidence. A host may explicitly allow a known MCP server-declared failure, or a post-dispatch exception matched by its trusted definitive-failure classifier, to be fed back once as a sanitized correction message; authorization, contract, budget, timeout, transport, and outcome-unknown failures remain terminal and are not automatically retried. The classifier is registration-owned and must not classify cancellation, timeout, transport, authorization, or contract failures. Playback uses correlated tool authorization/failure and model-response evidence to show the failed binding, relevant path where available, and the server/model error rather than a generic node-failure label.
