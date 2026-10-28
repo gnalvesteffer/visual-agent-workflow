@@ -185,6 +185,38 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Static_descriptor_registry_is_explicit_and_matches_independent_pin_facts()
+    {
+        var expected = new Dictionary<string, (string ConfigurationKind, (string Id, WorkflowPortDirection Direction, WorkflowPortKind Kind, string? DataType)[] Ports)>(StringComparer.Ordinal)
+        {
+            [NodeTypes.Uppercase] = ("uppercase", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String)]),
+            [NodeTypes.Reverse] = ("reverse", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String)]),
+            [NodeTypes.StringConstant] = ("string-constant", [("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String)]),
+            [NodeTypes.BooleanConstant] = ("boolean-constant", [("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Boolean)]),
+            [NodeTypes.IntegerConstant] = ("integer-constant", [("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Integer)]),
+            [NodeTypes.NumberConstant] = ("number-constant", [("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Number)]),
+            [NodeTypes.NumberAdd] = ("number-add", [("left", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Number), ("right", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Number), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Number)]),
+            [NodeTypes.StringToInteger] = ("string-to-integer", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Integer)]),
+            [NodeTypes.TextConcat] = ("text-concat", [("left", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("right", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String)]),
+            [NodeTypes.StringEquals] = ("string-equals", [("left", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("right", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Boolean)]),
+            [NodeTypes.IntegerAdd] = ("integer-add", [("left", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Integer), ("right", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Integer), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Integer)]),
+            [NodeTypes.IntegerEquals] = ("integer-equals", [("left", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Integer), ("right", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Integer), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Boolean)]),
+            [NodeTypes.BooleanNot] = ("boolean-not", [("value", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Boolean), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Boolean)]),
+            [NodeTypes.BooleanBranch] = ("boolean-branch", [("condition", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Boolean), ("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution, null), ("true", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null), ("false", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null)])
+        };
+
+        Assert.Empty(WorkflowNodeDescriptorConformance.ValidateRegistry());
+        Assert.Equal(expected.Keys, WorkflowNodeDescriptorRegistry.All.Select(descriptor => descriptor.NodeType));
+        Assert.All(WorkflowNodeDescriptorRegistry.All, descriptor =>
+        {
+            var facts = expected[descriptor.NodeType];
+            Assert.Equal(facts.ConfigurationKind, descriptor.ConfigurationKind);
+            Assert.Equal(facts.Ports, descriptor.Ports.Select(port => (port.Id, port.Direction, port.Kind, port.DataType)).ToArray());
+            Assert.False(descriptor.NodeContract.HasDynamicPins);
+        });
+    }
+
+    [Fact]
     public void Static_descriptor_conformance_checks_port_and_contract_invariants()
     {
         var valid = WorkflowNodeDescriptorRegistry.Get(NodeTypes.StringConstant);

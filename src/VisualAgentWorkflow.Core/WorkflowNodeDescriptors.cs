@@ -24,6 +24,52 @@ public static class WorkflowNodeDescriptorConformance
     public static ImmutableArray<WorkflowNodeDescriptorIssue> Validate(WorkflowNodeDescriptor descriptor)
         => ValidateCore(descriptor, allowDynamic: false);
 
+    /// <summary>
+    /// Validates the complete bounded static registry. The registry is an explicit
+    /// non-serialized pin-descriptor slice; configuration-derived node families are
+    /// intentionally validated through <see cref="ValidateResolved"/> instead.
+    /// </summary>
+    public static ImmutableArray<WorkflowNodeDescriptorIssue> ValidateRegistry()
+    {
+        var issues = ImmutableArray.CreateBuilder<WorkflowNodeDescriptorIssue>();
+        void Error(string code, string message) => issues.Add(new(code, message));
+
+        if (WorkflowNodeDescriptorRegistry.All.IsDefaultOrEmpty)
+        {
+            Error("registry.empty", "The bounded static descriptor registry must not be empty.");
+            return issues.ToImmutable();
+        }
+
+        foreach (var duplicate in WorkflowNodeDescriptorRegistry.All
+                     .GroupBy(descriptor => (descriptor.NodeType, descriptor.DescriptorVersion))
+                     .Where(group => group.Count() > 1))
+            Error("registry.duplicate", $"The descriptor key '{duplicate.Key.NodeType}@{duplicate.Key.DescriptorVersion}' must be unique.");
+
+        foreach (var duplicate in WorkflowNodeDescriptorRegistry.All
+                     .GroupBy(descriptor => descriptor.NodeType, StringComparer.Ordinal)
+                     .Where(group => group.Count() > 1))
+            Error("registry.node-type", $"The bounded static registry may contain only one descriptor for '{duplicate.Key}'.");
+
+        foreach (var descriptor in WorkflowNodeDescriptorRegistry.All)
+        {
+            if (!WorkflowNodeContractCatalog.TryGet(descriptor.NodeType, out var contract))
+            {
+                Error("registry.contract", $"Descriptor '{descriptor.NodeType}' must map to a known node contract.");
+                continue;
+            }
+
+            if (contract.HasDynamicPins)
+                Error("registry.dynamic", $"Configuration-derived node '{descriptor.NodeType}' cannot be registered as static.");
+            if (string.IsNullOrWhiteSpace(contract.TypeVersion))
+                Error("registry.contract-version", $"Descriptor '{descriptor.NodeType}' must map to a versioned node contract.");
+
+            foreach (var issue in Validate(descriptor))
+                issues.Add(new($"registry.{issue.Code}", issue.Message));
+        }
+
+        return issues.ToImmutable();
+    }
+
     /// <summary>Validates the schema-neutral shape of a configuration-derived descriptor.</summary>
     /// <remarks>Dynamic contract shape checks remain schema-specific; this only checks the resolved pin metadata.</remarks>
     public static ImmutableArray<WorkflowNodeDescriptorIssue> ValidateResolved(
