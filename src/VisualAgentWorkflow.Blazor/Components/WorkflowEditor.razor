@@ -534,7 +534,7 @@
                     }
                     else if (node.Type == NodeTypes.WorkflowValue)
                     {
-                        var parameterChoices = ParameterDefinitions.Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph) || WorkflowParameterGraphTypes.DataType(pair.Value) is not null).ToDictionary(pair => pair.Key, pair => pair.Value);
+                        var parameterChoices = ParameterDefinitions.Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph) || WorkflowParameterGraphTypes.DataType(pair.Value, Definition.SchemaVersion == WorkflowSchemaVersions.NumberPropagationGraph) is not null).ToDictionary(pair => pair.Key, pair => pair.Value);
                         @if (!ReadOnly && parameterChoices.Count > 0)
                         {
                             <label>Workflow parameter
@@ -544,7 +544,7 @@
                             </label>
                         }
                         else if (node.ParameterId is { } parameterId && parameterChoices.TryGetValue(parameterId, out var parameter))
-                        { <p>@parameter.DisplayName · @parameterId · @(WorkflowParameterGraphTypes.DataType(parameter) ?? "string")</p><p class="vaw-help">Passes the declared parameter value and type onward, replacing the incoming value.</p> }
+                        { <p>@parameter.DisplayName · @parameterId · @(WorkflowParameterGraphTypes.DataType(parameter, Definition.SchemaVersion == WorkflowSchemaVersions.NumberPropagationGraph) ?? "string")</p><p class="vaw-help">Passes the declared parameter value and type onward, replacing the incoming value.</p> }
                     }
                     else if (node.Type == NodeTypes.IntegerConstant)
                     {
@@ -1276,10 +1276,10 @@
         if (value == NodeTypes.WorkflowValue)
         {
             var parameterId = ParameterDefinitions
-                .Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph) || WorkflowParameterGraphTypes.DataType(pair.Value) is not null)
+                .Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph) || WorkflowParameterGraphTypes.DataType(pair.Value, Definition.SchemaVersion == WorkflowSchemaVersions.NumberPropagationGraph) is not null)
                 .Select(pair => pair.Key).FirstOrDefault();
             var outputType = (Definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph) && parameterId is not null
-                ? WorkflowParameterGraphTypes.DataType(ParameterDefinitions[parameterId])
+                ? WorkflowParameterGraphTypes.DataType(ParameterDefinitions[parameterId], Definition.SchemaVersion == WorkflowSchemaVersions.NumberPropagationGraph)
                 : null;
             return new(NodeTypes.WorkflowValue, "1.0.0") { ParameterId = parameterId, OutputDataType = outputType };
         }

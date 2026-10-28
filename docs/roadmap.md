@@ -32,6 +32,13 @@ serialization. Integer/number conversion, numeric operators, numeric
 parameters, nested numeric pin expansion, and graph-function number ports remain
 explicitly deferred. See [finite number primitive](decisions/0006-finite-number-primitive.md).
 
+The next reviewed increment is schema 1.41 finite-number propagation. Its
+contract gate is accepted but implementation is not yet shipped: number
+workflow parameters may feed typed Workflow value nodes, and pure graph
+functions may expose number inputs/outputs and number constants. Operators,
+conversions, containers, mutable variables, Sequence, nested MCP numbers, and
+generic workflow outputs remain deferred. See [finite number propagation](decisions/0007-finite-number-propagation.md).
+
 | Workstream | Current audit finding | Required outcome before calling it aligned |
 | --- | --- | --- |
 | Node and pin contracts | Core has stable node-family metadata and centralized port enumeration, but pin-level defaults, nullability, conversions, multiplicity, and dynamic identity are not one complete contract. | A versioned descriptor can derive editor pins, validator rules, runtime limits, and compatibility diagnostics without duplicating node-family knowledge. |

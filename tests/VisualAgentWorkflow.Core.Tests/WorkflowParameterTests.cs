@@ -140,6 +140,29 @@ public sealed class WorkflowParameterTests
     }
 
     [Fact]
+    public void NumberPropagationUsesInvariantFiniteDoublesAndRejectsNonFiniteText()
+    {
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.NumberPropagationGraph, "numbers", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("output", new(NodeTypes.Output, "1.0.0")),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("edge", new(new("input", "out"), new("output", "in"), "data")))
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("amount", new WorkflowParameterDefinition("Amount", "1.25e1") { Type = "number" })
+        };
+
+        Assert.Equal("12.5", WorkflowParameters.Resolve(definition, null)!["amount"]);
+        Assert.True(WorkflowParameters.TryParseFiniteNumber("-0", out var negativeZero));
+        Assert.True(double.IsNegative(negativeZero));
+        Assert.False(WorkflowParameters.TryParseFiniteNumber("NaN", out _));
+        Assert.False(WorkflowParameters.TryParseFiniteNumber("Infinity", out _));
+        Assert.False(WorkflowParameters.TryParseFiniteNumber("1,25", out _));
+        Assert.Throws<ArgumentException>(() => WorkflowParameters.Resolve(definition, new Dictionary<string, string> { ["amount"] = "1e999" }));
+    }
+
+    [Fact]
     public void LegacyDefinitionDoesNotGainOptionalParameterJson()
     {
         var legacy = new WorkflowDefinition("1.0", "legacy", "input",

@@ -150,6 +150,38 @@ public sealed class GraphFunctionTests
             "result", () => 1));
     }
 
+    [Fact]
+    public void Number_function_preserves_a_finite_double_through_typed_boundaries()
+    {
+        var function = new GraphFunctionDefinition(
+            "number.identity", 1, "Number identity", "Passes a finite number through.",
+            ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("value", new("Value", "number")),
+            ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("result", new("Result", "number")),
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input", new(NodeTypes.FunctionInput, "1.0.0") { FunctionPortId = "value", OutputDataType = "number" })
+                .Add("output", new(NodeTypes.FunctionOutput, "1.0.0") { FunctionPortId = "result", InputDataType = "number" }),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("result", new(new("input", "out"), new("output", "in"), "data")));
+
+        Assert.Empty(GraphFunctionJson.Validate(function));
+        var result = GraphFunctionJson.Evaluate(function,
+            new Dictionary<string, GraphFunctionEvaluation> { ["value"] = new("number", 12.5d, []) },
+            "result", () => 1);
+
+        Assert.Equal("number", result.DataType);
+        Assert.Equal(12.5d, result.Value);
+        Assert.Contains(GraphFunctionJson.Validate(function, allowNumber: false), issue => issue.Code is "function.node.unsupported" or "function.port.type");
+        Assert.Throws<InvalidOperationException>(() => GraphFunctionJson.Evaluate(function,
+            new Dictionary<string, GraphFunctionEvaluation> { ["value"] = new("number", double.NaN, []) },
+            "result", () => 1));
+        Assert.Contains(GraphFunctionJson.Validate(function with
+        {
+            Inputs = function.Inputs.SetItem("value", new("Value", "json"))
+        }), issue => issue.Code == "function.port.type");
+    }
+
     private static GraphFunctionDefinition IncrementIntegerFunction() => new(
         "integer.increment", 1, "Increment integer", "Adds one to a signed 64-bit integer.",
         ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)

@@ -748,14 +748,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (node.ParameterId is not { } parameterId || parameters is null || !parameters.TryGetValue(parameterId, out var value) ||
                 definition.Parameters is not { } declared || !declared.TryGetValue(parameterId, out var parameter))
                 throw new InvalidOperationException("The workflow parameter value is unavailable.");
-            if (definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph)
+            if (definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph && definition.SchemaVersion != WorkflowSchemaVersions.NumberPropagationGraph)
                 return new("string", value);
-            var dataType = WorkflowParameterGraphTypes.DataType(parameter);
+            var allowNumber = definition.SchemaVersion == WorkflowSchemaVersions.NumberPropagationGraph;
+            var dataType = WorkflowParameterGraphTypes.DataType(parameter, allowNumber);
             if (dataType is null || node.OutputDataType is { } expectedType && expectedType != dataType)
                 throw new InvalidOperationException("The workflow parameter has an unsupported graph data type.");
             object parsed = dataType switch
             {
                 "integer" when long.TryParse(value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var integer) => integer,
+                "number" when WorkflowParameters.TryParseFiniteNumber(value, out var number) => number,
                 "boolean" when bool.TryParse(value, out var boolean) => boolean,
                 "string" => value,
                 _ => throw new InvalidOperationException("The workflow parameter value is invalid.")

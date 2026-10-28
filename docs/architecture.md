@@ -109,6 +109,12 @@ Top-level MCP JSON Schema number properties become exact typed input pins and
 are serialized as JSON numbers. Non-finite values are rejected; integer/number
 conversion, numeric operators, nested numeric pins, and graph-function number
 ports remain deferred. See [finite number primitive](decisions/0006-finite-number-primitive.md).
+Schema 1.41 is contract-gated for the next bounded slice: finite number
+workflow parameters may feed typed Workflow value nodes, and pure graph
+functions may expose finite number inputs/outputs and number constants. This
+slice is not yet shipped; operators, conversions, containers, mutable
+variables, nested MCP numbers, and generic numeric workflow outputs remain
+deferred. See [finite number propagation](decisions/0007-finite-number-propagation.md).
 
 Parameter overrides belong to a run, never its immutable published definition. The host resolves defaults and bounded caller overrides before enqueueing, rejects unknown IDs, and stores the complete effective string map in the run header for audit/playback. Workflow packages carry parameter contracts and defaults, but not run overrides or credentials. Values are not secret: consumers should not put credentials or sensitive payloads into parameters because current local run stores record them in plaintext.
 
