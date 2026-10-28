@@ -14,6 +14,11 @@ unsupported path nodes, and shared downstream nodes. See [ordered Sequence
 nodes](user-guide.md#ordered-sequence-nodes) and the [Blueprint parity
 roadmap](roadmap.md).
 
+The promotion proof also verifies that promoting a valid schema 1.38 draft
+does not mutate its source or silently preserve the source hash, and that an
+invalid source draft is rejected before promotion. Broader downstream node
+topology remains separately deferred.
+
 ## Blueprint parity vertical proof slice
 
 The bounded Blueprint-inspired proof now crosses authored editing, definition

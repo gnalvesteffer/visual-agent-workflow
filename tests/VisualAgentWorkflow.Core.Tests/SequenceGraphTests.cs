@@ -94,6 +94,23 @@ public sealed class SequenceGraphTests
     }
 
     [Fact]
+    public void Sequence_path_promotion_preserves_source_hash_and_rejects_invalid_sources()
+    {
+        var source = Definition();
+        var sourceHash = WorkflowJson.ComputeHash(source);
+        var promoted = GraphEditing.EnableSequencePathGraph(source);
+
+        Assert.Equal(sourceHash, WorkflowJson.ComputeHash(source));
+        Assert.NotEqual(sourceHash, WorkflowJson.ComputeHash(promoted));
+
+        var invalid = source with
+        {
+            ExecutionConnections = source.ExecutionConnections!.Remove("sequence-quality")
+        };
+        Assert.Throws<ArgumentException>(() => GraphEditing.EnableSequencePathGraph(invalid));
+    }
+
+    [Fact]
     public void Sequence_path_schema_rejects_shared_downstream_nodes()
     {
         var definition = PathDefinition() with

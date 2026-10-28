@@ -123,7 +123,7 @@ public static class WorkflowPorts
 
     public static ImmutableArray<WorkflowPort> Inputs(NodeDefinition node) =>
         WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor)
-            ? [.. staticDescriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input).Select(port => new WorkflowPort(port.Id, port.DataType!))]
+            ? [.. staticDescriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data).Select(port => new WorkflowPort(port.Id, port.DataType!))]
             : node.Type switch
     {
         NodeTypes.Input => [],
@@ -138,7 +138,7 @@ public static class WorkflowPorts
     };
     public static ImmutableArray<WorkflowPort> Outputs(NodeDefinition node) =>
         WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor)
-            ? [.. staticDescriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output).Select(port => new WorkflowPort(port.Id, port.DataType!))]
+            ? [.. staticDescriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Data).Select(port => new WorkflowPort(port.Id, port.DataType!))]
             : node.Type switch
     {
         NodeTypes.Output or NodeTypes.Terminate => [],
