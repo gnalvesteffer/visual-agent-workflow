@@ -375,6 +375,27 @@
 .vaw-run-dialog :where(input:not([type="checkbox"]), select, textarea) { inline-size: 100%; box-sizing: border-box; }
 .vaw-run-dialog .vaw-help { font-size: .8125rem; font-weight: 400; }
 .vaw-run-dialog-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-block-start: 1.25rem; }
+.vaw-template-dialog { inline-size: min(56rem, calc(100vw - 2rem)); max-inline-size: calc(100vw - 2rem); max-block-size: min(88vh, 56rem); overflow: auto; margin: auto; padding: 0; color: var(--vaw-text); background: var(--vaw-surface); border: 1px solid var(--vaw-border-strong); border-radius: var(--vaw-panel-radius); box-shadow: 0 1.5rem 4rem rgb(0 0 0 / .4); }
+.vaw-template-dialog::backdrop { background: rgb(0 0 0 / .64); }
+.vaw-template-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--vaw-space-4); padding: var(--vaw-space-4) var(--vaw-space-5); border-block-end: 1px solid var(--vaw-border); }
+.vaw-template-dialog h2 { margin: 0 0 var(--vaw-space-2); font-size: 1.125rem; }
+.vaw-dialog-kicker { margin: 0 0 var(--vaw-space-1); color: var(--vaw-accent); font-size: .75rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.vaw-dialog-close { inline-size: 2.25rem; block-size: 2.25rem; padding: 0; border: 1px solid var(--vaw-border); border-radius: 50%; color: var(--vaw-muted); background: transparent; font-size: 1.35rem; line-height: 1; }
+.vaw-dialog-close:hover, .vaw-dialog-close:focus-visible { color: var(--vaw-text); background: var(--vaw-control); }
+.vaw-template-meta { display: flex; flex-wrap: wrap; gap: var(--vaw-space-3); align-items: baseline; padding: var(--vaw-space-3) var(--vaw-space-5); color: var(--vaw-muted); border-block-end: 1px solid var(--vaw-border); }
+.vaw-template-meta code { color: var(--vaw-accent); font-family: var(--vaw-mono); font-size: .75rem; }
+.vaw-template-bindings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--vaw-space-4); padding: var(--vaw-space-5); }
+.vaw-template-bindings fieldset { min-inline-size: 0; margin: 0; padding: var(--vaw-space-3); border: 1px solid var(--vaw-border); border-radius: var(--vaw-control-radius); }
+.vaw-template-bindings legend { padding-inline: var(--vaw-space-2); font-weight: 700; }
+.vaw-template-bindings label { display: grid; gap: var(--vaw-space-2); margin-block-start: var(--vaw-space-4); }
+.vaw-template-bindings label > span { display: flex; justify-content: space-between; gap: var(--vaw-space-2); }
+.vaw-template-bindings select { inline-size: 100%; min-block-size: 2.75rem; }
+.vaw-template-bindings code { color: var(--vaw-accent); font-family: var(--vaw-mono); font-size: .75rem; }
+.vaw-template-warning { color: var(--vaw-warning); }
+.vaw-template-preview { display: flex; flex-wrap: wrap; gap: var(--vaw-space-2); align-items: baseline; margin: 0 var(--vaw-space-5); padding: var(--vaw-space-3); border: 1px solid var(--vaw-border); border-radius: var(--vaw-control-radius); background: var(--vaw-canvas); }
+.vaw-template-preview span { color: var(--vaw-muted); }
+.vaw-template-dialog-actions { display: flex; justify-content: flex-end; gap: var(--vaw-space-2); padding: var(--vaw-space-4) var(--vaw-space-5); }
+@media (max-width: 48rem) { .vaw-template-bindings { grid-template-columns: 1fr; } }
 .vaw-paused-boundary { border-color: var(--vaw-warning); }
 
 :where(.vaw-studio, .vaw-designer) a { color: var(--vaw-accent); }

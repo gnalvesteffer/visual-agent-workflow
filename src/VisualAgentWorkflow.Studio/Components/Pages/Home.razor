@@ -10,7 +10,7 @@
 <main class="vaw-main-ide-route">
     <WorkflowErrorBoundary>
         <ChildContent>
-            <WorkflowStudio @key="(ProjectWorkspace.CurrentProjectId, WorkflowId)" ProjectId="@ProjectWorkspace.CurrentProjectId" InitialWorkflowId="@WorkflowId" IdeMode="true" DraftSaved="RefreshProjectExplorer" WorkflowSelected="SelectWorkflow" Client="ProjectWorkspace.Client" Catalog="ProjectWorkspace.Catalog" ToolCatalog="Tools" AgentCatalog="Agents" SkillLibrary="ProjectWorkspace.Skills" AgentProfileLibrary="ProjectWorkspace.AgentProfiles" FunctionCatalog="ProjectWorkspace.Functions" />
+            <WorkflowStudio @key="(ProjectWorkspace.CurrentProjectId, WorkflowId)" ProjectId="@ProjectWorkspace.CurrentProjectId" InitialWorkflowId="@WorkflowId" IdeMode="true" DraftSaved="RefreshProjectExplorer" WorkflowSelected="SelectWorkflow" Client="ProjectWorkspace.Client" Catalog="ProjectWorkspace.Catalog" ToolCatalog="Tools" AgentCatalog="Agents" SkillLibrary="ProjectWorkspace.Skills" AgentProfileLibrary="ProjectWorkspace.AgentProfiles" FunctionCatalog="ProjectWorkspace.Functions" TemplateCatalog="ProjectWorkspace.Templates" />
         </ChildContent>
         <ErrorContent>
             <section class="vaw-viewer" role="alert">

@@ -1,0 +1,67 @@
+@using VisualAgentWorkflow.Core
+<dialog @ref="dialog" class="vaw-template-dialog" aria-labelledby="template-dialog-title" aria-describedby="template-dialog-description" @onclose="Closed">
+    <header>
+        <div>
+            <p class="vaw-dialog-kicker">Reusable pure graph</p>
+            <h2 id="template-dialog-title">Insert @Template.DisplayName</h2>
+            <p id="template-dialog-description" class="vaw-help">Choose every typed boundary explicitly. Nothing is connected or replaced until you apply this insertion.</p>
+        </div>
+        <button type="button" class="vaw-dialog-close" aria-label="Close template insertion" @onclick="Cancel">×</button>
+    </header>
+    <div class="vaw-template-meta">
+        <span>Revision <strong>v@Template.Version</strong></span>
+        <code>@GraphTemplateJson.ComputeHash(Template)[..12]</code>
+        <span>@Template.Description</span>
+    </div>
+    <section class="vaw-template-bindings" aria-label="Template boundary bindings">
+        <fieldset>
+            <legend>Inputs</legend>
+            <p class="vaw-help">Each template input receives a value from an existing workflow data output.</p>
+            @foreach (var input in Template.Body.Inputs)
+            {
+                var options = InputOptions.Where(option => option.Value.StartsWith(input.Key + "\u001f", StringComparison.Ordinal)).ToArray();
+                <label @key="input.Key">
+                    <span><strong>@input.Value.DisplayName</strong> <code>@input.Value.DataType</code></span>
+                    <select aria-label="Source for template input @input.Value.DisplayName" value="@(InputBindings.GetValueOrDefault(input.Key) ?? "")" @onchange="args => Changed(input.Key, true, args)">
+                        <option value="">Choose a source…</option>
+                        @foreach (var option in options)
+                        { <option value="@option.Value">@option.Label</option> }
+                    </select>
+                    @if (options.Length == 0) { <small class="vaw-error">No compatible data output is available.</small> }
+                </label>
+            }
+        </fieldset>
+        <fieldset>
+            <legend>Outputs</legend>
+            <p class="vaw-help">Each template output is connected to an existing workflow data input.</p>
+            @foreach (var output in Template.Body.Outputs)
+            {
+                var options = OutputOptions.Where(option => option.Value.StartsWith(output.Key + "\u001f", StringComparison.Ordinal)).ToArray();
+                <label @key="output.Key">
+                    <span><strong>@output.Value.DisplayName</strong> <code>@output.Value.DataType</code></span>
+                    <select aria-label="Destination for template output @output.Value.DisplayName" value="@(OutputBindings.GetValueOrDefault(output.Key) ?? "")" @onchange="args => Changed(output.Key, false, args)">
+                        <option value="">Choose a destination…</option>
+                        @foreach (var option in options)
+                        { <option value="@option.Value">@option.Label@(option.ReplacesExistingConnection ? " · replaces existing connection" : "")</option> }
+                    </select>
+                    @if (options.Any(option => option.ReplacesExistingConnection && option.Value == OutputBindings.GetValueOrDefault(output.Key)))
+                    { <small class="vaw-template-warning">Applying this will replace the current incoming data connection.</small> }
+                    @if (options.Length == 0) { <small class="vaw-error">No compatible data input is available.</small> }
+                </label>
+            }
+        </fieldset>
+    </section>
+    <section class="vaw-template-preview" aria-live="polite">
+        @if (PreviewMessage is not null)
+        { <p class="vaw-error" role="alert">@PreviewMessage</p> }
+        else
+        {
+            <strong>Ready to insert</strong>
+            <span>@PreviewNodeCount nodes · @PreviewConnectionCount connections@(PreviewReplacementCount == 0 ? "" : $" · replaces {PreviewReplacementCount} connection{(PreviewReplacementCount == 1 ? "" : "s")}")</span>
+        }
+    </section>
+    <footer class="vaw-template-dialog-actions">
+        <button type="button" @onclick="Cancel">Cancel</button>
+        <button type="button" class="vaw-primary" @onclick="Apply" disabled="@(PreviewMessage is not null)">Insert template</button>
+    </footer>
+</dialog>

@@ -137,6 +137,10 @@ Choose **Save immutable function version**. To make a change, select **New versi
 
 To call a function from a workflow, first validate a Boolean-primitive workflow and choose **Enable pure graph functions**. The node library lists saved function revisions. Add the exact revision you need, then connect compatible data pins to its named input/output sockets. The call node contains the immutable definition and hash; no service-side function catalog lookup occurs. Publish and export the workflow normally. The consumer only needs the workflow package and any ordinary provider/MCP registrations used by the rest of that workflow. Function library CRUD is local to this Studio; standalone function-package import/export and draft collaboration are not implemented yet.
 
+### Insert a reusable pure graph template
+
+Catalog-backed projects can store immutable pure graph-template revisions separately from callable graph functions. When a template catalog is available, open the node library's **Templates** section and choose the exact revision to insert. Studio opens a binding dialog rather than guessing connections: select one compatible existing data output for every template input and one compatible existing data input for every template output. Existing single incoming data connections are called out as replacements, and the preview reports the nodes, connections, and replacements that will be applied. **Insert template** performs the validated expansion as one editor change, so Undo removes the whole insertion. Folder-backed projects and runtime execution do not consume this catalog; use a pinned graph-function or child-workflow node when you need a runtime reuse boundary.
+
 ### Expose pure graph functions as agent tools
 
 1. Create and validate the pure function you want the agent to use. Give it a clear name and description and define named inputs and outputs; those become the tool contract the model sees.

@@ -65,7 +65,7 @@
             <div hidden="@(workspaceView != "designer")">
             @if (Catalog is not null && Client is IPublishedWorkflowClient publishedClient)
             {
-                <WorkflowDesigner @key="(Catalog, publishedClient, InitialWorkflowId)" ProjectId="@ProjectId" IdeMode="IdeMode" InitialWorkflowId="@InitialWorkflowId" DraftSaved="DraftSaved" WorkflowSelected="WorkflowSelected" Catalog="Catalog" Client="publishedClient" OnRunStarted="PublishedCallback(publishedClient)" OpenRunInspector="ShowRun" ToolCatalog="ToolCatalog" AgentCatalog="AgentCatalog" SkillLibrary="SkillLibrary" AgentProfileLibrary="AgentProfileLibrary" FunctionCatalog="FunctionCatalog">
+                <WorkflowDesigner @key="(Catalog, publishedClient, InitialWorkflowId)" ProjectId="@ProjectId" IdeMode="IdeMode" InitialWorkflowId="@InitialWorkflowId" DraftSaved="DraftSaved" WorkflowSelected="WorkflowSelected" Catalog="Catalog" Client="publishedClient" OnRunStarted="PublishedCallback(publishedClient)" OpenRunInspector="ShowRun" ToolCatalog="ToolCatalog" AgentCatalog="AgentCatalog" SkillLibrary="SkillLibrary" AgentProfileLibrary="AgentProfileLibrary" FunctionCatalog="FunctionCatalog" TemplateCatalog="TemplateCatalog">
                     <RunHistoryContent>
                         <div class="vaw-run-list-tools"><label>Filter runs <input aria-label="Filter workflow runs" @bind="runFilter" @bind:event="oninput" placeholder="Workflow, status or run ID" /></label><button type="button" @onclick="Refresh" disabled="@historyLoading">Refresh history</button></div>
                         @if (historyLoading) { <p role="status" class="vaw-help">Loading run history…</p> }

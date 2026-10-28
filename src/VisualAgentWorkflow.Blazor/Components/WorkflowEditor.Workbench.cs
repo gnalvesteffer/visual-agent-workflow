@@ -108,6 +108,7 @@ public partial class WorkflowEditor
 
         return entries.Where(entry =>
         {
+            if (entry.Key.StartsWith("template:", StringComparison.Ordinal)) return true;
             NodeDefinition candidate;
             try { candidate = FromSelection(entry.Key); }
             catch (ArgumentException) { return false; }
@@ -258,6 +259,7 @@ public partial class WorkflowEditor
                     "Fan out ordered execution pins; each output must be connected exactly once."));
             if (Definition.SchemaVersion is WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph)
                 explicitEntries.Add(ContractEntry(NodeTypes.ParallelRendezvous, !ReadOnly && !Disabled && Definition.Nodes.Count < 256 && Definition.Nodes.Values.All(node => node.Type != NodeTypes.ParallelRendezvous), "Add one unwired communication barrier; configure its branch pins and grants in node properties"));
+            explicitEntries.AddRange(TemplateEntries());
             return FilterBySourcePin(explicitEntries, context);
         }
         var insertion = Insertion(context);
@@ -294,8 +296,17 @@ public partial class WorkflowEditor
         entries.InsertRange(0, Bindings.Select(b => new WorkflowNodeLibraryEntry(
             ToolKey(b), b.DisplayName, "MCP tools", "Host-registered tool; node grants still apply", canCreate)));
         entries.AddRange(Providers.Select(p => new WorkflowNodeLibraryEntry(ProviderKey(p), p.DisplayName, "Agents", p.ModelId, canCreate)));
+        entries.AddRange(TemplateEntries());
         return entries;
     }
+
+    private IReadOnlyList<WorkflowNodeLibraryEntry> TemplateEntries() =>
+        TemplateCatalog?.List().Select(entry => new WorkflowNodeLibraryEntry(
+            TemplateKey(entry.Template.Definition),
+            $"Template · {entry.Template.Definition.DisplayName} v{entry.Template.Definition.Version}",
+            "Templates",
+            $"Pure graph copy · {entry.Template.Definition.Body.Inputs.Count} inputs · {entry.Template.Definition.Body.Outputs.Count} outputs",
+            !ReadOnly && !Disabled && Definition.Nodes.Count < 256)).ToArray() ?? [];
 
     private bool IsParallelBranchPath(PortReference? insertion)
     {
@@ -320,6 +331,11 @@ public partial class WorkflowEditor
         if (!LibraryEntries(context).Any(e => e.Key == key && e.Enabled)) return;
         var insertion = Insertion(context);
         await CloseMenu(context);
+        if (key.StartsWith("template:", StringComparison.Ordinal))
+        {
+            OpenTemplateDialog(key, context);
+            return;
+        }
         if (key == NodeTypes.Approval)
         {
             var target = context?.NodeId ?? selectedNode!;
@@ -540,5 +556,142 @@ public partial class WorkflowEditor
         if (right <= WorkflowLayoutJson.MaximumCoordinate - 720) return new(right + 360, top);
         var bottom = existing.Max(point => point.Y);
         return new(left, Math.Min(bottom + 240, WorkflowLayoutJson.MaximumCoordinate - 320));
+    }
+
+    private GraphTemplateDefinition? templateDialog;
+    private GraphContextRequest? templatePlacement;
+    private readonly Dictionary<string, string> templateInputBindings = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> templateOutputBindings = new(StringComparer.Ordinal);
+    private GraphTemplateInsertionResult? templatePreview;
+    private string? templatePreviewMessage;
+
+    private static string TemplateKey(GraphTemplateDefinition template) => $"template:{template.TemplateId}:{template.Version}";
+    private static string TemplateBindingValue(string templatePortId, string nodeId, string portId) =>
+        string.Join('\u001f', templatePortId, nodeId, portId);
+
+    private static bool TryParseTemplateBinding(string value, string expectedPortId, out PortReference reference)
+    {
+        var parts = value.Split('\u001f');
+        if (parts.Length == 3 && parts[0] == expectedPortId && parts[1].Length > 0 && parts[2].Length > 0)
+        {
+            reference = new(parts[1], parts[2]);
+            return true;
+        }
+        reference = null!;
+        return false;
+    }
+
+    private void OpenTemplateDialog(string key, GraphContextRequest? context)
+    {
+        if (TemplateCatalog is null) return;
+        var identity = key["template:".Length..];
+        var separator = identity.LastIndexOf(':');
+        if (separator <= 0 || !int.TryParse(identity[(separator + 1)..], out var version)) return;
+        var templateId = identity[..separator];
+        var entry = TemplateCatalog.Get(templateId, version);
+        if (entry is null) return;
+        templateDialog = entry.Template.Definition;
+        templatePlacement = context;
+        templateInputBindings.Clear();
+        templateOutputBindings.Clear();
+        templatePreview = null;
+        templatePreviewMessage = null;
+        if (context?.SourceNodeId is { } sourceNodeId && context.SourcePortId is { } sourcePortId &&
+            templateDialog.Body.Inputs.Count == 1 &&
+            templateDialog.Body.Inputs.Values.Single().DataType == DataTypeOf(sourceNodeId, sourcePortId, output: true))
+            templateInputBindings[templateDialog.Body.Inputs.Keys.Single()] = TemplateBindingValue(
+                templateDialog.Body.Inputs.Keys.Single(), sourceNodeId, sourcePortId);
+        if (context?.TargetNodeId is { } targetNodeId && context.TargetPortId is { } targetPortId &&
+            templateDialog.Body.Outputs.Count == 1 &&
+            templateDialog.Body.Outputs.Values.Single().DataType == DataTypeOf(targetNodeId, targetPortId, output: false))
+            templateOutputBindings[templateDialog.Body.Outputs.Keys.Single()] = TemplateBindingValue(
+                templateDialog.Body.Outputs.Keys.Single(), targetNodeId, targetPortId);
+        PrepareTemplatePreview();
+    }
+
+    private string? DataTypeOf(string nodeId, string portId, bool output)
+    {
+        if (!Definition.Nodes.TryGetValue(nodeId, out var node)) return null;
+        return CanvasPorts(node).FirstOrDefault(port => port.Id == portId && port.Kind == WorkflowPortKind.Data &&
+            port.Direction == (output ? WorkflowPortDirection.Output : WorkflowPortDirection.Input))?.DataType;
+    }
+
+    private IReadOnlyList<GraphTemplatePortOption> TemplateInputOptions => templateDialog is null ? [] :
+        [.. templateDialog.Body.Inputs.SelectMany(input => Definition.Nodes.SelectMany(node =>
+            CanvasPorts(node.Value).Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Data &&
+                port.DataType == input.Value.DataType).Select(port => new GraphTemplatePortOption(
+                    TemplateBindingValue(input.Key, node.Key, port.Id), $"{NodeLabel(node.Key)} · {port.Id}"))))];
+
+    private IReadOnlyList<GraphTemplatePortOption> TemplateOutputOptions => templateDialog is null ? [] :
+        [.. templateDialog.Body.Outputs.SelectMany(output => Definition.Nodes.SelectMany(node =>
+            CanvasPorts(node.Value).Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data &&
+                port.DataType == output.Value.DataType && port.Cardinality != WorkflowPortCardinality.Many &&
+                !(node.Value.Type == NodeTypes.McpTool && !string.IsNullOrWhiteSpace(node.Value.McpArgumentsJson))).Select(port =>
+            {
+                var incoming = Definition.Connections.Values.Count(edge => edge.Kind == "data" && edge.Target == new PortReference(node.Key, port.Id));
+                return new GraphTemplatePortOption(TemplateBindingValue(output.Key, node.Key, port.Id),
+                    $"{NodeLabel(node.Key)} · {port.Id}", incoming == 1);
+            })) )];
+
+    private Task TemplateBindingChanged(GraphTemplateBindingChange change)
+    {
+        var bindings = change.IsInput ? templateInputBindings : templateOutputBindings;
+        if (string.IsNullOrEmpty(change.Value)) bindings.Remove(change.TemplatePortId);
+        else bindings[change.TemplatePortId] = change.Value;
+        PrepareTemplatePreview();
+        return Task.CompletedTask;
+    }
+
+    private void PrepareTemplatePreview()
+    {
+        templatePreview = null;
+        templatePreviewMessage = null;
+        if (templateDialog is null) return;
+        if (templateDialog.Body.Inputs.Keys.Any(id => !templateInputBindings.TryGetValue(id, out var value) ||
+            !TryParseTemplateBinding(value, id, out _)) ||
+            templateDialog.Body.Outputs.Keys.Any(id => !templateOutputBindings.TryGetValue(id, out var value) ||
+            !TryParseTemplateBinding(value, id, out _)))
+        {
+            templatePreviewMessage = "Choose a compatible source and destination for every template boundary.";
+            return;
+        }
+        try
+        {
+            var request = CreateTemplateInsertionRequest();
+            templatePreview = GraphTemplateEditing.Insert(Definition, templateDialog, request,
+                _ => "template-node-" + Guid.NewGuid().ToString("N"),
+                _ => "template-edge-" + Guid.NewGuid().ToString("N"));
+        }
+        catch (ArgumentException exception) { templatePreviewMessage = exception.Message; }
+    }
+
+    private GraphTemplateInsertionRequest CreateTemplateInsertionRequest() => new(
+        [.. templateDialog!.Body.Inputs.Keys.Select(id => new GraphTemplateInputBinding(id,
+            TryParseTemplateBinding(templateInputBindings[id], id, out var source) ? source : throw new ArgumentException("Choose every template input binding.")))],
+        [.. templateDialog!.Body.Outputs.Keys.Select(id => new GraphTemplateOutputBinding(id,
+            TryParseTemplateBinding(templateOutputBindings[id], id, out var target) ? target : throw new ArgumentException("Choose every template output binding.")))]);
+
+    private async Task ApplyTemplate()
+    {
+        if (templateDialog is null) return;
+        try
+        {
+            var result = GraphTemplateEditing.Insert(Definition, templateDialog, CreateTemplateInsertionRequest(),
+                _ => "template-node-" + Guid.NewGuid().ToString("N"),
+                _ => "template-edge-" + Guid.NewGuid().ToString("N"));
+            var placement = templatePlacement;
+            templateDialog = null;
+            templatePlacement = null;
+            await Edit(() => result.Definition, placement, preserveSelection: result.AddedNodeIds.FirstOrDefault());
+        }
+        catch (ArgumentException exception) { templatePreviewMessage = exception.Message; }
+    }
+
+    private void CancelTemplate()
+    {
+        templateDialog = null;
+        templatePlacement = null;
+        templatePreview = null;
+        templatePreviewMessage = null;
     }
 }

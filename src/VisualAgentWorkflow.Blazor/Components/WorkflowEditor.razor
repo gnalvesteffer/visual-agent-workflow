@@ -885,6 +885,16 @@
             }
         </NodeInspector>
     </WorkflowGraphCanvas>
+    @if (templateDialog is { } selectedTemplate)
+    {
+        <GraphTemplateInsertionDialog Open="true" Template="selectedTemplate"
+            InputOptions="TemplateInputOptions" OutputOptions="TemplateOutputOptions"
+            InputBindings="templateInputBindings" OutputBindings="templateOutputBindings"
+            PreviewMessage="templatePreviewMessage" PreviewNodeCount="@(templatePreview?.AddedNodeIds.Length ?? 0)"
+            PreviewConnectionCount="@(templatePreview?.AddedConnectionIds.Length ?? 0)"
+            PreviewReplacementCount="@(templatePreview?.RemovedConnectionIds.Length ?? 0)"
+            BindingChanged="TemplateBindingChanged" Apply="ApplyTemplate" Cancel="CancelTemplate" />
+    }
     @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
 </section>
 
@@ -920,6 +930,7 @@
     [Parameter] public ISkillLibrary? SkillLibrary { get; set; }
     [Parameter] public IAgentProfileLibrary? AgentProfileLibrary { get; set; }
     [Parameter] public IGraphFunctionCatalog? FunctionCatalog { get; set; }
+    [Parameter] public IGraphTemplateCatalog? TemplateCatalog { get; set; }
     private string newType = NodeTypes.Uppercase;
     private System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition> ParameterDefinitions =>
         Definition.Parameters ?? System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;

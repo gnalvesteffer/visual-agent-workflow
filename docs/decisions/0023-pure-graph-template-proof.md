@@ -1,6 +1,6 @@
 # Pure graph-template proof seam
 
-Status: accepted bounded proof; Core insertion proof added; Studio exposure deferred
+Status: accepted bounded proof; catalog-backed Studio insertion authoring added; source/extraction and upgrade work deferred
 
 ## Decision
 
@@ -54,15 +54,11 @@ Templates remain distinct from:
 2. reusable workflows, which execute pinned workflow revisions with orchestration semantics;
 3. future macro assets, which may add project persistence and editor extraction only after this proof establishes the contract.
 
-No Studio picker, project asset, workflow schema promotion, runtime template node, or automatic upgrade path is included in this increment.
+The catalog-backed Studio editor now exposes exact template revisions through a dedicated insertion dialog. The dialog requires one compatible typed source per template input and one compatible typed destination per template output, previews copied nodes/connections and incoming-edge replacements, and applies the Core transaction as one editor change. Folder-backed/source-archive projects intentionally do not expose this catalog. No workflow schema promotion, runtime template node, or automatic upgrade path is included in this increment.
 
 ## Follow-up gates
 
-Before editor exposure, add dependency closure, layout and editor-level undo
-integration,
-folder-backed/source-archive persistence, and a user-facing distinction between templates,
-graph functions, and workflow calls. Revisit provenance and upgrade diagnostics
-before introducing a published project asset.
+Before broader asset exposure, add dependency closure, template layout assets, folder-backed/source-archive persistence, and upgrade diagnostics. Keep the existing dialog's one-change undo behavior and explicit typed bindings covered while adding a user-facing distinction between templates, graph functions, and workflow calls. Revisit provenance before introducing a published cross-project template asset.
 
 ## Review
 
