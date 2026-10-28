@@ -327,14 +327,17 @@ public partial class WorkflowGraphCanvas
     }
 
     [JSInvokable]
-    public async Task OpenContextMenu(string? nodeId, string? connectionId, int segment, double x, double y, double clientX, double clientY)
+    public async Task OpenContextMenu(string? nodeId, string? connectionId, int segment, double x, double y, double clientX, double clientY,
+        string? sourceNodeId = null, string? sourcePortId = null)
     {
         if (disposed || Disabled || !EnableContextMenu || ContextMenu is null || !double.IsFinite(x) || !double.IsFinite(y)) return;
         nodeId = nodeId is not null && Definition.Nodes.ContainsKey(nodeId) ? nodeId : null;
+        sourceNodeId = sourceNodeId is not null && Definition.Nodes.ContainsKey(sourceNodeId) ? sourceNodeId : null;
+        sourcePortId = sourceNodeId is null || string.IsNullOrWhiteSpace(sourcePortId) ? null : sourcePortId;
         connectionId = FindConnection(connectionId) is not null ? connectionId : null;
         if (connectionId is not null) await SelectWire(connectionId);
         else if (nodeId is not null) await SelectNode(nodeId);
-        contextMenu = new(Guid.NewGuid().ToString("N"), nodeId, connectionId, segment, Snap(x, y), clientX, clientY);
+        contextMenu = new(Guid.NewGuid().ToString("N"), nodeId, connectionId, segment, Snap(x, y), clientX, clientY, sourceNodeId, sourcePortId);
         await InvokeAsync(StateHasChanged);
     }
 

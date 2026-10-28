@@ -6,5 +6,5 @@ namespace VisualAgentWorkflow.Blazor;
 public sealed record WorkflowGraphEdit(WorkflowDefinition Definition, WorkflowLayout Layout);
 public sealed record WorkflowNodeLibraryEntry(string Key, string Label, string Category, string Description, bool Enabled = true);
 public sealed record GraphContextRequest(string Id, string? NodeId, string? ConnectionId, int Segment,
-    GraphPoint Position, double ClientX, double ClientY);
+    GraphPoint Position, double ClientX, double ClientY, string? SourceNodeId = null, string? SourcePortId = null);
 public sealed record GraphNodeCreateRequest(string Key, GraphContextRequest Context);

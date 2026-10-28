@@ -46,9 +46,43 @@ public partial class WorkflowEditor
         return null;
     }
 
-    private string InsertionDescription(GraphContextRequest? context) => Insertion(context) is { } source
-        ? $"Insert after {(string.IsNullOrWhiteSpace(EffectiveLayout.Nodes[source.NodeId].Label) ? WorkflowGraphCanvas.FriendlyName(Definition.Nodes[source.NodeId]) : EffectiveLayout.Nodes[source.NodeId].Label)} · {source.PortId}"
-        : "Select an insertion path.";
+    private string InsertionDescription(GraphContextRequest? context)
+    {
+        if (context is { SourceNodeId: { } sourceNodeId, SourcePortId: { } sourcePortId } &&
+            Definition.Nodes.TryGetValue(sourceNodeId, out var sourceNode))
+        {
+            var sourcePort = CanvasPorts(sourceNode).FirstOrDefault(port => port.Direction == WorkflowPortDirection.Output && port.Id == sourcePortId);
+            var sourceType = sourcePort?.DataType ?? (sourcePort?.Kind == WorkflowPortKind.Execution ? "execution" : "unknown");
+            return $"Create from {NodeLabel(sourceNodeId)} · {sourcePortId}. Showing nodes with a compatible {sourceType} input.";
+        }
+
+        return Insertion(context) is { } source
+            ? $"Insert after {(string.IsNullOrWhiteSpace(EffectiveLayout.Nodes[source.NodeId].Label) ? WorkflowGraphCanvas.FriendlyName(Definition.Nodes[source.NodeId]) : EffectiveLayout.Nodes[source.NodeId].Label)} · {source.PortId}"
+            : "Select an insertion path.";
+    }
+
+    private string NodeLabel(string id) => string.IsNullOrWhiteSpace(EffectiveLayout.Nodes.GetValueOrDefault(id)?.Label)
+        ? WorkflowGraphCanvas.FriendlyName(Definition.Nodes[id])
+        : EffectiveLayout.Nodes[id].Label;
+
+    private IReadOnlyList<WorkflowNodeLibraryEntry> FilterBySourcePin(IReadOnlyList<WorkflowNodeLibraryEntry> entries, GraphContextRequest? context)
+    {
+        if (!WorkflowSchemaVersions.UsesExplicitGraph(Definition) || context?.SourceNodeId is not { } sourceNodeId ||
+            context.SourcePortId is not { } sourcePortId || !Definition.Nodes.TryGetValue(sourceNodeId, out var sourceNode))
+            return entries;
+
+        var sourcePort = CanvasPorts(sourceNode).FirstOrDefault(port => port.Direction == WorkflowPortDirection.Output && port.Id == sourcePortId);
+        if (sourcePort is null) return entries;
+
+        return entries.Where(entry =>
+        {
+            NodeDefinition candidate;
+            try { candidate = FromSelection(entry.Key); }
+            catch (ArgumentException) { return false; }
+            return CanvasPorts(candidate).Any(port => port.Direction == WorkflowPortDirection.Input &&
+                port.Kind == sourcePort.Kind && port.DataType == sourcePort.DataType);
+        }).ToArray();
+    }
 
     private bool CanUpgradeBlankGraph => !ReadOnly && !Disabled && Definition.SchemaVersion != "1.23" &&
         Definition.Nodes.Count == 2 && Definition.Nodes.TryGetValue(Definition.EntryNodeId, out var entry) && entry.Type == NodeTypes.Input &&
@@ -192,7 +226,7 @@ public partial class WorkflowEditor
                     "Fan out ordered execution pins; each output must be connected exactly once."));
             if (Definition.SchemaVersion is WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph)
                 explicitEntries.Add(ContractEntry(NodeTypes.ParallelRendezvous, !ReadOnly && !Disabled && Definition.Nodes.Count < 256 && Definition.Nodes.Values.All(node => node.Type != NodeTypes.ParallelRendezvous), "Add one unwired communication barrier; configure its branch pins and grants in node properties"));
-            return explicitEntries;
+            return FilterBySourcePin(explicitEntries, context);
         }
         var insertion = Insertion(context);
         var sourceType = insertion is { } source

@@ -548,7 +548,7 @@ function pointerEnd(state, event, cancelled) {
                 const edge=state.paths.find(path=>path.dataset.source===drag.id&&path.dataset.sourcePort===drag.port);
                 const point=local(state,event);
                 invoke(state,'OpenContextMenu',null,edge?.dataset.wire || null,0,clamp(point.x),clamp(point.y),
-                    Math.max(8,Math.min(event.clientX,innerWidth-320)),Math.max(8,Math.min(event.clientY,innerHeight-440)));
+                    Math.max(8,Math.min(event.clientX,innerWidth-320)),Math.max(8,Math.min(event.clientY,innerHeight-440)),drag.id,drag.port);
             }
         }
         schedule(state); return;
