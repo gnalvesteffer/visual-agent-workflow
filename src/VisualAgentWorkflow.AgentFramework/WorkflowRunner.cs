@@ -80,6 +80,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         rootRevision ??= revision;
         workflowPath = workflowPath.IsDefault ? [] : workflowPath;
         using var recordGate = new SemaphoreSlim(1, 1);
+        var activationLedger = new ExecutionActivationLedger();
         long sequence = 0;
         async ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null, string? data = null, string? scopeId = null)
         {
@@ -89,6 +90,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 var evt = new ExecutionEvent(runId, revision.RevisionId, Interlocked.Increment(ref sequence), DateTimeOffset.UtcNow,
                     kind, node, invocation, connection, data)
                 { ScopeId = scopeId };
+                activationLedger.Observe(evt);
                 await record(evt);
             }
             finally { recordGate.Release(); }
@@ -140,9 +142,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             }
             if (output.TerminationSignal)
             {
+                activationLedger.ThrowIfActive();
                 await Emit(ExecutionEventKinds.Terminated, output.SourceNode);
                 return new(null, true);
             }
+            activationLedger.ThrowIfActive();
             await Emit(ExecutionEventKinds.Completed, data: output.Text);
             return new(output.Text, false);
         }

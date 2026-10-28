@@ -95,7 +95,8 @@ Descriptor progress: Core now has a canonical node-family catalog for stable dis
 Sequence proof checklist:
 
 - [x] Define a non-public, two-to-four-output activation ledger with stable order and explicit terminal/skipped states.
-- [ ] Integrate the ledger with runner-owned activation and descendant-terminal accounting.
+- [x] Add runner-owned active-node accounting and reject normal terminal runs with unresolved node work.
+- [ ] Connect Sequence-specific activations to that boundary and prove descendant completion.
 - [ ] Add stable Sequence lineage to recorded events and passive playback.
 - [ ] Prove partial dispatch, failure, cancellation, pause, and host-stop outcomes against the real runner.
 - [ ] Only then add schema 1.38, validator rules, persistence compatibility, Studio authoring, and public runtime behavior.
