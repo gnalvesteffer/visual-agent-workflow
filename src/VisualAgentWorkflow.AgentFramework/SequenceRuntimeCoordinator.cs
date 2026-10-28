@@ -13,6 +13,7 @@ internal sealed class SequenceRuntimeCoordinator
     private readonly string sequenceNodeId;
     private readonly IReadOnlyDictionary<string, string> connectionIds;
     private readonly List<SequenceRuntimeEvent> events = [];
+    private readonly Dictionary<Guid, string> completedResults = [];
     private readonly object gate = new();
     private SequenceTerminalState? terminalState;
 
@@ -89,7 +90,7 @@ internal sealed class SequenceRuntimeCoordinator
         }
     }
 
-    public SequenceActivationSnapshot Complete(Guid activationId, SequenceTerminalState terminalState)
+    public SequenceActivationSnapshot Complete(Guid activationId, SequenceTerminalState terminalState, string? result = null)
     {
         lock (gate)
         {
@@ -97,6 +98,8 @@ internal sealed class SequenceRuntimeCoordinator
             if (existing is not null && existing.State != SequenceActivationState.Dispatched)
                 return existing;
             var snapshot = ledger.RecordTerminal(activationId, terminalState);
+            if (terminalState == SequenceTerminalState.Completed && result is not null)
+                completedResults[activationId] = result;
             if (terminalState != SequenceTerminalState.Completed) this.terminalState ??= terminalState;
             var terminalKind = terminalState switch
             {
@@ -131,6 +134,22 @@ internal sealed class SequenceRuntimeCoordinator
 
     public bool IsActivationTerminal(Guid activationId) =>
         ledger.Snapshot.Any(item => item.ActivationId == activationId && item.State is not SequenceActivationState.Dispatched);
+
+    public string? DeterministicResult
+    {
+        get
+        {
+            lock (gate)
+            {
+                var completed = ledger.Snapshot
+                    .Where(item => item.State == SequenceActivationState.Completed && item.ActivationId is { } activationId &&
+                        completedResults.ContainsKey(activationId))
+                    .OrderBy(item => item.Ordinal)
+                    .FirstOrDefault();
+                return completed?.ActivationId is { } id ? completedResults[id] : null;
+            }
+        }
+    }
 
     public void CancelPending()
     {

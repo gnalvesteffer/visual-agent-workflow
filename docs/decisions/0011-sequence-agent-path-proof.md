@@ -58,11 +58,11 @@ document records the gate; it does not advertise that future schema.
 The required proponent/opponent/adjudicator review revisited promotion after
 the initial proof landed. The adjudicator kept the status **Non-public proof
 only**. The current proof is feasibility evidence, not public-contract
-readiness: it uses a one-output private plan, an injected synthetic Agent that
-always succeeds, and does not yet exercise the real Agent executor, provider
-failure or uncertainty, cancellation while an Agent is active, host-grant
-denial, Sequence failure settlement, or passive playback of an Agent-bearing
-Sequence run.
+readiness: it now exercises the real Agent executor for a one-output path and
+for two distinct out-of-order completions, plus missing-provider and timeout
+failure admission. The private failure/cancellation fan-out still uses a
+deterministic executor, and public host-grant admission, persisted nested
+playback, and public schema compatibility remain unproven.
 
 The candidate future schema is additive `1.44`, preserving schemas 1.38 and
 1.43. It may eventually allow each of the existing two-to-four Sequence
@@ -83,15 +83,16 @@ Promotion gates, in order:
   failure. Public Agent-path admission and real executor cancellation remain
   gated.
 - [x] Exercise the real Agent executor in the private proof, including missing
-  provider fail-closed admission and provider timeout uncertainty; passive
-  Sequence playback remains read-only.
+  provider fail-closed admission, provider timeout uncertainty, and two
+  distinct Agent paths completing out of order; passive Sequence playback
+  remains read-only.
 - [ ] Prove the same settlement contract for the public candidate with the
   real Agent executor and host capability admission; never complete the
   workflow while descendant work remains active.
 - [ ] Add public-subset finite resource limits and explicit grant-denial tests
   once the schema-1.44 candidate is admitted for implementation.
-- [ ] Define deterministic final-result semantics when multiple Agent paths
-  complete out of order.
+- [x] Define deterministic private final-result semantics: the lowest authored
+  output ordinal wins even when a later Agent path completes first.
 - [ ] Prove passive playback of nested Sequence/Agent/model identity with zero
   provider, tool, or executor calls, plus schema 1.38/1.43 compatibility.
 - [ ] Add Core/package/Studio authoring and invalid-topology coverage only after

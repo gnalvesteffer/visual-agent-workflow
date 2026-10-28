@@ -51,11 +51,11 @@ public sealed partial class WorkflowRunner
     internal Task<WorkflowExecutionResult> ExecuteSequenceAgentFanoutProductionProofAsync(Guid runId, string input,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default)
     {
-        var revision = SequenceAgentProofRevision();
+        var revision = SequenceAgentFanoutProofRevision();
         var plan = new SequenceProductionPlan("sequence", [
-            new SequenceProductionOutput("failing", 0, "agent", "sequence", "then", "sequence-proof:failing"),
-            new SequenceProductionOutput("sibling", 1, "agent", "sequence", "then", "sequence-proof:sibling")
-        ], null, SequenceTerminalState.Completed);
+            new SequenceProductionOutput("failing", 0, "agent-first", "anchor_first", "then", "sequence-proof:failing"),
+            new SequenceProductionOutput("sibling", 1, "agent-second", "anchor_second", "then", "sequence-proof:sibling")
+        ], null, SequenceTerminalState.Completed, DirectOutputCollection: true, BypassRevisionExecutionEdges: true);
         return ExecuteCoreAsync(runId, revision, input, null, record, null, cancellationToken,
             rootRevision: revision, sequencePlan: plan);
     }
@@ -124,20 +124,27 @@ public sealed partial class WorkflowRunner
                 builder.AddEdge<GraphMessage>(branches[output.OutputNodeId], (ExecutorBinding)collector,
                     message => message?.SequenceLineage?.OutputId == output.OutputId);
         }
-        foreach (var edge in (revision.Definition.ExecutionConnections ?? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty).Values.Where(edge =>
+        var revisionExecutionEdges = plan.BypassRevisionExecutionEdges
+            ? Enumerable.Empty<ConnectionDefinition>()
+            : (revision.Definition.ExecutionConnections ?? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty).Values;
+        foreach (var edge in revisionExecutionEdges.Where(edge =>
                      edge.Source.NodeId != plan.SequenceNodeId && edge.Target.NodeId != plan.SequenceNodeId &&
                      edge.Source.NodeId != revision.Definition.EntryNodeId))
         {
             builder.AddEdge<GraphMessage>(branches[edge.Source.NodeId], branches[edge.Target.NodeId],
                 message => message?.SourceNode == edge.Source.NodeId && message.SourcePort == edge.Source.PortId);
         }
-        foreach (var outputNodeId in revision.Definition.ExecutionConnections is null
+        foreach (var outputNodeId in plan.BypassRevisionExecutionEdges ? [] : revision.Definition.ExecutionConnections is null
                      ? []
                      : revision.Definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.Output).Select(entry => entry.Key))
         {
             builder.AddEdge<GraphMessage>(branches[outputNodeId], (ExecutorBinding)collector,
                 message => message?.SourceNode == outputNodeId && message.SourcePort == "out");
         }
+        if (plan.DirectOutputCollection)
+            foreach (var output in plan.Outputs)
+                builder.AddEdge<GraphMessage>(branches[output.OutputNodeId], (ExecutorBinding)collector,
+                    message => message?.SequenceLineage?.OutputId == output.OutputId);
         builder.AddEdge<GraphMessage>((ExecutorBinding)source, (ExecutorBinding)sink,
             message => message?.SourcePort == "continue");
         builder.AddEdge<GraphMessage>((ExecutorBinding)source, (ExecutorBinding)terminal,
@@ -195,6 +202,43 @@ public sealed partial class WorkflowRunner
         return WorkflowRevision.Create(definition, "private-sequence-agent-production-proof");
     }
 
+    private static WorkflowRevision SequenceAgentFanoutProofRevision()
+    {
+        var branches = ImmutableArray.Create(
+            new ParallelBranchDescriptor("branch_first", "First authored path", "anchor_first"),
+            new ParallelBranchDescriptor("branch_second", "Second authored path", "anchor_second"));
+        var firstAgent = new NodeDefinition(NodeTypes.Agent, "1.0.0", Agent: new AgentConfiguration(
+            "sequence-proof", null, "Return the first authored response.", []) { MaxTurns = 1 });
+        var secondAgent = new NodeDefinition(NodeTypes.Agent, "1.0.0", Agent: new AgentConfiguration(
+            "sequence-proof", null, "Return the second authored response.", []) { MaxTurns = 1 });
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("fork", new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new(branches) })
+            .Add("anchor_first", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("fork", "branch_first") })
+            .Add("anchor_second", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("fork", "branch_second") })
+            .Add("agent-first", firstAgent)
+            .Add("agent-second", secondAgent)
+            .Add("join", new(NodeTypes.ParallelJoin, "1.0.0") { ParallelJoin = new("fork", branches.Select(branch => branch.Id).ToImmutableArray()) })
+            .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = "json" });
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-fork", new(new("input", "then"), new("fork", "execute"), "execution"))
+            .Add("fork-first", new(new("fork", ParallelBranchLimits.PinId("branch_first")), new("anchor_first", "execute"), "execution"))
+            .Add("fork-second", new(new("fork", ParallelBranchLimits.PinId("branch_second")), new("anchor_second", "execute"), "execution"))
+            .Add("first-agent", new(new("anchor_first", "then"), new("agent-first", "execute"), "execution"))
+            .Add("second-agent", new(new("anchor_second", "then"), new("agent-second", "execute"), "execution"))
+            .Add("first-join", new(new("agent-first", "out"), new("join", ParallelBranchLimits.PinId("branch_first")), "execution"))
+            .Add("second-join", new(new("agent-second", "out"), new("join", ParallelBranchLimits.PinId("branch_second")), "execution"))
+            .Add("join-output", new(new("join", "then"), new("output", "execute"), "execution"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("join-output-data", new(new("join", "out"), new("output", "in"), "data"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.ConfigurableParallelGraph,
+            "sequence-agent-fanout-production-proof", "input", nodes, data)
+        {
+            ExecutionConnections = execution
+        };
+        return WorkflowRevision.Create(definition, "private-sequence-agent-fanout-production-proof");
+    }
+
     private SequenceProductionPlan? CreateSequenceProductionPlan(WorkflowRevision revision)
     {
         if (revision.Definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph)) return null;
@@ -211,7 +255,8 @@ public sealed partial class WorkflowRunner
     }
 
     private sealed record SequenceProductionPlan(string SequenceNodeId, IReadOnlyList<SequenceProductionOutput> Outputs,
-        string? TerminalOutputId, SequenceTerminalState TerminalState, bool AllowSingleOutput = false);
+        string? TerminalOutputId, SequenceTerminalState TerminalState, bool AllowSingleOutput = false,
+        bool DirectOutputCollection = false, bool BypassRevisionExecutionEdges = false);
 
     private sealed record SequenceProductionOutput(string OutputId, int Ordinal, string OutputNodeId,
         string SourceNodeId, string SourcePortId, string ConnectionId);
@@ -239,6 +284,7 @@ public sealed partial class WorkflowRunner
                         null);
                     return message with
                     {
+                        Text = terminal ? coordinator.DeterministicResult ?? message.Text : message.Text,
                         SourceNode = Id,
                         SourcePort = terminal ? "terminal" : "continue",
                         FailureSignal = terminal && coordinator.TerminalState is not null
@@ -300,7 +346,7 @@ public sealed partial class WorkflowRunner
             {
                 var terminalState = plan.TerminalOutputId == lineage.OutputId
                     ? plan.TerminalState : SequenceTerminalState.Completed;
-                coordinator.Complete(lineage.OutputActivationId, terminalState);
+                coordinator.Complete(lineage.OutputActivationId, terminalState, terminalState == SequenceTerminalState.Completed ? message.Text : null);
                 await flushSequenceEvents();
                 await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, lineage.ConnectionId,
                     terminalState == SequenceTerminalState.Completed ? "Sequence output completed." :

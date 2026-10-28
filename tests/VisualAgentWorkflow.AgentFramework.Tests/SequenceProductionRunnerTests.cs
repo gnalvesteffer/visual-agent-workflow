@@ -203,6 +203,25 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Private_agent_fanout_uses_authored_ordinal_for_result_when_responses_complete_out_of_order()
+    {
+        var events = new List<ExecutionEvent>();
+        var client = new OutOfOrderChatClient();
+        var registration = new AgentProviderRegistration(
+            new("sequence-proof", "Out of order", "out-of-order-v1", false), () => client);
+        var agents = new AgentNodeExecutor([registration], new RecordingBroker());
+        var result = await new WorkflowRunner(agents: agents).ExecuteSequenceAgentFanoutProductionProofAsync(
+            Guid.NewGuid(), "proof input", evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("response-1", result.Output);
+        Assert.True(client.SecondResponseCompletedFirst);
+        Assert.True(SequenceEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal("completed", playback!.Status);
+        Assert.Equal(2, playback.Outputs.Count);
+    }
+
+    [Fact]
     public async Task Private_agent_sequence_proof_settles_output_when_agent_fails()
     {
         var events = new List<ExecutionEvent>();
@@ -373,6 +392,46 @@ public sealed class SequenceProductionRunnerTests
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new InvalidOperationException("Blocking client unexpectedly completed.");
         }
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose() { }
+    }
+
+    private sealed class OutOfOrderChatClient : IChatClient
+    {
+        private readonly TaskCompletionSource<bool> secondStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> secondResponded = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int requestCount;
+        public bool SecondResponseCompletedFirst { get; private set; }
+
+        public async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            var request = Interlocked.Increment(ref requestCount);
+            if (request == 2)
+            {
+                secondStarted.TrySetResult(true);
+                secondResponded.TrySetResult(true);
+                SecondResponseCompletedFirst = true;
+                return Response("response-2");
+            }
+
+            await secondStarted.Task.WaitAsync(cancellationToken);
+            await secondResponded.Task.WaitAsync(cancellationToken);
+            await Task.Delay(20, cancellationToken);
+            return Response("response-1");
+        }
+
+        private static ChatResponse Response(string text) => new(new ChatMessage(ChatRole.Assistant, text))
+        {
+            ModelId = "out-of-order-v1",
+            FinishReason = ChatFinishReason.Stop
+        };
 
         public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
             ChatOptions? options = null, CancellationToken cancellationToken = default) =>
