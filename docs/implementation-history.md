@@ -4,7 +4,7 @@ Delivered milestones are listed in reverse chronological order. This page record
 
 ## Public Sequence contract slice
 
-Schema 1.38 now persists a bounded Blueprint-style `core.sequence` definition with two to four ordered output descriptors and stable `then.<outputId>` execution pins. Core validates the initial Input → Sequence → Output topology, preserves descriptor order through JSON round trips, and the Studio catalog can offer a safe two-output node when editing schema 1.38. The normal production runner now consumes those persisted descriptors and records their authored node/connection identity; richer downstream topology and full output editing remain deferred. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md) and the [Blueprint parity roadmap](roadmap.md).
+Schema 1.38 now persists a bounded Blueprint-style `core.sequence` definition with two to four ordered output descriptors and stable `then.<outputId>` execution pins. Core validates the initial Input → Sequence → Output topology, preserves descriptor order through JSON round trips, and the Studio exposes label, reorder, add, and remove editing for schema 1.38. The normal production runner consumes those persisted descriptors and records their authored node/connection identity; schema promotion and richer downstream topology remain deferred. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md) and the [Blueprint parity roadmap](roadmap.md).
 
 ## Non-public bounded Sequence activation ledger
 

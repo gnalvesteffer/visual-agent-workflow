@@ -320,6 +320,89 @@ public static class GraphEditing
         return Checked(definition with { Nodes = nodes, ExecutionConnections = updatedExecution });
     }
 
+    /// <summary>Renames a Sequence output without changing its stable ID or execution wire.</summary>
+    public static WorkflowDefinition RenameSequenceOutput(WorkflowDefinition definition, string sequenceNodeId,
+        string outputId, string label)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceGraph ||
+            !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
+            sequence.Sequence is not { } configuration || !SequenceOutputLimits.IsValidId(outputId) ||
+            string.IsNullOrWhiteSpace(label) || label.Trim().Length > SequenceOutputLimits.MaximumLabelLength ||
+            !configuration.Outputs.Any(output => output.Id == outputId))
+            throw new ArgumentException("Choose a Sequence output and enter a label of 1–64 characters.", nameof(outputId));
+
+        var outputs = configuration.Outputs.Select(output => output.Id == outputId ? output with { Label = label.Trim() } : output).ToImmutableArray();
+        return Checked(definition with { Nodes = definition.Nodes.SetItem(sequenceNodeId, sequence with { Sequence = configuration with { Outputs = outputs } }) });
+    }
+
+    /// <summary>Moves a Sequence output in canonical order while preserving its stable ID and wire.</summary>
+    public static WorkflowDefinition MoveSequenceOutput(WorkflowDefinition definition, string sequenceNodeId,
+        string outputId, int offset)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (offset is not (-1 or 1)) throw new ArgumentOutOfRangeException(nameof(offset));
+        if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceGraph ||
+            !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
+            sequence.Sequence is not { } configuration)
+            throw new ArgumentException("Choose a configured Sequence node.", nameof(sequenceNodeId));
+
+        var index = Array.FindIndex(configuration.Outputs.ToArray(), output => output.Id == outputId);
+        var destination = index + offset;
+        if (index < 0 || destination < 0 || destination >= configuration.Outputs.Length)
+            throw new ArgumentException("Choose an output that can move in that direction.", nameof(outputId));
+        var outputs = configuration.Outputs.SetItem(index, configuration.Outputs[destination]).SetItem(destination, configuration.Outputs[index]);
+        return Checked(definition with { Nodes = definition.Nodes.SetItem(sequenceNodeId, sequence with { Sequence = configuration with { Outputs = outputs } }) });
+    }
+
+    /// <summary>Adds a connected Sequence output targeting the workflow Output node.</summary>
+    public static WorkflowDefinition AddSequenceOutput(WorkflowDefinition definition, string sequenceNodeId)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        WorkflowValidator.ThrowIfInvalid(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceGraph ||
+            !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
+            sequence.Sequence is not { } configuration || definition.ExecutionConnections is not { } execution)
+            throw new ArgumentException("Choose a configured Sequence node.", nameof(sequenceNodeId));
+        if (configuration.Outputs.Length >= SequenceOutputLimits.MaximumOutputs)
+            throw new ArgumentException($"A Sequence can have at most {SequenceOutputLimits.MaximumOutputs} outputs.", nameof(sequenceNodeId));
+        var outputNode = definition.Nodes.SingleOrDefault(entry => entry.Value.Type == NodeTypes.Output);
+        if (outputNode.Value is null) throw new ArgumentException("The Sequence graph has no Output node.", nameof(sequenceNodeId));
+        var usedIds = configuration.Outputs.Select(output => output.Id).ToHashSet(StringComparer.Ordinal);
+        var number = 1;
+        while (usedIds.Contains($"output_{number}")) number++;
+        var outputId = $"output_{number}";
+        var descriptor = new SequenceOutputDescriptor(outputId, $"Output {number}");
+        var connectionId = NewId("sequence");
+        var updated = definition with
+        {
+            Nodes = definition.Nodes.SetItem(sequenceNodeId, sequence with { Sequence = configuration with { Outputs = configuration.Outputs.Add(descriptor) } }),
+            ExecutionConnections = execution.Add(connectionId, new(new(sequenceNodeId, SequenceOutputLimits.PinId(outputId)), new(outputNode.Key, "execute"), "execution"))
+        };
+        return Checked(updated);
+    }
+
+    /// <summary>Removes a Sequence output and its matching execution wire.</summary>
+    public static WorkflowDefinition RemoveSequenceOutput(WorkflowDefinition definition, string sequenceNodeId, string outputId)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        WorkflowValidator.ThrowIfInvalid(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceGraph ||
+            !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
+            sequence.Sequence is not { } configuration || definition.ExecutionConnections is not { } execution)
+            throw new ArgumentException("Choose a configured Sequence node.", nameof(sequenceNodeId));
+        if (configuration.Outputs.Length <= SequenceOutputLimits.MinimumOutputs)
+            throw new ArgumentException($"A Sequence must keep at least {SequenceOutputLimits.MinimumOutputs} outputs.", nameof(outputId));
+        if (!configuration.Outputs.Any(output => output.Id == outputId)) throw new ArgumentException("The Sequence output no longer exists.", nameof(outputId));
+        var connection = execution.Single(edge => edge.Value.Source.NodeId == sequenceNodeId && edge.Value.Source.PortId == SequenceOutputLimits.PinId(outputId));
+        var updated = definition with
+        {
+            Nodes = definition.Nodes.SetItem(sequenceNodeId, sequence with { Sequence = configuration with { Outputs = [.. configuration.Outputs.Where(output => output.Id != outputId)] } }),
+            ExecutionConnections = execution.Remove(connection.Key)
+        };
+        return Checked(updated);
+    }
+
     private static (NodeDefinition Fork, ParallelForkConfiguration ForkConfiguration, string JoinId, NodeDefinition Join,
         ParallelJoinConfiguration JoinConfiguration) ConfigurableParallelRegion(WorkflowDefinition definition, string forkNodeId)
     {

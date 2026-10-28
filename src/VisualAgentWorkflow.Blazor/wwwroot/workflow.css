@@ -382,6 +382,9 @@
 .vaw-comment-editor { position: relative; display: block; }
 .vaw-comment-editor textarea { padding-inline-end: 2.75rem; resize: vertical; }
 .vaw-properties fieldset { border: 0; padding: 0; margin: 0; min-inline-size: 0; }
+.vaw-sequence-output { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: .4rem; align-items: end; margin-block: .45rem; }
+.vaw-sequence-output label { min-inline-size: 0; }
+.vaw-sequence-output button { white-space: nowrap; }
 .vaw-json-value-schema { min-inline-size: 0; margin-block: var(--vaw-space-3); padding-inline-start: var(--vaw-space-3); border-inline-start: 2px solid var(--vaw-border); }
 .vaw-json-value-schema > fieldset { min-inline-size: 0; margin-block: var(--vaw-space-3); padding: var(--vaw-space-3); border: 1px solid var(--vaw-border); border-radius: var(--vaw-panel-radius); background: color-mix(in srgb, var(--vaw-surface) 72%, var(--vaw-canvas)); }
 .vaw-json-value-schema > fieldset > fieldset { margin-block: var(--vaw-space-3); padding: var(--vaw-space-3); border: 1px solid var(--vaw-border); border-radius: var(--vaw-panel-radius); background: var(--vaw-surface); }

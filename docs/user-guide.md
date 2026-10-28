@@ -109,6 +109,10 @@ For signed integer values, first validate a schema 1.30 agent graph, then choose
 
 From a valid schema 1.31 integer graph, choose **Enable string-to-integer conversion** to move to schema 1.39. Add **String to integer** from the Values library and connect its `in · string` pin to the Input or another string producer, then connect `out · integer` to an integer node or Output. The node is lazy and deterministic: `+42`, `-42`, leading zeros, and the signed 64-bit bounds are accepted; whitespace, decimal syntax, non-ASCII digits, and overflow fail with a recorded reason. This is an explicit conversion, not implicit coercion. Schema 1.38 is reserved for the bounded Sequence contract in the Blueprint parity roadmap, and the conversion is not available inside graph-function bodies.
 
+### Ordered Sequence nodes
+
+Schema 1.38 workflows can use **Sequence** to activate two to four execution outputs in authored order. Select the node to rename outputs, move them up or down, add a connected output, or remove one while at least two remain. Output IDs and execution wires remain stable when labels or order change. The current runtime slice routes each output to the workflow Output node and records the authored Sequence/output/connection identity; richer downstream paths and schema promotion are still tracked in the Blueprint parity roadmap.
+
 Save the draft as usual. A valid graph can run and publish; disconnected or incorrectly typed pins remain editable but block both. In Run inspector, the recorded cursor highlights each evaluated data wire and the selected pure node shows its recorded value. Playback reads the stored events without recalculating the graph. This is still a deliberately narrow explicit graph subset and does not add Agent or MCP execution steps. See [deterministic visual programming](graph-values.md) for the planned expansion.
 
 ### Create and reuse pure graph functions

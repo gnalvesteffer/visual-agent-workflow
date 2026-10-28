@@ -123,7 +123,8 @@ Sequence proof checklist:
 - [x] Add schema 1.38, persisted ordered output descriptors, stable `then.<outputId>` pins, round-trip coverage, and validator rules for the bounded Input → Sequence → Output slice.
 - [x] Register Sequence in the Core node contract catalog and expose it in the schema-gated Studio node library with a safe two-output default.
 - [x] Adapt the production runner to consume persisted Sequence descriptors and actual execution-connection identities for the bounded Input → Sequence → Output slice; retain the private proof as a lifecycle regression fixture.
-- [ ] Add full Studio configuration/editing for ordered outputs, schema promotion, and diagnostics.
+- [x] Add Studio configuration/editing for ordered output labels, stable ordering, and connected add/remove operations.
+- [ ] Add schema promotion and richer Sequence diagnostics for unsupported downstream topology.
 - [x] Add public runtime evidence/playback binding for the bounded slice.
 - [ ] Add compatibility migration coverage and broader supported downstream node topology.
 

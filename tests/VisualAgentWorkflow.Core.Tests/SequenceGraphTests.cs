@@ -57,6 +57,23 @@ public sealed class SequenceGraphTests
         Assert.Contains(WorkflowValidator.Validate(missing), issue => issue.Code == "graph.degree" && issue.Path.Contains("then.quality", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void Sequence_editing_preserves_stable_ids_and_wires()
+    {
+        var renamed = GraphEditing.RenameSequenceOutput(Definition(), "sequence", "architecture", "System architecture");
+        var moved = GraphEditing.MoveSequenceOutput(renamed, "sequence", "quality", -1);
+        var added = GraphEditing.AddSequenceOutput(moved, "sequence");
+
+        Assert.Equal(["inventory", "quality", "architecture", "output_1"], added.Nodes["sequence"].Sequence!.Outputs.Select(output => output.Id));
+        Assert.Contains(added.ExecutionConnections!.Values, edge => edge.Source == new PortReference("sequence", "then.output_1"));
+        Assert.Equal("System architecture", added.Nodes["sequence"].Sequence!.Outputs.Single(output => output.Id == "architecture").Label);
+        Assert.Empty(WorkflowValidator.Validate(added));
+
+        var removed = GraphEditing.RemoveSequenceOutput(added, "sequence", "output_1");
+        Assert.DoesNotContain(removed.ExecutionConnections!.Values, edge => edge.Source == new PortReference("sequence", "then.output_1"));
+        Assert.Empty(WorkflowValidator.Validate(removed));
+    }
+
     private static WorkflowDefinition Definition()
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)

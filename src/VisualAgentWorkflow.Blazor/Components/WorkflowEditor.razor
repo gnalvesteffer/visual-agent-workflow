@@ -373,6 +373,35 @@
                     {
                         <p>Visible branch anchor. Add text transforms, agents, or MCP tools after this node. The path must reach the matching input on the parallel join.</p>
                     }
+                    else if (node.Type == NodeTypes.Sequence)
+                    {
+                        <p>Activates each ordered execution output without waiting for earlier paths to complete. Output order is semantic; stable output IDs and wires are preserved when labels or order change.</p>
+                        @if (node.Sequence is { } sequenceConfiguration)
+                        {
+                            <fieldset aria-label="Sequence outputs">
+                                <legend>Ordered outputs</legend>
+                                @for (var outputIndex = 0; outputIndex < sequenceConfiguration.Outputs.Length; outputIndex++)
+                                {
+                                    var sequenceOutput = sequenceConfiguration.Outputs[outputIndex];
+                                    <div class="vaw-sequence-output" @key="sequenceOutput.Id">
+                                        <label>@sequenceOutput.Id
+                                            <input aria-label="Label for Sequence output @sequenceOutput.Id" value="@sequenceOutput.Label" maxlength="@SequenceOutputLimits.MaximumLabelLength"
+                                                   @onchange="args => Edit(() => GraphEditing.RenameSequenceOutput(Definition, id, sequenceOutput.Id, args.Value?.ToString() ?? string.Empty))" disabled="@Disabled" />
+                                        </label>
+                                        <button type="button" aria-label="Move Sequence output @sequenceOutput.Id up" disabled="@(Disabled || outputIndex == 0)"
+                                                @onclick="() => Edit(() => GraphEditing.MoveSequenceOutput(Definition, id, sequenceOutput.Id, -1))">Move up</button>
+                                        <button type="button" aria-label="Move Sequence output @sequenceOutput.Id down" disabled="@(Disabled || outputIndex == sequenceConfiguration.Outputs.Length - 1)"
+                                                @onclick="() => Edit(() => GraphEditing.MoveSequenceOutput(Definition, id, sequenceOutput.Id, 1))">Move down</button>
+                                        <button type="button" aria-label="Remove Sequence output @sequenceOutput.Id" disabled="@(Disabled || sequenceConfiguration.Outputs.Length <= SequenceOutputLimits.MinimumOutputs)"
+                                                @onclick="() => Edit(() => GraphEditing.RemoveSequenceOutput(Definition, id, sequenceOutput.Id))">Remove</button>
+                                    </div>
+                                }
+                                <button type="button" aria-label="Add Sequence output" disabled="@(Disabled || sequenceConfiguration.Outputs.Length >= SequenceOutputLimits.MaximumOutputs || Definition.Nodes.Count >= 256)"
+                                        @onclick="() => Edit(() => GraphEditing.AddSequenceOutput(Definition, id))">Add output</button>
+                                <p class="vaw-help">Each output must remain connected exactly once. The initial runtime slice routes these outputs to the workflow Output node.</p>
+                            </fieldset>
+                        }
+                    }
                     else if (node.Type == NodeTypes.ParallelJoin)
                     {
                         @if (Definition.SchemaVersion is WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph && node.ParallelJoin is { } configurableJoin)
