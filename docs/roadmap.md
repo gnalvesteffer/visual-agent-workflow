@@ -16,10 +16,12 @@ Schema 1.44 is the shipped bounded mutable-variable slice: workflow-local scalar
 declarations, explicit typed Get/Set nodes, isolated run stores, variable
 evidence, Studio authoring, and passive prefix reconstruction. The inspector
 shows the reconstructed value/version and operation history without replaying
-the workflow. Concurrent, loop, Sequence, collaboration, and shared-child
+the workflow. Schema 1.45 adds one explicit bounded loop body with repeated
+variable evidence. Concurrent, Sequence, collaboration, and shared-child
 state semantics remain deferred. The separate deterministic checkpoint host
-now supports the bounded linear variable graph through the variable checkpoint
-frame proof; broader failure/recovery semantics remain deferred.
+still supports only the bounded linear variable graph; a composite loop
+checkpoint frame is proof-only until native cursor round-tripping and recovery
+gates pass.
 
 The backend owns execution. Schema 1.32's named 2–8 branch fork/join remains available. Schema 1.33 adds one graph-level shared-channel rendezvous and Studio authoring. Incomplete rendezvous and branch layouts can be saved but cannot publish or execute. The Studio/ordinary queued runs still interrupt after host failure; the separate opt-in host explicitly resumes deterministic saved checkpoints but collaboration regions do not support recovery or resume. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Socket rewiring is supported for matching typed pins, while incomplete drafts remain non-executable until validation succeeds. Sequential subagent calls, parallel agent-team calls, bounded graph fan-outs, and the first graph-level collaboration slice are explicit; nested collaboration remains planned. Conditional routing and parallel graph execution are validated operations.
 
@@ -145,9 +147,12 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   proves repeated Set/Get operations and maximum-iteration stopping.
   Cancellation/failure-after-write and playback-prefix proofs are shared with
   the 1.44 slice.
-- [ ] Add loop-aware checkpoint state and recovery. Schema 1.45 remains outside
-  checkpoint admission until iteration position, variable state, cancellation,
-  failure, repeated recovery, and process-loss semantics are proven.
+- [ ] Add loop-aware checkpoint state and recovery. A proof-only composite frame
+  now binds native JSON, loop cursor, variable state, and the exact evidence
+  prefix with component/composite hashes. Schema 1.45 remains outside
+  checkpoint admission until native cursor round-tripping, atomic capture,
+  cancellation/failure, repeated recovery, and process-loss semantics are
+  proven. See [loop checkpoint proof frame](decisions/0031-loop-checkpoint-proof-frame.md).
   Cancellation-position is proven at the atomic variable-store boundary: a
   pre-cancelled write cannot mutate state or advance its version; a separate
   runtime regressions now prove cancellation or recorder failure after a

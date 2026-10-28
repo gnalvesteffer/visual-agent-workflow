@@ -4,6 +4,13 @@
 
 Supported graphs contain only input/output, uppercase/reverse, ordinal conditions and exclusive merges. The host rejects the entire graph before admission if it includes an agent, MCP tool or approval, including an unchosen branch. External outcomes, model sessions and approval holds need a separate recovery policy. No checkpoint API is exposed in Studio, the development workflow HTTP API or the read-only observation API.
 
+Schema 1.45 loop-variable workflows remain rejected by this host. Core contains
+a proof-only composite frame that binds native JSON state, a loop cursor, the
+definition-bound variable snapshot, and the exact evidence prefix with hashes;
+it is not an admission path or an alternate scheduler. Native loop cursor
+round-tripping, atomic capture, repeated resume, and process-loss tests must
+pass before this frame can be used by the checkpoint host. See [decision 0031](decisions/0031-loop-checkpoint-proof-frame.md).
+
 ## Use the host API
 
 ```csharp

@@ -34,7 +34,7 @@ public sealed class LoopVariableTopologyTests
         Assert.False(analysis.IsValid);
     }
 
-    private static WorkflowDefinition Candidate()
+    internal static WorkflowDefinition Candidate()
     {
         var nodes = new Dictionary<string, NodeDefinition>
         {

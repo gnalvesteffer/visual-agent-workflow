@@ -73,6 +73,7 @@ Documentation changes follow [documentation-maintenance](../.agents/skills/docum
 - [Run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md) — records the reviewed boundaries and proof gates required before Blueprint-style mutable variables become a shipped capability.
 - [Loop-variable evidence seam](decisions/0029-loop-variable-evidence-seam.md) — records additive loop identity in variable evidence and passive playback.
 - [Loop-variable topology proof](decisions/0030-loop-variable-topology-proof.md) — records the bounded schema 1.45 loop-variable contract and deferred checkpoint gate.
+- [Loop checkpoint proof frame](decisions/0031-loop-checkpoint-proof-frame.md) — binds native state, loop cursor, variables, and evidence without admitting schema 1.45 recovery.
 
 ## Contract references
 
