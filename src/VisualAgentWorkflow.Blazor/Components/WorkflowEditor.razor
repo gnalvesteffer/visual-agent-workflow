@@ -1228,10 +1228,7 @@
             var ports = node.McpInputPorts ?? (Bindings.FirstOrDefault(binding => node.Tool is not null && BindingMatches(node.Tool, binding)) is { } binding
                 ? McpInputPorts(binding)
                 : []);
-            return [.. ports.Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType, port.Name)),
-                .. WorkflowPorts.ExplicitDataOutputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType)),
-                .. WorkflowPorts.ExplicitExecutionInputs(node).Select(port => new WorkflowPortDescriptor(port, WorkflowPortDirection.Input, WorkflowPortKind.Execution)),
-                .. WorkflowPorts.ExplicitExecutionOutputs(node).Select(port => new WorkflowPortDescriptor(port, WorkflowPortDirection.Output, WorkflowPortKind.Execution))];
+            return WorkflowPorts.Explicit(node, ports);
         }
         return WorkflowSchemaVersions.UsesExplicitGraph(Definition)
             ? WorkflowPorts.Explicit(node)

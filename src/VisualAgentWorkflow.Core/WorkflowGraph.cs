@@ -32,7 +32,22 @@ public sealed record StringCondition(string Operator, string Operand)
 /// <summary>Explicit typed ports for the bounded workflow graph; no CLR types or executable expressions.</summary>
 public static class WorkflowPorts
 {
-    public static ImmutableArray<WorkflowPortDescriptor> Explicit(NodeDefinition node) =>
+    /// <summary>
+    /// Resolves the complete explicit pin contract. The optional MCP metadata is an
+    /// authoring-time view used when a live binding has been discovered but has not
+    /// yet been persisted on the node; it is never written by this method.
+    /// </summary>
+    public static ImmutableArray<WorkflowPortDescriptor> Explicit(
+        NodeDefinition node,
+        ImmutableArray<McpInputPortDefinition>? discoveredMcpInputPorts = null)
+    {
+        if (node.Type == NodeTypes.McpTool && discoveredMcpInputPorts.HasValue && node.McpInputPorts is null)
+            node = node with { McpInputPorts = discoveredMcpInputPorts.Value };
+
+        return ExplicitCore(node);
+    }
+
+    private static ImmutableArray<WorkflowPortDescriptor> ExplicitCore(NodeDefinition node) =>
         [.. ExplicitDataInputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType)
          {
              Required = node.Type != NodeTypes.McpTool || node.McpInputPorts is not { } inputPorts ||

@@ -145,6 +145,32 @@ public sealed class DirectMcpGraphTests
             });
     }
 
+    [Fact]
+    public void Explicit_port_resolution_uses_discovered_mcp_metadata_without_overriding_persisted_metadata()
+    {
+        var discovered = new[]
+        {
+            new McpInputPortDefinition("arg.query", "query", "string", true),
+            new McpInputPortDefinition("arg.limit", "limit", "integer", false)
+        }.ToImmutableArray();
+        var tool = new NodeDefinition(NodeTypes.McpTool, "1.0.0", new ToolBindingRequest("demo.search", new string('a', 64)));
+
+        var discoveredPorts = WorkflowPorts.Explicit(tool, discovered);
+        Assert.Equal(["arg.query", "arg.limit"], discoveredPorts
+            .Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data)
+            .Select(port => port.Id));
+        Assert.Contains(discoveredPorts, port => port.Id == "arg.query" && port.Required && port.SupportsStaticValue);
+        Assert.Contains(discoveredPorts, port => port.Id == "arg.limit" && !port.Required && port.SupportsStaticValue);
+
+        var persisted = tool with
+        {
+            McpInputPorts = [new("arg.path", "path", "string", true)]
+        };
+        var persistedPorts = WorkflowPorts.Explicit(persisted, discovered);
+        Assert.DoesNotContain(persistedPorts, port => port.Id == "arg.query");
+        Assert.Contains(persistedPorts, port => port.Id == "arg.path" && port.Required && port.SupportsStaticValue);
+    }
+
     private static WorkflowDefinition Definition() => new(
         WorkflowSchemaVersions.DirectMcpGraph, "direct-mcp", "input",
         new Dictionary<string, NodeDefinition>
