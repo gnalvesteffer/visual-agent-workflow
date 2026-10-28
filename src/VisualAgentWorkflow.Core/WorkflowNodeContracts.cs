@@ -40,6 +40,15 @@ public enum WorkflowNodeEvidenceKind
     ChildWorkflow
 }
 
+public enum WorkflowDynamicPinIdentityKind
+{
+    None,
+    AgentRouteId,
+    McpArgumentId,
+    ParallelBranchId,
+    GraphFunctionPortId
+}
+
 /// <summary>Stable, framework-independent metadata for a workflow node family.</summary>
 /// <remarks>
 /// This catalog describes authoring and contract boundaries only. It does not replace
@@ -60,7 +69,8 @@ public sealed record WorkflowNodeContract(
     WorkflowNodeStateKind State = WorkflowNodeStateKind.Stateless,
     WorkflowNodeFailureKind Failure = WorkflowNodeFailureKind.Propagates,
     WorkflowNodeEvidenceKind Evidence = WorkflowNodeEvidenceKind.ExecutionLifecycle,
-    bool SupportsCancellation = true);
+    bool SupportsCancellation = true,
+    WorkflowDynamicPinIdentityKind DynamicPinIdentity = WorkflowDynamicPinIdentityKind.None);
 
 /// <summary>Canonical node-family metadata shared by Core-aware authoring surfaces.</summary>
 public static class WorkflowNodeContractCatalog
@@ -88,18 +98,18 @@ public static class WorkflowNodeContractCatalog
         Contract(NodeTypes.Merge, "Merge", "Flow", "Reconverges compatible execution paths.", true, false, evidence: WorkflowNodeEvidenceKind.ExecutionLifecycle),
         Contract(NodeTypes.Terminate, "Terminate", "Flow", "Ends a route with an explicit outcome.", true, true, failure: WorkflowNodeFailureKind.Terminates),
         Contract(NodeTypes.Approval, "Approval", "Interaction", "Waits for an explicit human approval boundary.", true, true, requiresHostCapability: true, activation: WorkflowNodeActivationKind.ExternalApproval, state: WorkflowNodeStateKind.HostOwned, failure: WorkflowNodeFailureKind.WaitsForHost, evidence: WorkflowNodeEvidenceKind.Approval),
-        Contract(NodeTypes.ParallelFork, "Parallel fork", "Flow", "Starts a named bounded parallel region.", true, true, activation: WorkflowNodeActivationKind.SchedulerFanOut, state: WorkflowNodeStateKind.RunScoped, evidence: WorkflowNodeEvidenceKind.ParallelProgress),
+        Contract(NodeTypes.ParallelFork, "Parallel fork", "Flow", "Starts a named bounded parallel region.", true, true, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.ParallelBranchId, activation: WorkflowNodeActivationKind.SchedulerFanOut, state: WorkflowNodeStateKind.RunScoped, evidence: WorkflowNodeEvidenceKind.ParallelProgress),
         Contract(NodeTypes.ParallelBranch, "Parallel branch", "Flow", "Anchors one named parallel branch.", true, true, state: WorkflowNodeStateKind.RunScoped, evidence: WorkflowNodeEvidenceKind.ParallelProgress),
-        Contract(NodeTypes.ParallelJoin, "Parallel join", "Flow", "Waits for named parallel branch results.", true, true, activation: WorkflowNodeActivationKind.SchedulerBarrier, state: WorkflowNodeStateKind.RunScoped, failure: WorkflowNodeFailureKind.AbortsRegion, evidence: WorkflowNodeEvidenceKind.ParallelProgress),
-        Contract(NodeTypes.ParallelRendezvous, "Collaboration rendezvous", "Collaboration", "Publishes or reads a bounded branch snapshot.", true, true, requiresHostCapability: true, activation: WorkflowNodeActivationKind.SchedulerBarrier, state: WorkflowNodeStateKind.RunScoped, failure: WorkflowNodeFailureKind.AbortsRegion, evidence: WorkflowNodeEvidenceKind.ParallelProgress),
+        Contract(NodeTypes.ParallelJoin, "Parallel join", "Flow", "Waits for named parallel branch results.", true, true, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.ParallelBranchId, activation: WorkflowNodeActivationKind.SchedulerBarrier, state: WorkflowNodeStateKind.RunScoped, failure: WorkflowNodeFailureKind.AbortsRegion, evidence: WorkflowNodeEvidenceKind.ParallelProgress),
+        Contract(NodeTypes.ParallelRendezvous, "Collaboration rendezvous", "Collaboration", "Publishes or reads a bounded branch snapshot.", true, true, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.ParallelBranchId, requiresHostCapability: true, activation: WorkflowNodeActivationKind.SchedulerBarrier, state: WorkflowNodeStateKind.RunScoped, failure: WorkflowNodeFailureKind.AbortsRegion, evidence: WorkflowNodeEvidenceKind.ParallelProgress),
         Contract(NodeTypes.Loop, "Bounded loop", "Flow", "Repeats a linear body up to a hard iteration limit.", true, true, state: WorkflowNodeStateKind.RunScoped, failure: WorkflowNodeFailureKind.Routes, evidence: WorkflowNodeEvidenceKind.RouteDecision),
         Contract(NodeTypes.LoopBody, "Loop body", "Flow", "Marks the body entry of a bounded loop.", true, true, state: WorkflowNodeStateKind.RunScoped, evidence: WorkflowNodeEvidenceKind.ExecutionLifecycle),
-        Contract(NodeTypes.Agent, "Agent", "Capabilities", "Invokes a host-authorized model agent.", true, true, hasDynamicPins: true, requiresHostCapability: true, state: WorkflowNodeStateKind.HostOwned, evidence: WorkflowNodeEvidenceKind.CapabilityInvocation),
-        Contract(NodeTypes.McpTool, "MCP tool", "Capabilities", "Invokes one host-authorized MCP tool.", true, true, hasDynamicPins: true, requiresHostCapability: true, state: WorkflowNodeStateKind.HostOwned, evidence: WorkflowNodeEvidenceKind.CapabilityInvocation),
+        Contract(NodeTypes.Agent, "Agent", "Capabilities", "Invokes a host-authorized model agent.", true, true, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.AgentRouteId, requiresHostCapability: true, state: WorkflowNodeStateKind.HostOwned, evidence: WorkflowNodeEvidenceKind.CapabilityInvocation),
+        Contract(NodeTypes.McpTool, "MCP tool", "Capabilities", "Invokes one host-authorized MCP tool.", true, true, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.McpArgumentId, requiresHostCapability: true, state: WorkflowNodeStateKind.HostOwned, evidence: WorkflowNodeEvidenceKind.CapabilityInvocation),
         Contract(NodeTypes.WorkflowCall, "Workflow call", "Composition", "Calls an exact pinned child workflow revision.", true, true, activation: WorkflowNodeActivationKind.ChildWorkflow, state: WorkflowNodeStateKind.RunScoped, failure: WorkflowNodeFailureKind.PropagatesChildOutcome, evidence: WorkflowNodeEvidenceKind.ChildWorkflow),
         Contract(NodeTypes.FunctionInput, "Function input", "Functions", "Declares a pure graph-function input.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.FunctionOutput, "Function output", "Functions", "Declares a pure graph-function output.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
-        Contract(NodeTypes.FunctionCall, "Function call", "Functions", "Evaluates an exact pure graph-function revision.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
+        Contract(NodeTypes.FunctionCall, "Function call", "Functions", "Evaluates an exact pure graph-function revision.", false, true, pure: true, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.GraphFunctionPortId, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
     ];
 
     public static WorkflowNodeContract Get(string type) =>
@@ -116,11 +126,12 @@ public static class WorkflowNodeContractCatalog
     private static WorkflowNodeContract Contract(string type, string displayName, string category, string description,
         bool hasExecutionPins, bool hasDataPins, bool pure = false, bool hasDynamicPins = false,
         bool requiresHostCapability = false,
+        WorkflowDynamicPinIdentityKind dynamicPinIdentity = WorkflowDynamicPinIdentityKind.None,
         WorkflowNodeActivationKind activation = WorkflowNodeActivationKind.Execution,
         WorkflowNodeStateKind state = WorkflowNodeStateKind.Stateless,
         WorkflowNodeFailureKind failure = WorkflowNodeFailureKind.Propagates,
         WorkflowNodeEvidenceKind evidence = WorkflowNodeEvidenceKind.ExecutionLifecycle,
         bool supportsCancellation = true) =>
         new(type, "1.0.0", displayName, category, description, hasExecutionPins, hasDataPins, pure,
-            hasDynamicPins, requiresHostCapability, activation, state, failure, evidence, supportsCancellation);
+            hasDynamicPins, requiresHostCapability, activation, state, failure, evidence, supportsCancellation, dynamicPinIdentity);
 }

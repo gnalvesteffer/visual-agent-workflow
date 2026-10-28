@@ -39,6 +39,21 @@ public sealed class WorkflowNodeContractTests
         Assert.False(tool.IsPure);
         Assert.Equal(WorkflowNodeEvidenceKind.CapabilityInvocation, agent.Evidence);
         Assert.Equal(WorkflowNodeStateKind.HostOwned, tool.State);
+        Assert.Equal(WorkflowDynamicPinIdentityKind.AgentRouteId, agent.DynamicPinIdentity);
+        Assert.Equal(WorkflowDynamicPinIdentityKind.McpArgumentId, tool.DynamicPinIdentity);
+    }
+
+    [Fact]
+    public void Dynamic_pin_identity_distinguishes_authored_branch_and_function_contracts()
+    {
+        Assert.Equal(WorkflowDynamicPinIdentityKind.ParallelBranchId,
+            WorkflowNodeContractCatalog.Get(NodeTypes.ParallelJoin).DynamicPinIdentity);
+        Assert.Equal(WorkflowDynamicPinIdentityKind.ParallelBranchId,
+            WorkflowNodeContractCatalog.Get(NodeTypes.ParallelRendezvous).DynamicPinIdentity);
+        Assert.Equal(WorkflowDynamicPinIdentityKind.GraphFunctionPortId,
+            WorkflowNodeContractCatalog.Get(NodeTypes.FunctionCall).DynamicPinIdentity);
+        Assert.Equal(WorkflowDynamicPinIdentityKind.None,
+            WorkflowNodeContractCatalog.Get(NodeTypes.BooleanBranch).DynamicPinIdentity);
     }
 
     [Fact]
