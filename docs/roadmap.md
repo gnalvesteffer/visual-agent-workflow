@@ -130,7 +130,7 @@ Sequence proof checklist:
 - [x] Execute schema 1.43 paths from persisted execution connections, preserve private Sequence lineage through each hop, and wait for every path terminal before completing the run.
 - [x] Add schema 1.43 Core and production regression tests for valid paths and shared-path rejection; preserve the existing private proof and schema 1.38 tests.
 - [x] Add Studio schema-promotion and MCP path-authoring controls; existing typed execution wires and stable Sequence output editing remain the authoring surface.
-- [ ] Add passive playback diagnostics for per-path terminal evidence before considering this parity slice complete.
+- [x] Add passive playback diagnostics for per-path terminal evidence before considering this parity slice complete. The run inspector now derives each output's recorded dispatched/completed/failed/cancelled/skipped state and execution connection from the lifecycle evidence at the selected playback position; it does not re-execute the path.
 - [ ] Extend the bounded path contract to approved Agent nodes after capability, failure, cancellation, and replay coverage is reviewed separately.
 - [x] Add Studio configuration/editing for ordered output labels, stable ordering, and connected add/remove operations.
 - [ ] Add schema promotion and richer Sequence diagnostics for unsupported downstream topology.

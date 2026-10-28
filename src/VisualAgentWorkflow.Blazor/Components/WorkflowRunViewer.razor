@@ -123,6 +123,10 @@
                         </div>
                     </details>
                 }
+                @if (node.Type == NodeTypes.Sequence && SequencePlayback(nodeId) is { } playback)
+                {
+                    @SequencePlaybackMarkup(node, playback, false)
+                }
                 @if (BranchPort(nodeId) is { } chosenPort) { <p class="vaw-help">Selected output: @chosenPort</p> }
             </NodeContent>
             <NodeInspector Context="inspected">
@@ -147,6 +151,10 @@
                     <h4>Output</h4><pre>@(completed?.Data ?? "Not recorded at this position")</pre>
                 }
                 @if (failure is not null) { <h4>@StateLabel(failure)</h4><pre>@failure.Data</pre> }
+                @if (node.Type == NodeTypes.Sequence && SequencePlayback(selectedNode) is { } playback)
+                {
+                    @SequencePlaybackMarkup(node, playback, true)
+                }
                 @if (Snapshot.Header.Definition.Nodes[inspected].Type == NodeTypes.WorkflowCall)
                 {
                     <details><summary>Nested workflow events (@childEvents.Length)</summary>
@@ -665,6 +673,71 @@
 
     private IEnumerable<ExecutionEvent> EventsForNode(string nodeId) => VisibleEvents.Where(evt =>
         evt.NodeId == nodeId || evt.ScopeId == nodeId || evt.ScopeId?.StartsWith(nodeId + "/", StringComparison.Ordinal) == true);
+
+    private SequencePlaybackSnapshot? SequencePlayback(string nodeId)
+    {
+        var sequenceEvents = VisibleEvents.Where(evt => evt.NodeId == nodeId && evt.ScopeId is null);
+        return SequenceEvidence.TryReconstructPlayback(sequenceEvents, out var playback) ? playback : null;
+    }
+
+    private static RenderFragment SequencePlaybackMarkup(NodeDefinition node, SequencePlaybackSnapshot playback, bool detailed) => builder =>
+    {
+            var sequence = node.Sequence;
+            if (sequence is null) return;
+            var sequenceLabel = playback.Status switch
+            {
+                "completed" => "Completed",
+                "failed" => "Failed",
+                "cancelled" => "Cancelled",
+                _ => "In progress"
+            };
+            builder.OpenElement(0, "section");
+            builder.AddAttribute(1, "class", $"vaw-sequence-playback {(detailed ? "is-detailed" : "")}");
+            builder.AddAttribute(2, "aria-label", "Recorded Sequence path evidence");
+            builder.OpenElement(3, "div");
+            builder.AddAttribute(4, "class", "vaw-sequence-playback-heading");
+            builder.OpenElement(5, "strong");
+            builder.AddContent(6, "Sequence paths");
+            builder.CloseElement();
+            builder.OpenElement(7, "span");
+            builder.AddAttribute(8, "class", "vaw-sequence-playback-status");
+            builder.AddContent(9, sequenceLabel);
+            builder.CloseElement();
+            builder.CloseElement();
+            builder.OpenElement(10, "ul");
+            foreach (var output in playback.Outputs.OrderBy(output => output.Ordinal))
+            {
+                var descriptor = sequence.Outputs.FirstOrDefault(candidate => candidate.Id == output.OutputId);
+                builder.OpenElement(11, "li");
+                builder.AddAttribute(12, "class", $"vaw-sequence-path is-{output.State}");
+                builder.OpenElement(13, "span");
+                builder.AddAttribute(14, "class", "vaw-sequence-path-label");
+                builder.AddContent(15, descriptor?.Label ?? output.OutputId);
+                builder.CloseElement();
+                builder.OpenElement(16, "span");
+                builder.AddAttribute(17, "class", "vaw-sequence-path-state");
+                builder.AddContent(18, SequenceStateLabel(output.State));
+                builder.CloseElement();
+                if (detailed)
+                {
+                    builder.OpenElement(19, "code");
+                    builder.AddContent(20, output.ConnectionId);
+                    builder.CloseElement();
+                }
+                builder.CloseElement();
+            }
+            builder.CloseElement();
+            builder.CloseElement();
+    };
+
+    private static string SequenceStateLabel(string state) => state switch
+    {
+        "completed" => "Completed",
+        "failed" => "Failed",
+        "cancelled" => "Cancelled",
+        "skipped" => "Skipped",
+        _ => "Dispatched"
+    };
 
     protected override void OnParametersSet()
     {
