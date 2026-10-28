@@ -10,6 +10,10 @@ namespace VisualAgentWorkflow.Hosting;
 public sealed record WorkflowRunCheckpoint(string SchemaVersion, string RuntimeVersion, Guid RunId, Guid RevisionId,
     string ContentHash, long Sequence, NativeWorkflowCheckpoint Native, string PayloadHash)
 {
+    /// <summary>Proof-only composite state for the schema-1.45 loop checkpoint seam.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public WorkflowCheckpointFrame? Frame { get; init; }
+
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? VariableStateHash { get; init; }
 
@@ -26,16 +30,31 @@ public sealed record WorkflowRunCheckpoint(string SchemaVersion, string RuntimeV
             throw new InvalidDataException("Checkpoint version, identity, cursor or integrity mismatch.");
         using var json = JsonDocument.Parse(Native.Payload);
         if (json.RootElement.ValueKind != JsonValueKind.Object) throw new InvalidDataException("Checkpoint state must be an object.");
-        WorkflowRunner.ValidateCheckpointGraph(snapshot.Header.Definition);
         var variableState = Native.VariableState;
-        if (snapshot.Header.Definition.SchemaVersion == WorkflowSchemaVersions.MutableVariablesGraph)
+        if (snapshot.Header.Definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph)
+        {
+            if (Frame is null)
+                throw new InvalidDataException("Loop checkpoint state is missing its composite recovery frame.");
+            var revision = WorkflowRevision.Rehydrate(snapshot.Header.RevisionId, snapshot.Header.Definition,
+                snapshot.Header.Author, snapshot.Header.ParentRevisionId, snapshot.Header.CreatedAt, snapshot.Header.ContentHash);
+            Frame.Validate(revision, snapshot.Events);
+            if (variableState is null || VariableStateHash is null || VariableStateHash != variableState.ComputeHash())
+                throw new InvalidDataException("Loop variable checkpoint state is missing or has an invalid integrity hash.");
+            _ = WorkflowVariableStore.FromSnapshot(snapshot.Header.Definition, variableState);
+        }
+        else if (snapshot.Header.Definition.SchemaVersion == WorkflowSchemaVersions.MutableVariablesGraph)
         {
             if (variableState is null || VariableStateHash is null || VariableStateHash != variableState.ComputeHash())
                 throw new InvalidDataException("Variable checkpoint state is missing or has an invalid integrity hash.");
+            WorkflowRunner.ValidateCheckpointGraph(snapshot.Header.Definition);
             _ = WorkflowVariableStore.FromSnapshot(snapshot.Header.Definition, variableState);
         }
-        else if (variableState is not null || VariableStateHash is not null)
-            throw new InvalidDataException("Variable checkpoint state is not allowed for this workflow schema.");
+        else
+        {
+            WorkflowRunner.ValidateCheckpointGraph(snapshot.Header.Definition);
+            if (variableState is not null || VariableStateHash is not null || Frame is not null)
+                throw new InvalidDataException("Variable checkpoint state is not allowed for this workflow schema.");
+        }
     }
 }
 

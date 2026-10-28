@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Text.Json;
+using VisualAgentWorkflow.Hosting;
 using VisualAgentWorkflow.Core;
 using Xunit;
 
@@ -151,6 +153,124 @@ public sealed class MutableVariableExecutionTests
             new ProofCheckpointSink([])));
     }
 
+    [Fact]
+    public async Task Public_checkpoint_host_keeps_schema_145_loop_recovery_fail_closed()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "vaw-loop-host-admission-" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        try
+        {
+            await using var host = new CheckpointWorkflowHost(new SqliteWorkflowRunStore(Path.Combine(directory, "runs.sqlite3")));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => host.StartAsync(
+                WorkflowRevision.Create(LoopDefinition(), "loop-checkpoint-host-admission"), "continue", 4));
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public async Task Loop_checkpoint_round_trips_through_independent_test_processes_and_durable_frame()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "vaw-loop-process-" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        var database = Path.Combine(directory, "runs.sqlite3");
+        var startResult = Path.Combine(directory, "start.json");
+        var resumeResult = Path.Combine(directory, "resume.json");
+        try
+        {
+            var start = await RunCheckpointProbeAsync(database, startResult, "start");
+            Assert.True(start.ExitCode == 0, start.StandardOutput + Environment.NewLine + start.StandardError);
+            var started = await ReadProbeResultAsync(startResult);
+            Assert.NotEqual(Environment.ProcessId, started.ProcessId);
+
+            var store = new SqliteWorkflowRunStore(database);
+            var snapshot = store.Get(started.RunId)!;
+            var checkpoint = store.GetCheckpoint(started.RunId)!;
+            Assert.Equal("suspended", snapshot.Status);
+            Assert.NotNull(checkpoint.Frame);
+            Assert.True(WorkflowCheckpointRecovery.Assess(snapshot, checkpoint).CanResume);
+            Assert.Equal(1, snapshot.Events.Count(evt => evt.Kind == ExecutionEventKinds.VariableWritten));
+
+            var resume = await RunCheckpointProbeAsync(database, resumeResult, "resume", started.RunId,
+                started.CheckpointId);
+            Assert.True(resume.ExitCode == 0, resume.StandardOutput + Environment.NewLine + resume.StandardError);
+            var resumed = await ReadProbeResultAsync(resumeResult);
+            Assert.NotEqual(started.ProcessId, resumed.ProcessId);
+            Assert.Equal(started.RunId, resumed.RunId);
+
+            var finalStore = new SqliteWorkflowRunStore(database);
+            var completed = finalStore.Get(started.RunId)!;
+            Assert.Equal("completed", completed.Status);
+            Assert.Equal("continue", completed.Events[^1].Data);
+            Assert.Equal(new long[] { 2, 3, 4 }, completed.Events.Where(evt => evt.Kind == ExecutionEventKinds.VariableWritten)
+                .Select(evt => JsonDocument.Parse(evt.Data!).RootElement.GetProperty("version").GetInt64()).ToArray());
+            Assert.Equal(3, completed.Events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted));
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public async Task Fresh_process_checkpoint_probe()
+    {
+        var operation = Environment.GetEnvironmentVariable("VAW_CHECKPOINT_PROBE");
+        if (string.IsNullOrWhiteSpace(operation)) return;
+
+        var database = Environment.GetEnvironmentVariable("VAW_CHECKPOINT_DATABASE")!;
+        var resultPath = Environment.GetEnvironmentVariable("VAW_CHECKPOINT_RESULT")!;
+        var input = "continue";
+        var store = new SqliteWorkflowRunStore(database);
+        Guid runId;
+        string? expectedCheckpoint = null;
+        WorkflowRevision revision;
+        RunSnapshot snapshot;
+        NativeWorkflowCheckpoint? restored = null;
+        if (operation == "start")
+        {
+            revision = WorkflowRevision.Create(LoopDefinition(), "loop-process-proof");
+            snapshot = store.Create(revision, input);
+            runId = snapshot.Header.RunId;
+        }
+        else
+        {
+            runId = Guid.Parse(Environment.GetEnvironmentVariable("VAW_CHECKPOINT_RUN_ID")!);
+            expectedCheckpoint = Environment.GetEnvironmentVariable("VAW_CHECKPOINT_ID");
+            snapshot = store.Get(runId)!;
+            var checkpoint = store.GetCheckpoint(runId)!;
+            Assert.Equal(expectedCheckpoint, checkpoint.Native.CheckpointId);
+            Assert.True(WorkflowCheckpointRecovery.Assess(snapshot, checkpoint).CanResume);
+            restored = checkpoint.Native;
+            revision = WorkflowRevision.Rehydrate(snapshot.Header.RevisionId, snapshot.Header.Definition,
+                snapshot.Header.Author, snapshot.Header.ParentRevisionId, snapshot.Header.CreatedAt, snapshot.Header.ContentHash);
+        }
+
+        var sink = new DurableLoopProofSink(store, snapshot, revision, restored,
+            operation == "start" ? 4 : null);
+        var events = new List<ExecutionEvent>();
+        async ValueTask Record(ExecutionEvent evt)
+        {
+            events.Add(evt);
+            await sink.RecordAsync(evt);
+        }
+        string? output;
+        try
+        {
+            output = await new WorkflowRunner().ExecuteCheckpointedProofAsync(runId, revision, input, Record, sink);
+        }
+        catch (Exception error)
+        {
+            await File.WriteAllTextAsync(resultPath, error.ToString());
+            Console.Error.WriteLine(error);
+            throw;
+        }
+        var result = new ProbeResult(runId, sink.LastCheckpointId ?? expectedCheckpoint ?? "", Environment.ProcessId, output);
+        await File.WriteAllTextAsync(resultPath, JsonSerializer.Serialize(result));
+    }
+
     private static WorkflowDefinition Definition()
     {
         var nodes = new Dictionary<string, NodeDefinition>
@@ -227,6 +347,100 @@ public sealed class MutableVariableExecutionTests
             var shouldSuspend = suspendAfterCompletedNodes is { } threshold &&
                 events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted) >= threshold;
             return ValueTask.FromResult(shouldSuspend);
+        }
+    }
+
+    private static async Task<ProbeProcessResult> RunCheckpointProbeAsync(string database, string resultPath, string operation,
+        Guid? runId = null, string? checkpointId = null)
+    {
+        var project = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
+            "../../../../VisualAgentWorkflow.AgentFramework.Tests/VisualAgentWorkflow.AgentFramework.Tests.csproj"));
+        var startInfo = new ProcessStartInfo("dotnet")
+        {
+            WorkingDirectory = Directory.GetCurrentDirectory(),
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        startInfo.ArgumentList.Add("test");
+        startInfo.ArgumentList.Add(project);
+        startInfo.ArgumentList.Add("--no-build");
+        startInfo.ArgumentList.Add("--no-restore");
+        startInfo.ArgumentList.Add("--filter");
+        startInfo.ArgumentList.Add("FullyQualifiedName~Fresh_process_checkpoint_probe");
+        startInfo.Environment["VAW_CHECKPOINT_PROBE"] = operation;
+        startInfo.Environment["VAW_CHECKPOINT_DATABASE"] = database;
+        startInfo.Environment["VAW_CHECKPOINT_RESULT"] = resultPath;
+        if (runId is { } id) startInfo.Environment["VAW_CHECKPOINT_RUN_ID"] = id.ToString("D");
+        if (checkpointId is not null) startInfo.Environment["VAW_CHECKPOINT_ID"] = checkpointId;
+        using var process = Process.Start(startInfo)!;
+        var stdout = await process.StandardOutput.ReadToEndAsync();
+        var stderr = await process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        if (process.ExitCode != 0 && File.Exists(resultPath))
+            stderr += Environment.NewLine + await File.ReadAllTextAsync(resultPath);
+        return new ProbeProcessResult(process.ExitCode, stdout, stderr);
+    }
+
+    private static async Task<ProbeResult> ReadProbeResultAsync(string path)
+    {
+        for (var attempt = 0; attempt < 50 && !File.Exists(path); attempt++) await Task.Delay(20);
+        return JsonSerializer.Deserialize<ProbeResult>(await File.ReadAllTextAsync(path))!;
+    }
+
+    private sealed record ProbeResult(Guid RunId, string CheckpointId, int ProcessId, string? Output);
+    private sealed record ProbeProcessResult(int ExitCode, string StandardOutput, string StandardError);
+
+    private sealed class DurableLoopProofSink(SqliteWorkflowRunStore store, RunSnapshot initial,
+        WorkflowRevision revision, NativeWorkflowCheckpoint? restored, int? suspendAfter) : IWorkflowCheckpointSink
+    {
+        private RunSnapshot snapshot = initial;
+        public NativeWorkflowCheckpoint? RestoredCheckpoint => restored;
+        public string? LastCheckpointId { get; private set; }
+
+        public ValueTask RecordAsync(ExecutionEvent evt)
+        {
+            snapshot = store.Append(snapshot.Header.RunId, snapshot.Events.Length,
+                [evt with { Sequence = snapshot.Events.Length + 1 }]);
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask<bool> CaptureAsync(NativeWorkflowCheckpoint native)
+        {
+            var completed = snapshot.Events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted);
+            if (suspendAfter is not { } threshold || completed < threshold ||
+                snapshot.Events.Any(evt => evt.Kind == ExecutionEventKinds.LoopStopped))
+                return ValueTask.FromResult(false);
+
+            var now = DateTimeOffset.UtcNow;
+            var capture = new ExecutionEvent(snapshot.Header.RunId, snapshot.Header.RevisionId,
+                snapshot.Events.Length + 1, now, ExecutionEventKinds.CheckpointCaptured,
+                Data: JsonSerializer.Serialize(new { native.CheckpointId, payloadHash = WorkflowRunCheckpoint.Hash(native.Payload) }));
+            var suspended = capture with { Sequence = capture.Sequence + 1, Kind = ExecutionEventKinds.Suspended,
+                Data = "Saved loop proof boundary; explicit test recovery required." };
+            var evidence = snapshot.Events.Concat([capture, suspended]).ToArray();
+            var loopId = revision.Definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.Loop).Key;
+            var bodyId = revision.Definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.LoopBody).Key;
+            var loopEvent = snapshot.Events.Last(evt => evt.NodeId == loopId &&
+                evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped);
+            var cursor = new LoopCheckpointCursor(loopId, bodyId, 1, revision.Definition.Nodes[loopId].Loop!.MaximumIterations,
+                "set", "execute", bodyId, "then", loopEvent.Sequence);
+            var frame = WorkflowCheckpointFrame.Create(revision, snapshot.Header.RunId, native.Payload, cursor,
+                native.VariableState!, evidence);
+            var checkpoint = new WorkflowRunCheckpoint("1.0", WorkflowRunner.CheckpointRuntimeVersion,
+                snapshot.Header.RunId, snapshot.Header.RevisionId, snapshot.Header.ContentHash, evidence.Length, native,
+                WorkflowRunCheckpoint.Hash(native.Payload)) with { Frame = frame, VariableStateHash = native.VariableState!.ComputeHash() };
+            try
+            {
+                snapshot = store.CommitCheckpoint(snapshot.Header.RunId, snapshot.Events.Length, [capture, suspended], checkpoint);
+            }
+            catch (Exception error)
+            {
+                Console.Error.WriteLine("checkpoint commit: " + error);
+                throw;
+            }
+            LastCheckpointId = native.CheckpointId;
+            return ValueTask.FromResult(true);
         }
     }
 }

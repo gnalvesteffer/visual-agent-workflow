@@ -7,12 +7,14 @@ Supported graphs contain only input/output, uppercase/reverse, ordinal condition
 Schema 1.45 loop-variable workflows remain rejected by this host. Core contains
 a proof-only composite frame that binds native JSON state, a loop cursor, the
 definition-bound variable snapshot, and the exact evidence prefix with hashes;
-it is not an admission path or an alternate scheduler. Native loop cursor
-round-tripping, atomic capture, repeated resume, and process-loss tests must
-pass before this frame can be used by the checkpoint host. A test-only adapter
-proof currently exercises native same-process loop suspension/resume; it does
-not establish fresh-process recovery or transactional publication. See
-[decision 0031](decisions/0031-loop-checkpoint-proof-frame.md).
+it is not an admission path or an alternate scheduler. A test-only durable
+proof now stores that frame with the checkpoint/evidence transaction and
+resumes the loop from independent test processes, preserving the evidence
+prefix and variable versions without duplicating the committed write. This
+proves a cross-process serializer/storage boundary, not production loop
+admission: cancellation/failure races, repeated recovery, process loss, and
+the remaining admission restrictions are still open. See [decision
+0031](decisions/0031-loop-checkpoint-proof-frame.md).
 
 ## Use the host API
 

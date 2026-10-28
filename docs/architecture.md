@@ -160,6 +160,10 @@ change package compatibility, or grant host capabilities. The persisted schema
 promotion gates in [decision 0021](decisions/0021-sequence-agent-topology-analyzer.md)
 are proven. Schema 1.45 separately admits the bounded loop-variable slice;
 its topology and evidence boundary are recorded in [decision 0030](decisions/0030-loop-variable-topology-proof.md).
+The composite loop checkpoint frame has a test-only durable cross-process
+proof, but the checkpoint host still rejects schema 1.45 until its remaining
+recovery and admission gates are proven; it is not a second scheduler or a
+portable workflow field.
 
 ## Execution and observation
 

@@ -70,7 +70,8 @@ public sealed partial class WorkflowRunner
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (bridge.Suspended) return null;
-                if (evt is WorkflowErrorEvent or ExecutorFailedEvent) throw new InvalidOperationException("Checkpointed framework execution failed.");
+                if (evt is WorkflowErrorEvent or ExecutorFailedEvent)
+                    throw new InvalidOperationException($"Checkpointed framework execution failed: {evt}");
                 if (evt is WorkflowOutputEvent result && result.Data is GraphMessage message) output = message.Text;
             }
             if (bridge.Suspended) return null;

@@ -30,18 +30,25 @@ admission remains fail-closed for schema 1.45 until native Agent Framework
 checkpoint round-tripping, atomic capture/publication, repeated suspension and
 resume, cancellation/failure races, and process-loss behavior are proven.
 
-A test-only adapter seam now exercises the real Agent Framework native
-checkpoint serializer for a schema 1.45 loop-variable graph. It suspends after
-a body write, restores the captured native state and variable snapshot, and
-proves completion with monotonic versions without duplicating the committed
-write. This is a same-process serialization proof, not durable recovery
-admission.
+A test-only adapter seam exercises the real Agent Framework native checkpoint
+serializer for a schema 1.45 loop-variable graph. It suspends after a body
+write, publishes the composite frame with the checkpoint/evidence transaction,
+and resumes it from independent test processes. The proof preserves the
+evidence prefix and monotonic versions without duplicating the committed write.
+It is still not durable recovery admission: the test seam bypasses production
+host admission, and cancellation/failure races, repeated recovery, process
+loss, and the remaining promotion restrictions are not established by this
+proof.
 
 ## Required promotion gates
 
 - [x] Prove the native payload preserves loop source/port and iteration state
   through the real Agent Framework serializer in a test-only seam.
-- [ ] Prove the same boundary in a fresh host/process.
+- [x] Prove the same boundary in independent test processes against the
+  durable SQLite checkpoint/evidence transaction.
+- [x] Persist and validate the composite frame, including the exact evidence
+  prefix, loop anchor, variable snapshot, and component/composite hashes, in
+  the test-only loop proof path.
 - Capture native state, variable state, loop cursor, event prefix, and
   suspension marker at one quiescent boundary.
 - Resume without duplicating completed Set/Get operations or skipping a body
