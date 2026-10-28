@@ -103,7 +103,7 @@ Descriptor progress: Core now has a canonical node-family catalog for stable dis
 
 ### Deferred parity decision: bounded Sequence dispatch
 
-The independent proponent/opponent/adjudicator review keeps public Sequence execution bounded until the non-public Agent Framework proof is promoted into a definition-driven runtime. The proof covers Blueprint-style ordered dispatch with overlapping active descendants, completion-order divergence, cancellation between outputs, distinct failed/cancelled terminal outcomes with skipped later outputs, and deterministic pause/host-stop behavior at the inter-dispatch boundary. That harness now routes descendant start/completion facts through runner-owned active-node accounting, and Core can reconstruct recorded Sequence prefixes passively. Production `GraphMessage` transport also carries a private, non-persisted lineage envelope, and an internal `WorkflowRunner` adapter emits and records the private lifecycle proof. Schema 1.38 now defines the first persisted contract and validator slice; authored production workflows still cannot execute Sequence content until the runtime consumes these descriptors. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md). Mutable variables remain deferred for the same contract/evidence reasons.
+The independent proponent/opponent/adjudicator review keeps public Sequence execution bounded to a definition-driven first slice. The proof covers Blueprint-style ordered dispatch with overlapping active descendants, completion-order divergence, cancellation between outputs, distinct failed/cancelled terminal outcomes with skipped later outputs, and deterministic pause/host-stop behavior at the inter-dispatch boundary. That harness now routes descendant start/completion facts through runner-owned active-node accounting, and Core can reconstruct recorded Sequence prefixes passively. Production `GraphMessage` transport also carries a private, non-persisted lineage envelope, and the normal `WorkflowRunner` now consumes persisted schema 1.38 descriptors for the bounded Input → Sequence → Output runtime slice. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md). Mutable variables remain deferred for the same contract/evidence reasons.
 
 Sequence proof checklist:
 
@@ -122,9 +122,10 @@ Sequence proof checklist:
 - [x] Prove pause and host-stop outcomes against the private production runner adapter.
 - [x] Add schema 1.38, persisted ordered output descriptors, stable `then.<outputId>` pins, round-trip coverage, and validator rules for the bounded Input → Sequence → Output slice.
 - [x] Register Sequence in the Core node contract catalog and expose it in the schema-gated Studio node library with a safe two-output default.
-- [ ] Adapt the production runner to consume the persisted Sequence definition and actual downstream topology; retain the private proof until this is complete.
+- [x] Adapt the production runner to consume persisted Sequence descriptors and actual execution-connection identities for the bounded Input → Sequence → Output slice; retain the private proof as a lifecycle regression fixture.
 - [ ] Add full Studio configuration/editing for ordered outputs, schema promotion, and diagnostics.
-- [ ] Add public runtime evidence/playback binding, compatibility migration coverage, and broader supported downstream node topology.
+- [x] Add public runtime evidence/playback binding for the bounded slice.
+- [ ] Add compatibility migration coverage and broader supported downstream node topology.
 
 ### Sequencing and exit criteria
 

@@ -79,6 +79,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         var resolvedCollaborationTimeout = ResolveCollaborationTimeout(collaborationRegion, collaborationOptions);
         var resolvedParameters = WorkflowParameters.Resolve(revision.Definition, parameters);
         rootRevision ??= revision;
+        sequencePlan ??= CreateSequenceProductionPlan(revision);
         workflowPath = workflowPath.IsDefault ? [] : workflowPath;
         using var recordGate = new SemaphoreSlim(1, 1);
         var activationLedger = new ExecutionActivationLedger();
@@ -114,7 +115,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         {
             cancellationToken.ThrowIfCancellationRequested();
             var inputType = WorkflowPorts.Outputs(revision.Definition.Nodes[revision.Definition.EntryNodeId]).Single().DataType;
-            var execution = revision.Definition.Nodes.Values.Any(node => node?.Type == NodeTypes.ParallelFork)
+            var execution = sequencePlan is not null || revision.Definition.Nodes.Values.Any(node => node?.Type == NodeTypes.ParallelFork)
                 ? InProcessExecution.Concurrent
                 : InProcessExecution.Default;
             await using var run = await execution.RunStreamingAsync(workflow,
@@ -1037,7 +1038,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (!internalTerminationHandoff) await Emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, message);
             try
             {
-                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Output && !internalTerminationHandoff)
+                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Output &&
+                    !internalTerminationHandoff && received.SequenceLineage is null)
                 {
                     outputEvaluation = dataEvaluator!.ResolveInput(Id, "in");
                     message = outputEvaluation.Result.DataType switch

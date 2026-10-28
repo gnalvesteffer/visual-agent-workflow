@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using VisualAgentWorkflow.Core;
 using Xunit;
 
@@ -5,6 +6,24 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 
 public sealed class SequenceProductionRunnerTests
 {
+    [Fact]
+    public async Task Production_runner_consumes_a_persisted_sequence_definition()
+    {
+        var events = new List<ExecutionEvent>();
+        var revision = WorkflowRevision.Create(PersistedSequenceDefinition(), "public-sequence");
+
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(), revision, "hello", null,
+            executionEvent => { events.Add(executionEvent); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("hello", result.Output);
+        Assert.Equal(["inventory", "architecture", "quality"], events
+            .Where(eventItem => eventItem.Kind == ExecutionEventKinds.SequenceOutputDispatched)
+            .Select(ReadEvidence).Select(evidence => evidence.OutputId));
+        Assert.All(events.Where(eventItem => eventItem.Kind == ExecutionEventKinds.SequenceOutputDispatched), eventItem =>
+            Assert.Equal("sequence", ReadEvidence(eventItem).SequenceNodeId));
+    }
+
     [Fact]
     public async Task Production_runner_records_ordered_sequence_lifecycle_through_normal_recorder()
     {
@@ -93,6 +112,28 @@ public sealed class SequenceProductionRunnerTests
     {
         Assert.True(SequenceEvidence.TryRead(executionEvent, out var evidence));
         return evidence!;
+    }
+
+    private static WorkflowDefinition PersistedSequenceDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("sequence", new(NodeTypes.Sequence, "1.0.0")
+            {
+                Sequence = new SequenceConfiguration([
+                    new("inventory", "Inventory"), new("architecture", "Architecture"), new("quality", "Quality")])
+            })
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var edges = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input-sequence", new(new("input", "then"), new("sequence", "execute"), "execution"))
+            .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("output", "execute"), "execution"))
+            .Add("sequence-architecture", new(new("sequence", "then.architecture"), new("output", "execute"), "execution"))
+            .Add("sequence-quality", new(new("sequence", "then.quality"), new("output", "execute"), "execution"));
+        return new WorkflowDefinition(WorkflowSchemaVersions.SequenceGraph, "sequence-runtime", "input", nodes,
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal))
+        {
+            ExecutionConnections = edges
+        };
     }
 
     private sealed class BoundaryGate(string blockedBoundary) : IWorkflowExecutionGate

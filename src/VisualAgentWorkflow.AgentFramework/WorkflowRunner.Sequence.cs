@@ -25,7 +25,7 @@ public sealed partial class WorkflowRunner
         if (terminalOutputId is not null && outputs.All(output => output.OutputId != terminalOutputId))
             throw new ArgumentException("The proof terminal output must be one of the declared outputs.", nameof(terminalOutputId));
 
-        var plan = new SequenceProductionPlan(outputs, terminalOutputId, terminalState);
+        var plan = new SequenceProductionPlan("sequence", outputs, terminalOutputId, terminalState);
         return ExecuteCoreAsync(runId, revision, input, null, record, gate, cancellationToken,
             rootRevision: revision, sequencePlan: plan);
     }
@@ -39,7 +39,7 @@ public sealed partial class WorkflowRunner
         var sequenceInvocationId = Guid.NewGuid();
         var connectionIds = plan.Outputs.ToDictionary(output => output.OutputId, output => output.ConnectionId,
             StringComparer.Ordinal);
-        var coordinator = new SequenceRuntimeCoordinator(sequenceInvocationId, "sequence", 
+        var coordinator = new SequenceRuntimeCoordinator(sequenceInvocationId, plan.SequenceNodeId,
             plan.Outputs.Select(output => output.OutputId).ToArray(), connectionIds);
         var sequenceEventGate = new SemaphoreSlim(1, 1);
 
@@ -63,11 +63,11 @@ public sealed partial class WorkflowRunner
             }
         }
 
-        var branches = plan.Outputs.ToDictionary(output => output.OutputNodeId,
-            output => (Executor<GraphMessage, GraphMessage>)new StringExecutor(output.OutputNodeId,
-                revision.Definition.Nodes[output.OutputNodeId], runId, revision, null, tools, agents, null,
+        var branches = plan.Outputs.Select(output => output.OutputNodeId).Distinct(StringComparer.Ordinal).ToDictionary(outputNodeId => outputNodeId,
+            outputNodeId => (Executor<GraphMessage, GraphMessage>)new StringExecutor(outputNodeId,
+                revision.Definition.Nodes[outputNodeId], runId, revision, null, tools, agents, null,
                 emit, gate, null, rootRevision, workflowPath, collaborationOptions), StringComparer.Ordinal);
-        var source = new SequenceProductionSource("sequence", plan, coordinator, FlushSequenceEvents, emit, gate);
+        var source = new SequenceProductionSource(plan.SequenceNodeId, plan, coordinator, FlushSequenceEvents, emit, gate);
         var collector = new SequenceProductionCollector("sequence-collector", plan, coordinator,
             FlushSequenceEvents, emit);
         var sink = new SequenceProductionSink();
@@ -113,7 +113,22 @@ public sealed partial class WorkflowRunner
         return WorkflowRevision.Create(definition, "private-sequence-production-proof");
     }
 
-    private sealed record SequenceProductionPlan(IReadOnlyList<SequenceProductionOutput> Outputs,
+    private SequenceProductionPlan? CreateSequenceProductionPlan(WorkflowRevision revision)
+    {
+        if (revision.Definition.SchemaVersion != WorkflowSchemaVersions.SequenceGraph) return null;
+        var sequence = revision.Definition.Nodes.SingleOrDefault(entry => entry.Value.Type == NodeTypes.Sequence);
+        if (sequence.Value?.Sequence is not { } configuration || revision.Definition.ExecutionConnections is not { } edges)
+            throw new InvalidOperationException("The Sequence definition is missing its ordered outputs or execution connections.");
+        var outputs = configuration.Outputs.Select((output, ordinal) =>
+        {
+            var edge = edges.Single(edge => edge.Value.Source.NodeId == sequence.Key && edge.Value.Source.PortId == SequenceOutputLimits.PinId(output.Id));
+            return new SequenceProductionOutput(output.Id, ordinal, edge.Value.Target.NodeId, sequence.Key,
+                edge.Value.Source.PortId, edge.Key);
+        }).ToArray();
+        return new SequenceProductionPlan(sequence.Key, outputs, null, SequenceTerminalState.Completed);
+    }
+
+    private sealed record SequenceProductionPlan(string SequenceNodeId, IReadOnlyList<SequenceProductionOutput> Outputs,
         string? TerminalOutputId, SequenceTerminalState TerminalState);
 
     private sealed record SequenceProductionOutput(string OutputId, int Ordinal, string OutputNodeId,
