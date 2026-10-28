@@ -73,6 +73,8 @@ public sealed partial class WorkflowRunner
     public static void ValidateCheckpointGraph(WorkflowDefinition definition)
     {
         WorkflowValidator.ThrowIfInvalid(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.MutableVariablesGraph)
+            throw new InvalidOperationException("Checkpoint recovery does not yet persist schema 1.44 variable stores; variable graphs require a variable-state checkpoint contract before recovery is enabled.");
         if (definition.Nodes.Values.Any(n => n.Type is not (NodeTypes.Input or NodeTypes.Output or NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.JsonSelectString or NodeTypes.TextTemplate)))
             throw new InvalidOperationException("Checkpoint recovery currently permits deterministic graph nodes only; agents, MCP and approvals require a separate recovery policy.");
     }

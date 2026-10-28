@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using VisualAgentWorkflow.AgentFramework;
@@ -111,6 +112,19 @@ public sealed class CheckpointRecoveryTests : IDisposable
     }
 
     [Fact]
+    public async Task VariableGraphsFailCheckpointAdmissionBeforeCreatingRunState()
+    {
+        var store = Store();
+        await using var runtime = new CheckpointWorkflowHost(store);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runtime.StartAsync(VariableRevision(), "next", 1));
+
+        Assert.Contains("does not yet persist schema 1.44 variable stores", error.Message);
+        Assert.Empty(store.List());
+    }
+
+    [Fact]
     public async Task CheckpointPublicationFailureRollsBackBothPointerAndAudit()
     {
         var store = Store();
@@ -170,4 +184,35 @@ public sealed class CheckpointRecoveryTests : IDisposable
     }
 
     public void Dispose() { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+
+    private static WorkflowRevision VariableRevision()
+    {
+        var nodes = new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["constant"] = new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("seed") },
+            ["set"] = new(NodeTypes.VariableSet, "1.0.0") { VariableId = "message", InputDataType = WorkflowDataTypes.String },
+            ["get"] = new(NodeTypes.VariableGet, "1.0.0") { VariableId = "message", OutputDataType = WorkflowDataTypes.String },
+            ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.String }
+        };
+        var data = new Dictionary<string, ConnectionDefinition>
+        {
+            ["constant-value"] = new(new("constant", "out"), new("set", "value"), "data"),
+            ["get-value"] = new(new("get", "out"), new("output", "in"), "data")
+        };
+        var execution = new Dictionary<string, ConnectionDefinition>
+        {
+            ["input-set"] = new(new("input", "then"), new("set", "execute"), "execution"),
+            ["set-get"] = new(new("set", "then"), new("get", "execute"), "execution"),
+            ["get-output"] = new(new("get", "then"), new("output", "execute"), "execution")
+        };
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.MutableVariablesGraph, "checkpoint-variable", "input",
+            nodes.ToImmutableSortedDictionary(), data.ToImmutableSortedDictionary())
+        {
+            Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
+                .Add("message", new("Message", "default") { Type = WorkflowDataTypes.String }),
+            ExecutionConnections = execution.ToImmutableSortedDictionary()
+        };
+        return WorkflowRevision.Create(definition, "checkpoint-variable");
+    }
 }
