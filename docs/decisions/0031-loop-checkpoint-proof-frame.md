@@ -71,6 +71,9 @@ established by this proof.
 - [x] Bind the trusted outer checkpoint envelope to the proof frame's native
   payload, evidence sequence, variable snapshot, and recorded loop iteration;
   reject mismatched components before recovery.
+- [x] Inject loop checkpoint publication failure and verify the SQLite
+  transaction leaves no capture marker, checkpoint pointer, or resumable
+  boundary.
 - Reject stale, advanced, foreign, malformed, oversized, tampered, terminal,
   and unsettled frames before native execution begins.
 - Preserve schema 1.44 and older checkpoint formats and behavior unchanged.

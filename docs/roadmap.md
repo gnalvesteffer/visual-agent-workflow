@@ -165,7 +165,10 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   pre-cancelled write cannot mutate state or advance its version; a separate
   runtime regressions now prove cancellation or recorder failure after a
   committed write preserves the recorded passive prefix, and Core playback
-  coverage reconstructs every valid operation prefix without execution. The bounded
+  coverage reconstructs every valid operation prefix without execution. The
+  loop-specific SQLite publication-failure proof now also verifies that a
+  failed frame transaction leaves no capture marker, checkpoint pointer, or
+  resumable boundary. The bounded
   linear schema 1.44 checkpoint frame captures a hashed variable snapshot with
   native state, validates it against the pinned definition, and restores it
   before resumed execution. Failure-injection, cancellation-race around durable

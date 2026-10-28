@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using VisualAgentWorkflow.Hosting;
 using VisualAgentWorkflow.Core;
 using Xunit;
@@ -191,6 +192,41 @@ public sealed class MutableVariableExecutionTests
         Assert.True(after.IsCancellationRequested);
         Assert.DoesNotContain(afterEvents, evt => evt.Kind is ExecutionEventKinds.Cancelled or ExecutionEventKinds.Failed or ExecutionEventKinds.Completed);
         Assert.NotNull(sink.Last);
+    }
+
+    [Fact]
+    public async Task Loop_checkpoint_publication_failure_leaves_no_recoverable_boundary_or_partial_capture()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "vaw-loop-publication-failure-" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var database = Path.Combine(directory, "runs.sqlite3");
+            var store = new SqliteWorkflowRunStore(database);
+            var revision = WorkflowRevision.Create(LoopDefinition(), "loop-checkpoint-publication-failure");
+            var initial = store.Create(revision, "continue");
+            using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = database, Pooling = false }.ToString()))
+            {
+                connection.Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = "CREATE TRIGGER fail_loop_checkpoint BEFORE INSERT ON run_checkpoints BEGIN SELECT RAISE(ABORT,'injected'); END;";
+                command.ExecuteNonQuery();
+            }
+
+            var sink = new DurableLoopProofSink(store, initial, revision, restored: null, suspendAfter: 4);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner().ExecuteCheckpointedProofAsync(
+                initial.Header.RunId, revision, "continue", sink.RecordAsync, sink));
+
+            var stored = store.Get(initial.Header.RunId)!;
+            Assert.Equal("failed", stored.Status);
+            Assert.Null(store.GetCheckpoint(initial.Header.RunId));
+            Assert.DoesNotContain(stored.Events, evt => evt.Kind is ExecutionEventKinds.CheckpointCaptured or ExecutionEventKinds.Suspended);
+            Assert.False(WorkflowCheckpointRecovery.Assess(stored, null).CanResume);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
     }
 
     [Fact]
