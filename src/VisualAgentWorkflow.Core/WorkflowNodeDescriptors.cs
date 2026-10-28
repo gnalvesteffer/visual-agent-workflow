@@ -64,3 +64,100 @@ public static class WorkflowNodeDescriptorRegistry
             Cardinality = WorkflowPortCardinality.Many
         };
 }
+
+/// <summary>Projects the effective pin contract for a configured node without changing the node definition.</summary>
+/// <remarks>
+/// This is a shape-only projection. Schema admission, validation, persistence, runtime execution, and host authority
+/// remain owned by their existing boundaries. Live MCP metadata is optional authoring input and is never persisted.
+/// </remarks>
+public static class WorkflowNodeDescriptorResolver
+{
+    public static bool TryResolve(NodeDefinition node,
+        ImmutableArray<McpInputPortDefinition>? discoveredMcpInputPorts,
+        IReadOnlyDictionary<string, string>? discoveredMcpInputDescriptions,
+        out WorkflowNodeDescriptor descriptor)
+    {
+        if (!WorkflowNodeContractCatalog.TryGet(node.Type, out _))
+        {
+            descriptor = null!;
+            return false;
+        }
+
+        if (WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out descriptor))
+            return true;
+
+        var effectiveNode = node.Type == NodeTypes.McpTool && discoveredMcpInputPorts.HasValue && node.McpInputPorts is null
+            ? node with { McpInputPorts = discoveredMcpInputPorts.Value }
+            : node;
+        var ports = new List<WorkflowPortDescriptor>();
+        var mcpInputs = effectiveNode.McpInputPorts;
+
+        foreach (var port in WorkflowPorts.ExplicitDataInputs(effectiveNode))
+        {
+            var mcpPort = effectiveNode.Type == NodeTypes.McpTool
+                ? mcpInputs?.FirstOrDefault(candidate => candidate.Id == port.Id)
+                : null;
+            ports.Add(new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType)
+            {
+                Description = effectiveNode.Type == NodeTypes.McpTool && discoveredMcpInputDescriptions is not null &&
+                    discoveredMcpInputDescriptions.TryGetValue(port.Id, out var description) ? description : null,
+                Required = effectiveNode.Type != NodeTypes.McpTool || mcpInputs is not { } || mcpPort?.Required == true,
+                Cardinality = effectiveNode.Type == NodeTypes.McpTool
+                    ? WorkflowPortCardinality.AtMostOne
+                    : WorkflowPortCardinality.ExactlyOne,
+                SupportsStaticValue = effectiveNode.Type == NodeTypes.McpTool
+            });
+        }
+
+        foreach (var port in WorkflowPorts.ExplicitDataOutputs(effectiveNode))
+            ports.Add(new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType)
+            {
+                Cardinality = WorkflowPortCardinality.Many
+            });
+
+        foreach (var port in WorkflowPorts.ExplicitExecutionInputs(effectiveNode))
+            ports.Add(new WorkflowPortDescriptor(port, WorkflowPortDirection.Input, WorkflowPortKind.Execution)
+            {
+                Required = true,
+                Cardinality = WorkflowPortCardinality.ExactlyOne
+            });
+
+        foreach (var port in WorkflowPorts.ExplicitExecutionOutputs(effectiveNode))
+            ports.Add(new WorkflowPortDescriptor(port, WorkflowPortDirection.Output, WorkflowPortKind.Execution,
+                DisplayName: ExecutionPortLabel(effectiveNode, port))
+            {
+                Required = true,
+                Cardinality = WorkflowPortCardinality.ExactlyOne
+            });
+
+        descriptor = new WorkflowNodeDescriptor(effectiveNode.Type, WorkflowNodeDescriptorRegistry.CurrentVersion,
+            ConfigurationKind(effectiveNode.Type), [.. ports]);
+        return true;
+    }
+
+    public static WorkflowNodeDescriptor Resolve(NodeDefinition node,
+        ImmutableArray<McpInputPortDefinition>? discoveredMcpInputPorts = null,
+        IReadOnlyDictionary<string, string>? discoveredMcpInputDescriptions = null) =>
+        TryResolve(node, discoveredMcpInputPorts, discoveredMcpInputDescriptions, out var descriptor)
+            ? descriptor
+            : throw new KeyNotFoundException($"No workflow node descriptor can be resolved for '{node.Type}'.");
+
+    private static string? ExecutionPortLabel(NodeDefinition node, string port) =>
+        node.Type == NodeTypes.Agent
+            ? node.Agent?.Routes?.FirstOrDefault(route => route is not null && AgentExecutionRouteLimits.PinId(route.Id) == port)?.Label
+            : node.Type == NodeTypes.ParallelFork
+                ? node.ParallelFork?.Branches.FirstOrDefault(branch => branch is not null && ParallelBranchLimits.PinId(branch.Id) == port)?.Label
+                : node.Type == NodeTypes.Sequence
+                    ? node.Sequence?.Outputs.FirstOrDefault(output => output is not null && SequenceOutputLimits.PinId(output.Id) == port)?.Label
+                    : null;
+
+    private static string ConfigurationKind(string nodeType) => nodeType switch
+    {
+        NodeTypes.McpTool => "mcp-tool",
+        NodeTypes.Agent => "agent",
+        NodeTypes.FunctionCall => "graph-function-call",
+        NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous => "parallel",
+        NodeTypes.Sequence => "sequence",
+        _ => "configured"
+    };
+}

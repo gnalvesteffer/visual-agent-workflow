@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using VisualAgentWorkflow.Core;
 using Xunit;
 
@@ -121,5 +122,106 @@ public sealed class WorkflowNodeContractTests
 
         Assert.False(WorkflowNodeDescriptorRegistry.TryGet(NodeTypes.StringConstant, "9.9.9", out _));
         Assert.Throws<KeyNotFoundException>(() => WorkflowNodeDescriptorRegistry.Get(NodeTypes.StringConstant, "9.9.9"));
+    }
+
+    [Fact]
+    public void Dynamic_descriptor_resolution_preserves_authored_routes_and_sequence_order()
+    {
+        var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0",
+            Agent: new AgentConfiguration("provider", null, "instructions", [])
+            {
+                Routes = [new("review", "Review", "Review path"), new("publish", "Publish", "Publish path")]
+            });
+        var sequence = new NodeDefinition(NodeTypes.Sequence, "1.0.0")
+        {
+            Sequence = new([new("first", "First"), new("second", "Second")])
+        };
+
+        var agentPorts = WorkflowNodeDescriptorResolver.Resolve(agent).Ports;
+        var sequencePorts = WorkflowNodeDescriptorResolver.Resolve(sequence).Ports;
+
+        Assert.Equal(["out", "execute", "route.review", "route.publish"], agentPorts.Select(port => port.Id));
+        Assert.Equal(["Review", "Publish"], agentPorts.Where(port => port.Kind == WorkflowPortKind.Execution &&
+            port.Direction == WorkflowPortDirection.Output).Select(port => port.DisplayName));
+        Assert.Equal(["execute", "then.first", "then.second"], sequencePorts.Select(port => port.Id));
+        Assert.Equal(["First", "Second"], sequencePorts.Where(port => port.Direction == WorkflowPortDirection.Output)
+            .Select(port => port.DisplayName));
+        Assert.Equal(agentPorts.Select(port => (port.Id, port.Direction, port.Kind, port.DataType, port.DisplayName,
+            port.Description, port.Required, port.Cardinality, port.SupportsStaticValue)),
+            WorkflowPorts.Explicit(agent).Select(port => (port.Id, port.Direction, port.Kind, port.DataType, port.DisplayName,
+                port.Description, port.Required, port.Cardinality, port.SupportsStaticValue)));
+        Assert.Equal(sequencePorts.Select(port => (port.Id, port.Direction, port.Kind, port.DataType, port.DisplayName,
+            port.Description, port.Required, port.Cardinality, port.SupportsStaticValue)),
+            WorkflowPorts.Explicit(sequence).Select(port => (port.Id, port.Direction, port.Kind, port.DataType, port.DisplayName,
+                port.Description, port.Required, port.Cardinality, port.SupportsStaticValue)));
+    }
+
+    [Fact]
+    public void Dynamic_mcp_descriptor_uses_discovery_only_when_persisted_pins_are_absent()
+    {
+        var tool = new NodeDefinition(NodeTypes.McpTool, "1.0.0");
+        var discovered = ImmutableArray.Create(new McpInputPortDefinition("arg.path", "path", "string", true));
+        var descriptions = new Dictionary<string, string> { ["arg.path"] = "A repository path." };
+
+        var before = tool;
+        var resolved = WorkflowNodeDescriptorResolver.Resolve(tool, discovered, descriptions);
+        var persisted = tool with { McpInputPorts = [new("arg.query", "query", "string", false)] };
+        var persistedResolved = WorkflowNodeDescriptorResolver.Resolve(persisted, discovered, descriptions);
+        var explicitlyEmpty = tool with { McpInputPorts = [] };
+
+        var input = Assert.Single(resolved.Ports.Where(port => port.Direction == WorkflowPortDirection.Input &&
+            port.Kind == WorkflowPortKind.Data));
+        Assert.Equal("arg.path", input.Id);
+        Assert.Equal("A repository path.", input.Description);
+        Assert.True(input.Required);
+        Assert.Equal(WorkflowPortCardinality.AtMostOne, input.Cardinality);
+        Assert.True(input.SupportsStaticValue);
+        Assert.Equal("arg.query", Assert.Single(persistedResolved.Ports.Where(port => port.Direction == WorkflowPortDirection.Input &&
+            port.Kind == WorkflowPortKind.Data)).Id);
+        Assert.Empty(WorkflowNodeDescriptorResolver.Resolve(explicitlyEmpty, discovered).Ports.Where(
+            port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data));
+        Assert.Equal(before, tool);
+    }
+
+    [Fact]
+    public void Unknown_dynamic_descriptor_fails_closed()
+    {
+        Assert.False(WorkflowNodeDescriptorResolver.TryResolve(new NodeDefinition("unknown.node", "1.0.0"), null, null, out _));
+        Assert.Throws<KeyNotFoundException>(() => WorkflowNodeDescriptorResolver.Resolve(new NodeDefinition("unknown.node", "1.0.0")));
+    }
+
+    [Fact]
+    public void Dynamic_descriptor_resolution_preserves_parallel_and_function_pin_contracts()
+    {
+        var fork = new NodeDefinition(NodeTypes.ParallelFork, "1.0.0")
+        {
+            ParallelFork = new([
+                new("alpha", "Alpha", "anchor-alpha"),
+                new("beta", "Beta", "anchor-beta")])
+        };
+        var join = new NodeDefinition(NodeTypes.ParallelJoin, "1.0.0")
+        {
+            ParallelJoin = new("fork", ["alpha", "beta"])
+        };
+        var function = new GraphFunctionDefinition("text.fn", 1, "Text function", "",
+            new Dictionary<string, GraphFunctionPort> { ["input"] = new("Input", WorkflowDataTypes.String) }
+                .ToImmutableSortedDictionary(StringComparer.Ordinal),
+            new Dictionary<string, GraphFunctionPort> { ["output"] = new("Output", WorkflowDataTypes.String) }
+                .ToImmutableSortedDictionary(StringComparer.Ordinal),
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty,
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty);
+        var call = new NodeDefinition(NodeTypes.FunctionCall, "1.0.0")
+        {
+            GraphFunction = new(function, "hash")
+        };
+
+        Assert.Equal(["execute", "branch.alpha", "branch.beta"],
+            WorkflowNodeDescriptorResolver.Resolve(fork).Ports.Select(port => port.Id));
+        Assert.Equal(["out", "branch.alpha", "branch.beta", "then"],
+            WorkflowNodeDescriptorResolver.Resolve(join).Ports.Select(port => port.Id));
+        Assert.Equal(["input", "output"],
+            WorkflowNodeDescriptorResolver.Resolve(call).Ports.Select(port => port.Id));
+        Assert.Equal([WorkflowDataTypes.String, WorkflowDataTypes.String],
+            WorkflowNodeDescriptorResolver.Resolve(call).Ports.Select(port => port.DataType));
     }
 }

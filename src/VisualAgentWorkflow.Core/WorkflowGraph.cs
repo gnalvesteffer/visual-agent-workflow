@@ -43,47 +43,10 @@ public static class WorkflowPorts
     public static ImmutableArray<WorkflowPortDescriptor> Explicit(
         NodeDefinition node,
         ImmutableArray<McpInputPortDefinition>? discoveredMcpInputPorts = null,
-        IReadOnlyDictionary<string, string>? discoveredMcpInputDescriptions = null)
-    {
-        if (node.Type == NodeTypes.McpTool && discoveredMcpInputPorts.HasValue && node.McpInputPorts is null)
-            node = node with { McpInputPorts = discoveredMcpInputPorts.Value };
-
-        return ExplicitCore(node, discoveredMcpInputDescriptions);
-    }
-
-    private static ImmutableArray<WorkflowPortDescriptor> ExplicitCore(NodeDefinition node, IReadOnlyDictionary<string, string>? discoveredMcpInputDescriptions = null) =>
-        WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor)
-            ? staticDescriptor.Ports
-            : [.. ExplicitDataInputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType)
-         {
-             Description = node.Type == NodeTypes.McpTool && discoveredMcpInputDescriptions is not null &&
-                 discoveredMcpInputDescriptions.TryGetValue(port.Id, out var description) ? description : null,
-             Required = node.Type != NodeTypes.McpTool || node.McpInputPorts is not { } inputPorts ||
-                 inputPorts.FirstOrDefault(candidate => candidate.Id == port.Id)?.Required == true,
-             Cardinality = node.Type == NodeTypes.McpTool ? WorkflowPortCardinality.AtMostOne : WorkflowPortCardinality.ExactlyOne,
-             SupportsStaticValue = node.Type == NodeTypes.McpTool
-         }),
-         .. ExplicitDataOutputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType)
-         {
-             Cardinality = WorkflowPortCardinality.Many
-         }),
-         .. ExplicitExecutionInputs(node).Select(port => new WorkflowPortDescriptor(port, WorkflowPortDirection.Input, WorkflowPortKind.Execution)
-         {
-             Required = true,
-             Cardinality = WorkflowPortCardinality.ExactlyOne
-         }),
-         .. ExplicitExecutionOutputs(node).Select(port => new WorkflowPortDescriptor(port, WorkflowPortDirection.Output, WorkflowPortKind.Execution,
-             DisplayName: node.Type == NodeTypes.Agent
-                 ? node.Agent?.Routes?.FirstOrDefault(route => route is not null && AgentExecutionRouteLimits.PinId(route.Id) == port)?.Label
-                 : node.Type == NodeTypes.ParallelFork
-                     ? node.ParallelFork?.Branches.FirstOrDefault(branch => branch is not null && ParallelBranchLimits.PinId(branch.Id) == port)?.Label
-                     : node.Type == NodeTypes.Sequence
-                         ? node.Sequence?.Outputs.FirstOrDefault(output => output is not null && SequenceOutputLimits.PinId(output.Id) == port)?.Label
-                     : null)
-         {
-             Required = true,
-             Cardinality = WorkflowPortCardinality.ExactlyOne
-         })];
+        IReadOnlyDictionary<string, string>? discoveredMcpInputDescriptions = null) =>
+        WorkflowNodeDescriptorResolver.TryResolve(node, discoveredMcpInputPorts, discoveredMcpInputDescriptions, out var descriptor)
+            ? descriptor.Ports
+            : [];
 
     public static ImmutableArray<WorkflowPort> ExplicitDataInputs(NodeDefinition node) =>
         WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor)
