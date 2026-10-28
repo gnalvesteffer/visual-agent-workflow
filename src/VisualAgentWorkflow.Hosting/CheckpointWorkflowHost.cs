@@ -106,7 +106,10 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
             if (suspended) events.Add(new(snapshot.Header.RunId, snapshot.Header.RevisionId, snapshot.Events.Length + 2,
                 DateTimeOffset.UtcNow, ExecutionEventKinds.Suspended, Data: "Saved deterministic boundary; explicit host recovery required."));
             var checkpoint = new WorkflowRunCheckpoint("1.0", WorkflowRunner.CheckpointRuntimeVersion, snapshot.Header.RunId,
-                snapshot.Header.RevisionId, snapshot.Header.ContentHash, snapshot.Events.Length + events.Count, native, hash);
+                snapshot.Header.RevisionId, snapshot.Header.ContentHash, snapshot.Events.Length + events.Count, native, hash)
+            {
+                VariableStateHash = native.VariableState?.ComputeHash()
+            };
             snapshot = store.CommitCheckpoint(snapshot.Header.RunId, snapshot.Events.Length, events, checkpoint);
             return ValueTask.FromResult(suspended);
         }

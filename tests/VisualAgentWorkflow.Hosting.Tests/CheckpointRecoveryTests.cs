@@ -112,16 +112,27 @@ public sealed class CheckpointRecoveryTests : IDisposable
     }
 
     [Fact]
-    public async Task VariableGraphsFailCheckpointAdmissionBeforeCreatingRunState()
+    public async Task VariableGraphsRestore_state_before_resuming_execution()
     {
         var store = Store();
         await using var runtime = new CheckpointWorkflowHost(store);
 
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            runtime.StartAsync(VariableRevision(), "next", 1));
+        var suspended = await runtime.StartAsync(VariableRevision(), "next", 2);
 
-        Assert.Contains("does not yet persist schema 1.44 variable stores", error.Message);
-        Assert.Empty(store.List());
+        Assert.Equal("suspended", suspended.Status);
+        var checkpoint = store.GetCheckpoint(suspended.Header.RunId)!;
+        Assert.NotNull(checkpoint.Native.VariableState);
+        Assert.Equal(checkpoint.Native.VariableState!.ComputeHash(), checkpoint.VariableStateHash);
+        Assert.True(WorkflowCheckpointRecovery.Assess(suspended, checkpoint).CanResume);
+        Assert.False(WorkflowCheckpointRecovery.Assess(suspended, checkpoint with { VariableStateHash = "corrupt" }).CanResume);
+        Assert.False(WorkflowCheckpointRecovery.Assess(suspended,
+            checkpoint with { Native = checkpoint.Native with { VariableState = null }, VariableStateHash = null }).CanResume);
+
+        var completed = await runtime.ResumeAsync(suspended.Header.RunId, checkpoint.Native.CheckpointId);
+
+        Assert.Equal("completed", completed.Status);
+        Assert.Equal("seed", completed.Events[^1].Data);
+        Assert.Contains(completed.Events, evt => evt.Kind == ExecutionEventKinds.VariableWritten);
     }
 
     [Fact]

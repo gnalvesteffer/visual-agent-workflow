@@ -7,7 +7,8 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.AgentFramework;
 
 /// <summary>Trusted adapter state, not an importable workflow or a portable cross-version format.</summary>
-public sealed record NativeWorkflowCheckpoint(string SessionId, string CheckpointId, string? ParentCheckpointId, string Payload);
+public sealed record NativeWorkflowCheckpoint(string SessionId, string CheckpointId, string? ParentCheckpointId, string Payload,
+    WorkflowVariableSnapshot? VariableState = null);
 
 /// <summary>Host owns atomic evidence/checkpoint storage and recovery admission. Return true to suspend at the saved boundary.</summary>
 public interface IWorkflowCheckpointSink
@@ -29,12 +30,17 @@ public sealed partial class WorkflowRunner
         ArgumentNullException.ThrowIfNull(record);
         ArgumentNullException.ThrowIfNull(input);
         if (runId == Guid.Empty || input.Length > 16_384) throw new ArgumentException("A run identity and bounded input are required.");
-        var bridge = new NativeCheckpointBridge(checkpoints);
+        var variableStore = revision.Definition.SchemaVersion == WorkflowSchemaVersions.MutableVariablesGraph
+            ? checkpoints.RestoredCheckpoint?.VariableState is { } restoredState
+                ? WorkflowVariableStore.FromSnapshot(revision.Definition, restoredState)
+                : new WorkflowVariableStore(revision.Definition)
+            : null;
+        var bridge = new NativeCheckpointBridge(checkpoints, variableStore);
         var manager = CheckpointManager.CreateJson(bridge, new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() });
         long sequence = 0;
         ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null, string? data = null) =>
             record(new(runId, revision.RevisionId, Interlocked.Increment(ref sequence), DateTimeOffset.UtcNow, kind, node, invocation, connection, data));
-        var workflow = BuildWorkflow(runId, revision, input, null, Emit, null, revision, []);
+        var workflow = BuildWorkflow(runId, revision, input, null, Emit, null, revision, [], variableStore: variableStore);
         await Emit(checkpoints.RestoredCheckpoint is null ? ExecutionEventKinds.Started : ExecutionEventKinds.Recovered);
         try
         {
@@ -73,15 +79,13 @@ public sealed partial class WorkflowRunner
     public static void ValidateCheckpointGraph(WorkflowDefinition definition)
     {
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (definition.SchemaVersion == WorkflowSchemaVersions.MutableVariablesGraph)
-            throw new InvalidOperationException("Checkpoint recovery does not yet persist schema 1.44 variable stores; variable graphs require a variable-state checkpoint contract before recovery is enabled.");
-        if (definition.Nodes.Values.Any(n => n.Type is not (NodeTypes.Input or NodeTypes.Output or NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.JsonSelectString or NodeTypes.TextTemplate)))
+        if (definition.Nodes.Values.Any(n => n.Type is not (NodeTypes.Input or NodeTypes.Output or NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.JsonSelectString or NodeTypes.TextTemplate or NodeTypes.StringConstant or NodeTypes.BooleanConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.VariableGet or NodeTypes.VariableSet)))
             throw new InvalidOperationException("Checkpoint recovery currently permits deterministic graph nodes only; agents, MCP and approvals require a separate recovery policy.");
     }
 
     private sealed class SavedBoundarySignal : Exception;
 
-    private sealed class NativeCheckpointBridge(IWorkflowCheckpointSink sink) : ICheckpointStore<JsonElement>
+    private sealed class NativeCheckpointBridge(IWorkflowCheckpointSink sink, WorkflowVariableStore? variableStore) : ICheckpointStore<JsonElement>
     {
         private NativeWorkflowCheckpoint? latest = sink.RestoredCheckpoint;
         private readonly List<(CheckpointInfo Info, string? Parent)> index = sink.RestoredCheckpoint is { } restored
@@ -91,7 +95,7 @@ public sealed partial class WorkflowRunner
         public async ValueTask<CheckpointInfo> CreateCheckpointAsync(string sessionId, JsonElement value, CheckpointInfo? parent = null)
         {
             var key = new CheckpointInfo(sessionId, Guid.NewGuid().ToString("N"));
-            var checkpoint = new NativeWorkflowCheckpoint(sessionId, key.CheckpointId, parent?.CheckpointId, value.GetRawText());
+            var checkpoint = new NativeWorkflowCheckpoint(sessionId, key.CheckpointId, parent?.CheckpointId, value.GetRawText(), variableStore?.Snapshot());
             if (await sink.CaptureAsync(checkpoint))
             {
                 // Saving at the native superstep callback precedes scheduling the next superstep.

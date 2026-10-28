@@ -1,6 +1,6 @@
 # Decision 0028: variable checkpoint frame proof gate
 
-**Status:** In progress; schema 1.44 checkpoint admission remains fail-closed.
+**Status:** Bounded slice shipped; broader failure-injection and lifecycle proofs remain.
 
 **Date:** 2026-10-28
 
@@ -31,9 +31,11 @@ it captures all values under the store lock and restores only exact declaration
 IDs/types with valid scalar values and monotonic versions. It is runtime
 checkpoint state, not workflow package data or playback evidence.
 
-Checkpoint admission stays rejected until the composite frame, atomic
-publication, resume ordering, corruption/size/identity checks, cancellation
-behavior, repeated suspend/resume, and process-loss tests are complete.
+Checkpoint admission is now enabled only for the bounded linear schema 1.44
+graph after the composite native/state frame and restore ordering proof. Full
+atomic publication failure-injection, corruption/size/identity matrix,
+cancellation-race, repeated suspend/resume, and process-loss tests remain
+required before expanding the contract.
 Loop, parallel, Sequence, collaboration, child-workflow, graph-function,
 external-capability, and asynchronous state remain outside this proof.
 
@@ -52,5 +54,5 @@ external-capability, and asynchronous state remain outside this proof.
 - `WorkflowVariableStore.Snapshot` and `FromSnapshot` implement the first gate.
 - `MutableVariableContractTests` cover all scalar types, version continuity,
   identity/type/value rejection, and invalid counters.
-- `WorkflowCheckpoints.ValidateCheckpointGraph` explicitly rejects schema 1.44
-  until the remaining frame gates are implemented.
+- `WorkflowCheckpoints.ValidateCheckpointGraph` admits only the bounded
+  schema-1.44 node set; unsupported regions remain rejected.

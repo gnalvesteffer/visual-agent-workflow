@@ -10,6 +10,9 @@ namespace VisualAgentWorkflow.Hosting;
 public sealed record WorkflowRunCheckpoint(string SchemaVersion, string RuntimeVersion, Guid RunId, Guid RevisionId,
     string ContentHash, long Sequence, NativeWorkflowCheckpoint Native, string PayloadHash)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? VariableStateHash { get; init; }
+
     public static string Hash(string payload) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
 
     public void Validate(RunSnapshot snapshot)
@@ -24,6 +27,15 @@ public sealed record WorkflowRunCheckpoint(string SchemaVersion, string RuntimeV
         using var json = JsonDocument.Parse(Native.Payload);
         if (json.RootElement.ValueKind != JsonValueKind.Object) throw new InvalidDataException("Checkpoint state must be an object.");
         WorkflowRunner.ValidateCheckpointGraph(snapshot.Header.Definition);
+        var variableState = Native.VariableState;
+        if (snapshot.Header.Definition.SchemaVersion == WorkflowSchemaVersions.MutableVariablesGraph)
+        {
+            if (variableState is null || VariableStateHash is null || VariableStateHash != variableState.ComputeHash())
+                throw new InvalidDataException("Variable checkpoint state is missing or has an invalid integrity hash.");
+            _ = WorkflowVariableStore.FromSnapshot(snapshot.Header.Definition, variableState);
+        }
+        else if (variableState is not null || VariableStateHash is not null)
+            throw new InvalidDataException("Variable checkpoint state is not allowed for this workflow schema.");
     }
 }
 

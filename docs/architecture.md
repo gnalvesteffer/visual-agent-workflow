@@ -258,7 +258,7 @@ Schema 1.5 approval nodes immediately precede a pinned MCP tool. The adapter cap
 
 ## Deterministic checkpoint host
 
-`CheckpointWorkflowHost` is a separate opt-in consumer API over SQLite and the adapter's native Agent Framework JSON checkpoint path. It commits bounded native state, capture/suspension evidence and the current status together; explicit recovery validates the exact latest checkpoint/cursor and rebuilds identical executors without replaying completed nodes. Only deterministic linear/conditional graphs are admitted. It does not change Studio's process-owned queue, and model/MCP/approval recovery remains excluded. Both built-in stores now provide an exclusive local owner handle honored by the ordinary runtime and checkpoint host, while observers read independently. Run-database schema 2 added checkpoint storage; schema 3 adds the separate assertion table. The authoring catalog is unchanged. See [recovery scope and ownership](checkpoint-recovery.md).
+`CheckpointWorkflowHost` is a separate opt-in consumer API over SQLite and the adapter's native Agent Framework JSON checkpoint path. It commits bounded native state, capture/suspension evidence and the current status together; explicit recovery validates the exact latest checkpoint/cursor and rebuilds identical executors without replaying completed nodes. Deterministic linear/conditional graphs and the bounded linear schema-1.44 variable graph are admitted; variable recovery includes a definition-bound, hashed scalar-store snapshot restored before execution. It does not change Studio's process-owned queue, and model/MCP/approval recovery remains excluded. Both built-in stores now provide an exclusive local owner handle honored by the ordinary runtime and checkpoint host, while observers read independently. Run-database schema 2 added checkpoint storage; schema 3 adds the separate assertion table. The authoring catalog is unchanged. See [recovery scope and ownership](checkpoint-recovery.md) and [variable checkpoint frame](decisions/0028-variable-checkpoint-frame.md).
 
 
 ## Schema 1.44 variable state
@@ -266,8 +266,9 @@ Schema 1.5 approval nodes immediately precede a pinned MCP tool. The adapter cap
 Schema 1.44 adds workflow-local scalar declarations and explicit typed Get/Set
 nodes. The runner creates an isolated store per workflow-call invocation,
 records `variable.get` and `variable.set` evidence with versions, and rejects
-parallel, loop, Sequence, collaboration, checkpoint, and shared-child state
-in the bounded first slice. Core's passive variable reader and the run
+parallel, loop, Sequence, collaboration, and shared-child state in the bounded
+first slice. The deterministic checkpoint host also persists a hashed variable
+snapshot for this linear graph and restores it before resumed execution. Core's passive variable reader and the run
 inspector reconstruct a recorded prefix without invoking the workflow again.
 
 ## Reconciliation assessment and operator assertions

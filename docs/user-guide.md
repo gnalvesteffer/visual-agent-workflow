@@ -113,8 +113,8 @@ inspector, scrubbing a recorded prefix reconstructs the selected variable's
 value, version, and read/write history from those events only; it never reruns
 the graph. This first slice is deliberately linear and rejects parallel, Sequence, collaboration,
 async, graph-function, and shared child-workflow variable writes. Loop ordering,
-checkpoint admission, passive playback, and richer variable types remain future
-parity work.
+broader checkpoint failure/recovery proofs, passive playback, and richer variable
+types remain future parity work.
 
 When that explicit data graph is valid, choose **Enable Boolean Branch preview** in the node library. Schema 1.24 exposes **Compare strings**, **Boolean Branch**, and **Terminate workflow**. Connect two string sources into Compare strings, connect its Boolean output to the Branch condition input, and wire Input execution to Branch. Route Branch `true` to Output and `false` to a Terminate node whose outcome is **Failure**. Connect a string data source to Output's data input. The comparison uses ordinal, case-sensitive equality: no whitespace removal, case folding, or text-to-Boolean conversion occurs. Branch starts one route only. Its selected output and the pure values it read are recorded in the run audit, and playback never reevaluates the graph. Schema 1.26 supports bounded nested Branch nodes and reconvergent routes; see the next subsection for its topology and validation rules.
 

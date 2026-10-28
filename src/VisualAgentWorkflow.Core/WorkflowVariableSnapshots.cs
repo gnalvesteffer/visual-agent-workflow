@@ -1,5 +1,8 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 
 namespace VisualAgentWorkflow.Core;
 
@@ -11,6 +14,9 @@ public sealed record WorkflowVariableSnapshot(
     long NextVersion)
 {
     public const string CurrentFormatVersion = "1.0";
+
+    public string ComputeHash() => Convert.ToHexStringLower(SHA256.HashData(
+        Encoding.UTF8.GetBytes(JsonSerializer.Serialize(this))));
 }
 
 public sealed record WorkflowVariableSnapshotEntry(
