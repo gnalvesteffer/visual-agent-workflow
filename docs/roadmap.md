@@ -10,6 +10,52 @@ The development Studio edits and runs validated linear, conditional, bounded par
 
 The backend owns execution. Schema 1.32's named 2–8 branch fork/join remains available. Schema 1.33 adds one graph-level shared-channel rendezvous and Studio authoring. Incomplete rendezvous and branch layouts can be saved but cannot publish or execute. The Studio/ordinary queued runs still interrupt after host failure; the separate opt-in host explicitly resumes deterministic saved checkpoints but collaboration regions do not support recovery or resume. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Socket rewiring is supported for matching typed pins, while incomplete drafts remain non-executable until validation succeeds. Sequential subagent calls, parallel agent-team calls, bounded graph fan-outs, and the first graph-level collaboration slice are explicit; nested collaboration remains planned. Conditional routing and parallel graph execution are validated operations.
 
+## Planned phase: Blueprint-inspired authoring contracts and ergonomics
+
+**Status: Planned.** This phase is the result of an audit against [the Unreal Blueprint capability reference](unreal-blueprint-reference.md), [Blueprint authoring guidance](blueprint-authoring-guidance.md), and [product design](design.md). It is intentionally narrower than “Blueprint parity”: Visual Agent Workflow should borrow Blueprint's explicit, typed, composable authoring model without adopting Unreal's object world, frame/tick semantics, or implicit mutable state.
+
+### Audit baseline
+
+The project already has a substantial Blueprint-inspired foundation: separate execution and data semantics; typed string, Boolean, integer, and bounded JSON values; conditional routing; bounded loops; named bounded fork/join regions; graph functions; pinned child workflows; workflow parameters and getter nodes; stable node/port identities; comments, sections, reroutes, layout persistence; invalid-draft saving with publish/run gates; immutable revisions; host-owned capability grants; and passive recorded playback. These are shipped capabilities, not phase proposals.
+
+The remaining alignment work is primarily contract and authoring work. The current reference identifies broader type/container systems, mutable graph variables, richer control flow, event dispatchers, latent/scheduled work, generalized reuse/templates, and Blueprint-style debugging as future capabilities requiring separate runtime and evidence contracts. This phase must not turn those design targets into supported behavior merely by adding palette entries or card shapes.
+
+### Phase purpose
+
+Make every Blueprint-inspired authoring affordance traceable to a stable definition contract, independent validator, backend execution rule, compatibility policy, and recorded-evidence mapping. The phase should produce small vertical proofs and a dependency-aware follow-up roadmap, rather than introducing a second execution model or a wholesale schema replacement.
+
+### High-level work checklist
+
+- [ ] **Capability matrix:** inventory shipped, active, planned, deferred, and deliberately different concepts; link each item to its schema, implementation, tests, and user documentation.
+- [ ] **Contract inventory:** define the identity and compatibility rules for assets, graphs, nodes, ports, types, edges, parameters, dependencies, grants, and immutable revisions.
+- [ ] **Pin semantics:** preserve the execution-wire/data-wire distinction; specify types, nullability, defaults, conversions, multiplicity, dynamic-port identity, stable labels, and invalid-connection diagnostics.
+- [ ] **Node descriptors:** document activation behavior, state ownership, side effects, capabilities, limits, cancellation, failure dispositions, persistence, evidence, and editor affordances for each node family.
+- [ ] **Validation boundary:** ensure imported/untrusted definitions are independently validated; cover reachability, boundedness, unsupported cycles, joins, capability requirements, and host admission separately from editor filtering.
+- [ ] **Proof slice:** exercise one pure value node, one Agent or direct MCP node, one conditional route, one workflow parameter getter, and one pinned child workflow from authoring through execution and playback.
+- [ ] **Persistence and compatibility:** prove canonical JSON round trips, stable hashes, layout separation, package round trips, legacy loading, schema migration, invalid-draft persistence, and publish/run rejection.
+- [ ] **Authoring ergonomics:** improve pin-driven/context-sensitive node creation, readable execution/data pin presentation, explicit conversion nodes, comments/sections/reroutes, grouping, duplication/deletion diagnostics, semantic undo, and measured interaction responsiveness.
+- [ ] **Reuse boundaries:** distinguish callable workflows, pure graph functions, authoring templates/macros, collapsed views, and interfaces; define extraction behavior, provenance, dependency closure, version pinning, and upgrade diagnostics before exposing each affordance.
+- [ ] **Lifecycle semantics:** specify repeated entry, activation identity, joins, waits, cancellation, retries, partial failure, and external side-effect behavior before adding related control nodes.
+- [ ] **Debugging and evidence:** map authored node/port identities to actual runtime events; separate live observation from backend control and historical playback; add debugger-like features only when they remain grounded in recorded evidence.
+- [ ] **Authority and safety:** keep endpoints, credentials, grants, approvals, and host policy outside portable definitions; define redaction, payload bounds, audit correlation, and failure disclosure for every new capability.
+- [ ] **Verification:** add deterministic contract/runtime tests, compatibility and failure cases, browser authoring smokes, package/playback proofs, and responsiveness/accessibility checks for each shipped increment.
+- [ ] **Expansion gate:** promote richer containers, mutable variables, events, nested control flow, interfaces, templates, or durable waits into separate roadmap phases only after their contracts, compatibility policy, security boundary, and evidence semantics are reviewed and proven.
+
+### Sequencing and exit criteria
+
+1. Baseline matrix and terminology.
+2. Stable descriptor, pin/type, graph, asset, and revision contracts.
+3. Narrow persistence/validation/runtime/evidence proof slice.
+4. Descriptor-driven authoring ergonomics and diagnostics.
+5. Reuse and extraction boundaries with provenance and versioning.
+6. Lifecycle and debugging improvements grounded in recorded execution.
+
+The phase is complete only when the resulting authoring behavior is serializable, version-compatible, independently validated, executable by the backend, inspectable in evidence, and replayable without live calls. A visually convincing node or wire is not sufficient evidence of completion.
+
+### Explicit non-goals
+
+This phase does not promise unrestricted Blueprint compatibility, a new replacement schema, general-purpose scripting, Unreal Actors/components/inheritance/replication, implicit shared mutable memory, execution inferred from position or wire curvature, credential-bearing or authority-granting workflow fields, unbounded ticks/polling/latent work, arbitrary nested forks/loops, event-dispatcher subscriptions, production-grade distributed durability, multi-user editing, or “exactly once” external side effects. Mutable Set/Get variables, generalized error-compensation graphs, durable event subscriptions, and broader collaboration remain separate design decisions.
+
 ## Completed milestone: shared-channel collaboration across parallel branches
 
 Schema 1.33 adds one static rendezvous to a 2–8 branch fork/join graph. Each branch has stable rendezvous input/output pins; exact Agent-node grants restrict publish/read phases and channel IDs. The runner uses a finite workflow or host timeout, releases one bounded immutable canonical snapshot after all arrivals, and aborts without a join value after post-release failure. Versioned collaboration events are integrity-checked in file and SQLite journals and rendered in passive run playback. Studio adds a single unwired rendezvous, configuration and per-branch grant controls; users manually wire the graph, can save invalid drafts, and cannot publish or execute until diagnostics are resolved. Schema-1.32 package round-trips remain unchanged, and schema-1.33 package export excludes host credentials and grants. Full deterministic Core/runner/store/playback tests and a fresh-browser authoring-to-publish check pass. The first release excludes loops, nested/repeated rendezvous, retries, and interrupted-run recovery. See [the collaboration contract](parallel-agent-collaboration.md) and [user guide](user-guide.md#add-shared-communication-between-parallel-agents).
