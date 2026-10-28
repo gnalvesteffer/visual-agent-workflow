@@ -84,7 +84,13 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     /// <summary>Optional static JSON arguments for a direct MCP tool node; credentials and grants are never stored here.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? McpArgumentsJson { get; init; }
+    /// <summary>Schema-driven top-level argument pins for direct MCP graph schema 1.37.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableArray<McpInputPortDefinition>? McpInputPorts { get; init; }
 }
+
+/// <summary>Portable, normalized metadata for one direct MCP argument pin.</summary>
+public sealed record McpInputPortDefinition(string Id, string Name, string DataType, bool Required);
 
 /// <summary>Copy-on-insert source identity; informational provenance, never a grant or runtime resolver.</summary>
 public sealed record NodeOrigin(string WorkflowId, Guid RevisionId, int Version, string ContentHash, string NodeId);
@@ -148,12 +154,13 @@ public static class WorkflowSchemaVersions
     public const string BranchLocalParallelGraph = "1.34";
     public const string PhasedCollaborativeParallelGraph = "1.35";
     public const string DirectMcpGraph = "1.36";
+    public const string DirectMcpPinsGraph = "1.37";
 
-    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph or PureGraphFunctions or AgentGraphFunctionTools or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph;
+    public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph or PureGraphFunctions or AgentGraphFunctionTools or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph;
 
     public static bool UsesExplicitGraph(WorkflowDefinition definition) =>
         UsesExplicitGraph(definition.SchemaVersion) ||
-        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph && definition.ExecutionConnections is not null;
+        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph && definition.ExecutionConnections is not null;
 }
 
 public sealed record StringConstantConfiguration(string Value);

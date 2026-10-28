@@ -166,6 +166,8 @@ The Studio theme selector now includes Retro Drive, a dashboard-inspired palette
 
 Direct MCP nodes now expose the selected tool's bounded input schema in the properties pane. Authors can configure portable static JSON arguments without hand-writing the object; clearing the configuration restores the existing connected-input behavior. Configured arguments make the direct node's data input optional, while broker authorization, contract pinning, live schema validation, and audit evidence remain unchanged.
 
+Schema 1.37 adds Blueprint-style top-level argument pins for direct MCP nodes. Each discovered property is persisted as a stable typed `arg.<property>` pin; connected values override matching static values, and the runtime reconstructs the complete JSON object before the normal broker validation. Schema 1.36 remains unchanged for compatibility. Nested values remain JSON pins and automatic schema migration is intentionally deferred.
+
 ## Flat Studio theme and fitted graph viewport
 
 The standalone Studio now uses a flat, light neutral shell with a single dark graph canvas. Its subdued grid fills the whole viewport and tracks camera pan and zoom rather than ending at the logical world's edge. Initial attachment and **Fit graph** center visible nodes using transient camera offsets; workflow layout coordinates remain unchanged. Browser review covers full-width grid, initial centering, fit, graph gestures, theme contrast, forced colors, reduced motion, and narrow embeds.

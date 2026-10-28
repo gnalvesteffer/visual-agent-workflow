@@ -4,7 +4,7 @@
 @implements IDisposable
 
 <section class="vaw-mcp-arguments-editor" aria-label="MCP tool arguments">
-    <p class="vaw-help">Configure static arguments from the tool schema. These values are used when the node runs; clear them to use the connected data input instead.</p>
+    <p class="vaw-help">@(UseArgumentPins ? "Configure static argument defaults from the tool schema. Connected pins override matching values; clear this object to rely only on pins." : "Configure static arguments from the tool schema. These values are used when the node runs; clear them to use the connected data input instead.")</p>
     @if (schema is null)
     {
         <p class="vaw-error">This tool's input schema is unavailable or unsupported.</p>
@@ -63,6 +63,7 @@
     [Parameter] public string? Value { get; set; }
     [Parameter] public EventCallback<string?> ValueChanged { get; set; }
     [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool UseArgumentPins { get; set; }
 
     private JsonDocument? schemaDocument;
     private JsonObject arguments = new();

@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using Microsoft.Agents.AI.Workflows;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.AgentFramework;
@@ -884,6 +885,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             string? incomingPort = null;
             DataInputEvaluation? outputEvaluation = null;
             DataInputEvaluation? branchEvaluation = null;
+            var toolArgumentEvaluations = new List<DataInputEvaluation>();
             var configuredAgentRoutes = node.Type == NodeTypes.Agent ? node.Agent?.Routes : null;
             var routeSelection = configuredAgentRoutes is { IsDefaultOrEmpty: false } routes
                 ? new AgentRouteSelectionState(routes)
@@ -1000,8 +1002,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         ? throw new InvalidOperationException("The workflow parameter was not resolved for this run.") : value,
                     NodeTypes.Uppercase => message.ToUpperInvariant(),
                     NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
-                    NodeTypes.McpTool => revision.Definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpGraph
-                        ? await InvokeDirectMcpTool(message, invocation, cancellationToken)
+                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph
+                        ? await InvokeDirectMcpTool(message, invocation, toolArgumentEvaluations, cancellationToken)
                         : await InvokeTool(message, invocation, cancellationToken),
                     NodeTypes.WorkflowCall => childOutcome?.Output ?? string.Empty,
                     NodeTypes.Agent => agents is null ? throw new InvalidOperationException("No agent executor is configured.") :
@@ -1034,6 +1036,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         }, message, cancellationToken),
                     _ => throw new InvalidOperationException("Unsupported executor type.")
                 };
+                foreach (var evaluation in toolArgumentEvaluations.SelectMany(item => item.Evaluations))
+                    await Emit(ExecutionEventKinds.DataEvaluated, evaluation.NodeId, invocation,
+                        evaluation.ConnectionId is null ? null : $"data:{evaluation.ConnectionId}", SerializeDataEvidence(Id, evaluation));
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Agent)
                 {
                     var structuredResult = node.Agent?.RequireStructuredResult == true;
@@ -1285,27 +1290,49 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             return await scope.InvokeAsync(node.Tool!.BindingId, input, cancellationToken);
         }
 
-        private async Task<string> InvokeDirectMcpTool(string input, Guid invocation, CancellationToken cancellationToken)
+        private async Task<string> InvokeDirectMcpTool(string input, Guid invocation, List<DataInputEvaluation> evaluations, CancellationToken cancellationToken)
         {
             if (tools is null) throw new InvalidOperationException("No tool broker is configured.");
-            JsonDocument document;
-            try
+            JsonObject arguments;
+            if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpPinsGraph && node.McpInputPorts is not null && node.McpArgumentsJson is null)
             {
-                document = JsonDocument.Parse(node.McpArgumentsJson ?? input, new JsonDocumentOptions { MaxDepth = 32 });
+                arguments = new();
             }
-            catch (JsonException exception)
+            else if (node.McpArgumentsJson is { } configuredArguments)
             {
-                throw new InvalidOperationException("A direct MCP node requires a JSON object of tool arguments. For text tools, use {\"text\":\"...\"}.", exception);
+                try { arguments = JsonNode.Parse(configuredArguments)?.AsObject() ?? throw new InvalidOperationException("Configured MCP arguments must be a JSON object."); }
+                catch (JsonException exception) { throw new InvalidOperationException("Configured MCP arguments must be a JSON object.", exception); }
             }
-            using (document)
+            else
             {
-                if (document.RootElement.ValueKind != JsonValueKind.Object)
-                    throw new InvalidOperationException("A direct MCP node requires a JSON object of tool arguments. For text tools, use {\"text\":\"...\"}.");
-                await using var scope = tools.OpenScope(new(runId, revision, Id, invocation,
-                    (kind, data) => Emit(kind, Id, invocation, null, data)));
-                return await scope.InvokeJsonAsync(node.Tool!.BindingId, document.RootElement.Clone(), cancellationToken);
+                try { arguments = JsonNode.Parse(input)?.AsObject() ?? throw new InvalidOperationException("A direct MCP node requires a JSON object of tool arguments. For text tools, use {\"text\":\"...\"}."); }
+                catch (JsonException exception) { throw new InvalidOperationException("A direct MCP node requires a JSON object of tool arguments. For text tools, use {\"text\":\"...\"}.", exception); }
             }
+            if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpPinsGraph && node.McpInputPorts is { } inputPorts)
+            {
+                foreach (var port in inputPorts)
+                {
+                    var connection = revision.Definition.Connections.FirstOrDefault(edge => edge.Value.Target.NodeId == Id && edge.Value.Target.PortId == port.Id);
+                    if (connection.Value is null) continue;
+                    var evaluation = dataEvaluator!.ResolveInput(Id, port.Id);
+                    evaluations.Add(evaluation);
+                    arguments[port.Name] = ToJsonNode(evaluation.Result);
+                }
+            }
+            var json = JsonSerializer.SerializeToElement(arguments, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            await using var scope = tools.OpenScope(new(runId, revision, Id, invocation,
+                (kind, data) => Emit(kind, Id, invocation, null, data)));
+            return await scope.InvokeJsonAsync(node.Tool!.BindingId, json, cancellationToken);
         }
+
+        private static JsonNode ToJsonNode(ExplicitGraphValue value) => value.DataType switch
+        {
+            "string" when value.Value is string text => JsonValue.Create(text)!,
+            "integer" when value.Value is long integer => JsonValue.Create(integer)!,
+            "boolean" when value.Value is bool boolean => JsonValue.Create(boolean)!,
+            "json" when value.Value is JsonElement json => JsonNode.Parse(json.GetRawText())!,
+            _ => throw new InvalidOperationException($"MCP argument data type '{value.DataType}' is not supported.")
+        };
 
         private static string NormalizeJson(string input)
         {

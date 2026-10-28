@@ -38,6 +38,7 @@ public partial class WorkflowGraphCanvas
     [Parameter] public bool Disabled { get; set; }
     [Parameter] public string NodesLabel { get; set; } = "Editable workflow nodes";
     [Parameter] public Func<string, string>? NodeClass { get; set; }
+    [Parameter] public Func<NodeDefinition, ImmutableArray<WorkflowPortDescriptor>>? PortResolver { get; set; }
     [Parameter] public IReadOnlySet<string>? DeliveredConnections { get; set; }
     [Inject] private IServiceProvider Services { get; set; } = default!;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -85,10 +86,10 @@ public partial class WorkflowGraphCanvas
                 .Select(edge => new CanvasConnection($"execution:{edge.Key}", edge.Value, "execution")))
         : Definition.Connections.Select(edge => new CanvasConnection(edge.Key, edge.Value, "data"));
     private CanvasConnection? FindConnection(string? id) => id is null ? null : CanvasConnections.FirstOrDefault(edge => edge.Id == id);
-    private ImmutableArray<WorkflowPortDescriptor> Ports(NodeDefinition node) => WorkflowSchemaVersions.UsesExplicitGraph(Definition)
+    private ImmutableArray<WorkflowPortDescriptor> Ports(NodeDefinition node) => PortResolver?.Invoke(node) ?? (WorkflowSchemaVersions.UsesExplicitGraph(Definition)
         ? WorkflowPorts.Explicit(node)
         : [.. WorkflowPorts.Inputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType)),
-           .. WorkflowPorts.Outputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType))];
+           .. WorkflowPorts.Outputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType))]);
     private string Title(string id) => string.IsNullOrWhiteSpace(Layout.Nodes[id].Label) ? FriendlyName(Definition.Nodes[id]) : Layout.Nodes[id].Label;
     private static string TooltipId(string id) => $"vaw-node-comment-{id}";
     internal static string FriendlyName(NodeDefinition node) => node.Type switch

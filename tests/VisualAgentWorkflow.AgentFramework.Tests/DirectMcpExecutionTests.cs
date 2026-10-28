@@ -52,6 +52,20 @@ public sealed class DirectMcpExecutionTests
         Assert.Equal("{\"query\":\"configured\"}", broker.Input);
     }
 
+    [Fact]
+    public async Task Schema_1_37_builds_tool_arguments_from_typed_input_pins()
+    {
+        var broker = new RecordingBroker();
+        var result = await new WorkflowRunner(broker).ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(PinDefinition(), "test"), "ignored", null,
+            _ => ValueTask.CompletedTask);
+
+        Assert.False(result.Failed);
+        using var arguments = JsonDocument.Parse(broker.Input!);
+        Assert.Equal("README.md", arguments.RootElement.GetProperty("path").GetString());
+        Assert.Equal(50000, arguments.RootElement.GetProperty("maxBytes").GetInt64());
+    }
+
     private static WorkflowDefinition Definition() => new(
         WorkflowSchemaVersions.DirectMcpGraph, "direct-mcp-runtime", "input",
         new Dictionary<string, NodeDefinition>
@@ -63,6 +77,33 @@ public sealed class DirectMcpExecutionTests
         new Dictionary<string, ConnectionDefinition>
         {
             ["tool-input"] = new(new("input", "out"), new("tool", "in"), "data"),
+            ["output-value"] = new(new("tool", "out"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+    {
+        ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+        {
+            ["activate-tool"] = new(new("input", "then"), new("tool", "execute"), "execution"),
+            ["complete"] = new(new("tool", "then"), new("output", "execute"), "execution")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+    };
+
+    private static WorkflowDefinition PinDefinition() => new(
+        WorkflowSchemaVersions.DirectMcpPinsGraph, "direct-mcp-pins-runtime", "input",
+        new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["path"] = new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("README.md") },
+            ["max"] = new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(50000) },
+            ["tool"] = new(NodeTypes.McpTool, "1.0.0", new ToolBindingRequest("demo.read", new string('a', 64)))
+            {
+                McpInputPorts = [new("arg.path", "path", "string", true), new("arg.maxBytes", "maxBytes", "integer", false)]
+            },
+            ["output"] = new(NodeTypes.Output, "1.0.0")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+        new Dictionary<string, ConnectionDefinition>
+        {
+            ["path"] = new(new("path", "out"), new("tool", "arg.path"), "data"),
+            ["max"] = new(new("max", "out"), new("tool", "arg.maxBytes"), "data"),
             ["output-value"] = new(new("tool", "out"), new("output", "in"), "data")
         }.ToImmutableSortedDictionary(StringComparer.Ordinal))
     {

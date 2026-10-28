@@ -47,7 +47,7 @@ public static class GraphEditing
         if (definition.SchemaVersion != WorkflowSchemaVersions.ExplicitGraph || definition.ExecutionConnections is null)
             throw new ArgumentException("Start with a valid typed graph before enabling direct MCP tool nodes.", nameof(definition));
         WorkflowValidator.ThrowIfInvalid(definition);
-        var upgraded = definition with { SchemaVersion = WorkflowSchemaVersions.DirectMcpGraph };
+        var upgraded = definition with { SchemaVersion = WorkflowSchemaVersions.DirectMcpPinsGraph };
         WorkflowValidator.ThrowIfInvalid(upgraded);
         return upgraded;
     }

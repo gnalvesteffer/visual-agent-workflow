@@ -62,8 +62,8 @@ public static class WorkflowValidator
         var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
 
-        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" or "1.25" or "1.26" or "1.27" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpGraph))
-            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.36.");
+        if (definition.SchemaVersion is not ("1.0" or "1.1" or "1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.18" or "1.19" or "1.20" or "1.21" or "1.22" or "1.23" or "1.24" or "1.25" or "1.26" or "1.27" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph))
+            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.37.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.DisplayName is { } displayName &&
@@ -209,6 +209,16 @@ public static class WorkflowValidator
                 (node.Type != NodeTypes.McpTool ||
                  mcpArguments.Length > 65_536 || !IsJsonObject(mcpArguments)))
                 Error("mcp.arguments", $"nodes.{id}.mcpArgumentsJson", "MCP arguments must be a JSON object of at most 65,536 characters.");
+            if (node.McpInputPorts is not null &&
+                (definition.SchemaVersion != WorkflowSchemaVersions.DirectMcpPinsGraph || node.Type != NodeTypes.McpTool ||
+                 node.McpInputPorts.Value.Any(port => port is null || string.IsNullOrWhiteSpace(port.Id) || string.IsNullOrWhiteSpace(port.Name) ||
+                     port.Id.Length > 256 || port.Name.Length > 256 || port.DataType is not ("string" or "integer" or "boolean" or "json") ||
+                     !port.Id.StartsWith("arg.", StringComparison.Ordinal))))
+                Error("mcp.input-ports", $"nodes.{id}.mcpInputPorts", "Schema 1.37 MCP input pins must be unique, bounded arg.* ports with supported graph data types.");
+            if (node.McpInputPorts is { } inputPorts && inputPorts.Select(port => port.Id).Distinct(StringComparer.Ordinal).Count() != inputPorts.Length)
+                Error("mcp.input-ports", $"nodes.{id}.mcpInputPorts", "MCP input pin IDs must be unique.");
+            if (node.McpInputPorts is { } namedPorts && namedPorts.Select(port => port.Name).Distinct(StringComparer.Ordinal).Count() != namedPorts.Length)
+                Error("mcp.input-ports", $"nodes.{id}.mcpInputPorts", "MCP input property names must be unique.");
             if (node.Type == NodeTypes.WorkflowCall)
             {
                 var call = node.WorkflowCall;
@@ -402,14 +412,14 @@ public static class WorkflowValidator
                 Error("constant.unexpected", $"nodes.{id}.stringConstant", "Only string constant nodes may declare a constant value.");
             if (node.Type == NodeTypes.BooleanConstant)
             {
-                if (definition.SchemaVersion is not (WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph) || node.BooleanConstant is null)
+                if (definition.SchemaVersion is not (WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpPinsGraph) || node.BooleanConstant is null)
                     Error("constant.configuration", $"nodes.{id}.booleanConstant", "Boolean constants require schema 1.25 or later and an explicit Boolean value.");
             }
             else if (node.BooleanConstant is not null)
                 Error("constant.unexpected", $"nodes.{id}.booleanConstant", "Only Boolean constant nodes may declare a Boolean value.");
             if (node.Type == NodeTypes.IntegerConstant)
             {
-                if (definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph) || node.IntegerConstant is null)
+                if (definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpPinsGraph) || node.IntegerConstant is null)
                     Error("constant.configuration", $"nodes.{id}.integerConstant", "Integer constants require schema 1.31 and an explicit signed 64-bit value.");
             }
             else if (node.IntegerConstant is not null)
@@ -532,7 +542,7 @@ public static class WorkflowValidator
 
         if (WorkflowSchemaVersions.UsesExplicitGraph(definition))
         {
-            if (definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpGraph)
+            if (definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph)
                 ValidateDirectMcpGraph(definition, Error);
             else if (definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph)
                 ValidateExplicitGraph(definition, Error);
@@ -659,19 +669,21 @@ public static class WorkflowValidator
 
     private static void ValidateDirectMcpGraph(WorkflowDefinition definition, Action<string, string, string> error)
     {
+        var pinsGraph = definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpPinsGraph;
         if (definition.ExecutionConnections is null)
         {
-            error("execution.missing", "executionConnections", "Schema 1.36 requires explicit execution connections.");
+            error("execution.missing", "executionConnections", $"Schema {definition.SchemaVersion} requires explicit execution connections.");
             return;
         }
 
         var supportedTypes = new HashSet<string>(StringComparer.Ordinal)
         {
-            NodeTypes.Input, NodeTypes.Output, NodeTypes.StringConstant, NodeTypes.TextConcat, NodeTypes.McpTool
+            NodeTypes.Input, NodeTypes.Output, NodeTypes.StringConstant, NodeTypes.TextConcat,
+            NodeTypes.IntegerConstant, NodeTypes.BooleanConstant, NodeTypes.McpTool
         };
         foreach (var (id, node) in definition.Nodes)
             if (node is null || !supportedTypes.Contains(node.Type))
-                error("execution.node.unsupported", $"nodes.{id}", "Schema 1.36 supports input, output, deterministic text nodes, and direct MCP tool nodes.");
+                error("execution.node.unsupported", $"nodes.{id}", $"Schema {definition.SchemaVersion} supports input, output, deterministic text nodes, and direct MCP tool nodes.");
 
         var input = definition.Nodes.SingleOrDefault(pair => pair.Value?.Type == NodeTypes.Input).Key;
         var output = definition.Nodes.SingleOrDefault(pair => pair.Value?.Type == NodeTypes.Output).Key;
@@ -735,11 +747,20 @@ public static class WorkflowValidator
         foreach (var (id, node) in definition.Nodes)
         {
             if (node is null) continue;
+            if (pinsGraph && node.Type == NodeTypes.McpTool && node.McpInputPorts is null)
+                error("mcp.input-ports", $"nodes.{id}.mcpInputPorts", "Schema 1.37 MCP nodes must persist their discovered top-level input pins.");
             var hasConfiguredMcpArguments = node.Type == NodeTypes.McpTool && node.McpArgumentsJson is not null;
             foreach (var port in WorkflowPorts.ExplicitDataInputs(node))
             {
                 var count = dataIncoming.GetValueOrDefault((id, port.Id));
-                if (node.Type == NodeTypes.McpTool && port.Id == "in" && hasConfiguredMcpArguments)
+                if (pinsGraph && node.Type == NodeTypes.McpTool && node.McpInputPorts is { } inputPorts && inputPorts.FirstOrDefault(candidate => candidate.Id == port.Id) is { } inputPort)
+                {
+                    if (count > 1)
+                        error("data.degree", $"nodes.{id}.inputs.{port.Id}", "Each MCP argument pin accepts at most one data edge.");
+                    else if (count == 0 && inputPort.Required && !HasStaticArgument(node.McpArgumentsJson, inputPort.Name))
+                        error("data.degree", $"nodes.{id}.inputs.{port.Id}", "Every required MCP argument must be connected or configured as a static argument.");
+                }
+                else if (node.Type == NodeTypes.McpTool && port.Id == "in" && hasConfiguredMcpArguments)
                 {
                     if (count > 1)
                         error("data.degree", $"nodes.{id}.inputs.{port.Id}", "A configured direct MCP tool accepts at most one optional connected input; configured arguments take precedence.");
@@ -755,7 +776,7 @@ public static class WorkflowValidator
             foreach (var port in executionOutputs)
                 if (executionOutgoing.GetValueOrDefault((id, port)) != 1)
                     error("graph.degree", $"nodes.{id}.outputs.{port}", "Every execution output pin must connect exactly once, except the output node which has none.");
-            if (node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat &&
+            if ((node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.IntegerConstant or NodeTypes.BooleanConstant) &&
                 !definition.Connections.Values.Any(edge => edge.Source.NodeId == id))
                 error("data.unused", $"nodes.{id}", "Every pure data node must contribute to a tool input or output value.");
         }
@@ -790,6 +811,20 @@ public static class WorkflowValidator
         foreach (var (id, node) in definition.Nodes)
             if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat && !reachedData.Contains(id))
                 error("graph.unreachable", $"nodes.{id}", "Every pure data node must contribute to a tool input or output value.");
+    }
+
+    private static bool HasStaticArgument(string? arguments, string name)
+    {
+        if (arguments is null) return false;
+        try
+        {
+            using var document = JsonDocument.Parse(arguments);
+            return document.RootElement.TryGetProperty(name, out _);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private static void ValidateExplicitGraph(WorkflowDefinition definition, Action<string, string, string> error)

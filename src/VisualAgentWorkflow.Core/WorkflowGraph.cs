@@ -41,6 +41,7 @@ public static class WorkflowPorts
         NodeTypes.IntegerAdd or NodeTypes.IntegerEquals => [new("left", "integer"), new("right", "integer")],
         NodeTypes.BooleanBranch => [new("condition", "boolean")],
         NodeTypes.BooleanNot => [new("value", "boolean")],
+        NodeTypes.McpTool when node.McpInputPorts is { } ports => [.. ports.Select(port => new WorkflowPort(port.Id, port.DataType))],
         NodeTypes.McpTool => [new("in", "string")],
         NodeTypes.FunctionCall when node.GraphFunction?.Definition?.Inputs is { } inputs => [.. inputs.Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))],
         _ => []

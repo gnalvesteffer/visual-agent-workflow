@@ -261,7 +261,7 @@ Schema 1.6 adds workflow-owned typed parameters with stable IDs, labels, default
 
 ### Complete: direct MCP graph nodes
 
-Schema 1.36 adds direct MCP tool nodes for deterministic workflows. A valid linear typed graph can enable the schema, add host-discovered bindings from the node library, configure bounded schema-driven arguments or connect a JSON-object input, and connect each node's text output and execution route without an Agent. The normal broker still enforces node grants, pinned contracts, bounded arguments and audit evidence. The first increment intentionally excludes branches, parallel regions, loops, workflow calls and approval nodes from the direct-MCP schema; existing schemas are unchanged.
+Schema 1.36 adds direct MCP tool nodes for deterministic workflows, and schema 1.37 adds typed top-level argument pins. A valid linear typed graph can enable the schema, add host-discovered bindings from the node library, connect one pin per supported tool property, configure static fallbacks, and connect each node's text output and execution route without an Agent. The normal broker still enforces node grants, pinned contracts, bounded arguments and audit evidence. Nested argument pins, automatic schema migration, and direct tools inside branches, parallel regions, loops, workflow calls, or approval graphs remain out of scope; existing 1.36 schemas are unchanged.
 
 ### Complete: MCP, skill, and agent authoring foundation
 

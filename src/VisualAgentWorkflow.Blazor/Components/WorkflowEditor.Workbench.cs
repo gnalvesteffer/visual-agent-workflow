@@ -123,7 +123,7 @@ public partial class WorkflowEditor
                 new(NodeTypes.StringConstant, "String constant", "Values", "A literal text value; evaluated only when a data input needs it", !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
                 new(NodeTypes.TextConcat, "Concatenate text", "Values", "Join two text inputs without activating a node", !ReadOnly && !Disabled && Definition.Nodes.Count < 256)
             ];
-        if (WorkflowSchemaVersions.UsesExplicitGraph(Definition) && Definition.SchemaVersion is WorkflowSchemaVersions.ExplicitBranchGraph or WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpGraph)
+        if (WorkflowSchemaVersions.UsesExplicitGraph(Definition) && Definition.SchemaVersion is WorkflowSchemaVersions.ExplicitBranchGraph or WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph)
         {
             var explicitEntries = new List<WorkflowNodeLibraryEntry>
             {
@@ -159,7 +159,7 @@ public partial class WorkflowEditor
                 explicitEntries.AddRange(Providers.Select(provider => new WorkflowNodeLibraryEntry(
                     ProviderKey(provider), provider.DisplayName, "Agents", $"Agent node · {provider.ModelId}",
                     !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));
-            if (Definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpGraph)
+            if (Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph)
                 explicitEntries.InsertRange(0, Bindings.Select(binding => new WorkflowNodeLibraryEntry(
                     ToolKey(binding), binding.DisplayName, "MCP tools", "Direct deterministic call; node grants and the pinned tool contract still apply",
                     !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));

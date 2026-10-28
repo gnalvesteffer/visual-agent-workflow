@@ -3,7 +3,7 @@
     {
         <WorkflowParameterSettings @key='(Definition.WorkflowId, "settings")' Definition="Definition" DefinitionChanged="next => Edit(() => next)" Disabled="Disabled" />
     }
-    <WorkflowGraphCanvas IdeMode="IdeMode" @ref="canvas" @key="Definition.WorkflowId" Definition="Definition" Layout="EffectiveLayout" LayoutChanged="LayoutEdited" ReadOnly="@(ReadOnly || LayoutReadOnly)" Disabled="Disabled" SelectedNodeId="@selectedNode" SelectedNodeIdChanged="SelectNode" ConnectionSelected="ConnectionSelected" ConnectionDisconnectRequested="id => Edit(() => GraphEditing.Disconnect(Definition, id))" ConnectionRequested="pins => Edit(() => GraphEditing.ConnectPins(Definition, pins.SourceId, pins.SourcePort, pins.TargetId, pins.TargetPort))" ShowNodeLibrary="@(!ReadOnly && (!HideNodeLibrary || showNodeLibrary))" EnableContextMenu="@(!ReadOnly && !Disabled)" NodeCreateRequested="request => AddLibraryNode(request.Key, request.Context)" DeleteNodeRequested="id => RemoveSelected(id)">
+    <WorkflowGraphCanvas IdeMode="IdeMode" @ref="canvas" @key="Definition.WorkflowId" Definition="Definition" Layout="EffectiveLayout" LayoutChanged="LayoutEdited" PortResolver="CanvasPorts" ReadOnly="@(ReadOnly || LayoutReadOnly)" Disabled="Disabled" SelectedNodeId="@selectedNode" SelectedNodeIdChanged="SelectNode" ConnectionSelected="ConnectionSelected" ConnectionDisconnectRequested="id => Edit(() => GraphEditing.Disconnect(Definition, id))" ConnectionRequested="pins => Edit(() => GraphEditing.ConnectPins(Definition, pins.SourceId, pins.SourcePort, pins.TargetId, pins.TargetPort))" ShowNodeLibrary="@(!ReadOnly && (!HideNodeLibrary || showNodeLibrary))" EnableContextMenu="@(!ReadOnly && !Disabled)" NodeCreateRequested="request => AddLibraryNode(request.Key, request.Context)" DeleteNodeRequested="id => RemoveSelected(id)">
     <ToolbarContent>
         @if (HideNodeLibrary)
         { <button type="button" @onclick="ToggleNodeLibrary">@(showNodeLibrary ? "Hide node library" : "Add node")</button> }
@@ -495,7 +495,7 @@
                         else
                         { <button type="button" disabled="@Disabled" @onclick="() => RequestBlockRemoval(id)">Remove conditional block…</button> }
                     }
-                    else if (node.Type == NodeTypes.McpTool && Definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpGraph)
+                    else if (node.Type == NodeTypes.McpTool && DirectMcpAuthoring)
                     {
                         <label>Tool binding
                             <select aria-label="MCP tool for @id" value="@NodeKey(node)" @onchange="args => ChangeType(id, args)" disabled="@(Disabled || GuardedTool(id))">
@@ -507,7 +507,7 @@
                         </label>
                         @if (node.Tool is { } selectedTool && Bindings.FirstOrDefault(candidate => BindingMatches(selectedTool, candidate)) is { } selectedBinding)
                         {
-                            <McpToolArgumentsEditor Tool="selectedBinding" Value="@node.McpArgumentsJson" ValueChanged="args => McpArguments(id, args)" Disabled="@Disabled" />
+                            <McpToolArgumentsEditor Tool="selectedBinding" Value="@node.McpArgumentsJson" ValueChanged="args => McpArguments(id, args)" UseArgumentPins="@SchemaDrivenMcpPins" Disabled="@Disabled" />
                         }
                         else
                         {
@@ -591,7 +591,7 @@
                         @if (node.Type == NodeTypes.McpTool && node.Tool is { } selectedTool &&
                             Bindings.FirstOrDefault(candidate => BindingMatches(selectedTool, candidate)) is { } selectedBinding)
                         {
-                            <McpToolArgumentsEditor Tool="selectedBinding" Value="@node.McpArgumentsJson" ValueChanged="args => McpArguments(id, args)" Disabled="@Disabled" />
+                            <McpToolArgumentsEditor Tool="selectedBinding" Value="@node.McpArgumentsJson" ValueChanged="args => McpArguments(id, args)" UseArgumentPins="@SchemaDrivenMcpPins" Disabled="@Disabled" />
                             <p class="vaw-help">Configured arguments are stored with this workflow and override the connected text input. Clear them to pass the input text as the tool's JSON/text argument.</p>
                         }
                         <div class="vaw-controls">
@@ -628,7 +628,7 @@
                     }
                     </details>
                     }
-                    @if (!ReadOnly && node.Type == NodeTypes.McpTool && Definition.SchemaVersion != WorkflowSchemaVersions.DirectMcpGraph)
+                    @if (!ReadOnly && node.Type == NodeTypes.McpTool && !DirectMcpAuthoring)
                     {
                         @if (!GuardedTool(id))
                         { <button type="button" @onclick="() => Edit(() => GraphEditing.InsertApprovalBefore(Definition, id))" disabled="@(Disabled || Definition.Nodes.Count >= 256)" aria-label="Require approval before @id">Require approval before tool</button> }
@@ -641,7 +641,7 @@
                     { <p class="vaw-node-origin">Copied from @origin.WorkflowId · version @origin.Version. Local edits are independent.</p> }
                     @if (node.Tool is { } tool)
                     { <p>MCP binding: @tool.BindingId · pinned contract @tool.ContractHash[..8]</p> }
-                    @if (node.Type == NodeTypes.McpTool && Definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpGraph)
+                    @if (node.Type == NodeTypes.McpTool && DirectMcpAuthoring)
                     { <p class="vaw-help">This direct call receives a JSON object. For a text tool, pass <code>{"text":"..."}</code> through the input data pin.</p> }
                     @if (node.Agent is { } agent)
                     {
@@ -836,6 +836,8 @@
         return LayoutChanged.InvokeAsync(value);
     }
     [Parameter] public IReadOnlyList<ToolBindingDescriptor> Bindings { get; set; } = [];
+    private bool DirectMcpAuthoring => Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph;
+    private bool SchemaDrivenMcpPins => Definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpPinsGraph;
     [Parameter] public IReadOnlyList<AgentProviderDescriptor> Providers { get; set; } = [];
     [Parameter] public bool ProviderChoicesLoading { get; set; }
     [Parameter] public ISkillLibrary? SkillLibrary { get; set; }
@@ -1187,6 +1189,47 @@
         _ => "is unavailable"
     };
     private static string ToolInputSummary(ToolBindingDescriptor binding) => binding.InputSummary;
+    private static System.Collections.Immutable.ImmutableArray<McpInputPortDefinition> McpInputPorts(ToolBindingDescriptor binding)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(binding.InputSchemaJson);
+            if (!document.RootElement.TryGetProperty("properties", out var properties) || properties.ValueKind != System.Text.Json.JsonValueKind.Object)
+                return [];
+            var required = document.RootElement.TryGetProperty("required", out var requiredValues) && requiredValues.ValueKind == System.Text.Json.JsonValueKind.Array
+                ? requiredValues.EnumerateArray().Where(value => value.ValueKind == System.Text.Json.JsonValueKind.String).Select(value => value.GetString()!).ToHashSet(StringComparer.Ordinal)
+                : new HashSet<string>(StringComparer.Ordinal);
+            return [.. properties.EnumerateObject().Select(property => new McpInputPortDefinition(
+                $"arg.{property.Name}", property.Name, McpPortDataType(property.Value), required.Contains(property.Name)))];
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static string McpPortDataType(System.Text.Json.JsonElement schema) =>
+        schema.TryGetProperty("type", out var type) && type.ValueKind == System.Text.Json.JsonValueKind.String && type.GetString() is "string" or "integer" or "boolean"
+            ? type.GetString()!
+            : "json";
+
+    private System.Collections.Immutable.ImmutableArray<WorkflowPortDescriptor> CanvasPorts(NodeDefinition node)
+    {
+        if (WorkflowSchemaVersions.UsesExplicitGraph(Definition) && node.Type == NodeTypes.McpTool && SchemaDrivenMcpPins)
+        {
+            var ports = node.McpInputPorts ?? (Bindings.FirstOrDefault(binding => node.Tool is not null && BindingMatches(node.Tool, binding)) is { } binding
+                ? McpInputPorts(binding)
+                : []);
+            return [.. ports.Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType, port.Name)),
+                .. WorkflowPorts.ExplicitDataOutputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType)),
+                .. WorkflowPorts.ExplicitExecutionInputs(node).Select(port => new WorkflowPortDescriptor(port, WorkflowPortDirection.Input, WorkflowPortKind.Execution)),
+                .. WorkflowPorts.ExplicitExecutionOutputs(node).Select(port => new WorkflowPortDescriptor(port, WorkflowPortDirection.Output, WorkflowPortKind.Execution))];
+        }
+        return WorkflowSchemaVersions.UsesExplicitGraph(Definition)
+            ? WorkflowPorts.Explicit(node)
+            : [.. WorkflowPorts.Inputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType)),
+                .. WorkflowPorts.Outputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType))];
+    }
     private NodeDefinition FromSelection(string value, NodeDefinition? existing = null)
     {
         if (value == NodeTypes.StringConstant)
@@ -1224,7 +1267,7 @@
             "Use assigned tools when available and return the result.", [])) with { ProviderId = provider.ProviderId });
         var binding = Bindings.SingleOrDefault(b => ToolKey(b) == value);
         return binding is null ? new(value, "1.0.0") : new(NodeTypes.McpTool, "1.0.0", new(binding.BindingId, binding.ContractHash)
-        { DescriptionHash = binding.DescriptionHash });
+        { DescriptionHash = binding.DescriptionHash }) { McpInputPorts = SchemaDrivenMcpPins ? McpInputPorts(binding) : null };
     }
 
     private Task ChangeStringConstant(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
