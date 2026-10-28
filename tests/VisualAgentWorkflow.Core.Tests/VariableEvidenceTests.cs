@@ -24,6 +24,30 @@ public sealed class VariableEvidenceTests
     }
 
     [Fact]
+    public void Playback_preserves_optional_loop_iteration_identity_for_future_bounded_routes()
+    {
+        var events = new[]
+        {
+            Event(1, ExecutionEventKinds.VariableWritten, "set", new { variableId = "count", dataType = "integer", previousValue = 1, value = 2, version = 2L, loopIteration = 1 }),
+            Event(2, ExecutionEventKinds.VariableRead, "get", new { variableId = "count", dataType = "integer", value = 2, version = 2L, loopIteration = 1 })
+        };
+
+        Assert.True(VariableEvidence.TryReconstructPlayback(events, out var snapshot));
+        Assert.All(snapshot!.Operations, operation => Assert.Equal(1, operation.LoopIteration));
+    }
+
+    [Fact]
+    public void Playback_rejects_negative_loop_iteration_identity()
+    {
+        var events = new[]
+        {
+            Event(1, ExecutionEventKinds.VariableRead, "get", new { variableId = "count", dataType = "integer", value = 1, version = 1L, loopIteration = -1 })
+        };
+
+        Assert.False(VariableEvidence.TryRead(events[0], out _));
+    }
+
+    [Fact]
     public void Playback_rejects_a_read_that_disagrees_with_the_recorded_version()
     {
         var events = new[]

@@ -138,13 +138,19 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
 - [x] Implement the store and evidence only after the preceding contracts are
   reviewed; prove default reads, ordered overwrites, isolated runs, and
   cancellation with deterministic runtime tests.
-- [ ] Add loop-order proofs. Cancellation-position is now proven at the atomic
-  variable-store boundary: a pre-cancelled write cannot mutate state or advance
-  its version. The bounded linear schema 1.44 checkpoint frame now captures a
-  hashed variable snapshot with native state, validates it against the pinned
-  definition, and restores it before resumed execution. Failure-injection,
-  cancellation-race, repeated-recovery, and process-loss proofs remain. See
-  [variable checkpoint frame](decisions/0028-variable-checkpoint-frame.md).
+- [ ] Add loop-order proofs. A proof-only evidence seam now carries additive
+  non-negative loop-iteration identity through variable read/write events and
+  passive playback, while schema 1.44 still rejects loop-variable graphs. The
+  eventual loop contract must prove ordering, cancellation, failure after a
+  committed write, and loop-aware checkpoint state before schema 1.45 admission.
+  Cancellation-position is proven at the atomic variable-store boundary: a
+  pre-cancelled write cannot mutate state or advance its version. The bounded
+  linear schema 1.44 checkpoint frame captures a hashed variable snapshot with
+  native state, validates it against the pinned definition, and restores it
+  before resumed execution. Failure-injection, cancellation-race,
+  repeated-recovery, and process-loss proofs remain. See [loop-variable
+  evidence seam](decisions/0029-loop-variable-evidence-seam.md) and [variable
+  checkpoint frame](decisions/0028-variable-checkpoint-frame.md).
 - [x] Add passive playback and prefix reconstruction for variable reads/writes
   without re-execution; the run inspector renders the reconstructed value,
   version, and operation history.

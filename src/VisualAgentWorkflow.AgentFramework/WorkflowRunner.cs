@@ -1094,7 +1094,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         dataType = written.DataType,
                         previousValue = previous.Value,
                         value = written.Value,
-                        version = written.Version
+                        version = written.Version,
+                        loopIteration = received.LoopIteration
                     }));
                 }
                 if (node.Type == NodeTypes.VariableGet)
@@ -1107,7 +1108,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         variableId,
                         dataType = current.DataType,
                         value = current.Value,
-                        version = current.Version
+                        version = current.Version,
+                        loopIteration = received.LoopIteration
                     }));
                 }
                 var result = node.Type switch

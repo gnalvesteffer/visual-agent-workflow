@@ -4,7 +4,7 @@ namespace VisualAgentWorkflow.Core;
 
 /// <summary>Versioned, passive evidence for schema-1.44 variable reads and writes.</summary>
 public sealed record VariableStateEvidence(string VariableId, string DataType, string Value,
-    string? PreviousValue, long Version, int EvidenceVersion = 1);
+    string? PreviousValue, long Version, int LoopIteration = 0, int EvidenceVersion = 1);
 
 public static class VariableEvidence
 {
@@ -31,7 +31,10 @@ public static class VariableEvidence
                 if (!TryValue(previousElement, out previous) || previous.Length > MaximumValueLength) return false;
             }
             if (executionEvent.Kind == ExecutionEventKinds.VariableWritten && !root.TryGetProperty("previousValue", out _)) return false;
-            evidence = new(variableId, dataType, value, previous, version);
+            var loopIteration = 0;
+            if (root.TryGetProperty("loopIteration", out var loopElement) &&
+                (!loopElement.TryGetInt32(out loopIteration) || loopIteration < 0)) return false;
+            evidence = new(variableId, dataType, value, previous, version, loopIteration);
             return WorkflowVariableStore.Parse(dataType, value) is not null &&
                 (previous is null || WorkflowVariableStore.Parse(dataType, previous) is not null);
         }
@@ -76,7 +79,8 @@ public static class VariableEvidence
                 values[evidence.VariableId] = new(evidence.DataType, evidence.Value, evidence.Version);
             }
             operations.Add(new(executionEvent.Sequence, executionEvent.Kind == ExecutionEventKinds.VariableWritten ? "write" : "read",
-                evidence.VariableId, evidence.DataType, evidence.Value, evidence.PreviousValue, evidence.Version, executionEvent.NodeId));
+                evidence.VariableId, evidence.DataType, evidence.Value, evidence.PreviousValue, evidence.Version,
+                evidence.LoopIteration, executionEvent.NodeId));
         }
         snapshot = new(scope, values, operations);
         return true;
@@ -110,7 +114,7 @@ public static class VariableEvidence
 
 public sealed record VariablePlaybackValue(string DataType, string Value, long Version);
 public sealed record VariablePlaybackOperation(long Sequence, string Kind, string VariableId, string DataType,
-    string Value, string? PreviousValue, long Version, string NodeId);
+    string Value, string? PreviousValue, long Version, int LoopIteration, string NodeId);
 public sealed record VariablePlaybackSnapshot(string? ScopeId,
     IReadOnlyDictionary<string, VariablePlaybackValue> Values,
     IReadOnlyList<VariablePlaybackOperation> Operations);
