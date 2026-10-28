@@ -1232,6 +1232,32 @@
         }
     }
 
+    private static System.Collections.Generic.IReadOnlyDictionary<string, string> McpInputDescriptions(ToolBindingDescriptor binding)
+    {
+        const int maximumDescriptionLength = 2048;
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(binding.InputSchemaJson);
+            if (!document.RootElement.TryGetProperty("properties", out var properties) || properties.ValueKind != System.Text.Json.JsonValueKind.Object)
+                return new Dictionary<string, string>(StringComparer.Ordinal);
+
+            var descriptions = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var property in properties.EnumerateObject())
+            {
+                if (!property.Value.TryGetProperty("description", out var description) || description.ValueKind != System.Text.Json.JsonValueKind.String)
+                    continue;
+                var value = description.GetString()?.Trim();
+                if (value is not null && value.Length <= maximumDescriptionLength && !value.Any(character => char.IsControl(character) && character is not '\r' and not '\n' and not '\t'))
+                    descriptions.TryAdd($"arg.{property.Name}", value);
+            }
+            return descriptions;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+    }
+
     private static string McpPortDataType(System.Text.Json.JsonElement schema) =>
         schema.TryGetProperty("type", out var type) && type.ValueKind == System.Text.Json.JsonValueKind.String && type.GetString() is "string" or "integer" or "number" or "boolean"
             ? type.GetString()!
@@ -1244,7 +1270,10 @@
             var ports = node.McpInputPorts ?? (Bindings.FirstOrDefault(binding => node.Tool is not null && BindingMatches(node.Tool, binding)) is { } binding
                 ? McpInputPorts(binding)
                 : []);
-            return WorkflowPorts.Explicit(node, ports);
+            var descriptions = Bindings.FirstOrDefault(binding => node.Tool is not null && BindingMatches(node.Tool, binding)) is { } matchingBinding
+                ? McpInputDescriptions(matchingBinding)
+                : null;
+            return WorkflowPorts.Explicit(node, ports, descriptions);
         }
         return WorkflowSchemaVersions.UsesExplicitGraph(Definition)
             ? WorkflowPorts.Explicit(node)

@@ -158,7 +158,7 @@
                     var direction = inspectorTab == "inputs" ? WorkflowPortDirection.Input : WorkflowPortDirection.Output;
                     <dl class="vaw-inspector-ports">
                         @foreach (var port in Ports(Definition.Nodes[selection]).Where(item => item.Direction == direction))
-                        { <dt>@(port.DisplayName ?? port.Id)</dt><dd>@(port.DataType ?? "execution") · @port.Kind.ToString().ToLowerInvariant()</dd> }
+                        { <dt>@(port.DisplayName ?? port.Id)</dt><dd>@(port.DataType ?? "execution") · @port.Kind.ToString().ToLowerInvariant()@if (!string.IsNullOrWhiteSpace(port.Description)) { <span class="vaw-help vaw-port-description">@port.Description</span> }</dd> }
                     </dl>
                     @if (!Ports(Definition.Nodes[selection]).Any(item => item.Direction == direction)) { <p class="vaw-help">This node has no @(inspectorTab == "inputs" ? "input" : "output") pins.</p> }
                 }

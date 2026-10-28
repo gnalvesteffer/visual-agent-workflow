@@ -428,6 +428,8 @@
 .vaw-properties .vaw-inspector pre { max-block-size: 15rem; overflow: auto; }
 .vaw-properties .vaw-approval { padding: var(--vaw-space-3); }
 .vaw-properties :where(.vaw-inspector h3) { font-size: 1rem; }
+.vaw-inspector-ports dd { display: grid; gap: .2rem; }
+.vaw-port-description { display: block; line-height: 1.35; }
 .vaw-canvas-toolbar [aria-label="Playback controls"] { flex: 1 1 100%; margin: 0; }
 .vaw-canvas-toolbar .vaw-controls label { flex: 1; }
 .vaw-workflow-search { flex: 0 1 12rem; }

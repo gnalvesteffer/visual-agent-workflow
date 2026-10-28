@@ -215,6 +215,28 @@ public sealed class DirectMcpGraphTests
         Assert.Contains(persistedPorts, port => port.Id == "arg.path" && port.Required && port.SupportsStaticValue);
     }
 
+    [Fact]
+    public void Mcp_pin_descriptions_are_transient_display_metadata_and_do_not_change_persisted_pin_shape()
+    {
+        var discovered = new[]
+        {
+            new McpInputPortDefinition("arg.query", "query", "string", true),
+            new McpInputPortDefinition("arg.limit", "limit", "integer", false)
+        }.ToImmutableArray();
+        var descriptions = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["arg.query"] = "The search text to send to the tool."
+        };
+        var tool = new NodeDefinition(NodeTypes.McpTool, "1.0.0", new ToolBindingRequest("demo.search", new string('a', 64)));
+
+        var ports = WorkflowPorts.Explicit(tool, discovered, descriptions);
+
+        Assert.Equal("The search text to send to the tool.", ports.Single(port => port.Id == "arg.query").Description);
+        Assert.Null(ports.Single(port => port.Id == "arg.limit").Description);
+        Assert.Null(tool.McpInputPorts);
+        Assert.Equal(5, ports.Count(port => port.Direction == WorkflowPortDirection.Input || port.Direction == WorkflowPortDirection.Output));
+    }
+
     private static WorkflowDefinition Definition() => new(
         WorkflowSchemaVersions.DirectMcpGraph, "direct-mcp", "input",
         new Dictionary<string, NodeDefinition>

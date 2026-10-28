@@ -8,6 +8,9 @@ public enum WorkflowPortDirection { Input, Output }
 public enum WorkflowPortCardinality { AtMostOne, ExactlyOne, Many }
 public sealed record WorkflowPortDescriptor(string Id, WorkflowPortDirection Direction, WorkflowPortKind Kind, string? DataType = null, string? DisplayName = null)
 {
+    /// <summary>Transient, untrusted authoring guidance from a live capability schema; never persisted or executed.</summary>
+    public string? Description { get; init; }
+
     /// <summary>Whether the pin must receive or emit a connection in an executable graph.</summary>
     public bool Required { get; init; }
 
@@ -39,19 +42,22 @@ public static class WorkflowPorts
     /// </summary>
     public static ImmutableArray<WorkflowPortDescriptor> Explicit(
         NodeDefinition node,
-        ImmutableArray<McpInputPortDefinition>? discoveredMcpInputPorts = null)
+        ImmutableArray<McpInputPortDefinition>? discoveredMcpInputPorts = null,
+        IReadOnlyDictionary<string, string>? discoveredMcpInputDescriptions = null)
     {
         if (node.Type == NodeTypes.McpTool && discoveredMcpInputPorts.HasValue && node.McpInputPorts is null)
             node = node with { McpInputPorts = discoveredMcpInputPorts.Value };
 
-        return ExplicitCore(node);
+        return ExplicitCore(node, discoveredMcpInputDescriptions);
     }
 
-    private static ImmutableArray<WorkflowPortDescriptor> ExplicitCore(NodeDefinition node) =>
+    private static ImmutableArray<WorkflowPortDescriptor> ExplicitCore(NodeDefinition node, IReadOnlyDictionary<string, string>? discoveredMcpInputDescriptions = null) =>
         WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor)
             ? staticDescriptor.Ports
             : [.. ExplicitDataInputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType)
          {
+             Description = node.Type == NodeTypes.McpTool && discoveredMcpInputDescriptions is not null &&
+                 discoveredMcpInputDescriptions.TryGetValue(port.Id, out var description) ? description : null,
              Required = node.Type != NodeTypes.McpTool || node.McpInputPorts is not { } inputPorts ||
                  inputPorts.FirstOrDefault(candidate => candidate.Id == port.Id)?.Required == true,
              Cardinality = node.Type == NodeTypes.McpTool ? WorkflowPortCardinality.AtMostOne : WorkflowPortCardinality.ExactlyOne,
