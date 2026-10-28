@@ -84,6 +84,9 @@ public partial class WorkflowEditor
     private bool CanUpgradeNumberGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpPinsGraph &&
         WorkflowValidator.Validate(Definition).IsEmpty;
     private Task EnableNumberGraphPreview() => Edit(() => GraphEditing.EnableNumberGraph(Definition));
+    private bool CanUpgradeNumberPropagationGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.NumberGraph &&
+        WorkflowValidator.Validate(Definition).IsEmpty;
+    private Task EnableNumberPropagationPreview() => Edit(() => GraphEditing.EnableNumberPropagationGraph(Definition));
     private int configurableParallelBranchCount = 3;
     private bool CanCreateConfigurableParallelGraph
     {

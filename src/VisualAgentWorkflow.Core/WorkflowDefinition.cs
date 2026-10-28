@@ -164,6 +164,8 @@ public static class WorkflowSchemaVersions
 
     public static bool UsesExplicitGraph(string? version) => version is ExplicitGraph or ExplicitBranchGraph or TypedBooleanGraph or BooleanTopologyGraph or PureGraphFunctions or AgentGraphFunctionTools or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph;
 
+    public static bool UsesDirectMcpPins(string? version) => version is DirectMcpPinsGraph or NumberGraph or NumberPropagationGraph;
+
     public static bool UsesExplicitGraph(WorkflowDefinition definition) =>
         UsesExplicitGraph(definition.SchemaVersion) ||
         definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph && definition.ExecutionConnections is not null;

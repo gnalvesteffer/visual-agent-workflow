@@ -1,6 +1,6 @@
 # Finite number propagation into parameters and pure functions
 
-**Status: Accepted contract gate; implementation in progress**  
+**Status: Accepted and shipped as a bounded contract**
 **Scope: Blueprint-inspired authoring contracts**  
 **Decision date: 2026-10-27**
 
@@ -14,11 +14,13 @@ those two existing pure-data boundaries.
 
 ## Contract gate
 
-Schema 1.41 adds only finite-number propagation:
+Schema 1.41 adds only finite-number propagation across the existing typed-MCP pin boundary:
 
 - `number` workflow parameters may feed a typed Workflow value node.
 - Pure graph functions may declare `number` inputs and outputs and may contain
   Number constants and number-to-number body edges.
+- Existing schema 1.40 direct-MCP pin graphs can be explicitly promoted so a
+  finite `number` workflow parameter can feed a persisted `number` MCP pin.
 - Compatibility remains exact identity: only `number` connects to `number`.
 - Values are finite IEEE-754 `System.Double`; NaN and both infinities are
   rejected at declaration, override, evaluation, serialization, and runtime
@@ -43,9 +45,10 @@ reinterpret number values.
 
 ## Required proof
 
-The implementation is not considered shipped until tests prove legacy and 1.40
-round trips/hashes, schema gating, parameter default/override parity, lexical
-and finite boundaries, exact pin compatibility, graph-function hashes and
-packages, lazy evaluation, numeric evidence, passive playback, and unchanged
-direct-MCP JSON-number emission. Invalid drafts may be saved but cannot publish
-or execute.
+The shipped slice is covered by legacy/1.40 compatibility tests, schema gating,
+parameter default/override parsing, lexical and finite boundaries, exact pin
+compatibility, typed numeric evidence, negative-zero preservation, explicit
+1.40-to-1.41 promotion, and unchanged 1.40 JSON-number emission. Invalid
+drafts may be saved but cannot publish or execute. Numeric operators,
+conversions, containers, and generic numeric workflow outputs remain future
+parity work.

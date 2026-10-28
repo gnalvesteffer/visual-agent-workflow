@@ -80,6 +80,24 @@ public sealed class DirectMcpExecutionTests
         Assert.Equal(12.5d, arguments.RootElement.GetProperty("amount").GetDouble());
     }
 
+    [Fact]
+    public async Task Schema_1_41_resolves_a_number_parameter_into_a_persisted_mcp_pin()
+    {
+        var broker = new RecordingBroker();
+        var events = new List<ExecutionEvent>();
+        var result = await new WorkflowRunner(broker).ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(NumberParameterPinDefinition(), "test"), "ignored",
+            new Dictionary<string, string> { ["amount"] = "-0" },
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        using var arguments = JsonDocument.Parse(broker.Input!);
+        Assert.Equal(JsonValueKind.Number, arguments.RootElement.GetProperty("amount").ValueKind);
+        Assert.True(double.IsNegative(arguments.RootElement.GetProperty("amount").GetDouble()));
+        var evidence = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "amount");
+        Assert.Contains("\"dataType\":\"number\"", evidence.Data, StringComparison.Ordinal);
+    }
+
     private static WorkflowDefinition Definition() => new(
         WorkflowSchemaVersions.DirectMcpGraph, "direct-mcp-runtime", "input",
         new Dictionary<string, NodeDefinition>
@@ -151,6 +169,17 @@ public sealed class DirectMcpExecutionTests
             ["activate-tool"] = new(new("input", "then"), new("tool", "execute"), "execution"),
             ["complete"] = new(new("tool", "then"), new("output", "execute"), "execution")
         }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+    };
+
+    private static WorkflowDefinition NumberParameterPinDefinition() => NumberPinDefinition() with
+    {
+        SchemaVersion = WorkflowSchemaVersions.NumberPropagationGraph,
+        Nodes = NumberPinDefinition().Nodes.SetItem("amount", new(NodeTypes.WorkflowValue, "1.0.0")
+        {
+            ParameterId = "amount", OutputDataType = WorkflowDataTypes.Number
+        }),
+        Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+            .Add("amount", new WorkflowParameterDefinition("Amount", "12.5") { Type = "number" })
     };
 
     private sealed class RecordingBroker : INodeToolBroker

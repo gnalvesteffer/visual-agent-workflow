@@ -38,6 +38,16 @@ upgrade, pin compatibility, rejection, round-trip behavior, and broker payload
 kind. Numeric operators, parameter/function number ports, and nested numeric
 pins remain deferred. See [finite number primitive](decisions/0006-finite-number-primitive.md).
 
+## Finite-number parameter propagation
+
+Schema 1.41 extends the finite-number contract across typed Workflow value
+nodes and pure graph-function ports. It also provides an explicit promotion
+from schema 1.40 so a finite number parameter can feed an existing persisted
+direct-MCP number pin. Runtime emits a JSON number and records typed evidence;
+legacy definitions and 1.40 hashes remain unchanged. Numeric operators,
+conversions, containers, nested numeric expansion, and generic numeric outputs
+remain deferred. See [finite number propagation](decisions/0007-finite-number-propagation.md).
+
 ## Agent-selected execution routes
 
 Schema 1.30 lets an Agent node declare up to 16 stable route IDs, labels, and descriptions. Studio renders labeled execution pins and preserves stable pin IDs when labels change. The Agent Framework adapter exposes an invocation-scoped `select_route` function constrained to those authored IDs; it is an internal function and grants no MCP or graph access. The runner requires exactly one valid selection, latches it, and dispatches only after successful agent completion. Missing, duplicate, unknown, or later-discarded proposals fail without activating a route. Proposed, rejected, committed, and discarded selections are recorded for replay. Removing a route preserves its old edge as an invalid draft issue; save remains available while publish and execution validation stay strict. Runtime tests cover selected dispatch, missing selection, and provider failure after proposal; a validator regression covers removed-route edges. The Playwright smoke exercises route editing, pin labels, save, and incomplete-draft validation. Providers must support function calling. See [agent-selected routes](graph-values.md#agent-selected-routes).

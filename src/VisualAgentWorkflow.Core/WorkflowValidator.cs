@@ -88,13 +88,13 @@ public static class WorkflowValidator
                 parameter.DisplayName.Length > 128 || parameter.DefaultValue is null || parameter.DefaultValue.Length > 16_384 ||
                 parameter.Description?.Length > 512 ||
                 parameter.Type is not (null or "string" or "integer" or "number" or "boolean" or "choice") ||
-                parameter.Type is not (null or "string") && definition.SchemaVersion is not ("1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph) ||
+                parameter.Type is not (null or "string") && definition.SchemaVersion is not ("1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph) ||
                 parameter.Type == "choice" && (parameter.Choices is not { Length: > 0 and <= 32 } choices ||
                     choices.Any(choice => string.IsNullOrEmpty(choice) || choice.Length > 128) || choices.Distinct(StringComparer.Ordinal).Count() != choices.Length) ||
                 parameter.Type != "choice" && parameter.Choices is not null)
                 Error("parameter.definition", $"parameters.{id}", "Parameters require a safe ID, display name up to 128 characters, and a string default up to 16,384 characters.");
         foreach (var (id, parameter) in parameters)
-            if (parameter is not null && !WorkflowParameters.IsValidValue(parameter, parameter.DefaultValue))
+            if (parameter is not null && !WorkflowParameters.IsValidValue(parameter, parameter.DefaultValue, definition.SchemaVersion == WorkflowSchemaVersions.NumberPropagationGraph))
                 Error("parameter.default", $"parameters.{id}.defaultValue", "The default must match its declared type and allowed choices.");
         if (parameters.Sum(parameter => (long)parameter.Key.Length + (parameter.Value?.DisplayName.Length ?? 0) + (parameter.Value?.DefaultValue.Length ?? 0) + (parameter.Value?.Description?.Length ?? 0)) > 128_000)
             Error("parameters.size", "parameters", "Combined parameter IDs, display names, descriptions, and defaults must not exceed 128,000 characters.");
@@ -210,7 +210,7 @@ public static class WorkflowValidator
                  mcpArguments.Length > 65_536 || !IsJsonObject(mcpArguments)))
                 Error("mcp.arguments", $"nodes.{id}.mcpArgumentsJson", "MCP arguments must be a JSON object of at most 65,536 characters.");
             if (node.McpInputPorts is not null &&
-                (definition.SchemaVersion is not (WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph) || node.Type != NodeTypes.McpTool ||
+                (!WorkflowSchemaVersions.UsesDirectMcpPins(definition.SchemaVersion) || node.Type != NodeTypes.McpTool ||
                  node.McpInputPorts.Value.Any(port => port is null || string.IsNullOrWhiteSpace(port.Id) || string.IsNullOrWhiteSpace(port.Name) ||
                      port.Id.Length > 256 || port.Name.Length > 256 || !WorkflowDataTypeCatalog.IsSupported(port.DataType) ||
                      !port.Id.StartsWith("arg.", StringComparison.Ordinal))))
@@ -282,7 +282,7 @@ public static class WorkflowValidator
                 Error("node.schema", $"nodes.{id}", "Conditional and merge nodes require schema 1.4.");
             if (node.Type == NodeTypes.WorkflowValue)
             {
-                if (definition.SchemaVersion is not ("1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)) Error("node.schema", $"nodes.{id}", "Workflow value nodes require schema 1.6 or later.");
+                if (definition.SchemaVersion is not ("1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph)) Error("node.schema", $"nodes.{id}", "Workflow value nodes require schema 1.6 or later.");
                 if (node.ParameterId is not { } parameterId || !parameters.ContainsKey(parameterId))
                     Error("parameter.reference", $"nodes.{id}.parameterId", "Select a parameter defined by this workflow.");
                 if (definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph &&
@@ -551,7 +551,7 @@ public static class WorkflowValidator
 
         if (WorkflowSchemaVersions.UsesExplicitGraph(definition))
         {
-            if (definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph)
+            if (definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph)
                 ValidateDirectMcpGraph(definition, Error);
             else if (definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph)
                 ValidateExplicitGraph(definition, Error);
@@ -683,7 +683,7 @@ public static class WorkflowValidator
 
     private static void ValidateDirectMcpGraph(WorkflowDefinition definition, Action<string, string, string> error)
     {
-        var pinsGraph = definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph;
+        var pinsGraph = WorkflowSchemaVersions.UsesDirectMcpPins(definition.SchemaVersion);
         if (definition.ExecutionConnections is null)
         {
             error("execution.missing", "executionConnections", $"Schema {definition.SchemaVersion} requires explicit execution connections.");
@@ -695,10 +695,12 @@ public static class WorkflowValidator
             NodeTypes.Input, NodeTypes.Output, NodeTypes.StringConstant, NodeTypes.TextConcat,
             NodeTypes.IntegerConstant, NodeTypes.BooleanConstant, NodeTypes.McpTool
         };
-        if (definition.SchemaVersion == WorkflowSchemaVersions.NumberGraph)
+        if (definition.SchemaVersion is WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph)
         {
             supportedTypes.Add(NodeTypes.NumberConstant);
         }
+        if (definition.SchemaVersion == WorkflowSchemaVersions.NumberPropagationGraph)
+            supportedTypes.Add(NodeTypes.WorkflowValue);
         foreach (var (id, node) in definition.Nodes)
             if (node is null || !supportedTypes.Contains(node.Type))
                 error("execution.node.unsupported", $"nodes.{id}", $"Schema {definition.SchemaVersion} supports input, output, deterministic data nodes, and direct MCP tool nodes.");

@@ -64,6 +64,18 @@ public static class GraphEditing
         return upgraded;
     }
 
+    /// <summary>Promotes a number-pin graph so workflow number parameters can feed its persisted pins.</summary>
+    public static WorkflowDefinition EnableNumberPropagationGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.NumberGraph || definition.ExecutionConnections is null)
+            throw new ArgumentException("Enable finite number MCP pins before binding workflow number parameters.", nameof(definition));
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var upgraded = definition with { SchemaVersion = WorkflowSchemaVersions.NumberPropagationGraph };
+        WorkflowValidator.ThrowIfInvalid(upgraded);
+        return upgraded;
+    }
+
     /// <summary>Upgrades a valid schema 1.24 branch preview to the bounded Boolean primitive subset.</summary>
     public static WorkflowDefinition EnableTypedBooleanGraph(WorkflowDefinition definition)
     {

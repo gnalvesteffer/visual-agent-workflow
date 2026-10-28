@@ -95,7 +95,7 @@ From a valid linear typed graph, select **Enable direct MCP tools** in the node 
 
 On a valid schema 1.37 direct-MCP graph, choose **Enable number graph values** to move to schema 1.40. This adds the **Number constant** and allows top-level MCP `number` properties to be connected as typed pins; it does not add implicit integer conversion, numeric operators, or nested numeric pins.
 
-Schema 1.41 number propagation is documented as a contract-gated roadmap slice and is not currently available in the Studio; it will add typed number workflow parameters and pure graph-function ports after the compatibility and evidence tests land.
+On a valid schema 1.40 number-pin graph, choose **Enable workflow number parameters** to promote it to schema 1.41. A finite `number` workflow parameter can then feed a typed Workflow value node connected to an existing persisted MCP `number` pin. The value is sent as a JSON number and recorded as typed evidence; no string/number coercion, numeric operators, nested numeric pins, or generic numeric workflow output is added.
 
 The direct node's properties pane is generated from the selected tool's supported JSON Schema, including scalar values, enums, nested JSON values, arrays, required/optional fields, and field descriptions. Values are workflow data, not secret storage. The host broker still checks the node grant, pinned contract, live schema, and invocation limits on every call; contract drift fails closed. Nested objects and arrays remain JSON pins in schema 1.37. Direct MCP graphs are intentionally straight-line deterministic graphs; they do not add direct tools to existing Agent, branch, parallel, loop or approval graphs.
 

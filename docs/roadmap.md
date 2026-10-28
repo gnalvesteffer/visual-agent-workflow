@@ -26,18 +26,19 @@ The repository already has this phase; no second Blueprint-parity phase is neede
 
 The high-level work is therefore tracked in the checklist below. Items marked as shipped in the capability matrix are evidence for the baseline, not a claim that unrestricted Unreal Blueprint compatibility exists. The next implementation increments should close one unchecked contract boundary at a time and update the matrix, tests, and user documentation together.
 
-The first numeric vertical slice is now shipped in schema 1.40: a finite number
-type, Number constant, top-level numeric direct-MCP pins, and JSON-number
+The first numeric vertical slice shipped in schema 1.40: a finite number type,
+Number constant, top-level numeric direct-MCP pins, and JSON-number
 serialization. Integer/number conversion, numeric operators, numeric
-parameters, nested numeric pin expansion, and graph-function number ports remain
-explicitly deferred. See [finite number primitive](decisions/0006-finite-number-primitive.md).
+parameters, nested numeric pin expansion, and graph-function number ports were
+explicitly deferred to the 1.41 slice below. See [finite number primitive](decisions/0006-finite-number-primitive.md).
 
-The next reviewed increment is schema 1.41 finite-number propagation. Its
-contract gate is accepted but implementation is not yet shipped: number
-workflow parameters may feed typed Workflow value nodes, and pure graph
-functions may expose number inputs/outputs and number constants. Operators,
-conversions, containers, mutable variables, Sequence, nested MCP numbers, and
-generic workflow outputs remain deferred. See [finite number propagation](decisions/0007-finite-number-propagation.md).
+Schema 1.41 finite-number propagation is now shipped as a bounded vertical
+slice: finite number parameters can feed typed Workflow value nodes and the
+existing persisted direct-MCP number pins, while pure graph functions can
+expose number inputs/outputs and number constants. The Studio exposes an
+explicit promotion from schema 1.40 to 1.41. Operators, conversions,
+containers, mutable variables, Sequence, nested MCP numbers, and generic
+workflow outputs remain deferred. See [finite number propagation](decisions/0007-finite-number-propagation.md).
 
 The first static pin-descriptor increment is now implemented: schema-independent
 descriptors for the approved pure-value node family are resolved by Core's

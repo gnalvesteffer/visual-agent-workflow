@@ -104,6 +104,34 @@ public sealed class DirectMcpGraphTests
         Assert.Equal(WorkflowDataTypes.Number, definition.Nodes["tool"].McpInputPorts!.Value[0].DataType);
     }
 
+    [Fact]
+    public void Schema_1_41_accepts_a_finite_number_parameter_on_a_persisted_mcp_pin()
+    {
+        var baseline = NumberPinDefinition();
+        var definition = baseline with
+        {
+            SchemaVersion = WorkflowSchemaVersions.NumberPropagationGraph,
+            Nodes = baseline.Nodes.SetItem("amount", new(NodeTypes.WorkflowValue, "1.0.0")
+            {
+                ParameterId = "amount", OutputDataType = WorkflowDataTypes.Number
+            }),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("amount", new WorkflowParameterDefinition("Amount", "12.5") { Type = "number" })
+        };
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+    }
+
+    [Fact]
+    public void Number_parameter_graph_can_upgrade_without_rewriting_mcp_pin_contract()
+    {
+        var upgraded = GraphEditing.EnableNumberPropagationGraph(NumberPinDefinition());
+
+        Assert.Equal(WorkflowSchemaVersions.NumberPropagationGraph, upgraded.SchemaVersion);
+        Assert.Equal(NumberPinDefinition().Nodes["tool"].McpInputPorts, upgraded.Nodes["tool"].McpInputPorts);
+        Assert.Empty(WorkflowValidator.Validate(upgraded));
+    }
+
     [Theory]
     [InlineData(double.NaN)]
     [InlineData(double.PositiveInfinity)]

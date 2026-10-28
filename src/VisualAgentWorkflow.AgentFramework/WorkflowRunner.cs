@@ -1026,7 +1026,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         ? throw new InvalidOperationException("The workflow parameter was not resolved for this run.") : value,
                     NodeTypes.Uppercase => message.ToUpperInvariant(),
                     NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
-                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph
+                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph
                         ? await InvokeDirectMcpTool(message, invocation, toolArgumentEvaluations, cancellationToken)
                         : await InvokeTool(message, invocation, cancellationToken),
                     NodeTypes.WorkflowCall => childOutcome?.Output ?? string.Empty,
@@ -1318,7 +1318,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         {
             if (tools is null) throw new InvalidOperationException("No tool broker is configured.");
             JsonObject arguments;
-            if (revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph && node.McpInputPorts is not null && node.McpArgumentsJson is null)
+            if (WorkflowSchemaVersions.UsesDirectMcpPins(revision.Definition.SchemaVersion) && node.McpInputPorts is not null && node.McpArgumentsJson is null)
             {
                 arguments = new();
             }
@@ -1332,7 +1332,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 try { arguments = JsonNode.Parse(input)?.AsObject() ?? throw new InvalidOperationException("A direct MCP node requires a JSON object of tool arguments. For text tools, use {\"text\":\"...\"}."); }
                 catch (JsonException exception) { throw new InvalidOperationException("A direct MCP node requires a JSON object of tool arguments. For text tools, use {\"text\":\"...\"}.", exception); }
             }
-            if (revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph && node.McpInputPorts is { } inputPorts)
+            if (WorkflowSchemaVersions.UsesDirectMcpPins(revision.Definition.SchemaVersion) && node.McpInputPorts is { } inputPorts)
             {
                 foreach (var port in inputPorts)
                 {
