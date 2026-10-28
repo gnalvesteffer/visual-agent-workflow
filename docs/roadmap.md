@@ -41,6 +41,8 @@ Make every Blueprint-inspired authoring affordance traceable to a stable definit
 - [ ] **Verification:** add deterministic contract/runtime tests, compatibility and failure cases, browser authoring smokes, package/playback proofs, and responsiveness/accessibility checks for each shipped increment.
 - [ ] **Expansion gate:** promote richer containers, mutable variables, events, nested control flow, interfaces, templates, or durable waits into separate roadmap phases only after their contracts, compatibility policy, security boundary, and evidence semantics are reviewed and proven.
 
+Descriptor progress: Core now has a canonical node-family catalog for stable display/category/description, pin-shape, purity, dynamic-pin, and host-capability metadata. Runtime limits, activation/failure/evidence fields, and Studio consumption remain part of the unchecked descriptor work.
+
 ### Sequencing and exit criteria
 
 1. Baseline matrix and terminology.

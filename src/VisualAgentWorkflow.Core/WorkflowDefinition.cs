@@ -134,8 +134,7 @@ public static class NodeTypes
     public const string FunctionOutput = "core.function.output";
     public const string FunctionCall = "core.function.call";
 
-    public static bool IsSupported(string? type) =>
-        type is Input or Uppercase or Reverse or Output or McpTool or Agent or Condition or Merge or Approval or WorkflowValue or JsonSelectString or JsonProject or TextTemplate or ParallelFork or ParallelBranch or ParallelJoin or ParallelRendezvous or Loop or LoopBody or Terminate or WorkflowCall or StringConstant or TextConcat or StringEquals or BooleanBranch or BooleanConstant or BooleanNot or IntegerConstant or IntegerAdd or IntegerEquals or FunctionInput or FunctionOutput or FunctionCall;
+    public static bool IsSupported(string? type) => WorkflowNodeContractCatalog.TryGet(type, out _);
 }
 
 public static class WorkflowSchemaVersions
