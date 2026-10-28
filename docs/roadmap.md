@@ -173,6 +173,8 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   resumable boundary. Frame validation also compares any recorded variable
   read/write prefix with the captured scalar snapshot, rejecting a
   hash-consistent but evidence-inconsistent state. The bounded
+  durable-loop proof also covers cancellation immediately after publication;
+  the saved suspension remains resumable. The bounded
   linear schema 1.44 checkpoint frame captures a hashed variable snapshot with
   native state, validates it against the pinned definition, and restores it
   before resumed execution. Failure-injection, cancellation-race around durable

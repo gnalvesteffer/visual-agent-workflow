@@ -79,6 +79,8 @@ established by this proof.
 - [x] Inject loop checkpoint publication failure and verify the SQLite
   transaction leaves no capture marker, checkpoint pointer, or resumable
   boundary.
+- [x] Cancel immediately after durable publication and verify the committed
+  suspension remains internally valid and resumable.
 - Reject stale, advanced, foreign, malformed, oversized, tampered, terminal,
   and unsettled frames before native execution begins.
 - Preserve schema 1.44 and older checkpoint formats and behavior unchanged.

@@ -230,6 +230,37 @@ public sealed class MutableVariableExecutionTests
     }
 
     [Fact]
+    public async Task Cancellation_after_durable_loop_publication_preserves_the_saved_boundary()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "vaw-loop-cancel-publication-" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var database = Path.Combine(directory, "runs.sqlite3");
+            var store = new SqliteWorkflowRunStore(database);
+            var revision = WorkflowRevision.Create(LoopDefinition(), "loop-checkpoint-cancel-publication");
+            var initial = store.Create(revision, "continue");
+            using var cancellation = new CancellationTokenSource();
+            var sink = new DurableLoopProofSink(store, initial, revision, restored: null, suspendAfter: 4, cancellation);
+
+            var result = await new WorkflowRunner().ExecuteCheckpointedProofAsync(
+                initial.Header.RunId, revision, "continue", sink.RecordAsync, sink, cancellation.Token);
+
+            Assert.Null(result);
+            Assert.True(cancellation.IsCancellationRequested);
+            var stored = store.Get(initial.Header.RunId)!;
+            var checkpoint = store.GetCheckpoint(initial.Header.RunId);
+            Assert.NotNull(checkpoint);
+            Assert.Equal("suspended", stored.Status);
+            Assert.True(WorkflowCheckpointRecovery.Assess(stored, checkpoint).CanResume);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public async Task Loop_checkpoint_round_trips_through_independent_test_processes_and_durable_frame()
     {
         var directory = Path.Combine(Path.GetTempPath(), "vaw-loop-process-" + Guid.NewGuid());
@@ -523,7 +554,8 @@ public sealed class MutableVariableExecutionTests
     private sealed record ProbeProcessResult(int ExitCode, string StandardOutput, string StandardError);
 
     private sealed class DurableLoopProofSink(SqliteWorkflowRunStore store, RunSnapshot initial,
-        WorkflowRevision revision, NativeWorkflowCheckpoint? restored, int? suspendAfter) : IWorkflowCheckpointSink
+        WorkflowRevision revision, NativeWorkflowCheckpoint? restored, int? suspendAfter,
+        CancellationTokenSource? cancelAfterCommit = null) : IWorkflowCheckpointSink
     {
         private RunSnapshot snapshot = initial;
         public NativeWorkflowCheckpoint? RestoredCheckpoint => restored;
@@ -574,6 +606,7 @@ public sealed class MutableVariableExecutionTests
                 throw;
             }
             LastCheckpointId = native.CheckpointId;
+            cancelAfterCommit?.Cancel();
             return ValueTask.FromResult(true);
         }
     }

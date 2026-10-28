@@ -23,7 +23,9 @@ rejected before native recovery. This remains a proof boundary, not production
 loop admission. A loop-specific publication-failure regression also verifies
 that the atomic SQLite transaction leaves no partial capture marker or
 checkpoint pointer. When variable evidence is present, validation also checks
-that the captured scalar snapshot agrees with that passive prefix. See
+that the captured scalar snapshot agrees with that passive prefix. The proof
+also covers cancellation immediately after durable publication; the saved
+suspension remains resumable. See
 [decision
 0031](decisions/0031-loop-checkpoint-proof-frame.md).
 
