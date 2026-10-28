@@ -206,7 +206,10 @@ public class WorkflowTests
             Connections = definition.Connections.SetItem("comparison",
                 new(new("input", "out"), new("branch", "condition"), "data"))
         };
-        Assert.Contains(WorkflowValidator.Validate(mismatchedType), issue => issue.Code == "connection.port");
+        var mismatchIssue = Assert.Single(WorkflowValidator.Validate(mismatchedType), issue => issue.Code == "connection.port");
+        Assert.Contains("source pin 'out' (string)", mismatchIssue.Message, StringComparison.Ordinal);
+        Assert.Contains("target pin 'condition' (boolean)", mismatchIssue.Message, StringComparison.Ordinal);
+        Assert.Contains("explicit conversion node", mismatchIssue.Message, StringComparison.Ordinal);
 
         var incomplete = GraphEditing.AddUnconnectedNode(definition, new(NodeTypes.BooleanBranch, "1.0.0"));
         var draft = WorkflowJson.DeserializeDraft(WorkflowJson.SerializeDraft(incomplete));

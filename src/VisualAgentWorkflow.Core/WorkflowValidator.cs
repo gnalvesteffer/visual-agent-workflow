@@ -609,7 +609,7 @@ public static class WorkflowValidator
             var sourcePort = WorkflowPorts.Outputs(definition.Nodes[source]!).FirstOrDefault(port => port.Id == edge.Source.PortId);
             var targetPort = WorkflowPorts.Inputs(definition.Nodes[target]!).FirstOrDefault(port => port.Id == edge.Target.PortId);
             if (edge.Kind != "data" || sourcePort is null || targetPort is null || !WorkflowDataTypeCatalog.AreCompatible(sourcePort.DataType, targetPort.DataType))
-                Error("connection.port", path, "Connect ports with matching declared data types using a data link.");
+                Error("connection.port", path, DataConnectionDiagnostic(edge, sourcePort, targetPort));
             if (!pairs.Add((source, edge.Source.PortId, target, edge.Target.PortId))) Error("connection.duplicate", path, "Duplicate connection.");
             incoming[target]++;
             outgoing[source].Add(target);
@@ -666,6 +666,17 @@ public static class WorkflowValidator
         if (visited.Count != definition.Nodes.Count)
             Error("graph.unreachable", "nodes", "Every node must be reachable from the entry.");
         return issues.ToImmutable();
+    }
+
+    private static string DataConnectionDiagnostic(ConnectionDefinition edge, WorkflowPort? sourcePort, WorkflowPort? targetPort)
+    {
+        var source = sourcePort is null
+            ? $"source pin '{edge.Source?.PortId ?? "?"}' (undeclared)"
+            : $"source pin '{sourcePort.Id}' ({sourcePort.DataType})";
+        var target = targetPort is null
+            ? $"target pin '{edge.Target?.PortId ?? "?"}' (undeclared)"
+            : $"target pin '{targetPort.Id}' ({targetPort.DataType})";
+        return $"Data edge connects {source} to {target}; data pins require the same declared type and an explicit conversion node when a conversion is needed.";
     }
 
     private static bool IsJsonObject(string value)
@@ -730,7 +741,7 @@ public static class WorkflowValidator
             var sourcePort = WorkflowPorts.ExplicitDataOutputs(sourceNode).FirstOrDefault(port => port.Id == edge.Source.PortId);
             var targetPort = WorkflowPorts.ExplicitDataInputs(targetNode).FirstOrDefault(port => port.Id == edge.Target.PortId);
             if (edge.Kind != "data" || sourcePort is null || targetPort is null || !WorkflowDataTypeCatalog.AreCompatible(sourcePort.DataType, targetPort.DataType))
-                error("connection.port", path, "Data edges must connect compatible typed data ports; they never schedule execution.");
+                error("connection.port", path, DataConnectionDiagnostic(edge, sourcePort, targetPort));
             if (!seen.Add(("data", source, edge.Source.PortId, target, edge.Target.PortId)))
                 error("connection.duplicate", path, "Duplicate data edge.");
             dataIncoming[(target, edge.Target.PortId)] = dataIncoming.GetValueOrDefault((target, edge.Target.PortId)) + 1;
@@ -886,7 +897,7 @@ public static class WorkflowValidator
             var sourcePort = WorkflowPorts.ExplicitDataOutputs(sourceNode).FirstOrDefault(port => port.Id == edge.Source.PortId);
             var targetPort = WorkflowPorts.ExplicitDataInputs(targetNode).FirstOrDefault(port => port.Id == edge.Target.PortId);
             if (edge.Kind != "data" || sourcePort is null || targetPort is null || !WorkflowDataTypeCatalog.AreCompatible(sourcePort.DataType, targetPort.DataType))
-                error("connection.port", path, "Data edges must connect compatible typed data ports; they never schedule execution.");
+                error("connection.port", path, DataConnectionDiagnostic(edge, sourcePort, targetPort));
             if (!seen.Add(("data", source, edge.Source.PortId, target, edge.Target.PortId)))
                 error("connection.duplicate", path, "Duplicate data edge.");
             dataIncoming[(target, edge.Target.PortId)] = dataIncoming.GetValueOrDefault((target, edge.Target.PortId)) + 1;
@@ -1053,7 +1064,7 @@ public static class WorkflowValidator
             var sourcePort = WorkflowPorts.ExplicitDataOutputs(sourceNode).FirstOrDefault(port => port.Id == edge.Source.PortId);
             var targetPort = WorkflowPorts.ExplicitDataInputs(targetNode).FirstOrDefault(port => port.Id == edge.Target.PortId);
             if (edge.Kind != "data" || sourcePort is null || targetPort is null || !WorkflowDataTypeCatalog.AreCompatible(sourcePort.DataType, targetPort.DataType))
-                error("connection.port", path, "Data edges must connect compatible typed data ports; they never schedule execution.");
+                error("connection.port", path, DataConnectionDiagnostic(edge, sourcePort, targetPort));
             if (!seen.Add(("data", source, edge.Source.PortId, target, edge.Target.PortId)))
                 error("connection.duplicate", path, "Duplicate data edge.");
             dataIncoming[(target, edge.Target.PortId)] = dataIncoming.GetValueOrDefault((target, edge.Target.PortId)) + 1;

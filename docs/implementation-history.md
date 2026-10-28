@@ -48,6 +48,14 @@ legacy definitions and 1.40 hashes remain unchanged. Numeric operators,
 conversions, containers, nested numeric expansion, and generic numeric outputs
 remain deferred. See [finite number propagation](decisions/0007-finite-number-propagation.md).
 
+## Actionable typed-wire diagnostics
+
+Core validation and editor connection edits now identify the source and target
+pin IDs and declared types when a data wire is invalid. The diagnostic keeps
+the exact-identity compatibility rule explicit and points authors to an
+explicit conversion node rather than suggesting implicit coercion. Existing
+wire semantics and serialized definitions are unchanged.
+
 ## Agent-selected execution routes
 
 Schema 1.30 lets an Agent node declare up to 16 stable route IDs, labels, and descriptions. Studio renders labeled execution pins and preserves stable pin IDs when labels change. The Agent Framework adapter exposes an invocation-scoped `select_route` function constrained to those authored IDs; it is an internal function and grants no MCP or graph access. The runner requires exactly one valid selection, latches it, and dispatches only after successful agent completion. Missing, duplicate, unknown, or later-discarded proposals fail without activating a route. Proposed, rejected, committed, and discarded selections are recorded for replay. Removing a route preserves its old edge as an invalid draft issue; save remains available while publish and execution validation stay strict. Runtime tests cover selected dispatch, missing selection, and provider failure after proposal; a validator regression covers removed-route edges. The Playwright smoke exercises route editing, pin labels, save, and incomplete-draft validation. Providers must support function calling. See [agent-selected routes](graph-values.md#agent-selected-routes).

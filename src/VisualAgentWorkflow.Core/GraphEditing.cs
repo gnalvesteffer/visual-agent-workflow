@@ -403,7 +403,11 @@ public static class GraphEditing
             target = target with { OutputDataType = sourcePort.Kind == WorkflowPortKind.Data ? sourcePort.DataType : target.OutputDataType };
         var targetPort = WorkflowPorts.Explicit(target).SingleOrDefault(port => port.Direction == WorkflowPortDirection.Input && port.Id == targetPortId);
         if (sourcePort is null || targetPort is null || sourcePort.Kind != targetPort.Kind || sourcePort.DataType != targetPort.DataType)
-            throw new ArgumentException("Connect pins with the same kind and compatible data type.");
+        {
+            var sourceLabel = sourcePort is null ? $"'{sourcePortId}' (undeclared)" : $"'{sourcePort.Id}' ({sourcePort.DataType})";
+            var targetLabel = targetPort is null ? $"'{targetPortId}' (undeclared)" : $"'{targetPort.Id}' ({targetPort.DataType})";
+            throw new ArgumentException($"Cannot connect {sourceLabel} to {targetLabel}: pins must have the same kind and exact data type. Add an explicit conversion node when a conversion is needed.");
+        }
 
         var connectionId = NewId("link");
         var connection = new ConnectionDefinition(new(sourceId, sourcePortId), new(targetId, targetPortId),
