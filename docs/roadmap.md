@@ -103,7 +103,7 @@ Descriptor progress: Core now has a canonical node-family catalog for stable dis
 
 ### Deferred parity decision: bounded Sequence dispatch
 
-`core.sequence` and schema 1.38 are not implemented. The independent proponent/opponent/adjudicator review keeps the feature deferred until a non-public Agent Framework proof establishes active-activation accounting, partial-dispatch/failure/cancellation semantics, playback correlation, and the explicit pause/restart boundary. The proof now covers ordered dispatch, concurrent downstream admission, completion-order divergence, cancellation between outputs, a private completion-gated streaming runner harness, distinct failed/cancelled terminal outcomes with skipped later outputs, and deterministic pause/host-stop behavior at the inter-dispatch boundary. That harness now routes descendant start/completion facts through runner-owned active-node accounting; production graph-runner lineage, playback correlation, and production pause/host-stop integration remain open. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md). Mutable variables remain deferred for the same contract/evidence reasons.
+`core.sequence` and schema 1.38 are not implemented. The independent proponent/opponent/adjudicator review keeps the feature deferred until a non-public Agent Framework proof establishes active-activation accounting, partial-dispatch/failure/cancellation semantics, playback correlation, and the explicit pause/restart boundary. The proof now covers ordered dispatch, concurrent downstream admission, completion-order divergence, cancellation between outputs, a private completion-gated streaming runner harness, distinct failed/cancelled terminal outcomes with skipped later outputs, and deterministic pause/host-stop behavior at the inter-dispatch boundary. That harness now routes descendant start/completion facts through runner-owned active-node accounting, and Core can reconstruct recorded Sequence prefixes passively; production graph-runner lineage and production pause/host-stop integration remain open. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md). Mutable variables remain deferred for the same contract/evidence reasons.
 
 Sequence proof checklist:
 
@@ -114,7 +114,8 @@ Sequence proof checklist:
 - [x] Define a versioned, fail-closed passive evidence payload and reader for Sequence lifecycle events.
 - [x] Prove conversion of coordinator lifecycle facts into passive `ExecutionEvent` records.
 - [x] Exercise completion-gated continuation and terminal accounting through a private pinned streaming-runner harness.
-- [ ] Emit that lineage from real Sequence runner executions and expose it in passive playback.
+- [x] Reconstruct ordered Sequence prefixes and terminal output state from passive evidence without live execution.
+- [ ] Emit that lineage from production Sequence runner executions.
 - [x] Prove partial dispatch, downstream failure, and cancellation outcomes against the private streaming runner proof.
 - [x] Prove pause and host-stop behavior at the private inter-dispatch boundary.
 - [ ] Prove pause and host-stop outcomes against the production runner.

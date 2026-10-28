@@ -85,6 +85,14 @@ do, however, pass their start/completion facts through the runner-owned
 `ExecutionActivationLedger`, and the proof rejects terminal output if that
 ledger still contains active work.
 
+Core now also provides a passive `TryReconstructPlayback` reader. It rebuilds
+ordered dispatched/completed/failed/cancelled/skipped output state from the
+versioned lifecycle evidence, supports in-progress prefixes, and rejects
+out-of-order, mismatched-identity, malformed, or post-terminal records. The
+reader performs no executor, Agent, MCP, approval, or extension calls. It is
+ready for recorded evidence, but production `WorkflowRunner` executions still
+do not emit Sequence lineage because the public node remains deferred.
+
 This is useful evidence, not a failure of the framework. It rules out treating ordinary `SendMessageAsync` fan-out as a Blueprint Sequence. A public Sequence must either define this as an explicitly concurrent dispatch primitive with full active-work accounting, or add a separate continuation mechanism that admits the next output only after the previous path's documented completion boundary.
 
 ## Adjudicated next slice
