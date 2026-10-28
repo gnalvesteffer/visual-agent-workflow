@@ -2,6 +2,17 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Blueprint parity vertical proof slice
+
+The bounded Blueprint-inspired proof now crosses authored editing, definition
+round-trip, backend execution, and recorded evidence for pure workflow values,
+direct MCP tools, conditional routing, workflow parameters, and pinned child
+workflow revisions. A separate passive playback proof renders a recorded
+conditional run in the run viewer with no runtime or client services registered.
+The proof is deliberately representative: per-node playback qualification,
+broader debugger behavior, and unrestricted Blueprint compatibility remain
+roadmap work. See the [Blueprint parity roadmap](roadmap.md).
+
 ## Public Sequence contract slice
 
 Schema 1.38 now persists a bounded Blueprint-style `core.sequence` definition with two to four ordered output descriptors and stable `then.<outputId>` execution pins. Core validates the initial Input → Sequence → Output topology, preserves descriptor order through JSON round trips, and the Studio exposes label, reorder, add, and remove editing for schema 1.38. The normal production runner consumes those persisted descriptors and records their authored node/connection identity; schema promotion and richer downstream topology remain deferred. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md) and the [Blueprint parity roadmap](roadmap.md).
