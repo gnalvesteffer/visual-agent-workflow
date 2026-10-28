@@ -9,7 +9,7 @@ public sealed class WorkflowSchemaCatalogTests
     [Fact]
     public void Catalog_contains_each_supported_serialized_version_exactly_once()
     {
-        var expected = Enumerable.Range(0, 45).Select(number => $"1.{number}").ToArray();
+        var expected = Enumerable.Range(0, 46).Select(number => $"1.{number}").ToArray();
 
         Assert.Equal(expected, WorkflowSchemaCatalog.All.Select(schema => schema.Version));
         Assert.Equal(expected.Length, WorkflowSchemaCatalog.All.Select(schema => schema.Version).Distinct(StringComparer.Ordinal).Count());
@@ -19,7 +19,7 @@ public sealed class WorkflowSchemaCatalogTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("1.45")]
+    [InlineData("1.46")]
     [InlineData("1.03")]
     [InlineData(" 1.23")]
     [InlineData("1.23 ")]
@@ -38,7 +38,7 @@ public sealed class WorkflowSchemaCatalogTests
         var expectedExplicit = new HashSet<string>(StringComparer.Ordinal)
         {
             "1.23", "1.24", "1.25", "1.26", "1.27", "1.28", "1.30", "1.31", "1.32", "1.33",
-            "1.34", "1.35", "1.36", "1.37", "1.38", "1.39", "1.40", "1.41", "1.42", "1.43", "1.44"
+            "1.34", "1.35", "1.36", "1.37", "1.38", "1.39", "1.40", "1.41", "1.42", "1.43", "1.44", "1.45"
         };
         var expectedDirectMcpPins = new HashSet<string>(StringComparer.Ordinal)
         {

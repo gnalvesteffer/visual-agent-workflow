@@ -116,10 +116,11 @@ Make every Blueprint-inspired authoring affordance traceable to a stable definit
 
 **Status: Shipped bounded slice; follow-up proofs remain planned.** The required
 adversarial proponent/opponent/adjudicator review completed on 2026-10-28. The
-first proof is now schema 1.44: run-scoped scalar declarations, explicit typed
+first proof is schema 1.44: run-scoped scalar declarations, explicit typed
 Get/Set nodes, isolated stores, bounded evidence, fail-closed validation, and
-Studio authoring for a linear graph. It deliberately does not claim concurrent,
-loop, Sequence, checkpoint, playback, or shared-child semantics. See [the
+Studio authoring for a linear graph. Schema 1.45 now adds one bounded explicit
+loop body with repeated variable evidence and a maximum-iteration stop. It does
+not claim concurrent, Sequence, checkpoint, or shared-child semantics. See [the
 run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md).
 
 - [x] Add a new schema version with an explicit variable declaration contract;
@@ -138,11 +139,15 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
 - [x] Implement the store and evidence only after the preceding contracts are
   reviewed; prove default reads, ordered overwrites, isolated runs, and
   cancellation with deterministic runtime tests.
-- [ ] Add loop-order proofs. A proof-only evidence seam now carries additive
-  non-negative loop-iteration identity through variable read/write events and
-  passive playback, while schema 1.44 still rejects loop-variable graphs. The
-  eventual loop contract must prove ordering, cancellation, failure after a
-  committed write, and loop-aware checkpoint state before schema 1.45 admission.
+- [x] Add bounded loop-order proofs. Schema 1.45 admits one explicit loop body;
+  the evidence seam carries additive non-negative loop-iteration identity
+  through variable read/write events and passive playback. Runtime coverage
+  proves repeated Set/Get operations and maximum-iteration stopping.
+  Cancellation/failure-after-write and playback-prefix proofs are shared with
+  the 1.44 slice.
+- [ ] Add loop-aware checkpoint state and recovery. Schema 1.45 remains outside
+  checkpoint admission until iteration position, variable state, cancellation,
+  failure, repeated recovery, and process-loss semantics are proven.
   Cancellation-position is proven at the atomic variable-store boundary: a
   pre-cancelled write cannot mutate state or advance its version; a separate
   runtime regressions now prove cancellation or recorder failure after a

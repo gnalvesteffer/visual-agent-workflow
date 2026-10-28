@@ -1,38 +1,39 @@
 # Decision 0030: loop-variable topology proof seam
 
-**Status:** Proof-only analyzer shipped; schema admission remains deferred.
+**Status:** Bounded schema 1.45 shipped; checkpoint admission and broader topology remain deferred.
 
 **Date:** 2026-10-28
 
 ## Context
 
 The shipped schema 1.44 mutable-variable graph is intentionally acyclic and
-linear. Existing bounded loops use legacy data-wire scheduling, while mutable
-variables require explicit execution/data separation. Admitting both by simply
-relaxing the 1.44 validator would change a published contract without proving
-ordering, cancellation, failure, or recovery semantics.
+linear. Schema 1.45 adds one explicit bounded loop around one linear body, so
+mutable writes and reads can repeat with an explicit iteration identity. It
+does not broaden 1.44 or admit checkpoint recovery for loop state.
 
 ## Decision
 
-Core now contains a non-authoritative `LoopVariableTopologyAnalyzer` for the
-candidate future shape. It checks one loop, one body anchor, one linear body,
-explicit execution edges, scalar variable Get/Set references, bounded body
-size, and the absence of unsupported control or authority-bearing nodes.
+Core now contains a topology analyzer and authoritative schema 1.45 validator
+for one loop, one body anchor, one linear body, explicit execution edges,
+scalar variable Get/Set references, bounded body size, and no unsupported
+control or authority-bearing nodes. The runtime routes `LoopBody.then` through
+the typed explicit graph and carries the loop iteration through variable
+evidence and passive playback. Schema 1.44 remains unchanged.
 
-The analyzer is a proof seam only. It does not add schema 1.45, alter the
-validator, create a runtime plan, enable Studio authoring, or admit checkpoint
-recovery. The eventual promotion must independently prove runtime ordering,
-iteration evidence, cancellation and failure boundaries, passive playback, and
-loop-aware checkpoint state.
+Schema 1.45 intentionally does not enable Studio promotion/editing or
+checkpoint recovery. Checkpoint admission, repeated recovery, and broader
+loop/parallel/Sequence/shared-child combinations require a separate contract.
 
 ## Evidence
 
-- `LoopVariableTopologyAnalyzer` accepts a complete candidate shape and emits
+- `LoopVariableTopologyAnalyzer` accepts a complete schema 1.45 shape and emits
   stable diagnostics for a non-linear body.
-- Core tests confirm the candidate is still rejected by the authoritative
-  schema 1.44 validator.
-- Existing variable evidence, cancellation, failure, and playback-prefix
-  proofs remain additive prerequisites rather than implicit admission.
+- Core validation tests reject malformed loop-variable topology while accepting
+  the bounded candidate.
+- Agent Framework tests prove three bounded passes, repeated Set/Get evidence,
+  and the maximum-iteration stop reason.
+- Existing cancellation, failure, and playback-prefix proofs remain additive;
+  loop-aware checkpoint recovery is still not admitted.
 
 See [the mutable-variable proof gate](0027-run-scoped-variable-proof-gate.md),
 [the loop-variable evidence seam](0029-loop-variable-evidence-seam.md), and

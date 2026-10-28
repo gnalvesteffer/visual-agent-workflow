@@ -63,7 +63,7 @@ public static class WorkflowValidator
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
 
         if (!WorkflowSchemaCatalog.IsSupported(definition.SchemaVersion))
-            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, and 1.44.");
+            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44, and 1.45.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.DisplayName is { } displayName &&
@@ -101,8 +101,8 @@ public static class WorkflowValidator
         var variables = definition.Variables ?? ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty;
         if (variables.Count > 64)
             Error("variables.limit", "variables", "A workflow can define at most 64 variables.");
-        if (definition.Variables is { Count: > 0 } && definition.SchemaVersion != WorkflowSchemaVersions.MutableVariablesGraph)
-            Error("variables.schema", "variables", "Mutable variables require schema 1.44.");
+        if (definition.Variables is { Count: > 0 } && definition.SchemaVersion is not (WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.LoopVariablesGraph))
+            Error("variables.schema", "variables", "Mutable variables require schema 1.44 or 1.45.");
         foreach (var (id, variable) in variables)
         {
             var type = variable?.Type ?? WorkflowDataTypes.String;
@@ -310,9 +310,9 @@ public static class WorkflowValidator
                 Error("graphFunction.unexpected", $"nodes.{id}.graphFunction", "Only graph function call nodes may declare a function snapshot.");
             if (node.Type is NodeTypes.VariableGet or NodeTypes.VariableSet)
             {
-                if (definition.SchemaVersion != WorkflowSchemaVersions.MutableVariablesGraph ||
+                if (definition.SchemaVersion is not (WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.LoopVariablesGraph) ||
                     node.VariableId is not { Length: > 0 } variableId || !variables.TryGetValue(variableId, out var variable) || variable is null)
-                    Error("variable.reference", $"nodes.{id}.variableId", "Variable nodes require a variable declared by schema 1.44.");
+                    Error("variable.reference", $"nodes.{id}.variableId", "Variable nodes require a variable declared by schema 1.44 or 1.45.");
                 else
                 {
                     var expectedType = variable.Type ?? WorkflowDataTypes.String;
@@ -344,7 +344,7 @@ public static class WorkflowValidator
                 Error("input.dataType", $"nodes.{id}.inputDataType", "Only schema 1.9 or later input nodes can declare the JSON data type.");
             if (node.OutputDataType is not null && node.Type is not (NodeTypes.WorkflowValue or NodeTypes.Output or NodeTypes.VariableGet) ||
                 node.OutputDataType is not null && node.Type == NodeTypes.Output &&
-                    (definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.MutableVariablesGraph
+                    (definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.LoopVariablesGraph
                         ? node.OutputDataType is not ("string" or "integer" or "boolean" or "json")
                         : node.OutputDataType != "json" || definition.SchemaVersion is not ("1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)) ||
                 node.OutputDataType is not null && node.Type == NodeTypes.WorkflowValue && definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph))
@@ -417,7 +417,7 @@ public static class WorkflowValidator
             }
             else if (node.ParallelRendezvous is not null)
                 Error("parallel.rendezvous.unexpected", $"nodes.{id}.parallelRendezvous", "Only schema 1.33 rendezvous nodes may declare branch identities.");
-            if (node.Type == NodeTypes.Loop && (definition.SchemaVersion is not ("1.17" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph) || node.Loop is not { } loop ||
+            if (node.Type == NodeTypes.Loop && (definition.SchemaVersion is not ("1.17" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.LoopVariablesGraph) || node.Loop is not { } loop ||
                 loop.MaximumIterations is < 1 or > WorkflowLoopLimits.MaximumIterations || !ValidStringCondition(loop.ContinueWhile)))
                 Error("loop.configuration", $"nodes.{id}.loop", $"Loops require schema 1.17 or later, an approved continue-while predicate, and 1–{WorkflowLoopLimits.MaximumIterations} maximum iterations.");
             if (node.Type != NodeTypes.Loop && node.Loop is not null)
@@ -600,6 +600,8 @@ public static class WorkflowValidator
         {
             if (definition.SchemaVersion == WorkflowSchemaVersions.MutableVariablesGraph)
                 ValidateMutableVariableGraph(definition, Error);
+            else if (definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph)
+                ValidateLoopVariableGraph(definition, Error);
             else if (definition.SchemaVersion is WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph)
                 ValidateSequenceGraph(definition, Error);
             else
@@ -846,6 +848,47 @@ public static class WorkflowValidator
             WorkflowPorts.ExplicitExecutionOutputs(pair.Value).Length > 0).Select(pair => pair.Key).ToHashSet(StringComparer.Ordinal);
         if (executable.Any(id => !reached.Contains(id)))
             error("graph.unreachable", "executionConnections", "Every executable schema 1.44 node must be reachable from the input entry.");
+    }
+
+    private static void ValidateLoopVariableGraph(WorkflowDefinition definition, Action<string, string, string> error)
+    {
+        foreach (var issue in LoopVariableTopologyAnalyzer.Analyze(definition).Issues)
+            error(issue.Code, issue.Path, issue.Message);
+
+        var incoming = new Dictionary<(string Node, string Port), int>();
+        var outgoing = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var (id, edge) in definition.Connections)
+        {
+            var path = $"connections.{id}";
+            if (edge?.Source?.NodeId is not { } source || edge.Target?.NodeId is not { } target ||
+                !definition.Nodes.TryGetValue(source, out var sourceNode) || sourceNode is null ||
+                !definition.Nodes.TryGetValue(target, out var targetNode) || targetNode is null)
+                continue;
+
+            var sourcePort = WorkflowPorts.Outputs(sourceNode).FirstOrDefault(port => port.Id == edge.Source.PortId);
+            var targetPort = WorkflowPorts.Inputs(targetNode).FirstOrDefault(port => port.Id == edge.Target.PortId);
+            if (edge.Kind != "data" || sourcePort is null || targetPort is null ||
+                !WorkflowDataTypeCatalog.AreCompatible(sourcePort.DataType, targetPort.DataType))
+                error("connection.port", path, DataConnectionDiagnostic(edge, sourcePort, targetPort));
+            if (targetNode.Type is not (NodeTypes.VariableSet or NodeTypes.Output) ||
+                sourceNode.Type is not (NodeTypes.Input or NodeTypes.StringConstant or NodeTypes.BooleanConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.VariableGet))
+                error("variable.data-route", path, "Loop-variable data edges may only feed Set.value or Output.in from Input, a scalar constant, or Get.value.");
+            incoming[(target, edge.Target.PortId)] = incoming.GetValueOrDefault((target, edge.Target.PortId)) + 1;
+            outgoing[source] = outgoing.GetValueOrDefault(source) + 1;
+        }
+
+        foreach (var (id, node) in definition.Nodes)
+        {
+            if (node is null) continue;
+            if (node.Type == NodeTypes.VariableSet && incoming.GetValueOrDefault((id, "value")) != 1)
+                error("data.degree", $"nodes.{id}.inputs.value", "Every Set node must receive exactly one value edge.");
+            if (node.Type == NodeTypes.VariableGet && outgoing.GetValueOrDefault(id) != 1)
+                error("data.unused", $"nodes.{id}", "Every Get node must feed exactly one Output data input.");
+            if (node.Type == NodeTypes.Output && incoming.GetValueOrDefault((id, "in")) != 1)
+                error("data.degree", $"nodes.{id}.inputs.in", "Output must receive exactly one value edge from Get.");
+            if (node.Type is NodeTypes.StringConstant or NodeTypes.BooleanConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant && outgoing.GetValueOrDefault(id) != 1)
+                error("data.unused", $"nodes.{id}", "Every scalar constant must feed exactly one Set value input.");
+        }
     }
 
     private static bool IsJsonObject(string value)

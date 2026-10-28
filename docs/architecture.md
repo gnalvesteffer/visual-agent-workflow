@@ -158,7 +158,8 @@ unreachable nodes. It does not promote schema 1.44, admit runtime execution,
 change package compatibility, or grant host capabilities. The persisted schema
 1.43 validator and runner continue to reject Agent descendants until the
 promotion gates in [decision 0021](decisions/0021-sequence-agent-topology-analyzer.md)
-are proven.
+are proven. Schema 1.45 separately admits the bounded loop-variable slice;
+its topology and evidence boundary are recorded in [decision 0030](decisions/0030-loop-variable-topology-proof.md).
 
 ## Execution and observation
 

@@ -71,6 +71,8 @@ Documentation changes follow [documentation-maintenance](../.agents/skills/docum
 - [Advisory host-admission report](decisions/0025-advisory-host-admission-report.md) — compares validated package dependencies with a host snapshot without granting authority or bypassing runtime checks.
 - [Fail-closed node descriptor resolution](decisions/0026-fail-closed-node-descriptor-resolution.md) — prevents unsupported node implementation versions from receiving current or fallback pin semantics.
 - [Run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md) — records the reviewed boundaries and proof gates required before Blueprint-style mutable variables become a shipped capability.
+- [Loop-variable evidence seam](decisions/0029-loop-variable-evidence-seam.md) — records additive loop identity in variable evidence and passive playback.
+- [Loop-variable topology proof](decisions/0030-loop-variable-topology-proof.md) — records the bounded schema 1.45 loop-variable contract and deferred checkpoint gate.
 
 ## Contract references
 

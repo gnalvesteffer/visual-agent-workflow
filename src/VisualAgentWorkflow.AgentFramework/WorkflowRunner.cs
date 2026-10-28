@@ -1195,7 +1195,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 var port = agentRouteId is null ? "out" : AgentExecutionRouteLimits.PinId(agentRouteId);
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Input) port = "then";
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.McpTool) port = "then";
-                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type is NodeTypes.VariableGet or NodeTypes.VariableSet) port = "then";
+                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type is NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.LoopBody) port = "then";
                 if (UsesConfigurableParallelGraph && node.Type == NodeTypes.ParallelBranch) port = "then";
                 if (node.Type == NodeTypes.BooleanBranch)
                 {

@@ -97,7 +97,7 @@ public static class WorkflowPorts
 
     private static ImmutableArray<string> ExplicitExecutionInputsFallback(NodeDefinition node) => node.Type switch
     {
-        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Sequence or NodeTypes.VariableGet or NodeTypes.VariableSet => ["execute"],
+        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Sequence or NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.Loop or NodeTypes.LoopBody => ["execute"],
         NodeTypes.ParallelJoin when node.ParallelJoin is { } join => [.. join.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
         NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
         _ => []
@@ -120,7 +120,8 @@ public static class WorkflowPorts
         NodeTypes.ParallelBranch => ["then"],
         NodeTypes.ParallelJoin => ["then"],
         NodeTypes.Sequence when node.Sequence is { } sequence => [.. sequence.Outputs.Where(output => output is not null).Select(output => SequenceOutputLimits.PinId(output.Id))],
-        NodeTypes.VariableGet or NodeTypes.VariableSet => ["then"],
+        NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.LoopBody => ["then"],
+        NodeTypes.Loop => ["body", "done"],
         _ => []
     };
 
@@ -132,6 +133,7 @@ public static class WorkflowPorts
         NodeTypes.Input => [],
         NodeTypes.JsonSelectString or NodeTypes.JsonProject => [new("in", WorkflowDataTypes.Json)],
         NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Loop or NodeTypes.LoopBody => [new("in", WorkflowDataTypes.String)],
+        NodeTypes.VariableSet => [new("value", node.InputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.ParallelJoin when node.ParallelJoin is not null => [],
         NodeTypes.ParallelJoin => [new("branch_1", WorkflowDataTypes.String), new("branch_2", WorkflowDataTypes.String)],
         NodeTypes.Output => [new("in", node.OutputDataType ?? WorkflowDataTypes.String)],

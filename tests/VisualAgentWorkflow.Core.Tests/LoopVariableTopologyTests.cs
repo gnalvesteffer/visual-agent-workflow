@@ -16,7 +16,7 @@ public sealed class LoopVariableTopologyTests
         Assert.True(analysis.IsValid, string.Join(Environment.NewLine, analysis.Issues.Select(issue => issue.Message)));
         Assert.Equal(["body", "set", "get"], analysis.Topology!.BodyNodeIds.ToArray());
         Assert.Equal(["set", "get"], analysis.Topology.VariableNodeIds.ToArray());
-        Assert.NotEmpty(WorkflowValidator.Validate(candidate));
+        Assert.Empty(WorkflowValidator.Validate(candidate));
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public sealed class LoopVariableTopologyTests
             ["get-loop"] = new(new("get", "then"), new("loop", "execute"), "execution"),
             ["loop-output"] = new(new("loop", "done"), new("output", "execute"), "execution")
         };
-        return new WorkflowDefinition(WorkflowSchemaVersions.MutableVariablesGraph, "loop-variable-candidate", "input",
+        return new WorkflowDefinition(WorkflowSchemaVersions.LoopVariablesGraph, "loop-variable-candidate", "input",
             nodes.ToImmutableSortedDictionary(), data.ToImmutableSortedDictionary())
         {
             Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
