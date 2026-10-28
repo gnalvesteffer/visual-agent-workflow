@@ -45,6 +45,8 @@ public static class ExecutionEventKinds
     public const string Transfer = "connection.received";
     public const string ExecutionActivated = "execution.activated";
     public const string DataEvaluated = "data.evaluated";
+    public const string VariableRead = "variable.get";
+    public const string VariableWritten = "variable.set";
     public const string Completed = "run.completed";
     public const string Terminated = "run.terminated";
     public const string SubworkflowStarted = "subworkflow.started";

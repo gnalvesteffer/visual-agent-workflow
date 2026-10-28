@@ -30,6 +30,51 @@ public static class GraphEditing
         return upgraded;
     }
 
+    /// <summary>Creates the first bounded run-scoped variable graph from a valid blank explicit graph.</summary>
+    public static WorkflowDefinition EnableMutableVariablesGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.ExplicitGraph || definition.ExecutionConnections is null)
+            throw new ArgumentException("Start with a valid typed graph before enabling run-scoped variables.", nameof(definition));
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var input = definition.Nodes[definition.EntryNodeId];
+        var outputEntry = definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.Output);
+        if (definition.Nodes.Count != 2 || definition.Connections.Count != 1 ||
+            !definition.Connections.Values.Any(edge => edge.Source == new PortReference(definition.EntryNodeId, "out") &&
+                edge.Target == new PortReference(outputEntry.Key, "in")) ||
+            definition.ExecutionConnections.Count != 1 ||
+            !definition.ExecutionConnections.Values.Any(edge => edge.Source == new PortReference(definition.EntryNodeId, "then") &&
+                edge.Target == new PortReference(outputEntry.Key, "execute")))
+            throw new ArgumentException("Only a blank Input-to-Output typed graph can be upgraded to the first variable proof.", nameof(definition));
+
+        var setId = NewId("variable-set");
+        var getId = NewId("variable-get");
+        var variableId = "value";
+        var nodes = definition.Nodes
+            .Add(setId, new(NodeTypes.VariableSet, "1.0.0") { VariableId = variableId, InputDataType = WorkflowDataTypes.String })
+            .Add(getId, new(NodeTypes.VariableGet, "1.0.0") { VariableId = variableId, OutputDataType = WorkflowDataTypes.String })
+            .SetItem(outputEntry.Key, outputEntry.Value with { OutputDataType = WorkflowDataTypes.String });
+        var variables = (definition.Variables ?? ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty)
+            .SetItem(variableId, new("Value", ""));
+        var data = definition.Connections
+            .SetItem(NewId("link"), new(new(getId, "out"), new(outputEntry.Key, "in"), "data"))
+            .SetItem(NewId("link"), new(new(definition.EntryNodeId, "out"), new(setId, "value"), "data"))
+            .Remove(definition.Connections.Keys.Single());
+        var execution = definition.ExecutionConnections
+            .Remove(definition.ExecutionConnections.Keys.Single())
+            .SetItem(NewId("activate"), new(new(definition.EntryNodeId, "then"), new(setId, "execute"), "execution"))
+            .SetItem(NewId("activate"), new(new(setId, "then"), new(getId, "execute"), "execution"))
+            .SetItem(NewId("activate"), new(new(getId, "then"), new(outputEntry.Key, "execute"), "execution"));
+        return Checked(definition with
+        {
+            SchemaVersion = WorkflowSchemaVersions.MutableVariablesGraph,
+            Nodes = nodes,
+            Connections = data,
+            ExecutionConnections = execution,
+            Variables = variables
+        });
+    }
+
     /// <summary>Enables the bounded 1.24 branch preview without changing existing graph wires.</summary>
     public static WorkflowDefinition EnableExplicitBranchGraph(WorkflowDefinition definition)
     {

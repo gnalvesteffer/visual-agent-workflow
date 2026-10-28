@@ -62,6 +62,7 @@ public static class WorkflowPorts
         NodeTypes.BooleanBranch => [new("condition", WorkflowDataTypes.Boolean)],
         NodeTypes.BooleanNot => [new("value", WorkflowDataTypes.Boolean)],
         NodeTypes.StringToInteger => [new("in", WorkflowDataTypes.String)],
+        NodeTypes.VariableSet => [new("value", node.InputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.McpTool when node.McpInputPorts is { } ports => [.. ports.Where(port => port is not null).Select(port => new WorkflowPort(port.Id, port.DataType))],
         NodeTypes.McpTool => [new("in", WorkflowDataTypes.String)],
         NodeTypes.FunctionCall when node.GraphFunction?.Definition?.Inputs is { } inputs => [.. inputs.Where(pair => pair.Value is not null).Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))],
@@ -80,6 +81,7 @@ public static class WorkflowPorts
         NodeTypes.NumberAdd => [new("out", WorkflowDataTypes.Number)],
         NodeTypes.StringToInteger => [new("out", WorkflowDataTypes.Integer)],
         NodeTypes.WorkflowValue => [new("out", node.OutputDataType ?? WorkflowDataTypes.String)],
+        NodeTypes.VariableGet => [new("out", node.OutputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.Agent => [new("out", node.Agent?.RequireStructuredResult == true ? WorkflowDataTypes.Json : WorkflowDataTypes.String)],
         NodeTypes.McpTool => [new("out", WorkflowDataTypes.String)],
         NodeTypes.ParallelJoin => [new("out", WorkflowDataTypes.Json)],
@@ -95,7 +97,7 @@ public static class WorkflowPorts
 
     private static ImmutableArray<string> ExplicitExecutionInputsFallback(NodeDefinition node) => node.Type switch
     {
-        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Sequence => ["execute"],
+        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Sequence or NodeTypes.VariableGet or NodeTypes.VariableSet => ["execute"],
         NodeTypes.ParallelJoin when node.ParallelJoin is { } join => [.. join.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
         NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
         _ => []
@@ -118,6 +120,7 @@ public static class WorkflowPorts
         NodeTypes.ParallelBranch => ["then"],
         NodeTypes.ParallelJoin => ["then"],
         NodeTypes.Sequence when node.Sequence is { } sequence => [.. sequence.Outputs.Where(output => output is not null).Select(output => SequenceOutputLimits.PinId(output.Id))],
+        NodeTypes.VariableGet or NodeTypes.VariableSet => ["then"],
         _ => []
     };
 

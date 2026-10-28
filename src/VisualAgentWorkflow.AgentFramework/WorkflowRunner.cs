@@ -78,6 +78,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             throw new InvalidOperationException("A workflow can execute only one collaborative parallel region in this runtime version.");
         var resolvedCollaborationTimeout = ResolveCollaborationTimeout(collaborationRegion, collaborationOptions);
         var resolvedParameters = WorkflowParameters.Resolve(revision.Definition, parameters);
+        var variableStore = new WorkflowVariableStore(revision.Definition);
         rootRevision ??= revision;
         sequencePlan ??= CreateSequenceProductionPlan(revision);
         workflowPath = workflowPath.IsDefault ? [] : workflowPath;
@@ -107,7 +108,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         if (linkedCancellation is not null) cancellationToken = linkedCancellation.Token;
         var workflow = sequencePlan is null
             ? BuildWorkflow(runId, revision, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
-                collaborationRuntime)
+                collaborationRuntime, variableStore)
             : BuildSequenceProductionWorkflow(runId, revision, sequencePlan, Emit, gate, rootRevision, workflowPath);
 
         await Emit(ExecutionEventKinds.Started);
@@ -197,20 +198,20 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
     private Workflow BuildWorkflow(Guid runId, WorkflowRevision revision, string input,
         IReadOnlyDictionary<string, string>? parameters,
         Func<string, string?, Guid?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate,
-        WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath) =>
-        BuildWorkflow(runId, revision, input, parameters, (kind, node, invocation, connection, data, _) => emit(kind, node, invocation, connection, data), gate, rootRevision, workflowPath);
+        WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath, WorkflowVariableStore? variableStore = null) =>
+        BuildWorkflow(runId, revision, input, parameters, (kind, node, invocation, connection, data, _) => emit(kind, node, invocation, connection, data), gate, rootRevision, workflowPath, null, variableStore);
 
     private Workflow BuildWorkflow(Guid runId, WorkflowRevision revision, string input,
         IReadOnlyDictionary<string, string>? parameters,
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate,
         WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath,
-        ParallelCollaborationRuntime? collaborationRuntime = null)
+        ParallelCollaborationRuntime? collaborationRuntime = null, WorkflowVariableStore? variableStore = null)
     {
         var definition = revision.Definition;
         var dataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(definition) ? new ExplicitGraphDataEvaluator(definition, input, parameters) : null;
         var executors = definition.Nodes.ToDictionary(
             n => n.Key,
-            n => (Executor<GraphMessage, GraphMessage>)new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, dataEvaluator, emit, gate, null, rootRevision, workflowPath, collaborationOptions, collaborationRuntime));
+            n => (Executor<GraphMessage, GraphMessage>)new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, dataEvaluator, variableStore, emit, gate, null, rootRevision, workflowPath, collaborationOptions, collaborationRuntime));
         if (collaborationRuntime is not null)
         {
             var region = collaborationRuntime.Region;
@@ -900,6 +901,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         INodeToolBroker? tools,
         IAgentNodeExecutor? agents,
         ExplicitGraphDataEvaluator? dataEvaluator,
+        WorkflowVariableStore? variableStore,
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> record, IWorkflowExecutionGate? gate,
         string? scopeId, WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath,
         ParallelCollaborationRuntimeOptions? collaborationOptions,
@@ -950,6 +952,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             string? incomingPort = null;
             DataInputEvaluation? outputEvaluation = null;
             DataInputEvaluation? branchEvaluation = null;
+            DataInputEvaluation? variableSetEvaluation = null;
             var toolArgumentEvaluations = new List<DataInputEvaluation>();
             var configuredAgentRoutes = node.Type == NodeTypes.Agent ? node.Agent?.Routes : null;
             var routeSelection = configuredAgentRoutes is { IsDefaultOrEmpty: false } routes
@@ -1070,17 +1073,48 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 }
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.BooleanBranch)
                     branchEvaluation = dataEvaluator!.ResolveBranchCondition(Id);
-                foreach (var value in (outputEvaluation ?? branchEvaluation)?.Evaluations ?? [])
+                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.VariableSet)
+                    variableSetEvaluation = dataEvaluator!.ResolveInput(Id, "value");
+                foreach (var value in (outputEvaluation?.Evaluations ?? []).Concat(branchEvaluation?.Evaluations ?? []).Concat(variableSetEvaluation?.Evaluations ?? []))
                     await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
                         value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value));
                 var childOutcome = node.Type == NodeTypes.WorkflowCall
                     ? await ExecuteWorkflowCall(message, cancellationToken)
                     : null;
+                if (node.Type == NodeTypes.VariableSet)
+                {
+                    if (variableStore is null || variableSetEvaluation is null || node.VariableId is not { } variableId)
+                        throw new InvalidOperationException("The variable store or Set value is unavailable.");
+                    if (!variableStore.TryRead(variableId, out var previous))
+                        throw new InvalidOperationException($"Variable '{variableId}' is not declared.");
+                    var written = variableStore.Write(variableId, variableSetEvaluation.Result.DataType, variableSetEvaluation.Result.Value, cancellationToken);
+                    await Emit(ExecutionEventKinds.VariableWritten, Id, invocation, null, JsonSerializer.Serialize(new
+                    {
+                        variableId,
+                        dataType = written.DataType,
+                        previousValue = previous.Value,
+                        value = written.Value,
+                        version = written.Version
+                    }));
+                }
+                if (node.Type == NodeTypes.VariableGet)
+                {
+                    if (variableStore is null || dataEvaluator is null || node.VariableId is not { } variableId || !variableStore.TryRead(variableId, out var current))
+                        throw new InvalidOperationException("The variable store or Get variable is unavailable.");
+                    dataEvaluator.SetRuntimeOutput(Id, "out", current.DataType, current.Value);
+                    await Emit(ExecutionEventKinds.VariableRead, Id, invocation, null, JsonSerializer.Serialize(new
+                    {
+                        variableId,
+                        dataType = current.DataType,
+                        value = current.Value,
+                        version = current.Version
+                    }));
+                }
                 var result = node.Type switch
                 {
                     NodeTypes.Input when node.InputDataType == "json" => NormalizeJson(message),
                     NodeTypes.BooleanBranch => string.Empty,
-                    NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.LoopBody => message,
+                    NodeTypes.Input or NodeTypes.Output or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.Loop or NodeTypes.LoopBody or NodeTypes.VariableGet or NodeTypes.VariableSet => message,
                     NodeTypes.Terminate => string.Empty,
                     NodeTypes.JsonSelectString => SelectJsonText(message, node.JsonPropertySelection!.Pointer),
                     NodeTypes.JsonProject => ProjectJson(message, node.JsonProjection!),
@@ -1159,6 +1193,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 var port = agentRouteId is null ? "out" : AgentExecutionRouteLimits.PinId(agentRouteId);
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Input) port = "then";
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.McpTool) port = "then";
+                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type is NodeTypes.VariableGet or NodeTypes.VariableSet) port = "then";
                 if (UsesConfigurableParallelGraph && node.Type == NodeTypes.ParallelBranch) port = "then";
                 if (node.Type == NodeTypes.BooleanBranch)
                 {

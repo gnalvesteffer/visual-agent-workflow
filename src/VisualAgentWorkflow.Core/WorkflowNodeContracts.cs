@@ -38,7 +38,8 @@ public enum WorkflowNodeEvidenceKind
     Approval,
     ParallelProgress,
     SequenceProgress,
-    ChildWorkflow
+    ChildWorkflow,
+    VariableState
 }
 
 [Flags]
@@ -271,6 +272,8 @@ public static class WorkflowNodeContractCatalog
         Contract(NodeTypes.FunctionInput, "Function input", "Functions", "Declares a pure graph-function input.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.FunctionOutput, "Function output", "Functions", "Declares a pure graph-function output.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.FunctionCall, "Function call", "Functions", "Evaluates an exact pure graph-function revision.", false, true, pure: true, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.GraphFunctionPortId, limits: [new("body-nodes", GraphFunctionLimits.MaximumNodes, "Maximum nodes in the pinned pure function body."), new("node-visits", GraphFunctionLimits.MaximumRunNodeVisits, "Maximum evaluated function-node visits per run.")], activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
+        Contract(NodeTypes.VariableGet, "Get variable", "Variables", "Reads a run-scoped scalar variable at an execution point.", true, true, effects: WorkflowNodeEffectFlags.RunScopedState, state: WorkflowNodeStateKind.RunScoped, evidence: WorkflowNodeEvidenceKind.VariableState),
+        Contract(NodeTypes.VariableSet, "Set variable", "Variables", "Commits a scalar value to a run-scoped variable.", true, true, effects: WorkflowNodeEffectFlags.RunScopedState, state: WorkflowNodeStateKind.RunScoped, evidence: WorkflowNodeEvidenceKind.VariableState),
     ];
 
     public static WorkflowNodeContract Get(string type) =>

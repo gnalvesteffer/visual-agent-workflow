@@ -105,6 +105,7 @@ public partial class WorkflowGraphCanvas
         NodeTypes.IntegerConstant => "Integer constant", NodeTypes.NumberConstant => "Number constant", NodeTypes.IntegerAdd => "Add integers", NodeTypes.IntegerEquals => "Compare integers",
         NodeTypes.StringEquals => "Compare strings", NodeTypes.BooleanBranch => "Boolean Branch",
         NodeTypes.BooleanConstant => "Boolean constant", NodeTypes.BooleanNot => "Boolean NOT", NodeTypes.WorkflowValue => "Workflow value",
+        NodeTypes.VariableGet => "Get variable", NodeTypes.VariableSet => "Set variable",
         NodeTypes.FunctionInput => "Function input", NodeTypes.FunctionOutput => "Function output",
         NodeTypes.FunctionCall => node.GraphFunction?.Definition.DisplayName is { Length: > 0 } name
             ? $"Function · {name} v{node.GraphFunction.Definition.Version}" : "Pure function",
@@ -127,6 +128,7 @@ public partial class WorkflowGraphCanvas
         node.Type is NodeTypes.FunctionInput or NodeTypes.FunctionOutput ? "Function boundary" :
         node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals ? "Pure value" :
         node.Type == NodeTypes.BooleanBranch ? "Boolean routing" : node.Type is NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.WorkflowValue ? "Pure value" :
+        node.Type is NodeTypes.VariableGet or NodeTypes.VariableSet ? "Run-scoped state" :
         node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform";
 
     private static string NodeIcon(string type)
@@ -136,6 +138,7 @@ public partial class WorkflowGraphCanvas
             NodeTypes.Input => "<path d=\"M4 4h12v12H4zM10 1v5m-3-2 3 2 3-2\"/>",
             NodeTypes.Output or NodeTypes.Terminate => "<path d=\"M4 10h11m-4-4 4 4-4 4\"/><circle cx=\"17\" cy=\"10\" r=\"2\"/>",
             NodeTypes.Agent => "<rect x=\"4\" y=\"5\" width=\"12\" height=\"11\" rx=\"3\"/><path d=\"M8 9h.01M12 9h.01M8 13h4M10 2v3m-7 4H4m12 0h3\"/>",
+            NodeTypes.VariableGet or NodeTypes.VariableSet => "<path d=\"M4 5h12v10H4zM7 8h6M7 12h4\"/><path d=\"M2 10h2m12 0h2\"/>",
             NodeTypes.McpTool => "<path d=\"M10 2v5m-3-3h6M7 7v4a3 3 0 0 0 6 0V7m-3 7v4m-3 0h6\"/>",
             NodeTypes.Condition or NodeTypes.BooleanBranch or NodeTypes.Merge => "<path d=\"m10 2 8 8-8 8-8-8z\"/><path d=\"M10 6v5m0 3h.01\"/>",
             NodeTypes.Approval => "<path d=\"M3 10 8 15 17 5\"/><circle cx=\"10\" cy=\"10\" r=\"8\"/>",

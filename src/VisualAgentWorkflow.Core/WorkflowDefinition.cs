@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Text.Json.Serialization;
 
 namespace VisualAgentWorkflow.Core;
@@ -25,6 +26,9 @@ public sealed record WorkflowDefinition(
     public ImmutableSortedDictionary<string, AgentProfile>? AgentProfiles { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ImmutableSortedDictionary<string, ParallelCollaborationRegion>? ParallelCollaborationRegions { get; init; }
+    /// <summary>Run-scoped mutable scalar declarations introduced by schema 1.44.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableSortedDictionary<string, WorkflowVariableDefinition>? Variables { get; init; }
 }
 
 /// <summary>A workflow-owned, non-secret typed scalar represented portably as text.</summary>
@@ -33,6 +37,13 @@ public sealed record WorkflowParameterDefinition(string DisplayName, string Defa
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Description { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Type { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<string>? Choices { get; init; }
+}
+
+/// <summary>A workflow-local, run-scoped, non-secret scalar variable declaration.</summary>
+public sealed record WorkflowVariableDefinition(string DisplayName, string DefaultValue)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Description { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Type { get; init; }
 }
 
 public sealed record NodeDefinition(string Type, string TypeVersion,
@@ -92,6 +103,9 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     /// <summary>Schema-driven top-level argument pins for direct MCP graph schema 1.37.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ImmutableArray<McpInputPortDefinition>? McpInputPorts { get; init; }
+    /// <summary>Stable variable declaration ID used by VariableGet and VariableSet nodes.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? VariableId { get; init; }
 }
 
 /// <summary>Portable, normalized metadata for one direct MCP argument pin.</summary>
@@ -142,6 +156,8 @@ public static class NodeTypes
     public const string FunctionInput = "core.function.input";
     public const string FunctionOutput = "core.function.output";
     public const string FunctionCall = "core.function.call";
+    public const string VariableGet = "core.variable.get";
+    public const string VariableSet = "core.variable.set";
 
     public static bool IsSupported(string? type) => WorkflowNodeContractCatalog.TryGet(type, out _);
 }
@@ -173,7 +189,8 @@ public static class WorkflowSchemaPromotionCatalog
         new("finite-number-pins", "1.37", "1.40", nameof(GraphEditing.EnableNumberGraph), false),
         new("number-parameter-propagation", "1.40", "1.41", nameof(GraphEditing.EnableNumberPropagationGraph), false),
         new("number-addition", "1.41", "1.42", nameof(GraphEditing.EnableNumberArithmeticGraph), false),
-        new("sequence-paths", "1.38", "1.43", nameof(GraphEditing.EnableSequencePathGraph), false)
+        new("sequence-paths", "1.38", "1.43", nameof(GraphEditing.EnableSequencePathGraph), false),
+        new("mutable-variables", "1.23", "1.44", nameof(GraphEditing.EnableMutableVariablesGraph), true)
     ];
 }
 
@@ -182,12 +199,12 @@ public static class WorkflowSchemaPromotionCatalog
 public static class WorkflowSchemaCatalog
 {
     public static ImmutableArray<WorkflowSchemaDescriptor> All { get; } =
-        [.. Enumerable.Range(0, 44).Select(number =>
+        [.. Enumerable.Range(0, 45).Select(number =>
         {
             var version = $"1.{number}";
             var explicitGraph = version is "1.23" or "1.24" or "1.25" or "1.26" or "1.27" or "1.28" or
                 "1.30" or "1.31" or "1.32" or "1.33" or "1.34" or "1.35" or "1.36" or "1.37" or
-                "1.38" or "1.39" or "1.40" or "1.41" or "1.42" or "1.43";
+                "1.38" or "1.39" or "1.40" or "1.41" or "1.42" or "1.43" or "1.44";
             var directMcpPins = version is "1.37" or "1.40" or "1.41" or "1.42" or "1.43";
             return new WorkflowSchemaDescriptor(version, true, explicitGraph, directMcpPins);
         })];
@@ -225,6 +242,8 @@ public static class WorkflowSchemaVersions
     public const string NumberArithmeticGraph = "1.42";
     /// <summary>Bounded, disjoint linear downstream paths from ordered Sequence outputs.</summary>
     public const string SequencePathGraph = "1.43";
+    /// <summary>Bounded linear run-scoped scalar variable proof graph.</summary>
+    public const string MutableVariablesGraph = "1.44";
 
     public static bool IsSupported(string? version) => WorkflowSchemaCatalog.IsSupported(version);
 
@@ -236,7 +255,57 @@ public static class WorkflowSchemaVersions
 
     public static bool UsesExplicitGraph(WorkflowDefinition definition) =>
         UsesExplicitGraph(definition.SchemaVersion) ||
-        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or SequenceGraph or SequencePathGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph or NumberArithmeticGraph && definition.ExecutionConnections is not null;
+        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or SequenceGraph or SequencePathGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph or NumberArithmeticGraph or MutableVariablesGraph && definition.ExecutionConnections is not null;
+}
+
+/// <summary>Runtime value held by one workflow invocation's variable store.</summary>
+public sealed record WorkflowVariableValue(string DataType, object Value, long Version);
+
+/// <summary>Creates an isolated, lock-protected store for one workflow invocation.</summary>
+public sealed class WorkflowVariableStore
+{
+    private readonly object sync = new();
+    private readonly Dictionary<string, WorkflowVariableValue> values = new(StringComparer.Ordinal);
+    private long nextVersion;
+
+    public WorkflowVariableStore(WorkflowDefinition definition)
+    {
+        foreach (var (id, variable) in definition.Variables ?? ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty)
+        {
+            if (variable is null) continue;
+            values[id] = new(variable.Type ?? WorkflowDataTypes.String,
+                Parse(variable.Type ?? WorkflowDataTypes.String, variable.DefaultValue), ++nextVersion);
+        }
+    }
+
+    public bool TryRead(string variableId, out WorkflowVariableValue value)
+    {
+        lock (sync) return values.TryGetValue(variableId, out value!);
+    }
+
+    public WorkflowVariableValue Write(string variableId, string dataType, object value, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (sync)
+        {
+            if (!values.TryGetValue(variableId, out var previous))
+                throw new InvalidOperationException($"Variable '{variableId}' is not declared.");
+            if (!string.Equals(previous.DataType, dataType, StringComparison.Ordinal))
+                throw new InvalidOperationException($"Variable '{variableId}' requires {previous.DataType}, not {dataType}.");
+            var written = new WorkflowVariableValue(dataType, value, ++nextVersion);
+            values[variableId] = written;
+            return written;
+        }
+    }
+
+    public static object Parse(string dataType, string value) => dataType switch
+    {
+        WorkflowDataTypes.String when value.Length <= 16_384 => value,
+        WorkflowDataTypes.Boolean when bool.TryParse(value, out var boolean) => boolean,
+        WorkflowDataTypes.Integer when long.TryParse(value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var integer) => integer,
+        WorkflowDataTypes.Number when double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) && double.IsFinite(number) => number,
+        _ => throw new ArgumentException($"The default value is invalid for variable type '{dataType}'.", nameof(value))
+    };
 }
 
 public sealed record StringConstantConfiguration(string Value);

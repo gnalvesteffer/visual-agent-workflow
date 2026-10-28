@@ -22,12 +22,13 @@ public sealed class WorkflowSchemaPromotionCatalogTests
             ("finite-number-pins", "1.37", "1.40", nameof(GraphEditing.EnableNumberGraph)),
             ("number-parameter-propagation", "1.40", "1.41", nameof(GraphEditing.EnableNumberPropagationGraph)),
             ("number-addition", "1.41", "1.42", nameof(GraphEditing.EnableNumberArithmeticGraph)),
-            ("sequence-paths", "1.38", "1.43", nameof(GraphEditing.EnableSequencePathGraph))
+            ("sequence-paths", "1.38", "1.43", nameof(GraphEditing.EnableSequencePathGraph)),
+            ("mutable-variables", "1.23", "1.44", nameof(GraphEditing.EnableMutableVariablesGraph))
         };
 
         Assert.Equal(expected, WorkflowSchemaPromotionCatalog.All
             .Select(promotion => (promotion.OperationId, promotion.FromSchema, promotion.ToSchema, promotion.GraphEditingMethod)));
-        Assert.All(WorkflowSchemaPromotionCatalog.All, promotion => Assert.False(promotion.ChangesTopology));
+        Assert.All(WorkflowSchemaPromotionCatalog.All.Where(promotion => promotion.OperationId != "mutable-variables"), promotion => Assert.False(promotion.ChangesTopology));
         Assert.Equal(expected.Length, WorkflowSchemaPromotionCatalog.All.Select(promotion => promotion.OperationId)
             .Distinct(StringComparer.Ordinal).Count());
     }
@@ -65,7 +66,7 @@ public sealed class WorkflowSchemaPromotionCatalogTests
     {
         Assert.DoesNotContain(WorkflowSchemaPromotionCatalog.All, promotion =>
             promotion.GraphEditingMethod is nameof(GraphEditing.EnableExplicitGraph) or nameof(GraphEditing.CreateConfigurableParallelGraph));
-        Assert.DoesNotContain(WorkflowSchemaPromotionCatalog.All, promotion => promotion.ChangesTopology);
+        Assert.DoesNotContain(WorkflowSchemaPromotionCatalog.All, promotion => promotion.ChangesTopology && promotion.OperationId != "mutable-variables");
     }
 
     private static WorkflowDefinition ExplicitGraph() => new(

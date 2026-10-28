@@ -123,6 +123,15 @@ public partial class WorkflowEditor
         Definition.Connections.Values.Any(edge => edge.Source.NodeId == Definition.EntryNodeId && edge.Source.PortId == "out" &&
             Definition.Nodes.TryGetValue(edge.Target.NodeId, out var target) && target.Type == NodeTypes.Output && edge.Target.PortId == "in");
 
+    private bool CanUpgradeMutableVariablesGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph &&
+        Definition.Nodes.Count == 2 && Definition.Nodes.TryGetValue(Definition.EntryNodeId, out var variableEntry) && variableEntry.Type == NodeTypes.Input &&
+        Definition.Nodes.Values.Count(node => node.Type == NodeTypes.Output) == 1 && Definition.Connections.Count == 1 &&
+        Definition.ExecutionConnections is { Count: 1 } execution && Definition.Connections.Values.Any(edge => edge.Source.NodeId == Definition.EntryNodeId && edge.Source.PortId == "out" &&
+            Definition.Nodes.TryGetValue(edge.Target.NodeId, out var target) && target.Type == NodeTypes.Output && edge.Target.PortId == "in") &&
+        execution.Values.Any(edge => edge.Source.NodeId == Definition.EntryNodeId && edge.Target.NodeId == Definition.Nodes.Single(node => node.Value.Type == NodeTypes.Output).Key);
+
+    private Task EnableMutableVariablesPreview() => Edit(() => GraphEditing.EnableMutableVariablesGraph(Definition));
+
     private Task EnableExplicitPreview() => Edit(() => GraphEditing.EnableExplicitGraph(Definition));
     private bool CanUpgradeDirectMcpGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph &&
         WorkflowValidator.Validate(Definition).IsEmpty;
@@ -208,7 +217,7 @@ public partial class WorkflowEditor
                 ContractEntry(NodeTypes.StringConstant, !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
                 ContractEntry(NodeTypes.TextConcat, !ReadOnly && !Disabled && Definition.Nodes.Count < 256)
             ];
-        if (WorkflowSchemaVersions.UsesExplicitGraph(Definition) && Definition.SchemaVersion is WorkflowSchemaVersions.ExplicitBranchGraph or WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph)
+        if (WorkflowSchemaVersions.UsesExplicitGraph(Definition) && Definition.SchemaVersion is WorkflowSchemaVersions.ExplicitBranchGraph or WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph or WorkflowSchemaVersions.MutableVariablesGraph)
         {
             var explicitEntries = new List<WorkflowNodeLibraryEntry>
             {
@@ -241,6 +250,13 @@ public partial class WorkflowEditor
                 explicitEntries.Insert(0, ContractEntry(NodeTypes.NumberConstant, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
             if (Definition.SchemaVersion == WorkflowSchemaVersions.NumberArithmeticGraph)
                 explicitEntries.Insert(1, ContractEntry(NodeTypes.NumberAdd, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
+            if (Definition.SchemaVersion == WorkflowSchemaVersions.MutableVariablesGraph && Definition.Variables is { Count: > 0 })
+            {
+                explicitEntries.Add(ContractEntry(NodeTypes.VariableGet, !ReadOnly && !Disabled && Definition.Nodes.Count < 256,
+                    "Read a declared run-scoped scalar variable."));
+                explicitEntries.Add(ContractEntry(NodeTypes.VariableSet, !ReadOnly && !Disabled && Definition.Nodes.Count < 256,
+                    "Write a declared run-scoped scalar variable."));
+            }
             if (Definition.SchemaVersion is WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)
                 explicitEntries.AddRange((FunctionCatalog?.List() ?? []).Select(entry => new WorkflowNodeLibraryEntry(
                     FunctionKey(entry.Function), $"Function · {entry.Function.Definition.DisplayName} v{entry.Function.Definition.Version}",

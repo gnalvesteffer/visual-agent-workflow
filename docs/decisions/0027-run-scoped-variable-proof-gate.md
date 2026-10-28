@@ -1,8 +1,8 @@
 # Decision 0027: run-scoped variable proof gate
 
-**Status:** Planned design boundary
+**Status:** Shipped bounded slice with deferred proof gates
 **Date:** 2026-10-28
-**Scope:** Blueprint parity roadmap; no shipped schema or runtime behavior
+**Scope:** Blueprint parity roadmap; schema 1.44 Core/runtime/Studio slice
 
 ## Context
 
@@ -20,9 +20,9 @@ contracts below are documented and tested.
 
 ## Decision
 
-Keep mutable variables **deferred and out of the palette** until a separate
-schema and runtime proof is complete. The proposed first slice is deliberately
-narrow:
+Ship only the deliberately narrow first slice. Mutable variables are available
+in schema 1.44 through an explicit Studio promotion and palette, while the
+broader Blueprint capability remains deferred:
 
 - variables are workflow-local and run-scoped; they are never project-global,
   host-global, shared memory, object references, or authority-bearing values;
@@ -46,7 +46,16 @@ definition hashes and behavior byte-for-byte. Variable reads must not use the
 ordinary pure-data memoization path: a read observes the store at an explicit
 activation point and records the observed write version.
 
-## Required proof gates
+## Completed proof gates for schema 1.44
+
+The shipped slice proves schema round-trip, bounded scalar declaration/default
+validation, typed pins, linear topology, isolated simultaneous runs, ordered
+write/read evidence, and Studio declaration plus typed node authoring.
+Unsupported concurrent/Sequence/collaboration/async, graph-function, and shared
+child-workflow regions are rejected by validation. Cancellation and checkpoint
+behavior remain explicit follow-up proofs.
+
+## Remaining proof gates
 
 Before promotion to a shipped capability, the implementation must prove:
 

@@ -100,7 +100,7 @@ public sealed partial class WorkflowRunner
         var branches = branchNodeIds
             .ToDictionary(outputNodeId => outputNodeId,
             outputNodeId => (Executor<GraphMessage, GraphMessage>)new StringExecutor(outputNodeId,
-                revision.Definition.Nodes[outputNodeId], runId, revision, null, tools, agents, null,
+                revision.Definition.Nodes[outputNodeId], runId, revision, null, tools, agents, null, null,
                 emit, gate, null, rootRevision, workflowPath, collaborationOptions, null,
                 async (lineage, terminalState) =>
                 {

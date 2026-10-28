@@ -99,6 +99,21 @@ On a valid schema 1.40 number-pin graph, choose **Enable workflow number paramet
 
 The direct node's properties pane is generated from the selected tool's supported JSON Schema, including scalar values, enums, nested JSON values, arrays, required/optional fields, and field descriptions. Values are workflow data, not secret storage. The host broker still checks the node grant, pinned contract, live schema, and invocation limits on every call; contract drift fails closed. Nested objects and arrays remain JSON pins in schema 1.37. Direct MCP graphs are intentionally straight-line deterministic graphs; they do not add direct tools to existing Agent, branch, parallel, loop or approval graphs.
 
+#### Add run-scoped variables
+
+On a blank valid typed graph, choose **Enable run-scoped variables**. Schema 1.44
+adds a **Workflow variables** editor for non-secret string, Boolean, integer, and
+finite-number declarations. Add a variable with a stable ID, display name,
+default, description, and type, then add **Get variable** or **Set variable**
+from the Variables section of the node picker. Bind each node to a declaration
+in its properties pane and wire both execution and typed value pins explicitly.
+Each workflow run receives an isolated store; reads and writes are recorded as
+`variable.get` and `variable.set` evidence with a write version. This first
+slice is deliberately linear and rejects parallel, Sequence, collaboration,
+async, graph-function, and shared child-workflow variable writes. Loop ordering,
+checkpoint admission, passive playback, and richer variable types remain future
+parity work.
+
 When that explicit data graph is valid, choose **Enable Boolean Branch preview** in the node library. Schema 1.24 exposes **Compare strings**, **Boolean Branch**, and **Terminate workflow**. Connect two string sources into Compare strings, connect its Boolean output to the Branch condition input, and wire Input execution to Branch. Route Branch `true` to Output and `false` to a Terminate node whose outcome is **Failure**. Connect a string data source to Output's data input. The comparison uses ordinal, case-sensitive equality: no whitespace removal, case folding, or text-to-Boolean conversion occurs. Branch starts one route only. Its selected output and the pure values it read are recorded in the run audit, and playback never reevaluates the graph. Schema 1.26 supports bounded nested Branch nodes and reconvergent routes; see the next subsection for its topology and validation rules.
 
 For Boolean logic, first validate the schema 1.24 branch graph, then choose **Enable Boolean primitives**. This upgrades the definition to schema 1.25 without changing existing connections. The **Values** section now offers **Boolean constant** (defaults to `false`, configurable in node properties) and **Boolean NOT**. Add either node unconnected, then wire compatible Boolean data pins yourself. Constants preserve an explicit `true` or `false` value in the workflow definition. NOT inverts its connected Boolean input. Both nodes are pure: they run only when a downstream node requests their value, and their typed results are recorded for playback. There is no implicit conversion from strings.

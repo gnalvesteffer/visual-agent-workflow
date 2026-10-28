@@ -2,6 +2,10 @@
     @if (!ReadOnly && ShowWorkflowSettings)
     {
         <WorkflowParameterSettings @key='(Definition.WorkflowId, "settings")' Definition="Definition" DefinitionChanged="next => Edit(() => next)" Disabled="Disabled" />
+        @if (Definition.SchemaVersion == WorkflowSchemaVersions.MutableVariablesGraph)
+        {
+            <WorkflowVariableSettings @key='(Definition.WorkflowId, "variables")' Definition="Definition" DefinitionChanged="next => Edit(() => next)" Disabled="Disabled" />
+        }
     }
     <WorkflowGraphCanvas IdeMode="IdeMode" @ref="canvas" @key="Definition.WorkflowId" Definition="Definition" Layout="EffectiveLayout" LayoutChanged="LayoutEdited" PortResolver="CanvasPorts" ReadOnly="@(ReadOnly || LayoutReadOnly)" Disabled="Disabled" SelectedNodeId="@selectedNode" SelectedNodeIdChanged="SelectNode" ConnectionSelected="ConnectionSelected" ConnectionDisconnectRequested="id => Edit(() => GraphEditing.Disconnect(Definition, id))" ConnectionRequested="pins => Edit(() => GraphEditing.ConnectPins(Definition, pins.SourceId, pins.SourcePort, pins.TargetId, pins.TargetPort))" ShowNodeLibrary="@(!ReadOnly && (!HideNodeLibrary || showNodeLibrary))" EnableContextMenu="@(!ReadOnly && !Disabled)" NodeCreateRequested="request => AddLibraryNode(request.Key, request.Context)" DeleteNodeRequested="id => RemoveSelected(id)">
     <ToolbarContent>
@@ -16,6 +20,14 @@
                 <strong>Typed graph preview</strong>
                 <p class="vaw-help">Start a draft with separate execution and value wires. This preview currently supports text constants and concatenation.</p>
                 <button type="button" @onclick="EnableExplicitPreview" disabled="@Disabled">Start typed graph preview</button>
+            </section>
+        }
+        @if (CanUpgradeMutableVariablesGraph)
+        {
+            <section class="vaw-library-note" aria-label="Run-scoped variables">
+                <strong>Run-scoped variables</strong>
+                <p class="vaw-help">Promote this blank typed graph to the bounded Blueprint variable slice. Declare scalar variables, then add explicit Get variable and Set variable nodes and wire their execution and value pins.</p>
+                <button type="button" @onclick="EnableMutableVariablesPreview" disabled="@Disabled">Enable run-scoped variables</button>
             </section>
         }
         @if (CanUpgradeBranchGraph)
@@ -600,6 +612,19 @@
                         else if (node.ParameterId is { } parameterId && parameterChoices.TryGetValue(parameterId, out var parameter))
                         { <p>@parameter.DisplayName · @parameterId · @(WorkflowParameterGraphTypes.DataType(parameter, Definition.SchemaVersion is WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) ?? "string")</p><p class="vaw-help">Passes the declared parameter value and type onward, replacing the incoming value.</p> }
                     }
+                    else if (node.Type is NodeTypes.VariableGet or NodeTypes.VariableSet)
+                    {
+                        var variableChoices = Definition.Variables ?? System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty;
+                        <label>Workflow variable
+                            <select aria-label="Workflow variable for @id" value="@node.VariableId" @onchange="args => BindVariable(id, args)" disabled="@Disabled">
+                                @foreach (var (variableId, variable) in variableChoices)
+                                { <option value="@variableId">@variable.DisplayName · @variableId · @(variable.Type ?? WorkflowDataTypes.String)</option> }
+                            </select>
+                        </label>
+                        @if (node.VariableId is { } selectedVariableId && variableChoices.ContainsKey(selectedVariableId))
+                        { <p class="vaw-help">@(node.Type == NodeTypes.VariableGet ? "Reads the run-scoped value and emits it from the out pin." : "Writes the connected value to this run-scoped variable before activating then.")</p> }
+                        else { <p class="vaw-help">Choose a declared variable. This node remains invalid until it is bound.</p> }
+                    }
                     else if (node.Type == NodeTypes.IntegerConstant)
                     {
                         <label>Integer value
@@ -979,6 +1004,8 @@
             : "Graph function snapshot unavailable",
         NodeTypes.WorkflowValue => node.ParameterId is { } parameterId && ParameterDefinitions.TryGetValue(parameterId, out var parameter)
             ? $"Workflow value · {parameter.DisplayName}" : "Workflow value",
+        NodeTypes.VariableGet => $"Get variable · {node.VariableId ?? "unassigned"}",
+        NodeTypes.VariableSet => $"Set variable · {node.VariableId ?? "unassigned"}",
         NodeTypes.Condition => $"{node.Condition!.Operator} · {node.Condition.Operand}",
         NodeTypes.Loop => $"Continue while {node.Loop!.ContinueWhile.Operator} · max {node.Loop.MaximumIterations}",
         NodeTypes.LoopBody => "Start of bounded loop body",
@@ -1201,6 +1228,20 @@
     private Task BindParameter(string id, ChangeEventArgs args) => Edit(() => WorkflowParameterEditing.BindNode(
         Definition, id, args.Value?.ToString() ?? ""));
 
+    private Task BindVariable(string id, ChangeEventArgs args) => Edit(() =>
+    {
+        var variableId = args.Value?.ToString() ?? "";
+        var variables = Definition.Variables ?? throw new ArgumentException("Declare a workflow variable before binding this node.");
+        if (!variables.TryGetValue(variableId, out var variable)) throw new ArgumentException("Choose a declared workflow variable.");
+        var node = Definition.Nodes[id];
+        return GraphEditing.ReplaceNode(Definition, id, node with
+        {
+            VariableId = variableId,
+            InputDataType = node.Type == NodeTypes.VariableSet ? variable.Type ?? WorkflowDataTypes.String : node.InputDataType,
+            OutputDataType = node.Type == NodeTypes.VariableGet ? variable.Type ?? WorkflowDataTypes.String : node.OutputDataType
+        });
+    });
+
     private Task ChangeType(string id, ChangeEventArgs args) =>
         Edit(() => ReplaceProcessing(id, FromSelection(args.Value?.ToString() ?? "", Definition.Nodes[id])));
 
@@ -1383,6 +1424,18 @@
                 ? WorkflowParameterGraphTypes.DataType(ParameterDefinitions[parameterId], Definition.SchemaVersion is WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph)
                 : null;
             return new(NodeTypes.WorkflowValue, "1.0.0") { ParameterId = parameterId, OutputDataType = outputType };
+        }
+        if (value is NodeTypes.VariableGet or NodeTypes.VariableSet)
+        {
+            var variableId = Definition.Variables?.Keys.FirstOrDefault();
+            var variable = variableId is not null && Definition.Variables is { } variables && variables.TryGetValue(variableId, out var selectedVariable)
+                ? selectedVariable : null;
+            return new(value, "1.0.0")
+            {
+                VariableId = variableId,
+                InputDataType = value == NodeTypes.VariableSet ? variable?.Type ?? WorkflowDataTypes.String : null,
+                OutputDataType = value == NodeTypes.VariableGet ? variable?.Type ?? WorkflowDataTypes.String : null
+            };
         }
         if (FunctionCatalog?.List().FirstOrDefault(item => FunctionKey(item.Function) == value) is { } function)
             return new(NodeTypes.FunctionCall, "1.0.0") { GraphFunction = function.Function };
