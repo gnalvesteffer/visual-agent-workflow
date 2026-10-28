@@ -82,12 +82,14 @@ Promotion gates, in order:
   cancels an active sibling and skips undeclared outputs before Sequence
   failure. Public Agent-path admission and real executor cancellation remain
   gated.
+- [x] Exercise the real Agent executor in the private proof, including missing
+  provider fail-closed admission and provider timeout uncertainty; passive
+  Sequence playback remains read-only.
 - [ ] Prove the same settlement contract for the public candidate with the
-  real Agent executor; never complete the workflow while descendant work
-  remains active.
-- [ ] Exercise the real Agent executor and host capability admission, including
-  missing provider/grant denial, provider failure/timeout uncertainty, and
-  finite resource limits for the public subset.
+  real Agent executor and host capability admission; never complete the
+  workflow while descendant work remains active.
+- [ ] Add public-subset finite resource limits and explicit grant-denial tests
+  once the schema-1.44 candidate is admitted for implementation.
 - [ ] Define deterministic final-result semantics when multiple Agent paths
   complete out of order.
 - [ ] Prove passive playback of nested Sequence/Agent/model identity with zero

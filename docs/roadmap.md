@@ -134,6 +134,7 @@ Sequence proof checklist:
 - [x] Add a non-public Sequence-to-Agent production proof: one bounded Agent invocation receives Sequence lineage through the normal runner recorder, and nested model/Agent events are correlated without exposing a new persisted schema.
 - [x] Extend the private production proof to record descendant Agent failure and in-flight cancellation as Sequence output terminal evidence before the runner propagates the outcome; public multi-output sibling settlement remains gated.
 - [x] Extend the private proof to two concurrent Agent invocations and settle the active sibling plus skipped outputs when one descendant fails; public admission and real executor cancellation remain gated.
+- [x] Exercise the real Agent executor in the private proof, including missing-provider fail-closed admission, timeout uncertainty, and passive Sequence playback without another live call; public Agent-path admission remains gated.
 - [x] Re-review public Agent-path promotion with the required adversarial proponent/opponent/adjudicator triad; keep it deferred and record the additive 1.44 candidate plus proof gates in [the Sequence-to-Agent decision](decisions/0011-sequence-agent-path-proof.md).
 - [ ] Extend the bounded path contract to approved Agent nodes only after the proof gates for failure settlement, host admission, deterministic result semantics, and passive replay are complete.
 - [x] Add Studio configuration/editing for ordered output labels, stable ordering, and connected add/remove operations.

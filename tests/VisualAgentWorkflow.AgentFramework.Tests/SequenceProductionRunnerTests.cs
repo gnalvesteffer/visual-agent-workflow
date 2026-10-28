@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using Microsoft.Extensions.AI;
 using VisualAgentWorkflow.Core;
 using Xunit;
 
@@ -146,6 +147,62 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Private_agent_sequence_proof_exercises_real_agent_executor_and_preserves_lineage()
+    {
+        var events = new List<ExecutionEvent>();
+        var registration = new AgentProviderRegistration(
+            new("sequence-proof", "Proof", "scripted-text-v1", true),
+            () => new DeterministicDemoChatClient());
+        var agents = new AgentNodeExecutor([registration], new RecordingBroker());
+        var result = await new WorkflowRunner(agents: agents).ExecuteSequenceAgentProductionProofAsync(
+            Guid.NewGuid(), "proof input", evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.StartsWith("Demo agent:", result.Output, StringComparison.Ordinal);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentStarted && HasSequenceLineage(evt));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested && HasSequenceLineage(evt));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded && HasSequenceLineage(evt));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentCompleted && HasSequenceLineage(evt));
+        Assert.True(SequenceEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal("completed", playback!.Status);
+        Assert.Equal("agent", Assert.Single(playback.Outputs).OutputId);
+    }
+
+    [Fact]
+    public async Task Private_agent_sequence_proof_fails_closed_when_provider_is_missing()
+    {
+        var events = new List<ExecutionEvent>();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(
+            agents: new AgentNodeExecutor([], new RecordingBroker())).ExecuteSequenceAgentProductionProofAsync(
+                Guid.NewGuid(), "proof input", evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
+    }
+
+    [Fact]
+    public async Task Private_agent_sequence_proof_records_provider_timeout_as_failure_without_retry()
+    {
+        var events = new List<ExecutionEvent>();
+        var registration = new AgentProviderRegistration(
+            new("sequence-proof", "Blocking", "blocking-v1", false),
+            () => new BlockingChatClient()) { InvocationTimeout = TimeSpan.FromMilliseconds(25) };
+        var agents = new AgentNodeExecutor([registration], new RecordingBroker());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(agents: agents)
+            .ExecuteSequenceAgentProductionProofAsync(Guid.NewGuid(), "proof input",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentLimitExceeded &&
+            evt.Data?.Contains("timeout", StringComparison.Ordinal) == true);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed &&
+            evt.Data?.Contains("no automatic retry", StringComparison.Ordinal) == true);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded);
+    }
+
+    [Fact]
     public async Task Private_agent_sequence_proof_settles_output_when_agent_fails()
     {
         var events = new List<ExecutionEvent>();
@@ -199,6 +256,9 @@ public sealed class SequenceProductionRunnerTests
         Assert.True(SequenceEvidence.TryRead(executionEvent, out var evidence));
         return evidence!;
     }
+
+    private static bool HasSequenceLineage(ExecutionEvent executionEvent) =>
+        executionEvent.Data?.Contains("sequenceLineage", StringComparison.Ordinal) == true;
 
     private static WorkflowDefinition PersistedSequenceDefinition()
     {
@@ -303,6 +363,24 @@ public sealed class SequenceProductionRunnerTests
             await invocation.RecordEventAsync(ExecutionEventKinds.AgentCompleted, input);
             return input;
         }
+    }
+
+    private sealed class BlockingChatClient : IChatClient
+    {
+        public async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("Blocking client unexpectedly completed.");
+        }
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose() { }
     }
 
     private sealed class RecordingBroker : INodeToolBroker
