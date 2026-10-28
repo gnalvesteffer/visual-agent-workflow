@@ -113,10 +113,10 @@ public sealed class WorkflowNodeContractTests
             var node = new NodeDefinition(descriptor.NodeType, "1.0.0");
             Assert.Equal(descriptor.Ports, WorkflowPorts.Explicit(node));
             Assert.Equal(
-                descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input).Select(port => (port.Id, port.DataType!)),
+                descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data).Select(port => (port.Id, port.DataType!)),
                 WorkflowPorts.ExplicitDataInputs(node).Select(port => (port.Id, port.DataType)));
             Assert.Equal(
-                descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output).Select(port => (port.Id, port.DataType!)),
+                descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Data).Select(port => (port.Id, port.DataType!)),
                 WorkflowPorts.ExplicitDataOutputs(node).Select(port => (port.Id, port.DataType)));
         }
 
@@ -148,6 +148,25 @@ public sealed class WorkflowNodeContractTests
         Assert.Contains(issues, issue => issue.Code == "port-id");
         Assert.Contains(issues, issue => issue.Code == "data-type");
         Assert.Contains(issues, issue => issue.Code == "execution-type");
+    }
+
+    [Fact]
+    public void Boolean_branch_uses_one_canonical_static_descriptor_for_typed_graph_pins()
+    {
+        var node = new NodeDefinition(NodeTypes.BooleanBranch, "1.0.0");
+        var descriptor = WorkflowNodeDescriptorRegistry.Get(NodeTypes.BooleanBranch);
+
+        Assert.Empty(WorkflowNodeDescriptorConformance.Validate(descriptor));
+        Assert.Equal(
+            [("condition", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Boolean),
+             ("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution, (string?)null),
+             ("true", WorkflowPortDirection.Output, WorkflowPortKind.Execution, (string?)null),
+             ("false", WorkflowPortDirection.Output, WorkflowPortKind.Execution, (string?)null)],
+            WorkflowPorts.Explicit(node).Select(port => (port.Id, port.Direction, port.Kind, port.DataType)));
+        Assert.Equal([("condition", WorkflowDataTypes.Boolean)], WorkflowPorts.ExplicitDataInputs(node).Select(port => (port.Id, port.DataType)));
+        Assert.Empty(WorkflowPorts.ExplicitDataOutputs(node));
+        Assert.Equal(["execute"], WorkflowPorts.ExplicitExecutionInputs(node).ToArray());
+        Assert.Equal(["true", "false"], WorkflowPorts.ExplicitExecutionOutputs(node).ToArray());
     }
 
     [Fact]

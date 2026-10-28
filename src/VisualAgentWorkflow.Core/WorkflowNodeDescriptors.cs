@@ -114,7 +114,12 @@ public static class WorkflowNodeDescriptorRegistry
         Descriptor(NodeTypes.StringEquals, "string-equals", [Input("left", WorkflowDataTypes.String), Input("right", WorkflowDataTypes.String), Output(WorkflowDataTypes.Boolean)]),
         Descriptor(NodeTypes.IntegerAdd, "integer-add", [Input("left", WorkflowDataTypes.Integer), Input("right", WorkflowDataTypes.Integer), Output(WorkflowDataTypes.Integer)]),
         Descriptor(NodeTypes.IntegerEquals, "integer-equals", [Input("left", WorkflowDataTypes.Integer), Input("right", WorkflowDataTypes.Integer), Output(WorkflowDataTypes.Boolean)]),
-        Descriptor(NodeTypes.BooleanNot, "boolean-not", [Input("value", WorkflowDataTypes.Boolean), Output(WorkflowDataTypes.Boolean)])
+        Descriptor(NodeTypes.BooleanNot, "boolean-not", [Input("value", WorkflowDataTypes.Boolean), Output(WorkflowDataTypes.Boolean)]),
+        Descriptor(NodeTypes.BooleanBranch, "boolean-branch", [
+            Input("condition", WorkflowDataTypes.Boolean),
+            ExecutionInput("execute"),
+            ExecutionOutput("true"),
+            ExecutionOutput("false")])
     ];
 
     public static bool TryGet(string? nodeType, string descriptorVersion, out WorkflowNodeDescriptor descriptor)
@@ -145,6 +150,20 @@ public static class WorkflowNodeDescriptorRegistry
         new("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, dataType)
         {
             Cardinality = WorkflowPortCardinality.Many
+        };
+
+    private static WorkflowPortDescriptor ExecutionInput(string id) =>
+        new(id, WorkflowPortDirection.Input, WorkflowPortKind.Execution)
+        {
+            Required = true,
+            Cardinality = WorkflowPortCardinality.ExactlyOne
+        };
+
+    private static WorkflowPortDescriptor ExecutionOutput(string id) =>
+        new(id, WorkflowPortDirection.Output, WorkflowPortKind.Execution)
+        {
+            Required = true,
+            Cardinality = WorkflowPortCardinality.ExactlyOne
         };
 }
 

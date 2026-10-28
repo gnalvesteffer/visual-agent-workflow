@@ -50,7 +50,7 @@ public static class WorkflowPorts
 
     public static ImmutableArray<WorkflowPort> ExplicitDataInputs(NodeDefinition node) =>
         WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor)
-            ? [.. staticDescriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input).Select(port => new WorkflowPort(port.Id, port.DataType!))]
+            ? [.. staticDescriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data).Select(port => new WorkflowPort(port.Id, port.DataType!))]
             : node.Type switch
     {
         NodeTypes.FunctionOutput => [new("in", node.InputDataType ?? WorkflowDataTypes.String)],
@@ -70,7 +70,7 @@ public static class WorkflowPorts
 
     public static ImmutableArray<WorkflowPort> ExplicitDataOutputs(NodeDefinition node) =>
         WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor)
-            ? [.. staticDescriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output).Select(port => new WorkflowPort(port.Id, port.DataType!))]
+            ? [.. staticDescriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Data).Select(port => new WorkflowPort(port.Id, port.DataType!))]
             : node.Type switch
     {
         NodeTypes.FunctionInput => [new("out", node.OutputDataType ?? WorkflowDataTypes.String)],
@@ -88,7 +88,12 @@ public static class WorkflowPorts
         _ => []
     };
 
-    public static ImmutableArray<string> ExplicitExecutionInputs(NodeDefinition node) => node.Type switch
+    public static ImmutableArray<string> ExplicitExecutionInputs(NodeDefinition node) =>
+        WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var descriptor)
+            ? [.. descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Execution).Select(port => port.Id)]
+            : ExplicitExecutionInputsFallback(node);
+
+    private static ImmutableArray<string> ExplicitExecutionInputsFallback(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Sequence => ["execute"],
         NodeTypes.ParallelJoin when node.ParallelJoin is { } join => [.. join.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
@@ -96,7 +101,12 @@ public static class WorkflowPorts
         _ => []
     };
 
-    public static ImmutableArray<string> ExplicitExecutionOutputs(NodeDefinition node) => node.Type switch
+    public static ImmutableArray<string> ExplicitExecutionOutputs(NodeDefinition node) =>
+        WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var descriptor)
+            ? [.. descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Execution).Select(port => port.Id)]
+            : ExplicitExecutionOutputsFallback(node);
+
+    private static ImmutableArray<string> ExplicitExecutionOutputsFallback(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input => ["then"],
         NodeTypes.Agent when node.Agent?.Routes is { IsDefaultOrEmpty: false } routes => [.. routes.Where(route => route is not null).Select(route => AgentExecutionRouteLimits.PinId(route.Id))],
