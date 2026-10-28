@@ -139,7 +139,7 @@ Sequence proof checklist:
 - [x] Re-review public Agent-path promotion with the required adversarial proponent/opponent/adjudicator triad; keep it deferred and record the additive 1.44 candidate plus proof gates in [the Sequence-to-Agent decision](decisions/0011-sequence-agent-path-proof.md).
 - [ ] Extend the bounded path contract to approved Agent nodes only after the proof gates for failure settlement, host admission, deterministic result semantics, and passive replay are complete.
 - [x] Add Studio configuration/editing for ordered output labels, stable ordering, and connected add/remove operations.
-- [ ] Add schema promotion and richer Sequence diagnostics for unsupported downstream topology.
+- [x] Add schema promotion and richer Sequence diagnostics for unsupported downstream topology. Schema 1.38 drafts can be explicitly promoted to schema 1.43, and invalid paths identify the affected ordered output, path node, competing owner, and repair constraint without making the draft unsaveable.
 - [x] Add public runtime evidence/playback binding for the bounded slice.
 - [ ] Add compatibility migration coverage and broader supported downstream node topology.
 

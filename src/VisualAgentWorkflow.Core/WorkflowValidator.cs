@@ -801,15 +801,30 @@ public static class WorkflowValidator
 
         if (isPathGraph && sequence is not null && output is not null)
         {
-            var sequenceOutputIds = sequenceNodes.SingleOrDefault().Value?.Sequence?.Outputs
-                .Select(candidate => candidate.Id).ToArray() ?? [];
+            var sequenceOutputs = sequenceNodes.SingleOrDefault().Value?.Sequence?.Outputs ?? [];
+            var sequenceOutputIds = sequenceOutputs.Select(candidate => candidate.Id).ToArray();
+            string SequenceOutputName(string outputId) => sequenceOutputs.FirstOrDefault(candidate => candidate.Id == outputId) is { } descriptor
+                ? $"'{descriptor.Label}' ({SequenceOutputLimits.PinId(outputId)})"
+                : SequenceOutputLimits.PinId(outputId);
             var outputRoots = new HashSet<string>(StringComparer.Ordinal);
             var ownedNodes = new HashSet<string>(StringComparer.Ordinal) { input!, sequence!, output };
+            var pathOwners = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var outputId in sequenceOutputIds)
             {
                 var rootEdges = definition.ExecutionConnections.Values.Where(edge => edge.Source.NodeId == sequence &&
                     edge.Source.PortId == SequenceOutputLimits.PinId(outputId)).ToArray();
-                if (rootEdges.Length != 1) continue;
+                if (rootEdges.Length == 0)
+                {
+                    error("sequence.path.root", $"nodes.{sequence}.sequence.outputs.{outputId}",
+                        $"Sequence output {SequenceOutputName(outputId)} has no downstream path. Connect it to a direct MCP tool path ending at the workflow Output.");
+                    continue;
+                }
+                if (rootEdges.Length > 1)
+                {
+                    error("sequence.path.duplicate", $"nodes.{sequence}.sequence.outputs.{outputId}",
+                        $"Sequence output {SequenceOutputName(outputId)} starts {rootEdges.Length} downstream paths; connect exactly one path.");
+                    continue;
+                }
                 var current = rootEdges[0].Target.NodeId;
                 var visited = new HashSet<string>(StringComparer.Ordinal);
                 var pathLength = 0;
@@ -818,27 +833,39 @@ public static class WorkflowValidator
                     pathLength++;
                     if (pathLength > 16)
                     {
-                        error("sequence.path.limit", $"nodes.{sequence}.sequence.outputs.{outputId}", "Each Sequence path is limited to 16 downstream nodes.");
+                        error("sequence.path.limit", $"nodes.{sequence}.sequence.outputs.{outputId}",
+                            $"Sequence output {SequenceOutputName(outputId)} exceeds the 16-node downstream path limit.");
                         break;
                     }
                     if (!definition.Nodes.TryGetValue(current, out var currentNode) || currentNode is null)
                         break;
                     if (currentNode.Type is not NodeTypes.McpTool)
-                        error("sequence.path.node", $"nodes.{current}", "Sequence paths may contain only direct MCP tool nodes in schema 1.43.");
+                        error("sequence.path.node", $"nodes.{current}",
+                            $"Sequence output {SequenceOutputName(outputId)} reaches '{current}', which is not a direct MCP tool. Schema 1.43 paths may contain only direct MCP tool nodes before the workflow Output.");
                     if (current != output && !ownedNodes.Add(current))
-                        error("sequence.path.shared", $"nodes.{current}", "Sequence paths must not share downstream nodes.");
+                    {
+                        var owner = pathOwners.GetValueOrDefault(current);
+                        var ownerText = owner is null ? "another Sequence path" : $"Sequence output {SequenceOutputName(owner)}";
+                        error("sequence.path.shared", $"nodes.{current}",
+                            $"Sequence output {SequenceOutputName(outputId)} shares '{current}' with {ownerText}; each path must remain disjoint.");
+                    }
+                    else if (current != output)
+                        pathOwners[current] = outputId;
                     var nextEdges = definition.ExecutionConnections.Values.Where(edge => edge.Source.NodeId == current).ToArray();
                     if (nextEdges.Length != 1)
                     {
-                        error("sequence.path.linear", $"nodes.{current}", "Every downstream Sequence node must have exactly one execution successor.");
+                        error("sequence.path.linear", $"nodes.{current}",
+                            $"Sequence output {SequenceOutputName(outputId)} reaches '{current}' with {nextEdges.Length} execution successors; each path node must have exactly one successor.");
                         break;
                     }
                     current = nextEdges[0].Target.NodeId;
                 }
                 if (current != output)
-                    error("sequence.path.terminal", $"nodes.{sequence}.sequence.outputs.{outputId}", "Every Sequence output path must reach the workflow Output without cycles.");
+                    error("sequence.path.terminal", $"nodes.{sequence}.sequence.outputs.{outputId}",
+                        $"Sequence output {SequenceOutputName(outputId)} does not reach the workflow Output without a cycle or incomplete path.");
                 else if (!outputRoots.Add(outputId))
-                    error("sequence.path.duplicate", $"nodes.{sequence}.sequence.outputs.{outputId}", "Each Sequence output may define only one downstream path.");
+                    error("sequence.path.duplicate", $"nodes.{sequence}.sequence.outputs.{outputId}",
+                        $"Sequence output {SequenceOutputName(outputId)} defines more than one downstream path.");
             }
             if (ownedNodes.Count != definition.Nodes.Count)
                 error("graph.unreachable", "nodes", "Every node must belong to the input, Sequence, output, or one disjoint Sequence path.");

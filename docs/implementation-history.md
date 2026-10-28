@@ -2,6 +2,18 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Sequence path promotion diagnostics
+
+The schema 1.38 to 1.43 promotion is now paired with actionable validation
+evidence for downstream topology errors. Problems identify the affected
+ordered output and stable execution pin, unsupported path nodes, competing
+path ownership, missing or duplicate roots, and linear-successor or path
+length violations. Invalid drafts remain saveable while publish and run
+admission remain strict. Core regression tests cover unconnected outputs,
+unsupported path nodes, and shared downstream nodes. See [ordered Sequence
+nodes](user-guide.md#ordered-sequence-nodes) and the [Blueprint parity
+roadmap](roadmap.md).
+
 ## Blueprint parity vertical proof slice
 
 The bounded Blueprint-inspired proof now crosses authored editing, definition

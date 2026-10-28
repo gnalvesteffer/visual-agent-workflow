@@ -106,6 +106,54 @@ public sealed class SequenceGraphTests
         Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "sequence.path.shared");
     }
 
+    [Fact]
+    public void Sequence_path_diagnostics_name_the_unconnected_output()
+    {
+        var definition = PathDefinition() with
+        {
+            ExecutionConnections = PathDefinition().ExecutionConnections!.Remove("sequence-architecture")
+        };
+
+        var issue = Assert.Single(WorkflowValidator.Validate(definition), issue => issue.Code == "sequence.path.root");
+
+        Assert.Contains("Architecture research", issue.Message, StringComparison.Ordinal);
+        Assert.Contains("then.architecture", issue.Message, StringComparison.Ordinal);
+        Assert.Contains("direct MCP tool path", issue.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Sequence_path_diagnostics_identify_unsupported_nodes_on_their_path()
+    {
+        var definition = PathDefinition() with
+        {
+            Nodes = PathDefinition().Nodes.SetItem("inventory-tool", new NodeDefinition(NodeTypes.TextConcat, "1.0.0"))
+        };
+
+        var issue = Assert.Single(WorkflowValidator.Validate(definition), issue => issue.Code == "sequence.path.node");
+
+        Assert.Contains("Inventory research", issue.Message, StringComparison.Ordinal);
+        Assert.Contains("inventory-tool", issue.Message, StringComparison.Ordinal);
+        Assert.Contains("direct MCP tool", issue.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Sequence_path_diagnostics_identify_the_other_owner_of_shared_nodes()
+    {
+        var path = PathDefinition();
+        var definition = path with
+        {
+            ExecutionConnections = path.ExecutionConnections!
+                .Remove("sequence-architecture")
+                .Add("sequence-architecture", new(new("sequence", "then.architecture"), new("inventory-tool", "execute"), "execution"))
+        };
+
+        var issue = Assert.Single(WorkflowValidator.Validate(definition), issue => issue.Code == "sequence.path.shared");
+
+        Assert.Contains("Architecture research", issue.Message, StringComparison.Ordinal);
+        Assert.Contains("Inventory research", issue.Message, StringComparison.Ordinal);
+        Assert.Contains("disjoint", issue.Message, StringComparison.Ordinal);
+    }
+
     private static WorkflowDefinition Definition()
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
