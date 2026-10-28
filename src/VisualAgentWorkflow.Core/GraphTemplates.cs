@@ -14,6 +14,7 @@ public sealed record GraphTemplateDefinition(
     GraphFunctionDefinition Body);
 
 public sealed record GraphTemplateConfiguration(GraphTemplateDefinition Definition, string ContentHash);
+public sealed record GraphTemplateDocument(string FormatVersion, GraphTemplateDefinition Definition, string ContentHash);
 
 /// <summary>Result of expanding a template snapshot; source mapping is informational and not a live dependency.</summary>
 public sealed record GraphTemplateExpansion(
@@ -25,6 +26,14 @@ public sealed record GraphTemplateInputBoundary(string Id, string DisplayName, s
 
 /// <summary>An explicit typed output boundary from a selected workflow node output to a template port.</summary>
 public sealed record GraphTemplateOutputBoundary(string Id, string DisplayName, string DataType, string SourceNodeId, string SourcePortId);
+
+public static class GraphTemplateLimits
+{
+    public const string CurrentFormatVersion = "1.0";
+    public const int MaximumJsonBytes = 1_048_576;
+    public const int MaximumExpansionNodes = GraphFunctionLimits.MaximumNodes;
+    public const int MaximumExpansionConnections = GraphFunctionLimits.MaximumConnections;
+}
 
 /// <summary>Validation and copy-on-expand proof seam for pure graph templates.</summary>
 public static class GraphTemplateJson
@@ -39,7 +48,84 @@ public static class GraphTemplateJson
     public static string ComputeHash(GraphTemplateDefinition template)
     {
         ArgumentNullException.ThrowIfNull(template);
-        return Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(template, Options)));
+        return Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(SerializeDefinition(template))));
+    }
+
+    /// <summary>Returns the canonical definition payload. The template hash covers these bytes, not the document envelope.</summary>
+    public static string Serialize(GraphTemplateDefinition template)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+        return SerializeDefinition(template);
+    }
+
+    public static GraphTemplateDefinition Deserialize(string json)
+    {
+        var template = DeserializeValue<GraphTemplateDefinition>(json, "A graph template definition is required.");
+        ThrowIfInvalid(template);
+        return template;
+    }
+
+    /// <summary>Serializes an integrity-checked, versioned template document.</summary>
+    public static string Serialize(GraphTemplateConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ThrowIfInvalid(configuration.Definition);
+        var expectedHash = ComputeHash(configuration.Definition);
+        if (!string.Equals(expectedHash, configuration.ContentHash, StringComparison.Ordinal))
+            throw new ArgumentException("The graph template content hash does not match its definition.", nameof(configuration));
+        return JsonSerializer.Serialize(new GraphTemplateDocument(GraphTemplateLimits.CurrentFormatVersion,
+            configuration.Definition, expectedHash), Options);
+    }
+
+    /// <summary>Reads and validates a versioned template document, including its definition hash.</summary>
+    public static GraphTemplateConfiguration DeserializeConfiguration(string json)
+    {
+        var document = DeserializeValue<GraphTemplateDocument>(json, "A graph template document is required.");
+        if (!string.Equals(document.FormatVersion, GraphTemplateLimits.CurrentFormatVersion, StringComparison.Ordinal))
+            throw new JsonException($"Unsupported graph template format version '{document.FormatVersion}'.");
+        ThrowIfInvalid(document.Definition);
+        var actualHash = ComputeHash(document.Definition);
+        if (!string.Equals(actualHash, document.ContentHash, StringComparison.Ordinal))
+            throw new JsonException("The graph template content hash does not match its definition.");
+        return new(document.Definition, actualHash);
+    }
+
+    public static bool MatchesHash(GraphTemplateDefinition template, string? expectedHash) =>
+        expectedHash is not null && string.Equals(ComputeHash(template), expectedHash, StringComparison.Ordinal);
+
+    private static bool IsValidIdentifier(string? id) => id is { Length: > 0 and <= GraphFunctionLimits.MaximumIdLength } &&
+        id.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '.');
+
+    private static string SerializeDefinition(GraphTemplateDefinition template)
+    {
+        var normalized = template with
+        {
+            Body = template.Body with
+            {
+                Inputs = template.Body.Inputs.ToImmutableSortedDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal),
+                Outputs = template.Body.Outputs.ToImmutableSortedDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal),
+                Nodes = template.Body.Nodes.ToImmutableSortedDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal),
+                Connections = template.Body.Connections.ToImmutableSortedDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)
+            }
+        };
+        return JsonSerializer.Serialize(normalized, Options).Replace("\r\n", "\n", StringComparison.Ordinal);
+    }
+
+    private static T DeserializeValue<T>(string json, string missingMessage)
+    {
+        ArgumentNullException.ThrowIfNull(json);
+        if (System.Text.Encoding.UTF8.GetByteCount(json) > GraphTemplateLimits.MaximumJsonBytes)
+            throw new ArgumentException("The graph template document exceeds the 1 MiB import limit.", nameof(json));
+        using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 32 });
+        JsonDocumentSafety.RejectDuplicateProperties(document.RootElement);
+        return JsonSerializer.Deserialize<T>(json, Options) ?? throw new JsonException(missingMessage);
+    }
+
+    private static void ThrowIfInvalid(GraphTemplateDefinition? template)
+    {
+        var issues = Validate(template);
+        if (issues.Length > 0)
+            throw new ArgumentException(string.Join("; ", issues.Select(issue => issue.Message)), nameof(template));
     }
 
     public static ImmutableArray<ValidationIssue> Validate(GraphTemplateDefinition? template)
@@ -72,6 +158,12 @@ public static class GraphTemplateJson
         foreach (var issue in GraphFunctionJson.Validate(template.Body))
             issues.Add(issue with { Code = "template." + issue.Code, Path = issue.Path.Replace("graphFunction", "graphTemplate", StringComparison.Ordinal) });
 
+        if (template.Body.Nodes is null || template.Body.Connections is null || template.Body.Inputs is null || template.Body.Outputs is null)
+            return issues.ToImmutable();
+        if (template.Body.Nodes.Count > GraphTemplateLimits.MaximumExpansionNodes ||
+            template.Body.Connections.Count > GraphTemplateLimits.MaximumExpansionConnections)
+            Error("template.limit", "graphTemplate.definition.body", "Template expansion exceeds the bounded pure graph limits.");
+
         foreach (var (nodeId, node) in template.Body.Nodes)
         {
             if (node is null || !WorkflowNodeContractCatalog.TryGet(node.Type, out var contract))
@@ -94,12 +186,14 @@ public static class GraphTemplateJson
         var issues = Validate(template);
         if (issues.Length > 0)
             throw new ArgumentException(string.Join("; ", issues.Select(issue => issue.Message)), nameof(template));
-        if (string.IsNullOrWhiteSpace(functionId))
-            throw new ArgumentException("An expanded graph function ID is required.", nameof(functionId));
+        if (!IsValidIdentifier(functionId))
+            throw new ArgumentException("An expanded graph function ID must use letters, digits, '.', '_' or '-' and fit within 128 characters.", nameof(functionId));
 
         nodeIdFactory ??= _ => "node-" + Guid.NewGuid().ToString("N");
-        var ids = template.Body.Nodes.Keys.ToImmutableSortedDictionary(
-            id => id, id => nodeIdFactory(id), StringComparer.Ordinal);
+        var remappedIds = template.Body.Nodes.Keys.Select(id => (Source: id, Expanded: nodeIdFactory(id))).ToArray();
+        if (remappedIds.Any(pair => !IsValidIdentifier(pair.Expanded)))
+            throw new ArgumentException("The node ID factory must return valid nonempty IDs within 128 characters.", nameof(nodeIdFactory));
+        var ids = remappedIds.ToImmutableSortedDictionary(pair => pair.Source, pair => pair.Expanded, StringComparer.Ordinal);
         if (ids.Values.Distinct(StringComparer.Ordinal).Count() != ids.Count)
             throw new ArgumentException("The node ID factory must return unique IDs.", nameof(nodeIdFactory));
 
@@ -119,6 +213,9 @@ public static class GraphTemplateJson
             Nodes = nodes,
             Connections = connections
         };
+        var expandedIssues = GraphFunctionJson.Validate(body);
+        if (expandedIssues.Length > 0)
+            throw new ArgumentException(string.Join("; ", expandedIssues.Select(issue => issue.Message)), nameof(nodeIdFactory));
         return new(body, ids.ToImmutableSortedDictionary(
             pair => pair.Value, pair => pair.Key, StringComparer.Ordinal));
     }
@@ -272,4 +369,5 @@ public static class GraphTemplateExtraction
 
     private static bool IsValidBoundaryId(string? id) => id is { Length: > 0 and <= GraphFunctionLimits.MaximumIdLength } &&
         id.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '.');
+
 }

@@ -24,7 +24,8 @@ contract without changing workflow schemas or runtime execution. It validates
 a template snapshot against the same bounded data graph, rejects effectful or
 dynamically pinned nodes, and can extract selected workflow data subgraphs when
 callers provide explicit typed boundaries. It expands snapshots with fresh node
-IDs and remapped data connections. The source-node map is informational and non-live;
+IDs and remapped data connections. Template documents use a strict versioned JSON
+envelope with a canonical definition hash and bounded import size. The source-node map is informational and non-live;
 no capabilities, credentials, or runtime subscriptions cross the boundary.
 Selected workflow-subgraph extraction, project persistence, layout/undo
 semantics, and Studio exposure remain deferred until those contracts are

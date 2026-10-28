@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using VisualAgentWorkflow.Core;
 using Xunit;
 
@@ -74,6 +75,42 @@ public sealed class GraphTemplateTests
         var template = GraphTemplateExtraction.Extract(source, "template.identity", 1, "Identity", "");
 
         Assert.Throws<ArgumentException>(() => GraphTemplateJson.Expand(template, "expanded.identity", _ => "same"));
+        Assert.Throws<ArgumentException>(() => GraphTemplateJson.Expand(template, "expanded.identity", _ => "invalid id"));
+    }
+
+    [Fact]
+    public void Versioned_template_document_round_trips_and_rejects_tampering()
+    {
+        var template = IdentityTemplate();
+        var configuration = new GraphTemplateConfiguration(template, GraphTemplateJson.ComputeHash(template));
+
+        var json = GraphTemplateJson.Serialize(configuration);
+        var restored = GraphTemplateJson.DeserializeConfiguration(json);
+
+        Assert.Equal(template.TemplateId, restored.Definition.TemplateId);
+        Assert.Equal(template.Version, restored.Definition.Version);
+        Assert.Equal(GraphTemplateJson.Serialize(template), GraphTemplateJson.Serialize(restored.Definition));
+        Assert.Equal(configuration.ContentHash, restored.ContentHash);
+        Assert.Equal(configuration.ContentHash, GraphTemplateJson.ComputeHash(restored.Definition));
+        Assert.Throws<JsonException>(() => GraphTemplateJson.DeserializeConfiguration(
+            json.Replace(configuration.ContentHash, new string('0', 64), StringComparison.Ordinal)));
+        Assert.Throws<JsonException>(() => GraphTemplateJson.DeserializeConfiguration(
+            json.Replace("\"formatVersion\":\"1.0\"", "\"formatVersion\":\"1.0\",\"formatVersion\":\"1.0\"", StringComparison.Ordinal)));
+        Assert.Throws<JsonException>(() => GraphTemplateJson.DeserializeConfiguration(
+            json.Replace("{", "{\"unknown\":1,", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void Template_import_has_bounded_bytes_and_null_shape_validation()
+    {
+        Assert.Throws<ArgumentException>(() => GraphTemplateJson.DeserializeConfiguration(
+            new string('x', GraphTemplateLimits.MaximumJsonBytes + 1)));
+
+        var invalid = IdentityTemplate() with { Body = IdentityTemplate().Body with { Nodes = null! } };
+
+        var issues = GraphTemplateJson.Validate(invalid);
+
+        Assert.Contains(issues, issue => issue.Code == "template.function.structure");
     }
 
     [Fact]
@@ -115,4 +152,16 @@ public sealed class GraphTemplateTests
 
         Assert.Contains("must be declared as a template input boundary", error.Message);
     }
+
+    private static GraphTemplateDefinition IdentityTemplate() => new(
+        "template.identity", 1, "Identity", "Passes text through.",
+        new GraphFunctionDefinition(
+            "template.identity.body", 1, "Identity", "Passes text through.",
+            ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal).Add("value", new("Value", "string")),
+            ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal).Add("result", new("Result", "string")),
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input", new(NodeTypes.FunctionInput, "1.0.0") { FunctionPortId = "value" })
+                .Add("output", new(NodeTypes.FunctionOutput, "1.0.0") { FunctionPortId = "result" }),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("value", new(new("input", "out"), new("output", "in"), "data"))));
 }

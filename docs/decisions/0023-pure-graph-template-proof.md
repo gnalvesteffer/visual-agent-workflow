@@ -19,6 +19,14 @@ explicit typed input/output boundaries. Extraction rejects hidden incoming data,
 execution wires, effectful nodes, dynamic pins, unsupported nodes, and boundary
 type mismatches; it never infers a boundary from a visual selection.
 
+Template documents now have a strict `1.0` envelope containing the definition and
+its lowercase SHA-256 content hash. The hash covers only the canonical definition,
+not the envelope. Imports reject duplicate or unknown properties, wrong format
+versions, malformed/null shapes, payloads over 1 MiB, and invalid template
+content. Expansion rechecks generated IDs and the existing pure graph node and
+connection bounds; target-workflow combined limits remain the responsibility of a
+future insertion operation.
+
 The source map is non-live provenance. Expansion does not synchronize with the source and does not transfer credentials, grants, model connections, MCP bindings, host capabilities, or runtime subscriptions.
 
 ## Boundaries
@@ -33,7 +41,10 @@ No Studio picker, project asset, workflow schema promotion, runtime template nod
 
 ## Follow-up gates
 
-Before editor exposure, add dependency closure, layout and undo semantics, serialization/round-trip tests, target graph limits, and a user-facing distinction between templates, graph functions, and workflow calls. Revisit provenance and upgrade diagnostics before introducing a published project asset.
+Before editor exposure, add dependency closure, layout and undo semantics,
+project/catalog persistence, and a user-facing distinction between templates,
+graph functions, and workflow calls. Revisit provenance and upgrade diagnostics
+before introducing a published project asset.
 
 ## Review
 
