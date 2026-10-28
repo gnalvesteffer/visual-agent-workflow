@@ -18,6 +18,8 @@ public sealed class SequenceDispatchProofTests
 
         Assert.Equal(["first", "second", "third"], result.DispatchOrder);
         Assert.Equal(result.DispatchOrder, result.CompletionOrder);
+        Assert.Equal(3, result.Events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId is not null && evt.NodeId.StartsWith("output:", StringComparison.Ordinal)));
         Assert.Equal(1, result.Events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceStarted));
         Assert.Equal(1, result.Events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceCompleted));
 

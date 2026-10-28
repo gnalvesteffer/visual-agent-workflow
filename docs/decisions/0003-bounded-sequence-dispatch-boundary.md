@@ -75,9 +75,11 @@ only after the prior output sends an explicit completion message. The terminal
 executor is reached only after the third output, so the proof does not rely on
 ordinary fan-out or an early root result. This establishes the continuation
 shape needed for a completion-ordered Sequence, but it is still a proof harness:
-it is not wired to `WorkflowRunner`'s production graph messages or
-`ExecutionActivationLedger`, and it does not yet cover failure, pause, or host
-stop.
+it is not wired to `WorkflowRunner`'s production graph messages, and it does
+not yet cover failure, pause, or host stop. Its synthetic descendant executors
+do, however, pass their start/completion facts through the runner-owned
+`ExecutionActivationLedger`, and the proof rejects terminal output if that
+ledger still contains active work.
 
 This is useful evidence, not a failure of the framework. It rules out treating ordinary `SendMessageAsync` fan-out as a Blueprint Sequence. A public Sequence must either define this as an explicitly concurrent dispatch primitive with full active-work accounting, or add a separate continuation mechanism that admits the next output only after the previous path's documented completion boundary.
 

@@ -17,7 +17,7 @@ internal static class SequenceRunnerProof
         var connectionIds = outputIds.ToDictionary(id => id, id => $"sequence-proof:{id}", StringComparer.Ordinal);
         var sequenceInvocationId = Guid.NewGuid();
         var coordinator = new SequenceRuntimeCoordinator(sequenceInvocationId, "sequence-proof", outputIds, connectionIds);
-        var fixture = new ProofFixture(coordinator);
+        var fixture = new ProofFixture(runId, revisionId, coordinator);
         await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(fixture.Build(),
             new SequenceMessage("start", null, Guid.Empty),
             cancellationToken: cancellationToken);
@@ -27,17 +27,42 @@ internal static class SequenceRunnerProof
                 throw new InvalidOperationException("The private Sequence runner proof failed.", error.Exception);
         }
 
-        var recorded = coordinator.ToExecutionEvents(runId, revisionId, 1, DateTimeOffset.UtcNow);
-        return new SequenceRunnerProofResult(recorded, fixture.DispatchOrder.ToArray(), fixture.CompletionOrder.ToArray());
+        fixture.ThrowIfActive();
+        var recorded = coordinator.ToExecutionEvents(runId, revisionId, fixture.RecordedEvents.Count + 1, DateTimeOffset.UtcNow);
+        return new SequenceRunnerProofResult(fixture.RecordedEvents.Concat(recorded).ToArray(),
+            fixture.DispatchOrder.ToArray(), fixture.CompletionOrder.ToArray());
     }
 
-    private sealed class ProofFixture(SequenceRuntimeCoordinator coordinator)
+    private sealed class ProofFixture(Guid runId, Guid revisionId, SequenceRuntimeCoordinator coordinator)
     {
         private readonly Queue<string> dispatchOrder = new();
         private readonly Queue<string> completionOrder = new();
+        private readonly ExecutionActivationLedger activationLedger = new();
+        private readonly List<ExecutionEvent> recordedEvents = [];
+        private long sequence;
 
         internal IReadOnlyCollection<string> DispatchOrder => dispatchOrder.ToArray();
         internal IReadOnlyCollection<string> CompletionOrder => completionOrder.ToArray();
+        internal IReadOnlyList<ExecutionEvent> RecordedEvents
+        {
+            get { lock (recordedEvents) return recordedEvents.OrderBy(item => item.Sequence).ToArray(); }
+        }
+
+        internal void Begin(string nodeId, Guid invocationId, string? data = null) => Record(ExecutionEventKinds.NodeStarted,
+            nodeId, invocationId, data);
+
+        internal void Complete(string nodeId, Guid invocationId, string? data = null) => Record(ExecutionEventKinds.NodeCompleted,
+            nodeId, invocationId, data);
+
+        internal void ThrowIfActive() => activationLedger.ThrowIfActive();
+
+        private void Record(string kind, string nodeId, Guid invocationId, string? data)
+        {
+            var executionEvent = new ExecutionEvent(runId, revisionId, Interlocked.Increment(ref sequence), DateTimeOffset.UtcNow,
+                kind, nodeId, invocationId, null, data);
+            activationLedger.Observe(executionEvent);
+            lock (recordedEvents) recordedEvents.Add(executionEvent);
+        }
 
         internal Workflow Build()
         {
@@ -71,16 +96,24 @@ internal static class SequenceRunnerProof
             public override async ValueTask<SequenceMessage> HandleAsync(SequenceMessage message, IWorkflowContext context,
                 CancellationToken cancellationToken = default)
             {
+                var invocationId = message.ActivationId == Guid.Empty ? Guid.NewGuid() : message.ActivationId;
+                fixture.Begin(Id, invocationId, message.Kind);
                 if (message.Kind == "start")
                 {
                     await fixture.DispatchNextAsync(coordinator, context, cancellationToken);
+                    fixture.Complete(Id, invocationId, "waiting-for-first-output");
                     return new("continue", null, Guid.Empty);
                 }
 
                 if (message.Kind != "completed") throw new InvalidOperationException("Unexpected Sequence proof message.");
                 coordinator.Complete(message.ActivationId, SequenceTerminalState.Completed);
-                if (message.OutputId == "third") return new("terminal", null, Guid.Empty);
+                if (message.OutputId == "third")
+                {
+                    fixture.Complete(Id, invocationId, "sequence-complete");
+                    return new("terminal", null, Guid.Empty);
+                }
                 await fixture.DispatchNextAsync(coordinator, context, cancellationToken);
+                fixture.Complete(Id, invocationId, "waiting-for-next-output");
                 return new("continue", null, Guid.Empty);
             }
         }
@@ -91,8 +124,10 @@ internal static class SequenceRunnerProof
             public override async ValueTask<SequenceMessage> HandleAsync(SequenceMessage message, IWorkflowContext context,
                 CancellationToken cancellationToken = default)
             {
+                fixture.Begin(Id, message.ActivationId, message.OutputId);
                 fixture.completionOrder.Enqueue(message.OutputId!);
                 await Task.Yield();
+                fixture.Complete(Id, message.ActivationId, message.OutputId);
                 return new("completed", message.OutputId, message.ActivationId);
             }
         }
