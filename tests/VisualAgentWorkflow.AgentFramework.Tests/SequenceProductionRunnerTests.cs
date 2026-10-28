@@ -145,6 +145,38 @@ public sealed class SequenceProductionRunnerTests
         Assert.Equal(ExecutionEventKinds.Completed, events[^1].Kind);
     }
 
+    [Fact]
+    public async Task Private_agent_sequence_proof_settles_output_when_agent_fails()
+    {
+        var events = new List<ExecutionEvent>();
+        var agent = new SequenceProofAgentExecutor(fail: true);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(agents: agent).ExecuteSequenceAgentProductionProofAsync(
+            Guid.NewGuid(), "proof input", evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+    }
+
+    [Fact]
+    public async Task Private_agent_sequence_proof_settles_output_when_agent_is_cancelled()
+    {
+        var events = new List<ExecutionEvent>();
+        var agent = new SequenceProofAgentExecutor(blockUntilCancellation: true);
+        using var cancellation = new CancellationTokenSource();
+        var execution = new WorkflowRunner(agents: agent).ExecuteSequenceAgentProductionProofAsync(
+            Guid.NewGuid(), "proof input", evt => { events.Add(evt); return ValueTask.CompletedTask; },
+            cancellationToken: cancellation.Token);
+
+        await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => execution);
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceCancelled);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+    }
+
     private static SequenceLifecycleEvidence ReadEvidence(ExecutionEvent executionEvent)
     {
         Assert.True(SequenceEvidence.TryRead(executionEvent, out var evidence));
@@ -205,7 +237,17 @@ public sealed class SequenceProductionRunnerTests
 
     private sealed class SequenceProofAgentExecutor : IAgentNodeExecutor
     {
+        private readonly bool fail;
+        private readonly bool blockUntilCancellation;
+
         public bool InvocationObserved { get; private set; }
+        public TaskCompletionSource<bool> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public SequenceProofAgentExecutor(bool fail = false, bool blockUntilCancellation = false)
+        {
+            this.fail = fail;
+            this.blockUntilCancellation = blockUntilCancellation;
+        }
 
         public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
             Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>([new("sequence-proof", "Proof", "proof", false)]);
@@ -214,11 +256,16 @@ public sealed class SequenceProductionRunnerTests
             CancellationToken cancellationToken = default)
         {
             InvocationObserved = true;
+            Started.TrySetResult(true);
             await invocation.RecordEventAsync(ExecutionEventKinds.AgentStarted,
                 JsonSerializer.Serialize(new { provider = new { modelId = "sequence-proof" } }));
             var modelCallId = Guid.NewGuid();
             await invocation.RecordEventForAsync(modelCallId, ExecutionEventKinds.ModelRequested,
                 JsonSerializer.Serialize(new { modelCallId, input }));
+            if (fail)
+                throw new InvalidOperationException("proof agent failed");
+            if (blockUntilCancellation)
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             await invocation.RecordEventForAsync(modelCallId, ExecutionEventKinds.ModelResponded,
                 JsonSerializer.Serialize(new { modelCallId, output = input }));
             await invocation.RecordEventAsync(ExecutionEventKinds.AgentCompleted, input);

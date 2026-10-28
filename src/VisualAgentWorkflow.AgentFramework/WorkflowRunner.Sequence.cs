@@ -88,7 +88,12 @@ public sealed partial class WorkflowRunner
             .ToDictionary(outputNodeId => outputNodeId,
             outputNodeId => (Executor<GraphMessage, GraphMessage>)new StringExecutor(outputNodeId,
                 revision.Definition.Nodes[outputNodeId], runId, revision, null, tools, agents, null,
-                emit, gate, null, rootRevision, workflowPath, collaborationOptions), StringComparer.Ordinal);
+                emit, gate, null, rootRevision, workflowPath, collaborationOptions, null,
+                async (lineage, terminalState) =>
+                {
+                    coordinator.Complete(lineage.OutputActivationId, terminalState);
+                    await FlushSequenceEvents();
+                }), StringComparer.Ordinal);
         var source = new SequenceProductionSource(plan.SequenceNodeId, plan, coordinator, FlushSequenceEvents, emit, gate);
         var collector = new SequenceProductionCollector("sequence-collector", plan, coordinator,
             FlushSequenceEvents, emit);

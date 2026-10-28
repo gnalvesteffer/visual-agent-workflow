@@ -903,7 +903,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> record, IWorkflowExecutionGate? gate,
         string? scopeId, WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath,
         ParallelCollaborationRuntimeOptions? collaborationOptions,
-        ParallelCollaborationRuntime? collaborationRuntime = null)
+        ParallelCollaborationRuntime? collaborationRuntime = null,
+        Func<SequenceMessageLineage, SequenceTerminalState, ValueTask>? recordSequenceTerminal = null)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -1243,22 +1244,30 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+                if (recordSequenceTerminal is not null && received.SequenceLineage is { } sequenceLineage)
+                    await recordSequenceTerminal(sequenceLineage, SequenceTerminalState.Cancelled);
                 await Emit(ExecutionEventKinds.NodeCancelled, Id, invocation, null, "Node execution cancelled.");
                 throw;
             }
             catch (JsonProjectionContractException exception)
             {
+                if (recordSequenceTerminal is not null && received.SequenceLineage is { } sequenceLineage)
+                    await recordSequenceTerminal(sequenceLineage, SequenceTerminalState.Failed);
                 await Emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, exception.Message);
                 throw;
             }
             catch (GraphDataEvaluationException exception)
             {
+                if (recordSequenceTerminal is not null && received.SequenceLineage is { } sequenceLineage)
+                    await recordSequenceTerminal(sequenceLineage, SequenceTerminalState.Failed);
                 await Emit(ExecutionEventKinds.NodeFailed, exception.NodeId, invocation, null, exception.Message);
                 await Emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, "Node execution failed while evaluating a connected data value.");
                 throw;
             }
             catch
             {
+                if (recordSequenceTerminal is not null && received.SequenceLineage is { } sequenceLineage)
+                    await recordSequenceTerminal(sequenceLineage, SequenceTerminalState.Failed);
                 if (routeSelection is not null)
                 {
                     await Emit(ExecutionEventKinds.AgentRouteRejected, Id, invocation, null,

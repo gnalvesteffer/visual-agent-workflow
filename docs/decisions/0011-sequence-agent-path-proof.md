@@ -52,3 +52,40 @@ barrier, alongside the existing direct-MCP path shape, but only after tests
 prove nested event lineage, uncertain outcomes, host-grant denial, cancellation
 races, no premature run completion, and playback without live calls. This
 document records the gate; it does not advertise that future schema.
+
+## Adjudication addendum (2026-10-28)
+
+The required proponent/opponent/adjudicator review revisited promotion after
+the initial proof landed. The adjudicator kept the status **Non-public proof
+only**. The current proof is feasibility evidence, not public-contract
+readiness: it uses a one-output private plan, an injected synthetic Agent that
+always succeeds, and does not yet exercise the real Agent executor, provider
+failure or uncertainty, cancellation while an Agent is active, host-grant
+denial, Sequence failure settlement, or passive playback of an Agent-bearing
+Sequence run.
+
+The candidate future schema is additive `1.44`, preserving schemas 1.38 and
+1.43. It may eventually allow each of the existing two-to-four Sequence
+outputs to use either its current direct-MCP path or exactly one terminal
+plain-text Agent immediately before Output. The candidate excludes Agent
+routes, structured results, MCP or graph-function tools, skills, delegation,
+teams, collaboration, approvals, workflow calls, loops, branches, joins,
+retries, nested Sequences, and durable resume. It is not implemented or
+advertised.
+
+Promotion gates, in order:
+
+- [x] Record Sequence output failure/cancellation in the private one-output
+  proof before the runner propagates the outcome. Multi-output sibling
+  settlement is still unproven and remains a public-promotion gate.
+- [ ] Settle skipped siblings when a descendant Agent fails or is cancelled;
+  never complete the workflow while descendant work remains active.
+- [ ] Exercise the real Agent executor and host capability admission, including
+  missing provider/grant denial, provider failure/timeout uncertainty, and
+  finite resource limits for the public subset.
+- [ ] Define deterministic final-result semantics when multiple Agent paths
+  complete out of order.
+- [ ] Prove passive playback of nested Sequence/Agent/model identity with zero
+  provider, tool, or executor calls, plus schema 1.38/1.43 compatibility.
+- [ ] Add Core/package/Studio authoring and invalid-topology coverage only after
+  the runtime and evidence gates above pass; then consider schema 1.44.
