@@ -20,6 +20,21 @@ The project already has a substantial Blueprint-inspired foundation: separate ex
 
 The remaining alignment work is primarily contract and authoring work. The current reference identifies broader type/container systems, mutable graph variables, richer control flow, event dispatchers, latent/scheduled work, generalized reuse/templates, and Blueprint-style debugging as future capabilities requiring separate runtime and evidence contracts. This phase must not turn those design targets into supported behavior merely by adding palette entries or card shapes.
 
+### Audit outcome (2026-10-27)
+
+The repository already has this phase; no second Blueprint-parity phase is needed. The audit confirms that the right unit of progress is a bounded vertical slice: a node or authoring affordance is only considered aligned when its portable definition, pin contract, independent validation, backend behavior, compatibility policy, editor behavior, and recorded evidence agree. The current implementation has started that work with a canonical Core node-family catalog and semantic metadata, but it is not yet a complete descriptor registry.
+
+The high-level work is therefore tracked in the checklist below. Items marked as shipped in the capability matrix are evidence for the baseline, not a claim that unrestricted Unreal Blueprint compatibility exists. The next implementation increments should close one unchecked contract boundary at a time and update the matrix, tests, and user documentation together.
+
+| Workstream | Current audit finding | Required outcome before calling it aligned |
+| --- | --- | --- |
+| Node and pin contracts | Core has stable node-family metadata and centralized port enumeration, but pin-level defaults, nullability, conversions, multiplicity, and dynamic identity are not one complete contract. | A versioned descriptor can derive editor pins, validator rules, runtime limits, and compatibility diagnostics without duplicating node-family knowledge. |
+| Runtime semantics | Current control flow is deliberately bounded; Sequence dispatch and mutable variables remain deferred because ordering, active work, cancellation, and replay contracts are not proven. | Each new control construct has explicit activation, state ownership, failure, cancellation, restart, and side-effect semantics with deterministic runtime tests. |
+| Persistence and compatibility | Canonical definitions, revisions, and package validation exist, but migration coverage is not represented by one registry. | Every supported schema/package transition has a round-trip, migration, invalid-draft, and publish/run admission proof. |
+| Authoring ergonomics | The editor supports typed wires, context-sensitive discovery, comments, reroutes, layout persistence, and diagnostics; broader Blueprint-style extraction and debugging remain bounded or planned. | Authoring affordances expose real contracts, preserve semantic undo/layout separation, and remain usable and accessible on large graphs. |
+| Evidence and debugging | Recorded playback and node/port identities exist, but each future affordance still needs an explicit event/evidence mapping and live-versus-historical boundary. | A run can explain activation, values, failure, cancellation, capability use, and nested identity without re-executing live services. |
+| Authority and safety | Host-owned capability grants and secret boundaries are established. | New portable fields never smuggle credentials, endpoints, grants, or authority; denial, redaction, bounds, and audit correlation are tested. |
+
 ### Phase purpose
 
 Make every Blueprint-inspired authoring affordance traceable to a stable definition contract, independent validator, backend execution rule, compatibility policy, and recorded-evidence mapping. The phase should produce small vertical proofs and a dependency-aware follow-up roadmap, rather than introducing a second execution model or a wholesale schema replacement.
