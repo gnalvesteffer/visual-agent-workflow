@@ -36,7 +36,7 @@ These are implementation/design gaps, not silently supported features:
 - Port type IDs remain string-based for wire compatibility, but the supported graph set now has a versioned Core type catalog with exact-identity compatibility and no implicit conversions. Nullability, richer containers, explicit conversion nodes, and optional/default semantics still need future contracts.
 - Mutable variables, events, macros/templates, interfaces, generalized retries, and timeline-like latent work lack the ordering, ownership, cancellation, and replay contracts required for Blueprint-level support.
 - Core now has an exact schema capability catalog for supported workflow versions and selected graph-mode flags, plus a deterministic inventory of individually named, non-executable promotion operations. The promotion inventory records observed source/target pairs without path finding or automatic transforms; historical loading, source-preserving migration, revision provenance, and package-form coverage remain outside it. See [schema promotion inventory](decisions/0015-schema-promotion-inventory.md).
-- Capability contract hashes protect discovered MCP/tool descriptions, but broader provider/model contract identity and host admission diagnostics need a common compatibility report.
+- Core now provides an advisory, non-serialized host-admission report that compares persisted provider/tool requirements with a host snapshot. Node/call-path policy findings, broader provider/model contract identity, and execution-time enforcement remain host-owned follow-up work. See [advisory host-admission report](decisions/0025-advisory-host-admission-report.md).
 
 ## Required proof before extending the model
 

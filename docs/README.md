@@ -68,6 +68,7 @@ Documentation changes follow [documentation-maintenance](../.agents/skills/docum
 - [Node effect and authoring metadata](decisions/0022-node-effect-and-authoring-metadata.md) — adds descriptive, non-serialized effect and editor-capability metadata to the canonical node catalog.
 - [Pure graph-template proof seam](decisions/0023-pure-graph-template-proof.md) — bounds authoring-only pure template extraction and expansion with catalog-backed Studio insertion authoring.
 - [Static pin descriptor registry hardening](decisions/0024-static-pin-descriptor-registry-hardening.md) — validates the bounded non-serialized static pin descriptor subset and its drift boundary.
+- [Advisory host-admission report](decisions/0025-advisory-host-admission-report.md) — compares validated package dependencies with a host snapshot without granting authority or bypassing runtime checks.
 
 ## Contract references
 
