@@ -1,6 +1,6 @@
 # Pure graph-template proof seam
 
-Status: accepted bounded proof; Studio exposure deferred
+Status: accepted bounded proof; Core insertion proof added; Studio exposure deferred
 
 ## Decision
 
@@ -33,6 +33,17 @@ logical folder moves, bounded aggregate size, strict load validation, and atomic
 same-directory replacement. Folder-backed projects and the project source archive
 do not consume this catalog yet; that is an explicit future ownership decision.
 
+The Core authoring API also supports transactional insertion of a validated
+template into a validated workflow. Callers bind every declared template input to
+an existing data output and every declared template output to an existing data
+input. Boundary nodes are omitted, boundary edges are translated, existing
+single incoming data edges are replaced, and all copied node and connection IDs
+are fresh and injectable for deterministic tests. The result includes the new
+immutable definition, source maps, and complete removed-edge preimages so an
+editor can record one undo entry without reconstructing an inverse. Target
+validation, exact type/cardinality checks, pure-node restrictions, combined
+limits, and final whole-workflow validation happen before the result is returned.
+
 The source map is non-live provenance. Expansion does not synchronize with the source and does not transfer credentials, grants, model connections, MCP bindings, host capabilities, or runtime subscriptions.
 
 ## Boundaries
@@ -47,7 +58,8 @@ No Studio picker, project asset, workflow schema promotion, runtime template nod
 
 ## Follow-up gates
 
-Before editor exposure, add dependency closure, layout and undo semantics,
+Before editor exposure, add dependency closure, layout and editor-level undo
+integration,
 folder-backed/source-archive persistence, and a user-facing distinction between templates,
 graph functions, and workflow calls. Revisit provenance and upgrade diagnostics
 before introducing a published project asset.
