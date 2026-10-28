@@ -64,3 +64,4 @@ Documentation changes follow [documentation-maintenance](../.agents/skills/docum
 - [Explicit conversion insertion](decisions/0018-explicit-conversion-insertion.md) — bounds the opt-in schema-1.39 string-to-integer insertion action to unconnected typed pins.
 - [Node capability projection](decisions/0019-node-capability-projection.md) — a versioned, non-serialized composition of canonical node contracts and resolved pins.
 - [MCP schema descriptor](decisions/0020-mcp-schema-descriptor.md) — exposes bounded normalized tool-schema metadata without changing workflow pins or runtime authority.
+- [Sequence Agent topology analyzer](decisions/0021-sequence-agent-topology-analyzer.md) — analyzes a future bounded terminal-Agent path without promoting schema 1.44 or changing runtime admission.

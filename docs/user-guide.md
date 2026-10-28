@@ -119,6 +119,14 @@ When a path is invalid, the Problems tab names the ordered Sequence output and i
 
 Save the draft as usual. A valid graph can run and publish; disconnected or incorrectly typed pins remain editable but block both. In Run inspector, the recorded cursor highlights each evaluated data wire and the selected pure node shows its recorded value. Sequence path runs record the output identity and execution connection for each path; the Sequence node displays each path's recorded dispatched, completed, failed, cancelled, or skipped state, while the selected-node inspector also shows the connection identity. Playback reads the stored events without recalculating the graph. This remains a deliberately narrow explicit graph subset; richer Agent paths and general Blueprint control composition are still planned. See [deterministic visual programming](graph-values.md) for the planned expansion.
 
+### Sequence Agent topology proof seam
+
+The platform includes a diagnostic-only Core analyzer for a future Sequence
+path that ends in one plain-text Agent. It is not a Studio feature or a
+runnable schema: schema 1.43 still accepts direct MCP paths only. See [the
+topology analyzer decision](decisions/0021-sequence-agent-topology-analyzer.md)
+for the exact bounded shape and promotion gates.
+
 ### Create and reuse pure graph functions
 
 Open **Function library** from the top navigation. Select **New function** to start with a string input, a fixed `!` suffix, text concatenation, and a string output. The function ID stays stable across revisions; each saved version is immutable. Set its name, description, and folder, then edit the interface by adding, renaming, removing, or changing the type of named input and output pins. Current interface types are `string`, `boolean`, and `integer`.

@@ -124,6 +124,18 @@ Parameter overrides belong to a run, never its immutable published definition. T
 
 An incomplete editor draft may retain topology issues such as missing pins, disconnected nodes, or cycles. Draft serialization and hash calculation permit those issues so users can save work-in-progress; publication and runtime still use strict validation and reject the graph until all issues are fixed. Adding a library node creates it without edges. Insertion is a separate explicit command on a selected wire, and condition nodes can be routed independently to output or termination nodes without an implicit merge. Termination nodes can declare success or failure outcomes; see [workflow termination](workflow-termination.md).
 
+### Sequence Agent topology proof seam
+
+Core exposes a deterministic, non-authoritative analyzer for a future bounded
+Sequence path contract. It describes each persisted output path as either
+direct-MCP-only or one terminal plain-text Agent and reports stable diagnostics
+for sharing, cycles, unsupported Agent capabilities, invalid pins, and
+unreachable nodes. It does not promote schema 1.44, admit runtime execution,
+change package compatibility, or grant host capabilities. The persisted schema
+1.43 validator and runner continue to reject Agent descendants until the
+promotion gates in [decision 0021](decisions/0021-sequence-agent-topology-analyzer.md)
+are proven.
+
 ## Execution and observation
 
 Conditional routes can now finish at the workflow Output or end successfully without a result at a schema-1.18 `core.terminate` node. The adapter records this as a distinct `run.terminated` outcome while preserving the single declared Output contract used by Agent Framework; details and the compatibility behavior of the string-returning runner API are in [workflow termination](workflow-termination.md).

@@ -171,6 +171,82 @@ public sealed class SequenceGraphTests
         Assert.Contains("disjoint", issue.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Sequence_path_topology_analyzer_accepts_a_single_terminal_plain_text_agent()
+    {
+        var definition = PathDefinition();
+        var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0")
+        {
+            Agent = new AgentConfiguration("qwen", null, "Summarize the supplied research.", [])
+        };
+        var candidate = definition with
+        {
+            Nodes = definition.Nodes.Remove("inventory-tool").Add("inventory-agent", agent),
+            ExecutionConnections = definition.ExecutionConnections!
+                .Remove("sequence-inventory")
+                .Remove("inventory-output")
+                .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("inventory-agent", "execute"), "execution"))
+                .Add("inventory-output", new(new("inventory-agent", "out"), new("output", "execute"), "execution"))
+        };
+
+        var analysis = SequencePathTopologyAnalyzer.Analyze(candidate);
+
+        Assert.True(analysis.IsValid, string.Join(Environment.NewLine, analysis.Issues.Select(issue => issue.Message)));
+        var path = Assert.Single(analysis.Paths, path => path.OutputId == "inventory");
+        Assert.True(path.ContainsPlainTextAgent);
+        Assert.Equal("inventory-agent", Assert.Single(path.NodeIds));
+        Assert.Equal("output", path.TerminalNodeId);
+        Assert.Contains(WorkflowValidator.Validate(candidate), issue => issue.Code is "execution.node.unsupported" or "sequence.path.node");
+    }
+
+    [Fact]
+    public void Sequence_path_topology_analyzer_rejects_mixed_mcp_and_agent_paths_without_schema_promotion()
+    {
+        var definition = PathDefinition();
+        var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0")
+        {
+            Agent = new AgentConfiguration("qwen", null, "Summarize the supplied research.", [])
+        };
+        var candidate = definition with
+        {
+            Nodes = definition.Nodes.Add("inventory-agent", agent),
+            ExecutionConnections = definition.ExecutionConnections!
+                .Remove("inventory-output")
+                .Add("inventory-agent", new(new("inventory-tool", "then"), new("inventory-agent", "execute"), "execution"))
+                .Add("inventory-output", new(new("inventory-agent", "out"), new("output", "execute"), "execution"))
+        };
+
+        var analysis = SequencePathTopologyAnalyzer.Analyze(candidate);
+
+        Assert.Contains(analysis.Issues, issue => issue.Code == "sequence.path.mixed");
+        Assert.Contains(analysis.Issues, issue => issue.Message.Contains("exactly one terminal plain-text Agent", StringComparison.Ordinal));
+        Assert.Equal(WorkflowSchemaVersions.SequencePathGraph, candidate.SchemaVersion);
+    }
+
+    [Fact]
+    public void Sequence_path_topology_analyzer_rejects_agent_capabilities_that_widen_the_bounded_contract()
+    {
+        var definition = PathDefinition();
+        var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0")
+        {
+            Agent = new AgentConfiguration("qwen", null, "Summarize the supplied research.",
+                [new ToolBindingRequest("tool", new string('a', 64))])
+        };
+        var candidate = definition with
+        {
+            Nodes = definition.Nodes.Remove("inventory-tool").Add("inventory-agent", agent),
+            ExecutionConnections = definition.ExecutionConnections!
+                .Remove("sequence-inventory")
+                .Remove("inventory-output")
+                .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("inventory-agent", "execute"), "execution"))
+                .Add("inventory-output", new(new("inventory-agent", "out"), new("output", "execute"), "execution"))
+        };
+
+        var analysis = SequencePathTopologyAnalyzer.Analyze(candidate);
+
+        Assert.Contains(analysis.Issues, issue => issue.Code == "sequence.agent.restriction");
+    }
+
     private static WorkflowDefinition Definition()
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
