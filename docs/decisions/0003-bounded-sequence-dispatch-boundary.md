@@ -52,6 +52,17 @@ The proof must use synchronized deterministic executors rather than timing sleep
 
 Only after these checks pass should the implementation add a schema version, validator rules, node descriptor, editor controls, event kind, package compatibility, and runtime mapping together as one vertical slice.
 
+## Current proof evidence
+
+The non-public `SequenceDispatchProofTests` test exercises Agent Framework 1.26.0 with two synchronized downstream executors. It passed and established:
+
+- the dispatcher can queue `first` and then `second` in that order;
+- downstream executor start order is not guaranteed by that dispatch order (the observed run started `second` before `first`);
+- the second executor can start while the first remains blocked and active;
+- completion order can therefore differ from dispatch order (the proof observes `second`, then `first`).
+
+This is useful evidence, not a failure of the framework. It rules out treating ordinary `SendMessageAsync` fan-out as a Blueprint Sequence. A public Sequence must either define this as an explicitly concurrent dispatch primitive with full active-work accounting, or add a separate continuation mechanism that admits the next output only after the previous path's documented completion boundary.
+
 ## Rejected alternatives
 
 - **Implicit sequential fan-out:** rejected because downstream asynchronous work may overlap and the graph would falsely promise completion ordering.
