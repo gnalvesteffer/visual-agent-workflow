@@ -325,7 +325,7 @@ public static class GraphEditing
         string outputId, string label)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceGraph ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration || !SequenceOutputLimits.IsValidId(outputId) ||
             string.IsNullOrWhiteSpace(label) || label.Trim().Length > SequenceOutputLimits.MaximumLabelLength ||
@@ -342,7 +342,7 @@ public static class GraphEditing
     {
         ArgumentNullException.ThrowIfNull(definition);
         if (offset is not (-1 or 1)) throw new ArgumentOutOfRangeException(nameof(offset));
-        if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceGraph ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration)
             throw new ArgumentException("Choose a configured Sequence node.", nameof(sequenceNodeId));
@@ -360,7 +360,7 @@ public static class GraphEditing
     {
         ArgumentNullException.ThrowIfNull(definition);
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceGraph ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration || definition.ExecutionConnections is not { } execution)
             throw new ArgumentException("Choose a configured Sequence node.", nameof(sequenceNodeId));
@@ -387,7 +387,7 @@ public static class GraphEditing
     {
         ArgumentNullException.ThrowIfNull(definition);
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceGraph ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration || definition.ExecutionConnections is not { } execution)
             throw new ArgumentException("Choose a configured Sequence node.", nameof(sequenceNodeId));
@@ -401,6 +401,16 @@ public static class GraphEditing
             ExecutionConnections = execution.Remove(connection.Key)
         };
         return Checked(updated);
+    }
+
+    /// <summary>Promotes a valid direct Sequence graph to the bounded downstream-path contract.</summary>
+    public static WorkflowDefinition EnableSequencePathGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceGraph ||
+            definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty)
+            throw new ArgumentException("Enable Sequence paths only from a valid schema 1.38 graph.", nameof(definition));
+        return definition with { SchemaVersion = WorkflowSchemaVersions.SequencePathGraph };
     }
 
     private static (NodeDefinition Fork, ParallelForkConfiguration ForkConfiguration, string JoinId, NodeDefinition Join,

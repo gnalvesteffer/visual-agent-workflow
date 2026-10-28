@@ -98,6 +98,14 @@
                 <button type="button" @onclick="EnableNumberPropagationPreview" disabled="@Disabled">Enable workflow number parameters</button>
             </section>
         }
+        @if (CanUpgradeSequencePathGraph)
+        {
+            <section class="vaw-library-note" aria-label="Sequence downstream paths">
+                <strong>Sequence downstream paths</strong>
+                <p class="vaw-help">Promote this valid Sequence graph to route each ordered output through a bounded, disjoint direct MCP path. Add tools from the MCP tools section, then connect execution pins explicitly.</p>
+                <button type="button" @onclick="EnableSequencePathPreview" disabled="@Disabled">Enable Sequence paths</button>
+            </section>
+        }
         @if (CanCreateConfigurableParallelGraph)
         {
             <section class="vaw-library-note" aria-label="Configurable parallel graph">
@@ -398,7 +406,7 @@
                                 }
                                 <button type="button" aria-label="Add Sequence output" disabled="@(Disabled || sequenceConfiguration.Outputs.Length >= SequenceOutputLimits.MaximumOutputs || Definition.Nodes.Count >= 256)"
                                         @onclick="() => Edit(() => GraphEditing.AddSequenceOutput(Definition, id))">Add output</button>
-                                <p class="vaw-help">Each output must remain connected exactly once. The initial runtime slice routes these outputs to the workflow Output node.</p>
+                                <p class="vaw-help">Each output must remain connected exactly once. In schema 1.43, each output may lead through one bounded, disjoint direct MCP path before reaching the workflow Output node.</p>
                             </fieldset>
                         }
                     }
@@ -896,7 +904,7 @@
         return LayoutChanged.InvokeAsync(value);
     }
     [Parameter] public IReadOnlyList<ToolBindingDescriptor> Bindings { get; set; } = [];
-    private bool DirectMcpAuthoring => Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph;
+    private bool DirectMcpAuthoring => Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph;
     private bool SchemaDrivenMcpPins => WorkflowSchemaVersions.UsesDirectMcpPins(Definition.SchemaVersion);
     [Parameter] public IReadOnlyList<AgentProviderDescriptor> Providers { get; set; } = [];
     [Parameter] public bool ProviderChoicesLoading { get; set; }

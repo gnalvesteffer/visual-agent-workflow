@@ -83,6 +83,17 @@ public sealed class SequenceGraphTests
     }
 
     [Fact]
+    public void Sequence_path_promotion_preserves_the_existing_graph_contract()
+    {
+        var promoted = GraphEditing.EnableSequencePathGraph(Definition());
+
+        Assert.Equal(WorkflowSchemaVersions.SequencePathGraph, promoted.SchemaVersion);
+        Assert.Equal(Definition().Nodes["sequence"].Sequence!.Outputs.ToArray(), promoted.Nodes["sequence"].Sequence!.Outputs.ToArray());
+        Assert.Equal(Definition().ExecutionConnections!.Select(edge => edge.Value).ToArray(), promoted.ExecutionConnections!.Select(edge => edge.Value).ToArray());
+        Assert.Empty(WorkflowValidator.Validate(promoted));
+    }
+
+    [Fact]
     public void Sequence_path_schema_rejects_shared_downstream_nodes()
     {
         var definition = PathDefinition() with
