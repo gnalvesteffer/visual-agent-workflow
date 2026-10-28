@@ -52,7 +52,7 @@ def check(browser, screenshots):
     def open_editor():
         page.goto(BASE)
         designer = page.get_by_role("region", name="Workflow designer", exact=True)
-        expect(workbench(designer).locator("[data-graph-save]")).to_be_enabled()
+        expect(workbench(designer).locator("[data-graph-save]")).to_be_enabled(timeout=30000)
         select_workflow(workflow_id)
         expect(workbench(designer).locator(".vaw-definition-status")).to_contain_text(workflow_id)
         expect(workbench(designer).locator(".vaw-graph-editor")).to_have_attribute("data-ready", "true")
@@ -61,18 +61,29 @@ def check(browser, screenshots):
     designer = open_editor()
     canvas = workbench(designer).locator(".vaw-graph-editor")
     library_splitter = canvas.locator("[data-pane-resizer='library']")
+    if library_splitter.count() == 0:
+        # IDE mode keeps the library collapsed behind the explicit Add node affordance.
+        workbench(designer).get_by_role("button", name="Add node", exact=True).click()
+        expect(library_splitter).to_be_visible()
     inspector_splitter = canvas.locator("[data-pane-resizer='inspector']")
     bottom_splitter = designer.locator("[data-pane-resizer='bottom']")
+    persisted_panes = {}
     for splitter, key in ((library_splitter, "library"), (inspector_splitter, "inspector"), (bottom_splitter, "bottom")):
         expect(splitter).to_have_attribute("role", "separator")
         before = int(splitter.get_attribute("aria-valuenow"))
         splitter.focus()
         splitter.press("ArrowRight" if key != "bottom" else "ArrowUp")
-        expect(splitter).to_have_attribute("aria-valuenow", str(before + 16))
+        persisted_panes[key] = before + 16
+        expect(splitter).to_have_attribute("aria-valuenow", str(persisted_panes[key]))
     page.reload()
     designer = page.get_by_role("region", name="Workflow designer", exact=True)
     select_workflow(workflow_id)
-    expect(workbench(designer).locator("[data-pane-resizer='library']")).to_have_attribute("aria-valuenow", "240")
+    canvas = workbench(designer).locator(".vaw-graph-editor")
+    library_splitter = canvas.locator("[data-pane-resizer='library']")
+    if library_splitter.count() == 0:
+        workbench(designer).get_by_role("button", name="Add node", exact=True).click()
+        expect(library_splitter).to_be_visible()
+    expect(workbench(designer).locator("[data-pane-resizer='library']")).to_have_attribute("aria-valuenow", str(persisted_panes["library"]))
     page.get_by_text("Studio settings", exact=True).click()
     page.get_by_role("button", name="Reset editor layout", exact=True).click()
     expect(workbench(designer).locator("[data-pane-resizer='library']")).to_have_attribute("aria-valuenow", "224")

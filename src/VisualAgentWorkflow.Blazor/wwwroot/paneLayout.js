@@ -8,12 +8,11 @@ const LIMITS = Object.freeze({
 
 function clamp(kind, value, root) {
     const [minimum, maximum] = LIMITS[kind];
-    const available = root?.getBoundingClientRect?.().width ?? Number.POSITIVE_INFINITY;
-    const canvasMinimum = 360;
-    const availableMaximum = kind === 'bottom'
-        ? Math.max(minimum, Math.min(maximum, (root?.getBoundingClientRect?.().height ?? maximum) - 180))
-        : Math.max(minimum, Math.min(maximum, available - canvasMinimum - 16));
-    return Math.round(Math.min(availableMaximum, Math.max(minimum, Number(value) || DEFAULTS[kind])));
+    // Keep the user's persisted preference stable across the initial render. The
+    // designer can be temporarily narrow while Blazor restores the workbench;
+    // clamping against that transient width would silently lose the preference.
+    // Responsive CSS hides horizontal panes when there is not enough room.
+    return Math.round(Math.min(maximum, Math.max(minimum, Number(value) || DEFAULTS[kind])));
 }
 
 function read() {
@@ -52,6 +51,8 @@ export function attach(root) {
     if (!root) return { dispose() {} };
     let layout = apply(root, read());
     let active = null;
+    const observer = new MutationObserver(() => apply(root, layout));
+    observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-valuenow'] });
     const update = (kind, value, persist = true) => {
         layout = { ...layout, [kind]: clamp(kind, value, root) };
         apply(root, layout);
@@ -110,6 +111,7 @@ export function attach(root) {
     window.addEventListener('vaw-layout-reset', reset);
     return { dispose() {
         pointerUp();
+        observer.disconnect();
         root.removeEventListener('pointerdown', pointerDown, true);
         root.removeEventListener('keydown', keyDown, true);
         window.removeEventListener('vaw-layout-reset', reset);
