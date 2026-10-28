@@ -170,6 +170,21 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void String_integer_conversion_uses_the_canonical_static_descriptor()
+    {
+        var node = new NodeDefinition(NodeTypes.StringToInteger, "1.0.0");
+
+        var descriptor = WorkflowNodeDescriptorRegistry.Get(NodeTypes.StringToInteger);
+
+        Assert.Equal("string-to-integer", descriptor.ConfigurationKind);
+        Assert.Empty(WorkflowNodeDescriptorConformance.Validate(descriptor));
+        Assert.Equal(
+            [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String),
+             ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Integer)],
+            WorkflowPorts.Explicit(node).Select(port => (port.Id, port.Direction, port.Kind, port.DataType)));
+    }
+
+    [Fact]
     public void Resolved_dynamic_descriptors_validate_pin_metadata_without_live_discovery()
     {
         var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0");

@@ -15,6 +15,11 @@ position and the whole edit is one Studio undo operation. Other type pairs,
 legacy graphs, occupied pins, read-only graphs, and unsupported schemas retain
 the existing exact-type diagnostic.
 
+The conversion node is also registered in the canonical static descriptor
+registry. Its editor and validation pin projection therefore come from the
+same versioned `in` string and `out` integer descriptor used by the rest of
+the Core contract surface.
+
 ## Compatibility boundary
 
 The Core edit validates the endpoint kinds and exact types, enforces the
