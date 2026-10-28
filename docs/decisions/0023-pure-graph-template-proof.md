@@ -14,6 +14,11 @@ The first proof provides:
 - connection remapping and an informational source-node map;
 - existing graph-function limits, acyclic evaluation, typed boundary, and unsupported-node checks.
 
+The proof also now extracts a selected workflow data subgraph when callers provide
+explicit typed input/output boundaries. Extraction rejects hidden incoming data,
+execution wires, effectful nodes, dynamic pins, unsupported nodes, and boundary
+type mismatches; it never infers a boundary from a visual selection.
+
 The source map is non-live provenance. Expansion does not synchronize with the source and does not transfer credentials, grants, model connections, MCP bindings, host capabilities, or runtime subscriptions.
 
 ## Boundaries
@@ -28,7 +33,7 @@ No Studio picker, project asset, workflow schema promotion, runtime template nod
 
 ## Follow-up gates
 
-Before editor exposure, add authoritative selected-subgraph extraction, explicit boundary rules, dependency closure, layout and undo semantics, serialization/round-trip tests, target graph limits, and a user-facing distinction between templates, graph functions, and workflow calls. Revisit provenance and upgrade diagnostics before introducing a published project asset.
+Before editor exposure, add dependency closure, layout and undo semantics, serialization/round-trip tests, target graph limits, and a user-facing distinction between templates, graph functions, and workflow calls. Revisit provenance and upgrade diagnostics before introducing a published project asset.
 
 ## Review
 

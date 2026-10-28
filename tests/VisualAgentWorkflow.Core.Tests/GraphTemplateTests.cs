@@ -75,4 +75,44 @@ public sealed class GraphTemplateTests
 
         Assert.Throws<ArgumentException>(() => GraphTemplateJson.Expand(template, "expanded.identity", _ => "same"));
     }
+
+    [Fact]
+    public void Workflow_subgraph_extraction_requires_explicit_typed_boundaries()
+    {
+        var source = new WorkflowDefinition("1.27", "source", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("suffix", new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("!") })
+                .Add("concat", new(NodeTypes.TextConcat, "1.0.0"))
+                .Add("output", new(NodeTypes.Output, "1.0.0")),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("suffix", new(new("suffix", "out"), new("concat", "right"), "data")));
+
+        var template = GraphTemplateExtraction.Extract(source, ["suffix", "concat"],
+            [new GraphTemplateInputBoundary("text", "Text", "string", "concat", "left")],
+            [new GraphTemplateOutputBoundary("result", "Result", "string", "concat", "out")],
+            "template.suffix", 1, "Suffix", "Adds a suffix.");
+
+        Assert.Empty(GraphTemplateJson.Validate(template));
+        Assert.Contains(template.Body.Connections.Values, edge => edge.Source.NodeId == "template-input.text" && edge.Target.NodeId == "concat");
+        Assert.Contains(template.Body.Connections.Values, edge => edge.Source.NodeId == "concat" && edge.Target.NodeId == "template-output.result");
+    }
+
+    [Fact]
+    public void Workflow_subgraph_extraction_rejects_hidden_incoming_data_edges()
+    {
+        var source = new WorkflowDefinition("1.27", "source", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("constant", new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("!") })
+                .Add("concat", new(NodeTypes.TextConcat, "1.0.0")),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("hidden", new(new("input", "out"), new("concat", "left"), "data")));
+
+        var error = Assert.Throws<ArgumentException>(() => GraphTemplateExtraction.Extract(source, ["constant", "concat"],
+            [], [new GraphTemplateOutputBoundary("result", "Result", "string", "concat", "out")],
+            "template.invalid", 1, "Invalid", ""));
+
+        Assert.Contains("must be declared as a template input boundary", error.Message);
+    }
 }
