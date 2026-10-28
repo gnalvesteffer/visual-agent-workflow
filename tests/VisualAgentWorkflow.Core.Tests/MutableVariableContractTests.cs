@@ -104,6 +104,43 @@ public sealed class MutableVariableContractTests
     }
 
     [Fact]
+    public void Variable_snapshot_round_trips_all_scalar_types_and_next_version()
+    {
+        var definition = AllScalarDefinition();
+        var store = new WorkflowVariableStore(definition);
+        store.Write("text", WorkflowDataTypes.String, "updated");
+        store.Write("flag", WorkflowDataTypes.Boolean, true);
+        store.Write("count", WorkflowDataTypes.Integer, 42L);
+        store.Write("ratio", WorkflowDataTypes.Number, 1.25d);
+
+        var restored = WorkflowVariableStore.FromSnapshot(definition, store.Snapshot());
+
+        var originalSnapshot = store.Snapshot();
+        var restoredSnapshot = restored.Snapshot();
+        Assert.Equal(originalSnapshot.FormatVersion, restoredSnapshot.FormatVersion);
+        Assert.Equal(originalSnapshot.NextVersion, restoredSnapshot.NextVersion);
+        Assert.Equal(originalSnapshot.Values.ToArray(), restoredSnapshot.Values.ToArray());
+        restored.Write("count", WorkflowDataTypes.Integer, 43L);
+        Assert.Equal(9L, restored.Snapshot().NextVersion);
+    }
+
+    [Fact]
+    public void Variable_snapshot_rejects_missing_types_values_and_version_regressions()
+    {
+        var definition = AllScalarDefinition();
+        var snapshot = new WorkflowVariableStore(definition).Snapshot();
+
+        Assert.Throws<ArgumentException>(() => WorkflowVariableStore.FromSnapshot(definition,
+            snapshot with { Values = snapshot.Values.RemoveAt(0) }));
+        Assert.Throws<ArgumentException>(() => WorkflowVariableStore.FromSnapshot(definition,
+            snapshot with { Values = snapshot.Values.SetItem(0, snapshot.Values[0] with { DataType = WorkflowDataTypes.Json }) }));
+        Assert.Throws<ArgumentException>(() => WorkflowVariableStore.FromSnapshot(definition,
+            snapshot with { Values = snapshot.Values.SetItem(0, snapshot.Values[0] with { Value = "not-a-number" }) }));
+        Assert.Throws<ArgumentException>(() => WorkflowVariableStore.FromSnapshot(definition,
+            snapshot with { NextVersion = 0 }));
+    }
+
+    [Fact]
     public void Blank_explicit_graph_can_be_promoted_to_the_variable_proof()
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
@@ -154,4 +191,13 @@ public sealed class MutableVariableContractTests
             ExecutionConnections = execution.ToImmutableSortedDictionary()
         };
     }
+
+    private static WorkflowDefinition AllScalarDefinition() => Definition() with
+    {
+        Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
+            .Add("count", new("Count", "0") { Type = WorkflowDataTypes.Integer })
+            .Add("flag", new("Flag", "false") { Type = WorkflowDataTypes.Boolean })
+            .Add("ratio", new("Ratio", "0.5") { Type = WorkflowDataTypes.Number })
+            .Add("text", new("Text", "initial") { Type = WorkflowDataTypes.String })
+    };
 }

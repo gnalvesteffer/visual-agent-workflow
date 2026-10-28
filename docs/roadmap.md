@@ -139,8 +139,9 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
 - [ ] Add loop-order proofs. Cancellation-position is now proven at the atomic
   variable-store boundary: a pre-cancelled write cannot mutate state or advance
   its version. Checkpoint admission now explicitly rejects schema 1.44 before run creation because native checkpoint
-  payloads do not yet persist the variable store; variable-state checkpoint and
-  recovery remain a separate proof gate.
+  payloads do not yet persist the variable store. The first versioned snapshot/
+  restore contract is shipped and tested; composite-frame publication and
+  recovery remain a separate proof gate. See [variable checkpoint frame](decisions/0028-variable-checkpoint-frame.md).
 - [x] Add passive playback and prefix reconstruction for variable reads/writes
   without re-execution; the run inspector renders the reconstructed value,
   version, and operation history.

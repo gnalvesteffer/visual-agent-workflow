@@ -262,7 +262,7 @@ public static class WorkflowSchemaVersions
 public sealed record WorkflowVariableValue(string DataType, object Value, long Version);
 
 /// <summary>Creates an isolated, lock-protected store for one workflow invocation.</summary>
-public sealed class WorkflowVariableStore
+public sealed partial class WorkflowVariableStore
 {
     private readonly object sync = new();
     private readonly Dictionary<string, WorkflowVariableValue> values = new(StringComparer.Ordinal);
