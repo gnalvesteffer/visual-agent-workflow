@@ -202,7 +202,8 @@ public static class WorkflowValidator
         foreach (var (id, node) in definition.Nodes)
         {
             if (string.IsNullOrWhiteSpace(id)) Error("node.id", "nodes", "Node IDs must be nonempty.");
-            if (node is null || !NodeTypes.IsSupported(node.Type) || node.TypeVersion != "1.0.0")
+            if (node is null || !WorkflowNodeContractCatalog.TryGet(node.Type, out var nodeContract) ||
+                node.TypeVersion != nodeContract.TypeVersion)
                 Error("node.unsupported", $"nodes.{id}", "Unknown node type or implementation version.");
             if (node is null) continue;
             if (WorkflowNodeDescriptorRegistry.TryGet(node.Type, WorkflowNodeDescriptorRegistry.CurrentVersion, out var staticDescriptor) &&

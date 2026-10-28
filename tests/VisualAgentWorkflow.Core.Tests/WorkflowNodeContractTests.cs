@@ -172,6 +172,26 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Validator_uses_the_canonical_contract_version_for_node_identity()
+    {
+        var definition = new WorkflowDefinition(
+            "1.0", "contract-version", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["output"] = new(NodeTypes.Output, "9.9.9")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["value"] = new(new("input", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal));
+
+        var issues = WorkflowValidator.Validate(definition);
+
+        Assert.Contains(issues, issue => issue.Code == "node.unsupported" && issue.Path == "nodes.output");
+    }
+
+    [Fact]
     public void Dynamic_descriptor_resolution_preserves_authored_routes_and_sequence_order()
     {
         var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0",

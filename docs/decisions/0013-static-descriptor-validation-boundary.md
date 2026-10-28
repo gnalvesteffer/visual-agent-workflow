@@ -14,6 +14,9 @@ The validator reports these failures as `node.descriptor` issues. Existing
 `node.unsupported` and schema-specific diagnostics remain the owner of unknown
 node types, node implementation versions, and schema admission. Drafts remain
 saveable; publish and execution continue to use the existing validation gate.
+Node identity and implementation-version checks now read from the canonical
+node contract catalog rather than duplicating a version literal in the
+validator.
 
 ## Why this boundary is narrow
 
