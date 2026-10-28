@@ -255,7 +255,12 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         WorkflowApprovalPermit? Approval = null, string DataType = "string", int LoopIteration = 0,
         bool TerminationSignal = false, bool FailureSignal = false,
         Guid? ParallelActivationId = null, string? ParallelBranchId = null, string? ParallelForkNodeId = null,
-        string? CollaborationTargetBranchId = null, bool CollaborationTransition = false);
+        string? CollaborationTargetBranchId = null, bool CollaborationTransition = false,
+        SequenceMessageLineage? SequenceLineage = null);
+
+    /// <summary>Private transport identity for a future Sequence activation; never authored or persisted.</summary>
+    private sealed record SequenceMessageLineage(Guid SequenceInvocationId, string SequenceNodeId,
+        string OutputId, int Ordinal, Guid OutputActivationId, string ConnectionId, string? DescendantScopeId = null);
 
     private sealed class AgentRouteSelectionState(ImmutableArray<AgentExecutionRoute> routes)
     {
@@ -958,7 +963,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 {
                     var incoming = revision.Definition.ExecutionConnections!.Single(edge => edge.Value.Source.NodeId == received.SourceNode &&
                         edge.Value.Source.PortId == received.SourcePort && edge.Value.Target.NodeId == Id);
-                    var transferEvidence = revision.Definition.SchemaVersion == WorkflowSchemaVersions.BranchLocalParallelGraph && received.ParallelBranchId is { } transferredBranch
+                    var transferEvidence = received.SequenceLineage is { } sequenceLineage
+                        ? JsonSerializer.Serialize(new { sequenceLineage, branchId = received.ParallelBranchId,
+                            parallelActivationId = received.ParallelActivationId, forkNodeId = received.ParallelForkNodeId })
+                        : revision.Definition.SchemaVersion == WorkflowSchemaVersions.BranchLocalParallelGraph && received.ParallelBranchId is { } transferredBranch
                         ? JsonSerializer.Serialize(new
                         {
                             parallelActivationId = received.ParallelActivationId,
@@ -1005,7 +1013,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     }
                     await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, result);
                     return new(result!, Id, configurable ? "then" : "out", DataType: "json",
-                        ParallelActivationId: received.ParallelActivationId, ParallelForkNodeId: received.ParallelForkNodeId);
+                        ParallelActivationId: received.ParallelActivationId, ParallelForkNodeId: received.ParallelForkNodeId,
+                        SequenceLineage: received.SequenceLineage);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -1191,7 +1200,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                             ? edge.Source.PortId["branch.".Length..] : null;
                         await context.SendMessageAsync(new GraphMessage(result, Id, edge.Source.PortId, DataType: "string",
                             ParallelActivationId: activationId, ParallelBranchId: branchId,
-                            ParallelForkNodeId: configurable ? Id : null), edge.Target.NodeId, cancellationToken);
+                            ParallelForkNodeId: configurable ? Id : null,
+                            SequenceLineage: received.SequenceLineage), edge.Target.NodeId, cancellationToken);
                     }
                     return new(result, Id, "parallel.dispatched", DataType: "string");
                 }
@@ -1204,7 +1214,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 if (routeSelection is not null)
                     await Emit(ExecutionEventKinds.AgentRouteCommitted, Id, invocation, null, JsonSerializer.Serialize(new { routeId = agentRouteId, port }));
                 return new(result, internalTerminationHandoff ? received.SourceNode : Id, terminated ? "terminated" : port, permit, outputType, nextLoopIteration,
-                    terminated, failureSignal, received.ParallelActivationId, received.ParallelBranchId, received.ParallelForkNodeId);
+                    terminated, failureSignal, received.ParallelActivationId, received.ParallelBranchId, received.ParallelForkNodeId,
+                    SequenceLineage: received.SequenceLineage);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

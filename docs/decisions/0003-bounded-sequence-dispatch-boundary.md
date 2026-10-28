@@ -92,6 +92,15 @@ reader performs no executor, Agent, MCP, approval, or extension calls. It is
 ready for recorded evidence, but production `WorkflowRunner` executions still
 do not emit Sequence lineage because the public node remains deferred.
 
+The production runner now carries a private, non-persisted `GraphMessage`
+lineage envelope containing Sequence invocation, output, ordinal, activation,
+connection, and descendant-scope identity. Normal executor, fork, join, and
+final handoffs preserve that envelope, and explicit execution activation
+evidence includes it when present. No authored schema or public node can create
+the envelope yet; the remaining integration is a production Sequence
+source/coordinator and lifecycle events recorded at the normal serialized
+boundary.
+
 This is useful evidence, not a failure of the framework. It rules out treating ordinary `SendMessageAsync` fan-out as a Blueprint Sequence. A public Sequence must either define this as an explicitly concurrent dispatch primitive with full active-work accounting, or add a separate continuation mechanism that admits the next output only after the previous path's documented completion boundary.
 
 ## Adjudicated next slice
