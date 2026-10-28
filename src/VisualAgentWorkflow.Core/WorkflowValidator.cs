@@ -750,32 +750,32 @@ public static class WorkflowValidator
             if (pinsGraph && node.Type == NodeTypes.McpTool && node.McpInputPorts is null)
                 error("mcp.input-ports", $"nodes.{id}.mcpInputPorts", "Schema 1.37 MCP nodes must persist their discovered top-level input pins.");
             var hasConfiguredMcpArguments = node.Type == NodeTypes.McpTool && node.McpArgumentsJson is not null;
-            foreach (var port in WorkflowPorts.ExplicitDataInputs(node))
+            foreach (var port in WorkflowPorts.Explicit(node).Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data))
             {
                 var count = dataIncoming.GetValueOrDefault((id, port.Id));
                 if (pinsGraph && node.Type == NodeTypes.McpTool && node.McpInputPorts is { } inputPorts && inputPorts.FirstOrDefault(candidate => candidate.Id == port.Id) is { } inputPort)
                 {
-                    if (count > 1)
+                    if (port.Cardinality == WorkflowPortCardinality.AtMostOne && count > 1)
                         error("data.degree", $"nodes.{id}.inputs.{port.Id}", "Each MCP argument pin accepts at most one data edge.");
                     else if (count == 0 && inputPort.Required && !HasStaticArgument(node.McpArgumentsJson, inputPort.Name))
                         error("data.degree", $"nodes.{id}.inputs.{port.Id}", "Every required MCP argument must be connected or configured as a static argument.");
                 }
                 else if (node.Type == NodeTypes.McpTool && port.Id == "in" && hasConfiguredMcpArguments)
                 {
-                    if (count > 1)
+                    if (port.Cardinality == WorkflowPortCardinality.AtMostOne && count > 1)
                         error("data.degree", $"nodes.{id}.inputs.{port.Id}", "A configured direct MCP tool accepts at most one optional connected input; configured arguments take precedence.");
                 }
-                else if (count != 1)
+                else if (port.Required && port.Cardinality == WorkflowPortCardinality.ExactlyOne && count != 1)
                     error("data.degree", $"nodes.{id}.inputs.{port.Id}", "Every required data input must have exactly one compatible data edge.");
             }
-            var executionInputs = WorkflowPorts.ExplicitExecutionInputs(node);
-            var executionOutputs = WorkflowPorts.ExplicitExecutionOutputs(node);
-            var incoming = executionInputs.Sum(port => executionIncoming.GetValueOrDefault((id, port)));
+            var executionInputs = WorkflowPorts.Explicit(node).Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Execution).ToArray();
+            var executionOutputs = WorkflowPorts.Explicit(node).Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Execution).ToArray();
+            var incoming = executionInputs.Sum(port => executionIncoming.GetValueOrDefault((id, port.Id)));
             if (node.Type == NodeTypes.Input && incoming != 0 || node.Type is NodeTypes.McpTool or NodeTypes.Output && incoming != 1)
                 error("graph.degree", $"nodes.{id}", "Input has no execution input; MCP tools and output require one activation.");
             foreach (var port in executionOutputs)
-                if (executionOutgoing.GetValueOrDefault((id, port)) != 1)
-                    error("graph.degree", $"nodes.{id}.outputs.{port}", "Every execution output pin must connect exactly once, except the output node which has none.");
+                if (port.Required && port.Cardinality == WorkflowPortCardinality.ExactlyOne && executionOutgoing.GetValueOrDefault((id, port.Id)) != 1)
+                    error("graph.degree", $"nodes.{id}.outputs.{port.Id}", "Every execution output pin must connect exactly once, except the output node which has none.");
             if ((node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.IntegerConstant or NodeTypes.BooleanConstant) &&
                 !definition.Connections.Values.Any(edge => edge.Source.NodeId == id))
                 error("data.unused", $"nodes.{id}", "Every pure data node must contribute to a tool input or output value.");
