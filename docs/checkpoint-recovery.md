@@ -9,7 +9,10 @@ a proof-only composite frame that binds native JSON state, a loop cursor, the
 definition-bound variable snapshot, and the exact evidence prefix with hashes;
 it is not an admission path or an alternate scheduler. Native loop cursor
 round-tripping, atomic capture, repeated resume, and process-loss tests must
-pass before this frame can be used by the checkpoint host. See [decision 0031](decisions/0031-loop-checkpoint-proof-frame.md).
+pass before this frame can be used by the checkpoint host. A test-only adapter
+proof currently exercises native same-process loop suspension/resume; it does
+not establish fresh-process recovery or transactional publication. See
+[decision 0031](decisions/0031-loop-checkpoint-proof-frame.md).
 
 ## Use the host API
 

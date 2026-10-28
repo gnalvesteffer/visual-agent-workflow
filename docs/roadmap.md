@@ -149,10 +149,12 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   the 1.44 slice.
 - [ ] Add loop-aware checkpoint state and recovery. A proof-only composite frame
   now binds native JSON, loop cursor, variable state, and the exact evidence
-  prefix with component/composite hashes. Schema 1.45 remains outside
-  checkpoint admission until native cursor round-tripping, atomic capture,
-  cancellation/failure, repeated recovery, and process-loss semantics are
-  proven. See [loop checkpoint proof frame](decisions/0031-loop-checkpoint-proof-frame.md).
+  prefix with component/composite hashes. A test-only seam now proves the real
+  Agent Framework serializer can suspend after a loop body write and resume
+  without duplicating it. Schema 1.45 remains outside checkpoint admission
+  until fresh-process cursor recovery, atomic capture, cancellation/failure,
+  repeated recovery, and process-loss semantics are proven. See [loop
+  checkpoint proof frame](decisions/0031-loop-checkpoint-proof-frame.md).
   Cancellation-position is proven at the atomic variable-store boundary: a
   pre-cancelled write cannot mutate state or advance its version; a separate
   runtime regressions now prove cancellation or recorder failure after a

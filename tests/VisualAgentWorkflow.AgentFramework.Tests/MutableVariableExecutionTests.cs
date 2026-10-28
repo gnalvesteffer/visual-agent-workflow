@@ -117,6 +117,40 @@ public sealed class MutableVariableExecutionTests
         Assert.Equal(new[] { 1, 2, 3 }, writes.Select(payload => payload.GetProperty("loopIteration").GetInt32()).ToArray());
     }
 
+    [Fact]
+    public async Task Native_checkpoint_proof_round_trips_a_loop_variable_boundary_without_admitting_recovery()
+    {
+        var revision = WorkflowRevision.Create(LoopDefinition(), "loop-checkpoint-proof");
+        var runId = Guid.NewGuid();
+        var events = new List<ExecutionEvent>();
+        var first = new ProofCheckpointSink(events, suspendAfterCompletedNodes: 4);
+
+        Assert.Null(await new WorkflowRunner().ExecuteCheckpointedProofAsync(runId, revision, "continue",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }, first));
+
+        var saved = Assert.IsType<NativeWorkflowCheckpoint>(first.Last);
+        Assert.NotNull(saved.VariableState);
+        Assert.Contains("loop", saved.Payload, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.VariableWritten));
+
+        var resumed = new ProofCheckpointSink(events, restored: saved);
+        Assert.Equal("continue", await new WorkflowRunner().ExecuteCheckpointedProofAsync(runId, revision, "continue",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }, resumed));
+        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.VariableWritten));
+        Assert.Equal([2L, 3L, 4L], events.Where(evt => evt.Kind == ExecutionEventKinds.VariableWritten)
+            .Select(evt => JsonDocument.Parse(evt.Data!).RootElement.GetProperty("version").GetInt64()));
+    }
+
+    [Fact]
+    public async Task Public_checkpoint_path_keeps_schema_145_loop_recovery_fail_closed()
+    {
+        var revision = WorkflowRevision.Create(LoopDefinition(), "loop-checkpoint-admission");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner().ExecuteCheckpointedAsync(
+            Guid.NewGuid(), revision, "continue", _ => ValueTask.CompletedTask,
+            new ProofCheckpointSink([])));
+    }
+
     private static WorkflowDefinition Definition()
     {
         var nodes = new Dictionary<string, NodeDefinition>
@@ -179,5 +213,20 @@ public sealed class MutableVariableExecutionTests
                 .Add("message", new("Message", "default")),
             ExecutionConnections = execution.ToImmutableSortedDictionary()
         };
+    }
+
+    private sealed class ProofCheckpointSink(List<ExecutionEvent> events, int? suspendAfterCompletedNodes = null,
+        NativeWorkflowCheckpoint? restored = null) : IWorkflowCheckpointSink
+    {
+        public NativeWorkflowCheckpoint? RestoredCheckpoint { get; } = restored;
+        public NativeWorkflowCheckpoint? Last { get; private set; }
+
+        public ValueTask<bool> CaptureAsync(NativeWorkflowCheckpoint checkpoint)
+        {
+            Last = checkpoint;
+            var shouldSuspend = suspendAfterCompletedNodes is { } threshold &&
+                events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted) >= threshold;
+            return ValueTask.FromResult(shouldSuspend);
+        }
     }
 }

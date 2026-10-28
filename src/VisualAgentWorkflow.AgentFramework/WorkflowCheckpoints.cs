@@ -25,12 +25,28 @@ public sealed partial class WorkflowRunner
     public async Task<string?> ExecuteCheckpointedAsync(Guid runId, WorkflowRevision revision, string input,
         Func<ExecutionEvent, ValueTask> record, IWorkflowCheckpointSink checkpoints, CancellationToken cancellationToken = default)
     {
-        ValidateCheckpointGraph(revision.Definition);
+        return await ExecuteCheckpointedCoreAsync(runId, revision, input, record, checkpoints, cancellationToken, enforceAdmission: true);
+    }
+
+    /// <summary>
+    /// Test-only proof seam for native checkpoint serialization. It deliberately bypasses
+    /// production admission and must not be used as a recovery API.
+    /// </summary>
+    internal Task<string?> ExecuteCheckpointedProofAsync(Guid runId, WorkflowRevision revision, string input,
+        Func<ExecutionEvent, ValueTask> record, IWorkflowCheckpointSink checkpoints, CancellationToken cancellationToken = default) =>
+        ExecuteCheckpointedCoreAsync(runId, revision, input, record, checkpoints, cancellationToken, enforceAdmission: false);
+
+    private async Task<string?> ExecuteCheckpointedCoreAsync(Guid runId, WorkflowRevision revision, string input,
+        Func<ExecutionEvent, ValueTask> record, IWorkflowCheckpointSink checkpoints, CancellationToken cancellationToken,
+        bool enforceAdmission)
+    {
+        if (enforceAdmission)
+            ValidateCheckpointGraph(revision.Definition);
         ArgumentNullException.ThrowIfNull(checkpoints);
         ArgumentNullException.ThrowIfNull(record);
         ArgumentNullException.ThrowIfNull(input);
         if (runId == Guid.Empty || input.Length > 16_384) throw new ArgumentException("A run identity and bounded input are required.");
-        var variableStore = revision.Definition.SchemaVersion == WorkflowSchemaVersions.MutableVariablesGraph
+        var variableStore = revision.Definition.SchemaVersion is WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.LoopVariablesGraph
             ? checkpoints.RestoredCheckpoint?.VariableState is { } restoredState
                 ? WorkflowVariableStore.FromSnapshot(revision.Definition, restoredState)
                 : new WorkflowVariableStore(revision.Definition)
