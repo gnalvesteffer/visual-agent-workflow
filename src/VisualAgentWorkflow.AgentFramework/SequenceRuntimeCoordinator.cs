@@ -37,6 +37,28 @@ internal sealed class SequenceRuntimeCoordinator
         get { lock (gate) return events.ToArray(); }
     }
 
+    public Guid SequenceInvocationId => sequenceInvocationId;
+
+    public string SequenceNodeId => sequenceNodeId;
+
+    public SequenceTerminalState? TerminalState
+    {
+        get { lock (gate) return terminalState; }
+    }
+
+    private int emittedEventCount;
+
+    /// <summary>Returns lifecycle facts not yet sent through the production recorder.</summary>
+    public IReadOnlyList<SequenceRuntimeEvent> DrainEvents()
+    {
+        lock (gate)
+        {
+            var pending = events.Skip(emittedEventCount).ToArray();
+            emittedEventCount = events.Count;
+            return pending;
+        }
+    }
+
     public bool IsTerminal => ledger.IsTerminal;
 
     public IReadOnlyList<ExecutionEvent> ToExecutionEvents(Guid runId, Guid revisionId, long firstSequence,
@@ -57,39 +79,45 @@ internal sealed class SequenceRuntimeCoordinator
 
     public SequenceActivationSnapshot DispatchNext(Guid activationId)
     {
-        var snapshot = ledger.DispatchNext(activationId);
-        Add(new(ExecutionEventKinds.SequenceOutputDispatched, sequenceNodeId, sequenceInvocationId, snapshot.OutputId,
-            snapshot.Ordinal, activationId, connectionIds[snapshot.OutputId]));
-        return snapshot;
+        lock (gate)
+        {
+            var snapshot = ledger.DispatchNext(activationId);
+            Add(new(ExecutionEventKinds.SequenceOutputDispatched, sequenceNodeId, sequenceInvocationId, snapshot.OutputId,
+                snapshot.Ordinal, activationId, connectionIds[snapshot.OutputId]));
+            return snapshot;
+        }
     }
 
     public SequenceActivationSnapshot Complete(Guid activationId, SequenceTerminalState terminalState)
     {
-        var snapshot = ledger.RecordTerminal(activationId, terminalState);
-        if (terminalState != SequenceTerminalState.Completed) this.terminalState ??= terminalState;
-        var terminalKind = terminalState switch
+        lock (gate)
         {
-            SequenceTerminalState.Completed => ExecutionEventKinds.SequenceOutputCompleted,
-            SequenceTerminalState.Failed => ExecutionEventKinds.SequenceOutputFailed,
-            SequenceTerminalState.Cancelled => ExecutionEventKinds.SequenceOutputCancelled,
-            _ => throw new ArgumentOutOfRangeException(nameof(terminalState))
-        };
-        Add(new(terminalKind, sequenceNodeId, sequenceInvocationId, snapshot.OutputId,
-            snapshot.Ordinal, activationId, connectionIds[snapshot.OutputId]));
+            var snapshot = ledger.RecordTerminal(activationId, terminalState);
+            if (terminalState != SequenceTerminalState.Completed) this.terminalState ??= terminalState;
+            var terminalKind = terminalState switch
+            {
+                SequenceTerminalState.Completed => ExecutionEventKinds.SequenceOutputCompleted,
+                SequenceTerminalState.Failed => ExecutionEventKinds.SequenceOutputFailed,
+                SequenceTerminalState.Cancelled => ExecutionEventKinds.SequenceOutputCancelled,
+                _ => throw new ArgumentOutOfRangeException(nameof(terminalState))
+            };
+            Add(new(terminalKind, sequenceNodeId, sequenceInvocationId, snapshot.OutputId,
+                snapshot.Ordinal, activationId, connectionIds[snapshot.OutputId]));
 
-        foreach (var skipped in ledger.Snapshot.Where(item => item.State == SequenceActivationState.Skipped))
-            if (!events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped && evt.OutputId == skipped.OutputId))
-                Add(new(ExecutionEventKinds.SequenceOutputSkipped, sequenceNodeId, sequenceInvocationId, skipped.OutputId,
-                    skipped.Ordinal, null, connectionIds[skipped.OutputId]));
+            foreach (var skipped in ledger.Snapshot.Where(item => item.State == SequenceActivationState.Skipped))
+                if (!events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputSkipped && evt.OutputId == skipped.OutputId))
+                    Add(new(ExecutionEventKinds.SequenceOutputSkipped, sequenceNodeId, sequenceInvocationId, skipped.OutputId,
+                        skipped.Ordinal, null, connectionIds[skipped.OutputId]));
 
-        if (ledger.IsTerminal)
-        {
-            var sequenceTerminalKind = this.terminalState is null
-                ? ExecutionEventKinds.SequenceCompleted
-                : this.terminalState == SequenceTerminalState.Failed ? ExecutionEventKinds.SequenceFailed : ExecutionEventKinds.SequenceCancelled;
-            Add(new(sequenceTerminalKind, sequenceNodeId, sequenceInvocationId, null, null, null, null));
+            if (ledger.IsTerminal)
+            {
+                var sequenceTerminalKind = this.terminalState is null
+                    ? ExecutionEventKinds.SequenceCompleted
+                    : this.terminalState == SequenceTerminalState.Failed ? ExecutionEventKinds.SequenceFailed : ExecutionEventKinds.SequenceCancelled;
+                Add(new(sequenceTerminalKind, sequenceNodeId, sequenceInvocationId, null, null, null, null));
+            }
+            return snapshot;
         }
-        return snapshot;
     }
 
     public void CancelPending()

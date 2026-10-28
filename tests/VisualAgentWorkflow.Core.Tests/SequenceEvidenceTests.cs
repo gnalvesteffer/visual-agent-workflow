@@ -107,6 +107,34 @@ public sealed class SequenceEvidenceTests
     }
 
     [Fact]
+    public void Playback_reconstructs_overlapping_outputs_that_complete_out_of_order()
+    {
+        var sequenceId = Guid.NewGuid();
+        var runId = Guid.NewGuid();
+        var revisionId = Guid.NewGuid();
+        var firstActivation = Guid.NewGuid();
+        var secondActivation = Guid.NewGuid();
+        var events = new[]
+        {
+            Lifecycle(runId, revisionId, 1, ExecutionEventKinds.SequenceStarted, sequenceId,
+                new(sequenceId, "sequence", null, null, null, null)),
+            Lifecycle(runId, revisionId, 2, ExecutionEventKinds.SequenceOutputDispatched, sequenceId,
+                new(sequenceId, "sequence", "first", 0, firstActivation, "connection-a")),
+            Lifecycle(runId, revisionId, 3, ExecutionEventKinds.SequenceOutputDispatched, sequenceId,
+                new(sequenceId, "sequence", "second", 1, secondActivation, "connection-b")),
+            Lifecycle(runId, revisionId, 4, ExecutionEventKinds.SequenceOutputCompleted, sequenceId,
+                new(sequenceId, "sequence", "second", 1, secondActivation, "connection-b")),
+            Lifecycle(runId, revisionId, 5, ExecutionEventKinds.SequenceOutputCompleted, sequenceId,
+                new(sequenceId, "sequence", "first", 0, firstActivation, "connection-a")),
+            Lifecycle(runId, revisionId, 6, ExecutionEventKinds.SequenceCompleted, sequenceId,
+                new(sequenceId, "sequence", null, null, null, null))
+        };
+
+        Assert.True(SequenceEvidence.TryReconstructPlayback(events, out var snapshot));
+        Assert.Equal(["completed", "completed"], snapshot!.Outputs.Select(output => output.State));
+    }
+
+    [Fact]
     public void Playback_rejects_out_of_order_dispatch_and_events_after_terminal()
     {
         var sequenceId = Guid.NewGuid();

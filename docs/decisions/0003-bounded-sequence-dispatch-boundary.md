@@ -89,17 +89,23 @@ ordered dispatched/completed/failed/cancelled/skipped output state from the
 versioned lifecycle evidence, supports in-progress prefixes, and rejects
 out-of-order, mismatched-identity, malformed, or post-terminal records. The
 reader performs no executor, Agent, MCP, approval, or extension calls. It is
-ready for recorded evidence, but production `WorkflowRunner` executions still
-do not emit Sequence lineage because the public node remains deferred.
+ready for recorded evidence. Authored workflows still do not emit Sequence
+lineage because the public node remains deferred.
 
 The production runner now carries a private, non-persisted `GraphMessage`
 lineage envelope containing Sequence invocation, output, ordinal, activation,
 connection, and descendant-scope identity. Normal executor, fork, join, and
 final handoffs preserve that envelope, and explicit execution activation
 evidence includes it when present. No authored schema or public node can create
-the envelope yet; the remaining integration is a production Sequence
-source/coordinator and lifecycle events recorded at the normal serialized
-boundary.
+the envelope yet.
+
+That integration now exists behind an internal-only `WorkflowRunner` adapter.
+It uses the production `ExecuteCoreAsync` boundary, the normal serialized event
+recorder, real `StringExecutor` descendants, runner-owned activation accounting,
+and the execution gate. It emits ordered dispatch and terminal lifecycle facts,
+preserves lineage through descendant transfers, and proves pause/cancellation
+between dispatches without redispatch. The adapter is a proof seam only: it is
+not reachable from persisted workflow definitions, schema discovery, or Studio.
 
 This is useful evidence, not a failure of the framework. It rules out treating ordinary `SendMessageAsync` fan-out as a Blueprint Sequence. A public Sequence must either define this as an explicitly concurrent dispatch primitive with full active-work accounting, or add a separate continuation mechanism that admits the next output only after the previous path's documented completion boundary.
 
@@ -107,9 +113,9 @@ This is useful evidence, not a failure of the framework. It rules out treating o
 
 The required three-role design review (proponent, opponent, and adjudicator) rejected a public schema change at this stage. The existing runner has one framework output sink, no descendant-completion ledger, no per-output lineage in `GraphMessage`, and no defined inter-dispatch pause boundary. A public node would therefore be able to report completion while work from another output remained active.
 
-The first implementation slice is now a non-public `SequenceActivationLedger`. It is deliberately limited to in-process proof work: two to four stable output IDs, ordered dispatch, overlapping dispatched states, explicit completed/failed/cancelled/skipped states, and terminal accounting that waits for active outputs. A private ordered-dispatch runner harness now exercises that coordinator through the pinned streaming engine, but neither is serialized, exposed in the Studio palette, or connected to the production workflow graph runner. Its focused tests prevent a future implementation from using raw framework fan-out without lineage and terminal accounting as a substitute for Sequence semantics.
+The first implementation slice is now a non-public `SequenceActivationLedger`. It is deliberately limited to in-process proof work: two to four stable output IDs, ordered dispatch, overlapping dispatched states, explicit completed/failed/cancelled/skipped states, and terminal accounting that waits for active outputs. A private ordered-dispatch runner harness and the internal production adapter now exercise that coordinator through the pinned streaming engine, but neither is serialized, exposed in the Studio palette, or reachable from persisted workflow content. Their focused tests prevent a future implementation from using raw framework fan-out without lineage and terminal accounting as a substitute for Sequence semantics.
 
-The runner now has a separate `ExecutionActivationLedger` integrated at the event boundary. It accounts for active node invocations by scope, node, and invocation ID, and rejects normal workflow completion or termination while any invocation lacks a terminal node event. A non-persisted `SequenceRuntimeCoordinator` now proves stable Sequence invocation, output, ordinal, and connection identity across dispatched, completed, failed, cancelled, and skipped lifecycle facts; failed and cancelled sequences receive distinct terminal facts rather than a misleading completion event. Core now defines a versioned passive `SequenceLifecycleEvidence` payload and reader for those lifecycle event kinds, including fail-closed malformed and unknown-version handling. The coordinator can map its proof events to recorded `ExecutionEvent` records, but the real runner does not emit them yet. These are evidence contracts, not public Sequence execution. The next proof must connect Sequence-specific state to the runner-owned boundary, emit the lifecycle facts through real run recording, and exercise pause, host stop, and partial-dispatch outcomes against the real runner. Until those checks pass, schema 1.38 remains reserved and deferred.
+The runner now has a separate `ExecutionActivationLedger` integrated at the event boundary. It accounts for active node invocations by scope, node, and invocation ID, and rejects normal workflow completion or termination while any invocation lacks a terminal node event. A non-persisted `SequenceRuntimeCoordinator` now proves stable Sequence invocation, output, ordinal, and connection identity across dispatched, completed, failed, cancelled, and skipped lifecycle facts; failed and cancelled sequences receive distinct terminal facts rather than a misleading completion event. Core now defines a versioned passive `SequenceLifecycleEvidence` payload and reader for those lifecycle event kinds, including fail-closed malformed and unknown-version handling. The internal production adapter now connects Sequence-specific state to the runner-owned boundary, emits lifecycle facts through real run recording, and exercises pause, host stop, cancellation, and passive playback against that boundary. These are still evidence contracts, not public Sequence execution. Schema 1.38 remains reserved and deferred until the adapter’s contract is promoted into a persisted definition, validator, Studio, and public runtime vertical slice.
 
 ## Rejected alternatives
 

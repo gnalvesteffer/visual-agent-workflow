@@ -63,7 +63,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
     private async Task<WorkflowExecutionResult> ExecuteCoreAsync(Guid runId, WorkflowRevision revision, string input,
         IReadOnlyDictionary<string, string>? parameters,
         Func<ExecutionEvent, ValueTask> record, IWorkflowExecutionGate? gate, CancellationToken cancellationToken,
-        WorkflowRevision? rootRevision = null, ImmutableArray<WorkflowApprovalScope> workflowPath = default)
+        WorkflowRevision? rootRevision = null, ImmutableArray<WorkflowApprovalScope> workflowPath = default,
+        SequenceProductionPlan? sequencePlan = null)
     {
         var callerCancellationToken = cancellationToken;
         ArgumentNullException.ThrowIfNull(revision);
@@ -103,8 +104,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             ? null
             : CancellationTokenSource.CreateLinkedTokenSource(callerCancellationToken, collaborationRuntime.TimeoutToken);
         if (linkedCancellation is not null) cancellationToken = linkedCancellation.Token;
-        var workflow = BuildWorkflow(runId, revision, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
-            collaborationRuntime);
+        var workflow = sequencePlan is null
+            ? BuildWorkflow(runId, revision, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
+                collaborationRuntime)
+            : BuildSequenceProductionWorkflow(runId, revision, sequencePlan, Emit, gate, rootRevision, workflowPath);
 
         await Emit(ExecutionEventKinds.Started);
         try
@@ -983,7 +986,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         edge.Value.Source.PortId == received.SourcePort && edge.Value.Target.NodeId == Id);
                     var inputType = WorkflowPorts.Inputs(node).Single(port => port.Id == incoming.Value.Target.PortId).DataType;
                     if (received.DataType != inputType) throw new InvalidOperationException("Connected workflow data type does not match the receiving node.");
-                    await Emit(ExecutionEventKinds.Transfer, Id, invocation, incoming.Key, message);
+                    var transferData = received.SequenceLineage is { } sequenceLineage
+                        ? JsonSerializer.Serialize(new { value = message, sequenceLineage })
+                        : message;
+                    await Emit(ExecutionEventKinds.Transfer, Id, invocation, incoming.Key, transferData);
                     incomingPort = incoming.Value.Target.PortId;
                 }
             }

@@ -62,8 +62,8 @@ public static class SequenceEvidence
 
         SequenceLifecycleEvidence? identity = null;
         var outputs = new Dictionary<int, SequencePlaybackOutput>();
-        Guid? activeActivation = null;
-        string? activeOutput = null;
+        var activeActivations = new Dictionary<Guid, int>();
+        var nextDispatchOrdinal = 0;
         var started = false;
         var terminal = false;
         var status = "running";
@@ -88,18 +88,21 @@ public static class SequenceEvidence
                     started = true;
                     break;
                 case ExecutionEventKinds.SequenceOutputDispatched:
-                    if (evidence.OutputId is null || evidence.Ordinal is not { } ordinal || ordinal != outputs.Count ||
-                        evidence.ActivationId is not { } activation || evidence.ConnectionId is null || activeActivation is not null)
+                    if (evidence.OutputId is null || evidence.Ordinal is not { } ordinal || ordinal != nextDispatchOrdinal ||
+                        evidence.ActivationId is not { } activation || evidence.ConnectionId is null ||
+                        outputs.ContainsKey(ordinal) || activeActivations.ContainsKey(activation))
                         return false;
                     outputs.Add(ordinal, new(evidence.OutputId, ordinal, activation, evidence.ConnectionId, "dispatched"));
-                    activeActivation = activation;
-                    activeOutput = evidence.OutputId;
+                    activeActivations.Add(activation, ordinal);
+                    nextDispatchOrdinal++;
                     break;
                 case ExecutionEventKinds.SequenceOutputCompleted:
                 case ExecutionEventKinds.SequenceOutputFailed:
                 case ExecutionEventKinds.SequenceOutputCancelled:
-                    if (activeActivation != evidence.ActivationId || activeOutput != evidence.OutputId ||
-                        evidence.Ordinal is not { } terminalOrdinal || !outputs.TryGetValue(terminalOrdinal, out var dispatched) ||
+                    if (evidence.ActivationId is not { } terminalActivation ||
+                        !activeActivations.TryGetValue(terminalActivation, out var terminalOrdinal) ||
+                        evidence.OutputId is null || evidence.Ordinal != terminalOrdinal ||
+                        !outputs.TryGetValue(terminalOrdinal, out var dispatched) || dispatched.OutputId != evidence.OutputId ||
                         dispatched.State != "dispatched") return false;
                     var outputState = executionEvent.Kind switch
                     {
@@ -108,28 +111,27 @@ public static class SequenceEvidence
                         _ => "cancelled"
                     };
                     outputs[terminalOrdinal] = dispatched with { State = outputState };
-                    activeActivation = null;
-                    activeOutput = null;
+                    activeActivations.Remove(terminalActivation);
                     break;
                 case ExecutionEventKinds.SequenceOutputSkipped:
                     if (evidence.OutputId is null || evidence.Ordinal is not { } skippedOrdinal ||
-                        evidence.ConnectionId is null || activeActivation is not null || outputs.ContainsKey(skippedOrdinal))
+                        evidence.ConnectionId is null || outputs.ContainsKey(skippedOrdinal) || skippedOrdinal < nextDispatchOrdinal)
                         return false;
                     outputs.Add(skippedOrdinal, new(evidence.OutputId, skippedOrdinal, null, evidence.ConnectionId, "skipped"));
                     break;
                 case ExecutionEventKinds.SequenceCompleted:
-                    if (activeActivation is not null || outputs.Count == 0 || outputs.Values.Any(output => output.State != "completed"))
+                    if (activeActivations.Count != 0 || outputs.Count == 0 || outputs.Values.Any(output => output.State != "completed"))
                         return false;
                     status = "completed";
                     terminal = true;
                     break;
                 case ExecutionEventKinds.SequenceFailed:
-                    if (activeActivation is not null || !outputs.Values.Any(output => output.State == "failed")) return false;
+                    if (activeActivations.Count != 0 || !outputs.Values.Any(output => output.State == "failed")) return false;
                     status = "failed";
                     terminal = true;
                     break;
                 case ExecutionEventKinds.SequenceCancelled:
-                    if (activeActivation is not null || !outputs.Values.Any(output => output.State is "cancelled" or "skipped")) return false;
+                    if (activeActivations.Count != 0 || !outputs.Values.Any(output => output.State is "cancelled" or "skipped")) return false;
                     status = "cancelled";
                     terminal = true;
                     break;

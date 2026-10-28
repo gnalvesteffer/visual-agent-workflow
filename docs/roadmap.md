@@ -103,7 +103,7 @@ Descriptor progress: Core now has a canonical node-family catalog for stable dis
 
 ### Deferred parity decision: bounded Sequence dispatch
 
-`core.sequence` and schema 1.38 are not implemented. The independent proponent/opponent/adjudicator review keeps the feature deferred until a non-public Agent Framework proof establishes active-activation accounting, partial-dispatch/failure/cancellation semantics, playback correlation, and the explicit pause/restart boundary. The proof now covers Blueprint-style ordered dispatch with overlapping active descendants, completion-order divergence, cancellation between outputs, distinct failed/cancelled terminal outcomes with skipped later outputs, and deterministic pause/host-stop behavior at the inter-dispatch boundary. That harness now routes descendant start/completion facts through runner-owned active-node accounting, and Core can reconstruct recorded Sequence prefixes passively. Production `GraphMessage` transport now also carries a private, non-persisted lineage envelope for the future Sequence path; production Sequence execution, lifecycle recording, and production pause/host-stop integration remain open. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md). Mutable variables remain deferred for the same contract/evidence reasons.
+`core.sequence` and schema 1.38 are not implemented. The independent proponent/opponent/adjudicator review keeps the feature deferred until a non-public Agent Framework proof establishes active-activation accounting, partial-dispatch/failure/cancellation semantics, playback correlation, and the explicit pause/restart boundary. The proof now covers Blueprint-style ordered dispatch with overlapping active descendants, completion-order divergence, cancellation between outputs, distinct failed/cancelled terminal outcomes with skipped later outputs, and deterministic pause/host-stop behavior at the inter-dispatch boundary. That harness now routes descendant start/completion facts through runner-owned active-node accounting, and Core can reconstruct recorded Sequence prefixes passively. Production `GraphMessage` transport now also carries a private, non-persisted lineage envelope, and an internal `WorkflowRunner` adapter emits and records the private lifecycle proof; authored production workflows still cannot create or execute Sequence content. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md). Mutable variables remain deferred for the same contract/evidence reasons.
 
 Sequence proof checklist:
 
@@ -116,10 +116,10 @@ Sequence proof checklist:
 - [x] Exercise ordered dispatch, overlapping active descendants, and terminal accounting through a private pinned streaming-runner harness.
 - [x] Reconstruct ordered Sequence prefixes and terminal output state from passive evidence without live execution.
 - [x] Add a private, non-persisted production-message lineage envelope for future Sequence identity propagation.
-- [ ] Emit that lineage from production Sequence runner executions.
+- [x] Emit that lineage from a private production `WorkflowRunner` Sequence adapter through the normal serialized run recorder.
 - [x] Prove partial dispatch, downstream failure, and cancellation outcomes against the private streaming runner proof.
 - [x] Prove pause and host-stop behavior at the private inter-dispatch boundary.
-- [ ] Prove pause and host-stop outcomes against the production runner.
+- [x] Prove pause and host-stop outcomes against the private production runner adapter.
 - [ ] Only then add schema 1.38, validator rules, persistence compatibility, Studio authoring, and public runtime behavior.
 
 ### Sequencing and exit criteria
