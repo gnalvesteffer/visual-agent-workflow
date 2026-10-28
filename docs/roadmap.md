@@ -130,7 +130,9 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   and the checkpoint admission boundary.
 - [x] Reject variable writes in parallel, Sequence, collaboration,
   asynchronous, graph-function, and shared child-workflow regions until their
-  separate ordering and merge contracts are proven.
+  separate ordering and merge contracts are proven; regression coverage proves
+  the schema boundary fails closed when loop, parallel, function, or child-call
+  nodes are introduced.
 - [x] Implement the store and evidence only after the preceding contracts are
   reviewed; prove default reads, ordered overwrites, isolated runs, and
   cancellation with deterministic runtime tests.

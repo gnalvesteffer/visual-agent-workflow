@@ -73,6 +73,23 @@ public sealed class MutableVariableContractTests
         Assert.Throws<ArgumentException>(() => WorkflowPackageJson.Create(saved, WorkflowLayout.Create(saved)));
     }
 
+    [Theory]
+    [InlineData(NodeTypes.Loop)]
+    [InlineData(NodeTypes.ParallelFork)]
+    [InlineData(NodeTypes.WorkflowCall)]
+    [InlineData(NodeTypes.FunctionCall)]
+    public void Variable_graph_fails_closed_when_a_stateful_or_nested_region_is_added(string unsupportedType)
+    {
+        var definition = Definition() with
+        {
+            Nodes = Definition().Nodes.Add("unsupported", new(unsupportedType, "1.0.0"))
+        };
+
+        var issues = WorkflowValidator.Validate(definition);
+
+        Assert.Contains(issues, issue => issue.Code == "execution.node.unsupported" && issue.Path == "nodes.unsupported");
+    }
+
     [Fact]
     public void Blank_explicit_graph_can_be_promoted_to_the_variable_proof()
     {
