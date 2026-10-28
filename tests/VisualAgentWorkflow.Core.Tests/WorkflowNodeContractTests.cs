@@ -291,4 +291,57 @@ public sealed class WorkflowNodeContractTests
         Assert.Equal([WorkflowDataTypes.String, WorkflowDataTypes.String],
             WorkflowNodeDescriptorResolver.Resolve(call).Ports.Select(port => port.DataType));
     }
+
+    [Fact]
+    public void Dynamic_port_projection_ignores_malformed_null_members_without_losing_valid_ordered_pins()
+    {
+        var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0",
+            Agent: new AgentConfiguration("provider", null, "instructions", [])
+            {
+                Routes = [null!, new("review", "Review", "Review path")]
+            });
+        var sequence = new NodeDefinition(NodeTypes.Sequence, "1.0.0")
+        {
+            Sequence = new([null!, new("first", "First")])
+        };
+        var fork = new NodeDefinition(NodeTypes.ParallelFork, "1.0.0")
+        {
+            ParallelFork = new([null!, new("branch", "Branch", "anchor")])
+        };
+        var tool = new NodeDefinition(NodeTypes.McpTool, "1.0.0")
+        {
+            McpInputPorts = [null!, new("arg.path", "path", WorkflowDataTypes.String, true)]
+        };
+
+        Assert.Equal(["execute", "route.review"], WorkflowNodeDescriptorResolver.Resolve(agent).Ports
+            .Where(port => port.Kind == WorkflowPortKind.Execution).Select(port => port.Id));
+        Assert.Equal(["execute", "then.first"], WorkflowNodeDescriptorResolver.Resolve(sequence).Ports.Select(port => port.Id));
+        Assert.Equal(["execute", "branch.branch"], WorkflowNodeDescriptorResolver.Resolve(fork).Ports.Select(port => port.Id));
+        Assert.Equal("arg.path", Assert.Single(WorkflowNodeDescriptorResolver.Resolve(tool).Ports
+            .Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data)).Id);
+        Assert.Equal("route.review", Assert.Single(WorkflowPorts.ExplicitExecutionOutputs(agent)));
+    }
+
+    [Fact]
+    public void Malformed_dynamic_nodes_remain_validator_inputs_instead_of_throwing()
+    {
+        var definition = new WorkflowDefinition(
+            WorkflowSchemaVersions.AgentExecutionRoutes, "malformed-dynamic", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["agent"] = new(NodeTypes.Agent, "1.0.0",
+                    Agent: new AgentConfiguration("provider", null, "instructions", []) { Routes = [null!] }),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            new Dictionary<string, ConnectionDefinition>().ToImmutableSortedDictionary(StringComparer.Ordinal))
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>().ToImmutableSortedDictionary(StringComparer.Ordinal)
+        };
+
+        var exception = Record.Exception(() => WorkflowValidator.Validate(definition));
+
+        Assert.Null(exception);
+        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "agent.routes");
+    }
 }

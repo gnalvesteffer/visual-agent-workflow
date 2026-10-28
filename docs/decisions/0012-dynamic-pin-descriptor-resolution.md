@@ -18,6 +18,13 @@ fill only an absent persisted contract and descriptions are copied into the
 transient descriptor result; discovery never changes the node, definition hash,
 portable JSON, validation admission, runtime arguments, grants, or authority.
 
+Dynamic projections are fail-closed for malformed persisted collections: null
+route, branch, sequence-output, graph-function-port, or MCP-port members are
+ignored during shape projection while the schema-specific validator reports
+the malformed configuration. Valid neighboring entries retain their authored
+order and identity. This is defensive projection behavior, not a new admission
+rule or a fallback that permits malformed definitions to execute.
+
 The resolver is shape metadata, not schema validation. It does not add schema
 versions, migrate dynamic pins, infer defaults or conversions, or authorize a
 capability. Existing validator branches remain responsible for deciding which

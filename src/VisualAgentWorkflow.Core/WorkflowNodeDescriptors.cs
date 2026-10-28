@@ -158,7 +158,7 @@ public static class WorkflowNodeDescriptorResolver
         foreach (var port in WorkflowPorts.ExplicitDataInputs(effectiveNode))
         {
             var mcpPort = effectiveNode.Type == NodeTypes.McpTool
-                ? mcpInputs?.FirstOrDefault(candidate => candidate.Id == port.Id)
+                ? mcpInputs?.FirstOrDefault(candidate => candidate is not null && candidate.Id == port.Id)
                 : null;
             ports.Add(new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType)
             {
