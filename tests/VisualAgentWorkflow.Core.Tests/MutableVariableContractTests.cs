@@ -91,6 +91,19 @@ public sealed class MutableVariableContractTests
     }
 
     [Fact]
+    public void Cancelled_variable_write_does_not_commit_or_advance_version()
+    {
+        var store = new WorkflowVariableStore(Definition());
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.Throws<OperationCanceledException>(() => store.Write("count", WorkflowDataTypes.Integer, 8L, cancellation.Token));
+        Assert.True(store.TryRead("count", out var current));
+        Assert.Equal(0L, current.Value);
+        Assert.Equal(1L, current.Version);
+    }
+
+    [Fact]
     public void Blank_explicit_graph_can_be_promoted_to_the_variable_proof()
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty

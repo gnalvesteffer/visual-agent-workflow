@@ -136,8 +136,9 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
 - [x] Implement the store and evidence only after the preceding contracts are
   reviewed; prove default reads, ordered overwrites, isolated runs, and
   cancellation with deterministic runtime tests.
-- [ ] Add loop-order and cancellation-position proofs. Checkpoint admission now
-  explicitly rejects schema 1.44 before run creation because native checkpoint
+- [ ] Add loop-order proofs. Cancellation-position is now proven at the atomic
+  variable-store boundary: a pre-cancelled write cannot mutate state or advance
+  its version. Checkpoint admission now explicitly rejects schema 1.44 before run creation because native checkpoint
   payloads do not yet persist the variable store; variable-state checkpoint and
   recovery remain a separate proof gate.
 - [x] Add passive playback and prefix reconstruction for variable reads/writes
