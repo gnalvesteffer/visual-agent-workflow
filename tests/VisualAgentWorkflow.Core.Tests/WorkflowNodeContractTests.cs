@@ -50,6 +50,31 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Catalog_lifecycle_metadata_is_conformant()
+    {
+        Assert.Empty(WorkflowNodeContractConformance.ValidateCatalog());
+
+        Assert.Equal(WorkflowNodeActivationKind.ExternalApproval,
+            WorkflowNodeContractCatalog.Get(NodeTypes.Approval).Activation);
+        Assert.Equal(WorkflowNodeFailureKind.AbortsRegion,
+            WorkflowNodeContractCatalog.Get(NodeTypes.ParallelJoin).Failure);
+        Assert.Equal(WorkflowNodeEvidenceKind.CapabilityInvocation,
+            WorkflowNodeContractCatalog.Get(NodeTypes.McpTool).Evidence);
+    }
+
+    [Fact]
+    public void Catalog_lifecycle_drift_is_reported_without_changing_definition_contracts()
+    {
+        var original = WorkflowNodeContractCatalog.Get(NodeTypes.Approval);
+        var drifted = original with { Activation = WorkflowNodeActivationKind.Execution };
+
+        var issues = WorkflowNodeContractConformance.Validate(drifted);
+        Assert.Contains(issues, issue => issue.Code == "metadata.approval-activation");
+        Assert.Equal(WorkflowNodeActivationKind.ExternalApproval, original.Activation);
+        Assert.Equal(WorkflowNodeActivationKind.Execution, drifted.Activation);
+    }
+
+    [Fact]
     public void Capability_projection_exposes_catalog_effects_and_authoring_capabilities()
     {
         var projection = WorkflowNodeCapabilityProjectionResolver.Resolve(new NodeDefinition(NodeTypes.Agent, "1.0.0"));

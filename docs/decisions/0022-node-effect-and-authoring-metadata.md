@@ -33,7 +33,9 @@ specific behavior. They are suitable for capability-aware discovery and
 documentation, not a replacement for the editor's schema-gated operations.
 
 The catalog conformance checks require complete metadata, valid flags, dynamic
-pin consistency, and representative capability/effect relationships. The
+pin consistency, representative capability/effect relationships, and lifecycle
+relationships between activation, state ownership, failure disposition, and
+recorded evidence. The
 non-serialized capability projection and Core-aware library entries expose the
 same metadata without creating a second family catalog. Pure
 nodes cannot declare an effect boundary; Agent and MCP nodes identify external
@@ -50,5 +52,6 @@ these flags.
 ## Verification
 
 Core tests cover catalog coverage and uniqueness, conformance, representative
-pure/control/approval/Agent/MCP/child-workflow semantics, and the guarantee that
-metadata is absent from workflow JSON and canonical hashes.
+pure/control/approval/Agent/MCP/child-workflow semantics, mutation detection for
+lifecycle drift, and the guarantee that metadata is absent from workflow JSON
+and canonical hashes.

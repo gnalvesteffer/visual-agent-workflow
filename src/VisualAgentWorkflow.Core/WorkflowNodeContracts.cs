@@ -120,34 +120,98 @@ public static class WorkflowNodeContractConformance
     public static ImmutableArray<WorkflowNodeContractIssue> ValidateCatalog()
     {
         var issues = ImmutableArray.CreateBuilder<WorkflowNodeContractIssue>();
-        void Issue(string code, WorkflowNodeContract contract, string message) => issues.Add(new(code, contract.Type, message));
-
         foreach (var contract in WorkflowNodeContractCatalog.All)
-        {
-            if (string.IsNullOrWhiteSpace(contract.Type) || string.IsNullOrWhiteSpace(contract.TypeVersion) ||
-                string.IsNullOrWhiteSpace(contract.DisplayName) || string.IsNullOrWhiteSpace(contract.Category) ||
-                string.IsNullOrWhiteSpace(contract.Description))
-                Issue("metadata.required", contract, "Node contracts require stable type, version, display name, category, and description metadata.");
-            if (!IsDefined(contract.Effects) || !IsDefined(contract.Authoring))
-                Issue("metadata.flags", contract, "Node contract metadata contains an undefined effect or authoring flag.");
-            if (contract.Authoring == WorkflowNodeAuthoringFlags.None)
-                Issue("metadata.authoring", contract, "Every node contract must declare at least one stable authoring capability.");
-            if (contract.IsPure && contract.Effects != WorkflowNodeEffectFlags.None)
-                Issue("metadata.pure-effects", contract, "Pure nodes cannot declare run, host, external-capability, or child-workflow effects.");
-            if (contract.HasDynamicPins && !contract.Authoring.HasFlag(WorkflowNodeAuthoringFlags.DynamicPins))
-                Issue("metadata.dynamic-pins", contract, "Dynamic-pin node contracts must expose the dynamic-pins authoring capability.");
-            if (contract.Type is NodeTypes.Agent or NodeTypes.McpTool && !contract.Effects.HasFlag(WorkflowNodeEffectFlags.ExternalCapability))
-                Issue("metadata.capability-effect", contract, "Host-authorized capability nodes must declare an external-capability effect.");
-            if (contract.Type == NodeTypes.Approval && !contract.Effects.HasFlag(WorkflowNodeEffectFlags.HostInteraction))
-                Issue("metadata.approval-effect", contract, "Approval nodes must declare a host-interaction effect.");
-            if (contract.Type == NodeTypes.WorkflowCall && !contract.Effects.HasFlag(WorkflowNodeEffectFlags.ChildWorkflow))
-                Issue("metadata.child-effect", contract, "Workflow-call nodes must declare a child-workflow effect.");
-        }
+            issues.AddRange(Validate(contract));
 
         foreach (var duplicate in WorkflowNodeContractCatalog.All.GroupBy(contract => contract.Type, StringComparer.Ordinal).Where(group => group.Count() > 1))
             issues.Add(new("metadata.duplicate", duplicate.Key, "Node contract types must be unique in the canonical catalog."));
 
         return issues.ToImmutable();
+    }
+
+    /// <summary>Validates one non-authoritative node contract, including lifecycle semantics.</summary>
+    public static ImmutableArray<WorkflowNodeContractIssue> Validate(WorkflowNodeContract contract)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+        var issues = ImmutableArray.CreateBuilder<WorkflowNodeContractIssue>();
+        void Issue(string code, WorkflowNodeContract value, string message) => issues.Add(new(code, value.Type, message));
+
+        if (string.IsNullOrWhiteSpace(contract.Type) || string.IsNullOrWhiteSpace(contract.TypeVersion) ||
+            string.IsNullOrWhiteSpace(contract.DisplayName) || string.IsNullOrWhiteSpace(contract.Category) ||
+            string.IsNullOrWhiteSpace(contract.Description))
+            Issue("metadata.required", contract, "Node contracts require stable type, version, display name, category, and description metadata.");
+        if (!IsDefined(contract.Effects) || !IsDefined(contract.Authoring))
+            Issue("metadata.flags", contract, "Node contract metadata contains an undefined effect or authoring flag.");
+        if (contract.Authoring == WorkflowNodeAuthoringFlags.None)
+            Issue("metadata.authoring", contract, "Every node contract must declare at least one stable authoring capability.");
+        if (contract.IsPure && contract.Effects != WorkflowNodeEffectFlags.None)
+            Issue("metadata.pure-effects", contract, "Pure nodes cannot declare run, host, external-capability, or child-workflow effects.");
+        if (contract.HasDynamicPins && !contract.Authoring.HasFlag(WorkflowNodeAuthoringFlags.DynamicPins))
+            Issue("metadata.dynamic-pins", contract, "Dynamic-pin node contracts must expose the dynamic-pins authoring capability.");
+        if (contract.Type is NodeTypes.Agent or NodeTypes.McpTool && !contract.Effects.HasFlag(WorkflowNodeEffectFlags.ExternalCapability))
+            Issue("metadata.capability-effect", contract, "Host-authorized capability nodes must declare an external-capability effect.");
+        if (contract.Type == NodeTypes.Approval && !contract.Effects.HasFlag(WorkflowNodeEffectFlags.HostInteraction))
+            Issue("metadata.approval-effect", contract, "Approval nodes must declare a host-interaction effect.");
+        if (contract.Type == NodeTypes.WorkflowCall && !contract.Effects.HasFlag(WorkflowNodeEffectFlags.ChildWorkflow))
+            Issue("metadata.child-effect", contract, "Workflow-call nodes must declare a child-workflow effect.");
+
+        ValidateLifecycle(contract, Issue);
+        return issues.ToImmutable();
+    }
+
+    private static void ValidateLifecycle(WorkflowNodeContract contract,
+        Action<string, WorkflowNodeContract, string> issue)
+    {
+        void Expect<T>(string code, T actual, T expected, string field) where T : notnull
+        {
+            if (!EqualityComparer<T>.Default.Equals(actual, expected))
+                issue(code, contract, $"{contract.Type} must declare {field} as {expected}.");
+        }
+
+        if (contract.IsPure)
+        {
+            Expect("metadata.pure-activation", contract.Activation, WorkflowNodeActivationKind.DataEvaluation, "data-evaluation activation");
+            Expect("metadata.pure-state", contract.State, WorkflowNodeStateKind.Stateless, "stateless state");
+            Expect("metadata.pure-evidence", contract.Evidence, WorkflowNodeEvidenceKind.DataEvaluation, "data-evaluation evidence");
+        }
+
+        switch (contract.Type)
+        {
+            case NodeTypes.Condition:
+            case NodeTypes.BooleanBranch:
+                Expect("metadata.route-failure", contract.Failure, WorkflowNodeFailureKind.Routes, "route failure disposition");
+                Expect("metadata.route-evidence", contract.Evidence, WorkflowNodeEvidenceKind.RouteDecision, "route-decision evidence");
+                break;
+            case NodeTypes.Terminate:
+                Expect("metadata.terminal-failure", contract.Failure, WorkflowNodeFailureKind.Terminates, "terminal failure disposition");
+                break;
+            case NodeTypes.Approval:
+                Expect("metadata.approval-activation", contract.Activation, WorkflowNodeActivationKind.ExternalApproval, "external-approval activation");
+                Expect("metadata.approval-state", contract.State, WorkflowNodeStateKind.HostOwned, "host-owned state");
+                Expect("metadata.approval-failure", contract.Failure, WorkflowNodeFailureKind.WaitsForHost, "host-wait failure disposition");
+                Expect("metadata.approval-evidence", contract.Evidence, WorkflowNodeEvidenceKind.Approval, "approval evidence");
+                break;
+            case NodeTypes.ParallelFork:
+            case NodeTypes.Sequence:
+                Expect("metadata.fanout-activation", contract.Activation, WorkflowNodeActivationKind.SchedulerFanOut, "scheduler-fan-out activation");
+                break;
+            case NodeTypes.ParallelJoin:
+            case NodeTypes.ParallelRendezvous:
+                Expect("metadata.barrier-activation", contract.Activation, WorkflowNodeActivationKind.SchedulerBarrier, "scheduler-barrier activation");
+                Expect("metadata.barrier-failure", contract.Failure, WorkflowNodeFailureKind.AbortsRegion, "region-abort failure disposition");
+                break;
+            case NodeTypes.Agent:
+            case NodeTypes.McpTool:
+                Expect("metadata.capability-state", contract.State, WorkflowNodeStateKind.HostOwned, "host-owned state");
+                Expect("metadata.capability-evidence", contract.Evidence, WorkflowNodeEvidenceKind.CapabilityInvocation, "capability-invocation evidence");
+                break;
+            case NodeTypes.WorkflowCall:
+                Expect("metadata.child-activation", contract.Activation, WorkflowNodeActivationKind.ChildWorkflow, "child-workflow activation");
+                Expect("metadata.child-state", contract.State, WorkflowNodeStateKind.RunScoped, "run-scoped state");
+                Expect("metadata.child-failure", contract.Failure, WorkflowNodeFailureKind.PropagatesChildOutcome, "child-outcome failure disposition");
+                Expect("metadata.child-evidence", contract.Evidence, WorkflowNodeEvidenceKind.ChildWorkflow, "child-workflow evidence");
+                break;
+        }
     }
 
     private static bool IsDefined(WorkflowNodeEffectFlags flags) =>
