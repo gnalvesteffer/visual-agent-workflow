@@ -1074,7 +1074,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         ? throw new InvalidOperationException("The workflow parameter was not resolved for this run.") : value,
                     NodeTypes.Uppercase => message.ToUpperInvariant(),
                     NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
-                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph
+                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph
                         ? await InvokeDirectMcpTool(message, invocation, toolArgumentEvaluations, cancellationToken)
                         : await InvokeTool(message, invocation, cancellationToken),
                     NodeTypes.WorkflowCall => childOutcome?.Output ?? string.Empty,
@@ -1117,10 +1117,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     object runtimeValue = structuredResult
                         ? JsonDocument.Parse(result).RootElement.Clone()
                         : result;
-                    dataEvaluator!.SetRuntimeOutput(Id, "out", structuredResult ? "json" : "string", runtimeValue);
+                    dataEvaluator?.SetRuntimeOutput(Id, "out", structuredResult ? "json" : "string", runtimeValue);
                 }
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.McpTool)
-                    dataEvaluator!.SetRuntimeOutput(Id, "out", "string", result);
+                    dataEvaluator?.SetRuntimeOutput(Id, "out", "string", result);
                 if (routeSelection is not null) agentRouteId = routeSelection.Commit();
                 WorkflowApprovalPermit? permit = null;
                 if (node.Type == NodeTypes.Approval)

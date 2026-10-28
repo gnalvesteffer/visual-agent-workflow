@@ -74,6 +74,27 @@ public sealed class SequenceGraphTests
         Assert.Empty(WorkflowValidator.Validate(removed));
     }
 
+    [Fact]
+    public void Sequence_path_schema_accepts_disjoint_linear_tool_paths()
+    {
+        var definition = PathDefinition();
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+    }
+
+    [Fact]
+    public void Sequence_path_schema_rejects_shared_downstream_nodes()
+    {
+        var definition = PathDefinition() with
+        {
+            ExecutionConnections = PathDefinition().ExecutionConnections!
+                .Remove("sequence-architecture")
+                .Add("sequence-architecture", new(new("sequence", "then.architecture"), new("inventory-tool", "execute"), "execution"))
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "sequence.path.shared");
+    }
+
     private static WorkflowDefinition Definition()
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
@@ -93,6 +114,33 @@ public sealed class SequenceGraphTests
             .Add("sequence-quality", new(new("sequence", "then.quality"), new("output", "execute"), "execution"));
         return new WorkflowDefinition(WorkflowSchemaVersions.SequenceGraph, "sequence", "input", nodes, ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal))
         {
+            ExecutionConnections = execution
+        };
+    }
+
+    private static WorkflowDefinition PathDefinition()
+    {
+        var definition = Definition();
+        var nodes = definition.Nodes
+            .Add("inventory-tool", new(NodeTypes.McpTool, "1.0.0", new ToolBindingRequest("demo.inventory", new string('a', 64)))
+            {
+                McpArgumentsJson = "{}"
+            })
+            .Add("architecture-tool", new(NodeTypes.McpTool, "1.0.0", new ToolBindingRequest("demo.architecture", new string('b', 64)))
+            {
+                McpArgumentsJson = "{}"
+            });
+        var execution = definition.ExecutionConnections!
+            .Remove("sequence-inventory")
+            .Remove("sequence-architecture")
+            .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("inventory-tool", "execute"), "execution"))
+            .Add("inventory-output", new(new("inventory-tool", "then"), new("output", "execute"), "execution"))
+            .Add("sequence-architecture", new(new("sequence", "then.architecture"), new("architecture-tool", "execute"), "execution"))
+            .Add("architecture-output", new(new("architecture-tool", "then"), new("output", "execute"), "execution"));
+        return definition with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequencePathGraph,
+            Nodes = nodes,
             ExecutionConnections = execution
         };
     }

@@ -10,6 +10,8 @@ The development Studio edits and runs validated linear, conditional, bounded par
 
 Schema 1.42 adds the bounded `core.number.add` pure data operator to the Blueprint parity track. It has exact finite-number `left`/`right`/`out` pins, no execution pins or coercions, deterministic non-finite-result failure, pure graph-function support, typed direct-MCP argument propagation, and recorded data evaluation evidence. Broader numeric operators, conversions, containers, and generic numeric workflow outputs remain deferred. See [finite number addition](decisions/0010-finite-number-addition.md).
 
+Schema 1.43 is the next Sequence parity slice: each ordered output may enter one bounded, acyclic, disjoint direct-MCP path ending at the workflow Output barrier. It is definition-driven and preserves schema 1.38 behavior unchanged. Agent paths, shared descendants, branches, loops, nested workflows, and durable resume remain deferred until their separate lifecycle and evidence contracts are proven.
+
 The backend owns execution. Schema 1.32's named 2–8 branch fork/join remains available. Schema 1.33 adds one graph-level shared-channel rendezvous and Studio authoring. Incomplete rendezvous and branch layouts can be saved but cannot publish or execute. The Studio/ordinary queued runs still interrupt after host failure; the separate opt-in host explicitly resumes deterministic saved checkpoints but collaboration regions do not support recovery or resume. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Socket rewiring is supported for matching typed pins, while incomplete drafts remain non-executable until validation succeeds. Sequential subagent calls, parallel agent-team calls, bounded graph fan-outs, and the first graph-level collaboration slice are explicit; nested collaboration remains planned. Conditional routing and parallel graph execution are validated operations.
 
 ## Planned phase: Blueprint-inspired authoring contracts and ergonomics
@@ -123,6 +125,12 @@ Sequence proof checklist:
 - [x] Add schema 1.38, persisted ordered output descriptors, stable `then.<outputId>` pins, round-trip coverage, and validator rules for the bounded Input → Sequence → Output slice.
 - [x] Register Sequence in the Core node contract catalog and expose it in the schema-gated Studio node library with a safe two-output default.
 - [x] Adapt the production runner to consume persisted Sequence descriptors and actual execution-connection identities for the bounded Input → Sequence → Output slice; retain the private proof as a lifecycle regression fixture.
+- [x] Promote the next parity slice to schema 1.43 without changing schema 1.38: allow each ordered output to enter one bounded, acyclic, disjoint direct-MCP path ending at the workflow Output barrier.
+- [x] Validate schema 1.43 path ownership, one-successor topology, reachability, path length, stable output wiring, and fail-closed unsupported nodes while preserving saveable invalid drafts.
+- [x] Execute schema 1.43 paths from persisted execution connections, preserve private Sequence lineage through each hop, and wait for every path terminal before completing the run.
+- [x] Add schema 1.43 Core and production regression tests for valid paths and shared-path rejection; preserve the existing private proof and schema 1.38 tests.
+- [ ] Add Studio path authoring/promotion controls and passive playback diagnostics for per-path terminal evidence before considering this parity slice complete.
+- [ ] Extend the bounded path contract to approved Agent nodes after capability, failure, cancellation, and replay coverage is reviewed separately.
 - [x] Add Studio configuration/editing for ordered output labels, stable ordering, and connected add/remove operations.
 - [ ] Add schema promotion and richer Sequence diagnostics for unsupported downstream topology.
 - [x] Add public runtime evidence/playback binding for the bounded slice.

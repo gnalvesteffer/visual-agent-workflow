@@ -63,7 +63,12 @@ public sealed partial class WorkflowRunner
             }
         }
 
-        var branches = plan.Outputs.Select(output => output.OutputNodeId).Distinct(StringComparer.Ordinal).ToDictionary(outputNodeId => outputNodeId,
+        var branchNodeIds = revision.Definition.ExecutionConnections is null
+            ? plan.Outputs.Select(output => output.OutputNodeId).Distinct(StringComparer.Ordinal)
+            : revision.Definition.Nodes.Where(entry => entry.Value.Type is not (NodeTypes.Input or NodeTypes.Sequence))
+                .Select(entry => entry.Key);
+        var branches = branchNodeIds
+            .ToDictionary(outputNodeId => outputNodeId,
             outputNodeId => (Executor<GraphMessage, GraphMessage>)new StringExecutor(outputNodeId,
                 revision.Definition.Nodes[outputNodeId], runId, revision, null, tools, agents, null,
                 emit, gate, null, rootRevision, workflowPath, collaborationOptions), StringComparer.Ordinal);
@@ -79,8 +84,23 @@ public sealed partial class WorkflowRunner
             builder.AddEdge<GraphMessage>((ExecutorBinding)source, branches[output.OutputNodeId],
                 message => message?.SequenceLineage?.OutputId == output.OutputId &&
                     message.SourceNode == output.SourceNodeId && message.SourcePort == output.SourcePortId);
-            builder.AddEdge<GraphMessage>(branches[output.OutputNodeId], (ExecutorBinding)collector,
-                message => message?.SequenceLineage?.OutputId == output.OutputId);
+            if (revision.Definition.ExecutionConnections is null)
+                builder.AddEdge<GraphMessage>(branches[output.OutputNodeId], (ExecutorBinding)collector,
+                    message => message?.SequenceLineage?.OutputId == output.OutputId);
+        }
+        foreach (var edge in (revision.Definition.ExecutionConnections ?? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty).Values.Where(edge =>
+                     edge.Source.NodeId != plan.SequenceNodeId && edge.Target.NodeId != plan.SequenceNodeId &&
+                     edge.Source.NodeId != revision.Definition.EntryNodeId))
+        {
+            builder.AddEdge<GraphMessage>(branches[edge.Source.NodeId], branches[edge.Target.NodeId],
+                message => message?.SourceNode == edge.Source.NodeId && message.SourcePort == edge.Source.PortId);
+        }
+        foreach (var outputNodeId in revision.Definition.ExecutionConnections is null
+                     ? []
+                     : revision.Definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.Output).Select(entry => entry.Key))
+        {
+            builder.AddEdge<GraphMessage>(branches[outputNodeId], (ExecutorBinding)collector,
+                message => message?.SourceNode == outputNodeId && message.SourcePort == "out");
         }
         builder.AddEdge<GraphMessage>((ExecutorBinding)source, (ExecutorBinding)sink,
             message => message?.SourcePort == "continue");
@@ -115,7 +135,7 @@ public sealed partial class WorkflowRunner
 
     private SequenceProductionPlan? CreateSequenceProductionPlan(WorkflowRevision revision)
     {
-        if (revision.Definition.SchemaVersion != WorkflowSchemaVersions.SequenceGraph) return null;
+        if (revision.Definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph)) return null;
         var sequence = revision.Definition.Nodes.SingleOrDefault(entry => entry.Value.Type == NodeTypes.Sequence);
         if (sequence.Value?.Sequence is not { } configuration || revision.Definition.ExecutionConnections is not { } edges)
             throw new InvalidOperationException("The Sequence definition is missing its ordered outputs or execution connections.");

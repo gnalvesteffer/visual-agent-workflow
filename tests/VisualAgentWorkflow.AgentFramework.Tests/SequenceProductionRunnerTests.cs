@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using VisualAgentWorkflow.Core;
 using Xunit;
 
@@ -108,6 +109,22 @@ public sealed class SequenceProductionRunnerTests
         Assert.DoesNotContain(events, eventItem => eventItem.Kind == ExecutionEventKinds.SequenceCancelled);
     }
 
+    [Fact]
+    public async Task Schema_1_43_executes_each_sequence_path_to_the_output_barrier()
+    {
+        var broker = new RecordingBroker();
+        var events = new List<ExecutionEvent>();
+        var result = await new WorkflowRunner(broker).ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(SequencePathDefinition(), "sequence-paths"), "ignored", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("tool-result", result.Output);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "inventory-tool");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "architecture-tool");
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
+    }
+
     private static SequenceLifecycleEvidence ReadEvidence(ExecutionEvent executionEvent)
     {
         Assert.True(SequenceEvidence.TryRead(executionEvent, out var evidence));
@@ -134,6 +151,58 @@ public sealed class SequenceProductionRunnerTests
         {
             ExecutionConnections = edges
         };
+    }
+
+    private static WorkflowDefinition SequencePathDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("sequence", new(NodeTypes.Sequence, "1.0.0")
+            {
+                Sequence = new SequenceConfiguration([new("inventory", "Inventory"), new("architecture", "Architecture")])
+            })
+            .Add("inventory-tool", new(NodeTypes.McpTool, "1.0.0", new ToolBindingRequest("demo.inventory", new string('a', 64)))
+            {
+                McpArgumentsJson = "{}"
+            })
+            .Add("architecture-tool", new(NodeTypes.McpTool, "1.0.0", new ToolBindingRequest("demo.architecture", new string('b', 64)))
+            {
+                McpArgumentsJson = "{}"
+            })
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input-sequence", new(new("input", "then"), new("sequence", "execute"), "execution"))
+            .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("inventory-tool", "execute"), "execution"))
+            .Add("inventory-output", new(new("inventory-tool", "then"), new("output", "execute"), "execution"))
+            .Add("sequence-architecture", new(new("sequence", "then.architecture"), new("architecture-tool", "execute"), "execution"))
+            .Add("architecture-output", new(new("architecture-tool", "then"), new("output", "execute"), "execution"));
+        return new WorkflowDefinition(WorkflowSchemaVersions.SequencePathGraph, "sequence-paths", "input", nodes,
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal))
+        {
+            ExecutionConnections = execution
+        };
+    }
+
+    private sealed class RecordingBroker : INodeToolBroker
+    {
+        public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new Scope();
+
+        private sealed class Scope : INodeToolScope
+        {
+            public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+            public Task<string> InvokeAsync(string bindingId, string input, CancellationToken cancellationToken = default) =>
+                Task.FromResult("tool-result");
+
+            public Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments, CancellationToken cancellationToken = default) =>
+                Task.FromResult("tool-result");
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
     }
 
     private sealed class BoundaryGate(string blockedBoundary) : IWorkflowExecutionGate
