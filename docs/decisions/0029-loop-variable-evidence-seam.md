@@ -1,6 +1,6 @@
 # Decision 0029: loop-variable evidence seam
 
-**Status:** Proof-only seam shipped; loop-variable execution remains deferred.
+**Status:** Evidence seam shipped; loop-variable execution is bounded by schema 1.45 and explicit checkpoint admission.
 
 **Date:** 2026-10-28
 
@@ -12,7 +12,7 @@ did not carry that identity. A future Blueprint-style loop-variable contract
 would otherwise be difficult to replay or distinguish when the same `Get` or
 `Set` node activates repeatedly.
 
-The adversarial review of the next step recommended a proof-only increment:
+The adversarial review of the next step recommended a proof increment:
 preserve schema 1.44, add observable iteration identity, and defer schema 1.45
 until ordering, cancellation, failure, playback, and loop-aware checkpoint
 proofs are complete.
@@ -24,11 +24,10 @@ The current linear schema emits `0`; passive playback accepts and preserves
 non-negative future iteration values. Older evidence without the property
 continues to parse as iteration `0`.
 
-This is evidence metadata only. It does not admit loops into schema 1.44,
-create a schema 1.45, change variable ownership, or enable loop checkpoint
-recovery. The eventual loop-variable contract must still define execution/data
-topology, ordering, cancellation, failure after a committed write, and the
-composite checkpoint cursor before execution is promoted.
+This remains evidence metadata for schema 1.44 and older graphs; schema 1.45
+defines the bounded loop-variable execution contract. It does not grant loop
+checkpoint recovery to the default host: recovery requires the explicit host
+option and the composite checkpoint cursor/frame contract.
 
 ## Evidence
 

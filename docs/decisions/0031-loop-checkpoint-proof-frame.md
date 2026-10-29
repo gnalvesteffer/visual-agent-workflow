@@ -1,6 +1,6 @@
 # Decision 0031: loop checkpoint proof frame
 
-**Status:** Proof-only frame shipped; schema 1.45 checkpoint admission remains closed.
+**Status:** Supported only through the explicit opt-in checkpoint host; default and Studio admission remain closed.
 
 **Date:** 2026-10-28
 
@@ -16,7 +16,7 @@ different logical boundaries.
 
 ## Decision
 
-Add `WorkflowCheckpointFrame` as a Core proof contract. It binds a versioned
+Add `WorkflowCheckpointFrame` as a Core checkpoint contract. It binds a versioned
 opaque native JSON payload, the exact schema/revision/content identity, a
 loop/body cursor assertion, a complete `WorkflowVariableSnapshot`, the
 contiguous evidence cursor and prefix hash, component hashes, and a composite
@@ -25,35 +25,35 @@ JSON bounds, loop topology, declared execution ports, and the loop evidence
 anchor.
 
 The frame is not portable workflow data, ordinary playback state, or a second
-scheduler. It is not wired into `CheckpointWorkflowHost` yet. Production
-admission remains fail-closed for schema 1.45 until native Agent Framework
-checkpoint round-tripping, failure/publication race handling, and the remaining
-exact admission restrictions are proven.
+scheduler. Schema 1.45 admission is available only through
+`CheckpointWorkflowHostOptions.EnableLoopCheckpointRecovery`; the default host
+and Studio remain fail-closed. The frame version and native runtime stamp are
+exact compatibility boundaries: mismatches are rejected and native payloads
+are not implicitly migrated.
 
 The trusted envelope validator also binds the frame back to the outer
 checkpoint: its evidence cursor must equal the committed sequence, its native
 payload and hash must equal the envelope payload and checksum, and its variable
 snapshot hash must equal the captured native variable state. The loop cursor's
 iteration must match the corresponding recorded loop event. These checks reject
-component substitution before native recovery; they do not by themselves make
-schema 1.45 production-admissible.
+component substitution before native recovery. Schema 1.45 admission remains
+limited to the explicit opt-in host; these checks do not grant automatic
+failover or external-effect recovery.
 
 ## Characterization slice
 
-The adapter now has an internal, test-only boundary probe. Loop execution
+The adapter now has an internal boundary probe. Loop execution
 records the actual routed source/output and next target/input at the executor
 transition, while `Executor.OnCheckpointingAsync` records the framework's
 pre-save callbacks. The native checkpoint bridge consumes the probe only after
 the callbacks and passes the paired observation to a test sink. The probe
 rejects an active handler or a transition that changes after pre-save, and
 accepts multiple stable executor callbacks for one boundary. It does not parse
-private native JSON, expose a new sink contract, create production frames, or
-change schema 1.45 admission. The characterization also asserts a one-to-one
+private native JSON or create a second scheduler. The characterization also asserts a one-to-one
 native checkpoint identity for every captured observation.
 
-This is lifecycle characterization, not promotion: the remaining gate is to
-prove the callback-to-native-state pairing across all boundary and failure
-windows before any public loop recovery API is enabled.
+This is lifecycle characterization for the opted-in capability: the callback-to-
+native-state pairing remains fail-closed across boundary and failure windows.
 
 A test-only adapter seam exercises the real Agent Framework native checkpoint
 serializer for a schema 1.45 loop-variable graph. It suspends after a body
@@ -63,10 +63,10 @@ after publication, terminates that process, and recovers from the released
 ownership handle in a fresh process. The proof preserves the evidence prefix
 and monotonic versions without duplicating committed writes. A separate
 deterministic boundary test distinguishes cancellation before capture from
-cancellation after a captured suspension. It is still not durable recovery
-admission: the test seam bypasses production host admission, and
-failure/publication races plus the remaining promotion restrictions are not
-established by this proof.
+cancellation after a captured suspension. The seam is retained as an
+independent regression rather than a second runtime path; this does not
+establish automatic failover, distributed fencing, or recovery of external
+effects.
 
 ## Required promotion gates
 
@@ -110,6 +110,8 @@ established by this proof.
   the existing schema-1.44 host recovery path explicitly asserts that it uses
   the legacy variable-state envelope without a loop frame, then resumes through
   the same public host API.
+- [x] Promote the bounded loop subset only through explicit host opt-in, with
+  exact frame/runtime compatibility and fail-closed default/Studio admission.
 
 See [the loop-variable topology decision](0030-loop-variable-topology-proof.md)
 and [the existing variable checkpoint frame](0028-variable-checkpoint-frame.md).

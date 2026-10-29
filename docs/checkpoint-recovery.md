@@ -4,23 +4,23 @@
 
 Supported graphs contain only input/output, uppercase/reverse, ordinal conditions and exclusive merges. The host rejects the entire graph before admission if it includes an agent, MCP tool or approval, including an unchosen branch. External outcomes, model sessions and approval holds need a separate recovery policy. No checkpoint API is exposed in Studio, the development workflow HTTP API or the read-only observation API.
 
-Schema 1.45 loop-variable workflows remain rejected by this host. Core contains
-a proof-only composite frame that binds native JSON state, a loop cursor, the
+Schema 1.45 loop-variable workflows are supported only when the host is
+constructed with `EnableLoopCheckpointRecovery = true`; the default remains
+fail-closed. Core contains a versioned composite frame that binds native JSON state, a loop cursor, the
 definition-bound variable snapshot, and the exact evidence prefix with hashes;
-it is not an admission path or an alternate scheduler. A test-only durable
-proof now stores that frame with the checkpoint/evidence transaction and
+it is not an alternate scheduler. The durable host path stores that frame with
+the checkpoint/evidence transaction and
 resumes the loop from independent test processes, preserving the evidence
-prefix and variable versions without duplicating the committed write. This
-proves a cross-process serializer/storage boundary, not production loop
-admission: cancellation/failure races and the remaining admission restrictions
-are still open. The proof now also covers two successive
+prefix and variable versions without duplicating the committed write. The
+opt-in path is intentionally limited to deterministic local saved-suspension
+recovery; it does not recover external effects or provide automatic failover.
+The regression suite also covers two successive
 loop suspensions and owner process loss after publication, each recovered from
 independent processes, plus the cancellation boundary before versus after a
 captured suspension. The trusted checkpoint validator additionally binds the
 composite frame to the outer native payload, committed evidence sequence,
 variable snapshot, and recorded loop iteration, so component substitution is
-rejected before native recovery. This remains a proof boundary, not production
-loop admission. A loop-specific publication-failure regression also verifies
+rejected before native recovery. A loop-specific publication-failure regression also verifies
 that the atomic SQLite transaction leaves no partial capture marker or
 checkpoint pointer. When variable evidence is present, validation also checks
 that the captured scalar snapshot agrees with that passive prefix. The proof
@@ -30,16 +30,18 @@ also covers cancellation immediately after durable publication; the saved
   without replaying loop writes. See [decision
   0031](decisions/0031-loop-checkpoint-proof-frame.md).
 
-The adapter also contains a test-only lifecycle probe that pairs actual loop
+The adapter also contains a lifecycle probe that pairs actual loop
 executor transitions with `Executor.OnCheckpointingAsync` callbacks and the
 native checkpoint-store callback. It rejects capture when a handler is active
 or the routed transition changes after pre-save. This probe is diagnostic
-infrastructure only, and its tests assert one-to-one native checkpoint identity
+infrastructure for the same fail-closed boundary, and its tests assert one-to-one native checkpoint identity
 for captured observations. Resumed loop captures additionally require the
 rebuilt graph to receive Agent Framework's `OnCheckpointRestoredAsync` callback
 before a new boundary can be committed. This is a fail-closed lifecycle guard,
-not a parser or compatibility promise for the framework's private checkpoint
-JSON; loop recovery remains experimental and disabled by default.
+not a parser for arbitrary framework payloads. The frame version (`2.0`) and
+native Agent Framework/adapter runtime stamp are exact compatibility boundaries;
+mismatches are inspectable but not resumable, with no implicit migration. Loop
+recovery remains disabled by default and is not exposed by Studio.
 
 ## Use the host API
 

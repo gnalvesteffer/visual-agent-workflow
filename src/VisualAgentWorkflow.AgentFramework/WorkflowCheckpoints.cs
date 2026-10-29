@@ -14,7 +14,7 @@ public sealed record NativeWorkflowCheckpoint(string SessionId, string Checkpoin
 public interface IWorkflowCheckpointSink
 {
     NativeWorkflowCheckpoint? RestoredCheckpoint { get; }
-    /// <summary>Host-owned experimental capability. Defaults to false and must not be inferred from workflow content.</summary>
+    /// <summary>Host-owned opt-in loop checkpoint capability. Defaults to false and must not be inferred from workflow content.</summary>
     bool AllowLoopCheckpointRecovery => false;
     ValueTask<bool> CaptureAsync(NativeWorkflowCheckpoint checkpoint);
 }
@@ -226,7 +226,7 @@ public sealed partial class WorkflowRunner
         WorkflowValidator.ThrowIfInvalid(definition);
         if (definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph && !allowLoopCheckpointRecovery)
             throw new InvalidOperationException(
-                "Checkpoint recovery for schema 1.45 loop graphs is not yet admitted. " +
+                "Checkpoint recovery for schema 1.45 loop graphs requires explicit host opt-in. " +
                 "The native loop cursor, variable snapshot, evidence prefix, and suspension marker " +
                 "must be captured and recovered as one production checkpoint frame.");
         if (definition.Nodes.Values.Any(n =>

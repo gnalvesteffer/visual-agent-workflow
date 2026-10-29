@@ -1,8 +1,8 @@
 # Decision 0035: keep loop checkpoint recovery fail-closed during production qualification
 
-**Status:** Adopted; default schema 1.45 admission remains closed. An explicit
-experimental host capability now exercises the shared frame path, but is not a
-production-readiness claim.
+**Status:** Adopted; schema 1.45 recovery is a bounded explicit opt-in host
+capability. Default and Studio admission remain closed, and automatic failover
+or external-effect recovery is not claimed.
 
 **Date:** 2026-10-28
 
@@ -29,16 +29,16 @@ A second clean-context proponent/opponent/adjudicator review on 2026-10-29
 reconsidered promotion after the publication, cancellation, disposal, and
 process-loss gates were qualified. The adjudicator recommended **revise with a
 narrower promotion**: keep the explicit host capability opt-in and fail-closed
-default, and do not present schema 1.45 as generally supported until the native
-checkpoint compatibility contract and public API status are made explicit.
+default, make the native checkpoint compatibility contract exact, and do not
+present schema 1.45 as generally supported by Studio or the default host.
 
 ## Decision
 
-`WorkflowRunner.ValidateCheckpointGraph` rejects schema 1.45 with a specific
-message explaining that production recovery requires one composite checkpoint
-frame. Schema 1.44 and older checkpoint envelopes remain unchanged. The proof
-seam remains test-only and is not evidence that the public host can recover a
-loop.
+`WorkflowRunner.ValidateCheckpointGraph` rejects schema 1.45 unless the host
+explicitly opts in and the production path supplies one composite checkpoint
+frame. Schema 1.44 and older checkpoint envelopes remain unchanged. The frame
+version (`2.0`) and exact Agent Framework/adapter runtime stamp are fail-closed
+compatibility boundaries with no implicit migration.
 
 The adapter now also fails a resumed loop capture unless the framework has
 invoked `OnCheckpointRestoredAsync` on the rebuilt loop graph first. This is a
@@ -66,7 +66,8 @@ admission remains opt-in until the final compatibility gate below is closed.
   the host reopens and adopts the exact suspension without terminalizing it.
 - [x] Add an explicit host capability that defaults disabled and apply the same
   exact topology/frame admission to both start and resume. The opt-in host is
-  intentionally experimental and is not enabled by the Studio/default host.
+  supported only for bounded local recovery and is not enabled by the
+  Studio/default host.
 - [x] Exercise the opt-in public host through two successive suspensions and
   reconstruct its variable evidence prefix passively, without another
   workflow execution for the playback assertion.
@@ -101,8 +102,9 @@ admission remains opt-in until the final compatibility gate below is closed.
   executor/model/tool calls and prove passive variable playback. The existing
   schema-1.44 recovery regression continues to prove the legacy envelope and
   resume path remain unchanged.
-- [ ] Only then promote the bounded loop subset; do not infer authorization from
-  a structurally valid or hash-consistent frame alone.
+- [x] Promote the bounded loop subset only as an explicitly configured local
+  host capability; retain fail-closed default/Studio admission and reject
+  incompatible frame/runtime versions without migration.
 
 See [loop checkpoint proof frame](0031-loop-checkpoint-proof-frame.md) and the
 [checkpoint recovery guide](../checkpoint-recovery.md).

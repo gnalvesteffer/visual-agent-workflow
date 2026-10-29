@@ -39,6 +39,21 @@ public sealed class WorkflowCheckpointFrameTests
     }
 
     [Fact]
+    public void Loop_frame_rejects_an_unknown_compatibility_version()
+    {
+        var revision = WorkflowRevision.Create(LoopVariableTopologyTests.Candidate(), "checkpoint-proof");
+        var runId = Guid.NewGuid();
+        var events = Evidence(runId, revision.RevisionId);
+        var variables = new WorkflowVariableStore(revision.Definition).Snapshot();
+        var frame = WorkflowCheckpointFrame.Create(revision, runId, "{}",
+            new("loop", "body", 1, 3, "body", "execute", "loop", "body", 2), variables, events);
+        var incompatible = frame with { FrameVersion = "future", FrameHash = null };
+        incompatible = incompatible with { FrameHash = incompatible.ComputeFrameHash() };
+
+        Assert.Throws<InvalidDataException>(() => incompatible.Validate(revision, events));
+    }
+
+    [Fact]
     public void Proof_frame_rejects_malformed_and_oversized_native_payloads()
     {
         var revision = WorkflowRevision.Create(LoopVariableTopologyTests.Candidate(), "checkpoint-proof");

@@ -4,7 +4,7 @@ using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Hosting;
 
-/// <summary>Host-owned checkpoint capabilities. Loop recovery is experimental and disabled by default.</summary>
+/// <summary>Host-owned checkpoint capabilities. Loop recovery is explicitly opt-in and disabled by default.</summary>
 public sealed record CheckpointWorkflowHostOptions(bool EnableLoopCheckpointRecovery = false);
 
 /// <summary>Opt-in explicit deterministic checkpoint execution. Not the Studio queue, automatic failover or external-call recovery.</summary>

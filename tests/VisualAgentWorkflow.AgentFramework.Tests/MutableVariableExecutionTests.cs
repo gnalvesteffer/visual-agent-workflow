@@ -211,7 +211,7 @@ public sealed class MutableVariableExecutionTests
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner().ExecuteCheckpointedAsync(
             Guid.NewGuid(), revision, "continue", _ => ValueTask.CompletedTask,
             new ProofCheckpointSink([])));
-        Assert.Contains("schema 1.45 loop graphs is not yet admitted", error.Message);
+        Assert.Contains("schema 1.45 loop graphs requires explicit host opt-in", error.Message);
         Assert.Contains("production checkpoint frame", error.Message);
     }
 

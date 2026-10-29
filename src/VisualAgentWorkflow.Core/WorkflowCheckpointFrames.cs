@@ -5,11 +5,7 @@ using System.Text.Json;
 
 namespace VisualAgentWorkflow.Core;
 
-/// <summary>Integrity metadata for a future loop-aware checkpoint boundary.</summary>
-/// <remarks>
-/// This is a proof contract only. The checkpoint host does not admit schema 1.45
-/// until the Agent Framework native cursor is proven to round-trip with this frame.
-/// </remarks>
+/// <summary>Integrity metadata for an explicitly opted-in loop-aware checkpoint boundary.</summary>
 public sealed record LoopCheckpointCursor(
     string LoopNodeId,
     string BodyAnchorNodeId,
@@ -22,7 +18,7 @@ public sealed record LoopCheckpointCursor(
     long LastLoopEvidenceSequence);
 
 /// <summary>
-/// A definition-bound composite checkpoint proof frame. It binds native state,
+/// A definition-bound composite checkpoint frame. It binds native state,
 /// loop position, mutable state, and the exact recorded evidence prefix without
 /// making the frame a portable workflow or an alternate scheduler.
 /// </summary>
@@ -41,7 +37,7 @@ public sealed record WorkflowCheckpointFrame(
     string VariableStateHash,
     string? FrameHash)
 {
-    public const string CurrentFrameVersion = "2.0-proof";
+    public const string CurrentFrameVersion = "2.0";
     private const int MaximumNativePayloadBytes = 1_048_576;
 
     public static WorkflowCheckpointFrame Create(WorkflowRevision revision, Guid runId,

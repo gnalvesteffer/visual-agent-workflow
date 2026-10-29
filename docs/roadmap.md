@@ -19,9 +19,9 @@ shows the reconstructed value/version and operation history without replaying
 the workflow. Schema 1.45 adds one explicit bounded loop body with repeated
 variable evidence. Concurrent, Sequence, collaboration, and shared-child
 state semantics remain deferred. The separate deterministic checkpoint host
-still supports only the bounded linear variable graph; a composite loop
-checkpoint frame is proof-only until native cursor round-tripping and recovery
-gates pass.
+supports schema 1.45 loop recovery only when `EnableLoopCheckpointRecovery` is
+explicitly enabled; the frame/runtime compatibility boundary is exact, and
+default and Studio recovery remain fail-closed.
 
 The backend owns execution. Schema 1.32's named 2–8 branch fork/join remains available. Schema 1.33 adds one graph-level shared-channel rendezvous and Studio authoring. Incomplete rendezvous and branch layouts can be saved but cannot publish or execute. The Studio/ordinary queued runs still interrupt after host failure; the separate opt-in host explicitly resumes deterministic saved checkpoints but collaboration regions do not support recovery or resume. The Studio host is loopback-only and unauthenticated; payloads are plaintext. It is not production ready. Socket rewiring is supported for matching typed pins, while incomplete drafts remain non-executable until validation succeeds. Sequential subagent calls, parallel agent-team calls, bounded graph fan-outs, and the first graph-level collaboration slice are explicit; nested collaboration remains planned. Conditional routing and parallel graph execution are validated operations.
 
@@ -175,7 +175,8 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   Agent Framework pre-save and native checkpoint callbacks, and active or
   unstable boundaries fail closed; each captured observation has one native
   checkpoint identity. This does not change schema 1.45 production admission.
-- [ ] Add loop-aware checkpoint state and recovery. A proof-only composite frame
+- [x] Add loop-aware checkpoint state and recovery as an explicit opt-in host
+  capability. A versioned composite frame
   now binds native JSON, loop cursor, variable state, and the exact evidence
   prefix with component/composite hashes. A test-only seam now persists that
   frame with the SQLite checkpoint/evidence transaction and resumes through the
@@ -189,8 +190,9 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   recovery. Cursor validation now also requires the declared source port to
   target the declared next activation in the authored execution graph. Schema
   validation also binds recorded loop limits to the authored cursor. Schema
-  1.45 remains outside checkpoint admission until
-  failure/publication races and all exact admission semantics are proven. See
+  1.45 remains outside default and Studio checkpoint admission; the explicit
+  host option requires exact frame/runtime compatibility and is limited to local
+  saved-suspension recovery. See
   [loop checkpoint proof frame](decisions/0031-loop-checkpoint-proof-frame.md).
   Cancellation position is proven at the atomic variable-store boundary: a
   pre-cancelled write cannot mutate state or advance its version; separate
@@ -215,24 +217,21 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   evidence seam](decisions/0029-loop-variable-evidence-seam.md), [loop-variable
   topology proof](decisions/0030-loop-variable-topology-proof.md), and
   [variable checkpoint frame](decisions/0028-variable-checkpoint-frame.md).
-  A test-only lifecycle probe now pairs actual loop transitions with the
-  framework pre-save callback and native checkpoint callback, rejecting active
-  or unstable boundaries without changing production admission. Public loop
-  recovery remains gated on proving native-state pairing. The production
+  A lifecycle probe now pairs actual loop transitions with the framework
+  pre-save callback and native checkpoint callback, rejecting active or
+  unstable boundaries. The production
   promotion decision is recorded in [loop checkpoint production adjudication](decisions/0035-loop-checkpoint-production-adjudication.md): the
   runtime now reports this boundary explicitly instead of presenting schema
-  1.45 as a generic unsupported graph, while the public host remains
-  fail-closed by default until the listed frame, race, admission,
-  compatibility, and passive-playback gates are proven. An explicit
-  experimental host capability now exercises frame persistence and a second
-  suspension through a replacement host; it is not enabled by the Studio or
-  default checkpoint host and is not a production-readiness claim.
+  1.45 as a generic unsupported graph. An explicit host capability exercises
+  frame persistence and repeated suspension through replacement hosts; it is
+  not enabled by Studio or the default checkpoint host and does not claim
+  automatic failover or external-effect recovery.
   The shared checkpoint sink now receives the paired quiescent observation and
-  binds a future loop frame to its native checkpoint ID/payload before commit;
-  this closes the boundary-capture subgate without enabling schema 1.45. The
+  binds the loop frame to its native checkpoint ID/payload before commit;
+  this closes the boundary-capture subgate for the opt-in host. The
   opt-in host regression now persists two successive frames and reconstructs
   the resulting variable evidence prefix passively; race and final
-  production-admission qualification remain open.
+  compatibility boundary remains exact and fail-closed.
   A fresh-process opt-in-host regression now survives owner termination and
   resumes twice without duplicate variable writes; checkpoint validation uses
   the exact saved evidence prefix rather than later appended history.
@@ -254,11 +253,11 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   are also covered before publication: a killed owner leaves no checkpoint or
   resumable boundary. The final promotion gate remains deferred by the
   2026-10-29 adversarial adjudication until the native checkpoint compatibility
-  contract and public API support status are explicit; default schema 1.45
-  admission remains closed. The adapter now also requires the framework's
+  contract and public API support status are explicit; default and Studio
+  schema 1.45 admission remain closed. The adapter now also requires the framework's
   `OnCheckpointRestoredAsync` callback on resumed loop graphs before accepting
-  a subsequent capture; this closes a restore-lifecycle safety subgate without
-  claiming native payload compatibility.
+  a subsequent capture; frame/runtime version mismatches remain non-resumable
+  with no implicit native-payload migration.
 - [x] Add passive playback and prefix reconstruction for variable reads/writes
   without re-execution; the run inspector renders the reconstructed value,
   version, and operation history.

@@ -152,18 +152,18 @@ An incomplete editor draft may retain topology issues such as missing pins, disc
 
 Core exposes a deterministic, non-authoritative analyzer for a future bounded
 Sequence path contract. It describes each persisted output path as either
-direct-MCP-only or one terminal plain-text Agent and reports stable diagnostics
-for sharing, cycles, unsupported Agent capabilities, invalid pins, and
-unreachable nodes. It does not promote a public Agent-path schema, admit runtime execution,
-change package compatibility, or grant host capabilities. The persisted schema
-1.43 validator and runner continue to reject Agent descendants until the
-promotion gates in [decision 0021](decisions/0021-sequence-agent-topology-analyzer.md)
-are proven. Schema 1.45 separately admits the bounded loop-variable slice;
+direct-MCP-only or zero or more direct MCP nodes followed by one terminal
+plain-text Agent and reports stable diagnostics for sharing, cycles, unsupported
+Agent capabilities, invalid pins, and unreachable nodes. Schema 1.43 remains
+direct-MCP-only; schema 1.46 admits the bounded mixed path through the normal
+runner without granting Agent-owned tools or broader topology. The persisted
+schema and runtime boundaries are recorded in [decision 0021](decisions/0021-sequence-agent-topology-analyzer.md)
+and [decision 0011](decisions/0011-sequence-agent-path-proof.md). Schema 1.45 separately admits the bounded loop-variable slice;
 its topology and evidence boundary are recorded in [decision 0030](decisions/0030-loop-variable-topology-proof.md).
-The composite loop checkpoint frame has a test-only durable cross-process
-proof, but the checkpoint host still rejects schema 1.45 until its remaining
-recovery and admission gates are proven; it is not a second scheduler or a
-portable workflow field.
+The composite loop checkpoint frame is available through the explicit opt-in
+checkpoint host with exact frame/runtime compatibility; default and Studio
+hosts remain fail-closed. It is not a second scheduler or a portable workflow
+field.
 
 ## Execution and observation
 
@@ -263,7 +263,7 @@ Schema 1.5 approval nodes immediately precede a pinned MCP tool. The adapter cap
 
 ## Deterministic checkpoint host
 
-`CheckpointWorkflowHost` is a separate opt-in consumer API over SQLite and the adapter's native Agent Framework JSON checkpoint path. It commits bounded native state, capture/suspension evidence and the current status together; explicit recovery validates the exact latest checkpoint/cursor and rebuilds identical executors without replaying completed nodes. Deterministic linear/conditional graphs and the bounded linear schema-1.44 variable graph are admitted; variable recovery includes a definition-bound, hashed scalar-store snapshot restored before execution. Schema 1.45 loop-variable recovery remains fail-closed; Core has only a proof-only composite frame binding native state, loop cursor, variable snapshot, and evidence prefix. It does not change Studio's process-owned queue, and model/MCP/approval recovery remains excluded. Both built-in stores now provide an exclusive local owner handle honored by the ordinary runtime and checkpoint host, while observers read independently. Run-database schema 2 added checkpoint storage; schema 3 adds the separate assertion table. The authoring catalog is unchanged. See [recovery scope and ownership](checkpoint-recovery.md), [variable checkpoint frame](decisions/0028-variable-checkpoint-frame.md), and [loop checkpoint proof frame](decisions/0031-loop-checkpoint-proof-frame.md).
+`CheckpointWorkflowHost` is a separate opt-in consumer API over SQLite and the adapter's native Agent Framework JSON checkpoint path. It commits bounded native state, capture/suspension evidence and the current status together; explicit recovery validates the exact latest checkpoint/cursor and rebuilds identical executors without replaying completed nodes. Deterministic linear/conditional graphs, the bounded linear schema-1.44 variable graph, and schema-1.45 loop-variable graphs with `EnableLoopCheckpointRecovery` explicitly enabled are admitted; loop recovery binds native state, loop cursor, variable snapshot, evidence prefix, and exact frame/runtime compatibility. The default host and Studio remain fail-closed for schema 1.45. It does not change Studio's process-owned queue, and model/MCP/approval recovery remains excluded. Both built-in stores now provide an exclusive local owner handle honored by the ordinary runtime and checkpoint host, while observers read independently. Run-database schema 2 added checkpoint storage; schema 3 adds the separate assertion table. The authoring catalog is unchanged. See [recovery scope and ownership](checkpoint-recovery.md), [variable checkpoint frame](decisions/0028-variable-checkpoint-frame.md), and [loop checkpoint proof frame](decisions/0031-loop-checkpoint-proof-frame.md).
 
 
 ## Schema 1.44 variable state

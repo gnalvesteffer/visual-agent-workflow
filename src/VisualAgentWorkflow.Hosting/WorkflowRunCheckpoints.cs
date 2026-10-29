@@ -10,7 +10,7 @@ namespace VisualAgentWorkflow.Hosting;
 public sealed record WorkflowRunCheckpoint(string SchemaVersion, string RuntimeVersion, Guid RunId, Guid RevisionId,
     string ContentHash, long Sequence, NativeWorkflowCheckpoint Native, string PayloadHash)
 {
-    /// <summary>Proof-only composite state for the schema-1.45 loop checkpoint seam.</summary>
+    /// <summary>Composite state for the explicitly opted-in schema-1.45 loop checkpoint capability.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public WorkflowCheckpointFrame? Frame { get; init; }
 
