@@ -45,6 +45,9 @@ loop.
   one host-owned transaction; acknowledge suspension only after commit. The
   SQLite store commits the evidence transition and checkpoint pointer together,
   and publication-failure regressions prove neither half survives rollback.
+- [x] Add a fail-closed acknowledgement-reconciliation guard: an uncertain
+  publication may be adopted only when the reopened run is suspended, resumable,
+  and its checkpoint ID and native payload exactly match the attempted capture.
 - [x] Add an explicit host capability that defaults disabled and apply the same
   exact topology/frame admission to both start and resume. The opt-in host is
   intentionally experimental and is not enabled by the Studio/default host.

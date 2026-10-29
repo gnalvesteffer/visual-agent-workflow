@@ -77,6 +77,26 @@ public sealed record WorkflowRecoveryAssessment(bool CanResume, string Reason);
 
 public static class WorkflowCheckpointRecovery
 {
+    /// <summary>Checks whether an uncertain publication already committed this exact native suspension.</summary>
+    public static bool IsCommittedSuspension(RunSnapshot snapshot, WorkflowRunCheckpoint? checkpoint,
+        NativeWorkflowCheckpoint native)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(native);
+        try
+        {
+            return snapshot.Status == "suspended" && checkpoint is not null &&
+                string.Equals(checkpoint.Native.CheckpointId, native.CheckpointId, StringComparison.Ordinal) &&
+                string.Equals(checkpoint.Native.Payload, native.Payload, StringComparison.Ordinal) &&
+                Assess(snapshot, checkpoint).CanResume;
+        }
+        catch (Exception error) when (error is not (OperationCanceledException or
+            OutOfMemoryException or StackOverflowException or AccessViolationException))
+        {
+            return false;
+        }
+    }
+
     public static WorkflowRecoveryAssessment Assess(RunSnapshot snapshot, WorkflowRunCheckpoint? checkpoint)
     {
         try

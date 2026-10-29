@@ -229,7 +229,8 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   Recovery assessment is now total at the persisted-state boundary: malformed
   snapshots and checkpoint envelopes fail closed as ineligible instead of
   escaping through the run inspector or resume path. Publication/acknowledgement
-  races, active-resume crash windows, and disposal during active
+  races now have an exact-identity reconciliation guard; active-resume crash
+  windows and disposal during active
   execution/publication remain open.
 - [x] Add passive playback and prefix reconstruction for variable reads/writes
   without re-execution; the run inspector renders the reconstructed value,

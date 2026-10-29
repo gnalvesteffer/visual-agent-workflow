@@ -166,7 +166,30 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
                         native.VariableState ?? throw new InvalidOperationException("The loop checkpoint has no variable snapshot."), evidence)
                 };
             }
-            snapshot = store.CommitCheckpoint(snapshot.Header.RunId, snapshot.Events.Length, events, checkpoint);
+            try
+            {
+                snapshot = store.CommitCheckpoint(snapshot.Header.RunId, snapshot.Events.Length, events, checkpoint);
+            }
+            catch (Exception error) when (error is not (OperationCanceledException or
+                OutOfMemoryException or StackOverflowException or AccessViolationException))
+            {
+                // A durable commit can succeed while its acknowledgement is lost.
+                // Re-read and adopt only the exact suspended native state; otherwise
+                // preserve the original failure and never guess at recovery.
+                try
+                {
+                    var persisted = store.Get(snapshot.Header.RunId);
+                    var persistedCheckpoint = persisted is null ? null : store.GetCheckpoint(snapshot.Header.RunId);
+                    if (persisted is null || !WorkflowCheckpointRecovery.IsCommittedSuspension(persisted, persistedCheckpoint, native))
+                        throw new InvalidOperationException("Checkpoint publication failed and no committed suspension was found.", error);
+                    snapshot = persisted;
+                }
+                catch (Exception adoptionError) when (adoptionError is not (OperationCanceledException or
+                    OutOfMemoryException or StackOverflowException or AccessViolationException))
+                {
+                    throw new InvalidOperationException("Checkpoint publication acknowledgement could not be reconciled.", error);
+                }
+            }
             boundary = null;
             return ValueTask.FromResult(suspended);
         }

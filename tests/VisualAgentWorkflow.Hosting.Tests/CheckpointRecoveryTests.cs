@@ -145,6 +145,21 @@ public sealed class CheckpointRecoveryTests : IDisposable
     }
 
     [Fact]
+    public async Task Committed_suspension_adoption_requires_exact_native_identity()
+    {
+        var store = Store();
+        await using var runtime = new CheckpointWorkflowHost(store);
+        var run = await runtime.StartAsync(Revision(), "abc", 1);
+        var checkpoint = store.GetCheckpoint(run.Header.RunId)!;
+
+        Assert.True(WorkflowCheckpointRecovery.IsCommittedSuspension(run, checkpoint, checkpoint.Native));
+        Assert.False(WorkflowCheckpointRecovery.IsCommittedSuspension(run, checkpoint,
+            checkpoint.Native with { CheckpointId = "different" }));
+        Assert.False(WorkflowCheckpointRecovery.IsCommittedSuspension(run, checkpoint,
+            checkpoint.Native with { Payload = "{}" }));
+    }
+
+    [Fact]
     public void Malformed_persisted_run_state_is_reported_as_ineligible_instead_of_throwing()
     {
         var malformed = new RunSnapshot(null!, []);
