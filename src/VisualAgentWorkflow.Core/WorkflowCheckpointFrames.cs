@@ -135,8 +135,9 @@ public sealed record WorkflowCheckpointFrame(
         if (loopEvent.NodeId != cursor.LoopNodeId ||
             loopEvent.Kind is not (ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped))
             throw new InvalidDataException("The loop checkpoint cursor is not anchored to loop evidence.");
-        if (loopEvent.Data is null || !TryReadLoopIteration(loopEvent, out var recordedIteration) ||
-            recordedIteration != cursor.Iteration)
+        if (loopEvent.Data is null || !TryReadLoopMetadata(loopEvent, out var recordedIteration, out var recordedMaximum) ||
+            recordedIteration != cursor.Iteration ||
+            recordedMaximum is { } maximum && maximum != cursor.MaximumIterations)
             throw new InvalidDataException("The loop checkpoint cursor does not match the recorded iteration.");
         if (cursor.SourceNodeId is { } sourceNode &&
             (!definition.Nodes.TryGetValue(sourceNode, out var source) || source is null ||
@@ -151,15 +152,24 @@ public sealed record WorkflowCheckpointFrame(
             throw new InvalidDataException("The loop checkpoint source cursor does not target the declared next activation.");
     }
 
-    private static bool TryReadLoopIteration(ExecutionEvent loopEvent, out int iteration)
+    private static bool TryReadLoopMetadata(ExecutionEvent loopEvent, out int iteration, out int? maximumIterations)
     {
         iteration = 0;
+        maximumIterations = null;
         try
         {
             using var document = JsonDocument.Parse(loopEvent.Data!);
             var property = loopEvent.Kind == ExecutionEventKinds.LoopStopped ? "iterations" : "iteration";
-            return document.RootElement.TryGetProperty(property, out var value) &&
-                value.TryGetInt32(out iteration) && iteration >= 0;
+            if (!document.RootElement.TryGetProperty(property, out var value) ||
+                !value.TryGetInt32(out iteration) || iteration < 0)
+                return false;
+            if (document.RootElement.TryGetProperty("maximumIterations", out var maximum))
+            {
+                if (!maximum.TryGetInt32(out var parsedMaximum) || parsedMaximum < 1)
+                    return false;
+                maximumIterations = parsedMaximum;
+            }
+            return true;
         }
         catch (JsonException)
         {

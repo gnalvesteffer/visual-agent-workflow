@@ -76,6 +76,8 @@ established by this proof.
   internally hashed but disagrees with its passive history.
 - [x] Require a declared source port to target the declared next activation in
   the authored execution graph; reject hash-consistent cursor substitution.
+- [x] Require recorded loop limits to match the authored loop and cursor
+  limits whenever loop evidence carries that bound.
 - [x] Inject loop checkpoint publication failure and verify the SQLite
   transaction leaves no capture marker, checkpoint pointer, or resumable
   boundary.

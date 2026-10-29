@@ -91,6 +91,21 @@ public sealed class WorkflowCheckpointFrameTests
         Assert.Throws<InvalidDataException>(() => tampered.Validate(revision, events));
     }
 
+    [Fact]
+    public void Proof_frame_rejects_recorded_loop_limit_that_disagrees_with_the_cursor()
+    {
+        var revision = WorkflowRevision.Create(LoopVariableTopologyTests.Candidate(), "checkpoint-proof");
+        var runId = Guid.NewGuid();
+        var events = Evidence(runId, revision.RevisionId).Select(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted
+            ? evt with { Data = JsonSerializer.Serialize(new { iteration = 1, maximumIterations = 4 }) }
+            : evt).ToArray();
+        var variables = new WorkflowVariableStore(revision.Definition).Snapshot();
+        var frame = WorkflowCheckpointFrame.Create(revision, runId, "{}",
+            new("loop", "body", 1, 3, "body", "execute", "loop", "body", 2), variables, events);
+
+        Assert.Throws<InvalidDataException>(() => frame.Validate(revision, events));
+    }
+
     private static List<ExecutionEvent> Evidence(Guid runId, Guid revisionId) =>
     [
         new(runId, revisionId, 1, DateTimeOffset.UtcNow, ExecutionEventKinds.Started),

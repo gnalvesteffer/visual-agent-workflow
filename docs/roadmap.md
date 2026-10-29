@@ -160,6 +160,7 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   and evidence-recorded loop iteration, rejecting component substitution before
   recovery. Cursor validation now also requires the declared source port to
   target the declared next activation in the authored execution graph. Schema
+  validation also binds recorded loop limits to the authored cursor. Schema
   1.45 remains outside checkpoint admission until
   failure/publication races and all exact admission semantics are proven. See
   [loop checkpoint proof frame](decisions/0031-loop-checkpoint-proof-frame.md).
