@@ -35,6 +35,8 @@ public sealed class StudioFolderWorkflowRunnerTests : IDisposable
             Assert.Equal("olleh", result.Events[^1].Data);
             Assert.Equal(workflow.ContentHash, result.Header.SourceProvenance!.AssetHash);
             Assert.Equal("folder", result.Header.SourceProvenance.SourceKind);
+            Assert.NotNull(result.Header.SourceProvenance.DependencyClosure);
+            Assert.Empty(result.Header.SourceProvenance.DependencyClosure!.Dependencies);
             Assert.Equal(WorkflowLayoutJson.Serialize(workflow.Layout, workflow.Definition),
                 WorkflowLayoutJson.Serialize(result.Header.Layout!, result.Header.Definition));
             Assert.Equal(WorkflowLayoutJson.ComputeHash(workflow.Layout, workflow.Definition),

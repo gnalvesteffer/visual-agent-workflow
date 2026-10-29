@@ -64,7 +64,10 @@ public sealed class StudioFolderWorkflowRunner(LocalWorkflowRuntime runtime, Stu
         var manifestHash = StudioProjectSourceArchive.ComputeManifestHash(manifest);
         var layoutHash = WorkflowLayoutJson.ComputeHash(source.Layout, source.Definition);
         var provenance = new WorkflowRunProvenance(sourceKind, projectId, workflowId, manifestHash,
-            file.Sha256, layoutHash, snapshotContentHash);
+            file.Sha256, layoutHash, snapshotContentHash)
+        {
+            DependencyClosure = WorkflowRunDependencyClosure.Create(source.Definition)
+        };
         return new(source.Definition, source.Layout, provenance);
     }
 

@@ -63,7 +63,8 @@ internal static class RunStoreRecords
                 !IsSha256(provenance.ManifestHash) || !IsSha256(provenance.AssetHash) || !IsSha256(provenance.LayoutHash) ||
                 !MatchesLayoutHash(snapshot.Header.Layout, snapshot.Header.Definition, provenance.LayoutHash) ||
                 (provenance.SourceKind == "restore-point") != (provenance.SnapshotContentHash is not null) ||
-                provenance.SnapshotContentHash is { } snapshotHash && !IsSha256(snapshotHash))
+                provenance.SnapshotContentHash is { } snapshotHash && !IsSha256(snapshotHash) ||
+                provenance.DependencyClosure is not null && !ValidDependencyClosure(provenance.DependencyClosure, snapshot.Header.Definition))
                 throw new InvalidDataException("Run source provenance does not match its captured definition and layout.");
         }
         else if (snapshot.Header.Layout is { } presentation && !ValidPresentation(presentation, snapshot.Header.Definition))
@@ -103,5 +104,20 @@ internal static class RunStoreRecords
     {
         try { return WorkflowLayoutJson.MatchesHash(layout, definition, hash); }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException or NullReferenceException) { return false; }
+    }
+
+    private static bool ValidDependencyClosure(WorkflowRunDependencyClosure closure, WorkflowDefinition definition)
+    {
+        try
+        {
+            WorkflowRunDependencyClosure.Validate(closure);
+            var expected = WorkflowRunDependencyClosure.Create(definition);
+            return string.Equals(closure.ClosureHash, expected.ClosureHash, StringComparison.Ordinal) &&
+                closure.Dependencies.SequenceEqual(expected.Dependencies);
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidDataException or InvalidOperationException)
+        {
+            return false;
+        }
     }
 }

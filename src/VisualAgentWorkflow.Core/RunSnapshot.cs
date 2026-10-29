@@ -18,7 +18,12 @@ public sealed record RunHeader(Guid RunId, Guid RevisionId, Guid? ParentRevision
 
 /// <summary>Host-owned identity for the immutable project source captured when a run was admitted.</summary>
 public sealed record WorkflowRunProvenance(string SourceKind, string ProjectId, string WorkflowId,
-    string ManifestHash, string AssetHash, string LayoutHash, string? SnapshotContentHash = null);
+    string ManifestHash, string AssetHash, string LayoutHash, string? SnapshotContentHash = null)
+{
+    /// <summary>Optional immutable identity manifest for reusable snapshots embedded in the run definition.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WorkflowRunDependencyClosure? DependencyClosure { get; init; }
+}
 
 public sealed record RunSnapshot(RunHeader Header, ImmutableArray<ExecutionEvent> Events)
 {
