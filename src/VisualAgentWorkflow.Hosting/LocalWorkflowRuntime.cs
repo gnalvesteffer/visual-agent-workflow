@@ -10,13 +10,15 @@ namespace VisualAgentWorkflow.Hosting;
 /// <summary>Bounded, process-owned execution. Paused continuations release the shared execution slot.</summary>
 public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<LocalWorkflowRuntime> logger,
     INodeToolBroker? tools = null, IAgentNodeExecutor? agents = null,
-    ParallelCollaborationRuntimeOptions? collaborationOptions = null)
+    ParallelCollaborationRuntimeOptions? collaborationOptions = null,
+    IWorkflowAdmissionSnapshotProvider? admissionProvider = null)
     : BackgroundService, IWorkflowClient, IParameterizedWorkflowClient, IWorkflowRunControl, IWorkflowApprovalClient
 {
     // Preserve the original constructor for existing source and binary consumers.
     public LocalWorkflowRuntime(FileRunJournal journal, ILogger<LocalWorkflowRuntime> logger, INodeToolBroker? tools = null,
-        IAgentNodeExecutor? agents = null, ParallelCollaborationRuntimeOptions? collaborationOptions = null)
-        : this((IWorkflowRunStore)journal, logger, tools, agents, collaborationOptions) { }
+        IAgentNodeExecutor? agents = null, ParallelCollaborationRuntimeOptions? collaborationOptions = null,
+        IWorkflowAdmissionSnapshotProvider? admissionProvider = null)
+        : this((IWorkflowRunStore)journal, logger, tools, agents, collaborationOptions, admissionProvider) { }
 
     private const int MaximumOwnedRuns = 32;
     private sealed record Request(Guid RunId, WorkflowRevision Revision, string Input,
@@ -82,22 +84,44 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
     public Task<RunSnapshot> StartRevisionPausedAsync(WorkflowRevision revision, string input) =>
         StartRevisionWithParametersAsync(revision, input, null, startPaused: true);
 
-    public Task<RunSnapshot> StartRevisionWithParametersAsync(WorkflowRevision revision, string input,
+    public async Task<RunSnapshot> StartRevisionWithParametersAsync(WorkflowRevision revision, string input,
         IReadOnlyDictionary<string, string>? parameters, bool startPaused = false)
-    {
-        ArgumentNullException.ThrowIfNull(revision);
-        var resolved = WorkflowParameters.Resolve(revision.Definition, parameters);
-        if (resolved is not null && journal is not IParameterizedWorkflowRunStore)
-            throw new NotSupportedException("The configured run store cannot persist workflow parameter evidence.");
-        return StartRevision(revision, input, resolved, startPaused);
-    }
-
-    private Task<RunSnapshot> StartRevision(WorkflowRevision revision, string input,
-        System.Collections.Immutable.ImmutableSortedDictionary<string, string>? parameters, bool startPaused)
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(input);
         if (input.Length > 16_384) throw new ArgumentException("Input exceeds 16,384 characters.", nameof(input));
+        var resolved = WorkflowParameters.Resolve(revision.Definition, parameters);
+        if (resolved is not null && journal is not IParameterizedWorkflowRunStore)
+            throw new NotSupportedException("The configured run store cannot persist workflow parameter evidence.");
+        await AdmitAsync(revision);
+        return StartRevision(revision, input, resolved, startPaused);
+    }
+
+    private async Task AdmitAsync(WorkflowRevision revision)
+    {
+        if (admissionProvider is null) return;
+        WorkflowAdmissionHostSnapshot host;
+        try
+        {
+            host = await admissionProvider.CaptureAsync();
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            logger.LogError("Workflow admission snapshot could not be captured: {ExceptionType}.", error.GetType().Name);
+            throw new WorkflowAdmissionUnavailableException();
+        }
+
+        var package = WorkflowPackageJson.Create(revision.Definition,
+            revision.Layout ?? WorkflowLayout.Create(revision.Definition));
+        var report = WorkflowAdmission.Assess(package, host);
+        if (!report.HostDependenciesSatisfied) throw new WorkflowAdmissionException(report);
+    }
+
+    private RunSnapshot StartRevision(WorkflowRevision revision, string input,
+        System.Collections.Immutable.ImmutableSortedDictionary<string, string>? parameters, bool startPaused)
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+        ArgumentNullException.ThrowIfNull(input);
         lock (admission)
         {
             var snapshot = parameters is null
@@ -109,14 +133,14 @@ public sealed class LocalWorkflowRuntime(IWorkflowRunStore journal, ILogger<Loca
                 if (startPaused) control.RequestPause();
                 ownedRuns[snapshot.Header.RunId] = control;
                 if (queue.Writer.TryWrite(new(snapshot.Header.RunId, revision, input, parameters, control)))
-                    return Task.FromResult(journal.Get(snapshot.Header.RunId)!);
+                    return journal.Get(snapshot.Header.RunId)!;
                 ownedRuns.TryRemove(snapshot.Header.RunId, out _);
                 control.Dispose();
             }
             var latest = journal.Get(snapshot.Header.RunId)!;
             journal.Append(new(snapshot.Header.RunId, revision.RevisionId, latest.Events.Length + 1, DateTimeOffset.UtcNow,
                 ExecutionEventKinds.Failed, Data: "The local execution queue is full or stopping."));
-            return Task.FromResult(journal.Get(snapshot.Header.RunId)!);
+            return journal.Get(snapshot.Header.RunId)!;
         }
     }
 

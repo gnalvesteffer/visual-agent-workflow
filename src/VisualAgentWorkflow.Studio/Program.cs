@@ -81,6 +81,8 @@ builder.Services.AddSingleton<StudioModelProviderStore>(services => new StudioMo
     services.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>(), services.GetRequiredService<AgentNodeExecutor>(),
     services.GetRequiredService<INodeToolBroker>(), agentProviders));
 builder.Services.AddSingleton<IAgentProviderCatalog>(services => { _ = services.GetRequiredService<StudioModelProviderStore>(); return services.GetRequiredService<IAgentNodeExecutor>(); });
+builder.Services.AddSingleton<IWorkflowAdmissionSnapshotProvider>(services => new CatalogWorkflowAdmissionSnapshotProvider(
+    services.GetRequiredService<IAgentProviderCatalog>(), services.GetRequiredService<IToolBindingCatalog>()));
 builder.Services.AddSingleton(projectStore);
 builder.Services.AddSingleton(new StudioOpenWorkspaceStore(studioDataDirectory, projectStore));
 builder.Services.AddSingleton<StudioProjectSnapshotStore>();

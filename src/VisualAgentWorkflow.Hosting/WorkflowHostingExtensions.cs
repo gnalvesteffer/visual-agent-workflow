@@ -12,7 +12,9 @@ public static class WorkflowHostingExtensions
     /// Registers one backend-owned runtime and its client/control aliases. The host owns start/stop,
     /// exclusive runtime ownership of the selected store, authorization, tool brokers and agent providers.
     /// Repeated calls with the same normalized path are harmless; conflicting paths are rejected.
-    /// Existing store, journal, runtime and client registrations are preserved.
+    /// Existing store, journal, runtime and client registrations are preserved. If the host registers
+    /// <see cref="IWorkflowAdmissionSnapshotProvider"/>, every start is preflighted before a run record
+    /// is created; otherwise this helper preserves its legacy no-preflight behavior.
     /// </summary>
     public static IServiceCollection AddLocalWorkflowRuntime(this IServiceCollection services, string journalDirectory)
     {
@@ -36,7 +38,8 @@ public static class WorkflowHostingExtensions
             provider.GetRequiredService<IWorkflowRunStore>(),
             provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<LocalWorkflowRuntime>>(),
             provider.GetService<INodeToolBroker>(), provider.GetService<IAgentNodeExecutor>(),
-            provider.GetRequiredService<ParallelCollaborationRuntimeOptions>()));
+            provider.GetRequiredService<ParallelCollaborationRuntimeOptions>(),
+            provider.GetService<IWorkflowAdmissionSnapshotProvider>()));
         services.TryAddSingleton<IWorkflowClient>(provider => provider.GetRequiredService<LocalWorkflowRuntime>());
         services.TryAddSingleton<IWorkflowRunControl>(provider => provider.GetRequiredService<LocalWorkflowRuntime>());
         services.TryAddSingleton<IWorkflowApprovalClient>(provider => provider.GetRequiredService<LocalWorkflowRuntime>());
