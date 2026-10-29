@@ -21,6 +21,13 @@ MCP argument mappings that do not map one-to-one to persisted typed ports. A
 definition may still be an invalid draft; the audit reports descriptor drift
 without turning advisory findings into a new admission rule.
 
+The resolver exposes the same distinction as a typed result:
+`Resolved`, `UnsupportedNodeType`, `UnsupportedNodeVersion`,
+`MalformedConfiguration`, or `DiscoveryUnavailable`. Persisted resolution never
+returns an empty descriptor for an unsupported node. The discovery state is
+reserved for future transient authoring APIs and is not produced by the
+persisted-definition resolver.
+
 ## Remaining gates
 
 - Make static descriptors schema-qualified authorities only after validator,

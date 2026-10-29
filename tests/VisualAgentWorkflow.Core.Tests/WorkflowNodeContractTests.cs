@@ -449,7 +449,7 @@ public sealed class WorkflowNodeContractTests
 
         var issues = WorkflowDefinitionDescriptorAudit.Audit(definition);
 
-        Assert.Contains(issues, issue => issue.Code == "node.version" && issue.Path == "nodes.tool");
+        Assert.Contains(issues, issue => issue.Code == "node.version" && issue.Path == "nodes.tool.descriptor");
         Assert.DoesNotContain(issues, issue => issue.Code == "mcp.mapping");
 
         var current = definition with
@@ -462,6 +462,25 @@ public sealed class WorkflowNodeContractTests
             })
         };
         Assert.Contains(WorkflowDefinitionDescriptorAudit.Audit(current), issue => issue.Code == "mcp.mapping");
+    }
+
+    [Fact]
+    public void Persisted_descriptor_resolution_distinguishes_unsupported_and_malformed_states()
+    {
+        var unknown = WorkflowNodeDescriptorResolver.ResolvePersisted(new("unknown.node", "1.0.0"));
+        var unsupported = WorkflowNodeDescriptorResolver.ResolvePersisted(new(NodeTypes.StringConstant, "9.9.9"));
+        var malformed = WorkflowNodeDescriptorResolver.ResolvePersisted(new(NodeTypes.McpTool, "1.0.0")
+        {
+            McpInputPorts = [new("arg.query", "query", WorkflowDataTypes.String, true),
+                new("arg.query", "duplicate", WorkflowDataTypes.String, false)]
+        });
+        var resolved = WorkflowNodeDescriptorResolver.ResolvePersisted(new(NodeTypes.StringConstant, "1.0.0"));
+
+        Assert.Equal(WorkflowNodeDescriptorResolutionKind.UnsupportedNodeType, unknown.Kind);
+        Assert.Equal(WorkflowNodeDescriptorResolutionKind.UnsupportedNodeVersion, unsupported.Kind);
+        Assert.Equal(WorkflowNodeDescriptorResolutionKind.MalformedConfiguration, malformed.Kind);
+        Assert.Equal(WorkflowNodeDescriptorResolutionKind.Resolved, resolved.Kind);
+        Assert.NotNull(resolved.Descriptor);
     }
 
     [Fact]

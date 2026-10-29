@@ -21,6 +21,12 @@ calls, and reports deterministic paths for unsupported versions, unresolved
 descriptors, malformed metadata, and MCP mapping drift. It is advisory: it
 does not admit, execute, grant, migrate, or replay a workflow.
 
+`WorkflowNodeDescriptorResolver.ResolvePersisted` returns an explicit
+`WorkflowNodeDescriptorResolutionKind` rather than collapsing unsupported nodes
+into an empty pin set. Its resolved, unsupported-type, unsupported-version, and
+malformed-configuration states are safe for future schema-qualified consumers;
+live discovery remains outside persisted resolution.
+
 This page documents the canonical metadata in
 [`WorkflowNodeContractCatalog`](../src/VisualAgentWorkflow.Core/WorkflowNodeContracts.cs).
 It is an authoring and review reference, not a replacement for schema-specific

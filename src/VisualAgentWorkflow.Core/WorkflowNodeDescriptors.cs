@@ -23,6 +23,24 @@ public sealed record WorkflowNodeDescriptor(
     public ImmutableArray<WorkflowNodeLimit> Limits => NodeContract.Limits;
 }
 
+public enum WorkflowNodeDescriptorResolutionKind
+{
+    Resolved,
+    UnsupportedNodeType,
+    UnsupportedNodeVersion,
+    MalformedConfiguration,
+    DiscoveryUnavailable
+}
+
+/// <summary>A fail-closed descriptor resolution result with an explicit authority state.</summary>
+public sealed record WorkflowNodeDescriptorResolution(
+    WorkflowNodeDescriptorResolutionKind Kind,
+    WorkflowNodeDescriptor? Descriptor,
+    string Message)
+{
+    public bool IsResolved => Kind == WorkflowNodeDescriptorResolutionKind.Resolved && Descriptor is not null;
+}
+
 /// <summary>Pairs one resolved MCP argument pin with its persisted tool-property identity.</summary>
 public sealed record WorkflowMcpArgumentDescriptor(
     WorkflowPortDescriptor Port,
@@ -77,30 +95,20 @@ public static class WorkflowDefinitionDescriptorAudit
                 continue;
             }
 
-            if (!WorkflowNodeContractCatalog.TryGet(node.Type, out var contract))
+            var resolution = WorkflowNodeDescriptorResolver.ResolvePersisted(node);
+            if (!resolution.IsResolved)
             {
-                issues.Add(new("node.type", nodePath, $"Node type '{node.Type}' is not registered."));
+                var issueCode = resolution.Kind switch
+                {
+                    WorkflowNodeDescriptorResolutionKind.UnsupportedNodeType => "node.type",
+                    WorkflowNodeDescriptorResolutionKind.UnsupportedNodeVersion => "node.version",
+                    WorkflowNodeDescriptorResolutionKind.MalformedConfiguration when node.Type == NodeTypes.McpTool => "mcp.mapping",
+                    _ => "descriptor.unresolved"
+                };
+                issues.Add(new(issueCode, nodePath + ".descriptor", resolution.Message));
                 continue;
             }
-            if (!string.Equals(node.TypeVersion, contract.TypeVersion, StringComparison.Ordinal))
-            {
-                issues.Add(new("node.version", nodePath,
-                    $"Node type '{node.Type}' uses unsupported implementation version '{node.TypeVersion}'."));
-                continue;
-            }
-            if (!WorkflowNodeDescriptorResolver.TryResolve(node, null, null, out var descriptor))
-            {
-                issues.Add(new("descriptor.unresolved", nodePath,
-                    "The persisted node configuration cannot be represented by the descriptor resolver."));
-                continue;
-            }
-
-            foreach (var issue in WorkflowNodeDescriptorConformance.ValidateResolved(node))
-                issues.Add(new($"descriptor.{issue.Code}", nodePath + ".descriptor", issue.Message));
-
-            if (node.Type == NodeTypes.McpTool && !WorkflowNodeDescriptorResolver.TryResolveMcpArguments(node, out _))
-                issues.Add(new("mcp.mapping", nodePath + ".mcpInputPorts",
-                    "Persisted MCP input mappings must resolve to one unique descriptor port per argument with a matching data type and property name."));
+            var descriptor = resolution.Descriptor!;
 
             AddProjectionIssues(node, descriptor, nodePath, issues);
 
@@ -478,6 +486,33 @@ public static class WorkflowNodeDescriptorRegistry
 /// </remarks>
 public static class WorkflowNodeDescriptorResolver
 {
+    /// <summary>
+    /// Resolves only persisted node configuration. It never performs discovery and never
+    /// converts an unsupported node into an empty, apparently valid pin shape.
+    /// </summary>
+    public static WorkflowNodeDescriptorResolution ResolvePersisted(NodeDefinition node)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        if (!WorkflowNodeContractCatalog.TryGet(node.Type, out var contract))
+            return new(WorkflowNodeDescriptorResolutionKind.UnsupportedNodeType, null,
+                $"Node type '{node.Type}' is not registered.");
+        if (!string.Equals(node.TypeVersion, contract.TypeVersion, StringComparison.Ordinal))
+            return new(WorkflowNodeDescriptorResolutionKind.UnsupportedNodeVersion, null,
+                $"Node type '{node.Type}' uses unsupported implementation version '{node.TypeVersion}'.");
+        if (!TryResolve(node, null, null, out var descriptor))
+            return new(WorkflowNodeDescriptorResolutionKind.MalformedConfiguration, null,
+                "The persisted node configuration cannot be represented by the descriptor resolver.");
+        if (node.Type == NodeTypes.McpTool && !TryResolveMcpArguments(node, out _))
+            return new(WorkflowNodeDescriptorResolutionKind.MalformedConfiguration, null,
+                "Persisted MCP input mappings do not match the resolved descriptor.");
+        var issues = WorkflowNodeDescriptorConformance.ValidateResolved(node);
+        if (!issues.IsEmpty)
+            return new(WorkflowNodeDescriptorResolutionKind.MalformedConfiguration, null,
+                string.Join("; ", issues.Select(issue => issue.Message)));
+        return new(WorkflowNodeDescriptorResolutionKind.Resolved, descriptor,
+            "Resolved from persisted node configuration.");
+    }
+
     /// <summary>
     /// Resolves persisted direct-MCP argument pins through the same descriptor used by
     /// editor and validator projections. A malformed or incomplete mapping fails closed.
