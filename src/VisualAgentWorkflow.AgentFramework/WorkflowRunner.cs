@@ -113,7 +113,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         var workflow = sequencePlan is null
             ? BuildWorkflow(runId, revision, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
                 collaborationRuntime, variableStore)
-            : BuildSequenceProductionWorkflow(runId, revision, sequencePlan, Emit, gate, rootRevision, workflowPath,
+            : BuildSequenceProductionWorkflow(runId, revision, sequencePlan, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
                 callScopeCancellation);
 
         await Emit(ExecutionEventKinds.Started);
@@ -722,6 +722,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         node.BooleanConstant?.Value ?? throw new InvalidOperationException("The Boolean constant is not configured.")),
                     NodeTypes.BooleanNot when outputPort == "out" => new ExplicitGraphValue("boolean",
                         !ResolveBooleanInput(nodeId, "value", evaluated, cache, active)),
+                    NodeTypes.JsonSelectString when outputPort == "out" => new ExplicitGraphValue("string",
+                        StringExecutor.SelectJsonText(ResolveJsonInput(nodeId, "in", evaluated, cache, active), node.JsonPropertySelection!.Pointer)),
+                    NodeTypes.JsonProject when outputPort == "out" => new ExplicitGraphValue("json",
+                        ParseJson(StringExecutor.ProjectJson(ResolveJsonInput(nodeId, "in", evaluated, cache, active), node.JsonProjection!))),
                     NodeTypes.FunctionCall when node.GraphFunction is { } function && function.Definition.Outputs.TryGetValue(outputPort, out var output) =>
                         EvaluateFunction(nodeId, outputPort, output.DataType, function, evaluated, cache, active),
                         _ => throw new InvalidOperationException("The data source is not a supported pure value node.")
@@ -893,6 +897,24 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (value.DataType != "string" || value.Value is not string text)
                 throw new InvalidOperationException("The pure data input requires a string value.");
             return text;
+        }
+
+        private string ResolveJsonInput(string nodeId, string inputPort,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            var edge = definition.Connections.Single(connection => connection.Value.Target.NodeId == nodeId && connection.Value.Target.PortId == inputPort);
+            var value = ResolveOutput(edge.Value.Source.NodeId, edge.Value.Source.PortId, edge.Key, evaluated, cache, active);
+            if (value.DataType != WorkflowDataTypes.Json || value.Value is not JsonElement json)
+                throw new InvalidOperationException("The pure data input requires a JSON value.");
+            return json.GetRawText();
+        }
+
+        private static JsonElement ParseJson(string value)
+        {
+            using var document = JsonDocument.Parse(value, new JsonDocumentOptions { MaxDepth = 32 });
+            return document.RootElement.Clone();
         }
 
         private bool ResolveBooleanInput(string nodeId, string inputPort,
@@ -1104,7 +1126,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             try
             {
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Output &&
-                    !internalTerminationHandoff && received.SequenceLineage is null)
+                    !internalTerminationHandoff && (received.SequenceLineage is null ||
+                        revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph &&
+                        SequenceWorkflowCallJsonTopology.IsJsonCompositionGraph(revision.Definition)))
                 {
                     outputEvaluation = dataEvaluator!.ResolveInput(Id, "in");
                     message = outputEvaluation.Result.DataType switch
@@ -1112,8 +1136,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         "string" when outputEvaluation.Result.Value is string outputValue => outputValue,
                         "integer" when outputEvaluation.Result.Value is long integerValue => integerValue.ToString(CultureInfo.InvariantCulture),
                         "boolean" when outputEvaluation.Result.Value is bool booleanValue => booleanValue ? "true" : "false",
-                        "json" when outputEvaluation.Result.Value is JsonElement jsonValue && jsonValue.ValueKind == JsonValueKind.Object => jsonValue.GetRawText(),
-                        _ => throw new InvalidOperationException("An Output node requires a string, integer, Boolean, or bounded JSON object value.")
+                        "json" when outputEvaluation.Result.Value is JsonElement jsonValue => jsonValue.GetRawText(),
+                        _ => throw new InvalidOperationException("An Output node requires a string, integer, Boolean, or bounded JSON value.")
                     };
                 }
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.BooleanBranch)
@@ -1215,7 +1239,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.SequenceUppercase => message.ToUpperInvariant(),
                     NodeTypes.SequenceReverse => string.Concat(message.EnumerateRunes().Reverse()),
                     NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
-                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph
+                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph
                         ? await InvokeDirectMcpTool(message, invocation, toolArgumentEvaluations, cancellationToken)
                         : await InvokeTool(message, invocation, cancellationToken),
                     NodeTypes.WorkflowCall => childOutcome?.Output ?? string.Empty,
@@ -1262,6 +1286,12 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 }
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.McpTool)
                     dataEvaluator?.SetRuntimeOutput(Id, "out", "string", result);
+                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.WorkflowCall &&
+                    childOutcome?.HasOutput == true && WorkflowPorts.Outputs(node).SingleOrDefault()?.DataType == WorkflowDataTypes.Json)
+                {
+                    using var childJson = JsonDocument.Parse(result, new JsonDocumentOptions { MaxDepth = 32 });
+                    dataEvaluator?.SetRuntimeOutput(Id, "out", WorkflowDataTypes.Json, childJson.RootElement.Clone());
+                }
                 if (routeSelection is not null) agentRouteId = routeSelection.Commit();
                 WorkflowApprovalPermit? permit = null;
                 if (node.Type == NodeTypes.Approval)
@@ -1358,6 +1388,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     return new(result, Id, "parallel.dispatched", DataType: "string");
                 }
                 var outputType = node.Type == NodeTypes.Terminate ? "string" : node.Type == NodeTypes.Output ? received.DataType :
+                    node.Type == NodeTypes.WorkflowCall ? WorkflowPorts.Outputs(node).Single().DataType :
                     node.Type == NodeTypes.Agent && node.Agent?.RequireStructuredResult == true ? "json" :
                     WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) ? "string" : WorkflowPorts.Outputs(node).Single(output => output.Id == port).DataType;
                 var failureSignal = node.Termination?.Outcome == WorkflowTerminationOutcomes.Failure ||
@@ -1629,7 +1660,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             return System.Text.Encoding.UTF8.GetString(output.ToArray());
         }
 
-        private static string SelectJsonText(string input, string pointer)
+        internal static string SelectJsonText(string input, string pointer)
         {
             if (input.Length > 16_384) throw new InvalidOperationException("JSON workflow data exceeds 16,384 characters.");
             using var document = JsonDocument.Parse(input, new JsonDocumentOptions { MaxDepth = 32 });
@@ -1641,7 +1672,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             return System.Text.Encoding.UTF8.GetString(serialized.ToArray());
         }
 
-        private static string ProjectJson(string input, JsonProjectionConfiguration projection)
+        internal static string ProjectJson(string input, JsonProjectionConfiguration projection)
         {
             if (input.Length > JsonProjectionLimits.MaximumPayloadCharacters)
                 throw new InvalidOperationException($"JSON workflow data exceeds {JsonProjectionLimits.MaximumPayloadCharacters} characters.");

@@ -572,6 +572,16 @@ public static class GraphEditing
         return definition with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph };
     }
 
+    /// <summary>Promotes a valid schema 1.52 call graph to the bounded JSON-composition contract.</summary>
+    public static WorkflowDefinition EnableSequenceWorkflowCallJsonGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph ||
+            definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty)
+            throw new ArgumentException("Enable post-call JSON composition only from a valid schema 1.52 graph.", nameof(definition));
+        return definition with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph };
+    }
+
     private static (NodeDefinition Fork, ParallelForkConfiguration ForkConfiguration, string JoinId, NodeDefinition Join,
         ParallelJoinConfiguration JoinConfiguration) ConfigurableParallelRegion(WorkflowDefinition definition, string forkNodeId)
     {

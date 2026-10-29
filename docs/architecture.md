@@ -176,6 +176,15 @@ Available child results, including empty strings, use the normal `out` handoff;
 no-result termination, failure, cancellation, and uncertainty bypass the Agent
 and retain their existing terminal disposition. See [Decision 0052](decisions/0052-sequence-workflow-call-agent.md).
 
+Schema 1.53 preserves valid 1.52 graphs and adds one bounded JSON child-result
+composition. A pinned child must expose JSON input and output. The execution
+path still enters Output directly; an optional data-only `JsonSelectString` or
+`JsonProject` may sit between `WorkflowCall.out` and `Output.in`, but arbitrary
+JSON chains, implicit coercion, post-call Agents, and broader control flow are
+not admitted. The runner stores the child result as a typed JSON runtime value
+for the explicit data evaluator and serializes it only at the public result
+boundary. See [Decision 0053](decisions/0053-sequence-workflow-call-json-composition.md).
+
 Schema 1.40 adds a finite IEEE-754 `number` constant for direct-MCP graphs.
 Top-level MCP JSON Schema number properties become exact typed input pins and
 are serialized as JSON numbers. Non-finite values are rejected; integer/number

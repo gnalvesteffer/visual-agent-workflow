@@ -191,7 +191,7 @@ public sealed partial class WorkflowRunner
     }
 
     private Workflow BuildSequenceProductionWorkflow(Guid runId, WorkflowRevision revision,
-        SequenceProductionPlan plan,
+        SequenceProductionPlan plan, string input, IReadOnlyDictionary<string, string>? parameters,
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit,
         IWorkflowExecutionGate? gate, WorkflowRevision rootRevision,
         ImmutableArray<WorkflowApprovalScope> workflowPath,
@@ -207,6 +207,14 @@ public sealed partial class WorkflowRunner
                     new SequenceWorkflowCallPath(path.OutputId, path.NodeIds, path.CallNodeId, path.ChildWorkflowId,
                         path.ChildRevisionId, path.ChildContentHash)),
             WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph =>
+                SequenceWorkflowCallAgentTopology.Analyze(revision.Definition).Paths.Select(path =>
+                    new SequenceWorkflowCallPath(path.OutputId, path.NodeIds, path.CallNodeId, path.ChildWorkflowId,
+                        path.ChildRevisionId, path.ChildContentHash)),
+            WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph when SequenceWorkflowCallJsonTopology.IsJsonCompositionGraph(revision.Definition) =>
+                SequenceWorkflowCallJsonTopology.Analyze(revision.Definition).Paths.Select(path =>
+                    new SequenceWorkflowCallPath(path.OutputId, path.NodeIds, path.CallNodeId, path.ChildWorkflowId,
+                        path.ChildRevisionId, path.ChildContentHash)),
+            WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph =>
                 SequenceWorkflowCallAgentTopology.Analyze(revision.Definition).Paths.Select(path =>
                     new SequenceWorkflowCallPath(path.OutputId, path.NodeIds, path.CallNodeId, path.ChildWorkflowId,
                         path.ChildRevisionId, path.ChildContentHash)),
@@ -241,6 +249,7 @@ public sealed partial class WorkflowRunner
             }
         }
 
+        var dataEvaluator = new ExplicitGraphDataEvaluator(revision.Definition, input, parameters);
         var branchNodeIds = revision.Definition.ExecutionConnections is null
             ? plan.Outputs.Select(output => output.OutputNodeId).Distinct(StringComparer.Ordinal)
             : revision.Definition.Nodes.Where(entry => entry.Value.Type is not (NodeTypes.Input or NodeTypes.Sequence))
@@ -248,7 +257,7 @@ public sealed partial class WorkflowRunner
         var branches = branchNodeIds
             .ToDictionary(outputNodeId => outputNodeId,
             outputNodeId => (Executor<GraphMessage, GraphMessage>)new StringExecutor(outputNodeId,
-                revision.Definition.Nodes[outputNodeId], runId, revision, null, tools, agents, null, null,
+                revision.Definition.Nodes[outputNodeId], runId, revision, parameters, tools, agents, dataEvaluator, null,
                 emit, gate, null, rootRevision, workflowPath, collaborationOptions, null,
                 async (lineage, terminalState) =>
                 {
@@ -403,7 +412,7 @@ public sealed partial class WorkflowRunner
 
     private SequenceProductionPlan? CreateSequenceProductionPlan(WorkflowRevision revision)
     {
-        if (revision.Definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph)) return null;
+        if (revision.Definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph)) return null;
         if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallGraph &&
             !SequenceWorkflowCallTopology.Analyze(revision.Definition).IsValid)
             throw new InvalidOperationException("Schema 1.50 requires a valid bounded WorkflowCall topology before execution.");
@@ -413,6 +422,14 @@ public sealed partial class WorkflowRunner
         if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph &&
             !SequenceWorkflowCallAgentTopology.Analyze(revision.Definition).IsValid)
             throw new InvalidOperationException("Schema 1.52 requires a valid bounded WorkflowCall Agent topology before execution.");
+        if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph &&
+            SequenceWorkflowCallJsonTopology.IsJsonCompositionGraph(revision.Definition) &&
+            !SequenceWorkflowCallJsonTopology.Analyze(revision.Definition).IsValid)
+            throw new InvalidOperationException("Schema 1.53 requires a valid bounded WorkflowCall JSON topology before execution.");
+        if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph &&
+            !SequenceWorkflowCallJsonTopology.IsJsonCompositionGraph(revision.Definition) &&
+            !SequenceWorkflowCallAgentTopology.Analyze(revision.Definition).IsValid)
+            throw new InvalidOperationException("Schema 1.53 preserves only a valid prior WorkflowCall Agent topology when no JSON composition is present.");
         var sequence = revision.Definition.Nodes.SingleOrDefault(entry => entry.Value.Type == NodeTypes.Sequence);
         if (sequence.Value?.Sequence is not { } configuration || revision.Definition.ExecutionConnections is not { } edges)
             throw new InvalidOperationException("The Sequence definition is missing its ordered outputs or execution connections.");

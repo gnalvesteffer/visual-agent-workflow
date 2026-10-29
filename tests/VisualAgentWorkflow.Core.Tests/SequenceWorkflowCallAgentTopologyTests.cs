@@ -77,6 +77,16 @@ public sealed class SequenceWorkflowCallAgentTopologyTests
     }
 
     [Fact]
+    public void Schema_1_53_preserves_a_valid_schema_1_52_agent_path()
+    {
+        var child = WorkflowRevision.Create(ChildDefinition("child"), "test");
+        var promoted = GraphEditing.EnableSequenceWorkflowCallJsonGraph(CallAgentGraph(child));
+
+        Assert.Empty(WorkflowValidator.Validate(promoted));
+        Assert.True(SequenceWorkflowCallAgentTopology.Analyze(promoted).IsValid);
+    }
+
+    [Fact]
     public void Explicit_migration_promotes_a_valid_schema_1_51_call_transform_graph()
     {
         var child = WorkflowRevision.Create(ChildDefinition("child"), "test");
