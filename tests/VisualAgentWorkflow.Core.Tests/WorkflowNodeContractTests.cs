@@ -188,6 +188,15 @@ public sealed class WorkflowNodeContractTests
         {
             Assert.Equal(WorkflowNodeDescriptorRegistry.CurrentVersion, descriptor.DescriptorVersion);
             Assert.Equal(descriptor.NodeType, descriptor.NodeContract.Type);
+            Assert.Equal(descriptor.NodeContract.Activation, descriptor.Activation);
+            Assert.Equal(descriptor.NodeContract.State, descriptor.State);
+            Assert.Equal(descriptor.NodeContract.Failure, descriptor.Failure);
+            Assert.Equal(descriptor.NodeContract.Evidence, descriptor.Evidence);
+            Assert.Equal(descriptor.NodeContract.Effects, descriptor.Effects);
+            Assert.Equal(descriptor.NodeContract.Authoring, descriptor.Authoring);
+            Assert.Equal(descriptor.NodeContract.RequiresHostCapability, descriptor.RequiresHostCapability);
+            Assert.Equal(descriptor.NodeContract.SupportsCancellation, descriptor.SupportsCancellation);
+            Assert.Equal(descriptor.NodeContract.Limits, descriptor.Limits);
             Assert.False(string.IsNullOrWhiteSpace(descriptor.ConfigurationKind));
             Assert.NotEmpty(descriptor.Ports);
             Assert.True(WorkflowNodeDescriptorRegistry.TryGet(descriptor.NodeType, descriptor.DescriptorVersion, out _));

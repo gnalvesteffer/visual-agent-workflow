@@ -10,6 +10,17 @@ public sealed record WorkflowNodeDescriptor(
     ImmutableArray<WorkflowPortDescriptor> Ports)
 {
     public WorkflowNodeContract NodeContract => WorkflowNodeContractCatalog.Get(NodeType);
+
+    /// <summary>Lifecycle and authority metadata projected from the canonical node contract.</summary>
+    public WorkflowNodeActivationKind Activation => NodeContract.Activation;
+    public WorkflowNodeStateKind State => NodeContract.State;
+    public WorkflowNodeFailureKind Failure => NodeContract.Failure;
+    public WorkflowNodeEvidenceKind Evidence => NodeContract.Evidence;
+    public WorkflowNodeEffectFlags Effects => NodeContract.Effects;
+    public WorkflowNodeAuthoringFlags Authoring => NodeContract.Authoring;
+    public bool RequiresHostCapability => NodeContract.RequiresHostCapability;
+    public bool SupportsCancellation => NodeContract.SupportsCancellation;
+    public ImmutableArray<WorkflowNodeLimit> Limits => NodeContract.Limits;
 }
 
 /// <summary>Pairs one resolved MCP argument pin with its persisted tool-property identity.</summary>
