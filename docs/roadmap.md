@@ -216,7 +216,10 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   default checkpoint host and is not a production-readiness claim.
   The shared checkpoint sink now receives the paired quiescent observation and
   binds a future loop frame to its native checkpoint ID/payload before commit;
-  this closes the boundary-capture subgate without enabling schema 1.45.
+  this closes the boundary-capture subgate without enabling schema 1.45. The
+  opt-in host regression now persists two successive frames and reconstructs
+  the resulting variable evidence prefix passively; process-loss, race, and
+  final production-admission qualification remain open.
 - [x] Add passive playback and prefix reconstruction for variable reads/writes
   without re-execution; the run inspector renders the reconstructed value,
   version, and operation history.

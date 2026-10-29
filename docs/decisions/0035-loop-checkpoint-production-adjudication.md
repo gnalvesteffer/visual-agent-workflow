@@ -46,6 +46,9 @@ loop.
 - [x] Add an explicit host capability that defaults disabled and apply the same
   exact topology/frame admission to both start and resume. The opt-in host is
   intentionally experimental and is not enabled by the Studio/default host.
+- [x] Exercise the opt-in public host through two successive suspensions and
+  reconstruct its variable evidence prefix passively, without another
+  workflow execution for the playback assertion.
 - [ ] Qualify cancellation, publication failure, process loss, competing
   recovery, and disposal races on the public host path.
 - [ ] Reopen production-generated history with no executor/model/tool calls and

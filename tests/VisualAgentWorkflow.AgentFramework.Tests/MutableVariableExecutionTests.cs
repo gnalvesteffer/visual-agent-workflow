@@ -244,6 +244,9 @@ public sealed class MutableVariableExecutionTests
             Assert.Equal("suspended", resumedSuspended.Status);
             Assert.NotNull(nextCheckpoint?.Frame);
             Assert.True(WorkflowCheckpointRecovery.Assess(resumedSuspended, nextCheckpoint).CanResume);
+            Assert.True(VariableEvidence.TryReconstructPlayback(resumedSuspended.Events, out var playback));
+            Assert.NotNull(playback);
+            Assert.NotEmpty(playback!.Operations);
         }
         finally
         {
