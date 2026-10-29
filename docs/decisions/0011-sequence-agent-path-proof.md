@@ -168,6 +168,10 @@ Promotion gates, in order:
   skills, delegation, routes, structured results, or parameter-bound limits for
   this schema. Package compatibility with older runtimes and complete public
   promotion remain open.
+- [x] Prove the first older-reader compatibility boundary: a schema-1.46
+  terminal-Agent package cannot be silently relabeled as schema 1.43; package
+  creation rejects the downgraded definition and the validator reports the
+  schema mismatch. Full older-runtime package compatibility remains open.
 - [ ] Qualify package compatibility with older runtimes and the remaining public
   promotion gates before advertising schema 1.46 as a complete capability.
 

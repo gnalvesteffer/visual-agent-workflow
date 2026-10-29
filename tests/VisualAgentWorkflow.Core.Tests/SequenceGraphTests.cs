@@ -153,6 +153,17 @@ public sealed class SequenceGraphTests
     }
 
     [Fact]
+    public void Older_sequence_path_schema_cannot_silently_downgrade_a_terminal_agent_package()
+    {
+        var agentPath = AgentPathDefinition();
+        var downgraded = agentPath with { SchemaVersion = WorkflowSchemaVersions.SequencePathGraph };
+
+        Assert.Throws<ArgumentException>(() => WorkflowPackageJson.Serialize(
+            downgraded, WorkflowLayout.Create(downgraded)));
+        Assert.Contains(WorkflowValidator.Validate(downgraded), issue => issue.Code == "node.schema");
+    }
+
+    [Fact]
     public void Sequence_path_schema_rejects_shared_downstream_nodes()
     {
         var definition = PathDefinition() with
