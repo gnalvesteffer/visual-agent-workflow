@@ -9,6 +9,55 @@ public sealed record WorkflowCallUpgradeResult(WorkflowDefinition Definition,
 public static class WorkflowCallEditing
 {
     /// <summary>
+    /// Adds one pure JSON composition node to an existing schema-1.53 direct JSON call path.
+    /// The call remains the execution terminal; this edit only replaces its data edge.
+    /// </summary>
+    public static WorkflowDefinition AppendSequenceWorkflowCallJsonCompositionDraft(WorkflowDefinition parent,
+        string callNodeId, string compositionType, string pointer)
+    {
+        ArgumentNullException.ThrowIfNull(parent);
+        ArgumentException.ThrowIfNullOrWhiteSpace(callNodeId);
+        ArgumentNullException.ThrowIfNull(pointer);
+        if (parent.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph ||
+            compositionType is not (NodeTypes.JsonSelectString or NodeTypes.JsonProject))
+            throw new ArgumentException("JSON composition authoring requires a schema 1.53 graph and a JSON selector or projection node.", nameof(parent));
+        WorkflowJsonPointer.Parse(pointer);
+        WorkflowValidator.ThrowIfInvalid(parent);
+        var analysis = SequenceWorkflowCallJsonTopology.Analyze(parent);
+        var path = analysis.Paths.SingleOrDefault(candidate => candidate.CallNodeId == callNodeId);
+        if (!analysis.IsValid || path is null || path.JsonNodeId is not null)
+            throw new ArgumentException("Choose a valid direct JSON WorkflowCall path without an existing composition node.", nameof(callNodeId));
+        var outputId = parent.Nodes.Single(entry => entry.Value.Type == NodeTypes.Output).Key;
+        var dataEdge = parent.Connections.SingleOrDefault(entry =>
+            entry.Value.Source == new PortReference(callNodeId, "out") &&
+            entry.Value.Target == new PortReference(outputId, "in"));
+        if (dataEdge.Value is null || parent.Connections.Values.Any(edge =>
+                edge.Target.NodeId == outputId && edge.Target.PortId == "in" && edge != dataEdge.Value))
+            throw new ArgumentException("The direct JSON call must be the only data source for Output.", nameof(callNodeId));
+
+        var compositionId = NewId(compositionType == NodeTypes.JsonSelectString ? "json-select" : "json-project");
+        var composition = compositionType == NodeTypes.JsonSelectString
+            ? new NodeDefinition(NodeTypes.JsonSelectString, "1.0.0") { JsonPropertySelection = new(pointer) }
+            : new NodeDefinition(NodeTypes.JsonProject, "1.0.0")
+            {
+                JsonProjection = new([new JsonProjectionField("value", pointer)])
+            };
+        var updated = parent with
+        {
+            Nodes = parent.Nodes.Add(compositionId, composition)
+                .SetItem(outputId, parent.Nodes[outputId] with
+                {
+                    OutputDataType = compositionType == NodeTypes.JsonSelectString ? WorkflowDataTypes.String : WorkflowDataTypes.Json
+                }),
+            Connections = parent.Connections.Remove(dataEdge.Key)
+                .Add(NewId("workflow-call-json-data"), new(new(callNodeId, "out"), new(compositionId, "in"), "data"))
+                .Add(NewId("workflow-call-json-data"), new(new(compositionId, "out"), new(outputId, "in"), "data"))
+        };
+        WorkflowJson.SerializeDraft(updated);
+        return updated;
+    }
+
+    /// <summary>
     /// Adds a new pinned JSON child path to a clean schema-1.52 Sequence draft. The edit
     /// creates a fresh Sequence output and moves the draft to schema 1.53; it deliberately
     /// does not reinterpret an existing string call or an Agent/transform path.

@@ -115,6 +115,33 @@ public sealed class SequenceWorkflowCallEditingTests
         Assert.Throws<ArgumentException>(() => WorkflowCallEditing.AppendSequenceWorkflowCallJsonDraft(withAgent, "sequence", new(1, jsonChild)));
     }
 
+    [Fact]
+    public void Adds_one_typed_json_composition_node_after_a_direct_json_call()
+    {
+        var child = WorkflowRevision.Create(JsonBaseline("json-child"), "test");
+        var source = WorkflowCallEditing.AppendSequenceWorkflowCallJsonDraft(
+            PathGraph() with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph }, "sequence", new(1, child));
+        var callId = source.Nodes.Single(pair => pair.Value.Type == NodeTypes.WorkflowCall).Key;
+
+        var selector = WorkflowCallEditing.AppendSequenceWorkflowCallJsonCompositionDraft(
+            source, callId, NodeTypes.JsonSelectString, "/answer");
+
+        Assert.Equal(WorkflowDataTypes.String, selector.Nodes["output"].OutputDataType);
+        var selectorNode = Assert.Single(selector.Nodes, pair => pair.Value.Type == NodeTypes.JsonSelectString);
+        Assert.Equal("/answer", selectorNode.Value.JsonPropertySelection!.Pointer);
+        Assert.Empty(WorkflowValidator.Validate(selector));
+        Assert.True(SequenceWorkflowCallJsonTopology.Analyze(selector).IsValid);
+
+        var projection = WorkflowCallEditing.AppendSequenceWorkflowCallJsonCompositionDraft(
+            source, callId, NodeTypes.JsonProject, "/answer");
+
+        Assert.Equal(WorkflowDataTypes.Json, projection.Nodes["output"].OutputDataType);
+        var projectionNode = Assert.Single(projection.Nodes, pair => pair.Value.Type == NodeTypes.JsonProject);
+        Assert.Equal("/answer", projectionNode.Value.JsonProjection!.Fields.Single().Pointer);
+        Assert.Empty(WorkflowValidator.Validate(projection));
+        Assert.True(SequenceWorkflowCallJsonTopology.Analyze(projection).IsValid);
+    }
+
     private static WorkflowDefinition PathGraph()
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)

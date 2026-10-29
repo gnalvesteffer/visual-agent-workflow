@@ -182,7 +182,8 @@ path still enters Output directly; an optional data-only `JsonSelectString` or
 `JsonProject` may sit between `WorkflowCall.out` and `Output.in`, but arbitrary
 JSON chains, implicit coercion, post-call Agents, and broader control flow are
 not admitted. Studio can author the narrow direct JSON-child form from a clean
-schema 1.52 direct-MCP draft by creating a new Sequence output; it does not
+schema 1.52 direct-MCP draft by creating a new Sequence output, then append one
+selector or projection by replacing the call's data edge. It does not
 reinterpret existing calls, Agents, or transforms. The runner stores the child
 result as a typed JSON runtime value for the explicit data evaluator and
 serializes it only at the public result boundary. See [Decision 0053](decisions/0053-sequence-workflow-call-json-composition.md).
