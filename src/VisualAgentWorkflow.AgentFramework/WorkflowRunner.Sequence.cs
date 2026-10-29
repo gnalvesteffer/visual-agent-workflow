@@ -391,7 +391,10 @@ public sealed partial class WorkflowRunner
 
     private SequenceProductionPlan? CreateSequenceProductionPlan(WorkflowRevision revision)
     {
-        if (revision.Definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph)) return null;
+        if (revision.Definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph)) return null;
+        if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallGraph &&
+            !SequenceWorkflowCallTopology.Analyze(revision.Definition).IsValid)
+            throw new InvalidOperationException("Schema 1.50 requires a valid bounded WorkflowCall topology before execution.");
         var sequence = revision.Definition.Nodes.SingleOrDefault(entry => entry.Value.Type == NodeTypes.Sequence);
         if (sequence.Value?.Sequence is not { } configuration || revision.Definition.ExecutionConnections is not { } edges)
             throw new InvalidOperationException("The Sequence definition is missing its ordered outputs or execution connections.");

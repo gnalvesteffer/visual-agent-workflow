@@ -42,15 +42,23 @@ public static class SequenceWorkflowCallTopology
         if (callNodes.Length == 0)
             return new(paths.ToImmutable(), issues.ToImmutable());
 
-        var sequence = definition.Nodes.SingleOrDefault(entry => entry.Value?.Type == NodeTypes.Sequence);
-        var output = definition.Nodes.SingleOrDefault(entry => entry.Value?.Type == NodeTypes.Output);
-        if (sequence.Value is null || output.Value is null || definition.ExecutionConnections is not { } execution)
+        var sequences = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.Sequence).ToArray();
+        var outputs = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.Output).ToArray();
+        if (sequences.Length != 1)
+            Issue("sequence.call.graph", "nodes", "A Sequence workflow-call graph requires exactly one Sequence node.");
+        if (outputs.Length != 1)
+            Issue("sequence.call.graph", "nodes", "A Sequence workflow-call graph requires exactly one Output node.");
+        if (sequences.Length != 1 || outputs.Length != 1 || definition.ExecutionConnections is not { } execution)
         {
-            Issue("sequence.call.graph", "nodes", "A Sequence workflow-call path requires one Sequence, one Output, and explicit execution connections.");
             return new(paths.ToImmutable(), issues.ToImmutable());
         }
+        var sequence = sequences[0];
+        var output = outputs[0];
 
         var edges = execution.Values.Where(edge => edge is not null).ToArray();
+        foreach (var edge in edges)
+            if (edge.Kind != "execution" || edge.Target.PortId != "execute")
+                Issue("sequence.call.path.port", "executionConnections", "Every call-bearing Sequence edge must be an execution edge entering the target execute pin.");
         var outgoing = edges.GroupBy(edge => edge.Source.NodeId, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
         var owned = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -59,6 +67,8 @@ public static class SequenceWorkflowCallTopology
             var rootPort = SequenceOutputLimits.PinId(outputDescriptor.Id);
             var rootEdges = edges.Where(edge => edge.Source.NodeId == sequence.Key && edge.Source.PortId == rootPort).ToArray();
             if (rootEdges.Length != 1) continue;
+            if (rootEdges[0].Target.PortId != "execute")
+                Issue("sequence.call.path.port", $"nodes.{sequence.Key}.sequence.outputs.{outputDescriptor.Id}", "A Sequence output must enter the target execute pin.");
 
             var current = rootEdges[0].Target.NodeId;
             var nodeIds = ImmutableArray.CreateBuilder<string>();

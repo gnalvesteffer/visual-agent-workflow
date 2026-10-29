@@ -7,16 +7,14 @@ namespace VisualAgentWorkflow.Core.Tests;
 public sealed class WorkflowMigrationRegistryTests
 {
     [Fact]
-    public void Registry_is_explicit_and_does_not_admit_schema_1_50()
+    public void Registry_exposes_the_explicit_schema_1_50_transition()
     {
         Assert.Equal(
-            ["sequence-reverse-paths", "sequence-transform-chains-from-reverse", "sequence-transform-chains-from-uppercase"],
+            ["sequence-reverse-paths", "sequence-transform-chains-from-reverse", "sequence-transform-chains-from-uppercase", "sequence-workflow-call-paths"],
             WorkflowMigrationRegistry.All.Select(descriptor => descriptor.OperationId));
-        Assert.All(WorkflowMigrationRegistry.All, descriptor =>
-        {
-            Assert.NotEqual("1.50", descriptor.FromSchema);
-            Assert.NotEqual("1.50", descriptor.ToSchema);
-        });
+        var descriptor = Assert.Single(WorkflowMigrationRegistry.All, item => item.OperationId == "sequence-workflow-call-paths");
+        Assert.Equal("1.49", descriptor.FromSchema);
+        Assert.Equal("1.50", descriptor.ToSchema);
     }
 
     [Fact]
@@ -59,6 +57,22 @@ public sealed class WorkflowMigrationRegistryTests
         Assert.Equal(result.Provenance.TargetRevisionId, restored.MigrationProvenance.TargetRevisionId);
         Assert.Equal(result.Provenance.OperationIds.ToArray(), restored.MigrationProvenance.OperationIds.ToArray());
         Assert.Equal(result.Provenance.ImplementationVersions.ToArray(), restored.MigrationProvenance.ImplementationVersions.ToArray());
+    }
+
+    [Fact]
+    public void Explicit_workflow_call_transition_promotes_a_valid_1_49_revision()
+    {
+        var sourceDefinition = GraphEditing.EnableSequenceTransformChainGraph(SequenceTransformPath());
+        var source = WorkflowRevision.Create(sourceDefinition, "source") with { Layout = WorkflowLayout.Create(sourceDefinition) };
+
+        var attempt = WorkflowMigrationRegistry.TryMigrate(new(source, ["sequence-workflow-call-paths"], "migrator"));
+
+        Assert.True(attempt.Succeeded, string.Join("; ", attempt.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.Equal(WorkflowSchemaVersions.SequenceWorkflowCallGraph, attempt.Result!.TargetRevision.Definition.SchemaVersion);
+        Assert.Empty(WorkflowValidator.Validate(attempt.Result.TargetRevision.Definition));
+        Assert.Equal(source.RevisionId, attempt.Result.TargetRevision.ParentRevisionId);
+        Assert.Equal("1.49", attempt.Result.Provenance.SourceSchema);
+        Assert.Equal("1.50", attempt.Result.Provenance.TargetSchema);
     }
 
     [Fact]

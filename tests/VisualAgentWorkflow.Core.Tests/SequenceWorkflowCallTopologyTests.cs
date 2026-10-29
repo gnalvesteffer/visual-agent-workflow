@@ -22,6 +22,18 @@ public sealed class SequenceWorkflowCallTopologyTests
     }
 
     [Fact]
+    public void Schema_1_50_admits_a_terminal_call_with_an_ordinary_mcp_sibling_path()
+    {
+        var child = WorkflowRevision.Create(Baseline("child"), "test");
+        var definition = CallGraph(child, WorkflowSchemaVersions.SequenceWorkflowCallGraph);
+
+        var issues = WorkflowValidator.Validate(definition);
+
+        Assert.Empty(issues);
+        Assert.True(SequenceWorkflowCallTopology.Analyze(definition).IsValid);
+    }
+
+    [Fact]
     public void Rejects_a_transform_after_the_call_and_a_tampered_child_hash()
     {
         var child = WorkflowRevision.Create(Baseline("child"), "test");
@@ -56,7 +68,7 @@ public sealed class SequenceWorkflowCallTopologyTests
         Assert.Contains(analysis.Issues, issue => issue.Code == "sequence.call.path.terminal");
     }
 
-    private static WorkflowDefinition CallGraph(WorkflowRevision child)
+    private static WorkflowDefinition CallGraph(WorkflowRevision child, string schema = WorkflowSchemaVersions.SequenceTransformChainGraph)
     {
         var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
         {
@@ -66,15 +78,15 @@ public sealed class SequenceWorkflowCallTopologyTests
             .Add("input", new(NodeTypes.Input, "1.0.0"))
             .Add("sequence", new(NodeTypes.Sequence, "1.0.0") { Sequence = new([new("call", "Call"), new("sibling", "Sibling")]) })
             .Add("call", call)
-            .Add("sibling", new(NodeTypes.Uppercase, "1.0.0"))
+            .Add("sibling", new(NodeTypes.McpTool, "1.0.0", new("test.tool", new string('0', 64))) { McpArgumentsJson = "{}" })
             .Add("output", new(NodeTypes.Output, "1.0.0"));
         var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
             .Add("input-sequence", new(new("input", "then"), new("sequence", "execute"), "execution"))
             .Add("sequence-call", new(new("sequence", "then.call"), new("call", "execute"), "execution"))
             .Add("call-output", new(new("call", "out"), new("output", "execute"), "execution"))
             .Add("sequence-sibling", new(new("sequence", "then.sibling"), new("sibling", "execute"), "execution"))
-            .Add("sibling-output", new(new("sibling", "out"), new("output", "execute"), "execution"));
-        return new WorkflowDefinition(WorkflowSchemaVersions.SequenceTransformChainGraph, "call-topology", "input", nodes,
+            .Add("sibling-output", new(new("sibling", "then"), new("output", "execute"), "execution"));
+        return new WorkflowDefinition(schema, "call-topology", "input", nodes,
             ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
         {
             ExecutionConnections = execution

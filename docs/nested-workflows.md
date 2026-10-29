@@ -48,7 +48,14 @@ To inspect or update an existing call, open **Reusable workflows** and select it
 
 The Studio does not yet provide an embedded child-graph editing experience. The child graph can be edited independently and published as a new immutable version. Nested approval composition is supported by exact path-bound evidence, subject to the single-outstanding-approval and process-lifetime limits above.
 
-Sequence-to-WorkflowCall composition is currently proof-only. The production runner has an internal regression harness for one pinned string child on a Sequence output, including scoped lifecycle and terminal settlement, but public schema 1.49, package import/export, migrations, and Studio authoring continue to reject that topology until its sibling-barrier, replay, tamper, capability, and compatibility contracts are complete. See [Decision 0047](decisions/0047-sequence-workflow-call-proof.md).
+Schema 1.50 now admits a bounded Sequence-to-WorkflowCall composition: direct
+MCP nodes may precede one terminal exact-pinned string child call on each
+disjoint Sequence path, and the call must connect directly to Output. The
+normal runner executes serialized revisions and preserves scoped lifecycle and
+barrier settlement. The migration registry accepts only valid source revisions;
+invalid call-bearing drafts remain saveable but need the separate draft
+promotion operation, Studio authoring, and publication work described in
+[Decision 0050](decisions/0050-sequence-workflow-call-public-slice.md).
 
 ## Verification
 

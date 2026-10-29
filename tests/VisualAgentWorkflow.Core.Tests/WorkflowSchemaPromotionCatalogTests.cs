@@ -28,12 +28,13 @@ public sealed class WorkflowSchemaPromotionCatalogTests
             ("sequence-reverse-paths", "1.47", "1.48", nameof(GraphEditing.EnableSequenceReversePathGraph)),
             ("sequence-transform-chains-from-uppercase", "1.47", "1.49", nameof(GraphEditing.EnableSequenceTransformChainGraph)),
             ("sequence-transform-chains-from-reverse", "1.48", "1.49", nameof(GraphEditing.EnableSequenceTransformChainGraph)),
+            ("sequence-workflow-call-paths", "1.49", "1.50", nameof(GraphEditing.EnableSequenceWorkflowCallGraph)),
             ("mutable-variables", "1.23", "1.44", nameof(GraphEditing.EnableMutableVariablesGraph))
         };
 
         Assert.Equal(expected, WorkflowSchemaPromotionCatalog.All
             .Select(promotion => (promotion.OperationId, promotion.FromSchema, promotion.ToSchema, promotion.GraphEditingMethod)));
-        Assert.All(WorkflowSchemaPromotionCatalog.All.Where(promotion => promotion.OperationId != "mutable-variables"), promotion => Assert.False(promotion.ChangesTopology));
+        Assert.All(WorkflowSchemaPromotionCatalog.All.Where(promotion => promotion.OperationId is not ("mutable-variables" or "sequence-workflow-call-paths")), promotion => Assert.False(promotion.ChangesTopology));
         Assert.Equal(expected.Length, WorkflowSchemaPromotionCatalog.All.Select(promotion => promotion.OperationId)
             .Distinct(StringComparer.Ordinal).Count());
     }
@@ -71,7 +72,8 @@ public sealed class WorkflowSchemaPromotionCatalogTests
     {
         Assert.DoesNotContain(WorkflowSchemaPromotionCatalog.All, promotion =>
             promotion.GraphEditingMethod is nameof(GraphEditing.EnableExplicitGraph) or nameof(GraphEditing.CreateConfigurableParallelGraph));
-        Assert.DoesNotContain(WorkflowSchemaPromotionCatalog.All, promotion => promotion.ChangesTopology && promotion.OperationId != "mutable-variables");
+        Assert.DoesNotContain(WorkflowSchemaPromotionCatalog.All, promotion =>
+            promotion.ChangesTopology && promotion.OperationId is not ("mutable-variables" or "sequence-workflow-call-paths"));
     }
 
     private static WorkflowDefinition ExplicitGraph() => new(

@@ -60,7 +60,8 @@ public static class WorkflowMigrationRegistry
         {
             new WorkflowMigrationDescriptor("sequence-reverse-paths", "1.47", "1.48", ImplementationVersion),
             new WorkflowMigrationDescriptor("sequence-transform-chains-from-uppercase", "1.47", "1.49", ImplementationVersion),
-            new WorkflowMigrationDescriptor("sequence-transform-chains-from-reverse", "1.48", "1.49", ImplementationVersion)
+            new WorkflowMigrationDescriptor("sequence-transform-chains-from-reverse", "1.48", "1.49", ImplementationVersion),
+            new WorkflowMigrationDescriptor("sequence-workflow-call-paths", "1.49", "1.50", ImplementationVersion)
         }.ToImmutableDictionary(descriptor => descriptor.OperationId, StringComparer.Ordinal);
 
     public static ImmutableArray<WorkflowMigrationDescriptor> All { get; } =
@@ -182,7 +183,7 @@ public static class WorkflowMigrationRegistry
                 throw new InvalidDataException("Migration provenance contains an unknown, duplicate, or non-contiguous operation.");
             currentSchema = descriptor.ToSchema;
         }
-        if (currentSchema != provenance.TargetSchema || currentSchema == "1.50")
+        if (currentSchema != provenance.TargetSchema)
             throw new InvalidDataException("Migration provenance has an unsupported target schema.");
     }
 
@@ -219,6 +220,7 @@ public static class WorkflowMigrationRegistry
         "sequence-reverse-paths" => GraphEditing.EnableSequenceReversePathGraph(definition),
         "sequence-transform-chains-from-uppercase" => GraphEditing.EnableSequenceTransformChainGraph(definition),
         "sequence-transform-chains-from-reverse" => GraphEditing.EnableSequenceTransformChainGraph(definition),
+        "sequence-workflow-call-paths" => GraphEditing.EnableSequenceWorkflowCallGraph(definition),
         _ => throw new InvalidOperationException($"Migration operation '{operationId}' is not executable.")
     };
 }

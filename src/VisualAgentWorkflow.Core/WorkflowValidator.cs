@@ -63,7 +63,7 @@ public static class WorkflowValidator
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
 
         if (!WorkflowSchemaCatalog.IsSupported(definition.SchemaVersion))
-        Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44, 1.45, 1.46, 1.47, and 1.48.");
+        Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44, 1.45, 1.46, 1.47, 1.48, 1.49, and 1.50.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.DisplayName is { } displayName &&
@@ -258,7 +258,7 @@ public static class WorkflowValidator
                     try { hashMatches = WorkflowJson.MatchesHash(child, call.ContentHash); }
                     catch (ArgumentException) { }
                 }
-                if (definition.SchemaVersion is not ("1.19" or "1.22" or "1.21" or "1.20" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph) || call is null || string.IsNullOrWhiteSpace(call.WorkflowId) ||
+        if (definition.SchemaVersion is not ("1.19" or "1.22" or "1.21" or "1.20" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph) || call is null || string.IsNullOrWhiteSpace(call.WorkflowId) ||
                     call.WorkflowId.Length > 256 || call.WorkflowId != call.Definition?.WorkflowId || call.RevisionId == Guid.Empty ||
                     call.Version < 1 || !ValidHash(call.ContentHash) || !hashMatches || call.Definition is { } childDefinition && !HasSupportedWorkflowCallContract(childDefinition))
                     Error("workflowCall.configuration", $"nodes.{id}.workflowCall", "Workflow call nodes require schema 1.19 and an embedded, hash-matching workflow with string or JSON input and output contracts.");
@@ -607,7 +607,7 @@ public static class WorkflowValidator
                 ValidateMutableVariableGraph(definition, Error);
             else if (definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph)
                 ValidateLoopVariableGraph(definition, Error);
-            else if (definition.SchemaVersion is WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph)
+            else if (definition.SchemaVersion is WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph)
                 ValidateSequenceGraph(definition, Error);
             else
             if (definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph)
@@ -917,13 +917,15 @@ public static class WorkflowValidator
             return;
         }
 
-        var isPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph;
+        var isPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph;
         var isAgentPathGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceAgentPathGraph;
         var isTransformPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph;
         var isTransformChainGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceTransformChainGraph;
+        var isWorkflowCallGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallGraph;
         var supported = new HashSet<string>(StringComparer.Ordinal) { NodeTypes.Input, NodeTypes.Sequence, NodeTypes.Output };
         if (isPathGraph) supported.Add(NodeTypes.McpTool);
         if (isAgentPathGraph) supported.Add(NodeTypes.Agent);
+        if (isWorkflowCallGraph) supported.Add(NodeTypes.WorkflowCall);
         if (isTransformPathGraph)
         {
             // Schema 1.48 is additive: existing uppercase paths remain valid while
@@ -935,12 +937,14 @@ public static class WorkflowValidator
             if (node is null || !supported.Contains(node.Type))
                 error("execution.node.unsupported", $"nodes.{id}", isPathGraph
                     ? isAgentPathGraph
-                        ? "Schema 1.46 supports input, Sequence, direct MCP tool, terminal plain-text Agent, and output nodes; paths are linear and disjoint."
+                                ? "Schema 1.46 supports input, Sequence, direct MCP tool, terminal plain-text Agent, and output nodes; paths are linear and disjoint."
                         : isTransformPathGraph
                             ? isTransformChainGraph
                                 ? "Schema 1.49 supports input, Sequence, direct MCP tool, at most one uppercase and one reverse deterministic text step, and output nodes; paths are linear and disjoint."
                                 : "Schema 1.47/1.48 supports input, Sequence, direct MCP tool, one terminal deterministic text step, and output nodes; paths are linear and disjoint."
-                            : "Schema 1.43 supports input, Sequence, direct MCP tool, and output nodes; paths are linear and disjoint."
+                                : isWorkflowCallGraph
+                                    ? "Schema 1.50 supports input, Sequence, direct MCP tool, one terminal pinned string WorkflowCall, and output nodes; paths are linear and disjoint."
+                                    : "Schema 1.43 supports input, Sequence, direct MCP tool, and output nodes; paths are linear and disjoint."
                     : "Schema 1.38 supports input, Sequence, and output nodes.");
 
         var sequenceNodes = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Sequence).ToArray();
@@ -1062,13 +1066,15 @@ public static class WorkflowValidator
                     }
                     if (!definition.Nodes.TryGetValue(current, out var currentNode) || currentNode is null)
                         break;
-                    if (currentNode.Type is not (NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse))
+                    if (currentNode.Type is not (NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse or NodeTypes.WorkflowCall))
                         error("sequence.path.node", $"nodes.{current}",
                             isAgentPathGraph
                                 ? $"Sequence output {SequenceOutputName(outputId)} reaches '{current}', which is neither a direct MCP tool nor a terminal plain-text Agent."
                                 : isTransformPathGraph
                                     ? $"Sequence output {SequenceOutputName(outputId)} reaches '{current}', which is not a direct MCP tool or the terminal deterministic text step allowed by schema 1.47/1.48."
-                                    : $"Sequence output {SequenceOutputName(outputId)} reaches '{current}', which is not a direct MCP tool. Schema 1.43 paths may contain only direct MCP tool nodes before the workflow Output.");
+                                    : isWorkflowCallGraph
+                                        ? $"Sequence output {SequenceOutputName(outputId)} reaches '{current}', which is not a direct MCP tool or terminal WorkflowCall."
+                                        : $"Sequence output {SequenceOutputName(outputId)} reaches '{current}', which is not a direct MCP tool. Schema 1.43 paths may contain only direct MCP tool nodes before the workflow Output.");
                     if (isAgentPathGraph && currentNode.Type == NodeTypes.Agent)
                     {
                         agentCount++;
@@ -1116,7 +1122,8 @@ public static class WorkflowValidator
                     }
                     if (currentNode.Type == NodeTypes.McpTool && nextEdges[0].Source.PortId != "then" ||
                         currentNode.Type == NodeTypes.Agent && nextEdges[0].Source.PortId != "out" ||
-                        currentNode.Type is (NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse) && nextEdges[0].Source.PortId != "then")
+                        currentNode.Type is (NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse) && nextEdges[0].Source.PortId != "then" ||
+                        currentNode.Type == NodeTypes.WorkflowCall && nextEdges[0].Source.PortId != "out")
                         error("sequence.path.port", $"nodes.{current}", "Direct MCP paths must leave through 'then' and Agent paths must leave through 'out'.");
                     if (isTransformChainGraph && isTransform)
                     {
@@ -1128,6 +1135,8 @@ public static class WorkflowValidator
                     }
                     if (isAgentPathGraph && currentNode.Type == NodeTypes.Agent && nextEdges[0].Target.NodeId != output)
                         error("sequence.agent.terminal", $"nodes.{current}", "A terminal Agent must connect directly to the workflow Output.");
+                    if (isWorkflowCallGraph && currentNode.Type == NodeTypes.WorkflowCall && nextEdges[0].Target.NodeId != output)
+                        error("sequence.call.terminal", $"nodes.{current}", "A terminal WorkflowCall must connect directly to the workflow Output.");
                     current = nextEdges[0].Target.NodeId;
                 }
                 if (current != output)

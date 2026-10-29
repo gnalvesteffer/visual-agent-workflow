@@ -413,7 +413,7 @@ public static class GraphEditing
         string outputId, string label)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph) ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration || !SequenceOutputLimits.IsValidId(outputId) ||
             string.IsNullOrWhiteSpace(label) || label.Trim().Length > SequenceOutputLimits.MaximumLabelLength ||
@@ -430,7 +430,7 @@ public static class GraphEditing
     {
         ArgumentNullException.ThrowIfNull(definition);
         if (offset is not (-1 or 1)) throw new ArgumentOutOfRangeException(nameof(offset));
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph) ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration)
             throw new ArgumentException("Choose a configured Sequence node.", nameof(sequenceNodeId));
@@ -448,7 +448,7 @@ public static class GraphEditing
     {
         ArgumentNullException.ThrowIfNull(definition);
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph) ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration || definition.ExecutionConnections is not { } execution)
             throw new ArgumentException("Choose a configured Sequence node.", nameof(sequenceNodeId));
@@ -475,7 +475,7 @@ public static class GraphEditing
     {
         ArgumentNullException.ThrowIfNull(definition);
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph) ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration || definition.ExecutionConnections is not { } execution)
             throw new ArgumentException("Choose a configured Sequence node.", nameof(sequenceNodeId));
@@ -539,6 +539,17 @@ public static class GraphEditing
             definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty)
             throw new ArgumentException("Enable Sequence transform chains only from a valid schema 1.47 or 1.48 graph.", nameof(definition));
         return definition with { SchemaVersion = WorkflowSchemaVersions.SequenceTransformChainGraph };
+    }
+
+    /// <summary>Promotes a valid 1.49 Sequence draft to the additive WorkflowCall-capable schema.</summary>
+    /// <remarks>Call-bearing drafts are validated after the schema transition; invalid drafts remain saveable but are not revisions.</remarks>
+    public static WorkflowDefinition EnableSequenceWorkflowCallGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceTransformChainGraph ||
+            definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty)
+            throw new ArgumentException("Enable Sequence WorkflowCall paths only from a valid schema 1.49 graph.", nameof(definition));
+        return definition with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallGraph };
     }
 
     private static (NodeDefinition Fork, ParallelForkConfiguration ForkConfiguration, string JoinId, NodeDefinition Join,
