@@ -44,4 +44,6 @@ preserves the child workflow ID, revision ID, release version, content hash, and
 embedded snapshot, while dependency requirements remain stable. The existing
 validator and nested playback tests cover hash/identity tampering. Migration,
 recursive admission, host-grant preflight, and public schema promotion remain
-separate gates tracked in Decision 0047.
+separate gates tracked in Decision 0047. Admission now evaluates provider
+grants against nested child workflow IDs and content hashes rather than only
+top-level Agent nodes.

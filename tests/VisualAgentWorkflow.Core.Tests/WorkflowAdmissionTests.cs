@@ -109,6 +109,39 @@ public sealed class WorkflowAdmissionTests
     }
 
     [Fact]
+    public void Nested_agent_provider_grants_are_checked_against_the_child_identity()
+    {
+        var child = SequenceAgentPathDefinition();
+        var parent = GraphEditing.InsertNodeAfter(Baseline("nested-admission-parent", "1.19"), "input", "out",
+            new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+            {
+                WorkflowCall = new(child.WorkflowId, Guid.NewGuid(), 1, WorkflowJson.ComputeHash(child), child)
+            });
+        var package = WorkflowPackageJson.Create(parent, WorkflowLayout.Create(parent));
+        var provider = Assert.Single(package.Requirements, requirement => requirement.Kind == "agent-provider-contract");
+        var tools = package.Requirements.Where(requirement => requirement.Kind == "mcp-tool")
+            .Select(requirement => new WorkflowAdmissionToolFact(requirement.Id, requirement.ContractHash!)).ToImmutableArray();
+        var host = new WorkflowAdmissionHostSnapshot([provider.Id], tools)
+        {
+            ProviderFacts = [new(provider.Id, provider.ContractHash!)],
+            AgentGrants = []
+        };
+
+        var denied = WorkflowAdmission.Assess(package, host);
+
+        Assert.Contains(denied.Issues, issue => issue.Kind == WorkflowAdmissionIssueKind.GrantDenied &&
+            issue.Message.Contains("research-agent", StringComparison.Ordinal) &&
+            issue.Message.Contains(child.WorkflowId, StringComparison.Ordinal));
+
+        host = host with
+        {
+            AgentGrants = [new(child.WorkflowId, WorkflowJson.ComputeHash(child), "research-agent", provider.Id, provider.ContractHash!)]
+        };
+
+        Assert.True(WorkflowAdmission.Assess(package, host).HostDependenciesSatisfied);
+    }
+
+    [Fact]
     public void Fabricated_package_requirements_are_rejected_before_assessment()
     {
         var definition = Definition();
@@ -154,6 +187,17 @@ public sealed class WorkflowAdmissionTests
                 ["last"] = new(new("agent", "out"), new("output", "in"), "data")
             }.ToImmutableSortedDictionary());
     }
+
+    private static WorkflowDefinition Baseline(string workflowId, string schema) => new(schema, workflowId, "input",
+        new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["output"] = new(NodeTypes.Output, "1.0.0")
+        }.ToImmutableSortedDictionary(),
+        new Dictionary<string, ConnectionDefinition>
+        {
+            ["edge"] = new(new("input", "out"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary());
 
     private static WorkflowDefinition SequenceAgentPathDefinition()
     {

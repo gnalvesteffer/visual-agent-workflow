@@ -133,15 +133,16 @@ public static class WorkflowAdmission
                             $"Agent provider '{requirement.Id}' has a different execution contract."));
                         break;
                     }
-                    foreach (var node in package.Definition.Nodes.Where(pair =>
-                                 pair.Value.Agent is { ProviderId: var providerId, ProviderContractHash: var contractHash } &&
-                                 providerId == requirement.Id && contractHash == requirement.ContractHash))
+                    foreach (var (workflow, nodeId, agent) in EnumerateAgentNodes(package.Definition))
                     {
-                        if (!host.AgentGrants.Contains(new(package.Definition.WorkflowId, package.DefinitionHash,
-                                node.Key, requirement.Id, requirement.ContractHash!),
+                        if (!string.Equals(agent.ProviderId, requirement.Id, StringComparison.Ordinal) ||
+                            !string.Equals(agent.ProviderContractHash, requirement.ContractHash, StringComparison.Ordinal))
+                            continue;
+                        if (!host.AgentGrants.Contains(new(workflow.WorkflowId, WorkflowJson.ComputeHash(workflow),
+                                nodeId, requirement.Id, requirement.ContractHash!),
                                 EqualityComparer<WorkflowAdmissionAgentGrant>.Default))
                             issues.Add(new(requirement, WorkflowAdmissionIssueKind.GrantDenied,
-                                $"The host did not grant provider contract '{requirement.Id}' for Agent node '{node.Key}'."));
+                                $"The host did not grant provider contract '{requirement.Id}' for Agent node '{nodeId}' in workflow '{workflow.WorkflowId}'."));
                     }
                     break;
                 case "mcp-tool":
@@ -170,6 +171,19 @@ public static class WorkflowAdmission
         }
 
         return new(package.Definition.WorkflowId, package.DefinitionHash, package.Requirements, issues.ToImmutable());
+    }
+
+    private static IEnumerable<(WorkflowDefinition Workflow, string NodeId, AgentConfiguration Agent)> EnumerateAgentNodes(
+        WorkflowDefinition definition)
+    {
+        foreach (var (nodeId, node) in definition.Nodes)
+        {
+            if (node?.Agent is { } agent)
+                yield return (definition, nodeId, agent);
+            if (node?.WorkflowCall?.Definition is { } child)
+                foreach (var nested in EnumerateAgentNodes(child))
+                    yield return nested;
+        }
     }
 
     private static bool ValidBindingId(string value) =>
