@@ -304,6 +304,36 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Persisted_terminal_agent_path_enforces_aggregate_token_limit_and_settles_sequence_failure()
+    {
+        var events = new List<ExecutionEvent>();
+        var provider = new AgentProviderDescriptor("sequence-proof", "Proof", "scripted-text-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, static () => new OverBudgetChatClient())],
+            new RecordingBroker());
+        var source = SequenceAgentPathDefinition();
+        var definition = source with
+        {
+            Nodes = source.Nodes.SetItem("inventory-agent",
+                source.Nodes["inventory-agent"] with
+                {
+                    Agent = source.Nodes["inventory-agent"].Agent! with { MaxTotalTokens = 5 }
+                })
+        };
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(new RecordingBroker(), agents)
+            .ExecuteWithOutcomeAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "sequence-agent-budget"), "hello", null,
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.NotNull(failure);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentLimitExceeded &&
+            evt.Data!.Contains("tokens_exhausted", StringComparison.Ordinal));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.AgentCompleted);
+    }
+
+    [Fact]
     public async Task Private_agent_sequence_proof_records_provider_timeout_as_failure_without_retry()
     {
         var events = new List<ExecutionEvent>();
@@ -575,6 +605,26 @@ public sealed class SequenceProductionRunnerTests
             ModelId = "out-of-order-v1",
             FinishReason = ChatFinishReason.Stop
         };
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose() { }
+    }
+
+    private sealed class OverBudgetChatClient : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+            CancellationToken cancellationToken = default) => Task.FromResult(new ChatResponse(
+            new ChatMessage(ChatRole.Assistant, "bounded response"))
+        {
+            ModelId = "scripted-text-v1",
+            FinishReason = ChatFinishReason.Stop,
+            Usage = new UsageDetails { InputTokenCount = 4, OutputTokenCount = 3, TotalTokenCount = 7 }
+        });
 
         public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
             ChatOptions? options = null, CancellationToken cancellationToken = default) =>

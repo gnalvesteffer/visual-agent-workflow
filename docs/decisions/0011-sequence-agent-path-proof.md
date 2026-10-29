@@ -137,8 +137,12 @@ Promotion gates, in order:
 - [ ] Prove the same settlement contract for the public candidate with the
   real Agent executor and host capability admission; never complete the
   workflow while descendant work remains active.
-- [ ] Add public-subset finite resource-limit admission and execution tests once
+- [ ] Add public-subset model-turn limit admission and execution tests once
   the remaining public runtime settlement contract is admitted.
+- [x] Prove the public-schema aggregate-token limit through the persisted
+  Sequence runner and real `AgentNodeExecutor`; an over-budget provider
+  response records `AgentLimitExceeded`, settles the Sequence output as
+  failed, and does not report Agent completion.
 - [x] Prove schema-1.46 provider-contract grant denial in both Core assessment
   and Hosting admission: a matching provider fact without the exact
   workflow-definition/node grant is rejected before journal/run creation.
@@ -164,3 +168,10 @@ contract hash. Missing that grant produces a typed `GrantDenied` admission
 issue and prevents journal/run creation. This closes the grant-denial proof
 gate without promoting schema 1.46 to Studio authoring or changing the
 remaining settlement, resource-limit, package, and playback gates.
+
+The persisted terminal-Agent runner now also has a resource-limit regression:
+an admitted schema-1.46 path with a finite aggregate-token budget fails closed
+when the provider reports usage above that budget, records the limit outcome,
+and settles the corresponding Sequence failure. Model-turn-limit coverage on
+the public path remains separate because the candidate deliberately excludes
+tool-call rounds.
