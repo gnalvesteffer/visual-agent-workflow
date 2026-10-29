@@ -169,6 +169,29 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Schema_1_46_executes_direct_mcp_result_into_a_terminal_agent_path()
+    {
+        var events = new List<ExecutionEvent>();
+        var chatClient = new CapturingChatClient();
+        var broker = new RecordingBroker();
+        var provider = new AgentProviderDescriptor("sequence-proof", "Proof", "scripted-text-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => chatClient)], broker);
+
+        var result = await new WorkflowRunner(broker, agents).ExecuteWithOutcomeAsync(
+            Guid.NewGuid(), WorkflowRevision.Create(SequenceMixedPathDefinition(), "sequence-mcp-agent-path"), "hello", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Contains("tool-result", chatClient.Messages.SelectMany(message => message.Contents)
+            .OfType<TextContent>().Select(content => content.Text));
+        var toolCompleted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "inventory-tool");
+        var agentStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentStarted && evt.NodeId == "inventory-agent");
+        Assert.True(toolCompleted.Sequence < agentStarted.Sequence);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted && ReadEvidence(evt).OutputId == "inventory");
+    }
+
+    [Fact]
     public async Task Schema_1_46_records_agent_failure_before_sequence_failure()
     {
         var events = new List<ExecutionEvent>();
@@ -571,6 +594,23 @@ public sealed class SequenceProductionRunnerTests
         };
     }
 
+    private static WorkflowDefinition SequenceMixedPathDefinition()
+    {
+        var source = SequenceAgentPathDefinition();
+        var tool = new NodeDefinition(NodeTypes.McpTool, "1.0.0", new ToolBindingRequest("demo.inventory", new string('a', 64)))
+        {
+            McpArgumentsJson = "{}"
+        };
+        return source with
+        {
+            Nodes = source.Nodes.Add("inventory-tool", tool),
+            ExecutionConnections = source.ExecutionConnections!
+                .Remove("sequence-inventory")
+                .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("inventory-tool", "execute"), "execution"))
+                .Add("inventory-agent", new(new("inventory-tool", "then"), new("inventory-agent", "execute"), "execution"))
+        };
+    }
+
     private sealed class SequenceProofAgentExecutor : IAgentNodeExecutor
     {
         private readonly bool fail;
@@ -692,6 +732,31 @@ public sealed class SequenceProductionRunnerTests
             FinishReason = ChatFinishReason.Stop,
             Usage = new UsageDetails { InputTokenCount = 4, OutputTokenCount = 3, TotalTokenCount = 7 }
         });
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose() { }
+    }
+
+    private sealed class CapturingChatClient : IChatClient
+    {
+        public List<ChatMessage> Messages { get; } = [];
+
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            Messages.AddRange(messages);
+            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "bounded response"))
+            {
+                ModelId = "scripted-text-v1",
+                FinishReason = ChatFinishReason.Stop,
+                Usage = new UsageDetails { InputTokenCount = 4, OutputTokenCount = 3, TotalTokenCount = 7 }
+            });
+        }
 
         public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
             ChatOptions? options = null, CancellationToken cancellationToken = default) =>

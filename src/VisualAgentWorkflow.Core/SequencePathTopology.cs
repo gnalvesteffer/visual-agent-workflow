@@ -32,6 +32,7 @@ public sealed record SequencePathTopologyAnalysis(
 
 /// <summary>
 /// Analyzes disjoint, bounded Sequence output paths without changing the public schema catalog.
+/// Schema 1.46 paths may contain zero or more direct MCP nodes followed by one terminal plain-text Agent.
 /// </summary>
 public static class SequencePathTopologyAnalyzer
 {
@@ -109,6 +110,7 @@ public static class SequencePathTopologyAnalyzer
             var visited = new HashSet<string>(StringComparer.Ordinal);
             var nodeIds = ImmutableArray.CreateBuilder<string>();
             var containsAgent = false;
+            var agentCount = 0;
             while (current != output.Key && visited.Add(current))
             {
                 if (nodeIds.Count >= MaximumPathNodes)
@@ -144,6 +146,7 @@ public static class SequencePathTopologyAnalyzer
                 if (node.Type == NodeTypes.Agent)
                 {
                     containsAgent = true;
+                    agentCount++;
                     ValidateAgent(node, current, outputId, Issue);
                 }
                 var next = outgoing.GetValueOrDefault(current) ?? [];
@@ -176,9 +179,9 @@ public static class SequencePathTopologyAnalyzer
                 if (finalEdge is null)
                     Issue("sequence.path.terminal", $"nodes.{sequence.Key}.sequence.outputs.{outputId}",
                         $"Sequence output {name} must end at the workflow Output.");
-                if (containsAgent && (nodeIds.Count != 1 || definition.Nodes[nodeIds[nodeIds.Count - 1]].Type != NodeTypes.Agent))
+                if (containsAgent && (agentCount != 1 || definition.Nodes[nodeIds[nodeIds.Count - 1]].Type != NodeTypes.Agent))
                     Issue("sequence.path.mixed", $"nodes.{sequence.Key}.sequence.outputs.{outputId}",
-                        $"Sequence output {name} mixes MCP tools with an Agent; the bounded Agent path must contain exactly one terminal plain-text Agent.");
+                        $"Sequence output {name} mixes MCP tools with an Agent; the bounded Agent path must contain exactly one terminal plain-text Agent after its direct MCP tools.");
                 paths.Add(new(outputId, current, nodeIds.ToImmutable(), containsAgent));
             }
         }

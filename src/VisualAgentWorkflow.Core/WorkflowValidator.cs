@@ -1020,7 +1020,7 @@ public static class WorkflowValidator
                 if (rootEdges.Length == 0)
                 {
                     error("sequence.path.root", $"nodes.{sequence}.sequence.outputs.{outputId}",
-                        $"Sequence output {SequenceOutputName(outputId)} has no downstream path. Connect it to a direct MCP tool path ending at the workflow Output.");
+                        $"Sequence output {SequenceOutputName(outputId)} has no downstream path. Connect it to a bounded direct-MCP path ending at the workflow Output, optionally with one terminal plain-text Agent in schema 1.46.");
                     continue;
                 }
                 if (rootEdges.Length > 1)
@@ -1033,6 +1033,7 @@ public static class WorkflowValidator
                 var pathStart = current;
                 var visited = new HashSet<string>(StringComparer.Ordinal);
                 var pathLength = 0;
+                var agentCount = 0;
                 while (current != output && visited.Add(current))
                 {
                     pathLength++;
@@ -1050,9 +1051,12 @@ public static class WorkflowValidator
                                 ? $"Sequence output {SequenceOutputName(outputId)} reaches '{current}', which is neither a direct MCP tool nor a terminal plain-text Agent."
                                 : $"Sequence output {SequenceOutputName(outputId)} reaches '{current}', which is not a direct MCP tool. Schema 1.43 paths may contain only direct MCP tool nodes before the workflow Output.");
                     if (isAgentPathGraph && currentNode.Type == NodeTypes.Agent)
+                    {
+                        agentCount++;
                         ValidateSequenceAgentLimits(currentNode, current, SequenceOutputName(outputId), error);
-                    if (isAgentPathGraph && currentNode.Type == NodeTypes.Agent && current != pathStart)
-                        error("sequence.agent.position", $"nodes.{current}", "A terminal Agent must be the first and only path node after a Sequence output.");
+                    }
+                    if (isAgentPathGraph && currentNode.Type == NodeTypes.Agent && current != pathStart && agentCount > 1)
+                        error("sequence.agent.position", $"nodes.{current}", "A bounded path may contain only one terminal Agent after its direct MCP tools.");
                     if (current != output && !ownedNodes.Add(current))
                     {
                         var owner = pathOwners.GetValueOrDefault(current);

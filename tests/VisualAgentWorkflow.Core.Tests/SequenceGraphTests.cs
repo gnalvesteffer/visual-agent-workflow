@@ -188,7 +188,7 @@ public sealed class SequenceGraphTests
 
         Assert.Contains("Architecture research", issue.Message, StringComparison.Ordinal);
         Assert.Contains("then.architecture", issue.Message, StringComparison.Ordinal);
-        Assert.Contains("direct MCP tool path", issue.Message, StringComparison.Ordinal);
+        Assert.Contains("bounded direct-MCP path", issue.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -231,6 +231,7 @@ public sealed class SequenceGraphTests
         var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0")
         {
             Agent = new AgentConfiguration("qwen", null, "Summarize the supplied research.", [])
+            { ProviderContractHash = new string('a', 64), MaxTurns = 1, MaxTotalTokens = 4000 }
         };
         var candidate = definition with
         {
@@ -253,15 +254,17 @@ public sealed class SequenceGraphTests
     }
 
     [Fact]
-    public void Sequence_path_topology_analyzer_rejects_mixed_mcp_and_agent_paths_without_schema_promotion()
+    public void Sequence_path_topology_analyzer_accepts_direct_mcp_tools_before_a_terminal_agent()
     {
         var definition = PathDefinition();
         var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0")
         {
             Agent = new AgentConfiguration("qwen", null, "Summarize the supplied research.", [])
+            { ProviderContractHash = new string('a', 64), MaxTurns = 1, MaxTotalTokens = 4000 }
         };
         var candidate = definition with
         {
+            SchemaVersion = WorkflowSchemaVersions.SequenceAgentPathGraph,
             Nodes = definition.Nodes.Add("inventory-agent", agent),
             ExecutionConnections = definition.ExecutionConnections!
                 .Remove("inventory-output")
@@ -271,9 +274,15 @@ public sealed class SequenceGraphTests
 
         var analysis = SequencePathTopologyAnalyzer.Analyze(candidate);
 
-        Assert.Contains(analysis.Issues, issue => issue.Code == "sequence.path.mixed");
-        Assert.Contains(analysis.Issues, issue => issue.Message.Contains("exactly one terminal plain-text Agent", StringComparison.Ordinal));
-        Assert.Equal(WorkflowSchemaVersions.SequencePathGraph, candidate.SchemaVersion);
+        Assert.True(analysis.IsValid, string.Join(Environment.NewLine, analysis.Issues.Select(issue => issue.Message)));
+        var path = Assert.Single(analysis.Paths, path => path.OutputId == "inventory");
+        Assert.Equal(["inventory-tool", "inventory-agent"], path.NodeIds.ToArray());
+        Assert.True(path.ContainsPlainTextAgent);
+        Assert.Empty(WorkflowValidator.Validate(candidate));
+        var package = WorkflowPackageJson.Create(candidate, WorkflowLayout.Create(candidate));
+        var restored = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(candidate, package.Layout)).Definition;
+        Assert.Equal(candidate.ExecutionConnections, restored.ExecutionConnections);
+        Assert.Equal(WorkflowJson.ComputeHash(candidate), WorkflowJson.ComputeHash(restored));
     }
 
     [Fact]

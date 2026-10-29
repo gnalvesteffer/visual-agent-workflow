@@ -22,7 +22,7 @@ definition, but is not yet exposed by Studio promotion controls or package
 authoring. Checkpoint recovery remains excluded.
 
 The proof intentionally excludes Agent routes, delegation, teams, collaboration
-channels, graph-function tools, MCP tools, approvals, nested workflows,
+channels, graph-function tools, Agent-owned MCP tools, approvals, nested workflows,
 nested Sequences, retries, and durable resume. A single output is permitted
 only inside this proof seam; public Sequence definitions remain bounded at two
 to-four outputs.
@@ -49,8 +49,9 @@ provider uncertainty. Those capabilities need an explicit compositional
 contract for failure, cancellation, authority closure, sibling settlement,
 and replay before they can be admitted to a public Sequence path.
 
-The additive schema allows one Agent directly before the Output
-barrier, alongside the existing direct-MCP path shape, but only after tests
+The additive schema allows zero or more direct MCP nodes followed by one
+plain-text Agent directly before the Output barrier, alongside the existing
+MCP-only path shape, but only after tests
 prove nested event lineage, uncertain outcomes, host-grant denial, cancellation
 races, no premature run completion, and playback without live calls. This
 document records the gate; it does not advertise that future schema.
@@ -68,9 +69,10 @@ playback, and public schema compatibility remain unproven.
 
 The schema is additive `1.46`, preserving schemas 1.38, 1.43,
 1.44, and 1.45. It may eventually allow each of the existing two-to-four Sequence
-outputs to use either its current direct-MCP path or exactly one terminal
-plain-text Agent immediately before Output. The candidate excludes Agent
-routes, structured results, MCP or graph-function tools, skills, delegation,
+outputs to use either its current direct-MCP path or zero or more direct MCP
+nodes followed by exactly one terminal plain-text Agent immediately before
+Output. The candidate excludes Agent
+routes, structured results, Agent-owned MCP or graph-function tools, skills, delegation,
 teams, collaboration, approvals, workflow calls, loops, branches, joins,
 retries, nested Sequences, and durable resume. It is implemented in Core and
 the normal runner, but not advertised as complete parity.
@@ -102,7 +104,8 @@ remaining lease, compatibility, and Studio admission proofs are complete.
 Schema 1.46 now authoritatively validates the bounded topology and runs it
 through the normal persisted-definition runner. Each ordered Sequence output
 must choose one disjoint linear path containing either direct MCP nodes or
-exactly one terminal plain-text Agent immediately before Output. Agent paths
+zero or more direct MCP nodes followed by exactly one terminal plain-text
+Agent immediately before Output. Agent paths
 reject tools, skills, delegation, graph-function tools, routes, structured
 results, parameter-bound limits, and unbounded model turns. Focused Core and
 Agent Framework regressions cover mixed-path success plus Agent failure and
@@ -172,6 +175,10 @@ Promotion gates, in order:
   terminal-Agent package cannot be silently relabeled as schema 1.43; package
   creation rejects the downgraded definition and the validator reports the
   schema mismatch. Full older-runtime package compatibility remains open.
+- [x] Qualify the first mixed downstream path: direct MCP output is passed to
+  one terminal plain-text Agent through persisted schema 1.46 execution, with
+  package topology validation and lifecycle ordering coverage. Agent-owned
+  tools and broader branch/join topology remain excluded.
 - [ ] Qualify package compatibility with older runtimes and the remaining public
   promotion gates before advertising schema 1.46 as a complete capability.
 
