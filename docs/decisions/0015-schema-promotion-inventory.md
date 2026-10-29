@@ -25,6 +25,11 @@ topology and validity preconditions. A caller that promotes a definition must
 create a new draft/revision through the owning storage boundary while retaining
 the source definition and its hash as the source artifact.
 
+The bounded executable foundation is documented separately in [the explicit
+workflow migration registry decision](0048-explicit-workflow-migration-registry.md).
+This inventory remains metadata-only; it is not an alternate registry or a
+promise that every listed promotion is executable through that foundation.
+
 The unusual version jumps are intentional and describe observed method
 behavior, not numeric compatibility or a promise that intermediate schemas can
 be skipped generally. In particular, `EnableDirectMcpGraph` is recorded as
@@ -36,7 +41,7 @@ does not correct or reinterpret the separate `1.36` direct-MCP schema.
 Core tests pin the ordered operation IDs and exact source/target pairs, prove
 the metadata is absent from definition JSON and hashes, verify a named
 promotion leaves its source unchanged, and confirm bootstrap/topology edits are
-not represented as version-only promotions. The migration item in the roadmap
-remains unchecked: historical package loading, explicit source-preserving
-transforms, revision provenance, and broader migration coverage still require
-separate contracts and tests.
+not represented as version-only promotions. The full migration gate in the
+roadmap remains unchecked: historical package loading, persisted provenance,
+explicit source-preserving transforms, revision provenance, and broader
+migration coverage still require separate contracts and tests.
