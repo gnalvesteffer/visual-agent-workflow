@@ -201,6 +201,32 @@
                             <button type="button" @onclick="InsertSequenceWorkflowCallJsonComposition" disabled="@(preview is not null || busy || !CanAuthorSequenceWorkflowCallJsonComposition)">Add JSON composition node</button>
                         </fieldset>
                     }
+                    @if (SequenceCallJsonChainPaths.Length > 0)
+                    {
+                        <fieldset class="vaw-sequence-call-authoring" aria-label="Add a second JSON composition node">
+                            <legend>JSON chain</legend>
+                            <p class="vaw-help">Extend a JSON projection with one compatible pure data node. Selectors are terminal; execution still goes directly to Output.</p>
+                            <label>WorkflowCall path
+                                <select aria-label="WorkflowCall path for JSON chain" @bind="sequenceCallJsonNodeId" disabled="@(preview is not null || busy)">
+                                    <option value="">Choose a JSON projection path</option>
+                                    @foreach (var path in SequenceCallJsonChainPaths)
+                                    {
+                                        <option @key="path.CallNodeId" value="@path.CallNodeId">@path.CallNodeId · @path.ChildWorkflowId</option>
+                                    }
+                                </select>
+                            </label>
+                            <label>Next composition node
+                                <select aria-label="Next JSON chain node" @bind="sequenceCallJsonCompositionType" disabled="@(preview is not null || busy)">
+                                    <option value="@NodeTypes.JsonSelectString">Select value as text</option>
+                                    <option value="@NodeTypes.JsonProject">Project JSON object</option>
+                                </select>
+                            </label>
+                            <label>JSON Pointer
+                                <input aria-label="JSON pointer for second composition" @bind="sequenceCallJsonPointer" maxlength="1024" disabled="@(preview is not null || busy)" />
+                            </label>
+                            <button type="button" @onclick="InsertSequenceWorkflowCallJsonChainComposition" disabled="@(preview is not null || busy || !CanAuthorSequenceWorkflowCallJsonChainComposition)">Add second JSON node</button>
+                        </fieldset>
+                    }
                     <ul class="vaw-requirements">
                         @foreach (var requirement in reusableRequirements)
                         { <li @key="requirement">@RequirementLabel(requirement): @RequirementAvailability(requirement)</li> }

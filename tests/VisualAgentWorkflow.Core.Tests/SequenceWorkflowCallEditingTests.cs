@@ -142,6 +142,25 @@ public sealed class SequenceWorkflowCallEditingTests
         Assert.True(SequenceWorkflowCallJsonTopology.Analyze(projection).IsValid);
     }
 
+    [Fact]
+    public void Adds_a_terminal_selector_after_a_projection_in_schema_1_54()
+    {
+        var child = WorkflowRevision.Create(JsonBaseline("json-child"), "test");
+        var direct = WorkflowCallEditing.AppendSequenceWorkflowCallJsonDraft(
+            PathGraph() with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph }, "sequence", new(1, child));
+        var oneNode = WorkflowCallEditing.AppendSequenceWorkflowCallJsonCompositionDraft(
+            direct, direct.Nodes.Single(pair => pair.Value.Type == NodeTypes.WorkflowCall).Key, NodeTypes.JsonProject, "/answer");
+        var chain = GraphEditing.EnableSequenceWorkflowCallJsonChainGraph(oneNode);
+        var callId = chain.Nodes.Single(pair => pair.Value.Type == NodeTypes.WorkflowCall).Key;
+
+        var updated = WorkflowCallEditing.AppendSequenceWorkflowCallJsonChainCompositionDraft(
+            chain, callId, NodeTypes.JsonSelectString, "/value");
+
+        Assert.Equal(WorkflowDataTypes.String, updated.Nodes["output"].OutputDataType);
+        Assert.Equal(2, SequenceWorkflowCallJsonChainTopology.Analyze(updated).Paths.Single().JsonNodeIds.Length);
+        Assert.Empty(WorkflowValidator.Validate(updated));
+    }
+
     private static WorkflowDefinition PathGraph()
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)

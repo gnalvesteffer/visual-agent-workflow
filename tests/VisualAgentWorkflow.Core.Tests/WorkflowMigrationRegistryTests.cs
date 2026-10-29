@@ -10,7 +10,7 @@ public sealed class WorkflowMigrationRegistryTests
     public void Registry_exposes_the_explicit_sequence_schema_transitions()
     {
         Assert.Equal(
-            ["sequence-reverse-paths", "sequence-transform-chains-from-reverse", "sequence-transform-chains-from-uppercase", "sequence-workflow-call-agents", "sequence-workflow-call-json", "sequence-workflow-call-paths", "sequence-workflow-call-transforms"],
+            ["sequence-reverse-paths", "sequence-transform-chains-from-reverse", "sequence-transform-chains-from-uppercase", "sequence-workflow-call-agents", "sequence-workflow-call-json", "sequence-workflow-call-json-chains", "sequence-workflow-call-paths", "sequence-workflow-call-transforms"],
             WorkflowMigrationRegistry.All.Select(descriptor => descriptor.OperationId));
         var descriptor = Assert.Single(WorkflowMigrationRegistry.All, item => item.OperationId == "sequence-workflow-call-paths");
         Assert.Equal("1.49", descriptor.FromSchema);
@@ -86,6 +86,24 @@ public sealed class WorkflowMigrationRegistryTests
         Assert.Equal(WorkflowSchemaVersions.SequenceTransformChainGraph, attempt.Result!.TargetRevision.Definition.SchemaVersion);
         Assert.Equal(["sequence-reverse-paths", "sequence-transform-chains-from-reverse"],
             attempt.Result.Provenance.OperationIds.ToArray());
+    }
+
+    [Fact]
+    public void Explicit_json_chain_migration_preserves_graph_identity_and_layout()
+    {
+        var sourceDefinition = JsonCallGraph();
+        var source = WorkflowRevision.Create(sourceDefinition, "source") with { Layout = WorkflowLayout.Create(sourceDefinition) };
+
+        var attempt = WorkflowMigrationRegistry.TryMigrate(new(source, ["sequence-workflow-call-json-chains"], "migrator"));
+
+        Assert.True(attempt.Succeeded, string.Join("; ", attempt.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        var result = attempt.Result!;
+        Assert.Equal(WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph, result.TargetRevision.Definition.SchemaVersion);
+        Assert.Empty(WorkflowValidator.Validate(result.TargetRevision.Definition));
+        Assert.Equal(source.RevisionId, result.TargetRevision.ParentRevisionId);
+        Assert.Equal(source.Definition.Nodes.Keys, result.TargetRevision.Definition.Nodes.Keys);
+        Assert.Equal(source.Definition.Connections.Keys, result.TargetRevision.Definition.Connections.Keys);
+        Assert.Equal(source.Layout, result.TargetRevision.Layout);
     }
 
     [Fact]
@@ -174,5 +192,48 @@ public sealed class WorkflowMigrationRegistryTests
             ExecutionConnections = execution
         };
         return GraphEditing.EnableSequenceTransformPathGraph(definition);
+    }
+
+    private static WorkflowDefinition JsonCallGraph()
+    {
+        var child = new WorkflowDefinition("1.13", "migration-json-child", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0") { InputDataType = WorkflowDataTypes.Json },
+                ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.Json }
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["value"] = new(new("input", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal));
+        var childRevision = WorkflowRevision.Create(child, "source");
+        var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(child.WorkflowId, childRevision.RevisionId, 1, childRevision.ContentHash, child)
+        };
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph, "migration-json-parent", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["sequence"] = new(NodeTypes.Sequence, "1.0.0") { Sequence = new([new("call", "Call"), new("sibling", "Sibling")]) },
+                ["call"] = call,
+                ["sibling"] = new(NodeTypes.McpTool, "1.0.0", new("sibling", new string('a', 64))) { McpArgumentsJson = "{}" },
+                ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.Json }
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["call-output-data"] = new(new("call", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-sequence"] = new(new("input", "then"), new("sequence", "execute"), "execution"),
+                ["sequence-call"] = new(new("sequence", "then.call"), new("call", "execute"), "execution"),
+                ["call-output"] = new(new("call", "out"), new("output", "execute"), "execution"),
+                ["sequence-sibling"] = new(new("sequence", "then.sibling"), new("sibling", "execute"), "execution"),
+                ["sibling-output"] = new(new("sibling", "then"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+        };
+        return definition;
     }
 }

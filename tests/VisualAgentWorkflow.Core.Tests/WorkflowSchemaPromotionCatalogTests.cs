@@ -32,6 +32,7 @@ public sealed class WorkflowSchemaPromotionCatalogTests
             ("sequence-workflow-call-transforms", "1.50", "1.51", nameof(GraphEditing.EnableSequenceWorkflowCallTransformGraph)),
             ("sequence-workflow-call-agents", "1.51", "1.52", nameof(GraphEditing.EnableSequenceWorkflowCallAgentGraph)),
             ("sequence-workflow-call-json", "1.52", "1.53", nameof(GraphEditing.EnableSequenceWorkflowCallJsonGraph)),
+            ("sequence-workflow-call-json-chains", "1.53", "1.54", nameof(GraphEditing.EnableSequenceWorkflowCallJsonChainGraph)),
             ("mutable-variables", "1.23", "1.44", nameof(GraphEditing.EnableMutableVariablesGraph))
         };
 

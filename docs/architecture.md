@@ -188,6 +188,13 @@ reinterpret existing calls, Agents, or transforms. The runner stores the child
 result as a typed JSON runtime value for the explicit data evaluator and
 serializes it only at the public result boundary. See [Decision 0053](decisions/0053-sequence-workflow-call-json-composition.md).
 
+Schema 1.54 preserves those forms and adds a dedicated bounded pure-data chain:
+`WorkflowCall.out → JsonProject → JsonProject|JsonSelectString → Output.in`. The
+execution barrier remains direct to Output, intermediate values remain typed JSON,
+and the explicit 1.53→1.54 migration does not invent nodes or rewrite edges. No
+fan-out, shared composition, selector successor, post-call effects, or general
+downstream topology is implied. See [Decision 0054](decisions/0054-sequence-workflow-call-json-chains.md).
+
 Schema 1.40 adds a finite IEEE-754 `number` constant for direct-MCP graphs.
 Top-level MCP JSON Schema number properties become exact typed input pins and
 are serialized as JSON numbers. Non-finite values are rejected; integer/number

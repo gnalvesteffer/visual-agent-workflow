@@ -53,6 +53,61 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Public_schema_1_54_evaluates_a_two_node_json_chain_and_records_each_value()
+    {
+        var child = WorkflowRevision.Create(JsonChild("public-sequence-json-chain-child"), "test");
+        var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
+        };
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph,
+            "public-sequence-json-chain-parent", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["sequence"] = new(NodeTypes.Sequence, "1.0.0") { Sequence = new([new("call", "Pinned child"), new("sibling", "Second child")]) },
+                ["call"] = call,
+                ["sibling"] = call with { WorkflowCall = call.WorkflowCall! with { WorkflowId = child.Definition.WorkflowId } },
+                ["project"] = new(NodeTypes.JsonProject, "1.0.0")
+                {
+                    JsonProjection = new([new JsonProjectionField("answer", "/answer")])
+                },
+                ["select"] = new(NodeTypes.JsonSelectString, "1.0.0")
+                {
+                    JsonPropertySelection = new("/answer")
+                },
+                ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.String }
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["call-project"] = new(new("call", "out"), new("project", "in"), "data"),
+                ["project-select"] = new(new("project", "out"), new("select", "in"), "data"),
+                ["select-output-data"] = new(new("select", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary())
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-sequence"] = new(new("input", "then"), new("sequence", "execute"), "execution"),
+                ["sequence-call"] = new(new("sequence", "then.call"), new("call", "execute"), "execution"),
+                ["call-output"] = new(new("call", "out"), new("output", "execute"), "execution"),
+                ["sequence-sibling"] = new(new("sequence", "then.sibling"), new("sibling", "execute"), "execution"),
+                ["sibling-output"] = new(new("sibling", "out"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(WorkflowJson.Deserialize(WorkflowJson.Serialize(definition)), "test"),
+            "{\"answer\":\"hello\"}", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed, string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
+        Assert.Equal("hello", result.Output);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "project");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "select");
+    }
+
+    [Fact]
     public async Task Public_schema_1_52_passes_a_pinned_workflow_call_result_to_one_terminal_agent()
     {
         var child = WorkflowRevision.Create(

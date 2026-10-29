@@ -146,9 +146,20 @@ public partial class WorkflowDesigner
         ? SequenceWorkflowCallJsonTopology.Analyze(current).Paths.Where(path => path.JsonNodeId is null).ToImmutableArray()
         : [];
 
+    private ImmutableArray<SequenceWorkflowCallJsonChainPath> SequenceCallJsonChainPaths => definition is { } current &&
+        current.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph &&
+        WorkflowValidator.Validate(current).IsEmpty
+        ? SequenceWorkflowCallJsonChainTopology.Analyze(current).Paths.Where(path => path.JsonNodeIds.Length == 1).ToImmutableArray()
+        : [];
+
     private bool CanAuthorSequenceWorkflowCallJsonComposition => !IdeMode && preview is null && !busy &&
         !string.IsNullOrWhiteSpace(sequenceCallJsonNodeId) &&
         SequenceCallJsonPaths.Any(path => path.CallNodeId == sequenceCallJsonNodeId) &&
+        sequenceCallJsonCompositionType is NodeTypes.JsonSelectString or NodeTypes.JsonProject;
+
+    private bool CanAuthorSequenceWorkflowCallJsonChainComposition => !IdeMode && preview is null && !busy &&
+        !string.IsNullOrWhiteSpace(sequenceCallJsonNodeId) &&
+        SequenceCallJsonChainPaths.Any(path => path.CallNodeId == sequenceCallJsonNodeId) &&
         sequenceCallJsonCompositionType is NodeTypes.JsonSelectString or NodeTypes.JsonProject;
 
     private WorkflowCallUpgradeResult UpgradeSelectedCall(PublishedWorkflowRevision target) =>
@@ -371,6 +382,17 @@ public partial class WorkflowDesigner
         if (!Current(current)) return;
         ApplyComposition(new(next, layout.Reconcile(next)));
         message = $"Added a {(sequenceCallJsonCompositionType == NodeTypes.JsonProject ? "JSON projection" : "JSON selector")} after the pinned child. Configure its pointer or fields in the node properties, then save and publish.";
+    });
+
+    private Task InsertSequenceWorkflowCallJsonChainComposition() => Perform(async current =>
+    {
+        if (!CanAuthorSequenceWorkflowCallJsonChainComposition || definition is null || layout is null)
+            return;
+        var next = WorkflowCallEditing.AppendSequenceWorkflowCallJsonChainCompositionDraft(definition,
+            sequenceCallJsonNodeId, sequenceCallJsonCompositionType, sequenceCallJsonPointer);
+        if (!Current(current)) return;
+        ApplyComposition(new(next, layout.Reconcile(next)));
+        message = $"Added a {(sequenceCallJsonCompositionType == NodeTypes.JsonProject ? "second JSON projection" : "terminal JSON selector")} to the schema 1.54 chain. Configure its fields, then save and publish.";
     });
 
     private static bool HasJsonBoundary(WorkflowDefinition child)

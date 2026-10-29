@@ -56,6 +56,77 @@ public sealed class SequenceWorkflowCallJsonTopologyTests
         Assert.Empty(WorkflowValidator.Validate(definition));
     }
 
+    [Fact]
+    public void Schema_1_54_accepts_project_then_selector_as_a_typed_data_chain()
+    {
+        var child = WorkflowRevision.Create(JsonChild("child"), "test");
+        var definition = Chain(Parent(child), NodeTypes.JsonSelectString, outputType: WorkflowDataTypes.String);
+
+        var analysis = SequenceWorkflowCallJsonChainTopology.Analyze(definition);
+
+        Assert.True(analysis.IsValid, string.Join("; ", analysis.Issues.Select(issue => $"{issue.Code}:{issue.Message}")));
+        var path = Assert.Single(analysis.Paths);
+        Assert.Equal(2, path.JsonNodeIds.Length);
+        Assert.Empty(WorkflowValidator.Validate(definition));
+    }
+
+    [Fact]
+    public void Schema_1_54_rejects_selector_to_project_and_three_node_chains()
+    {
+        var child = WorkflowRevision.Create(JsonChild("child"), "test");
+        var selectorFirst = Chain(Parent(child), NodeTypes.JsonProject, outputType: WorkflowDataTypes.Json, firstType: NodeTypes.JsonSelectString);
+        var twoProjects = Chain(Parent(child), NodeTypes.JsonProject, outputType: WorkflowDataTypes.Json);
+        var tooLong = twoProjects with
+        {
+            Nodes = twoProjects.Nodes.Add("third", new NodeDefinition(NodeTypes.JsonProject, "1.0.0")
+            {
+                JsonProjection = new([new JsonProjectionField("answer", "/answer")])
+            }),
+            Connections = twoProjects.Connections.Remove("second-output")
+                .Add("second-third", new(new("second", "out"), new("third", "in"), "data"))
+                .Add("third-output", new(new("third", "out"), new("output", "in"), "data"))
+        };
+
+        Assert.Contains(SequenceWorkflowCallJsonChainTopology.Analyze(selectorFirst).Issues,
+            issue => issue.Code == "sequence.call.json.chain.type");
+        Assert.Contains(SequenceWorkflowCallJsonChainTopology.Analyze(tooLong).Issues,
+            issue => issue.Code == "sequence.call.json.chain.limit");
+    }
+
+    private static WorkflowDefinition Chain(WorkflowDefinition source, string secondType, string outputType,
+        string firstType = NodeTypes.JsonProject)
+    {
+        var first = source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph,
+            Nodes = source.Nodes
+                .Add("project", new NodeDefinition(firstType, "1.0.0")
+                {
+                    JsonProjection = firstType == NodeTypes.JsonProject ? new([new JsonProjectionField("answer", "/answer")]) : null,
+                    JsonPropertySelection = firstType == NodeTypes.JsonSelectString ? new("/answer") : null
+                })
+                .SetItem("output", source.Nodes["output"] with { OutputDataType = firstType == NodeTypes.JsonSelectString ? WorkflowDataTypes.String : outputType })
+        };
+        var firstEdge = first.Connections.Remove("call-json-output")
+            .Add("call-project", new(new("call", "out"), new("project", "in"), "data"));
+        var second = first;
+        if (secondType is not null)
+        {
+            second = second with
+            {
+                Nodes = second.Nodes.Add("second", new NodeDefinition(secondType, "1.0.0")
+                {
+                    JsonProjection = secondType == NodeTypes.JsonProject ? new([new JsonProjectionField("answer", "/answer")]) : null,
+                    JsonPropertySelection = secondType == NodeTypes.JsonSelectString ? new("/answer") : null
+                }).SetItem("output", second.Nodes["output"] with { OutputDataType = outputType }),
+                Connections = firstEdge.Remove("call-json-output")
+                    .Add("project-second", new(new("project", "out"), new("second", "in"), "data"))
+                    .Add("second-output", new(new("second", "out"), new("output", "in"), "data"))
+            };
+        }
+        return second;
+    }
+
     private static WorkflowDefinition Parent(WorkflowRevision child)
     {
         var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
