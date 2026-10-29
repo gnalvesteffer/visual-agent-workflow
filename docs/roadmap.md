@@ -124,6 +124,14 @@ identical through legacy and explicit Core projections and removes generic
 fallback pins for missing or unsupported function configuration. The broader
 descriptor item remains unchecked.
 
+The next bounded slice aligns the editor's selected-output and insertion
+controls with the same resolved authoring descriptor used by the graph canvas.
+This keeps configured Agent routes and other dynamic output pins consistent
+between what is rendered and what the editor offers for insertion, while
+preserving legacy schema fallback and leaving runtime/serialization authority
+unchanged. The broader descriptor item remains unchecked pending validator,
+runtime, compatibility, and evidence convergence.
+
 ### Active parity phase: run-scoped mutable variable proof
 
 **Status: Shipped bounded slice; follow-up proofs remain planned.** The required

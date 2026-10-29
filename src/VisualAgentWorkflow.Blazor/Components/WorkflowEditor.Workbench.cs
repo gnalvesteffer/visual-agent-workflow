@@ -29,10 +29,8 @@ public partial class WorkflowEditor
     private bool UseGraphRemoval => WorkflowSchemaVersions.UsesExplicitGraph(Definition) || UsesGraphEditing || WorkflowValidator.Validate(Definition).Any(issue =>
         issue.Code is "graph.degree" or "workflow.degree" or "graph.unreachable" or "graph.cycle" or "workflow.terminals");
     private ImmutableArray<WorkflowPort> SelectedOutputs => selectedNode is { } id && Definition.Nodes.TryGetValue(id, out var node)
-        ? WorkflowSchemaVersions.UsesExplicitGraph(Definition)
-            ? [.. WorkflowPorts.Explicit(node).Where(port => port.Direction == WorkflowPortDirection.Output)
-                .Select(port => new WorkflowPort(port.Id, port.DataType ?? "execution"))]
-            : WorkflowPorts.Outputs(node)
+        ? [.. CanvasPorts(node).Where(port => port.Direction == WorkflowPortDirection.Output)
+            .Select(port => new WorkflowPort(port.Id, port.DataType ?? "execution"))]
         : [];
     private Task ConnectionSelected(string id)
     {

@@ -977,9 +977,8 @@
     private Task SelectNode(string id) { insertionConnection = null; if (!Definition.Nodes.ContainsKey(id)) id = Definition.Nodes.ContainsKey(Definition.EntryNodeId)
         ? Definition.EntryNodeId : WorkflowGraph.DisplayOrder(Definition).FirstOrDefault() ?? string.Empty;
         if (id.Length == 0) return Task.CompletedTask;
-        if (selectedNode != id) selectedPort = WorkflowSchemaVersions.UsesExplicitGraph(Definition)
-        ? WorkflowPorts.Explicit(Definition.Nodes[id]).FirstOrDefault(port => port.Direction == WorkflowPortDirection.Output)?.Id ?? "out"
-        : WorkflowPorts.Outputs(Definition.Nodes[id]).FirstOrDefault()?.Id ?? "out"; selectedNode = id; LoadRendezvousEditorState(id); return Task.CompletedTask; }
+        if (selectedNode != id) selectedPort = CanvasPorts(Definition.Nodes[id])
+            .FirstOrDefault(port => port.Direction == WorkflowPortDirection.Output)?.Id ?? "out"; selectedNode = id; LoadRendezvousEditorState(id); return Task.CompletedTask; }
     private string Summary(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input => "Workflow input",
