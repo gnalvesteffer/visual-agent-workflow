@@ -65,7 +65,7 @@ public static class WorkflowJson
     }
 
     private static bool IsDraftableIssue(ValidationIssue issue) =>
-        issue.Code is "workflow.degree" or "graph.degree" or "graph.unreachable" or "graph.cycle" or
+        issue.Code is "workflow.degree" or "graph.degree" or "graph.unreachable" or "graph.cycle" or "data.unreachable" or
             "data.degree" or "data.unused" or "execution.port" or "execution.target" or "execution.degree" or
             "execution.pure" or "execution.path" or "parallel.rendezvous.configuration" or "parallel.block.count" ||
         issue.Code.StartsWith("parallel.branch.", StringComparison.Ordinal) ||

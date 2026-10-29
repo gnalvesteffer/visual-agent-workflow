@@ -16,6 +16,7 @@ public static class WorkflowTemplates
         };
         var nodes = ImmutableSortedDictionary.CreateBuilder<string, NodeDefinition>(StringComparer.Ordinal);
         var connections = ImmutableSortedDictionary.CreateBuilder<string, ConnectionDefinition>(StringComparer.Ordinal);
+        var executionConnections = ImmutableSortedDictionary.CreateBuilder<string, ConnectionDefinition>(StringComparer.Ordinal);
         nodes["input"] = new(NodeTypes.Input, "1.0.0");
         var previous = "input";
         for (var i = 0; i < types.Length; i++)
@@ -27,6 +28,10 @@ public static class WorkflowTemplates
         }
         nodes["output"] = new(NodeTypes.Output, "1.0.0");
         connections["link-output"] = new(new(previous, "out"), new("output", "in"), "data");
-        return new("1.0", "text-pipeline", "input", nodes.ToImmutable(), connections.ToImmutable());
+        executionConnections["activate-output"] = new(new("input", "then"), new("output", "execute"), "execution");
+        return new(WorkflowSchemaVersions.ExplicitGraph, "text-pipeline", "input", nodes.ToImmutable(), connections.ToImmutable())
+        {
+            ExecutionConnections = executionConnections.ToImmutable()
+        };
     }
 }

@@ -1197,7 +1197,7 @@ public static class WorkflowValidator
             foreach (var port in executionOutputs)
                 if (port.Required && port.Cardinality == WorkflowPortCardinality.ExactlyOne && executionOutgoing.GetValueOrDefault((id, port.Id)) != 1)
                     error("graph.degree", $"nodes.{id}.outputs.{port.Id}", "Every execution output pin must connect exactly once, except the output node which has none.");
-            if ((node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.IntegerConstant or NodeTypes.BooleanConstant or NodeTypes.StringToInteger or NodeTypes.NumberConstant) &&
+            if ((node.Type is NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.IntegerConstant or NodeTypes.BooleanConstant or NodeTypes.StringToInteger or NodeTypes.NumberConstant) &&
                 !definition.Connections.Values.Any(edge => edge.Source.NodeId == id))
                 error("data.unused", $"nodes.{id}", "Every pure data node must contribute to a tool input or output value.");
         }
@@ -1230,7 +1230,7 @@ public static class WorkflowValidator
             foreach (var dependency in dataDependencies.GetValueOrDefault(current) ?? []) pending.Push(dependency);
         }
         foreach (var (id, node) in definition.Nodes)
-            if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringToInteger or NodeTypes.NumberConstant && !reachedData.Contains(id))
+            if (node?.Type is (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringToInteger or NodeTypes.NumberConstant) && !reachedData.Contains(id))
                 error("graph.unreachable", $"nodes.{id}", "Every pure data node must contribute to a tool input or output value.");
     }
 
@@ -1260,11 +1260,12 @@ public static class WorkflowValidator
 
         var supportedTypes = new HashSet<string>(StringComparer.Ordinal)
         {
-            NodeTypes.Input, NodeTypes.Output, NodeTypes.StringConstant, NodeTypes.TextConcat
+            NodeTypes.Input, NodeTypes.Output, NodeTypes.Uppercase, NodeTypes.Reverse,
+            NodeTypes.StringConstant, NodeTypes.TextConcat
         };
         foreach (var (id, node) in definition.Nodes)
             if (node is null || !supportedTypes.Contains(node.Type))
-                error("execution.node.unsupported", $"nodes.{id}", "Schema 1.23 currently supports input, output, string constant, and pure text concatenation nodes.");
+                error("execution.node.unsupported", $"nodes.{id}", "Schema 1.23 currently supports input, output, deterministic string transforms, string constants, and pure text concatenation nodes.");
 
         var inputs = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Input).Select(pair => pair.Key).ToArray();
         var outputs = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Output).Select(pair => pair.Key).ToArray();
@@ -1328,7 +1329,7 @@ public static class WorkflowValidator
                 error("execution.degree", $"nodes.{id}", "The input entry has no execution input.");
             if (node.Type == NodeTypes.Output && executionIncoming.GetValueOrDefault((id, "execute")) != 1)
                 error("execution.degree", $"nodes.{id}", "The output node requires exactly one execution activation.");
-            if (node.Type is NodeTypes.Input or NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringToInteger)
+            if (node.Type is NodeTypes.Input or NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringToInteger)
                 if (WorkflowPorts.ExplicitDataOutputs(node).Length != 0 &&
                     definition.Connections.Values.Count(edge => edge?.Source?.NodeId == id) == 0 && node.Type != NodeTypes.Input)
                     error("data.unused", $"nodes.{id}", "Every pure data node must contribute to the output value.");
@@ -1336,7 +1337,7 @@ public static class WorkflowValidator
                 error("execution.degree", $"nodes.{id}", "The input entry requires exactly one execution output connection.");
             if (node.Type == NodeTypes.Output && executionOutgoing.GetValueOrDefault(id)?.Count > 0)
                 error("execution.degree", $"nodes.{id}", "The output node cannot have execution outputs.");
-            if (node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringToInteger && executionOutgoing.GetValueOrDefault(id)?.Count > 0)
+            if (node.Type is (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringToInteger) && executionOutgoing.GetValueOrDefault(id)?.Count > 0)
                 error("execution.pure", $"nodes.{id}", "Pure data nodes do not expose execution pins.");
         }
 
@@ -1359,7 +1360,7 @@ public static class WorkflowValidator
                 foreach (var dependency in dataOutgoing.GetValueOrDefault(current) ?? []) pending.Push(dependency);
             }
             foreach (var (id, node) in definition.Nodes)
-                if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringToInteger && !visited.Contains(id))
+                if (node?.Type is (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringToInteger) && !visited.Contains(id))
                     error("data.unreachable", $"nodes.{id}", "Every pure data node must be reachable from an output input.");
         }
     }

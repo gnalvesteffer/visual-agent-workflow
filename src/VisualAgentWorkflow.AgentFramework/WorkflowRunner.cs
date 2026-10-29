@@ -681,6 +681,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.WorkflowValue when outputPort == "out" => ResolveParameter(node),
                     NodeTypes.StringConstant when outputPort == "out" => new ExplicitGraphValue("string", node.StringConstant!.Value),
                     NodeTypes.TextConcat when outputPort == "out" => new ExplicitGraphValue("string", Concatenate(nodeId, "left", "right", evaluated, cache, active)),
+                    NodeTypes.Uppercase when outputPort == "out" => new ExplicitGraphValue("string", ResolveStringInput(nodeId, "in", evaluated, cache, active).ToUpperInvariant()),
+                    NodeTypes.Reverse when outputPort == "out" => new ExplicitGraphValue("string", string.Concat(ResolveStringInput(nodeId, "in", evaluated, cache, active).EnumerateRunes().Reverse())),
                     NodeTypes.StringEquals when outputPort == "out" => new ExplicitGraphValue("boolean",
                         string.Equals(ResolveStringInput(nodeId, "left", evaluated, cache, active),
                             ResolveStringInput(nodeId, "right", evaluated, cache, active), StringComparison.Ordinal)),
