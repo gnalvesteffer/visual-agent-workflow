@@ -122,6 +122,52 @@ public sealed class GraphCanvasRenderingTests
     }
 
     [Fact]
+    public async Task InsertionOutputPickerUsesResolvedAgentRouteDescriptors()
+    {
+        var baseline = WorkflowTemplates.Create("uppercase") with
+        {
+            SchemaVersion = WorkflowSchemaVersions.AgentExecutionRoutes
+        };
+        var definition = baseline with
+        {
+            Nodes = baseline.Nodes.SetItem("step-1", new NodeDefinition(NodeTypes.Agent, "1.0.0",
+                Agent: new("connection.current", null, "Answer the question.", [])
+                {
+                    Routes = [
+                        new AgentExecutionRoute("inventory", "Inventory", "Inventory path"),
+                        new AgentExecutionRoute("quality", "Quality", "Quality path")]
+                }))
+        };
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        WorkflowEditor? editor = null;
+
+        var root = await renderer.Dispatcher.InvokeAsync(() => renderer.BeginRenderingComponent<ComponentLifecycleTests.CaptureHost<WorkflowEditor>>(
+            ParameterView.FromDictionary(new Dictionary<string, object?>
+            {
+                ["ChildParameters"] = new Dictionary<string, object?>
+                {
+                    [nameof(WorkflowEditor.Definition)] = definition,
+                    [nameof(WorkflowEditor.ShowWorkflowSettings)] = false
+                },
+                ["Capture"] = (Action<WorkflowEditor>)(component => editor = component)
+            })));
+        await root.QuiescenceTask;
+
+        await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var selectNode = typeof(WorkflowEditor).GetMethod("SelectNode", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            await (Task)selectNode.Invoke(editor, ["step-1"])!;
+            await editor!.SetParametersAsync(ParameterView.Empty);
+        });
+
+        var html = await renderer.Dispatcher.InvokeAsync(root.ToHtmlString);
+        Assert.Contains("aria-label=\"Insert on output\"", html);
+        Assert.Contains("value=\"route.inventory\"", html);
+        Assert.Contains("value=\"route.quality\"", html);
+    }
+
+    [Fact]
     public async Task IdeGraphMinimapIncludesViewportIndicator()
     {
         var definition = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.14" };

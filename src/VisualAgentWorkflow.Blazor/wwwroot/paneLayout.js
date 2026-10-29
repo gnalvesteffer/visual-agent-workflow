@@ -42,7 +42,15 @@ function apply(root, layout) {
     tray?.style.setProperty('--vaw-bottom-height', `${values.bottom}px`);
     for (const handle of root.querySelectorAll('[data-pane-resizer]')) {
         const kind = handle.dataset.paneResizer;
-        if (kind && values[kind] !== undefined) handle.setAttribute('aria-valuenow', String(values[kind]));
+        if (kind && values[kind] !== undefined) {
+            const value = String(values[kind]);
+            // The root observer watches this attribute because Blazor may replace
+            // the resizer handles. Avoid writing the same value back: otherwise
+            // each observer callback creates another mutation and can freeze the
+            // workflow editor on initial navigation.
+            if (handle.getAttribute('aria-valuenow') !== value)
+                handle.setAttribute('aria-valuenow', value);
+        }
     }
     return values;
 }
