@@ -121,6 +121,7 @@ public static class NodeTypes
 {
     public const string Input = "core.input";
     public const string Uppercase = "core.text.uppercase";
+    public const string SequenceUppercase = "core.sequence.uppercase";
     public const string Reverse = "core.text.reverse";
     public const string Output = "core.output";
     public const string McpTool = "core.mcp-tool";
@@ -191,6 +192,7 @@ public static class WorkflowSchemaPromotionCatalog
         new("number-addition", "1.41", "1.42", nameof(GraphEditing.EnableNumberArithmeticGraph), false),
         new("sequence-paths", "1.38", "1.43", nameof(GraphEditing.EnableSequencePathGraph), false),
         new("sequence-agent-paths", "1.43", "1.46", nameof(GraphEditing.EnableSequenceAgentPathGraph), false),
+        new("sequence-transform-paths", "1.43", "1.47", nameof(GraphEditing.EnableSequenceTransformPathGraph), false),
         new("mutable-variables", "1.23", "1.44", nameof(GraphEditing.EnableMutableVariablesGraph), true)
     ];
 }
@@ -200,13 +202,13 @@ public static class WorkflowSchemaPromotionCatalog
 public static class WorkflowSchemaCatalog
 {
     public static ImmutableArray<WorkflowSchemaDescriptor> All { get; } =
-        [.. Enumerable.Range(0, 47).Select(number =>
+        [.. Enumerable.Range(0, 48).Select(number =>
         {
             var version = $"1.{number}";
             var explicitGraph = version is "1.23" or "1.24" or "1.25" or "1.26" or "1.27" or "1.28" or
                 "1.30" or "1.31" or "1.32" or "1.33" or "1.34" or "1.35" or "1.36" or "1.37" or
-                "1.38" or "1.39" or "1.40" or "1.41" or "1.42" or "1.43" or "1.44" or "1.45" or "1.46";
-            var directMcpPins = version is "1.37" or "1.40" or "1.41" or "1.42" or "1.43" or "1.46";
+                "1.38" or "1.39" or "1.40" or "1.41" or "1.42" or "1.43" or "1.44" or "1.45" or "1.46" or "1.47";
+            var directMcpPins = version is "1.37" or "1.40" or "1.41" or "1.42" or "1.43" or "1.46" or "1.47";
             return new WorkflowSchemaDescriptor(version, true, explicitGraph, directMcpPins);
         })];
 
@@ -249,6 +251,8 @@ public static class WorkflowSchemaVersions
     public const string LoopVariablesGraph = "1.45";
     /// <summary>Bounded Sequence paths with either direct MCP nodes or one terminal plain-text Agent.</summary>
     public const string SequenceAgentPathGraph = "1.46";
+    /// <summary>Bounded Sequence paths with direct MCP nodes followed by one deterministic text transform.</summary>
+    public const string SequenceTransformPathGraph = "1.47";
 
     public static bool IsSupported(string? version) => WorkflowSchemaCatalog.IsSupported(version);
 
@@ -260,7 +264,7 @@ public static class WorkflowSchemaVersions
 
     public static bool UsesExplicitGraph(WorkflowDefinition definition) =>
         UsesExplicitGraph(definition.SchemaVersion) ||
-        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or SequenceGraph or SequencePathGraph or SequenceAgentPathGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph or NumberArithmeticGraph or MutableVariablesGraph or LoopVariablesGraph && definition.ExecutionConnections is not null;
+        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or SequenceGraph or SequencePathGraph or SequenceAgentPathGraph or SequenceTransformPathGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph or NumberArithmeticGraph or MutableVariablesGraph or LoopVariablesGraph && definition.ExecutionConnections is not null;
 }
 
 /// <summary>Runtime value held by one workflow invocation's variable store.</summary>

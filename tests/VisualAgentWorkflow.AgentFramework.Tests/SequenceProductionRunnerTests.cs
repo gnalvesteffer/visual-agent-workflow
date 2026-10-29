@@ -128,6 +128,41 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Schema_1_47_executes_a_terminal_deterministic_uppercase_path_step()
+    {
+        var events = new List<ExecutionEvent>();
+        var result = await new WorkflowRunner(new RecordingBroker()).ExecuteWithOutcomeAsync(
+            Guid.NewGuid(), WorkflowRevision.Create(SequenceTransformPathDefinition(), "sequence-transform-path"), "hello", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("HELLO", result.Output);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "uppercase");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted);
+    }
+
+    private static WorkflowDefinition SequenceTransformPathDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("sequence", new(NodeTypes.Sequence, "1.0.0") { Sequence = new([new("first", "First"), new("second", "Second")]) })
+            .Add("uppercase", new(NodeTypes.SequenceUppercase, "1.0.0"))
+            .Add("uppercase-second", new(NodeTypes.SequenceUppercase, "1.0.0"))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-sequence", new(new("input", "then"), new("sequence", "execute"), "execution"))
+            .Add("sequence-uppercase", new(new("sequence", "then.first"), new("uppercase", "execute"), "execution"))
+            .Add("uppercase-output", new(new("uppercase", "then"), new("output", "execute"), "execution"))
+            .Add("sequence-uppercase-second", new(new("sequence", "then.second"), new("uppercase-second", "execute"), "execution"))
+            .Add("uppercase-second-output", new(new("uppercase-second", "then"), new("output", "execute"), "execution"));
+        return new WorkflowDefinition(WorkflowSchemaVersions.SequenceTransformPathGraph, "sequence-transform-path", "input", nodes,
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
+        {
+            ExecutionConnections = execution
+        };
+    }
+
+    [Fact]
     public async Task Schema_1_46_executes_a_persisted_terminal_agent_path_with_sequence_lineage()
     {
         var events = new List<ExecutionEvent>();

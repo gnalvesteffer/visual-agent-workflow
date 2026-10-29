@@ -333,6 +333,26 @@ public sealed class SequenceGraphTests
     }
 
     [Fact]
+    public void Sequence_transform_path_schema_accepts_a_terminal_uppercase_step()
+    {
+        var source = PathDefinition();
+        var definition = source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceTransformPathGraph,
+            Nodes = source.Nodes.Remove("inventory-tool").Add("inventory-uppercase", new(NodeTypes.SequenceUppercase, "1.0.0")),
+            ExecutionConnections = source.ExecutionConnections!
+                .Remove("sequence-inventory")
+                .Remove("inventory-output")
+                .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("inventory-uppercase", "execute"), "execution"))
+                .Add("inventory-output", new(new("inventory-uppercase", "then"), new("output", "execute"), "execution"))
+        };
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        var analysis = SequencePathTopologyAnalyzer.Analyze(definition);
+        Assert.True(analysis.IsValid, string.Join(Environment.NewLine, analysis.Issues.Select(issue => issue.Message)));
+    }
+
+    [Fact]
     public void Sequence_agent_path_schema_rejects_unbounded_agent_limits_and_capabilities()
     {
         var source = PathDefinition();

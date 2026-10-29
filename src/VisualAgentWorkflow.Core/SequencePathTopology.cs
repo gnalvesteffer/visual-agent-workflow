@@ -7,9 +7,10 @@ public sealed record SequencePathTopology(
     string OutputId,
     string TerminalNodeId,
     ImmutableArray<string> NodeIds,
-    bool ContainsPlainTextAgent)
+    bool ContainsPlainTextAgent,
+    bool ContainsDeterministicTransform)
 {
-    public bool IsDirectMcpPath => !ContainsPlainTextAgent;
+    public bool IsDirectMcpPath => !ContainsPlainTextAgent && !ContainsDeterministicTransform;
 }
 
 /// <summary>A stable, actionable diagnostic produced by the non-authoritative Sequence path analyzer.</summary>
@@ -31,8 +32,9 @@ public sealed record SequencePathTopologyAnalysis(
 }
 
 /// <summary>
-/// Analyzes disjoint, bounded Sequence output paths without changing the public schema catalog.
-/// Schema 1.46 paths may contain zero or more direct MCP nodes followed by one terminal plain-text Agent.
+/// Analyzes disjoint, bounded Sequence output paths using the same node-family contract as the public schema catalog.
+/// Schema 1.46 paths may contain zero or more direct MCP nodes followed by one terminal plain-text Agent;
+/// schema 1.47 additionally admits one terminal deterministic uppercase step.
 /// </summary>
 public static class SequencePathTopologyAnalyzer
 {
@@ -110,6 +112,7 @@ public static class SequencePathTopologyAnalyzer
             var visited = new HashSet<string>(StringComparer.Ordinal);
             var nodeIds = ImmutableArray.CreateBuilder<string>();
             var containsAgent = false;
+            var containsTransform = false;
             var agentCount = 0;
             while (current != output.Key && visited.Add(current))
             {
@@ -125,10 +128,10 @@ public static class SequencePathTopologyAnalyzer
                         $"Sequence output {name} reaches missing node '{current}'.");
                     break;
                 }
-                if (node.Type is not (NodeTypes.McpTool or NodeTypes.Agent))
+                if (node.Type is not (NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.SequenceUppercase))
                 {
                     Issue("sequence.path.node", $"nodes.{current}",
-                        $"Sequence output {name} reaches '{current}', which is neither a direct MCP tool nor an approved plain-text Agent.");
+                        $"Sequence output {name} reaches '{current}', which is neither a direct MCP tool, an approved plain-text Agent, nor a deterministic uppercase step.");
                 }
                 if (!owned.Add(current))
                 {
@@ -149,6 +152,9 @@ public static class SequencePathTopologyAnalyzer
                     agentCount++;
                     ValidateAgent(node, current, outputId, Issue);
                 }
+                if (node.Type == NodeTypes.SequenceUppercase && nodeIds.Count != 1)
+                    Issue("sequence.transform.position", $"nodes.{current}", "The deterministic uppercase step must be the terminal node after any direct MCP tools.");
+                if (node.Type == NodeTypes.SequenceUppercase) containsTransform = true;
                 var next = outgoing.GetValueOrDefault(current) ?? [];
                 if (next.Length != 1)
                 {
@@ -160,8 +166,11 @@ public static class SequencePathTopologyAnalyzer
                 if (nextEdge.Target.PortId != "execute")
                     Issue("sequence.path.port", $"nodes.{current}", "Each Sequence path successor must enter the target execution pin.");
                 if (node.Type == NodeTypes.McpTool && nextEdge.Source.PortId != "then" ||
-                    node.Type == NodeTypes.Agent && nextEdge.Source.PortId != "out")
-                    Issue("sequence.path.port", $"nodes.{current}", "MCP tool paths must leave through 'then' and Agent paths through 'out'.");
+                    node.Type == NodeTypes.Agent && nextEdge.Source.PortId != "out" ||
+                    node.Type == NodeTypes.SequenceUppercase && nextEdge.Source.PortId != "then")
+                    Issue("sequence.path.port", $"nodes.{current}", "MCP tool paths must leave through 'then', Agent paths through 'out', and uppercase paths through 'then'.");
+                if (node.Type == NodeTypes.SequenceUppercase && nextEdge.Target.NodeId != output.Key)
+                    Issue("sequence.transform.position", $"nodes.{current}", "The deterministic uppercase step must connect directly to Output.");
                 current = nextEdge.Target.NodeId;
             }
 
@@ -182,7 +191,7 @@ public static class SequencePathTopologyAnalyzer
                 if (containsAgent && (agentCount != 1 || definition.Nodes[nodeIds[nodeIds.Count - 1]].Type != NodeTypes.Agent))
                     Issue("sequence.path.mixed", $"nodes.{sequence.Key}.sequence.outputs.{outputId}",
                         $"Sequence output {name} mixes MCP tools with an Agent; the bounded Agent path must contain exactly one terminal plain-text Agent after its direct MCP tools.");
-                paths.Add(new(outputId, current, nodeIds.ToImmutable(), containsAgent));
+                paths.Add(new(outputId, current, nodeIds.ToImmutable(), containsAgent, containsTransform));
             }
         }
 

@@ -249,6 +249,7 @@ public sealed class WorkflowNodeContractTests
         var expected = new Dictionary<string, (string ConfigurationKind, (string Id, WorkflowPortDirection Direction, WorkflowPortKind Kind, string? DataType)[] Ports)>(StringComparer.Ordinal)
         {
             [NodeTypes.Uppercase] = ("uppercase", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String)]),
+            [NodeTypes.SequenceUppercase] = ("sequence-uppercase", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String), ("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution, null), ("then", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null)]),
             [NodeTypes.Reverse] = ("reverse", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String)]),
             [NodeTypes.StringConstant] = ("string-constant", [("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String)]),
             [NodeTypes.BooleanConstant] = ("boolean-constant", [("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Boolean)]),
@@ -423,7 +424,7 @@ public sealed class WorkflowNodeContractTests
             .Select((contract, index) => new KeyValuePair<string, NodeDefinition>(
                 $"node-{index}", new NodeDefinition(contract.Type, contract.TypeVersion)))
             .ToImmutableSortedDictionary(StringComparer.Ordinal);
-        var definition = new WorkflowDefinition("1.44", "descriptor-audit", "node-0", nodes,
+        var definition = new WorkflowDefinition("1.47", "descriptor-audit", "node-0", nodes,
             ImmutableSortedDictionary<string, ConnectionDefinition>.Empty);
         var before = definition;
 
