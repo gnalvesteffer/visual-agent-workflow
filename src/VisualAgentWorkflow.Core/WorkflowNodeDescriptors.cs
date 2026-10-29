@@ -9,6 +9,9 @@ public sealed record WorkflowNodeDescriptor(
     string ConfigurationKind,
     ImmutableArray<WorkflowPortDescriptor> Ports)
 {
+    /// <summary>Minimum explicit graph schema that may use this static descriptor.</summary>
+    public string? MinimumSchemaVersion { get; init; }
+
     public WorkflowNodeContract NodeContract => WorkflowNodeContractCatalog.Get(NodeType);
 
     /// <summary>Lifecycle and authority metadata projected from the canonical node contract.</summary>
@@ -28,6 +31,7 @@ public enum WorkflowNodeDescriptorResolutionKind
     Resolved,
     UnsupportedNodeType,
     UnsupportedNodeVersion,
+    UnsupportedSchema,
     MalformedConfiguration,
     DiscoveryUnavailable
 }
@@ -95,13 +99,14 @@ public static class WorkflowDefinitionDescriptorAudit
                 continue;
             }
 
-            var resolution = WorkflowNodeDescriptorResolver.ResolvePersisted(node);
+            var resolution = WorkflowNodeDescriptorResolver.ResolveForDefinition(definition, node);
             if (!resolution.IsResolved)
             {
                 var issueCode = resolution.Kind switch
                 {
                     WorkflowNodeDescriptorResolutionKind.UnsupportedNodeType => "node.type",
                     WorkflowNodeDescriptorResolutionKind.UnsupportedNodeVersion => "node.version",
+                    WorkflowNodeDescriptorResolutionKind.UnsupportedSchema => "node.schema",
                     WorkflowNodeDescriptorResolutionKind.MalformedConfiguration when node.Type == NodeTypes.McpTool => "mcp.mapping",
                     _ => "descriptor.unresolved"
                 };
@@ -406,24 +411,24 @@ public static class WorkflowNodeDescriptorRegistry
 
     public static ImmutableArray<WorkflowNodeDescriptor> All { get; } =
     [
-        Descriptor(NodeTypes.Uppercase, "uppercase", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String)]),
-        Descriptor(NodeTypes.Reverse, "reverse", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String)]),
-        Descriptor(NodeTypes.StringConstant, "string-constant", [Output(WorkflowDataTypes.String)]),
-        Descriptor(NodeTypes.BooleanConstant, "boolean-constant", [Output(WorkflowDataTypes.Boolean)]),
-        Descriptor(NodeTypes.IntegerConstant, "integer-constant", [Output(WorkflowDataTypes.Integer)]),
-        Descriptor(NodeTypes.NumberConstant, "number-constant", [Output(WorkflowDataTypes.Number)]),
-        Descriptor(NodeTypes.NumberAdd, "number-add", [Input("left", WorkflowDataTypes.Number), Input("right", WorkflowDataTypes.Number), Output(WorkflowDataTypes.Number)]),
-        Descriptor(NodeTypes.StringToInteger, "string-to-integer", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.Integer)]),
-        Descriptor(NodeTypes.TextConcat, "text-concat", [Input("left", WorkflowDataTypes.String), Input("right", WorkflowDataTypes.String), Output(WorkflowDataTypes.String)]),
-        Descriptor(NodeTypes.StringEquals, "string-equals", [Input("left", WorkflowDataTypes.String), Input("right", WorkflowDataTypes.String), Output(WorkflowDataTypes.Boolean)]),
-        Descriptor(NodeTypes.IntegerAdd, "integer-add", [Input("left", WorkflowDataTypes.Integer), Input("right", WorkflowDataTypes.Integer), Output(WorkflowDataTypes.Integer)]),
-        Descriptor(NodeTypes.IntegerEquals, "integer-equals", [Input("left", WorkflowDataTypes.Integer), Input("right", WorkflowDataTypes.Integer), Output(WorkflowDataTypes.Boolean)]),
-        Descriptor(NodeTypes.BooleanNot, "boolean-not", [Input("value", WorkflowDataTypes.Boolean), Output(WorkflowDataTypes.Boolean)]),
+        Descriptor(NodeTypes.Uppercase, "uppercase", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String)], "1.23"),
+        Descriptor(NodeTypes.Reverse, "reverse", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String)], "1.23"),
+        Descriptor(NodeTypes.StringConstant, "string-constant", [Output(WorkflowDataTypes.String)], "1.23"),
+        Descriptor(NodeTypes.BooleanConstant, "boolean-constant", [Output(WorkflowDataTypes.Boolean)], "1.25"),
+        Descriptor(NodeTypes.IntegerConstant, "integer-constant", [Output(WorkflowDataTypes.Integer)], "1.31"),
+        Descriptor(NodeTypes.NumberConstant, "number-constant", [Output(WorkflowDataTypes.Number)], "1.40"),
+        Descriptor(NodeTypes.NumberAdd, "number-add", [Input("left", WorkflowDataTypes.Number), Input("right", WorkflowDataTypes.Number), Output(WorkflowDataTypes.Number)], "1.42"),
+        Descriptor(NodeTypes.StringToInteger, "string-to-integer", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.Integer)], "1.39"),
+        Descriptor(NodeTypes.TextConcat, "text-concat", [Input("left", WorkflowDataTypes.String), Input("right", WorkflowDataTypes.String), Output(WorkflowDataTypes.String)], "1.23"),
+        Descriptor(NodeTypes.StringEquals, "string-equals", [Input("left", WorkflowDataTypes.String), Input("right", WorkflowDataTypes.String), Output(WorkflowDataTypes.Boolean)], "1.24"),
+        Descriptor(NodeTypes.IntegerAdd, "integer-add", [Input("left", WorkflowDataTypes.Integer), Input("right", WorkflowDataTypes.Integer), Output(WorkflowDataTypes.Integer)], "1.31"),
+        Descriptor(NodeTypes.IntegerEquals, "integer-equals", [Input("left", WorkflowDataTypes.Integer), Input("right", WorkflowDataTypes.Integer), Output(WorkflowDataTypes.Boolean)], "1.31"),
+        Descriptor(NodeTypes.BooleanNot, "boolean-not", [Input("value", WorkflowDataTypes.Boolean), Output(WorkflowDataTypes.Boolean)], "1.25"),
         Descriptor(NodeTypes.BooleanBranch, "boolean-branch", [
             Input("condition", WorkflowDataTypes.Boolean),
             ExecutionInput("execute"),
             ExecutionOutput("true"),
-            ExecutionOutput("false")])
+            ExecutionOutput("false")], "1.24")
     ];
 
     public static bool TryGet(string? nodeType, string descriptorVersion, out WorkflowNodeDescriptor descriptor)
@@ -448,8 +453,8 @@ public static class WorkflowNodeDescriptorRegistry
             : throw new KeyNotFoundException($"No workflow node descriptor '{nodeType}@{descriptorVersion}' is registered.");
 
     private static WorkflowNodeDescriptor Descriptor(string nodeType, string configurationKind,
-        ImmutableArray<WorkflowPortDescriptor> ports) =>
-        new(nodeType, CurrentVersion, configurationKind, ports);
+        ImmutableArray<WorkflowPortDescriptor> ports, string minimumSchemaVersion) =>
+        new(nodeType, CurrentVersion, configurationKind, ports) { MinimumSchemaVersion = minimumSchemaVersion };
 
     private static WorkflowPortDescriptor Input(string id, string dataType) =>
         new(id, WorkflowPortDirection.Input, WorkflowPortKind.Data, dataType)
@@ -486,6 +491,24 @@ public static class WorkflowNodeDescriptorRegistry
 /// </remarks>
 public static class WorkflowNodeDescriptorResolver
 {
+    /// <summary>Resolves persisted configuration with the containing workflow's schema boundary applied.</summary>
+    public static WorkflowNodeDescriptorResolution ResolveForDefinition(WorkflowDefinition definition, NodeDefinition node)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(node);
+        if (!WorkflowSchemaCatalog.IsSupported(definition.SchemaVersion) ||
+            !WorkflowSchemaVersions.UsesExplicitGraph(definition))
+            return new(WorkflowNodeDescriptorResolutionKind.UnsupportedSchema, null,
+                $"Schema '{definition.SchemaVersion}' does not provide the explicit descriptor contract.");
+
+        var resolved = ResolvePersisted(node);
+        if (!resolved.IsResolved || !WorkflowNodeDescriptorRegistry.TryGetForNode(node, out var staticDescriptor) ||
+            staticDescriptor.MinimumSchemaVersion is not { } minimum || AtLeast(definition.SchemaVersion, minimum))
+            return resolved;
+        return new(WorkflowNodeDescriptorResolutionKind.UnsupportedSchema, null,
+            $"Node type '{node.Type}' requires schema {minimum} or later.");
+    }
+
     /// <summary>
     /// Resolves only persisted node configuration. It never performs discovery and never
     /// converts an unsupported node into an empty, apparently valid pin shape.
@@ -512,6 +535,10 @@ public static class WorkflowNodeDescriptorResolver
         return new(WorkflowNodeDescriptorResolutionKind.Resolved, descriptor,
             "Resolved from persisted node configuration.");
     }
+
+    private static bool AtLeast(string actual, string minimum) =>
+        int.TryParse(actual.Split('.').LastOrDefault(), out var actualMinor) &&
+        int.TryParse(minimum.Split('.').LastOrDefault(), out var minimumMinor) && actualMinor >= minimumMinor;
 
     /// <summary>
     /// Resolves persisted direct-MCP argument pins through the same descriptor used by

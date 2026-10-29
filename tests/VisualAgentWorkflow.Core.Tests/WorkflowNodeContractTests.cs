@@ -484,6 +484,33 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Persisted_descriptor_resolution_applies_the_explicit_schema_boundary()
+    {
+        var explicitGraph = new WorkflowDefinition("1.23", "schema-audit", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["value"] = new(NodeTypes.StringConstant, "1.0.0")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+        };
+        var branchTooEarly = explicitGraph with
+        {
+            Nodes = explicitGraph.Nodes.SetItem("value", new NodeDefinition(NodeTypes.BooleanBranch, "1.0.0"))
+        };
+        var legacy = explicitGraph with { SchemaVersion = "1.0", ExecutionConnections = null };
+
+        Assert.Equal(WorkflowNodeDescriptorResolutionKind.Resolved,
+            WorkflowNodeDescriptorResolver.ResolveForDefinition(explicitGraph, explicitGraph.Nodes["value"]).Kind);
+        Assert.Equal(WorkflowNodeDescriptorResolutionKind.UnsupportedSchema,
+            WorkflowNodeDescriptorResolver.ResolveForDefinition(branchTooEarly, branchTooEarly.Nodes["value"]).Kind);
+        Assert.Equal(WorkflowNodeDescriptorResolutionKind.UnsupportedSchema,
+            WorkflowNodeDescriptorResolver.ResolveForDefinition(legacy, legacy.Nodes["value"]).Kind);
+    }
+
+    [Fact]
     public void Validator_admits_valid_static_descriptors_without_descriptor_boundary_issues()
     {
         var definition = new WorkflowDefinition(

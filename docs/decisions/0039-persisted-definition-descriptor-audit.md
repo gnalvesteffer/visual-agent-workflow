@@ -28,6 +28,11 @@ returns an empty descriptor for an unsupported node. The discovery state is
 reserved for future transient authoring APIs and is not produced by the
 persisted-definition resolver.
 
+The schema-qualified `ResolveForDefinition` projection additionally rejects
+legacy definitions and static nodes used before their minimum explicit schema.
+This is a compatibility diagnostic only; it does not promote the descriptor to
+the schema validator, runtime, checkpoint, package, or playback authority.
+
 ## Follow-up authority review
 
 A second adversarial proponent/opponent/adjudicator review on 2026-10-29

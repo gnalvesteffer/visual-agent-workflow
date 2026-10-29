@@ -27,6 +27,10 @@ into an empty pin set. Its resolved, unsupported-type, unsupported-version, and
 malformed-configuration states are safe for future schema-qualified consumers;
 live discovery remains outside persisted resolution.
 
+`ResolveForDefinition` adds the containing schema boundary and minimum schema
+metadata for the static pure/Boolean descriptor slice. It rejects legacy or
+too-early schema combinations without changing the serialized definition.
+
 This page documents the canonical metadata in
 [`WorkflowNodeContractCatalog`](../src/VisualAgentWorkflow.Core/WorkflowNodeContracts.cs).
 It is an authoring and review reference, not a replacement for schema-specific
