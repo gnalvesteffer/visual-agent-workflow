@@ -1,6 +1,8 @@
 # Decision 0035: keep loop checkpoint recovery fail-closed during production qualification
 
-**Status:** Adopted; schema 1.45 production admission remains closed.
+**Status:** Adopted; default schema 1.45 admission remains closed. An explicit
+experimental host capability now exercises the shared frame path, but is not a
+production-readiness claim.
 
 **Date:** 2026-10-28
 
@@ -41,8 +43,9 @@ loop.
   and race gates are completed.
 - [ ] Persist the composite frame, evidence prefix, and suspension marker in
   one host-owned transaction; acknowledge suspension only after commit.
-- [ ] Add an explicit host capability that defaults disabled and apply the same
-  exact topology/frame admission to both start and resume.
+- [x] Add an explicit host capability that defaults disabled and apply the same
+  exact topology/frame admission to both start and resume. The opt-in host is
+  intentionally experimental and is not enabled by the Studio/default host.
 - [ ] Qualify cancellation, publication failure, process loss, competing
   recovery, and disposal races on the public host path.
 - [ ] Reopen production-generated history with no executor/model/tool calls and

@@ -14,6 +14,8 @@ public sealed record NativeWorkflowCheckpoint(string SessionId, string Checkpoin
 public interface IWorkflowCheckpointSink
 {
     NativeWorkflowCheckpoint? RestoredCheckpoint { get; }
+    /// <summary>Host-owned experimental capability. Defaults to false and must not be inferred from workflow content.</summary>
+    bool AllowLoopCheckpointRecovery => false;
     ValueTask<bool> CaptureAsync(NativeWorkflowCheckpoint checkpoint);
 }
 
@@ -149,7 +151,7 @@ public sealed partial class WorkflowRunner
         bool enforceAdmission)
     {
         if (enforceAdmission)
-            ValidateCheckpointGraph(revision.Definition);
+            ValidateCheckpointGraph(revision.Definition, checkpoints.AllowLoopCheckpointRecovery);
         ArgumentNullException.ThrowIfNull(checkpoints);
         ArgumentNullException.ThrowIfNull(record);
         ArgumentNullException.ThrowIfNull(input);
@@ -206,15 +208,23 @@ public sealed partial class WorkflowRunner
         }
     }
 
-    public static void ValidateCheckpointGraph(WorkflowDefinition definition)
+    public static void ValidateCheckpointGraph(WorkflowDefinition definition, bool allowLoopCheckpointRecovery = false)
     {
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph)
+        if (definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph && !allowLoopCheckpointRecovery)
             throw new InvalidOperationException(
                 "Checkpoint recovery for schema 1.45 loop graphs is not yet admitted. " +
                 "The native loop cursor, variable snapshot, evidence prefix, and suspension marker " +
                 "must be captured and recovered as one production checkpoint frame.");
-        if (definition.Nodes.Values.Any(n => n.Type is not (NodeTypes.Input or NodeTypes.Output or NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.JsonSelectString or NodeTypes.TextTemplate or NodeTypes.StringConstant or NodeTypes.BooleanConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.VariableGet or NodeTypes.VariableSet)))
+        if (definition.Nodes.Values.Any(n =>
+        {
+            var deterministic = n.Type is NodeTypes.Input or NodeTypes.Output or NodeTypes.Uppercase or NodeTypes.Reverse or
+                NodeTypes.Condition or NodeTypes.Merge or NodeTypes.JsonSelectString or NodeTypes.TextTemplate or
+                NodeTypes.StringConstant or NodeTypes.BooleanConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or
+                NodeTypes.VariableGet or NodeTypes.VariableSet;
+            var loop = n.Type is NodeTypes.Loop or NodeTypes.LoopBody;
+            return !deterministic && !(allowLoopCheckpointRecovery && loop);
+        }))
             throw new InvalidOperationException("Checkpoint recovery currently permits deterministic graph nodes only; agents, MCP and approvals require a separate recovery policy.");
     }
 

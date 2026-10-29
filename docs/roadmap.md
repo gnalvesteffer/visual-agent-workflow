@@ -209,8 +209,11 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   promotion decision is recorded in [loop checkpoint production adjudication](decisions/0035-loop-checkpoint-production-adjudication.md): the
   runtime now reports this boundary explicitly instead of presenting schema
   1.45 as a generic unsupported graph, while the public host remains
-  fail-closed until the listed frame, race, admission, compatibility, and
-  passive-playback gates are proven.
+  fail-closed by default until the listed frame, race, admission,
+  compatibility, and passive-playback gates are proven. An explicit
+  experimental host capability now exercises frame persistence and a second
+  suspension through a replacement host; it is not enabled by the Studio or
+  default checkpoint host and is not a production-readiness claim.
   The shared checkpoint sink now receives the paired quiescent observation and
   binds a future loop frame to its native checkpoint ID/payload before commit;
   this closes the boundary-capture subgate without enabling schema 1.45.

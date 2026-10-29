@@ -4,6 +4,9 @@ using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Hosting;
 
+/// <summary>Host-owned checkpoint capabilities. Loop recovery is experimental and disabled by default.</summary>
+public sealed record CheckpointWorkflowHostOptions(bool EnableLoopCheckpointRecovery = false);
+
 /// <summary>Opt-in explicit deterministic checkpoint execution. Not the Studio queue, automatic failover or external-call recovery.</summary>
 public sealed class CheckpointWorkflowHost : IAsyncDisposable
 {
@@ -11,12 +14,14 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
     private readonly IDisposable ownership;
     private readonly SemaphoreSlim execution = new(1, 1);
     private readonly CancellationTokenSource lifetime = new();
+    private readonly CheckpointWorkflowHostOptions options;
     private bool disposed;
 
-    public CheckpointWorkflowHost(SqliteWorkflowRunStore store)
+    public CheckpointWorkflowHost(SqliteWorkflowRunStore store, CheckpointWorkflowHostOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         this.store = store;
+        this.options = options ?? new();
         ownership = store.AcquireRuntimeOwnership();
     }
 
@@ -56,10 +61,10 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
             {
                 ArgumentNullException.ThrowIfNull(revision);
                 ArgumentNullException.ThrowIfNull(input);
-                WorkflowRunner.ValidateCheckpointGraph(revision.Definition);
+                WorkflowRunner.ValidateCheckpointGraph(revision.Definition, options.EnableLoopCheckpointRecovery);
                 snapshot = store.Create(revision, input);
             }
-            var sink = new Sink(store, snapshot, revision!, restored?.Native, suspendAfterCompletedNodes);
+            var sink = new Sink(store, snapshot, revision!, restored?.Native, suspendAfterCompletedNodes, options.EnableLoopCheckpointRecovery);
             await new WorkflowRunner().ExecuteCheckpointedAsync(snapshot.Header.RunId, revision!, input!, sink.RecordAsync, sink, linked.Token);
             return store.Get(snapshot.Header.RunId)!;
         }
@@ -81,11 +86,12 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
     }
 
     private sealed class Sink(SqliteWorkflowRunStore store, RunSnapshot initial, WorkflowRevision revision,
-        NativeWorkflowCheckpoint? restored, int? suspendAfter) : IWorkflowCheckpointSink, IWorkflowCheckpointBoundarySink
+        NativeWorkflowCheckpoint? restored, int? suspendAfter, bool allowLoopCheckpointRecovery) : IWorkflowCheckpointSink, IWorkflowCheckpointBoundarySink
     {
         private RunSnapshot snapshot = initial;
         private (NativeWorkflowCheckpoint Checkpoint, CheckpointBoundaryObservation Observation)? boundary;
         public NativeWorkflowCheckpoint? RestoredCheckpoint => restored;
+        public bool AllowLoopCheckpointRecovery => allowLoopCheckpointRecovery;
 
         public void ObserveBoundary(NativeWorkflowCheckpoint checkpoint, CheckpointBoundaryObservation observation) =>
             boundary = (checkpoint, observation);
@@ -101,6 +107,14 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
             var completed = snapshot.Events.Where(e => e.Kind == ExecutionEventKinds.NodeCompleted).ToArray();
             var suspended = suspendAfter is { } count && completed.Length >= count &&
                 !completed.Any(e => snapshot.Header.Definition.Nodes[e.NodeId!].Type == NodeTypes.Output);
+            if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph &&
+                !snapshot.Events.Any(evt => evt.NodeId is not null &&
+                    revision.Definition.Nodes.TryGetValue(evt.NodeId, out var node) && node.Type == NodeTypes.Loop &&
+                    evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped))
+            {
+                boundary = null;
+                return ValueTask.FromResult(false);
+            }
             var hash = WorkflowRunCheckpoint.Hash(native.Payload);
             var metadata = JsonSerializer.Serialize(new { native.CheckpointId, payloadHash = hash, runtimeVersion = WorkflowRunner.CheckpointRuntimeVersion });
             var events = new List<ExecutionEvent>
@@ -115,7 +129,7 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
             {
                 VariableStateHash = native.VariableState?.ComputeHash()
             };
-            if (suspended && revision.Definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph)
+            if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph)
             {
                 var observed = boundary ?? throw new InvalidOperationException("The loop checkpoint boundary was not captured by the host.");
                 if (!string.Equals(observed.Checkpoint.CheckpointId, native.CheckpointId, StringComparison.Ordinal) ||

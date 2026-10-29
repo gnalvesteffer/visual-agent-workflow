@@ -215,6 +215,43 @@ public sealed class MutableVariableExecutionTests
     }
 
     [Fact]
+    public async Task Explicitly_enabled_loop_checkpoint_host_persists_a_composite_frame()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "vaw-loop-host-opt-in-" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var database = Path.Combine(directory, "runs.sqlite3");
+            var store = new SqliteWorkflowRunStore(database);
+            var revision = WorkflowRevision.Create(LoopDefinition(), "loop-checkpoint-host-opt-in");
+            RunSnapshot suspended;
+            WorkflowRunCheckpoint checkpoint;
+            await using (var host = new CheckpointWorkflowHost(store, new CheckpointWorkflowHostOptions(true)))
+            {
+                suspended = await host.StartAsync(revision, "continue", 4);
+                checkpoint = store.GetCheckpoint(suspended.Header.RunId)!;
+            }
+
+            Assert.Equal("suspended", suspended.Status);
+            Assert.NotNull(checkpoint.Frame);
+            Assert.True(WorkflowCheckpointRecovery.Assess(suspended, checkpoint).CanResume);
+
+            await using var replacement = new CheckpointWorkflowHost(new SqliteWorkflowRunStore(database),
+                new CheckpointWorkflowHostOptions(true));
+            var resumedSuspended = await replacement.ResumeAsync(suspended.Header.RunId, checkpoint.Native.CheckpointId,
+                suspended.Events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted) + 4);
+            var nextCheckpoint = store.GetCheckpoint(suspended.Header.RunId);
+            Assert.Equal("suspended", resumedSuspended.Status);
+            Assert.NotNull(nextCheckpoint?.Frame);
+            Assert.True(WorkflowCheckpointRecovery.Assess(resumedSuspended, nextCheckpoint).CanResume);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public async Task Loop_checkpoint_capture_requires_a_boundary_sink()
     {
         var revision = WorkflowRevision.Create(LoopDefinition(), "loop-checkpoint-boundary-sink");
