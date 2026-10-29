@@ -1,6 +1,6 @@
 # Decision 0048: Establish an explicit workflow migration registry
 
-**Status: Registry and catalog provenance slice shipped; package/full compatibility migration remains open.**
+**Status: Registry, catalog, and package provenance slices shipped; full compatibility migration remains open.**
 
 ## Context
 
@@ -33,17 +33,24 @@ legacy databases to schema 4, and validate the envelope on reopen. Missing
 provenance remains the valid legacy state; no normal publish, load, restore, or
 run path performs migration implicitly.
 
+Portable package exports created from a migration result now carry an additive
+provenance envelope containing the canonical source package JSON and its hash.
+Import validates the source package, canonical bytes, source/target hashes and
+schemas, and the explicit operation chain. Legacy packages remain
+provenance-free and readable.
+
 The registry is deliberately separate from `WorkflowSchemaPromotionCatalog` and
-does not add schema 1.50 to the schema catalog, validator, Studio, package
-import, or runtime. It cannot migrate the private WorkflowCall proof seam.
+does not add schema 1.50 to the schema catalog, validator, Studio, or runtime.
+The package importer only recognizes the additive provenance envelope and does
+not execute migrations. It cannot migrate the private WorkflowCall proof seam.
 
 ## Compatibility boundary
 
-This is still not the complete compatibility gate for schema 1.50. Package-level
-source-byte preservation, older-runtime behavior, package tamper verification,
-and the WorkflowCall migration contract remain required before public schema
-admission. The catalog provenance hash detects inconsistent stored bytes but is
-not a signature or author-authentication mechanism. Downgrades, automatic
+This is still not the complete compatibility gate for schema 1.50. Older-reader
+behavior, package/revision identity policy, and the WorkflowCall migration
+contract remain required before public schema admission. The catalog/package
+provenance hashes detect inconsistent stored bytes but are not signatures or
+author-authentication mechanisms. Downgrades, automatic
 load/run migration, topology repair, capability rebinding, and “migrate to
 latest” remain unsupported.
 
@@ -56,3 +63,5 @@ operation rejection, source-schema rejection, and required request fields.
 Hosting tests verify explicit migrated publication, schema-4 upgrade from a
 legacy database, reopen preservation, and malformed/tampered provenance
 rejection.
+Package tests verify canonical source-package preservation, legacy package
+compatibility, and source-byte tampering rejection.

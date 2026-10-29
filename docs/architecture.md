@@ -80,8 +80,11 @@ Catalog-backed callers may explicitly publish a migrated revision through
 and its integrity hash in schema 4, upgrades older catalogs with absent
 provenance, and validates stored identity, source hash, operation chain, and
 target hash on read. Ordinary publish/load/restore/run paths do not migrate.
-Workflow packages intentionally do not carry this provenance yet because their
-current identity is definition/layout-based rather than revision-based.
+Workflow packages created from an explicit migration result now carry a bounded
+canonical source-package envelope and hash plus the operation provenance; their
+definition/layout identity and executable hash remain unchanged. Legacy package
+imports remain provenance-free. This is historical evidence, not a signature,
+authorization grant, or automatic migration instruction.
 
 `IWorkflowDesignCatalog` extends the original catalog without breaking its methods. A design save writes definition, layout, generation, and audit entries in one SQLite transaction. A stale generation returns a conflict without overwriting either document. Publication captures an immutable definition/revision and layout; restoring copies a historical version into the draft. Activation selects which revision new runs use.
 

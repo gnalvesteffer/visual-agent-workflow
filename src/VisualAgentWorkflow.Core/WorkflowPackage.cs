@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -10,8 +11,13 @@ public sealed record PackageRequirement(string Kind, string Id, string Version,
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? DescriptionHash { get; init; }
 }
+public sealed record WorkflowPackageMigrationProvenance(
+    WorkflowMigrationProvenance Revision,
+    string SourcePackageHash,
+    string SourcePackageJson);
 public sealed record WorkflowPackage(string FormatVersion, WorkflowDefinition Definition, WorkflowLayout Layout,
-    ImmutableArray<PackageRequirement> Requirements, string DefinitionHash, string LayoutHash);
+    ImmutableArray<PackageRequirement> Requirements, string DefinitionHash, string LayoutHash,
+    WorkflowPackageMigrationProvenance? MigrationProvenance = null);
 
 /// <summary>Self-contained design sharing. Checksums are integrity checks, never signatures or permissions.</summary>
 public static class WorkflowPackageJson
@@ -24,11 +30,29 @@ public static class WorkflowPackageJson
     };
 
     public static WorkflowPackage Create(WorkflowDefinition definition, WorkflowLayout layout)
+        => Create(definition, layout, null);
+
+    public static WorkflowPackage Create(WorkflowMigrationResult migration)
+    {
+        ArgumentNullException.ThrowIfNull(migration);
+        var sourceLayout = migration.SourceRevision.Layout ?? WorkflowLayout.Create(migration.SourceRevision.Definition);
+        var sourcePackageJson = Serialize(migration.SourceRevision.Definition, sourceLayout);
+        var provenance = new WorkflowPackageMigrationProvenance(migration.Provenance,
+            ComputePackageHash(sourcePackageJson), sourcePackageJson);
+        return Create(migration.TargetRevision.Definition,
+            migration.TargetRevision.Layout ?? WorkflowLayout.Create(migration.TargetRevision.Definition), provenance);
+    }
+
+    private static WorkflowPackage Create(WorkflowDefinition definition, WorkflowLayout layout,
+        WorkflowPackageMigrationProvenance? migrationProvenance)
     {
         var normalized = WorkflowJson.Deserialize(WorkflowJson.Serialize(definition));
         var presentation = WorkflowLayoutJson.Deserialize(WorkflowLayoutJson.Serialize(layout, normalized), normalized);
-        return new("1.0", normalized, presentation, Requirements(normalized),
-            WorkflowJson.ComputeHash(normalized), WorkflowLayoutJson.ComputeHash(presentation, normalized));
+        var package = new WorkflowPackage("1.0", normalized, presentation, Requirements(normalized),
+            WorkflowJson.ComputeHash(normalized), WorkflowLayoutJson.ComputeHash(presentation, normalized), migrationProvenance);
+        if (migrationProvenance is not null)
+            ValidateMigrationProvenance(package);
+        return package;
     }
 
     public static ImmutableArray<PackageRequirement> Requirements(WorkflowDefinition definition)
@@ -79,9 +103,19 @@ public static class WorkflowPackageJson
     public static string Serialize(WorkflowDefinition definition, WorkflowLayout layout)
     {
         var json = JsonSerializer.Serialize(Create(definition, layout), Options);
-        if (Encoding.UTF8.GetByteCount(json) > MaximumBytes) throw new ArgumentException("Package exceeds 3 MiB.");
+        EnsureSize(json);
         return json;
     }
+
+    public static string Serialize(WorkflowMigrationResult migration)
+    {
+        var json = JsonSerializer.Serialize(Create(migration), Options);
+        EnsureSize(json);
+        return json;
+    }
+
+    public static string ComputePackageHash(string json) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
 
     public static WorkflowPackage Deserialize(string json)
     {
@@ -95,12 +129,48 @@ public static class WorkflowPackageJson
             throw new ArgumentException("Unsupported or incomplete workflow package.");
         var definition = WorkflowJson.Deserialize(document.RootElement.GetProperty("definition").GetRawText());
         var layout = WorkflowLayoutJson.Deserialize(document.RootElement.GetProperty("layout").GetRawText(), definition);
-        var expected = Create(definition, layout);
+        var expected = Create(definition, layout, package.MigrationProvenance);
         if (!WorkflowJson.MatchesHash(definition, package.DefinitionHash) ||
             !WorkflowLayoutJson.MatchesHash(layout, definition, package.LayoutHash) ||
             package.Requirements.Distinct().Count() != package.Requirements.Length ||
-            !Sort(package.Requirements).SequenceEqual(expected.Requirements))
+            !Sort(package.Requirements).SequenceEqual(expected.Requirements) ||
+            !string.Equals(SerializeMigrationProvenance(package.MigrationProvenance),
+                SerializeMigrationProvenance(expected.MigrationProvenance), StringComparison.Ordinal))
             throw new ArgumentException("Package checksums or requirements do not match its contents.");
         return expected;
+    }
+
+    private static void ValidateMigrationProvenance(WorkflowPackage package)
+    {
+        var provenance = package.MigrationProvenance!;
+        if (string.IsNullOrWhiteSpace(provenance.SourcePackageJson) ||
+            Encoding.UTF8.GetByteCount(provenance.SourcePackageJson) > MaximumBytes ||
+            !string.Equals(provenance.SourcePackageHash, ComputePackageHash(provenance.SourcePackageJson), StringComparison.Ordinal))
+            throw new ArgumentException("Migration source package bytes or hash are invalid.");
+
+        WorkflowPackage source;
+        try { source = Deserialize(provenance.SourcePackageJson); }
+        catch (Exception exception) when (exception is ArgumentException or JsonException or InvalidDataException)
+        { throw new ArgumentException("Migration source package is invalid.", exception); }
+        if (source.MigrationProvenance is not null ||
+            !string.Equals(Serialize(source.Definition, source.Layout), provenance.SourcePackageJson, StringComparison.Ordinal) ||
+            source.DefinitionHash != provenance.Revision.SourceContentHash ||
+            source.Definition.SchemaVersion != provenance.Revision.SourceSchema ||
+            package.DefinitionHash != provenance.Revision.TargetContentHash ||
+            package.Definition.SchemaVersion != provenance.Revision.TargetSchema)
+            throw new ArgumentException("Migration provenance does not match package contents.");
+
+        var target = WorkflowRevision.Rehydrate(provenance.Revision.TargetRevisionId, package.Definition,
+            "package-migration", provenance.Revision.SourceRevisionId, DateTimeOffset.UnixEpoch,
+            package.DefinitionHash);
+        WorkflowMigrationRegistry.ValidateProvenance(provenance.Revision, target);
+    }
+
+    private static string SerializeMigrationProvenance(WorkflowPackageMigrationProvenance? provenance) =>
+        provenance is null ? string.Empty : JsonSerializer.Serialize(provenance, Options);
+
+    private static void EnsureSize(string json)
+    {
+        if (Encoding.UTF8.GetByteCount(json) > MaximumBytes) throw new ArgumentException("Package exceeds 3 MiB.");
     }
 }
