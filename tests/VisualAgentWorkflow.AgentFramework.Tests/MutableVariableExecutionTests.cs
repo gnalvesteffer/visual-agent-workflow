@@ -186,6 +186,24 @@ public sealed class MutableVariableExecutionTests
     }
 
     [Fact]
+    public void Resumed_checkpoint_boundary_requires_framework_restore_callback()
+    {
+        var tracker = new CheckpointBoundaryTracker(requiresRestoration: true);
+        tracker.BeginHandler("body", "loop", "body", 1);
+        tracker.PublishTransition("body", "then", "loop", "in", 1);
+        tracker.OnCheckpointing("loop");
+
+        Assert.False(tracker.TryCapture(out _));
+
+        tracker.OnCheckpointRestored("loop");
+        tracker.BeginHandler("body", "loop", "body", 1);
+        tracker.PublishTransition("body", "then", "loop", "in", 1);
+        tracker.OnCheckpointing("loop");
+
+        Assert.True(tracker.TryCapture(out _));
+    }
+
+    [Fact]
     public async Task Public_checkpoint_path_keeps_schema_145_loop_recovery_fail_closed()
     {
         var revision = WorkflowRevision.Create(LoopDefinition(), "loop-checkpoint-admission");

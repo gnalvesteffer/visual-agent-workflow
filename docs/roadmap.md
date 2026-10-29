@@ -255,7 +255,10 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   resumable boundary. The final promotion gate remains deferred by the
   2026-10-29 adversarial adjudication until the native checkpoint compatibility
   contract and public API support status are explicit; default schema 1.45
-  admission remains closed.
+  admission remains closed. The adapter now also requires the framework's
+  `OnCheckpointRestoredAsync` callback on resumed loop graphs before accepting
+  a subsequent capture; this closes a restore-lifecycle safety subgate without
+  claiming native payload compatibility.
 - [x] Add passive playback and prefix reconstruction for variable reads/writes
   without re-execution; the run inspector renders the reconstructed value,
   version, and operation history.

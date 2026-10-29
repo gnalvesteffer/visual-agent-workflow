@@ -35,8 +35,11 @@ executor transitions with `Executor.OnCheckpointingAsync` callbacks and the
 native checkpoint-store callback. It rejects capture when a handler is active
 or the routed transition changes after pre-save. This probe is diagnostic
 infrastructure only, and its tests assert one-to-one native checkpoint identity
-for captured observations. It does not make loop checkpoints recoverable or
-parse the framework's private checkpoint JSON.
+for captured observations. Resumed loop captures additionally require the
+rebuilt graph to receive Agent Framework's `OnCheckpointRestoredAsync` callback
+before a new boundary can be committed. This is a fail-closed lifecycle guard,
+not a parser or compatibility promise for the framework's private checkpoint
+JSON; loop recovery remains experimental and disabled by default.
 
 ## Use the host API
 

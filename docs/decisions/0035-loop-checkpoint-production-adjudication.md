@@ -40,6 +40,12 @@ frame. Schema 1.44 and older checkpoint envelopes remain unchanged. The proof
 seam remains test-only and is not evidence that the public host can recover a
 loop.
 
+The adapter now also fails a resumed loop capture unless the framework has
+invoked `OnCheckpointRestoredAsync` on the rebuilt loop graph first. This is a
+necessary restore-lifecycle guard, not a native-payload compatibility claim:
+the exact Agent Framework/runtime stamp remains required and schema 1.45
+admission remains opt-in until the final compatibility gate below is closed.
+
 ## Promotion checklist
 
 - [x] Carry the actual quiescent boundary observation through the shared host

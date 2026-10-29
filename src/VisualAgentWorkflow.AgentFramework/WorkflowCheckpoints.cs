@@ -42,6 +42,7 @@ public interface IWorkflowCheckpointBoundarySink
 /// </summary>
 internal sealed class CheckpointBoundaryTracker
 {
+    private readonly bool requiresRestoration;
     private readonly object sync = new();
     private long generation;
     private int activeHandlers;
@@ -53,7 +54,10 @@ internal sealed class CheckpointBoundaryTracker
     private int loopIteration;
     private long? preparedGeneration;
     private int checkpointCallbacks;
+    private bool restorationObserved;
     private bool invalid;
+
+    public CheckpointBoundaryTracker(bool requiresRestoration = false) => this.requiresRestoration = requiresRestoration;
 
     public void BeginHandler(string nodeId, string? sourceNode, string? sourcePort, int iteration)
     {
@@ -104,6 +108,14 @@ internal sealed class CheckpointBoundaryTracker
         }
     }
 
+    public void OnCheckpointRestored(string executorId)
+    {
+        lock (sync)
+        {
+            restorationObserved = true;
+        }
+    }
+
     public bool TryCapture(out CheckpointBoundaryObservation observation)
     {
         lock (sync)
@@ -118,7 +130,8 @@ internal sealed class CheckpointBoundaryTracker
                 nextNodeId,
                 nextInputPortId,
                 loopIteration);
-            var valid = preparedGeneration == generation && checkpointCallbacks > 0 && activeHandlers == 0 && !invalid;
+            var valid = preparedGeneration == generation && checkpointCallbacks > 0 && activeHandlers == 0 &&
+                (!requiresRestoration || restorationObserved) && !invalid;
             preparedGeneration = null;
             checkpointCallbacks = 0;
             invalid = false;
@@ -162,7 +175,7 @@ public sealed partial class WorkflowRunner
                 : new WorkflowVariableStore(revision.Definition)
             : null;
         var boundaryTracker = revision.Definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph
-            ? new CheckpointBoundaryTracker() : null;
+            ? new CheckpointBoundaryTracker(checkpoints.RestoredCheckpoint is not null) : null;
         var bridge = new NativeCheckpointBridge(checkpoints, variableStore, boundaryTracker);
         var manager = CheckpointManager.CreateJson(bridge, new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() });
         long sequence = 0;

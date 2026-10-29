@@ -947,6 +947,12 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             return ValueTask.CompletedTask;
         }
 
+        protected override ValueTask OnCheckpointRestoredAsync(IWorkflowContext context, CancellationToken cancellationToken)
+        {
+            boundaryTracker?.OnCheckpointRestored(Id);
+            return ValueTask.CompletedTask;
+        }
+
         public override async ValueTask<GraphMessage> HandleAsync(GraphMessage received, IWorkflowContext context, CancellationToken cancellationToken = default)
         {
             var internalTerminationHandoff = node.Type == NodeTypes.Output && received.TerminationSignal;
