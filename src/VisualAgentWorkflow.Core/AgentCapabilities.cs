@@ -9,6 +9,8 @@ public sealed record AgentConfiguration(string ProviderId,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ProviderVersion,
     string Instructions, ImmutableArray<ToolBindingRequest> Tools)
 {
+    /// <summary>Schema 1.46 immutable provider contract identity used for run admission.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ProviderContractHash { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public PromptTemplate? UserMessage { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImmutableArray<SkillReference>? Skills { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public AgentReasoningEffort? ReasoningEffort { get; init; }
@@ -169,6 +171,10 @@ public static class PromptRendering
 }
 public sealed record AgentProviderDescriptor(string ProviderId, string DisplayName, string ModelId, bool IsDeterministic)
 {
+    /// <summary>Stable execution identity. Presentation, pricing, and telemetry fields are deliberately excluded.</summary>
+    [JsonIgnore]
+    public string ContractHash => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(
+        $"agent-provider-contract/v1\u001f{ProviderId}\u001f{ModelId}\u001f{IsDeterministic}\u001f{SupportsReasoningEffort}\u001f{ContextWindowTokens?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? ""}")));
     public bool SupportsReasoningEffort { get; init; }
     /// <summary>Optional model context size supplied by the trusted provider host.</summary>
     public int? ContextWindowTokens { get; init; }

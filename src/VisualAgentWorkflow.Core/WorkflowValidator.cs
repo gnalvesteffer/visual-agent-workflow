@@ -511,6 +511,11 @@ public static class WorkflowValidator
                     Error("agent.configuration", $"nodes.{id}.agent", "An agent requires a model connection ID, bounded instructions, and unique tool requirements.");
                 if (node.Agent is { } configured)
                 {
+                    if (configured.ProviderContractHash is not null &&
+                        (definition.SchemaVersion != WorkflowSchemaVersions.SequenceAgentPathGraph || !ValidHash(configured.ProviderContractHash)))
+                        Error("agent.providerContract", $"nodes.{id}.agent.providerContractHash", "Provider contract hashes require schema 1.46 and a lowercase SHA-256 value.");
+                    if (definition.SchemaVersion == WorkflowSchemaVersions.SequenceAgentPathGraph && !ValidHash(configured.ProviderContractHash ?? ""))
+                        Error("agent.providerContract", $"nodes.{id}.agent.providerContractHash", "Schema 1.46 Agent nodes require an immutable provider contract hash.");
                     if (configured.Routes is { } routes &&
                         (definition.SchemaVersion != WorkflowSchemaVersions.AgentExecutionRoutes || routes.IsDefault || routes.Length is < 1 or > AgentExecutionRouteLimits.MaximumRoutes ||
                          routes.Any(route => route is null || !ValidParameterId(route.Id) || route.Label is null || string.IsNullOrWhiteSpace(route.Label) || route.Label.Length > AgentExecutionRouteLimits.MaximumLabelLength || route.Label.Any(char.IsControl) || route.Description is null || route.Description.Length > AgentExecutionRouteLimits.MaximumDescriptionLength) ||

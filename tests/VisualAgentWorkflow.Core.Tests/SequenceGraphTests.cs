@@ -147,7 +147,7 @@ public sealed class SequenceGraphTests
         Assert.Equal(definition.Nodes["research-agent"].Agent, restored.Definition.Nodes["research-agent"].Agent);
         Assert.Equal(definition.ExecutionConnections, restored.Definition.ExecutionConnections);
         Assert.Equal(WorkflowJson.ComputeHash(definition), WorkflowJson.ComputeHash(restored.Definition));
-        Assert.Contains(restored.Requirements, requirement => requirement.Kind == "agent-provider" &&
+        Assert.Contains(restored.Requirements, requirement => requirement.Kind == "agent-provider-contract" &&
             requirement.Id == "sequence-proof");
         Assert.Empty(WorkflowValidator.Validate(restored.Definition));
     }
@@ -296,7 +296,7 @@ public sealed class SequenceGraphTests
         var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0")
         {
             Agent = new AgentConfiguration("qwen", null, "Summarize the supplied research.", [])
-            { MaxTurns = 1, MaxTotalTokens = 4000 }
+            { ProviderContractHash = new string('a', 64), MaxTurns = 1, MaxTotalTokens = 4000 }
         };
         var definition = source with
         {
@@ -320,7 +320,7 @@ public sealed class SequenceGraphTests
         {
             Agent = new AgentConfiguration("qwen", null, "Summarize the supplied research.",
                 [new ToolBindingRequest("tool", new string('a', 64))])
-            { MaxTurns = AgentExecutionLimits.UnlimitedTurns, MaxTotalTokens = 4000 }
+            { ProviderContractHash = new string('a', 64), MaxTurns = AgentExecutionLimits.UnlimitedTurns, MaxTotalTokens = 4000 }
         };
         var definition = source with
         {
@@ -345,7 +345,7 @@ public sealed class SequenceGraphTests
         var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0")
         {
             Agent = new AgentConfiguration("qwen", null, "Summarize the supplied research.", [])
-            { MaxTurns = 1, MaxTotalTokens = 4000 }
+            { ProviderContractHash = new string('a', 64), MaxTurns = 1, MaxTotalTokens = 4000 }
         };
         var definition = source with
         {
@@ -420,7 +420,7 @@ public sealed class SequenceGraphTests
         var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0")
         {
             Agent = new AgentConfiguration("sequence-proof", null, "Return the supplied text.", [])
-            { MaxTurns = 1, MaxTotalTokens = 4000 }
+            { ProviderContractHash = new string('a', 64), MaxTurns = 1, MaxTotalTokens = 4000 }
         };
         return source with
         {

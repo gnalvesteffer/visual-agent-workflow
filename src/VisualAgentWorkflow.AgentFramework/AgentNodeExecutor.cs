@@ -123,6 +123,9 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         var tokenBudget = sharedTokenBudget ?? (maximumTotalTokens is { } maximumTokens ? new AgentTokenBudget(maximumTokens) : null);
         if (!Volatile.Read(ref registrations).TryGetValue(configuration.ProviderId, out var provider))
             throw new InvalidOperationException($"Agent connection '{configuration.ProviderId}' is unavailable.");
+        if (configuration.ProviderContractHash is { } expectedContract &&
+            !string.Equals(expectedContract, provider.Descriptor.ContractHash, StringComparison.Ordinal))
+            throw new InvalidOperationException($"Agent connection '{configuration.ProviderId}' no longer matches the workflow's provider contract.");
         var reasoningEffort = configuration.ReasoningEffortParameterId is { } parameterId && invocation.Parameters is { } values
             ? values.GetValueOrDefault(parameterId) switch
             {

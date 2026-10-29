@@ -72,13 +72,20 @@ public sealed class WorkflowAdmissionTests
     public void Sequence_agent_path_package_requires_the_terminal_agent_provider()
     {
         var definition = SequenceAgentPathDefinition();
+        var package = WorkflowPackageJson.Create(definition, WorkflowLayout.Create(definition));
 
-        var requirements = WorkflowPackageJson.Requirements(definition);
-        var provider = Assert.Single(requirements, requirement => requirement.Kind == "agent-provider");
+        var requirements = package.Requirements;
+        var provider = Assert.Single(requirements, requirement => requirement.Kind == "agent-provider-contract");
 
         Assert.Equal("sequence-proof", provider.Id);
-        Assert.True(WorkflowAdmission.Assess(definition, new([provider.Id],
-            [new WorkflowAdmissionToolFact("demo.inventory", new string('a', 64))])).HostDependenciesSatisfied);
+        var host = new WorkflowAdmissionHostSnapshot([provider.Id],
+            [new WorkflowAdmissionToolFact("demo.inventory", new string('a', 64))])
+        {
+            ProviderFacts = [new WorkflowAdmissionProviderFact(provider.Id, provider.ContractHash!)],
+            AgentGrants = [new WorkflowAdmissionAgentGrant(definition.WorkflowId, package.DefinitionHash,
+                "research-agent", provider.Id, provider.ContractHash!)]
+        };
+        Assert.True(WorkflowAdmission.Assess(package, host).HostDependenciesSatisfied);
         Assert.Contains(WorkflowAdmission.Assess(definition, WorkflowAdmissionHostSnapshot.Empty).Issues,
             issue => issue.Kind == WorkflowAdmissionIssueKind.Missing && issue.Requirement == provider);
     }
@@ -144,7 +151,7 @@ public sealed class WorkflowAdmissionTests
             ["research-agent"] = new(NodeTypes.Agent, "1.0.0")
             {
                 Agent = new AgentConfiguration("sequence-proof", null, "Return the supplied text.", [])
-                { MaxTurns = 1, MaxTotalTokens = 4000 }
+                { ProviderContractHash = new string('a', 64), MaxTurns = 1, MaxTotalTokens = 4000 }
             },
             ["output"] = new(NodeTypes.Output, "1.0.0")
         };

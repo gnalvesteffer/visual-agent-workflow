@@ -49,7 +49,9 @@ public static class WorkflowPackageJson
             if (node.Tool is { } tool) requirements.Add(new("mcp-tool", tool.BindingId, "", tool.ContractHash) { DescriptionHash = tool.DescriptionHash });
             if (node.Agent is { } agent)
             {
-                requirements.Add(new("agent-provider", agent.ProviderId, ""));
+                requirements.Add(definition.SchemaVersion == WorkflowSchemaVersions.SequenceAgentPathGraph && agent.ProviderContractHash is not null
+                    ? new("agent-provider-contract", agent.ProviderId, "1", agent.ProviderContractHash)
+                    : new("agent-provider", agent.ProviderId, ""));
                 foreach (var request in agent.Tools) requirements.Add(new("mcp-tool", request.BindingId, "", request.ContractHash)
                 { DescriptionHash = request.DescriptionHash });
                 foreach (var skill in agent.Skills ?? []) requirements.Add(new("skill", skill.Id, skill.Version, skill.ContentHash));

@@ -78,19 +78,24 @@ the normal runner, but not advertised as complete parity.
 ## Authority review addendum (2026-10-29)
 
 The required proponent/opponent/adjudicator review of stronger terminal-Agent
-admission recommends **revise, then proceed**. Provider-ID-only admission is
-not enough to prevent a host from substituting a different model or adapter
-behind the same logical ID, and Agent paths do not yet have an explicit
-host-owned grant boundary comparable to MCP nodes. Before implementing this
-gate, the project must define a schema-1.46-only, credential-free execution
-contract fingerprint whose canonical inputs exclude mutable display, pricing,
-and telemetry fields; a grant bound to the workflow definition hash, terminal
-Agent node, provider ID, and fingerprint; and a run-scoped immutable admission
-lease or equivalent atomic revalidation that closes provider replacement after
-admission. Unknown requirements must fail closed, and older readers must reject
-or explicitly decline schema 1.46 rather than silently ignoring the stronger
-requirement. No public Agent-path promotion is claimed until those contracts
-and their exact/mismatch/denial/replacement/compatibility proofs are complete.
+admission recommended **revise, then proceed**. The first bounded increment is
+now implemented: schema 1.46 Agent nodes carry a credential-free provider
+contract fingerprint whose canonical inputs are execution identity only
+(provider ID, model ID, determinism, reasoning support, and context window),
+excluding mutable display, pricing, and telemetry fields. Host admission
+projects exact provider facts and host-owned grants bound to the workflow
+definition hash, terminal Agent node, provider ID, and fingerprint. Unknown
+requirement kinds fail closed, and the Agent executor revalidates the exact
+fingerprint immediately before provider invocation so replacement behind a
+logical ID is rejected.
+
+This is an admission proof slice, not a full immutable run lease: atomic
+provider-registry replacement and durable run-scoped lease semantics remain
+open. Older schemas preserve their provider-ID requirements; schema 1.46
+packages require the stronger contract and therefore older readers decline
+them through their existing package-requirement mismatch rather than silently
+weakening the gate. No public Agent-path promotion is claimed until the
+remaining lease, compatibility, and Studio admission proofs are complete.
 
 ## Backend slice update (2026-10-29)
 

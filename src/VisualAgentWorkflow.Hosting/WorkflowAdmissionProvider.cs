@@ -25,7 +25,10 @@ public sealed class CatalogWorkflowAdmissionSnapshotProvider(
             bindings.Select(binding => new WorkflowAdmissionToolFact(binding.BindingId, binding.ContractHash)
             {
                 DescriptionHash = binding.DescriptionHash
-            }).ToImmutableArray());
+            }).ToImmutableArray())
+        {
+            ProviderFacts = providerIds.Select(provider => new WorkflowAdmissionProviderFact(provider.ProviderId, provider.ContractHash)).ToImmutableArray()
+        };
     }
 }
 

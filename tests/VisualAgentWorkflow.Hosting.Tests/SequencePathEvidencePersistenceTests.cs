@@ -227,7 +227,7 @@ public sealed class SequencePathEvidencePersistenceTests : IDisposable
         var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0")
         {
             Agent = new AgentConfiguration("sequence-proof", null, "Return the supplied text.", [])
-            { MaxTurns = 1, MaxTotalTokens = 4000 }
+            { ProviderContractHash = new string('a', 64), MaxTurns = 1, MaxTotalTokens = 4000 }
         };
         return definition with
         {

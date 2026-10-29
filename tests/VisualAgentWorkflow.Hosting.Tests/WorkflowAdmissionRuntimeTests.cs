@@ -84,7 +84,7 @@ public sealed class WorkflowAdmissionRuntimeTests : IDisposable
                 runtime.StartPausedRunAsync(SequenceAgentPathDefinition(), "input"));
 
             Assert.Contains(error.Report.Issues, issue => issue.Kind == WorkflowAdmissionIssueKind.Missing &&
-                issue.Requirement is { Kind: "agent-provider", Id: "sequence-proof" });
+                issue.Requirement is { Kind: "agent-provider-contract", Id: "sequence-proof" });
             Assert.Empty(journal.List());
             Assert.Equal(1, provider.Calls);
         }
@@ -109,7 +109,7 @@ public sealed class WorkflowAdmissionRuntimeTests : IDisposable
             ["research-agent"] = new(NodeTypes.Agent, "1.0.0")
             {
                 Agent = new AgentConfiguration("sequence-proof", null, "Return the supplied text.", [])
-                { MaxTurns = 1, MaxTotalTokens = 4000 }
+                { ProviderContractHash = new string('a', 64), MaxTurns = 1, MaxTotalTokens = 4000 }
             },
             ["output"] = new(NodeTypes.Output, "1.0.0")
         };

@@ -287,11 +287,28 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Agent_executor_rejects_provider_replacement_after_definition_admission()
+    {
+        var descriptor = new AgentProviderDescriptor("sequence-proof", "Proof", "scripted-text-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(descriptor, () => new DeterministicDemoChatClient())],
+            new RecordingBroker());
+
+        agents.ReplaceProviders([new AgentProviderRegistration(
+            descriptor with { ModelId = "replacement-model" }, () => new DeterministicDemoChatClient())]);
+
+        var revision = WorkflowRevision.Create(SequenceAgentPathDefinition(), "sequence-agent-contract-test");
+        var context = new NodeInvocationContext(Guid.NewGuid(), revision, "inventory-agent", Guid.NewGuid(),
+            (_, _) => ValueTask.CompletedTask);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => agents.ExecuteAsync(context, "proof input"));
+    }
+
+    [Fact]
     public async Task Private_agent_sequence_proof_records_provider_timeout_as_failure_without_retry()
     {
         var events = new List<ExecutionEvent>();
         var registration = new AgentProviderRegistration(
-            new("sequence-proof", "Blocking", "blocking-v1", false),
+            new("sequence-proof", "Blocking", "scripted-text-v1", true),
             () => new BlockingChatClient()) { InvocationTimeout = TimeSpan.FromMilliseconds(25) };
         var agents = new AgentNodeExecutor([registration], new RecordingBroker());
 
@@ -313,7 +330,7 @@ public sealed class SequenceProductionRunnerTests
         var events = new List<ExecutionEvent>();
         var client = new OutOfOrderChatClient();
         var registration = new AgentProviderRegistration(
-            new("sequence-proof", "Out of order", "out-of-order-v1", false), () => client);
+            new("sequence-proof", "Out of order", "scripted-text-v1", true), () => client);
         var agents = new AgentNodeExecutor([registration], new RecordingBroker());
         var result = await new WorkflowRunner(agents: agents).ExecuteSequenceAgentFanoutProductionProofAsync(
             Guid.NewGuid(), "proof input", evt => { events.Add(evt); return ValueTask.CompletedTask; });
@@ -442,7 +459,8 @@ public sealed class SequenceProductionRunnerTests
         var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0")
         {
             Agent = new AgentConfiguration("sequence-proof", null, "Return the supplied text.", [])
-            { MaxTurns = 1, MaxTotalTokens = 4000 }
+            { ProviderContractHash = new AgentProviderDescriptor("sequence-proof", "Proof", "scripted-text-v1", true).ContractHash,
+                MaxTurns = 1, MaxTotalTokens = 4000 }
         };
         return source with
         {
