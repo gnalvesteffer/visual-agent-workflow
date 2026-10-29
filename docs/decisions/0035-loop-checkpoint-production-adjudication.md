@@ -41,8 +41,10 @@ loop.
   composite frame from that observation when a loop suspension is eventually
   admitted; schema 1.45 admission remains closed while the later transaction
   and race gates are completed.
-- [ ] Persist the composite frame, evidence prefix, and suspension marker in
-  one host-owned transaction; acknowledge suspension only after commit.
+- [x] Persist the composite frame, evidence prefix, and suspension marker in
+  one host-owned transaction; acknowledge suspension only after commit. The
+  SQLite store commits the evidence transition and checkpoint pointer together,
+  and publication-failure regressions prove neither half survives rollback.
 - [x] Add an explicit host capability that defaults disabled and apply the same
   exact topology/frame admission to both start and resume. The opt-in host is
   intentionally experimental and is not enabled by the Studio/default host.
@@ -63,7 +65,7 @@ loop.
   not claim distributed fencing or failover semantics.
 - [x] Prove repeated/concurrent host disposal is idempotent, releases local
   ownership, and makes later calls fail deterministically as disposed.
-- [ ] Qualify cancellation, publication failure, process loss, and disposal
+- [ ] Qualify cancellation, acknowledgement loss, and publication failure
   races during active execution/publication on the public host path.
 - [x] Reopen production-generated loop history after host disposal with no
   executor/model/tool calls and prove passive variable playback. The existing
