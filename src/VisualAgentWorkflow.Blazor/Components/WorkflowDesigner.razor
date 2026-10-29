@@ -128,6 +128,36 @@
                             }
                         </fieldset>
                     }
+                    @if (IsSequenceCallTransformDraft)
+                    {
+                        <fieldset class="vaw-sequence-call-authoring" aria-label="Append a deterministic transform after a WorkflowCall">
+                            <legend>WorkflowCall transform</legend>
+                            <p class="vaw-help">Add one deterministic text step after a pinned string child. The graph stays a saveable schema 1.50 draft until you explicitly promote it to schema 1.51.</p>
+                            @if (SequenceCallTransformPaths.IsEmpty)
+                            {
+                                <p class="vaw-help">No eligible terminal WorkflowCall paths are available. The call must be pinned, valid, and connected directly to Output.</p>
+                            }
+                            else
+                            {
+                                <label>WorkflowCall path
+                                    <select aria-label="WorkflowCall path for deterministic transform" @bind="sequenceCallTransformNodeId" disabled="@(preview is not null || busy)">
+                                        <option value="">Choose a pinned call</option>
+                                        @foreach (var path in SequenceCallTransformPaths)
+                                        {
+                                            <option @key="path.CallNodeId" value="@path.CallNodeId">@path.CallNodeId · @path.ChildWorkflowId</option>
+                                        }
+                                    </select>
+                                </label>
+                                <label>Transform
+                                    <select aria-label="WorkflowCall deterministic transform" @bind="sequenceCallTransformType" disabled="@(preview is not null || busy)">
+                                        <option value="@NodeTypes.SequenceUppercase">Uppercase</option>
+                                        <option value="@NodeTypes.SequenceReverse">Reverse</option>
+                                    </select>
+                                </label>
+                                <button type="button" @onclick="InsertSequenceWorkflowCallTransform" disabled="@(preview is not null || busy || string.IsNullOrWhiteSpace(sequenceCallTransformNodeId) || !SequenceCallTransformPaths.Any(path => path.CallNodeId == sequenceCallTransformNodeId))">Append transform after call</button>
+                            }
+                        </fieldset>
+                    }
                     <ul class="vaw-requirements">
                         @foreach (var requirement in reusableRequirements)
                         { <li @key="requirement">@RequirementLabel(requirement): @RequirementAvailability(requirement)</li> }

@@ -49,9 +49,9 @@ public sealed record WorkflowDraftPromotionProvenance(
             SourceDiagnostics.Any(issue => issue is null || string.IsNullOrWhiteSpace(issue.Code) ||
                 string.IsNullOrWhiteSpace(issue.Path) || string.IsNullOrWhiteSpace(issue.Message)))
             throw new InvalidDataException("Draft promotion provenance does not match its target revision.");
-        if (target.Definition.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallGraph ||
+        if (target.Definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph) ||
             !WorkflowValidator.Validate(target.Definition).IsEmpty)
-            throw new InvalidDataException("Draft promotion provenance requires a valid schema 1.50 target.");
+            throw new InvalidDataException("Draft promotion provenance requires a valid schema 1.50 or 1.51 target.");
         var source = WorkflowJson.DeserializeDraft(SourceDefinitionJson);
         var layout = WorkflowLayoutJson.Deserialize(SourceLayoutJson, source);
         if (source.WorkflowId != SourceWorkflowId || WorkflowJson.ComputeDraftHash(source) != SourceDefinitionHash ||

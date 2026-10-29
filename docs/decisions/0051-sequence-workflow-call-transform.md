@@ -2,8 +2,8 @@
 
 ## Status
 
-Implemented as the additive schema 1.51 Core/runtime slice. Studio insertion controls and
-broader post-call composition remain future work.
+Implemented as the additive schema 1.51 Core/runtime and Studio authoring slice. Broader
+post-call composition remains future work.
 
 ## Contract
 
@@ -36,5 +36,4 @@ public `WorkflowExecutionResult` constructor compatibility.
 ## Deferred
 
 Two transforms, transforms before calls, Agents, MCP after calls, branches, loops, parallel
-composition, shared descendants, arbitrary coercion, and Studio authoring controls are not part
-of this slice.
+composition, shared descendants, and arbitrary coercion are not part of this slice.

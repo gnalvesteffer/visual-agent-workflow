@@ -14,6 +14,8 @@ public partial class WorkflowDesigner
     private string insertAfterNode = "";
     private string reusableSectionId = "";
     private string sequenceCallOutputId = "";
+    private string sequenceCallTransformNodeId = "";
+    private string sequenceCallTransformType = NodeTypes.SequenceUppercase;
     private string newReusableWorkflowId = "workflow-" + Guid.NewGuid().ToString("N")[..8];
     private IReadOnlyList<PublishedWorkflowRevision> reusableVersions = [];
     private IReadOnlyList<PackageRequirement> reusableRequirements = [];
@@ -59,6 +61,7 @@ public partial class WorkflowDesigner
     {
         reusableWorkflowId = ""; reusableRevisionId = null; reusableVersions = []; reusableRequirements = [];
         packageRequirements = []; reusableSectionId = ""; insertAfterNode = ""; sequenceCallOutputId = "";
+        sequenceCallTransformNodeId = ""; sequenceCallTransformType = NodeTypes.SequenceUppercase;
         ResetCallUpgrade();
         newReusableWorkflowId = "workflow-" + Guid.NewGuid().ToString("N")[..8];
     }
@@ -102,13 +105,23 @@ public partial class WorkflowDesigner
 
     private bool IsSequenceCallDraft => definition?.SchemaVersion == WorkflowSchemaVersions.SequenceTransformChainGraph;
 
+    private bool IsSequenceCallTransformDraft => definition?.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallGraph;
+
     private ImmutableArray<SequencePathTopology> SequenceCallPaths => definition is { } current &&
         IsSequenceCallDraft && WorkflowValidator.Validate(current).IsEmpty
         ? SequencePathTopologyAnalyzer.Analyze(current).Paths.Where(path => path.IsDirectMcpPath).ToImmutableArray()
         : [];
 
+    private ImmutableArray<SequenceWorkflowCallPath> SequenceCallTransformPaths => definition is { } current &&
+        IsSequenceCallTransformDraft && WorkflowValidator.Validate(current).IsEmpty
+        ? SequenceWorkflowCallTopology.Analyze(current).Paths
+        : [];
+
     private bool CanAuthorSequenceWorkflowCall => !IdeMode && preview is null && !busy &&
         reusableRevisionId is not null && SequenceCallPaths.Any();
+
+    private bool CanAuthorSequenceWorkflowCallTransform => !IdeMode && preview is null && !busy &&
+        SequenceCallTransformPaths.Any();
 
     private WorkflowCallUpgradeResult UpgradeSelectedCall(PublishedWorkflowRevision target) =>
         definition?.SchemaVersion == WorkflowSchemaVersions.SequenceTransformChainGraph
@@ -293,6 +306,18 @@ public partial class WorkflowDesigner
         if (!Current(current)) return;
         ApplyComposition(new(next, layout.Reconcile(next)));
         message = $"Added the pinned call to Sequence output '{sequenceCallOutputId}'. Save this schema 1.49 draft, then promote the WorkflowCall draft before publishing or running.";
+    });
+
+    private Task InsertSequenceWorkflowCallTransform() => Perform(async current =>
+    {
+        if (!CanAuthorSequenceWorkflowCallTransform || definition is null || layout is null ||
+            string.IsNullOrWhiteSpace(sequenceCallTransformNodeId) ||
+            !SequenceCallTransformPaths.Any(path => path.CallNodeId == sequenceCallTransformNodeId)) return;
+        var next = WorkflowCallEditing.AppendSequenceWorkflowCallTransformDraft(definition,
+            sequenceCallTransformNodeId, sequenceCallTransformType);
+        if (!Current(current)) return;
+        ApplyComposition(new(next, layout.Reconcile(next)));
+        message = $"Added a {(sequenceCallTransformType == NodeTypes.SequenceReverse ? "reverse" : "uppercase")} step after the pinned call. Save this schema 1.50 draft, then promote it to schema 1.51 before publishing or running.";
     });
 
     private void ApplyComposition(WorkflowComposition next)

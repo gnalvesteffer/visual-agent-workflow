@@ -559,7 +559,7 @@ public partial class WorkflowDesigner
 
     private bool CanPromoteWorkflowCallDraft => !IdeMode && !dirty && !busy && generation > 0 &&
         Catalog is IWorkflowDraftPromotionCatalog && definition is not null && layout is not null &&
-        definition.SchemaVersion == WorkflowSchemaVersions.SequenceTransformChainGraph &&
+        (definition.SchemaVersion is WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph) &&
         definition.Nodes.Values.Any(node => node.Type == NodeTypes.WorkflowCall);
 
     private Task PromoteWorkflowCallDraft() => Perform(async current =>
@@ -577,7 +577,7 @@ public partial class WorkflowDesigner
         if (Current(current))
         {
             selectedRevisionId = published.Revision.RevisionId;
-            message = $"Promoted the call-bearing draft to schema 1.50 and published version {published.Version}.";
+            message = $"Promoted the call-bearing draft to schema {published.Revision.Definition.SchemaVersion} and published version {published.Version}.";
         }
     });
 

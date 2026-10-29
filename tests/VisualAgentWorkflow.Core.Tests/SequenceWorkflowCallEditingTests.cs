@@ -65,6 +65,26 @@ public sealed class SequenceWorkflowCallEditingTests
         Assert.Empty(result.DroppedParameterMappings);
     }
 
+    [Fact]
+    public void Appends_one_transform_after_a_published_call_and_promotes_to_schema_1_51()
+    {
+        var child = WorkflowRevision.Create(Baseline("child"), "test");
+        var callDraft = WorkflowCallEditing.AppendSequenceWorkflowCallDraft(PathGraph(), "sequence", "empty", new(1, child));
+        var callRevision = WorkflowDraftPromotion.TryPromote(
+            WorkflowDraftPromotionCandidate.Create(callDraft, WorkflowLayout.Create(callDraft), 1), "test").TargetRevision;
+        var transformDraft = WorkflowCallEditing.AppendSequenceWorkflowCallTransformDraft(
+            callRevision.Definition, callRevision.Definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.WorkflowCall).Key,
+            NodeTypes.SequenceReverse);
+
+        Assert.Equal(WorkflowSchemaVersions.SequenceWorkflowCallGraph, transformDraft.SchemaVersion);
+        Assert.Contains(WorkflowValidator.Validate(transformDraft), issue => issue.Code == "execution.node.unsupported");
+        var candidate = WorkflowDraftPromotionCandidate.Create(transformDraft, WorkflowLayout.Create(transformDraft), 2);
+        var promotion = WorkflowDraftPromotion.TryPromote(candidate, "test");
+
+        Assert.Equal(WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph, promotion.TargetRevision.Definition.SchemaVersion);
+        Assert.Empty(WorkflowValidator.Validate(promotion.TargetRevision.Definition));
+    }
+
     private static WorkflowDefinition PathGraph()
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
