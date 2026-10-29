@@ -238,7 +238,11 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   execution/publication are now covered by a blocking-publication host
   regression: disposal waits for the commit, preserves the suspension, and
   releases local ownership for a replacement host. Active-resume crash windows
-  remain open.
+  are also covered before publication: a killed owner leaves no checkpoint or
+  resumable boundary. The final promotion gate remains deferred by the
+  2026-10-29 adversarial adjudication until the native checkpoint compatibility
+  contract and public API support status are explicit; default schema 1.45
+  admission remains closed.
 - [x] Add passive playback and prefix reconstruction for variable reads/writes
   without re-execution; the run inspector renders the reconstructed value,
   version, and operation history.

@@ -25,6 +25,13 @@ production-generated loop history, and process-loss behavior are not proven on
 the production boundary. The proponent's bounded, capability-gated design is
 the target once those gates are closed.
 
+A second clean-context proponent/opponent/adjudicator review on 2026-10-29
+reconsidered promotion after the publication, cancellation, disposal, and
+process-loss gates were qualified. The adjudicator recommended **revise with a
+narrower promotion**: keep the explicit host capability opt-in and fail-closed
+default, and do not present schema 1.45 as generally supported until the native
+checkpoint compatibility contract and public API status are made explicit.
+
 ## Decision
 
 `WorkflowRunner.ValidateCheckpointGraph` rejects schema 1.45 with a specific
@@ -81,6 +88,9 @@ loop.
 - [x] Qualify disposal during active checkpoint publication: disposal waits for
   the in-flight commit, preserves the suspended boundary, and releases local
   ownership for a replacement host.
+- [x] Qualify owner process loss before checkpoint publication: a killed host
+  leaves no capture/suspension evidence, checkpoint pointer, or resumable
+  boundary.
 - [x] Reopen production-generated loop history after host disposal with no
   executor/model/tool calls and prove passive variable playback. The existing
   schema-1.44 recovery regression continues to prove the legacy envelope and

@@ -574,6 +574,31 @@ public sealed class MutableVariableExecutionTests
     }
 
     [Fact]
+    public async Task Opted_in_public_loop_host_process_loss_before_publication_leaves_no_resumable_boundary()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "vaw-loop-host-prepublication-loss-" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        var database = Path.Combine(directory, "runs.sqlite3");
+        var resultPath = Path.Combine(directory, "start.json");
+        try
+        {
+            var start = await RunCheckpointProbeAndKillAsync(database, resultPath, "host-start", holdBeforePublication: true);
+            Assert.NotEqual(0, start.ExitCode);
+            var entered = await ReadProbeResultAsync(resultPath + ".entered");
+            var store = new SqliteWorkflowRunStore(database);
+            var snapshot = store.Get(entered.RunId)!;
+
+            Assert.Null(store.GetCheckpoint(entered.RunId));
+            Assert.DoesNotContain(snapshot.Events, evt => evt.Kind is ExecutionEventKinds.CheckpointCaptured or ExecutionEventKinds.Suspended);
+            Assert.False(WorkflowCheckpointRecovery.Assess(snapshot, null).CanResume);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public async Task Fresh_process_checkpoint_probe()
     {
         var operation = Environment.GetEnvironmentVariable("VAW_CHECKPOINT_PROBE");
@@ -585,7 +610,10 @@ public sealed class MutableVariableExecutionTests
         var store = new SqliteWorkflowRunStore(database);
         if (operation.StartsWith("host-", StringComparison.Ordinal))
         {
-            await using var host = new CheckpointWorkflowHost(store, new CheckpointWorkflowHostOptions(true));
+            IWorkflowCheckpointHostStore hostStore = store;
+            if (Environment.GetEnvironmentVariable("VAW_CHECKPOINT_HOLD_BEFORE_PUBLICATION") == "1")
+                hostStore = new HoldBeforePublicationStore(store, resultPath + ".entered");
+            await using var host = new CheckpointWorkflowHost(hostStore, new CheckpointWorkflowHostOptions(true));
             RunSnapshot hostRun;
             if (operation == "host-start")
             {
@@ -790,21 +818,25 @@ public sealed class MutableVariableExecutionTests
     }
 
     private static async Task<ProbeProcessResult> RunCheckpointProbeAndKillAsync(string database, string resultPath, string operation,
-        Guid? runId = null, string? checkpointId = null, int? suspendAfterCompletedNodes = null)
+        Guid? runId = null, string? checkpointId = null, int? suspendAfterCompletedNodes = null,
+        bool holdBeforePublication = false)
     {
         using var process = Process.Start(CreateCheckpointProbeStartInfo(database, resultPath, operation,
-            runId, checkpointId, suspendAfterCompletedNodes, holdAfterCapture: true))!;
+            runId, checkpointId, suspendAfterCompletedNodes, holdAfterCapture: !holdBeforePublication,
+            holdBeforePublication))!;
         var stdoutTask = process.StandardOutput.ReadToEndAsync();
         var stderrTask = process.StandardError.ReadToEndAsync();
-        for (var attempt = 0; attempt < 100 && !File.Exists(resultPath); attempt++) await Task.Delay(20);
-        Assert.True(File.Exists(resultPath), "The checkpoint probe did not publish its result before process loss.");
+        var readinessPath = holdBeforePublication ? resultPath + ".entered" : resultPath;
+        for (var attempt = 0; attempt < 100 && !File.Exists(readinessPath); attempt++) await Task.Delay(20);
+        Assert.True(File.Exists(readinessPath), "The checkpoint probe did not reach the expected process-loss boundary.");
         process.Kill(entireProcessTree: true);
         await process.WaitForExitAsync();
         return new ProbeProcessResult(process.ExitCode, await stdoutTask, await stderrTask);
     }
 
     private static ProcessStartInfo CreateCheckpointProbeStartInfo(string database, string resultPath, string operation,
-        Guid? runId, string? checkpointId, int? suspendAfterCompletedNodes, bool holdAfterCapture)
+        Guid? runId, string? checkpointId, int? suspendAfterCompletedNodes, bool holdAfterCapture,
+        bool holdBeforePublication = false)
     {
         var project = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
             "../../../../VisualAgentWorkflow.AgentFramework.Tests/VisualAgentWorkflow.AgentFramework.Tests.csproj"));
@@ -825,6 +857,7 @@ public sealed class MutableVariableExecutionTests
         startInfo.Environment["VAW_CHECKPOINT_DATABASE"] = database;
         startInfo.Environment["VAW_CHECKPOINT_RESULT"] = resultPath;
         if (holdAfterCapture) startInfo.Environment["VAW_CHECKPOINT_HOLD"] = "1";
+        if (holdBeforePublication) startInfo.Environment["VAW_CHECKPOINT_HOLD_BEFORE_PUBLICATION"] = "1";
         if (suspendAfterCompletedNodes is { } threshold)
             startInfo.Environment["VAW_CHECKPOINT_SUSPEND_AFTER"] = threshold.ToString(System.Globalization.CultureInfo.InvariantCulture);
         if (runId is { } id) startInfo.Environment["VAW_CHECKPOINT_RUN_ID"] = id.ToString("D");
@@ -850,6 +883,25 @@ public sealed class MutableVariableExecutionTests
 
     private sealed record ProbeResult(Guid RunId, string CheckpointId, int ProcessId, string? Output);
     private sealed record ProbeProcessResult(int ExitCode, string StandardOutput, string StandardError);
+
+    private sealed class HoldBeforePublicationStore(SqliteWorkflowRunStore inner, string enteredPath) : IWorkflowCheckpointHostStore
+    {
+        public RunSnapshot Create(WorkflowRevision revision, string input) => inner.Create(revision, input);
+        public RunSnapshot? Get(Guid runId) => inner.Get(runId);
+        public IReadOnlyList<RunSnapshot> List() => inner.List();
+        public RunSnapshot Append(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events) => inner.Append(runId, expectedSequence, events);
+        public IDisposable AcquireRuntimeOwnership() => inner.AcquireRuntimeOwnership();
+        public WorkflowRunCheckpoint? GetCheckpoint(Guid runId) => inner.GetCheckpoint(runId);
+
+        public RunSnapshot CommitCheckpoint(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events,
+            WorkflowRunCheckpoint checkpoint)
+        {
+            File.WriteAllText(enteredPath, JsonSerializer.Serialize(new ProbeResult(runId, checkpoint.Native.CheckpointId,
+                Environment.ProcessId, null)));
+            Thread.Sleep(Timeout.Infinite);
+            throw new InvalidOperationException("Unreachable after process-loss probe.");
+        }
+    }
 
     private sealed class DurableLoopProofSink(SqliteWorkflowRunStore store, RunSnapshot initial,
         WorkflowRevision revision, NativeWorkflowCheckpoint? restored, int? suspendAfter,
