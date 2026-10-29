@@ -41,6 +41,24 @@ public sealed class WorkflowMigrationRegistryTests
         Assert.Equal(source.Layout, result.TargetRevision.Layout);
         Assert.Equal(result.TargetRevision.ContentHash, result.Provenance.TargetContentHash);
         Assert.Equal(["sequence-reverse-paths"], result.Provenance.OperationIds.ToArray());
+        Assert.NotNull(result.TargetRevision.MigrationProvenance);
+        Assert.Equal(result.Provenance.SourceRevisionId, result.TargetRevision.MigrationProvenance.SourceRevisionId);
+        Assert.Equal(result.Provenance.SourceContentHash, result.TargetRevision.MigrationProvenance.SourceContentHash);
+        Assert.Equal(result.Provenance.TargetRevisionId, result.TargetRevision.MigrationProvenance.TargetRevisionId);
+        Assert.Equal(result.Provenance.TargetContentHash, result.TargetRevision.MigrationProvenance.TargetContentHash);
+        Assert.Equal(result.Provenance.OperationIds.ToArray(), result.TargetRevision.MigrationProvenance.OperationIds.ToArray());
+        Assert.Equal(result.Provenance.ImplementationVersions.ToArray(), result.TargetRevision.MigrationProvenance.ImplementationVersions.ToArray());
+
+        var restored = WorkflowRevision.Rehydrate(result.TargetRevision.RevisionId, result.TargetRevision.Definition,
+            result.TargetRevision.Author, result.TargetRevision.ParentRevisionId, result.TargetRevision.CreatedAt,
+            result.TargetRevision.ContentHash, WorkflowMigrationRegistry.DeserializeProvenance(
+                WorkflowMigrationRegistry.SerializeProvenance(result.Provenance)));
+        Assert.Equal(result.TargetRevision.RevisionId, restored.RevisionId);
+        Assert.NotNull(restored.MigrationProvenance);
+        Assert.Equal(result.Provenance.SourceRevisionId, restored.MigrationProvenance.SourceRevisionId);
+        Assert.Equal(result.Provenance.TargetRevisionId, restored.MigrationProvenance.TargetRevisionId);
+        Assert.Equal(result.Provenance.OperationIds.ToArray(), restored.MigrationProvenance.OperationIds.ToArray());
+        Assert.Equal(result.Provenance.ImplementationVersions.ToArray(), restored.MigrationProvenance.ImplementationVersions.ToArray());
     }
 
     [Fact]
@@ -92,6 +110,19 @@ public sealed class WorkflowMigrationRegistryTests
             ImmutableArray<string>.Empty, "migrator"));
         Assert.False(missingOperations.Succeeded);
         Assert.Contains(missingOperations.Diagnostics, diagnostic => diagnostic.Code == "operations.required");
+    }
+
+    [Fact]
+    public void Provenance_rejects_tampered_target_identity_or_operation_chain()
+    {
+        var source = WorkflowRevision.Create(SequenceTransformPath(), "source");
+        var attempt = WorkflowMigrationRegistry.TryMigrate(new(source, ["sequence-reverse-paths"], "migrator"));
+        var result = attempt.Result!;
+
+        Assert.Throws<InvalidDataException>(() => WorkflowMigrationRegistry.ValidateProvenance(
+            result.Provenance with { TargetRevisionId = Guid.NewGuid() }, result.TargetRevision));
+        Assert.Throws<InvalidDataException>(() => WorkflowMigrationRegistry.ValidateProvenance(
+            result.Provenance with { OperationIds = ["sequence-transform-chains-from-reverse"] }, result.TargetRevision));
     }
 
     private static WorkflowDefinition SequenceTransformPath()

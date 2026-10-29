@@ -1,4 +1,8 @@
 using System.Collections.Immutable;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace VisualAgentWorkflow.Core;
 
@@ -149,8 +153,66 @@ public static class WorkflowMigrationRegistry
         var provenance = new WorkflowMigrationProvenance(source.RevisionId, source.Definition.SchemaVersion,
             source.ContentHash, target.RevisionId, target.Definition.SchemaVersion, target.ContentHash,
             applied.ToImmutable(), versions.ToImmutable());
+        target = target with { MigrationProvenance = provenance };
+        ValidateProvenance(provenance, target);
         return new(new WorkflowMigrationResult(source, target, provenance), diagnostics.ToImmutable());
     }
+
+    public static void ValidateProvenance(WorkflowMigrationProvenance provenance, WorkflowRevision target)
+    {
+        ArgumentNullException.ThrowIfNull(provenance);
+        ArgumentNullException.ThrowIfNull(target);
+        if (provenance.SourceRevisionId == Guid.Empty || provenance.TargetRevisionId == Guid.Empty ||
+            provenance.TargetRevisionId != target.RevisionId || target.ParentRevisionId != provenance.SourceRevisionId ||
+            string.IsNullOrWhiteSpace(provenance.SourceSchema) ||
+            provenance.TargetSchema != target.Definition.SchemaVersion || provenance.TargetContentHash != target.ContentHash ||
+            provenance.OperationIds.IsDefaultOrEmpty || provenance.OperationIds.Length > 16 ||
+            provenance.OperationIds.Length != provenance.ImplementationVersions.Length ||
+            provenance.OperationIds.Any(string.IsNullOrWhiteSpace) ||
+            provenance.ImplementationVersions.Any(string.IsNullOrWhiteSpace) ||
+            !IsSha256(provenance.SourceContentHash) || !IsSha256(provenance.TargetContentHash))
+            throw new InvalidDataException("Migration provenance does not match its target revision.");
+
+        var currentSchema = provenance.SourceSchema;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var operationId in provenance.OperationIds)
+        {
+            if (!descriptors.TryGetValue(operationId, out var descriptor) || !seen.Add(operationId) ||
+                descriptor.FromSchema != currentSchema)
+                throw new InvalidDataException("Migration provenance contains an unknown, duplicate, or non-contiguous operation.");
+            currentSchema = descriptor.ToSchema;
+        }
+        if (currentSchema != provenance.TargetSchema || currentSchema == "1.50")
+            throw new InvalidDataException("Migration provenance has an unsupported target schema.");
+    }
+
+    public static string SerializeProvenance(WorkflowMigrationProvenance provenance)
+    {
+        ArgumentNullException.ThrowIfNull(provenance);
+        return JsonSerializer.Serialize(provenance, ProvenanceJsonOptions);
+    }
+
+    public static string ComputeProvenanceHash(WorkflowMigrationProvenance provenance) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(SerializeProvenance(provenance)))).ToLowerInvariant();
+
+    public static WorkflowMigrationProvenance DeserializeProvenance(string json)
+    {
+        ArgumentNullException.ThrowIfNull(json);
+        using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 16 });
+        JsonDocumentSafety.RejectDuplicateProperties(document.RootElement);
+        return JsonSerializer.Deserialize<WorkflowMigrationProvenance>(json, ProvenanceJsonOptions)
+            ?? throw new JsonException("Migration provenance is required.");
+    }
+
+    private static readonly JsonSerializerOptions ProvenanceJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = false,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        WriteIndented = true,
+        MaxDepth = 16
+    };
+
+    private static bool IsSha256(string? value) => value is not null && value.Length == 64 && value.All(Uri.IsHexDigit);
 
     private static WorkflowDefinition Apply(string operationId, WorkflowDefinition definition) => operationId switch
     {

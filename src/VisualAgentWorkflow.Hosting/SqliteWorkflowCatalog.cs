@@ -1,11 +1,12 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
+using System.Text.Json;
 using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>Transactional local definition store. The development host supplies a placeholder actor.</summary>
-public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog, IWorkflowCatalogFileOperations
+public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog, IWorkflowMigrationCatalog, IWorkflowCatalogFileOperations
 {
     private readonly string connectionString;
     private readonly string actor;
@@ -23,7 +24,7 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog, IWorkflowCat
         using var connection = Open();
         using var transaction = connection.BeginTransaction(deferred: false);
         var schemaVersion = Convert.ToInt32(Scalar(connection, transaction, "PRAGMA user_version;"), CultureInfo.InvariantCulture);
-        if (schemaVersion is not (0 or 1 or 2 or 3)) throw new InvalidDataException("Unsupported workflow database schema.");
+        if (schemaVersion is not (0 or 1 or 2 or 3 or 4)) throw new InvalidDataException("Unsupported workflow database schema.");
         Execute(connection, transaction, """
             CREATE TABLE IF NOT EXISTS workflows (
                 workflow_id TEXT PRIMARY KEY, draft_json TEXT NOT NULL, generation INTEGER NOT NULL,
@@ -32,6 +33,7 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog, IWorkflowCat
                 revision_id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL REFERENCES workflows(workflow_id),
                 version INTEGER NOT NULL, parent_revision TEXT NULL REFERENCES revisions(revision_id),
                 author TEXT NOT NULL, created_at TEXT NOT NULL, definition_json TEXT NOT NULL, content_hash TEXT NOT NULL,
+                migration_provenance_json TEXT NULL, migration_provenance_hash TEXT NULL,
                 UNIQUE(workflow_id, version));
             CREATE TABLE IF NOT EXISTS workflow_audit (
                 sequence INTEGER PRIMARY KEY AUTOINCREMENT, workflow_id TEXT NOT NULL REFERENCES workflows(workflow_id),
@@ -47,6 +49,14 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog, IWorkflowCat
             if (!HasColumn(connection, transaction, "workflows", "archived_at"))
                 Execute(connection, transaction, "ALTER TABLE workflows ADD COLUMN archived_at TEXT NULL;");
             Execute(connection, transaction, "PRAGMA user_version = 3;");
+        }
+        if (schemaVersion < 4)
+        {
+            if (!HasColumn(connection, transaction, "revisions", "migration_provenance_json"))
+                Execute(connection, transaction, "ALTER TABLE revisions ADD COLUMN migration_provenance_json TEXT NULL;");
+            if (!HasColumn(connection, transaction, "revisions", "migration_provenance_hash"))
+                Execute(connection, transaction, "ALTER TABLE revisions ADD COLUMN migration_provenance_hash TEXT NULL;");
+            Execute(connection, transaction, "PRAGMA user_version = 4;");
         }
         transaction.Commit();
     }
@@ -176,21 +186,52 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog, IWorkflowCat
         var draft = RequireDraft(connection, transaction, workflowId, expectedGeneration);
         EnsureNotArchived(connection, transaction, workflowId);
         var revision = WorkflowRevision.Create(draft.Definition, actor, draft.HeadRevisionId);
+        return Task.FromResult(PublishRevision(connection, transaction, draft, revision));
+    }
+
+    public Task<PublishedWorkflowRevision> PublishMigratedAsync(WorkflowRevision revision, long expectedGeneration)
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+        if (revision.MigrationProvenance is null)
+            throw new ArgumentException("A migration provenance record is required.", nameof(revision));
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction(deferred: false);
+        var draft = RequireDraft(connection, transaction, revision.Definition.WorkflowId, expectedGeneration);
+        EnsureNotArchived(connection, transaction, revision.Definition.WorkflowId);
+        if (draft.HeadRevisionId != revision.ParentRevisionId || revision.ParentRevisionId is null)
+            throw new InvalidOperationException("The migrated revision does not descend from the current workflow head.");
+        var source = GetRevision(connection, transaction, revision.ParentRevisionId.Value)?.Revision;
+        if (source is null || source.ContentHash != revision.MigrationProvenance.SourceContentHash)
+            throw new InvalidOperationException("The migrated revision source does not match the current workflow head.");
+        WorkflowMigrationRegistry.ValidateProvenance(revision.MigrationProvenance, revision);
+        if (WorkflowJson.Serialize(draft.Definition) == WorkflowJson.Serialize(revision.Definition))
+            throw new InvalidOperationException("The migrated revision must change the workflow definition.");
+        return Task.FromResult(PublishRevision(connection, transaction, draft, revision));
+    }
+
+    private PublishedWorkflowRevision PublishRevision(SqliteConnection connection, SqliteTransaction transaction,
+        WorkflowDraft draft, WorkflowRevision revision)
+    {
         var version = checked(Convert.ToInt32(Scalar(connection, transaction,
-            "SELECT COALESCE(MAX(version),0) FROM revisions WHERE workflow_id=$id;", ("$id", workflowId)), CultureInfo.InvariantCulture) + 1);
+            "SELECT COALESCE(MAX(version),0) FROM revisions WHERE workflow_id=$id;", ("$id", revision.Definition.WorkflowId)), CultureInfo.InvariantCulture) + 1);
+        var provenanceJson = revision.MigrationProvenance is { } provenance
+            ? WorkflowMigrationRegistry.SerializeProvenance(provenance) : null;
+        var provenanceHash = revision.MigrationProvenance is { } persistedProvenance
+            ? WorkflowMigrationRegistry.ComputeProvenanceHash(persistedProvenance) : null;
         Execute(connection, transaction, """
-            INSERT INTO revisions(revision_id,workflow_id,version,parent_revision,author,created_at,definition_json,content_hash)
-            VALUES($revision,$id,$version,$parent,$author,$created,$json,$hash);
+            INSERT INTO revisions(revision_id,workflow_id,version,parent_revision,author,created_at,definition_json,content_hash,migration_provenance_json,migration_provenance_hash)
+            VALUES($revision,$id,$version,$parent,$author,$created,$json,$hash,$provenance,$provenance_hash);
             UPDATE workflows SET head_revision=$revision,active_revision=$revision,generation=generation+1 WHERE workflow_id=$id;
-            """, ("$revision", revision.RevisionId.ToString()), ("$id", workflowId), ("$version", version),
+            """, ("$revision", revision.RevisionId.ToString()), ("$id", revision.Definition.WorkflowId), ("$version", version),
             ("$parent", revision.ParentRevisionId?.ToString()), ("$author", actor), ("$created", revision.CreatedAt.ToString("O")),
-            ("$json", WorkflowJson.Serialize(revision.Definition)), ("$hash", revision.ContentHash));
-        var layout = ReadLayout(connection, transaction, "workflow_layouts", "workflow_id", workflowId, draft.Definition);
+            ("$json", WorkflowJson.Serialize(revision.Definition)), ("$hash", revision.ContentHash),
+            ("$provenance", provenanceJson), ("$provenance_hash", provenanceHash));
+        var layout = ReadLayout(connection, transaction, "workflow_layouts", "workflow_id", revision.Definition.WorkflowId, draft.Definition);
         Execute(connection, transaction, "INSERT INTO revision_layouts(revision_id,layout_json) VALUES($id,$json);",
             ("$id", revision.RevisionId.ToString()), ("$json", WorkflowLayoutJson.Serialize(layout, draft.Definition)));
-        Audit(connection, transaction, workflowId, "revision.published-and-activated", checked(draft.Generation + 1), revision.RevisionId, revision.ContentHash);
+        Audit(connection, transaction, revision.Definition.WorkflowId, "revision.published-and-activated", checked(draft.Generation + 1), revision.RevisionId, revision.ContentHash);
         transaction.Commit();
-        return Task.FromResult(new PublishedWorkflowRevision(version, revision));
+        return new PublishedWorkflowRevision(version, revision);
     }
 
     public Task<PublishedWorkflowRevision?> GetRevisionAsync(Guid revisionId)
@@ -304,8 +345,26 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog, IWorkflowCat
     {
         var definition = WorkflowJson.Deserialize(reader.GetString(6));
         if (definition.WorkflowId != reader.GetString(1)) throw new InvalidDataException("Stored revision workflow mismatch.");
+        var provenanceJson = reader.IsDBNull(8) ? null : reader.GetString(8);
+        var provenanceHash = reader.IsDBNull(9) ? null : reader.GetString(9);
+        WorkflowMigrationProvenance? provenance = null;
+        if (provenanceJson is not null || provenanceHash is not null)
+        {
+            try
+            {
+                if (provenanceJson is null || provenanceHash is null)
+                    throw new InvalidDataException("Stored migration provenance is incomplete.");
+                provenance = WorkflowMigrationRegistry.DeserializeProvenance(provenanceJson);
+                if (!string.Equals(provenanceHash, WorkflowMigrationRegistry.ComputeProvenanceHash(provenance), StringComparison.Ordinal))
+                    throw new InvalidDataException("Stored migration provenance hash does not match.");
+            }
+            catch (Exception exception) when (exception is JsonException or InvalidOperationException or ArgumentException)
+            {
+                throw new InvalidDataException("Stored migration provenance is invalid.", exception);
+            }
+        }
         return new(reader.GetInt32(2), WorkflowRevision.Rehydrate(Guid.Parse(reader.GetString(0)), definition,
-            reader.GetString(4), NullableGuid(reader, 3), DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture), reader.GetString(7)));
+            reader.GetString(4), NullableGuid(reader, 3), DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture), reader.GetString(7), provenance));
     }
 
     private static Guid? NullableGuid(SqliteDataReader reader, int ordinal) => reader.IsDBNull(ordinal) ? null : Guid.Parse(reader.GetString(ordinal));

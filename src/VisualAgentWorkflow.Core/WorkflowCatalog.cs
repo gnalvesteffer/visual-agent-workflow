@@ -19,6 +19,12 @@ public interface IWorkflowCatalog
     Task<IReadOnlyList<WorkflowAuditEntry>> ReadAuditAsync(string workflowId);
 }
 
+/// <summary>Optional catalog boundary for explicitly publishing a migration candidate.</summary>
+public interface IWorkflowMigrationCatalog
+{
+    Task<PublishedWorkflowRevision> PublishMigratedAsync(WorkflowRevision revision, long expectedGeneration);
+}
+
 public interface IPublishedWorkflowClient : IWorkflowClient
 {
     Task<RunSnapshot> StartPublishedRunAsync(Guid revisionId, string input);

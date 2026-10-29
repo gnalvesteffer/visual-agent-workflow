@@ -16,6 +16,9 @@ public sealed record WorkflowRevision
     /// <summary>Optional captured presentation layout. It never affects executable content hashing.</summary>
     public WorkflowLayout? Layout { get; init; }
 
+    /// <summary>Optional immutable evidence describing the explicit migration that produced this revision.</summary>
+    public WorkflowMigrationProvenance? MigrationProvenance { get; init; }
+
     private WorkflowRevision(WorkflowDefinition definition, string author, Guid? parentRevisionId)
         : this(Guid.NewGuid(), definition, author, parentRevisionId, DateTimeOffset.UtcNow) { }
 
@@ -55,9 +58,16 @@ public sealed record WorkflowRevision
 
     /// <summary>Reconstruct stored evidence without generating another revision identity.</summary>
     public static WorkflowRevision Rehydrate(Guid revisionId, WorkflowDefinition definition, string author,
-        Guid? parentRevisionId, DateTimeOffset createdAt, string contentHash)
+        Guid? parentRevisionId, DateTimeOffset createdAt, string contentHash,
+        WorkflowMigrationProvenance? migrationProvenance = null)
     {
-        return new WorkflowRevision(revisionId, definition, author, parentRevisionId, createdAt, contentHash);
+        var revision = new WorkflowRevision(revisionId, definition, author, parentRevisionId, createdAt, contentHash)
+        {
+            MigrationProvenance = migrationProvenance
+        };
+        if (migrationProvenance is not null)
+            WorkflowMigrationRegistry.ValidateProvenance(migrationProvenance, revision);
+        return revision;
     }
 
     public static WorkflowRevision Restore(WorkflowRevision historical, WorkflowRevision current, string author)
