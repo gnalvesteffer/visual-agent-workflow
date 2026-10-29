@@ -190,9 +190,11 @@ public sealed class MutableVariableExecutionTests
     {
         var revision = WorkflowRevision.Create(LoopDefinition(), "loop-checkpoint-admission");
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner().ExecuteCheckpointedAsync(
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner().ExecuteCheckpointedAsync(
             Guid.NewGuid(), revision, "continue", _ => ValueTask.CompletedTask,
             new ProofCheckpointSink([])));
+        Assert.Contains("schema 1.45 loop graphs is not yet admitted", error.Message);
+        Assert.Contains("production checkpoint frame", error.Message);
     }
 
     [Fact]

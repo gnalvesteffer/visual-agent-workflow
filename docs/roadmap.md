@@ -205,7 +205,12 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   A test-only lifecycle probe now pairs actual loop transitions with the
   framework pre-save callback and native checkpoint callback, rejecting active
   or unstable boundaries without changing production admission. Public loop
-  recovery remains gated on proving native-state pairing.
+  recovery remains gated on proving native-state pairing. The production
+  promotion decision is recorded in [loop checkpoint production adjudication](decisions/0035-loop-checkpoint-production-adjudication.md): the
+  runtime now reports this boundary explicitly instead of presenting schema
+  1.45 as a generic unsupported graph, while the public host remains
+  fail-closed until the listed frame, race, admission, compatibility, and
+  passive-playback gates are proven.
 - [x] Add passive playback and prefix reconstruction for variable reads/writes
   without re-execution; the run inspector renders the reconstructed value,
   version, and operation history.

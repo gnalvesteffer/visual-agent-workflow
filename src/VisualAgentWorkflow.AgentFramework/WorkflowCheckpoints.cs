@@ -208,6 +208,11 @@ public sealed partial class WorkflowRunner
     public static void ValidateCheckpointGraph(WorkflowDefinition definition)
     {
         WorkflowValidator.ThrowIfInvalid(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph)
+            throw new InvalidOperationException(
+                "Checkpoint recovery for schema 1.45 loop graphs is not yet admitted. " +
+                "The native loop cursor, variable snapshot, evidence prefix, and suspension marker " +
+                "must be captured and recovered as one production checkpoint frame.");
         if (definition.Nodes.Values.Any(n => n.Type is not (NodeTypes.Input or NodeTypes.Output or NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.JsonSelectString or NodeTypes.TextTemplate or NodeTypes.StringConstant or NodeTypes.BooleanConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.VariableGet or NodeTypes.VariableSet)))
             throw new InvalidOperationException("Checkpoint recovery currently permits deterministic graph nodes only; agents, MCP and approvals require a separate recovery policy.");
     }
