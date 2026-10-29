@@ -1,5 +1,14 @@
 # Node contract reference
 
+## Descriptor authority boundary
+
+Resolved node descriptors provide a schema-neutral pin shape for authoring and
+advisory conformance. They are not, by themselves, permission to admit a node
+in a schema, validate family-specific topology, execute a capability, or replay
+historical evidence. Those decisions remain owned by the schema validator,
+runtime, host admission, and recorded revision boundaries. See [descriptor
+authority boundary](decisions/0036-descriptor-authority-boundary.md).
+
 This page documents the canonical metadata in
 [`WorkflowNodeContractCatalog`](../src/VisualAgentWorkflow.Core/WorkflowNodeContracts.cs).
 It is an authoring and review reference, not a replacement for schema-specific
