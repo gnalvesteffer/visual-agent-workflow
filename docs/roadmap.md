@@ -185,7 +185,9 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   is conservatively rejected as stale. The bounded
   linear schema 1.44 checkpoint frame captures a hashed variable snapshot with
   native state, validates it against the pinned definition, and restores it
-  before resumed execution. Failure-injection, cancellation-race around durable
+  before resumed execution. A focused host regression also asserts that schema
+  1.44 checkpoints retain the legacy variable-state envelope without a loop
+  frame and resume through the unchanged public API. Failure-injection, cancellation-race around durable
   publication, and process-loss proofs remain. See [loop-variable
   evidence seam](decisions/0029-loop-variable-evidence-seam.md), [loop-variable
   topology proof](decisions/0030-loop-variable-topology-proof.md), and

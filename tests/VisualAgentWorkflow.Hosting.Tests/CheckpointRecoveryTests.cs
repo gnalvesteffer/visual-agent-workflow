@@ -144,6 +144,8 @@ public sealed class CheckpointRecoveryTests : IDisposable
         Assert.Equal("suspended", suspended.Status);
         var checkpoint = store.GetCheckpoint(suspended.Header.RunId)!;
         Assert.NotNull(checkpoint.Native.VariableState);
+        Assert.Equal(WorkflowSchemaVersions.MutableVariablesGraph, suspended.Header.Definition.SchemaVersion);
+        Assert.Null(checkpoint.Frame);
         Assert.Equal(checkpoint.Native.VariableState!.ComputeHash(), checkpoint.VariableStateHash);
         Assert.True(WorkflowCheckpointRecovery.Assess(suspended, checkpoint).CanResume);
         Assert.False(WorkflowCheckpointRecovery.Assess(suspended, checkpoint with { VariableStateHash = "corrupt" }).CanResume);
