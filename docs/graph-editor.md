@@ -22,7 +22,7 @@ Positions are finite and bounded to 0–32768 logical canvas units. Limits are 1
 
 Use a node's context menu to duplicate an authorable node. Duplication creates a new node with the same configuration and copies its label/comment presentation, but intentionally copies no incoming or outgoing wires. The new node is placed at the requested canvas location and remains an editable draft until its pins are connected. Input/output and structural boundary nodes remain protected from duplication where their topology would be misleading.
 
-The Core also defines a bounded, authoring-only clipboard fragment for pure stateless data nodes with explicit typed boundaries and per-node positions. The Studio copy/paste interaction is not yet exposed; use node duplication or the separate template insertion workflow for currently supported editor actions.
+The Core also defines a bounded, authoring-only clipboard fragment for pure stateless data nodes with explicit typed boundaries and per-node positions. The graph context menu exposes **Copy pure data node** and **Paste pure data node here** for the first single-node slice. Execution wires, capability-bearing/stateful nodes, annotations, and cross-workflow dependencies remain intentionally excluded; use node duplication or the catalog-backed template workflow for broader authoring reuse.
 
 SQLite schema 2 adds presentation tables to schema 1 without changing existing definitions, generations, revisions, or hashes. The development database remains single-host and unauthenticated, as documented in [roadmap and current scope](roadmap.md).
 

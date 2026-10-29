@@ -14,8 +14,13 @@ public sealed class GraphClipboardTests
         var fragment = GraphClipboardEditing.Extract(source, sourceLayout, ["constant"], [],
             [new("result", "string", "constant", "out")]);
 
+        var boundary = Assert.Single(fragment.Outputs);
+        Assert.Equal("output", boundary.TargetNodeId);
+        Assert.Equal("in", boundary.TargetPortId);
+
         var json = GraphClipboardJson.Serialize(fragment);
         var restored = GraphClipboardJson.Deserialize(json);
+        Assert.Equal(boundary, Assert.Single(restored.Outputs));
         var target = TargetWorkflow();
         var pasted = GraphClipboardEditing.Paste(target, WorkflowLayout.Create(target), restored, [],
             [new("result", "output", "in")], new(700, 300),

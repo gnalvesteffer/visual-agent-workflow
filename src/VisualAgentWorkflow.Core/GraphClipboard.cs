@@ -17,8 +17,10 @@ public sealed record GraphClipboardFragment(
 
 public sealed record GraphClipboardNodePresentation(GraphPoint Position);
 
-public sealed record GraphClipboardInputBoundary(string Id, string DataType, string TargetNodeId, string TargetPortId);
-public sealed record GraphClipboardOutputBoundary(string Id, string DataType, string SourceNodeId, string SourcePortId);
+public sealed record GraphClipboardInputBoundary(string Id, string DataType, string TargetNodeId, string TargetPortId,
+    string? SourceNodeId = null, string? SourcePortId = null);
+public sealed record GraphClipboardOutputBoundary(string Id, string DataType, string SourceNodeId, string SourcePortId,
+    string? TargetNodeId = null, string? TargetPortId = null);
 
 public sealed record GraphClipboardDocument(string FormatVersion, GraphClipboardFragment Fragment, string ContentHash);
 
@@ -168,7 +170,9 @@ public static class GraphClipboardEditing
         foreach (var boundary in fragment.Inputs.IsDefault ? [] : fragment.Inputs)
         {
             if (boundary is null || !ValidId(boundary.Id) || !inputIds.Add(boundary.Id) || !ValidType(boundary.DataType) ||
-                !fragment.Nodes.ContainsKey(boundary.TargetNodeId))
+                !fragment.Nodes.ContainsKey(boundary.TargetNodeId) ||
+                boundary.SourceNodeId is not null && !ValidId(boundary.SourceNodeId) ||
+                boundary.SourcePortId is not null && !ValidId(boundary.SourcePortId))
             {
                 Error("clipboard.input", "inputs", "Each clipboard input boundary must be unique, typed, and target a copied node.");
                 continue;
@@ -181,7 +185,9 @@ public static class GraphClipboardEditing
         foreach (var boundary in fragment.Outputs.IsDefault ? [] : fragment.Outputs)
         {
             if (boundary is null || !ValidId(boundary.Id) || !outputIds.Add(boundary.Id) || !ValidType(boundary.DataType) ||
-                !fragment.Nodes.ContainsKey(boundary.SourceNodeId))
+                !fragment.Nodes.ContainsKey(boundary.SourceNodeId) ||
+                boundary.TargetNodeId is not null && !ValidId(boundary.TargetNodeId) ||
+                boundary.TargetPortId is not null && !ValidId(boundary.TargetPortId))
             {
                 Error("clipboard.output", "outputs", "Each clipboard output boundary must be unique, typed, and source a copied node.");
                 continue;
@@ -233,7 +239,16 @@ public static class GraphClipboardEditing
             source.Connections.Where(pair => selected.Contains(pair.Value.Source.NodeId) && selected.Contains(pair.Value.Target.NodeId))
                 .ToImmutableSortedDictionary(StringComparer.Ordinal),
             selected.ToImmutableSortedDictionary(id => id, id => new GraphClipboardNodePresentation(layout.Nodes[id].Position), StringComparer.Ordinal),
-            inputBoundaries, outputBoundaries);
+            [.. inputBoundaries.Select(boundary => boundary with
+            {
+                SourceNodeId = source.Connections.Values.Single(edge => edge.Target.NodeId == boundary.TargetNodeId && edge.Target.PortId == boundary.TargetPortId).Source.NodeId,
+                SourcePortId = source.Connections.Values.Single(edge => edge.Target.NodeId == boundary.TargetNodeId && edge.Target.PortId == boundary.TargetPortId).Source.PortId
+            })],
+            [.. outputBoundaries.Select(boundary => boundary with
+            {
+                TargetNodeId = source.Connections.Values.Single(edge => edge.Source.NodeId == boundary.SourceNodeId && edge.Source.PortId == boundary.SourcePortId).Target.NodeId,
+                TargetPortId = source.Connections.Values.Single(edge => edge.Source.NodeId == boundary.SourceNodeId && edge.Source.PortId == boundary.SourcePortId).Target.PortId
+            })]);
         var issues = Validate(fragment);
         if (!issues.IsEmpty) throw new ArgumentException(string.Join("; ", issues.Select(issue => issue.Message)), nameof(nodeIds));
         return fragment;

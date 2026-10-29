@@ -1,3 +1,5 @@
+@using Microsoft.JSInterop
+
 <section class="vaw-workflow-editor" aria-label="Visual workflow editor">
     @if (!ReadOnly && ShowWorkflowSettings)
     {
@@ -168,9 +170,16 @@
             <div class="vaw-context-actions">
                 <button type="button" @onclick="() => CloseMenu(context)">Edit selected node properties</button>
                 <button type="button" disabled="@(!CanDuplicate(contextNode))" @onclick="() => Duplicate(contextNode, context)">Duplicate node</button>
+                <button type="button" disabled="@(!CanCopyClipboardNode(contextNode))" @onclick="() => CopyClipboardNode(contextNode, context)">Copy pure data node</button>
                 <button type="button" disabled="@(!CanRemove(contextNode))" @onclick="() => RemoveSelected(contextNode, context)">@(Definition.Nodes[contextNode].Type == NodeTypes.ParallelRendezvous ? "Remove collaboration region…" : Definition.Nodes[contextNode].Type == NodeTypes.Merge ? "Remove merge and split paths" : Definition.Nodes[contextNode].Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin ? "Remove parallel block…" : Definition.Nodes[contextNode].Type == NodeTypes.Loop ? "Remove loop (run body once)" : "Delete node")</button>
                 @if (Definition.Nodes[contextNode].Type == NodeTypes.Condition)
                 { <button type="button" disabled="@Disabled" @onclick="() => RequestBlockRemoval(contextNode, context)">Remove conditional block…</button> }
+            </div>
+        }
+        @if (context.ConnectionId is null)
+        {
+            <div class="vaw-context-actions">
+                <button type="button" disabled="@(Disabled || !WorkflowSchemaVersions.UsesExplicitGraph(Definition))" @onclick="() => PasteClipboardNode(context)">Paste pure data node here</button>
             </div>
         }
         @if (context.ConnectionId is not null)
@@ -936,6 +945,7 @@
     [Parameter] public bool Disabled { get; set; }
     [Parameter] public WorkflowLayout? Layout { get; set; }
     [Parameter] public EventCallback<WorkflowLayout> LayoutChanged { get; set; }
+    [Inject] private IJSRuntime JavaScript { get; set; } = default!;
     [Parameter] public bool LayoutReadOnly { get; set; }
     [Parameter] public bool HideNodeLibrary { get; set; }
     private bool showNodeLibrary;
@@ -1727,8 +1737,11 @@
             error = null;
             var next = edit();
             var added = next.Nodes.Keys.Where(id => !Definition.Nodes.ContainsKey(id)).ToArray();
-            if (preserveSelection is not null && next.Nodes.ContainsKey(preserveSelection)) selectedNode = preserveSelection;
-            else if (added.Length > 0) selectedNode = added.FirstOrDefault(id => next.Nodes[id].Type == NodeTypes.ParallelFork) ?? added.FirstOrDefault(id => next.Nodes[id].Type is NodeTypes.Condition or NodeTypes.Approval) ?? added[0];
+            var nextSelection = preserveSelection is not null && next.Nodes.ContainsKey(preserveSelection)
+                ? preserveSelection
+                : added.Length > 0
+                    ? added.FirstOrDefault(id => next.Nodes[id].Type == NodeTypes.ParallelFork) ?? added.FirstOrDefault(id => next.Nodes[id].Type is NodeTypes.Condition or NodeTypes.Approval) ?? added[0]
+                    : selectedNode;
             var nextLayout = PlaceAddedNodes(next, EffectiveLayout.Reconcile(next), added, placement, insertion);
             if (copyPresentationFrom is { } sourceId && added.Length == 1 &&
                 EffectiveLayout.Nodes.TryGetValue(sourceId, out var sourcePresentation) &&
@@ -1744,14 +1757,20 @@
                     })
                 };
             }
-            if (GraphEdited.HasDelegate) await GraphEdited.InvokeAsync(new(next, nextLayout));
-            else
-            {
-                localLayout = nextLayout;
-                await DefinitionChanged.InvokeAsync(next);
-                if (LayoutChanged.HasDelegate) await LayoutChanged.InvokeAsync(nextLayout);
-            }
+            await CommitEdit(next, nextLayout, nextSelection);
         }
         catch (ArgumentException exception) { error = $"The graph edit is invalid: {exception.Message}"; }
+    }
+
+    private async Task CommitEdit(WorkflowDefinition next, WorkflowLayout nextLayout, string? selection = null)
+    {
+        if (selection is not null && next.Nodes.ContainsKey(selection)) selectedNode = selection;
+        if (GraphEdited.HasDelegate) await GraphEdited.InvokeAsync(new(next, nextLayout));
+        else
+        {
+            localLayout = nextLayout;
+            await DefinitionChanged.InvokeAsync(next);
+            if (LayoutChanged.HasDelegate) await LayoutChanged.InvokeAsync(nextLayout);
+        }
     }
 }

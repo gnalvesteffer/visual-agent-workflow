@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
 using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Blazor.Components;
@@ -545,6 +547,100 @@ public partial class WorkflowEditor
         await CloseMenu(context);
         await Edit(() => GraphEditing.DuplicateNode(Definition, id).Definition, context, copyPresentationFrom: id);
     }
+
+    private bool CanCopyClipboardNode(string id)
+    {
+        if (ReadOnly || Disabled || !WorkflowSchemaVersions.UsesExplicitGraph(Definition) ||
+            !Definition.Nodes.TryGetValue(id, out var node) ||
+            !WorkflowNodeContractCatalog.TryGet(node.Type, out var contract)) return false;
+        return contract.IsPure && contract.Effects == WorkflowNodeEffectFlags.None &&
+            contract.State == WorkflowNodeStateKind.Stateless && !contract.HasDynamicPins &&
+            !contract.HasExecutionPins && node.Origin is null;
+    }
+
+    private async Task CopyClipboardNode(string id, GraphContextRequest context)
+    {
+        if (!CanCopyClipboardNode(id)) return;
+        try
+        {
+            var incoming = Definition.Connections.Values
+                .Where(edge => edge.Target.NodeId == id && edge.Source.NodeId != id)
+                .Select(edge => new GraphClipboardInputBoundary(
+                    ClipboardBoundaryId("input", edge.Target.NodeId, edge.Target.PortId),
+                    DataPortType(edge.Source.NodeId, edge.Source.PortId, WorkflowPortDirection.Output),
+                    edge.Target.NodeId, edge.Target.PortId))
+                .ToArray();
+            var outgoing = Definition.Connections.Values
+                .Where(edge => edge.Source.NodeId == id && edge.Target.NodeId != id)
+                .Select(edge => new GraphClipboardOutputBoundary(
+                    ClipboardBoundaryId("output", edge.Source.NodeId, edge.Source.PortId),
+                    DataPortType(edge.Target.NodeId, edge.Target.PortId, WorkflowPortDirection.Input),
+                    edge.Source.NodeId, edge.Source.PortId))
+                .ToArray();
+            var fragment = GraphClipboardEditing.Extract(Definition, EffectiveLayout, [id], incoming, outgoing);
+            await JavaScript.InvokeVoidAsync("navigator.clipboard.writeText", GraphClipboardJson.Serialize(fragment));
+            error = null;
+            await CloseMenu(context);
+        }
+        catch (JSException)
+        {
+            error = "The browser blocked clipboard access. Allow clipboard access for this Studio tab and try again.";
+        }
+        catch (ArgumentException exception)
+        {
+            error = $"This node cannot be copied: {exception.Message}";
+        }
+    }
+
+    private async Task PasteClipboardNode(GraphContextRequest context)
+    {
+        if (ReadOnly || Disabled) return;
+        try
+        {
+            var fragment = GraphClipboardJson.Deserialize(await JavaScript.InvokeAsync<string>("navigator.clipboard.readText"));
+            var inputBindings = fragment.Inputs.Select(boundary =>
+            {
+                if (boundary.SourceNodeId is null || boundary.SourcePortId is null ||
+                    !Definition.Nodes.ContainsKey(boundary.SourceNodeId))
+                    throw new ArgumentException("The copied node has an incoming wire that cannot be bound in this workflow.");
+                return new GraphClipboardInputBinding(boundary.Id, boundary.SourceNodeId, boundary.SourcePortId);
+            }).ToArray();
+            var outputBindings = fragment.Outputs.Select(boundary =>
+            {
+                if (boundary.TargetNodeId is null || boundary.TargetPortId is null ||
+                    !Definition.Nodes.ContainsKey(boundary.TargetNodeId))
+                    throw new ArgumentException("The copied node has an outgoing wire that cannot be bound in this workflow.");
+                return new GraphClipboardOutputBinding(boundary.Id, boundary.TargetNodeId, boundary.TargetPortId);
+            }).ToArray();
+            var pasted = GraphClipboardEditing.Paste(Definition, EffectiveLayout, fragment, inputBindings, outputBindings, context.Position);
+            await CloseMenu(context);
+            await CommitEdit(pasted.Definition, pasted.Layout, pasted.NodeIdMap.Values.FirstOrDefault());
+            error = null;
+        }
+        catch (JSException)
+        {
+            error = "The browser blocked clipboard access. Allow clipboard access for this Studio tab and try again.";
+        }
+        catch (JsonException)
+        {
+            error = "The clipboard does not contain a Visual Agent Workflow pure-data node.";
+        }
+        catch (ArgumentException exception)
+        {
+            error = $"The node could not be pasted: {exception.Message}";
+        }
+    }
+
+    private string DataPortType(string nodeId, string portId, WorkflowPortDirection direction) =>
+        Definition.Nodes.TryGetValue(nodeId, out var node)
+            ? CanvasPorts(node).Single(port => port.Direction == direction && port.Id == portId).DataType ?? "string"
+            : "string";
+
+    private static string ClipboardBoundaryId(string prefix, string nodeId, string portId) =>
+        $"{prefix}-{SanitizeClipboardId(nodeId)}-{SanitizeClipboardId(portId)}";
+
+    private static string SanitizeClipboardId(string value) =>
+        new(value.Select(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '.' ? character : '-').ToArray());
 
     private Task CloseMenu(GraphContextRequest? context) => context is not null && canvas is not null ? canvas.CloseContextMenu(context.Id) : Task.CompletedTask;
     private async Task Reroute(GraphContextRequest context)
