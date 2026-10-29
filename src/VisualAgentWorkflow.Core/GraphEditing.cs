@@ -413,7 +413,7 @@ public static class GraphEditing
         string outputId, string label)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph) ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration || !SequenceOutputLimits.IsValidId(outputId) ||
             string.IsNullOrWhiteSpace(label) || label.Trim().Length > SequenceOutputLimits.MaximumLabelLength ||
@@ -430,7 +430,7 @@ public static class GraphEditing
     {
         ArgumentNullException.ThrowIfNull(definition);
         if (offset is not (-1 or 1)) throw new ArgumentOutOfRangeException(nameof(offset));
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph) ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration)
             throw new ArgumentException("Choose a configured Sequence node.", nameof(sequenceNodeId));
@@ -448,7 +448,7 @@ public static class GraphEditing
     {
         ArgumentNullException.ThrowIfNull(definition);
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph) ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration || definition.ExecutionConnections is not { } execution)
             throw new ArgumentException("Choose a configured Sequence node.", nameof(sequenceNodeId));
@@ -475,7 +475,7 @@ public static class GraphEditing
     {
         ArgumentNullException.ThrowIfNull(definition);
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph) ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration || definition.ExecutionConnections is not { } execution)
             throw new ArgumentException("Choose a configured Sequence node.", nameof(sequenceNodeId));
@@ -499,6 +499,16 @@ public static class GraphEditing
             definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty)
             throw new ArgumentException("Enable Sequence paths only from a valid schema 1.38 graph.", nameof(definition));
         return definition with { SchemaVersion = WorkflowSchemaVersions.SequencePathGraph };
+    }
+
+    /// <summary>Promotes a valid bounded Sequence-path graph to the terminal plain-text Agent path contract.</summary>
+    public static WorkflowDefinition EnableSequenceAgentPathGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.SequencePathGraph ||
+            definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty)
+            throw new ArgumentException("Enable Sequence Agent paths only from a valid schema 1.43 graph.", nameof(definition));
+        return definition with { SchemaVersion = WorkflowSchemaVersions.SequenceAgentPathGraph };
     }
 
     private static (NodeDefinition Fork, ParallelForkConfiguration ForkConfiguration, string JoinId, NodeDefinition Join,

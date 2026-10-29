@@ -128,6 +128,60 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Schema_1_46_executes_a_persisted_terminal_agent_path_with_sequence_lineage()
+    {
+        var events = new List<ExecutionEvent>();
+        var agent = new SequenceProofAgentExecutor();
+        var result = await new WorkflowRunner(new RecordingBroker(), agent).ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(SequenceAgentPathDefinition(), "sequence-agent-path"), "hello", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("hello", result.Output);
+        Assert.True(agent.InvocationObserved);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentCompleted && HasSequenceLineage(evt));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted &&
+            ReadEvidence(evt).OutputId == "inventory");
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
+    }
+
+    [Fact]
+    public async Task Schema_1_46_records_agent_failure_before_sequence_failure()
+    {
+        var events = new List<ExecutionEvent>();
+        var agent = new SequenceProofAgentExecutor(fail: true);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(new RecordingBroker(), agent)
+            .ExecuteWithOutcomeAsync(Guid.NewGuid(), WorkflowRevision.Create(SequenceAgentPathDefinition(), "sequence-agent-path-failure"),
+                "hello", null, evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "inventory-agent");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed && ReadEvidence(evt).OutputId == "inventory");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+    }
+
+    [Fact]
+    public async Task Schema_1_46_records_agent_cancellation_before_sequence_cancellation()
+    {
+        var events = new List<ExecutionEvent>();
+        var agent = new SequenceProofAgentExecutor(blockUntilCancellation: true);
+        using var cancellation = new CancellationTokenSource();
+        var execution = new WorkflowRunner(new RecordingBroker(), agent).ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(SequenceAgentPathDefinition(), "sequence-agent-path-cancel"), "hello", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }, cancellation.Token);
+
+        await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => execution);
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == "inventory-agent");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled && ReadEvidence(evt).OutputId == "inventory");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceCancelled);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+    }
+
+    [Fact]
     public async Task Schema_1_43_records_failed_tool_path_and_sequence_failure_evidence()
     {
         var events = new List<ExecutionEvent>();
@@ -379,6 +433,26 @@ public sealed class SequenceProductionRunnerTests
             ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal))
         {
             ExecutionConnections = execution
+        };
+    }
+
+    private static WorkflowDefinition SequenceAgentPathDefinition()
+    {
+        var source = SequencePathDefinition();
+        var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0")
+        {
+            Agent = new AgentConfiguration("sequence-proof", null, "Return the supplied text.", [])
+            { MaxTurns = 1, MaxTotalTokens = 4000 }
+        };
+        return source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceAgentPathGraph,
+            Nodes = source.Nodes.Remove("inventory-tool").Add("inventory-agent", agent),
+            ExecutionConnections = source.ExecutionConnections!
+                .Remove("sequence-inventory")
+                .Remove("inventory-output")
+                .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("inventory-agent", "execute"), "execution"))
+                .Add("inventory-output", new(new("inventory-agent", "out"), new("output", "execute"), "execution"))
         };
     }
 

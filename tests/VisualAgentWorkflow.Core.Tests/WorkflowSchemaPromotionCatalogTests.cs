@@ -23,6 +23,7 @@ public sealed class WorkflowSchemaPromotionCatalogTests
             ("number-parameter-propagation", "1.40", "1.41", nameof(GraphEditing.EnableNumberPropagationGraph)),
             ("number-addition", "1.41", "1.42", nameof(GraphEditing.EnableNumberArithmeticGraph)),
             ("sequence-paths", "1.38", "1.43", nameof(GraphEditing.EnableSequencePathGraph)),
+            ("sequence-agent-paths", "1.43", "1.46", nameof(GraphEditing.EnableSequenceAgentPathGraph)),
             ("mutable-variables", "1.23", "1.44", nameof(GraphEditing.EnableMutableVariablesGraph))
         };
 

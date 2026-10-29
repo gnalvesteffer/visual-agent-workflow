@@ -111,6 +111,17 @@ public sealed class SequenceGraphTests
     }
 
     [Fact]
+    public void Sequence_agent_path_promotion_preserves_the_valid_direct_mcp_contract()
+    {
+        var source = PathDefinition();
+        var promoted = GraphEditing.EnableSequenceAgentPathGraph(source);
+
+        Assert.Equal(WorkflowSchemaVersions.SequenceAgentPathGraph, promoted.SchemaVersion);
+        Assert.Equal(source.ExecutionConnections, promoted.ExecutionConnections);
+        Assert.Empty(WorkflowValidator.Validate(promoted));
+    }
+
+    [Fact]
     public void Sequence_path_package_round_trip_preserves_schema_outputs_and_execution_connections()
     {
         var definition = PathDefinition();
@@ -260,6 +271,81 @@ public sealed class SequenceGraphTests
         var analysis = SequencePathTopologyAnalyzer.Analyze(candidate);
 
         Assert.Contains(analysis.Issues, issue => issue.Code == "sequence.agent.restriction");
+    }
+
+    [Fact]
+    public void Sequence_agent_path_schema_accepts_mixed_direct_mcp_and_terminal_plain_text_agent_paths()
+    {
+        var source = PathDefinition();
+        var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0")
+        {
+            Agent = new AgentConfiguration("qwen", null, "Summarize the supplied research.", [])
+            { MaxTurns = 1, MaxTotalTokens = 4000 }
+        };
+        var definition = source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceAgentPathGraph,
+            Nodes = source.Nodes.Remove("inventory-tool").Add("inventory-agent", agent),
+            ExecutionConnections = source.ExecutionConnections!
+                .Remove("sequence-inventory")
+                .Remove("inventory-output")
+                .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("inventory-agent", "execute"), "execution"))
+                .Add("inventory-output", new(new("inventory-agent", "out"), new("output", "execute"), "execution"))
+        };
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+    }
+
+    [Fact]
+    public void Sequence_agent_path_schema_rejects_unbounded_agent_limits_and_capabilities()
+    {
+        var source = PathDefinition();
+        var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0")
+        {
+            Agent = new AgentConfiguration("qwen", null, "Summarize the supplied research.",
+                [new ToolBindingRequest("tool", new string('a', 64))])
+            { MaxTurns = AgentExecutionLimits.UnlimitedTurns, MaxTotalTokens = 4000 }
+        };
+        var definition = source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceAgentPathGraph,
+            Nodes = source.Nodes.Remove("inventory-tool").Add("inventory-agent", agent),
+            ExecutionConnections = source.ExecutionConnections!
+                .Remove("sequence-inventory")
+                .Remove("inventory-output")
+                .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("inventory-agent", "execute"), "execution"))
+                .Add("inventory-output", new(new("inventory-agent", "out"), new("output", "execute"), "execution"))
+        };
+
+        var issues = WorkflowValidator.Validate(definition);
+        Assert.Contains(issues, issue => issue.Code == "sequence.agent.limits");
+        Assert.Contains(issues, issue => issue.Code == "sequence.agent.restriction");
+    }
+
+    [Fact]
+    public void Sequence_agent_path_schema_requires_the_agent_to_be_the_terminal_path_node()
+    {
+        var source = PathDefinition();
+        var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0")
+        {
+            Agent = new AgentConfiguration("qwen", null, "Summarize the supplied research.", [])
+            { MaxTurns = 1, MaxTotalTokens = 4000 }
+        };
+        var definition = source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceAgentPathGraph,
+            Nodes = source.Nodes.Remove("inventory-tool").Add("inventory-agent", agent),
+            ExecutionConnections = source.ExecutionConnections!
+                .Remove("sequence-inventory")
+                .Remove("inventory-output")
+                .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("inventory-agent", "execute"), "execution"))
+                .Add("inventory-agent-next", new(new("inventory-agent", "out"), new("architecture-tool", "execute"), "execution"))
+                .Add("inventory-output", new(new("architecture-tool", "then"), new("output", "execute"), "execution"))
+        };
+
+        var issues = WorkflowValidator.Validate(definition);
+
+        Assert.Contains(issues, issue => issue.Code == "sequence.agent.terminal");
     }
 
     private static WorkflowDefinition Definition()

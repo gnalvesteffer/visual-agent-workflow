@@ -1,26 +1,25 @@
 # Sequence-to-Agent path proof gate
 
-**Status: Non-public proof only**  
+**Status: Bounded backend slice; full promotion gates remain open**
 **Scope: Blueprint-inspired Sequence descendants and evidence**  
 **Decision date: 2026-10-28**
 
 ## Decision
 
-Do not expose Agent nodes in persisted Sequence paths or add a public Agent-path
-schema yet. Schemas 1.44 and 1.45 are already assigned to mutable-variable
-slices; any future public Agent-path schema must be a newly reviewed additive
-version, currently expected to be 1.46.
-The next verified increment is an internal production proof only:
+Do not expose Agent paths through Studio authoring or call the capability fully
+qualified yet. The reviewed additive schema 1.46 now exists as a bounded Core
+and normal-runner backend slice. Schemas 1.44 and 1.45 remain unchanged.
+The next verified increment is the backend contract:
 
 ```text
 Sequence output → one Agent invocation → Output
 ```
 
-The proof uses the normal `WorkflowRunner` recorder, `StringExecutor`, injected
+The backend slice uses the normal `WorkflowRunner` recorder, `StringExecutor`,
 host Agent executor, runner-owned activation accounting, and the existing
-private Sequence lineage envelope. It is not reachable from persisted workflow
-definitions, schema discovery, Studio authoring, package compatibility, or
-checkpoint recovery.
+Sequence lineage envelope. It is reachable from a validated persisted 1.46
+definition, but is not yet exposed by Studio promotion controls or package
+authoring. Checkpoint recovery remains excluded.
 
 The proof intentionally excludes Agent routes, delegation, teams, collaboration
 channels, graph-function tools, MCP tools, approvals, nested workflows,
@@ -50,7 +49,7 @@ provider uncertainty. Those capabilities need an explicit compositional
 contract for failure, cancellation, authority closure, sibling settlement,
 and replay before they can be admitted to a public Sequence path.
 
-The eventual additive schema may allow one Agent directly before the Output
+The additive schema allows one Agent directly before the Output
 barrier, alongside the existing direct-MCP path shape, but only after tests
 prove nested event lineage, uncertain outcomes, host-grant denial, cancellation
 races, no premature run completion, and playback without live calls. This
@@ -59,22 +58,38 @@ document records the gate; it does not advertise that future schema.
 ## Adjudication addendum (2026-10-28)
 
 The required proponent/opponent/adjudicator review revisited promotion after
-the initial proof landed. The adjudicator kept the status **Non-public proof
-only**. The current proof is feasibility evidence, not public-contract
+the initial proof landed. The adjudicator kept full promotion gated. The current
+proof is feasibility evidence plus a bounded backend slice, not full public-contract
 readiness: it now exercises the real Agent executor for a one-output path and
 for two distinct out-of-order completions, plus missing-provider and timeout
 failure admission. The private failure/cancellation fan-out still uses a
 deterministic executor, and public host-grant admission, persisted nested
 playback, and public schema compatibility remain unproven.
 
-The candidate future schema is additive `1.46`, preserving schemas 1.38, 1.43,
+The schema is additive `1.46`, preserving schemas 1.38, 1.43,
 1.44, and 1.45. It may eventually allow each of the existing two-to-four Sequence
 outputs to use either its current direct-MCP path or exactly one terminal
 plain-text Agent immediately before Output. The candidate excludes Agent
 routes, structured results, MCP or graph-function tools, skills, delegation,
 teams, collaboration, approvals, workflow calls, loops, branches, joins,
-retries, nested Sequences, and durable resume. It is not implemented or
-advertised.
+retries, nested Sequences, and durable resume. It is implemented in Core and
+the normal runner, but not advertised as complete parity.
+
+## Backend slice update (2026-10-29)
+
+Schema 1.46 now authoritatively validates the bounded topology and runs it
+through the normal persisted-definition runner. Each ordered Sequence output
+must choose one disjoint linear path containing either direct MCP nodes or
+exactly one terminal plain-text Agent immediately before Output. Agent paths
+reject tools, skills, delegation, graph-function tools, routes, structured
+results, parameter-bound limits, and unbounded model turns. Focused Core and
+Agent Framework regressions cover mixed-path success plus Agent failure and
+cancellation ordering.
+
+Still required before marking this capability fully shipped: real host-admission
+and grant-denial coverage for the public definition, both run-store persistence
+and tamper handling, passive nested Sequence/Agent/model playback with no live
+calls, package/1.43-to-1.46 compatibility proofs, and Studio authoring controls.
 
 Promotion gates, in order:
 
@@ -98,6 +113,6 @@ Promotion gates, in order:
   output ordinal wins even when a later Agent path completes first.
 - [ ] Prove passive playback of nested Sequence/Agent/model identity with zero
   provider, tool, or executor calls, plus schema 1.38/1.43 compatibility.
-- [ ] Add Core/package/Studio authoring and invalid-topology coverage only after
-  the runtime and evidence gates above pass; then consider the new additive
-  schema 1.46.
+- [ ] Add package/Studio authoring and invalid-topology coverage only after the
+  remaining runtime/evidence gates above pass; then advertise schema 1.46 as a
+  complete public capability.
