@@ -74,8 +74,10 @@ loop.
 - [x] Qualify host publication failure before commit: the failed run records a
   terminal failure, while no capture/suspension evidence or checkpoint pointer
   is left behind.
-- [ ] Qualify cancellation races during active execution/publication on the
-  public host path.
+- [x] Qualify cancellation races during active execution/publication on the
+  public host path: cancellation before commit records a cancelled run without
+  a checkpoint, while cancellation during a successful commit preserves the
+  committed suspended boundary.
 - [x] Reopen production-generated loop history after host disposal with no
   executor/model/tool calls and prove passive variable playback. The existing
   schema-1.44 recovery regression continues to prove the legacy envelope and

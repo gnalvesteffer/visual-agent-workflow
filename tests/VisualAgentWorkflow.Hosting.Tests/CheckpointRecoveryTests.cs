@@ -187,6 +187,38 @@ public sealed class CheckpointRecoveryTests : IDisposable
     }
 
     [Fact]
+    public async Task Host_cancellation_before_checkpoint_publication_records_cancelled_without_partial_state()
+    {
+        var inner = Store();
+        using var cancellation = new CancellationTokenSource();
+        await using var runtime = new CheckpointWorkflowHost(new CancelBeforePublicationStore(inner, cancellation));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runtime.StartAsync(Revision(), "abc", 1, cancellation.Token));
+
+        var run = Assert.Single(inner.List());
+        Assert.Equal("cancelled", run.Status);
+        Assert.Contains(run.Events, evt => evt.Kind == ExecutionEventKinds.Cancelled);
+        Assert.Null(inner.GetCheckpoint(run.Header.RunId));
+        Assert.DoesNotContain(run.Events, evt => evt.Kind is ExecutionEventKinds.CheckpointCaptured or ExecutionEventKinds.Suspended);
+    }
+
+    [Fact]
+    public async Task Host_cancellation_during_checkpoint_publication_preserves_the_committed_suspension()
+    {
+        var inner = Store();
+        using var cancellation = new CancellationTokenSource();
+        await using var runtime = new CheckpointWorkflowHost(new CancelDuringPublicationStore(inner, cancellation));
+
+        var run = await runtime.StartAsync(Revision(), "abc", 1, cancellation.Token);
+
+        Assert.True(cancellation.IsCancellationRequested);
+        Assert.Equal("suspended", run.Status);
+        var checkpoint = inner.GetCheckpoint(run.Header.RunId)!;
+        Assert.True(WorkflowCheckpointRecovery.Assess(run, checkpoint).CanResume);
+        Assert.Contains(run.Events, evt => evt.Kind == ExecutionEventKinds.Suspended);
+    }
+
+    [Fact]
     public void Malformed_persisted_run_state_is_reported_as_ineligible_instead_of_throwing()
     {
         var malformed = new RunSnapshot(null!, []);
@@ -324,6 +356,40 @@ public sealed class CheckpointRecoveryTests : IDisposable
         public WorkflowRunCheckpoint? GetCheckpoint(Guid runId) => inner.GetCheckpoint(runId);
         public RunSnapshot CommitCheckpoint(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events,
             WorkflowRunCheckpoint checkpoint) => throw new IOException("Injected checkpoint publication failure.");
+    }
+
+    private sealed class CancelBeforePublicationStore(SqliteWorkflowRunStore inner, CancellationTokenSource cancellation) : IWorkflowCheckpointHostStore
+    {
+        public RunSnapshot Create(WorkflowRevision revision, string input) => inner.Create(revision, input);
+        public RunSnapshot? Get(Guid runId) => inner.Get(runId);
+        public IReadOnlyList<RunSnapshot> List() => inner.List();
+        public RunSnapshot Append(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events) => inner.Append(runId, expectedSequence, events);
+        public IDisposable AcquireRuntimeOwnership() => inner.AcquireRuntimeOwnership();
+        public WorkflowRunCheckpoint? GetCheckpoint(Guid runId) => inner.GetCheckpoint(runId);
+        public RunSnapshot CommitCheckpoint(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events,
+            WorkflowRunCheckpoint checkpoint)
+        {
+            cancellation.Cancel();
+            throw new OperationCanceledException(cancellation.Token);
+        }
+    }
+
+    private sealed class CancelDuringPublicationStore(SqliteWorkflowRunStore inner, CancellationTokenSource cancellation) : IWorkflowCheckpointHostStore
+    {
+        private int cancelled;
+
+        public RunSnapshot Create(WorkflowRevision revision, string input) => inner.Create(revision, input);
+        public RunSnapshot? Get(Guid runId) => inner.Get(runId);
+        public IReadOnlyList<RunSnapshot> List() => inner.List();
+        public RunSnapshot Append(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events) => inner.Append(runId, expectedSequence, events);
+        public IDisposable AcquireRuntimeOwnership() => inner.AcquireRuntimeOwnership();
+        public WorkflowRunCheckpoint? GetCheckpoint(Guid runId) => inner.GetCheckpoint(runId);
+        public RunSnapshot CommitCheckpoint(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events,
+            WorkflowRunCheckpoint checkpoint)
+        {
+            if (Interlocked.Exchange(ref cancelled, 1) == 0) cancellation.Cancel();
+            return inner.CommitCheckpoint(runId, expectedSequence, events, checkpoint);
+        }
     }
 
     private static WorkflowRevision VariableRevision()
