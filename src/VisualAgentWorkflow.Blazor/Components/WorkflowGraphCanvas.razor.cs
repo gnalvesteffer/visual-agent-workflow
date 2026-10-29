@@ -25,6 +25,8 @@ public partial class WorkflowGraphCanvas
     [Parameter] public EventCallback<string> ConnectionSelected { get; set; }
     [Parameter] public EventCallback<string> ConnectionDisconnectRequested { get; set; }
     [Parameter] public EventCallback<(string SourceId, string SourcePort, string TargetId, string TargetPort)> ConnectionRequested { get; set; }
+    [Parameter] public EventCallback<string[]> ClipboardCopyRequested { get; set; }
+    [Parameter] public EventCallback<GraphPoint> ClipboardPasteRequested { get; set; }
     private GraphContextRequest? contextMenu;
     private string? activeConnection;
     [Parameter] public string InspectorTitle { get; set; } = "Node properties";
@@ -299,6 +301,12 @@ public partial class WorkflowGraphCanvas
             return await browserSession.InvokeAsync<string[]>("selection");
         return selectedNode is { } id ? [id] : [];
     }
+
+    [JSInvokable]
+    public Task CopySelection(string[] ids) => ClipboardCopyRequested.InvokeAsync(ids);
+
+    [JSInvokable]
+    public Task PasteAt(double x, double y) => ClipboardPasteRequested.InvokeAsync(new GraphPoint(x, y));
     private Task AutoLayout()
     {
         var arranged = WorkflowLayout.Create(Definition);

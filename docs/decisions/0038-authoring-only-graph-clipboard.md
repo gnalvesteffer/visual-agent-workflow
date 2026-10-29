@@ -17,5 +17,5 @@ Host capability references, credentials, grants, approvals, endpoints, subscript
 
 ## Rationale and follow-up
 
-This deliberately does not broaden the pure-template envelope from [decision 0023](0023-pure-graph-template-proof.md). The Studio UI uses the canvas's existing box/Ctrl/Shift selection and context-menu commands; it does not copy execution wires, annotations, capabilities, stateful nodes, or cross-workflow dependency metadata. Keyboard shortcuts, explicit binding prompts, and project-aware transport require separate boundary, security, compatibility, and evidence proofs.
+This deliberately does not broaden the pure-template envelope from [decision 0023](0023-pure-graph-template-proof.md). The Studio UI uses the canvas's existing box/Ctrl/Shift selection, context-menu commands, and Ctrl/Cmd+C/V shortcuts; it does not copy execution wires, annotations, capabilities, stateful nodes, or cross-workflow dependency metadata. Explicit binding prompts and project-aware transport require separate boundary, security, compatibility, and evidence proofs.
 

@@ -62,6 +62,17 @@ export function attach(root, callback) {
             return;
         }
         if (!typing && event.key === 'Home' && event.target === state.viewport) { event.preventDefault(); root.querySelector('[data-graph-fit]')?.click(); return; }
+        if (!typing && (event.ctrlKey || event.metaKey) && ['c','v'].includes(event.key.toLowerCase()) && root.dataset.contextMenu === 'true') {
+            event.preventDefault();
+            if (event.key.toLowerCase() === 'c') invoke(state, 'CopySelection', [...state.selection]);
+            else {
+                const rect = state.viewport.getBoundingClientRect();
+                const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+                const point = local(state, { clientX: x, clientY: y });
+                invoke(state, 'PasteAt', clamp(point.x), clamp(point.y));
+            }
+            return;
+        }
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase()==='s') {
             const save=root.querySelector('[data-graph-save]:not(:disabled)');
             if (save) { event.preventDefault(); if (typing) event.target.blur(); save.click(); }

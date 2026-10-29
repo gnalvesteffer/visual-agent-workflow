@@ -558,12 +558,14 @@ public partial class WorkflowEditor
             !contract.HasExecutionPins && node.Origin is null;
     }
 
-    private async Task CopyClipboardSelection(string id, GraphContextRequest context)
+    private async Task CopyClipboardSelection(string[] ids, GraphContextRequest? context)
     {
+        var id = ids.FirstOrDefault() ?? context?.NodeId;
+        if (id is null) return;
         if (!CanCopyClipboardNode(id)) return;
         try
         {
-            var selected = canvas is null ? [] : await canvas.SelectedNodeIds();
+            var selected = ids.Length > 0 ? ids : canvas is null ? [] : await canvas.SelectedNodeIds();
             var nodeIds = selected.Length > 0 && selected.Contains(id, StringComparer.Ordinal) ? selected : [id];
             if (nodeIds.Any(nodeId => !CanCopyClipboardNode(nodeId)))
                 throw new ArgumentException("Every selected node must be a stateless pure data node without execution pins.");
@@ -597,7 +599,11 @@ public partial class WorkflowEditor
         }
     }
 
-    private async Task PasteClipboardNode(GraphContextRequest context)
+    private Task PasteClipboardNode(GraphContextRequest context) => PasteClipboardNodeAt(context.Position, context);
+
+    private Task PasteClipboardNodeAt(GraphPoint position) => PasteClipboardNodeAt(position, null);
+
+    private async Task PasteClipboardNodeAt(GraphPoint position, GraphContextRequest? context)
     {
         if (ReadOnly || Disabled) return;
         try
@@ -617,7 +623,7 @@ public partial class WorkflowEditor
                     throw new ArgumentException("The copied node has an outgoing wire that cannot be bound in this workflow.");
                 return new GraphClipboardOutputBinding(boundary.Id, boundary.TargetNodeId, boundary.TargetPortId);
             }).ToArray();
-            var pasted = GraphClipboardEditing.Paste(Definition, EffectiveLayout, fragment, inputBindings, outputBindings, context.Position);
+            var pasted = GraphClipboardEditing.Paste(Definition, EffectiveLayout, fragment, inputBindings, outputBindings, position);
             await CloseMenu(context);
             await CommitEdit(pasted.Definition, pasted.Layout, pasted.NodeIdMap.Values.FirstOrDefault());
             error = null;
