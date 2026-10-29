@@ -9,6 +9,60 @@ public sealed record WorkflowCallUpgradeResult(WorkflowDefinition Definition,
 public static class WorkflowCallEditing
 {
     /// <summary>
+    /// Adds a new pinned JSON child path to a clean schema-1.52 Sequence draft. The edit
+    /// creates a fresh Sequence output and moves the draft to schema 1.53; it deliberately
+    /// does not reinterpret an existing string call or an Agent/transform path.
+    /// </summary>
+    public static WorkflowDefinition AppendSequenceWorkflowCallJsonDraft(WorkflowDefinition parent,
+        string sequenceNodeId, PublishedWorkflowRevision target)
+    {
+        ArgumentNullException.ThrowIfNull(parent);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sequenceNodeId);
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(target.Revision);
+        if (parent.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph ||
+            target.Version < 1 || target.Revision.Definition.WorkflowId == parent.WorkflowId)
+            throw new ArgumentException("JSON WorkflowCall authoring requires a schema 1.52 draft and a different published child.", nameof(parent));
+        WorkflowValidator.ThrowIfInvalid(parent);
+        if (!HasJsonBoundary(target.Revision.Definition))
+            throw new ArgumentException("The child workflow must have JSON input and output boundaries.", nameof(target));
+        if (parent.Nodes.Values.Any(node => node.Type is NodeTypes.WorkflowCall or NodeTypes.Agent or
+                NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse))
+            throw new ArgumentException("JSON WorkflowCall authoring is limited to a clean direct-MCP Sequence draft; existing calls, Agents, and transforms are not reinterpreted.", nameof(parent));
+
+        var outputNode = parent.Nodes.SingleOrDefault(entry => entry.Value.Type == NodeTypes.Output);
+        if (outputNode.Value is null || parent.Connections.Values.Any(edge => edge.Target.NodeId == outputNode.Key && edge.Target.PortId == "in"))
+            throw new ArgumentException("The workflow Output must not already have a data value when adding a JSON path.", nameof(parent));
+
+        var withOutput = GraphEditing.AddSequenceOutput(parent, sequenceNodeId);
+        var sequence = withOutput.Nodes[sequenceNodeId];
+        var outputId = sequence.Sequence!.Outputs[^1].Id;
+        var outputExecution = withOutput.ExecutionConnections!.Single(entry =>
+            entry.Value.Source.NodeId == sequenceNodeId && entry.Value.Source.PortId == SequenceOutputLimits.PinId(outputId));
+        var callId = NewId("workflow-call-json");
+        var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(target.Revision.Definition.WorkflowId, target.Revision.RevisionId, target.Version,
+                target.Revision.ContentHash, target.Revision.Definition)
+        };
+        var updatedExecution = withOutput.ExecutionConnections!
+            .SetItem(outputExecution.Key, outputExecution.Value with { Target = new(callId, "execute") })
+            .Add(NewId("workflow-call-json"), new(new(callId, "out"), new(outputNode.Key, "execute"), "execution"));
+        var updated = withOutput with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph,
+            Nodes = withOutput.Nodes
+                .SetItem(outputNode.Key, outputNode.Value with { OutputDataType = WorkflowDataTypes.Json })
+                .Add(callId, call),
+            Connections = withOutput.Connections.Add(NewId("workflow-call-json-data"),
+                new(new(callId, "out"), new(outputNode.Key, "in"), "data")),
+            ExecutionConnections = updatedExecution
+        };
+        WorkflowJson.SerializeDraft(updated);
+        return updated;
+    }
+
+    /// <summary>
     /// Adds one deterministic transform after a terminal call while preserving schema 1.50 as
     /// an editable draft. Explicit draft promotion is required before the graph can run.
     /// </summary>
@@ -186,6 +240,15 @@ public static class WorkflowCallEditing
         return input is not null && output is not null &&
             WorkflowPorts.Outputs(input).SingleOrDefault()?.DataType == WorkflowDataTypes.String &&
             WorkflowPorts.Inputs(output).SingleOrDefault()?.DataType == WorkflowDataTypes.String;
+    }
+
+    private static bool HasJsonBoundary(WorkflowDefinition definition)
+    {
+        var input = definition.Nodes.GetValueOrDefault(definition.EntryNodeId);
+        var output = definition.Nodes.Values.FirstOrDefault(node => node.Type == NodeTypes.Output);
+        return input is not null && output is not null &&
+            WorkflowPorts.Outputs(input).SingleOrDefault()?.DataType == WorkflowDataTypes.Json &&
+            WorkflowPorts.Inputs(output).SingleOrDefault()?.DataType == WorkflowDataTypes.Json;
     }
 
     private static string NewId(string prefix) => prefix + "-" + Guid.NewGuid().ToString("N");

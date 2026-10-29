@@ -2,8 +2,9 @@
 
 ## Status
 
-Implemented as the additive schema 1.53 Core and Agent Framework slice. Studio authoring for
-this topology remains a follow-up.
+Implemented as the additive schema 1.53 Core, Agent Framework, and bounded Studio authoring
+slice. Studio can add a new direct JSON child path from a clean schema 1.52 direct-MCP draft;
+selector/project insertion remains a follow-up.
 
 ## Contract
 
@@ -31,9 +32,10 @@ remain saveable but cannot be published or executed.
 ## Verification
 
 Core covers catalog admission, promotion metadata, validator compatibility, pinned JSON child
-contracts, direct data composition shape, and rejection of string child boundaries. Agent
-Framework builds and the existing sequence/runtime suite passes; the full focused JSON runtime
-proof remains a follow-up before claiming Studio authoring support.
+contracts, direct data composition shape, rejection of string child boundaries, and the guarded
+authoring edit that creates a new output without reinterpreting existing paths. Agent Framework
+builds and the existing sequence/runtime suite passes; the full focused JSON runtime proof and
+selector/project authoring remain follow-ups.
 
 ## Deferred
 

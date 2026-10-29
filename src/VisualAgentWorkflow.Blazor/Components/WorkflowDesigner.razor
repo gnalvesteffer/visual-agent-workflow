@@ -158,6 +158,22 @@
                             }
                         </fieldset>
                     }
+                    @if (IsSequenceCallJsonDraft)
+                    {
+                        <fieldset class="vaw-sequence-call-authoring" aria-label="Append a JSON workflow call to a Sequence output">
+                            <legend>JSON child call</legend>
+                            <p class="vaw-help">Add a pinned child with JSON input and output to a new Sequence output. This guarded edit is available only on a clean direct-MCP draft; existing calls, Agents, and transforms are not reinterpreted.</p>
+                            @if (!SequenceCallJsonDraftEligible)
+                            {
+                                <p class="vaw-help">This draft is not eligible. Start with direct MCP paths only and remove existing WorkflowCall, Agent, or transform nodes.</p>
+                            }
+                            else if (!SelectedReusableHasJsonBoundary)
+                            {
+                                <p class="vaw-help">Choose a published child whose entry input and Output both use JSON.</p>
+                            }
+                            <button type="button" @onclick="InsertSequenceWorkflowCallJson" disabled="@(preview is not null || busy || !CanAuthorSequenceWorkflowCallJson)">Add pinned JSON child path</button>
+                        </fieldset>
+                    }
                     <ul class="vaw-requirements">
                         @foreach (var requirement in reusableRequirements)
                         { <li @key="requirement">@RequirementLabel(requirement): @RequirementAvailability(requirement)</li> }

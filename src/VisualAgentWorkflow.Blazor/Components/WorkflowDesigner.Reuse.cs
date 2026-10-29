@@ -107,6 +107,16 @@ public partial class WorkflowDesigner
 
     private bool IsSequenceCallTransformDraft => definition?.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallGraph;
 
+    private bool IsSequenceCallJsonDraft => definition?.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph;
+
+    private bool SequenceCallJsonDraftEligible => definition is { } current &&
+        current.Nodes.Values.All(node => node.Type is NodeTypes.Input or NodeTypes.Sequence or NodeTypes.McpTool or NodeTypes.Output) &&
+        current.Nodes.Values.All(node => node.Type != NodeTypes.WorkflowCall) &&
+        WorkflowValidator.Validate(current).IsEmpty;
+
+    private bool SelectedReusableHasJsonBoundary => reusableVersions.FirstOrDefault(version => version.Revision.RevisionId == reusableRevisionId)
+        ?.Revision.Definition is { } child && HasJsonBoundary(child);
+
     private ImmutableArray<SequencePathTopology> SequenceCallPaths => definition is { } current &&
         IsSequenceCallDraft && WorkflowValidator.Validate(current).IsEmpty
         ? SequencePathTopologyAnalyzer.Analyze(current).Paths.Where(path => path.IsDirectMcpPath).ToImmutableArray()
@@ -122,6 +132,9 @@ public partial class WorkflowDesigner
 
     private bool CanAuthorSequenceWorkflowCallTransform => !IdeMode && preview is null && !busy &&
         SequenceCallTransformPaths.Any();
+
+    private bool CanAuthorSequenceWorkflowCallJson => !IdeMode && preview is null && !busy &&
+        reusableRevisionId is not null && SequenceCallJsonDraftEligible && SelectedReusableHasJsonBoundary;
 
     private WorkflowCallUpgradeResult UpgradeSelectedCall(PublishedWorkflowRevision target) =>
         definition?.SchemaVersion == WorkflowSchemaVersions.SequenceTransformChainGraph
@@ -319,6 +332,29 @@ public partial class WorkflowDesigner
         ApplyComposition(new(next, layout.Reconcile(next)));
         message = $"Added a {(sequenceCallTransformType == NodeTypes.SequenceReverse ? "reverse" : "uppercase")} step after the pinned call. Save this schema 1.50 draft, then promote it to schema 1.51 before publishing or running.";
     });
+
+    private Task InsertSequenceWorkflowCallJson() => Perform(async current =>
+    {
+        if (!CanAuthorSequenceWorkflowCallJson || definition is null || layout is null || reusableRevisionId is not { } id)
+            return;
+        var source = await current.Catalog.GetRevisionAsync(id).WaitAsync(current.Token) ?? throw new KeyNotFoundException();
+        if (source.Revision.Definition.WorkflowId != reusableWorkflowId || source.Revision.Definition.WorkflowId == definition.WorkflowId)
+            throw new ArgumentException("Choose a different published workflow revision.");
+        var sequenceNodeId = definition.Nodes.Single(node => node.Value.Type == NodeTypes.Sequence).Key;
+        var next = WorkflowCallEditing.AppendSequenceWorkflowCallJsonDraft(definition, sequenceNodeId, source);
+        if (!Current(current)) return;
+        ApplyComposition(new(next, layout.Reconcile(next)));
+        message = $"Added a pinned JSON call to a new Sequence output. The draft is now schema 1.53; save it, then publish after reviewing the JSON boundary.";
+    });
+
+    private static bool HasJsonBoundary(WorkflowDefinition child)
+    {
+        var input = child.Nodes.GetValueOrDefault(child.EntryNodeId);
+        var output = child.Nodes.Values.FirstOrDefault(node => node.Type == NodeTypes.Output);
+        return input is not null && output is not null &&
+            WorkflowPorts.Outputs(input).SingleOrDefault()?.DataType == WorkflowDataTypes.Json &&
+            WorkflowPorts.Inputs(output).SingleOrDefault()?.DataType == WorkflowDataTypes.Json;
+    }
 
     private void ApplyComposition(WorkflowComposition next)
     {

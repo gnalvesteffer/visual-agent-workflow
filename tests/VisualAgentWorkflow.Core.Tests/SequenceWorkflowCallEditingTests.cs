@@ -85,6 +85,36 @@ public sealed class SequenceWorkflowCallEditingTests
         Assert.Empty(WorkflowValidator.Validate(promotion.TargetRevision.Definition));
     }
 
+    [Fact]
+    public void Appends_a_new_pinned_json_path_without_reinterpreting_existing_nodes()
+    {
+        var child = WorkflowRevision.Create(JsonBaseline("json-child"), "test");
+        var source = PathGraph() with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph };
+
+        var draft = WorkflowCallEditing.AppendSequenceWorkflowCallJsonDraft(source, "sequence", new(1, child));
+
+        Assert.Equal(WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph, draft.SchemaVersion);
+        Assert.Equal(3, draft.Nodes.Single(pair => pair.Value.Type == NodeTypes.Sequence).Value.Sequence!.Outputs.Length);
+        var call = Assert.Single(draft.Nodes, pair => pair.Value.Type == NodeTypes.WorkflowCall);
+        Assert.Equal(JsonBaseline("json-child").WorkflowId, call.Value.WorkflowCall!.WorkflowId);
+        Assert.Equal(WorkflowDataTypes.Json, draft.Nodes["output"].OutputDataType);
+        Assert.Contains(draft.Connections.Values, edge => edge.Source == new PortReference(call.Key, "out") &&
+            edge.Target == new PortReference("output", "in"));
+        Assert.Empty(WorkflowValidator.Validate(draft));
+    }
+
+    [Fact]
+    public void JSON_path_authoring_rejects_a_string_child_or_existing_post_call_nodes()
+    {
+        var source = PathGraph() with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph };
+        var stringChild = WorkflowRevision.Create(Baseline("string-child"), "test");
+        Assert.Throws<ArgumentException>(() => WorkflowCallEditing.AppendSequenceWorkflowCallJsonDraft(source, "sequence", new(1, stringChild)));
+
+        var jsonChild = WorkflowRevision.Create(JsonBaseline("json-child"), "test");
+        var withAgent = source with { Nodes = source.Nodes.Add("agent", new(NodeTypes.Agent, "1.0.0")) };
+        Assert.Throws<ArgumentException>(() => WorkflowCallEditing.AppendSequenceWorkflowCallJsonDraft(withAgent, "sequence", new(1, jsonChild)));
+    }
+
     private static WorkflowDefinition PathGraph()
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
@@ -109,6 +139,13 @@ public sealed class SequenceWorkflowCallEditingTests
         ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
             .Add("input", new(NodeTypes.Input, "1.0.0"))
             .Add("output", new(NodeTypes.Output, "1.0.0")),
+        ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("edge", new(new("input", "out"), new("output", "in"), "data")));
+
+    private static WorkflowDefinition JsonBaseline(string workflowId) => new("1.13", workflowId, "input",
+        ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input", new(NodeTypes.Input, "1.0.0") { InputDataType = WorkflowDataTypes.Json })
+            .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.Json }),
         ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
             .Add("edge", new(new("input", "out"), new("output", "in"), "data")));
 }

@@ -181,9 +181,11 @@ composition. A pinned child must expose JSON input and output. The execution
 path still enters Output directly; an optional data-only `JsonSelectString` or
 `JsonProject` may sit between `WorkflowCall.out` and `Output.in`, but arbitrary
 JSON chains, implicit coercion, post-call Agents, and broader control flow are
-not admitted. The runner stores the child result as a typed JSON runtime value
-for the explicit data evaluator and serializes it only at the public result
-boundary. See [Decision 0053](decisions/0053-sequence-workflow-call-json-composition.md).
+not admitted. Studio can author the narrow direct JSON-child form from a clean
+schema 1.52 direct-MCP draft by creating a new Sequence output; it does not
+reinterpret existing calls, Agents, or transforms. The runner stores the child
+result as a typed JSON runtime value for the explicit data evaluator and
+serializes it only at the public result boundary. See [Decision 0053](decisions/0053-sequence-workflow-call-json-composition.md).
 
 Schema 1.40 adds a finite IEEE-754 `number` constant for direct-MCP graphs.
 Top-level MCP JSON Schema number properties become exact typed input pins and
