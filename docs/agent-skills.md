@@ -32,5 +32,6 @@ The structure follows `gnalvesteffer/ai-newspaper`: a project guide plus focused
 | [Graph experience review](../.agents/skills/graph-experience-review/SKILL.md) | Project-specific workflow canvas, live run viewer, accessibility, and embedding validation; use alongside Impeccable for UI work |
 | [Version and compatibility review](../.agents/skills/version-compatibility-review/SKILL.md) | Changing definitions, prefabs, schemas, imports, collaboration, dependencies, or releases |
 | [Workflow ownership](../.agents/skills/workflow-ownership/SKILL.md) | Keeping prompts, input guidance, tools, and other workflow-specific policy in user-project workflow assets rather than shared VAW code |
+| [Workflow authoring](../.agents/skills/workflow-authoring/SKILL.md) | Translating a user's natural-language request into a validated, reviewable workflow graph and reporting what was actually authored and tested |
 
 For repository-authored skills, keep `SKILL.md` frontmatter limited to a stable `name` and a descriptive `description` identifying when to use it. Preserve valid upstream metadata in vendored skills, along with their license and pinned provenance. Add scripts only when they exercise a real implemented workflow and have been tested. Update the catalog when skills are added or renamed.
