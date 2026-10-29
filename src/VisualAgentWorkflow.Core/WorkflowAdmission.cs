@@ -71,7 +71,13 @@ public static class WorkflowAdmission
             !expected.Requirements.SequenceEqual(package.Requirements))
             throw new ArgumentException("The workflow package identity or requirements do not match its contents.", nameof(package));
 
+        if (host.ProviderIds.Any(provider => string.IsNullOrWhiteSpace(provider) || provider.Length > 128 || provider.Any(char.IsControl)) ||
+            host.ProviderIds.Distinct(StringComparer.Ordinal).Count() != host.ProviderIds.Length)
+            throw new ArgumentException("The host snapshot must contain unique, bounded provider IDs.", nameof(host));
         var providers = host.ProviderIds.ToImmutableHashSet(StringComparer.Ordinal);
+        if (host.Tools.Any(tool => tool is null || !ValidBindingId(tool.BindingId) || !ValidHash(tool.ContractHash) ||
+            tool.DescriptionHash is not null && !ValidHash(tool.DescriptionHash)))
+            throw new ArgumentException("The host snapshot must contain bounded binding IDs and valid contract hashes.", nameof(host));
         if (host.Tools.GroupBy(tool => tool.BindingId, StringComparer.Ordinal).Any(group => group.Count() > 1))
             throw new ArgumentException("The host snapshot must contain at most one fact per MCP binding.", nameof(host));
         var tools = host.Tools
@@ -110,4 +116,10 @@ public static class WorkflowAdmission
 
         return new(package.Definition.WorkflowId, package.DefinitionHash, package.Requirements, issues.ToImmutable());
     }
+
+    private static bool ValidBindingId(string value) =>
+        !string.IsNullOrWhiteSpace(value) && value.Length <= 128 && !value.Any(char.IsControl);
+
+    private static bool ValidHash(string value) =>
+        value is { Length: 64 } && value.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
 }

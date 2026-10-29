@@ -80,6 +80,22 @@ public sealed class WorkflowAdmissionTests
         Assert.Throws<ArgumentException>(() => WorkflowAdmission.Assess(package, WorkflowAdmissionHostSnapshot.Empty));
     }
 
+    [Fact]
+    public void Malformed_or_ambiguous_host_facts_are_rejected_before_comparison()
+    {
+        var definition = Definition();
+
+        Assert.Throws<ArgumentException>(() => WorkflowAdmission.Assess(definition, new(
+            ["demo.scripted", "demo.scripted"],
+            [new("memory.search", ContractHash)])));
+        Assert.Throws<ArgumentException>(() => WorkflowAdmission.Assess(definition, new(
+            ["demo.scripted"],
+            [new("memory.search", "not-a-contract-hash")])));
+        Assert.Throws<ArgumentException>(() => WorkflowAdmission.Assess(definition, new(
+            ["demo.scripted"],
+            [new("memory.search", ContractHash) { DescriptionHash = "not-a-description-hash" }])));
+    }
+
     private static WorkflowDefinition Definition()
     {
         var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0", Agent: new(

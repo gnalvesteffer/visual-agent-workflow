@@ -15,6 +15,8 @@ Core exposes `WorkflowAdmission.Assess`, which compares a validated `WorkflowPac
 
 The snapshot contains only provider IDs and MCP binding contract/description hashes. The result preserves workflow identity, definition hash, sorted package requirements, and deterministic issues for missing providers/tools or contract/description drift.
 
+The comparison validates the host snapshot before making dependency decisions: provider IDs are unique and bounded, MCP binding IDs are bounded, and contract/description hashes are lowercase SHA-256 values. Malformed or ambiguous host facts fail closed rather than being treated as missing dependencies. This validates the host-owned input boundary only; it does not grant permissions or replace the broker's live invocation checks.
+
 The report and preflight do not perform discovery, access credentials, grant permissions, invoke providers/tools, or replace `IToolAuthorizationPolicy` and broker checks. A host must re-evaluate and enforce policy at the actual capability boundary because the snapshot can become stale. A failed preflight produces no run record and exposes a bounded typed report; snapshot-provider failure fails closed without exposing provider error details. Hosts that construct the legacy runtime without a provider retain legacy behavior and must document that they have not enabled preflight.
 
 Embedded package requirements such as node types, skills, profiles, graph functions, and pinned child snapshots are not treated as missing host capabilities in this increment. Provider compatibility is limited to provider-ID availability; model/provider contract versioning and node-scoped grant diagnostics remain follow-up work.
