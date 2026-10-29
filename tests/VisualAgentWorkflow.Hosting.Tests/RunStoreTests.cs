@@ -17,6 +17,13 @@ public sealed class RunStoreTests : IDisposable
     private static ExecutionEvent Event(RunSnapshot run, long sequence, string kind = ExecutionEventKinds.Started) =>
         new(run.Header.RunId, run.Header.RevisionId, sequence, DateTimeOffset.UtcNow, kind);
 
+    private static ExecutionEvent ChildEvidence(RunSnapshot run, long sequence, string lifecycle,
+        Guid childRevision, string childHash) =>
+        new(run.Header.RunId, run.Header.RevisionId, sequence, DateTimeOffset.UtcNow,
+            ExecutionEventKinds.SubworkflowEvidence, "call", Guid.NewGuid(), null,
+            new WorkflowCallLifecycleEvidence(lifecycle, "call", "child", childRevision, childHash, "call", "HELLO").Serialize())
+        { ScopeId = "call" };
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -34,6 +41,34 @@ public sealed class RunStoreTests : IDisposable
         Assert.Single(store.List());
         Assert.Throws<InvalidOperationException>(() => store.Append(run.Header.RunId, 2, [Event(run, 3)]));
         Assert.Equal(2, store.Get(run.Header.RunId)!.Events.Length);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Nested_workflow_identity_evidence_reopens_and_replays_without_execution(bool sqlite)
+    {
+        var store = Store(sqlite);
+        var revision = Revision();
+        var run = store.Create(revision, "hello");
+        var childRevision = Guid.NewGuid();
+        var childHash = new string('c', 64);
+        var started = new ExecutionEvent(run.Header.RunId, run.Header.RevisionId, 1, DateTimeOffset.UtcNow,
+            ExecutionEventKinds.Started);
+        var childStarted = ChildEvidence(run, 2, ExecutionEventKinds.SubworkflowStarted, childRevision, childHash);
+        var childCompleted = ChildEvidence(run, 3, ExecutionEventKinds.SubworkflowCompleted, childRevision, childHash);
+        var completed = new ExecutionEvent(run.Header.RunId, run.Header.RevisionId, 4, DateTimeOffset.UtcNow,
+            ExecutionEventKinds.Completed, Data: "HELLO");
+
+        store.Append(run.Header.RunId, 0, [started, childStarted, childCompleted, completed]);
+        var reopened = Store(sqlite).Get(run.Header.RunId)!;
+
+        Assert.True(WorkflowCallEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal("completed", playback!.Status);
+        var call = Assert.Single(playback.Calls);
+        Assert.Equal(childRevision, call.ChildRevisionId);
+        Assert.Equal(childHash, call.ChildContentHash);
+        Assert.Equal("completed", call.State);
     }
 
     [Fact]

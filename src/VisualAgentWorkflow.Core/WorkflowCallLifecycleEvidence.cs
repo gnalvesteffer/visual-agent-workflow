@@ -12,6 +12,16 @@ public sealed record WorkflowCallLifecycleEvidence(
     string ChildScopeId,
     string? ChildData)
 {
+    private static readonly HashSet<string> Lifecycles = new(StringComparer.Ordinal)
+    {
+        ExecutionEventKinds.SubworkflowStarted,
+        ExecutionEventKinds.SubworkflowCompleted,
+        ExecutionEventKinds.SubworkflowTerminated,
+        ExecutionEventKinds.SubworkflowFailed,
+        ExecutionEventKinds.SubworkflowCancelled,
+        ExecutionEventKinds.SubworkflowOutcomeUnknown
+    };
+
     public string Serialize() => JsonSerializer.Serialize(this);
 
     public static bool TryRead(string? data, out WorkflowCallLifecycleEvidence? evidence)
@@ -21,7 +31,13 @@ public sealed record WorkflowCallLifecycleEvidence(
             evidence = string.IsNullOrWhiteSpace(data)
                 ? null
                 : JsonSerializer.Deserialize<WorkflowCallLifecycleEvidence>(data);
-            return evidence is not null;
+            return evidence is not null && Lifecycles.Contains(evidence.Lifecycle) &&
+                !string.IsNullOrWhiteSpace(evidence.CallNodeId) &&
+                !string.IsNullOrWhiteSpace(evidence.ChildWorkflowId) &&
+                evidence.ChildRevisionId != Guid.Empty && IsHash(evidence.ChildContentHash) &&
+                !string.IsNullOrWhiteSpace(evidence.ChildScopeId) &&
+                (evidence.ChildScopeId == evidence.CallNodeId ||
+                    evidence.ChildScopeId.StartsWith(evidence.CallNodeId + "/", StringComparison.Ordinal));
         }
         catch (JsonException)
         {
@@ -29,4 +45,6 @@ public sealed record WorkflowCallLifecycleEvidence(
             return false;
         }
     }
+
+    private static bool IsHash(string value) => value.Length == 64 && value.All(Uri.IsHexDigit) && value == value.ToLowerInvariant();
 }

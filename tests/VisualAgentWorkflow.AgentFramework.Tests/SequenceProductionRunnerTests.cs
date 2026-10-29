@@ -28,6 +28,9 @@ public sealed class SequenceProductionRunnerTests
             evidence.ChildWorkflowId == "sequence-call-proof-first");
         Assert.Contains(childEvidence, evidence => evidence.CallNodeId == "sibling" &&
             evidence.ChildWorkflowId == "sequence-call-proof-second");
+        Assert.True(WorkflowCallEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal("completed", playback!.Status);
+        Assert.Equal(2, playback.Calls.Count);
         Assert.Equal(["call", "sibling"], events.Where(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted)
             .Select(ReadEvidence).Select(evidence => evidence.OutputId).OrderBy(id => id, StringComparer.Ordinal));
         Assert.Equal(ExecutionEventKinds.Completed, events[^1].Kind);
@@ -111,6 +114,27 @@ public sealed class SequenceProductionRunnerTests
             ReadEvidence(evt).OutputId == "call");
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Terminated && evt.ScopeId is null);
+    }
+
+    [Fact]
+    public async Task Proof_sequence_parent_cancellation_propagates_to_a_running_child_without_success()
+    {
+        var events = new List<ExecutionEvent>();
+        var gate = new ReleaseGate("sequence-call-proof-first-input");
+        using var cancellation = new CancellationTokenSource();
+        var execution = new WorkflowRunner().ExecuteSequenceWorkflowCallProductionProofAsync(Guid.NewGuid(), "hello",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }, gate: gate,
+            cancellationToken: cancellation.Token);
+
+        await gate.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => execution);
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCancelled && evt.ScopeId == "call");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled &&
+            ReadEvidence(evt).OutputId == "call");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.ScopeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
     }
 
     [Fact]
