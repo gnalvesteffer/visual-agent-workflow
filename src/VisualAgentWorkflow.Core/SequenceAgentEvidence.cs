@@ -107,7 +107,7 @@ public static class SequenceAgentEvidence
                     break;
                 case ExecutionEventKinds.AgentFailed:
                     if (!agent.Started || agent.TerminalState is not null) return false;
-                    agents[key] = agent with { TerminalState = "failed" };
+                    agents[key] = agent with { TerminalState = AgentFailureState(executionEvent.Data) };
                     break;
                 case ExecutionEventKinds.AgentLimitExceeded:
                     if (!agent.Started) return false;
@@ -159,6 +159,21 @@ public static class SequenceAgentEvidence
                 modelCallId != Guid.Empty;
         }
         catch (JsonException) { return false; }
+    }
+
+    private static string AgentFailureState(string? data)
+    {
+        if (string.IsNullOrWhiteSpace(data)) return "failed";
+        try
+        {
+            using var document = JsonDocument.Parse(data, new JsonDocumentOptions { MaxDepth = 32 });
+            if (document.RootElement.TryGetProperty("outcome", out var outcome) &&
+                outcome.ValueKind == JsonValueKind.String &&
+                string.Equals(outcome.GetString(), "cancelled", StringComparison.OrdinalIgnoreCase))
+                return "cancelled";
+        }
+        catch (JsonException) { }
+        return "failed";
     }
 
     private sealed record SequenceLineage(Guid SequenceInvocationId, string SequenceNodeId,

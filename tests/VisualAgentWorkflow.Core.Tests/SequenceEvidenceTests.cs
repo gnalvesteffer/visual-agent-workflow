@@ -135,6 +135,44 @@ public sealed class SequenceEvidenceTests
     }
 
     [Fact]
+    public void Agent_playback_preserves_failed_and_cancelled_terminal_outcomes()
+    {
+        var sequenceId = Guid.NewGuid();
+        var runId = Guid.NewGuid();
+        var revisionId = Guid.NewGuid();
+        var failedActivation = Guid.NewGuid();
+        var cancelledActivation = Guid.NewGuid();
+        var failedInvocation = Guid.NewGuid();
+        var cancelledInvocation = Guid.NewGuid();
+        var events = new List<ExecutionEvent>
+        {
+            Lifecycle(runId, revisionId, 1, ExecutionEventKinds.SequenceStarted, sequenceId,
+                new(sequenceId, "sequence", null, null, null, null)),
+            Lifecycle(runId, revisionId, 2, ExecutionEventKinds.SequenceOutputDispatched, sequenceId,
+                new(sequenceId, "sequence", "failed", 0, failedActivation, "connection-failed")),
+            Descendant(runId, revisionId, 3, ExecutionEventKinds.AgentStarted, "failed-agent", failedInvocation,
+                Lineage(sequenceId, "failed", 0, failedActivation, "connection-failed")),
+            Descendant(runId, revisionId, 4, ExecutionEventKinds.AgentFailed, "failed-agent", failedInvocation,
+                Lineage(sequenceId, "failed", 0, failedActivation, "connection-failed", outcome: "provider_error")),
+            Lifecycle(runId, revisionId, 5, ExecutionEventKinds.SequenceOutputFailed, sequenceId,
+                new(sequenceId, "sequence", "failed", 0, failedActivation, "connection-failed")),
+            Lifecycle(runId, revisionId, 6, ExecutionEventKinds.SequenceOutputDispatched, sequenceId,
+                new(sequenceId, "sequence", "cancelled", 1, cancelledActivation, "connection-cancelled")),
+            Descendant(runId, revisionId, 7, ExecutionEventKinds.AgentStarted, "cancelled-agent", cancelledInvocation,
+                Lineage(sequenceId, "cancelled", 1, cancelledActivation, "connection-cancelled")),
+            Descendant(runId, revisionId, 8, ExecutionEventKinds.AgentFailed, "cancelled-agent", cancelledInvocation,
+                Lineage(sequenceId, "cancelled", 1, cancelledActivation, "connection-cancelled", outcome: "cancelled")),
+            Lifecycle(runId, revisionId, 9, ExecutionEventKinds.SequenceOutputCancelled, sequenceId,
+                new(sequenceId, "sequence", "cancelled", 1, cancelledActivation, "connection-cancelled")),
+            Lifecycle(runId, revisionId, 10, ExecutionEventKinds.SequenceFailed, sequenceId,
+                new(sequenceId, "sequence", null, null, null, null))
+        };
+
+        Assert.True(SequenceAgentEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal(["failed", "cancelled"], playback!.Agents.OrderBy(agent => agent.Ordinal).Select(agent => agent.State));
+    }
+
+    [Fact]
     public void Playback_reconstructs_running_prefix_and_cancelled_skips()
     {
         var sequenceId = Guid.NewGuid();
@@ -242,7 +280,7 @@ public sealed class SequenceEvidenceTests
         nodeId, invocationId, Data: data);
 
     private static string Lineage(Guid sequenceId, string outputId, int ordinal, Guid activationId,
-        string connectionId, Guid? modelCallId = null)
+        string connectionId, Guid? modelCallId = null, string? outcome = null)
     {
         var lineage = new
         {
@@ -253,8 +291,6 @@ public sealed class SequenceEvidenceTests
             outputActivationId = activationId,
             connectionId
         };
-        return modelCallId is null
-            ? JsonSerializer.Serialize(new { sequenceLineage = lineage })
-            : JsonSerializer.Serialize(new { sequenceLineage = lineage, modelCallId });
+        return JsonSerializer.Serialize(new { sequenceLineage = lineage, modelCallId, outcome });
     }
 }

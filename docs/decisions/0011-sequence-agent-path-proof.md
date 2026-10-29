@@ -91,10 +91,10 @@ include the terminal Agent provider, an exact host snapshot admits it, and a
 missing provider is rejected before a run record is created. Still required
 before marking this capability fully shipped: provider contract/grant-denial
 coverage for the public definition, tamper-resistant run-store handling,
-broader passive nested failure/cancellation playback, package/1.43-to-1.46
-compatibility proofs, and Studio authoring controls. Both file and SQLite
-stores now have a success-path nested Sequence/Agent/model playback proof
-with no live executor calls during reopen. Schema 1.46 package JSON now also
+broader public settlement, package/1.43-to-1.46 compatibility proofs, and
+Studio authoring controls. Both file and SQLite stores now have nested
+Sequence/Agent/model playback proofs for success, Agent failure, and host
+cancellation, with no live executor calls during reopen. Schema 1.46 package JSON now also
 round-trips the Agent configuration, execution topology, provider requirement,
 and definition hash; this does not establish migration or older-runtime
 compatibility.
@@ -119,8 +119,13 @@ Promotion gates, in order:
   once the schema-1.44 candidate is admitted for implementation.
 - [x] Define deterministic private final-result semantics: the lowest authored
   output ordinal wins even when a later Agent path completes first.
-- [ ] Prove passive playback of nested Sequence/Agent/model identity with zero
-  provider, tool, or executor calls, plus schema 1.38/1.43 compatibility.
+- [x] Prove passive playback of nested Sequence/Agent/model identity for the
+  bounded 1.46 success, Agent-failure, and host-cancellation outcomes with zero
+  provider, tool, or executor calls after file/SQLite reopen. The projection
+  preserves cancellation as a distinct Agent state and rejects tampered
+  Sequence lineage.
+- [ ] Prove nested-evidence compatibility across schema 1.38/1.43 loading and
+  older-runtime readers before public 1.46 promotion.
 - [ ] Add package/Studio authoring and invalid-topology coverage only after the
   remaining runtime/evidence gates above pass; then advertise schema 1.46 as a
   complete public capability.

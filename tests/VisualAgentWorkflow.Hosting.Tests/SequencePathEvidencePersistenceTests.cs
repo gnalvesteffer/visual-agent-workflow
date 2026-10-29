@@ -93,6 +93,47 @@ public sealed class SequencePathEvidencePersistenceTests : IDisposable
         Assert.Equal(1, agent.InvocationCount);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Schema_1_46_agent_failure_survives_reopen_and_passive_playback(bool sqlite)
+    {
+        var store = CreateStore(sqlite);
+        var revision = WorkflowRevision.Create(AgentDefinition(), "sequence-agent-failure-persistence");
+        var agent = new SequenceAgentExecutor(AgentOutcome.Failure);
+        var runId = await ExecuteThroughRuntime(store, revision, new SequenceBroker((_, _) => Task.FromResult("unused")), agent);
+
+        var reopened = CreateStore(sqlite).Get(runId)!;
+        Assert.Equal("failed", reopened.Status);
+        Assert.True(SequenceAgentEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        var agentPlayback = Assert.Single(playback!.Agents);
+        Assert.Equal("failed", agentPlayback.State);
+        Assert.Equal("running", Assert.Single(playback.ModelCalls).State);
+        Assert.Equal("failed", playback.Sequence.Status);
+        Assert.Equal(1, agent.InvocationCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Schema_1_46_agent_cancellation_survives_reopen_and_passive_playback(bool sqlite)
+    {
+        var store = CreateStore(sqlite);
+        var revision = WorkflowRevision.Create(AgentDefinition(), "sequence-agent-cancel-persistence");
+        var agent = new SequenceAgentExecutor(AgentOutcome.Cancelled);
+        var runId = await ExecuteCancelledThroughRuntime(store, revision,
+            new SequenceBroker((_, _) => Task.FromResult("unused")), agent);
+
+        var reopened = CreateStore(sqlite).Get(runId)!;
+        Assert.Equal("cancelled", reopened.Status);
+        Assert.True(SequenceAgentEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        var agentPlayback = Assert.Single(playback!.Agents);
+        Assert.Equal("cancelled", agentPlayback.State);
+        Assert.Equal("running", Assert.Single(playback.ModelCalls).State);
+        Assert.Equal("cancelled", playback.Sequence.Status);
+        Assert.Equal(1, agent.InvocationCount);
+    }
+
     private async Task<Guid> ExecuteThroughRuntime(IWorkflowRunStore store, WorkflowRevision revision, SequenceBroker broker,
         IAgentNodeExecutor? agents = null)
     {
@@ -117,14 +158,18 @@ public sealed class SequencePathEvidencePersistenceTests : IDisposable
         }
     }
 
-    private async Task<Guid> ExecuteCancelledThroughRuntime(IWorkflowRunStore store, WorkflowRevision revision, SequenceBroker broker)
+    private async Task<Guid> ExecuteCancelledThroughRuntime(IWorkflowRunStore store, WorkflowRevision revision, SequenceBroker broker,
+        IAgentNodeExecutor? agents = null)
     {
-        using var runtime = new LocalWorkflowRuntime(store, NullLogger<LocalWorkflowRuntime>.Instance, broker);
+        using var runtime = new LocalWorkflowRuntime(store, NullLogger<LocalWorkflowRuntime>.Instance, broker, agents);
         await runtime.StartAsync(CancellationToken.None);
         try
         {
             var queued = await runtime.StartRevisionAsync(revision, "research input");
-            await broker.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            if (agents is SequenceAgentExecutor agent)
+                await agent.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            else
+                await broker.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
             await runtime.CancelRunAsync(queued.Header.RunId);
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             RunSnapshot snapshot;
@@ -234,9 +279,10 @@ public sealed class SequencePathEvidencePersistenceTests : IDisposable
         }
     }
 
-    private sealed class SequenceAgentExecutor : IAgentNodeExecutor
+    private sealed class SequenceAgentExecutor(AgentOutcome outcome = AgentOutcome.Success) : IAgentNodeExecutor
     {
         public int InvocationCount { get; private set; }
+        public TaskCompletionSource<bool> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
             Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>([new("sequence-proof", "Proof", "proof", false)]);
@@ -245,16 +291,35 @@ public sealed class SequencePathEvidencePersistenceTests : IDisposable
             CancellationToken cancellationToken = default)
         {
             InvocationCount++;
+            Started.TrySetResult(true);
             await invocation.RecordEventAsync(ExecutionEventKinds.AgentStarted,
                 JsonSerializer.Serialize(new { provider = new { modelId = "sequence-proof" } }));
             var modelCallId = Guid.NewGuid();
             await invocation.RecordEventForAsync(modelCallId, ExecutionEventKinds.ModelRequested,
                 JsonSerializer.Serialize(new { modelCallId, input }));
+            if (outcome is AgentOutcome.Failure or AgentOutcome.Cancelled)
+            {
+                await invocation.RecordEventAsync(ExecutionEventKinds.AgentFailed,
+                    JsonSerializer.Serialize(new { outcome = outcome is AgentOutcome.Cancelled ? "cancelled" : "provider_error" }));
+                if (outcome == AgentOutcome.Cancelled)
+                {
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                    return "unreachable";
+                }
+                throw new InvalidOperationException("simulated agent failure");
+            }
             await invocation.RecordEventForAsync(modelCallId, ExecutionEventKinds.ModelResponded,
                 JsonSerializer.Serialize(new { modelCallId, output = input }));
             await invocation.RecordEventAsync(ExecutionEventKinds.AgentCompleted,
                 JsonSerializer.Serialize(new { output = input }));
             return input;
         }
+    }
+
+    private enum AgentOutcome
+    {
+        Success,
+        Failure,
+        Cancelled
     }
 }
