@@ -98,6 +98,22 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Proof_sequence_child_unknown_outcome_fails_closed_without_parent_success()
+    {
+        var events = new List<ExecutionEvent>();
+        var result = await new WorkflowRunner(new UnknownOutcomeBroker())
+            .ExecuteSequenceWorkflowCallProductionProofAsync(Guid.NewGuid(), "hello",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }, SequenceWorkflowCallProofOutcome.Unknown);
+
+        Assert.True(result.Failed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowOutcomeUnknown && evt.ScopeId == "call");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed &&
+            ReadEvidence(evt).OutputId == "call");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Terminated && evt.ScopeId is null);
+    }
+
+    [Fact]
     public async Task Production_runner_consumes_a_persisted_sequence_definition()
     {
         var events = new List<ExecutionEvent>();
@@ -1066,6 +1082,28 @@ public sealed class SequenceProductionRunnerTests
                 owner.Started.TrySetResult(true);
                 return invoke(arguments.GetRawText(), cancellationToken);
             }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class UnknownOutcomeBroker : INodeToolBroker
+    {
+        public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([new("sequence-proof-unknown", "Unknown", "proof", "unknown", new string('a', 64))]);
+
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new Scope();
+
+        private sealed class Scope : INodeToolScope
+        {
+            public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+            public Task<string> InvokeAsync(string bindingId, string input, CancellationToken cancellationToken = default) =>
+                Task.FromException<string>(new ToolInvocationException("The proof tool outcome is unknown.", ToolInvocationFailureDisposition.OutcomeUnknown));
+
+            public Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments, CancellationToken cancellationToken = default) =>
+                InvokeAsync(bindingId, arguments.GetRawText(), cancellationToken);
 
             public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         }

@@ -21,6 +21,19 @@ public sealed class SequenceWorkflowCallSettlementTests
     }
 
     [Fact]
+    public void Retains_unknown_child_disposition_after_output_settlement()
+    {
+        var settlement = new SequenceWorkflowCallSettlement(new(
+            "call", "call-node", "child", Guid.NewGuid(), "hash"));
+
+        Assert.True(settlement.TryStart());
+        Assert.True(settlement.TrySettleChild(SequenceWorkflowCallSettlementState.Unknown));
+        Assert.True(settlement.TrySettleOutput());
+        Assert.Equal(SequenceWorkflowCallSettlementState.Unknown, settlement.ChildOutcome);
+        Assert.False(settlement.TrySettleChild(SequenceWorkflowCallSettlementState.Completed));
+    }
+
+    [Fact]
     public void Requires_a_complete_pinned_child_identity()
     {
         Assert.Throws<ArgumentException>(() => new SequenceWorkflowCallSettlement(

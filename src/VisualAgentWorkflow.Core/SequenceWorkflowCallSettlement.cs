@@ -28,6 +28,7 @@ public sealed class SequenceWorkflowCallSettlement
 {
     private readonly object gate = new();
     private SequenceWorkflowCallSettlementState state = SequenceWorkflowCallSettlementState.Declared;
+    private SequenceWorkflowCallSettlementState? childOutcome;
 
     public SequenceWorkflowCallSettlement(SequenceWorkflowCallIdentity identity)
     {
@@ -43,6 +44,12 @@ public sealed class SequenceWorkflowCallSettlement
     public SequenceWorkflowCallSettlementState State
     {
         get { lock (gate) return state; }
+    }
+
+    /// <summary>Retains the accepted child disposition after the output itself is settled.</summary>
+    public SequenceWorkflowCallSettlementState? ChildOutcome
+    {
+        get { lock (gate) return childOutcome; }
     }
 
     public bool TryStart()
@@ -65,6 +72,7 @@ public sealed class SequenceWorkflowCallSettlement
         lock (gate)
         {
             if (state != SequenceWorkflowCallSettlementState.Running) return false;
+            childOutcome = outcome;
             state = outcome;
             return true;
         }

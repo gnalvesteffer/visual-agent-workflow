@@ -8,7 +8,8 @@ internal enum SequenceWorkflowCallProofOutcome
 {
     Success,
     Termination,
-    Failure
+    Failure,
+    Unknown
 }
 
 public sealed partial class WorkflowRunner
@@ -102,6 +103,25 @@ public sealed partial class WorkflowRunner
     {
         var inputNodeId = $"{workflowId}-input";
         var outputNodeId = $"{workflowId}-output";
+        if (outcome is SequenceWorkflowCallProofOutcome.Unknown)
+        {
+            var toolNodeId = $"{workflowId}-unknown-tool";
+            var unknownDefinition = new WorkflowDefinition("1.1", workflowId, inputNodeId,
+                new Dictionary<string, NodeDefinition>
+                {
+                    [inputNodeId] = new(NodeTypes.Input, "1.0.0"),
+                    [toolNodeId] = new(NodeTypes.McpTool, "1.0.0",
+                        new ToolBindingRequest("sequence-proof-unknown", new string('a', 64)))
+                    { McpArgumentsJson = "{}" },
+                    [outputNodeId] = new(NodeTypes.Output, "1.0.0")
+                }.ToImmutableSortedDictionary(),
+                new Dictionary<string, ConnectionDefinition>
+                {
+                    ["input-tool"] = new(new(inputNodeId, "out"), new(toolNodeId, "in"), "data"),
+                    ["tool-output"] = new(new(toolNodeId, "out"), new(outputNodeId, "in"), "data")
+                }.ToImmutableSortedDictionary());
+            return WorkflowRevision.Create(unknownDefinition, workflowId);
+        }
         var definition = new WorkflowDefinition("1.0", workflowId, inputNodeId,
             new Dictionary<string, NodeDefinition>
             {
@@ -216,7 +236,7 @@ public sealed partial class WorkflowRunner
                     if (coordinator.IsActivationTerminal(lineage.OutputActivationId)) return;
                     coordinator.Complete(lineage.OutputActivationId, terminalState);
                     await FlushSequenceEvents();
-                }, null, callSettlements.GetValueOrDefault(outputNodeId)), StringComparer.Ordinal);
+                }, null, callSettlements.GetValueOrDefault(outputNodeId), true), StringComparer.Ordinal);
         var source = new SequenceProductionSource(plan.SequenceNodeId, plan, coordinator, FlushSequenceEvents, emit, gate);
         var collector = new SequenceProductionCollector("sequence-collector", plan, coordinator,
             FlushSequenceEvents, emit);

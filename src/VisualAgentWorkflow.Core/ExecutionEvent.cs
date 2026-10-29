@@ -54,8 +54,10 @@ public static class ExecutionEventKinds
     public const string SubworkflowTerminated = "subworkflow.terminated";
     public const string SubworkflowFailed = "subworkflow.failed";
     public const string SubworkflowCancelled = "subworkflow.cancelled";
+    public const string SubworkflowOutcomeUnknown = "subworkflow.outcome-unknown";
     public const string SubworkflowEvidence = "subworkflow.evidence";
     public const string Failed = "run.failed";
+    public const string OutcomeUnknown = "run.outcome-unknown";
     public const string Cancelled = "run.cancelled";
     public const string Interrupted = "run.interrupted";
     public const string PauseRequested = "run.pause-requested";

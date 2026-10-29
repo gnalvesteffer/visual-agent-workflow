@@ -8,7 +8,8 @@ using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.AgentFramework;
 
-public sealed record WorkflowExecutionResult(string? Output, bool Terminated, bool Failed = false);
+public sealed record WorkflowExecutionResult(string? Output, bool Terminated, bool Failed = false,
+    bool OutcomeUnknown = false);
 
 /// <summary>Host-resolved defaults for bounded collaborative workflow regions.</summary>
 public sealed record ParallelCollaborationRuntimeOptions(TimeSpan? DefaultTimeout = null);
@@ -64,7 +65,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         IReadOnlyDictionary<string, string>? parameters,
         Func<ExecutionEvent, ValueTask> record, IWorkflowExecutionGate? gate, CancellationToken cancellationToken,
         WorkflowRevision? rootRevision = null, ImmutableArray<WorkflowApprovalScope> workflowPath = default,
-        SequenceProductionPlan? sequencePlan = null, bool sequenceWorkflowCallProof = false)
+        SequenceProductionPlan? sequencePlan = null, bool sequenceWorkflowCallProof = false,
+        bool allowOutcomeUnknown = false)
     {
         var callerCancellationToken = cancellationToken;
         ArgumentNullException.ThrowIfNull(revision);
@@ -167,8 +169,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             await Emit(ExecutionEventKinds.Cancelled);
             throw;
         }
-        catch
+        catch (Exception exception)
         {
+            if (allowOutcomeUnknown && IsOutcomeUnknownException(exception))
+            {
+                await Emit(ExecutionEventKinds.OutcomeUnknown, data: "Workflow execution ended with an unresolved external outcome.");
+                return new(null, true, Failed: true, OutcomeUnknown: true);
+            }
             if (collaborationRuntime is not null) await collaborationRuntime.AbortAsync("A collaboration member or workflow node failed.");
             // Do not copy arbitrary exception messages or provider internals into captured payloads.
             await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed.");
@@ -181,6 +188,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         try { await run.CancelRunAsync(); }
         catch (ObjectDisposedException) { }
         catch (InvalidOperationException) { }
+    }
+
+    private static bool IsOutcomeUnknownException(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+            if (current is ToolInvocationException { Disposition: ToolInvocationFailureDisposition.OutcomeUnknown })
+                return true;
+        return false;
     }
 
     private static TimeSpan? ResolveCollaborationTimeout(ParallelCollaborationRegion? region,
@@ -911,7 +926,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         ParallelCollaborationRuntime? collaborationRuntime = null,
         Func<SequenceMessageLineage, SequenceTerminalState, ValueTask>? recordSequenceTerminal = null,
         CheckpointBoundaryTracker? boundaryTracker = null,
-        SequenceWorkflowCallSettlement? callSettlement = null)
+        SequenceWorkflowCallSettlement? callSettlement = null,
+        bool allowOutcomeUnknown = false)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -1103,9 +1119,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     try
                     {
                         childOutcome = await ExecuteWorkflowCall(message, cancellationToken);
-                        callSettlement?.TrySettleChild(childOutcome.Failed
-                            ? SequenceWorkflowCallSettlementState.Failed
-                            : SequenceWorkflowCallSettlementState.Completed);
+                        callSettlement?.TrySettleChild(childOutcome.OutcomeUnknown
+                            ? SequenceWorkflowCallSettlementState.Unknown
+                            : childOutcome.Failed
+                                ? SequenceWorkflowCallSettlementState.Failed
+                                : SequenceWorkflowCallSettlementState.Completed);
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                     {
@@ -1403,13 +1421,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     ExecutionEventKinds.Terminated => ExecutionEventKinds.SubworkflowTerminated,
                     ExecutionEventKinds.Failed => ExecutionEventKinds.SubworkflowFailed,
                     ExecutionEventKinds.Cancelled => ExecutionEventKinds.SubworkflowCancelled,
+                    ExecutionEventKinds.OutcomeUnknown => ExecutionEventKinds.SubworkflowOutcomeUnknown,
                     _ => childEvent.Kind
                 };
                 var nestedScope = childEvent.ScopeId is null ? childScope : $"{childScope}/{childEvent.ScopeId}";
                 await Emit(kind, childEvent.NodeId, childEvent.InvocationId, childEvent.ConnectionId, childEvent.Data, nestedScope);
                 if (kind is ExecutionEventKinds.SubworkflowStarted or ExecutionEventKinds.SubworkflowCompleted or
                     ExecutionEventKinds.SubworkflowTerminated or ExecutionEventKinds.SubworkflowFailed or
-                    ExecutionEventKinds.SubworkflowCancelled)
+                    ExecutionEventKinds.SubworkflowCancelled or ExecutionEventKinds.SubworkflowOutcomeUnknown)
                     await Emit(ExecutionEventKinds.SubworkflowEvidence, Id, childEvent.InvocationId,
                         childEvent.ConnectionId,
                         new WorkflowCallLifecycleEvidence(kind, Id, child.Definition.WorkflowId, child.RevisionId,
@@ -1422,8 +1441,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 ? mappings.ToDictionary(mapping => mapping.ChildParameterId, mapping => parameters![mapping.ParentParameterId], StringComparer.Ordinal)
                 : null;
             return gate is null
-                ? await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, null, cancellationToken, rootRevision, childWorkflowPath)
-                : await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, gate, cancellationToken, rootRevision, childWorkflowPath);
+                ? await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, null, cancellationToken,
+                    rootRevision, childWorkflowPath, allowOutcomeUnknown: allowOutcomeUnknown)
+                : await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, gate, cancellationToken,
+                    rootRevision, childWorkflowPath, allowOutcomeUnknown: allowOutcomeUnknown);
         }
 
         private (bool Started, bool Complete, string? Result, int ReceivedCount) CollectParallelJoinInput(string inputPort, string input)
