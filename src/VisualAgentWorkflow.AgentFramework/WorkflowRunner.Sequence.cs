@@ -4,6 +4,13 @@ using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.AgentFramework;
 
+internal enum SequenceWorkflowCallProofOutcome
+{
+    Success,
+    Termination,
+    Failure
+}
+
 public sealed partial class WorkflowRunner
 {
     /// <summary>
@@ -58,6 +65,88 @@ public sealed partial class WorkflowRunner
         ], null, SequenceTerminalState.Completed, DirectOutputCollection: true, BypassRevisionExecutionEdges: true);
         return ExecuteCoreAsync(runId, revision, input, null, record, null, cancellationToken,
             rootRevision: revision, sequencePlan: plan);
+    }
+
+    /// <summary>
+    /// Runs the private Sequence-to-WorkflowCall seam through the production nested-workflow
+    /// executor. This is a proof harness only: its deliberately non-admitted parent definition
+    /// cannot be reached from persisted schemas, migration, or Studio authoring.
+    /// </summary>
+    internal Task<WorkflowExecutionResult> ExecuteSequenceWorkflowCallProductionProofAsync(Guid runId, string input,
+        Func<ExecutionEvent, ValueTask> record, SequenceWorkflowCallProofOutcome outcome = SequenceWorkflowCallProofOutcome.Success,
+        CancellationToken cancellationToken = default)
+    {
+        var child = SequenceWorkflowCallProofChild(outcome);
+        var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
+        };
+        var parent = SequenceWorkflowCallProofParent(call);
+        var plan = new SequenceProductionPlan("sequence", [
+            new SequenceProductionOutput("call", 0, "call", "sequence", "then.call", "sequence-call")
+        ], null, SequenceTerminalState.Completed, AllowSingleOutput: true);
+        return ExecuteCoreAsync(runId, parent, input, null, record, null, cancellationToken,
+            rootRevision: parent, sequencePlan: plan, sequenceWorkflowCallProof: true);
+    }
+
+    private static WorkflowRevision SequenceWorkflowCallProofChild(SequenceWorkflowCallProofOutcome outcome)
+    {
+        var definition = new WorkflowDefinition("1.0", "sequence-call-proof-child", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["edge"] = new(new("input", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary());
+        if (outcome is SequenceWorkflowCallProofOutcome.Success)
+            definition = GraphEditing.InsertNodeAfter(definition, "input", "out", new(NodeTypes.Uppercase, "1.0.0"));
+        else
+        {
+            definition = definition with { SchemaVersion = "1.20" };
+            var termination = new NodeDefinition(NodeTypes.Terminate, "1.0.0")
+            {
+                Termination = new(outcome is SequenceWorkflowCallProofOutcome.Termination
+                    ? WorkflowTerminationOutcomes.Success : WorkflowTerminationOutcomes.Failure)
+            };
+            definition = GraphEditing.InsertTerminationAfter(definition, "input", "out");
+            var terminateId = definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.Terminate).Key;
+            definition = definition with
+            {
+                Nodes = definition.Nodes.SetItem(terminateId, definition.Nodes[terminateId] with
+                {
+                    Termination = termination.Termination
+                })
+            };
+        }
+        return WorkflowRevision.Create(definition, "sequence-call-proof-child");
+    }
+
+    private static WorkflowRevision SequenceWorkflowCallProofParent(NodeDefinition call)
+    {
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.SequenceTransformChainGraph,
+            "sequence-call-proof-parent", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["sequence"] = new(NodeTypes.Sequence, "1.0.0")
+                {
+                    Sequence = new([new("call", "Child workflow")])
+                },
+                ["call"] = call,
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(), ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-sequence"] = new(new("input", "then"), new("sequence", "execute"), "execution"),
+                ["sequence-call"] = new(new("sequence", "then.call"), new("call", "execute"), "execution"),
+                ["call-output"] = new(new("call", "out"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+        return WorkflowRevision.CreateProofOnly(definition, "sequence-call-proof-parent");
     }
 
     private Workflow BuildSequenceProductionWorkflow(Guid runId, WorkflowRevision revision,
@@ -140,6 +229,18 @@ public sealed partial class WorkflowRunner
         {
             builder.AddEdge<GraphMessage>(branches[outputNodeId], (ExecutorBinding)collector,
                 message => message?.SourceNode == outputNodeId && message.SourcePort == "out");
+        foreach (var callNodeId in revision.Definition.Nodes
+                     .Where(entry => entry.Value.Type == NodeTypes.WorkflowCall)
+                     .Select(entry => entry.Key))
+        {
+            foreach (var terminalOutputNodeId in revision.Definition.Nodes
+                         .Where(entry => entry.Value.Type == NodeTypes.Output)
+                         .Select(entry => entry.Key))
+                builder.AddEdge<GraphMessage>(branches[callNodeId], branches[terminalOutputNodeId],
+                    message => message?.SourceNode == callNodeId && message.SourcePort == "terminated" && message.TerminationSignal);
+            builder.AddEdge<GraphMessage>(branches[callNodeId], (ExecutorBinding)collector,
+                message => message?.SourceNode == callNodeId && message.SourcePort == "terminated" && message.TerminationSignal);
+        }
         }
         if (plan.DirectOutputCollection)
             foreach (var output in plan.Outputs)

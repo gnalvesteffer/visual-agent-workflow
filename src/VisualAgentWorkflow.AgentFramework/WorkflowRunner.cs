@@ -64,7 +64,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         IReadOnlyDictionary<string, string>? parameters,
         Func<ExecutionEvent, ValueTask> record, IWorkflowExecutionGate? gate, CancellationToken cancellationToken,
         WorkflowRevision? rootRevision = null, ImmutableArray<WorkflowApprovalScope> workflowPath = default,
-        SequenceProductionPlan? sequencePlan = null)
+        SequenceProductionPlan? sequencePlan = null, bool sequenceWorkflowCallProof = false)
     {
         var callerCancellationToken = cancellationToken;
         ArgumentNullException.ThrowIfNull(revision);
@@ -72,7 +72,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         ArgumentNullException.ThrowIfNull(record);
         if (runId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(runId));
         if (input.Length > 16_384) throw new ArgumentException("Input exceeds 16,384 characters.", nameof(input));
-        WorkflowValidator.ThrowIfInvalid(revision.Definition);
+        if (!sequenceWorkflowCallProof)
+            WorkflowValidator.ThrowIfInvalid(revision.Definition);
         var collaborationRegion = revision.Definition.ParallelCollaborationRegions?.Values.SingleOrDefault();
         if (revision.Definition.ParallelCollaborationRegions is { Count: > 1 })
             throw new InvalidOperationException("A workflow can execute only one collaborative parallel region in this runtime version.");
@@ -1097,6 +1098,12 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 var childOutcome = node.Type == NodeTypes.WorkflowCall
                     ? await ExecuteWorkflowCall(message, cancellationToken)
                     : null;
+                if (recordSequenceTerminal is not null && received.SequenceLineage is { } childLineage &&
+                    childOutcome is { Failed: true })
+                    await recordSequenceTerminal(childLineage, SequenceTerminalState.Failed);
+                else if (recordSequenceTerminal is not null && received.SequenceLineage is { } terminatedLineage &&
+                         childOutcome is { Terminated: true })
+                    await recordSequenceTerminal(terminatedLineage, SequenceTerminalState.Completed);
                 if (node.Type == NodeTypes.VariableSet)
                 {
                     if (variableStore is null || variableSetEvaluation is null || node.VariableId is not { } variableId)

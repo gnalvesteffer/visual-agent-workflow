@@ -10,6 +10,57 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 public sealed class SequenceProductionRunnerTests
 {
     [Fact]
+    public async Task Proof_sequence_output_can_settle_through_a_pinned_child_workflow_call()
+    {
+        var events = new List<ExecutionEvent>();
+        var runId = Guid.NewGuid();
+
+        var result = await new WorkflowRunner().ExecuteSequenceWorkflowCallProductionProofAsync(runId, "hello",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("HELLO", result.Output);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowStarted && evt.ScopeId == "call");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted && evt.ScopeId == "call");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted &&
+            ReadEvidence(evt).OutputId == "call");
+        Assert.Equal(ExecutionEventKinds.Completed, events[^1].Kind);
+    }
+
+    [Fact]
+    public async Task Proof_sequence_child_failure_settles_the_output_and_fails_the_parent()
+    {
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner()
+            .ExecuteSequenceWorkflowCallProductionProofAsync(Guid.NewGuid(), "hello",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }, SequenceWorkflowCallProofOutcome.Failure);
+
+        Assert.True(result.Failed);
+        Assert.Null(result.Output);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowFailed && evt.ScopeId == "call");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed &&
+            ReadEvidence(evt).OutputId == "call");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+    }
+
+    [Fact]
+    public async Task Proof_sequence_child_successful_termination_does_not_prematurely_complete_the_parent()
+    {
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteSequenceWorkflowCallProductionProofAsync(Guid.NewGuid(), "hello",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }, SequenceWorkflowCallProofOutcome.Termination);
+
+        Assert.True(result.Terminated);
+        Assert.Null(result.Output);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowTerminated && evt.ScopeId == "call");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted &&
+            ReadEvidence(evt).OutputId == "call");
+        Assert.Equal(ExecutionEventKinds.Terminated, events[^1].Kind);
+    }
+
+    [Fact]
     public async Task Production_runner_consumes_a_persisted_sequence_definition()
     {
         var events = new List<ExecutionEvent>();

@@ -130,6 +130,8 @@ Schema 1.38 adds the first persisted Blueprint-style `core.sequence` contract: o
 
 Schema 1.49 extends the persisted Sequence path contract with zero or more direct MCP nodes followed by at most one `core.sequence.uppercase` and one `core.sequence.reverse` step in either order. Both remain typed execution/data nodes and the final transform must connect directly to Output; this is a bounded chain, not an expression system. Direct 1.47/1.48 promotion preserves stable node, port, edge, and layout identities while older schemas retain their prior terminal-only behavior. See [the transform-chain decision](decisions/0046-sequence-transform-chain.md).
 
+Sequence-to-WorkflowCall remains a proof-only runtime seam rather than schema 1.50: an internal harness exercises one exact pinned string child and verifies scoped child lifecycle plus failure/termination settlement, while public validation, Studio, packages, migration, and playback admission remain gated by [Decision 0047](decisions/0047-sequence-workflow-call-proof.md).
+
 Schema 1.40 adds a finite IEEE-754 `number` constant for direct-MCP graphs.
 Top-level MCP JSON Schema number properties become exact typed input pins and
 are serialized as JSON numbers. Non-finite values are rejected; integer/number

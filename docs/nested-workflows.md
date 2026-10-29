@@ -48,6 +48,8 @@ To inspect or update an existing call, open **Reusable workflows** and select it
 
 The Studio does not yet provide an embedded child-graph editing experience. The child graph can be edited independently and published as a new immutable version. Nested approval composition is supported by exact path-bound evidence, subject to the single-outstanding-approval and process-lifetime limits above.
 
+Sequence-to-WorkflowCall composition is currently proof-only. The production runner has an internal regression harness for one pinned string child on a Sequence output, including scoped lifecycle and terminal settlement, but public schema 1.49, package import/export, migrations, and Studio authoring continue to reject that topology until its sibling-barrier, replay, tamper, capability, and compatibility contracts are complete. See [Decision 0047](decisions/0047-sequence-workflow-call-proof.md).
+
 ## Verification
 
 Core tests cover exact revision pins, recursive package requirements, round trips, invalid hashes, schema gates, and cycle rejection. Agent Framework tests execute a child without a catalog, verify one parent-owned audit sequence with child scope, and confirm successful child termination propagates to the parent. Existing hosts and consumer observation continue using the same run-store contract.

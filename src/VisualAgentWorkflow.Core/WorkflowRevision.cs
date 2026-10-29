@@ -23,15 +23,21 @@ public sealed record WorkflowRevision
         : this(revisionId, definition, author, parentRevisionId, createdAt, null) { }
 
     private WorkflowRevision(Guid revisionId, WorkflowDefinition definition, string author, Guid? parentRevisionId,
-        DateTimeOffset createdAt, string? storedContentHash)
+        DateTimeOffset createdAt, string? storedContentHash, bool validate = true)
     {
         if (string.IsNullOrWhiteSpace(author)) throw new ArgumentException("An author is required.", nameof(author));
-        WorkflowValidator.ThrowIfInvalid(definition);
+        if (validate) WorkflowValidator.ThrowIfInvalid(definition);
         if (revisionId == Guid.Empty) throw new ArgumentException("A revision ID is required.", nameof(revisionId));
         RevisionId = revisionId;
         ParentRevisionId = parentRevisionId;
         Author = author;
         CreatedAt = createdAt;
+        if (!validate)
+        {
+            Definition = definition;
+            ContentHash = storedContentHash ?? string.Empty;
+            return;
+        }
         // Round-trip also normalizes dictionary comparison/order independently of caller construction.
         Definition = WorkflowJson.Deserialize(WorkflowJson.Serialize(definition));
         var computedHash = WorkflowJson.ComputeHash(Definition);
@@ -42,6 +48,10 @@ public sealed record WorkflowRevision
 
     public static WorkflowRevision Create(WorkflowDefinition definition, string author, Guid? parentRevisionId = null) =>
         new(definition, author, parentRevisionId);
+
+    /// <summary>Creates an internal, non-publishable revision for runtime proof harnesses.</summary>
+    internal static WorkflowRevision CreateProofOnly(WorkflowDefinition definition, string author) =>
+        new(Guid.NewGuid(), definition, author, null, DateTimeOffset.UtcNow, null, validate: false);
 
     /// <summary>Reconstruct stored evidence without generating another revision identity.</summary>
     public static WorkflowRevision Rehydrate(Guid revisionId, WorkflowDefinition definition, string author,
