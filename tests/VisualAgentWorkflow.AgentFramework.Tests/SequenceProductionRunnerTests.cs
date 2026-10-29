@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
@@ -150,7 +151,7 @@ public sealed class SequenceProductionRunnerTests
     [Fact]
     public async Task Schema_1_43_records_cancelled_tool_path_and_sequence_cancellation_evidence()
     {
-        var events = new List<ExecutionEvent>();
+        var events = new ConcurrentQueue<ExecutionEvent>();
         var broker = new SequencePathBroker(async (_, cancellationToken) =>
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
@@ -159,13 +160,14 @@ public sealed class SequenceProductionRunnerTests
         using var cancellation = new CancellationTokenSource();
         var execution = new WorkflowRunner(broker).ExecuteWithOutcomeAsync(
             Guid.NewGuid(), WorkflowRevision.Create(SequencePathDefinition(), "sequence-path-cancellation"), "ignored", null,
-            evt => { events.Add(evt); return ValueTask.CompletedTask; }, cancellation.Token);
+            evt => { events.Enqueue(evt); return ValueTask.CompletedTask; }, cancellation.Token);
 
         await broker.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
         cancellation.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => execution);
 
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == "inventory-tool");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+            evt.NodeId is "inventory-tool" or "architecture-tool");
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled &&
             ReadEvidence(evt).OutputId == "inventory");
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceCancelled);

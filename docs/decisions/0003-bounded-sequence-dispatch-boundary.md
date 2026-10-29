@@ -107,6 +107,13 @@ preserves lineage through descendant transfers, and proves pause/cancellation
 between dispatches without redispatch. The adapter is a proof seam only: it is
 not reachable from persisted workflow definitions, schema discovery, or Studio.
 
+The production runner now also forwards caller cancellation to the framework
+streaming run explicitly, allowing in-flight tool branches to settle through
+their cancellation handlers before the run-level `cancelled` event. Concurrent
+Sequence branches may settle a different already-started output than the one
+that first signalled the test boundary; playback remains keyed by output and
+connection identity rather than an assumed branch start order.
+
 This is useful evidence, not a failure of the framework. It rules out treating ordinary `SendMessageAsync` fan-out as a Blueprint Sequence. A public Sequence must either define this as an explicitly concurrent dispatch primitive with full active-work accounting, or add a separate continuation mechanism that admits the next output only after the previous path's documented completion boundary.
 
 ## Adjudicated next slice

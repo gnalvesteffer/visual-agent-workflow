@@ -121,9 +121,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 : InProcessExecution.Default;
             await using var run = await execution.RunStreamingAsync(workflow,
                 new GraphMessage(input, null, null, DataType: inputType), cancellationToken: cancellationToken);
-            using var cancellationRegistration = collaborationRuntime is null
-                ? default
-                : cancellationToken.Register(static state => _ = CancelStreamingRunAsync((StreamingRun)state!), run);
+            using var cancellationRegistration = cancellationToken.Register(
+                static state => _ = CancelStreamingRunAsync((StreamingRun)state!), run);
             GraphMessage? output = null;
             await foreach (var evt in run.WatchStreamAsync(cancellationToken))
             {
