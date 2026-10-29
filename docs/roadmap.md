@@ -220,11 +220,13 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   opt-in host regression now persists two successive frames and reconstructs
   the resulting variable evidence prefix passively; process-loss, race, and
   final production-admission qualification remain open.
+  A two-process replacement-host race now qualifies the supported local
+  ownership contract: exactly one process resumes and no duplicate variable
+  writes occur; distributed fencing remains out of scope.
   Recovery assessment is now total at the persisted-state boundary: malformed
   snapshots and checkpoint envelopes fail closed as ineligible instead of
   escaping through the run inspector or resume path. Publication/acknowledgement
-  races, active-resume crash windows, competing recovery, and disposal races
-  remain open.
+  races, active-resume crash windows, and disposal races remain open.
 - [x] Add passive playback and prefix reconstruction for variable reads/writes
   without re-execution; the run inspector renders the reconstructed value,
   version, and operation history.

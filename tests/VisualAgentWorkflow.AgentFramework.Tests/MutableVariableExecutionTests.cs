@@ -283,6 +283,38 @@ public sealed class MutableVariableExecutionTests
     }
 
     [Fact]
+    public async Task Competing_opt_in_hosts_allow_only_one_process_to_resume_a_checkpoint()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "vaw-loop-competing-recovery-" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        var database = Path.Combine(directory, "runs.sqlite3");
+        var startResult = Path.Combine(directory, "start.json");
+        var firstResult = Path.Combine(directory, "first.json");
+        var secondResult = Path.Combine(directory, "second.json");
+        try
+        {
+            var start = await RunCheckpointProbeAndKillAsync(database, startResult, "host-start");
+            Assert.NotEqual(0, start.ExitCode);
+            var started = await ReadProbeResultAsync(startResult);
+
+            var resumes = await Task.WhenAll(
+                RunCheckpointProbeAsync(database, firstResult, "host-resume", started.RunId, started.CheckpointId),
+                RunCheckpointProbeAsync(database, secondResult, "host-resume", started.RunId, started.CheckpointId));
+
+            Assert.Single(resumes, result => result.ExitCode == 0);
+            Assert.Single(resumes, result => result.ExitCode != 0);
+            var completed = new SqliteWorkflowRunStore(database).Get(started.RunId)!;
+            Assert.Equal("completed", completed.Status);
+            Assert.Equal(new long[] { 2, 3, 4 }, completed.Events.Where(evt => evt.Kind == ExecutionEventKinds.VariableWritten)
+                .Select(evt => JsonDocument.Parse(evt.Data!).RootElement.GetProperty("version").GetInt64()).ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public async Task Loop_checkpoint_capture_requires_a_boundary_sink()
     {
         var revision = WorkflowRevision.Create(LoopDefinition(), "loop-checkpoint-boundary-sink");
