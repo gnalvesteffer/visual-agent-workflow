@@ -155,8 +155,8 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
 - [x] Characterize native checkpoint boundary lifecycle and runtime cursor
   pairing with a test-only probe. Actual loop transitions are paired with
   Agent Framework pre-save and native checkpoint callbacks, and active or
-  unstable boundaries fail closed. This does not change schema 1.45 production
-  admission.
+  unstable boundaries fail closed; each captured observation has one native
+  checkpoint identity. This does not change schema 1.45 production admission.
 - [ ] Add loop-aware checkpoint state and recovery. A proof-only composite frame
   now binds native JSON, loop cursor, variable state, and the exact evidence
   prefix with component/composite hashes. A test-only seam now persists that

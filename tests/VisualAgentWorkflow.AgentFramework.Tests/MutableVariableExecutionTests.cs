@@ -135,6 +135,8 @@ public sealed class MutableVariableExecutionTests
         Assert.NotNull(saved.VariableState);
         Assert.Contains("loop", saved.Payload, StringComparison.OrdinalIgnoreCase);
         Assert.NotEmpty(first.Boundaries);
+        Assert.Equal(first.Boundaries.Count, first.Captures.Count);
+        Assert.Equal(first.Captures.Count, first.Captures.Select(capture => capture.Checkpoint.CheckpointId).Distinct().Count());
         Assert.All(first.Boundaries, boundary =>
         {
             Assert.True(boundary.Generation > 0);
@@ -541,9 +543,13 @@ public sealed class MutableVariableExecutionTests
         public NativeWorkflowCheckpoint? RestoredCheckpoint { get; } = restored;
         public NativeWorkflowCheckpoint? Last { get; private set; }
         public List<CheckpointBoundaryObservation> Boundaries { get; } = [];
+        public List<(NativeWorkflowCheckpoint Checkpoint, CheckpointBoundaryObservation Observation)> Captures { get; } = [];
 
-        public void ObserveBoundary(NativeWorkflowCheckpoint checkpoint, CheckpointBoundaryObservation observation) =>
+        public void ObserveBoundary(NativeWorkflowCheckpoint checkpoint, CheckpointBoundaryObservation observation)
+        {
             Boundaries.Add(observation);
+            Captures.Add((checkpoint, observation));
+        }
 
         public ValueTask<bool> CaptureAsync(NativeWorkflowCheckpoint checkpoint)
         {

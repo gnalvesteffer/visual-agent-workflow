@@ -48,7 +48,8 @@ the callbacks and passes the paired observation to a test sink. The probe
 rejects an active handler or a transition that changes after pre-save, and
 accepts multiple stable executor callbacks for one boundary. It does not parse
 private native JSON, expose a new sink contract, create production frames, or
-change schema 1.45 admission.
+change schema 1.45 admission. The characterization also asserts a one-to-one
+native checkpoint identity for every captured observation.
 
 This is lifecycle characterization, not promotion: the remaining gate is to
 prove the callback-to-native-state pairing across all boundary and failure

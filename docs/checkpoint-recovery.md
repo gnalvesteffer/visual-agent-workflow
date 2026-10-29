@@ -34,8 +34,9 @@ The adapter also contains a test-only lifecycle probe that pairs actual loop
 executor transitions with `Executor.OnCheckpointingAsync` callbacks and the
 native checkpoint-store callback. It rejects capture when a handler is active
 or the routed transition changes after pre-save. This probe is diagnostic
-infrastructure only; it does not make loop checkpoints recoverable or parse the
-framework's private checkpoint JSON.
+infrastructure only, and its tests assert one-to-one native checkpoint identity
+for captured observations. It does not make loop checkpoints recoverable or
+parse the framework's private checkpoint JSON.
 
 ## Use the host API
 
