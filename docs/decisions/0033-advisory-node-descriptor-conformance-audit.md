@@ -37,6 +37,3 @@ their own compatibility and runtime evidence contracts.
   proven under a new additive schema (currently expected to be 1.46).
 - Extend the audit only when a new authoritative consumer or node-family
   projection is added; do not turn it into a runtime dependency.
-- Add persisted Sequence 1.43 failure, cancellation, uncertainty, host-denial,
-  package-round-trip, and tamper-rejection fixtures before revisiting that
-  promotion.
