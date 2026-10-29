@@ -6,7 +6,11 @@ Stable folder paths are now also recognized for skills, agent profiles, and
 graph functions. On authoritative project reads, valid external edits to those
 files refresh only the manifest hash; embedded workflow snapshots and existing
 content-addressed revisions remain unchanged. Studio save forms still create
-new revisions, and explicit dependency rebinding is not yet implemented.
+new revisions, and explicit dependency rebinding is not yet implemented. When a
+workflow embeds one of these assets, the folder editor's Problems pane compares
+the embedded semantic hash with the current indexed source and reports missing,
+stale, duplicate, or invalid dependencies. Run is blocked until the dependency
+is reconciled; the editor never silently replaces the embedded snapshot.
 
 Studio offers a local project registry and project selection for catalog-backed and folder-backed projects. Catalog-backed workflows live in a project-scoped SQLite catalog; skills, agent profiles, and graph functions use JSON catalogs under the Studio data directory. Folder-backed projects are registered by canonical root path and reopen in the source editor. Studio supports up to eight folder roots open as tabs, each with a separate mounted editor session and project tree. Folder projects do not use catalog publication; Studio can run a validated saved workflow or test a workflow directly from a validated restore point.
 

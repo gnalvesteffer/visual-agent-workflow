@@ -382,7 +382,7 @@
                     <section class="vaw-bottom-tray" aria-label="Workflow runs, output and problems">
                         <nav aria-label="Workflow detail tabs">
                             <button type="button" role="tab" aria-selected="@(bottomTab == "runs" ? "true" : "false")" @onclick='() => bottomTab = "runs"'>Runs</button>
-                            <button type="button" role="tab" aria-selected="@(bottomTab == "issues" ? "true" : "false")" @onclick='() => bottomTab = "issues"'>Problems <span class="vaw-bottom-count">@(WorkflowValidator.Validate(definition).Length + (mcpChoicesError is null ? 0 : 1) + (providerChoicesError is null ? 0 : 1))</span></button>
+                            <button type="button" role="tab" aria-selected="@(bottomTab == "issues" ? "true" : "false")" @onclick='() => bottomTab = "issues"'>Problems <span class="vaw-bottom-count">@(WorkflowValidator.Validate(definition).Length + dependencyIssues.Length + (mcpChoicesError is null ? 0 : 1) + (providerChoicesError is null ? 0 : 1))</span></button>
                             <button type="button" role="tab" aria-selected="@(bottomTab == "output" ? "true" : "false")" @onclick='() => bottomTab = "output"'>Output</button>
                         </nav>
                         <section class="vaw-bottom-panel" role="tabpanel" aria-label="Workflow run history" hidden="@(bottomTab != "runs")">
@@ -398,6 +398,10 @@
                             { <p class="vaw-run-validation" role="alert"><strong>Run blocked.</strong> Resolve the workflow issues below before starting a run. Saving this source file is still allowed.</p> }
                             @if (mcpChoicesError is not null) { <p class="vaw-error">@mcpChoicesError</p> }
                             @if (providerChoicesError is not null) { <p class="vaw-error">@providerChoicesError</p> }
+                            @if (dependencyIssues is { Length: > 0 })
+                            {
+                                <ul class="vaw-bottom-issues vaw-dependency-issues">@foreach (var issue in dependencyIssues) { <li @key="(issue.AssetKind, issue.Id, issue.Version, issue.Kind)"><strong>@issue.Kind · @issue.AssetKind @($"{issue.Id}@{issue.Version}")</strong><span>@issue.Message</span></li> }</ul>
+                            }
                             @if (WorkflowValidator.Validate(definition) is { Length: > 0 } issues)
                             { <ul class="vaw-bottom-issues">@foreach (var issue in issues) { <li @key="(issue.Path, issue.Code)"><strong>@issue.Path</strong><span>@issue.Message</span></li> }</ul> }
                             else { <p class="vaw-bottom-empty">No workflow issues. This graph is valid and ready to run.</p> }
@@ -411,7 +415,7 @@
                             else { <p class="vaw-bottom-empty">Run this workflow to inspect its output and execution evidence.</p> }
                         </section>
                     </section>
-                    <footer class="vaw-document-statusbar"><span>@(dirty ? "Unsaved changes" : "Ready")</span><span>@definition.Nodes.Count nodes</span><button type="button" @onclick='() => bottomTab = "issues"'>Problems: @(WorkflowValidator.Validate(definition).Length + (mcpChoicesError is null ? 0 : 1) + (providerChoicesError is null ? 0 : 1))</button><span>Project: @manifest.ProjectName</span></footer>
+                    <footer class="vaw-document-statusbar"><span>@(dirty ? "Unsaved changes" : "Ready")</span><span>@definition.Nodes.Count nodes</span><button type="button" @onclick='() => bottomTab = "issues"'>Problems: @(WorkflowValidator.Validate(definition).Length + dependencyIssues.Length + (mcpChoicesError is null ? 0 : 1) + (providerChoicesError is null ? 0 : 1))</button><span>Project: @manifest.ProjectName</span></footer>
                     </div>
                 }
             </section>
@@ -565,13 +569,15 @@
     private bool folderRunValidationRequested;
     private CancellationTokenSource? folderRunPolling;
     private bool CanRunSavedWorkflow => !busy && !dirty && !externalSourceChanged && !folderRunActive && openedWorkflow is not null &&
-        definition is not null && layout is not null && WorkflowValidator.Validate(definition).IsEmpty;
+        definition is not null && layout is not null && WorkflowValidator.Validate(definition).IsEmpty && dependencyIssues.IsEmpty;
     private bool CanOpenRunDialog => !busy && !dirty && !externalSourceChanged && !folderRunActive && openedWorkflow is not null &&
         definition is not null && layout is not null;
     private bool CanRunRestorePoint => !busy && !dirty && !folderRunActive && openedWorkflow is not null && definition is not null &&
         WorkflowValidator.Validate(definition).IsEmpty;
     private bool externalSourceChanged;
     private string? externalSourceProblem;
+    private ImmutableArray<StudioFolderDependencyIssue> dependencyIssues = [];
+    private IReadOnlyDictionary<string, byte[]>? sourceFiles;
     private FileSystemWatcher? sourceWatcher;
     private CancellationTokenSource? sourceMonitorCancellation;
     private SemaphoreSlim? sourceMonitorSignal;
@@ -736,8 +742,10 @@
         if (openDirectory is null) return;
         try
         {
-            var (currentManifest, _) = StudioProjectSourceDirectory.Read(openDirectory);
+            var (currentManifest, currentFiles) = StudioProjectSourceDirectory.Read(openDirectory);
             externalSourceChanged = StudioProjectSourceArchive.ComputeManifestHash(currentManifest) != sourceManifestHash;
+            sourceFiles = currentFiles;
+            RefreshDependencyAudit();
             externalSourceProblem = null;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
@@ -751,7 +759,7 @@
     private async Task LoadProjectFolderAsync(string folder)
     {
         var canonicalDirectory = Path.GetFullPath(folder);
-        var (loadedManifest, _) = StudioProjectSourceDirectory.Read(canonicalDirectory);
+        var (loadedManifest, loadedFiles) = StudioProjectSourceDirectory.Read(canonicalDirectory);
         var loadedSource = new StudioFolderWorkflowSource(canonicalDirectory);
         var loadedSkillSource = new StudioFolderSkillSource(canonicalDirectory);
         var loadedProfileSource = new StudioFolderAgentProfileSource(canonicalDirectory);
@@ -759,6 +767,7 @@
         var loadedWorkflows = loadedSource.List().ToList();
         openDirectory = canonicalDirectory;
         manifest = loadedManifest;
+        sourceFiles = loadedFiles;
         fileTree = StudioProjectFileTree.Build(loadedManifest.Files, loadedManifest.Directories);
         source = loadedSource;
         skillSource = loadedSkillSource;
@@ -960,8 +969,10 @@
             return Task.CompletedTask;
         try
         {
-            var (currentManifest, _) = StudioProjectSourceDirectory.Read(root);
+            var (currentManifest, currentFiles) = StudioProjectSourceDirectory.Read(root);
             externalSourceChanged = StudioProjectSourceArchive.ComputeManifestHash(currentManifest) != sourceManifestHash;
+            sourceFiles = currentFiles;
+            RefreshDependencyAudit();
             externalSourceProblem = null;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
@@ -1681,6 +1692,7 @@
     {
         definition = value;
         dirty = true;
+        RefreshDependencyAudit();
         return Task.CompletedTask;
     }
 
@@ -1705,7 +1717,9 @@
             layout = saved.Layout;
             workflows = source.List().ToList();
             workflowNames = ToWorkflowNames(workflows);
-            manifest = StudioProjectSourceDirectory.Read(openDirectory!).Manifest;
+            var refreshedProject = StudioProjectSourceDirectory.Read(openDirectory!);
+            manifest = refreshedProject.Manifest;
+            sourceFiles = refreshedProject.Files;
             sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(manifest);
             fileTree = StudioProjectFileTree.Build(manifest.Files, manifest.Directories);
             AddEditorTab(manifest.Files.Single(file => file.Path == saved.RelativePath));
@@ -1910,12 +1924,14 @@
 
     private void RefreshProjectSource()
     {
-        var (loadedManifest, _) = StudioProjectSourceDirectory.Read(openDirectory!);
+        var (loadedManifest, loadedFiles) = StudioProjectSourceDirectory.Read(openDirectory!);
         manifest = loadedManifest;
+        sourceFiles = loadedFiles;
         sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(loadedManifest);
         fileTree = StudioProjectFileTree.Build(loadedManifest.Files, loadedManifest.Directories);
         projectSkills = skillSource!.List().Select(skill => skill.Item).ToArray();
         RefreshFileNames();
+        RefreshDependencyAudit();
     }
 
     private void RefreshFileNames()
@@ -1956,6 +1972,7 @@
                 skillInstructions, skillFolder.Trim(), sourceManifestHash, creationDirectory);
             var refreshedProject = StudioProjectSourceDirectory.Read(openDirectory!);
             manifest = refreshedProject.Manifest;
+            sourceFiles = refreshedProject.Files;
             sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(manifest);
             fileTree = StudioProjectFileTree.Build(manifest.Files, manifest.Directories);
             projectSkills = skillSource.List().Select(skill => skill.Item).ToArray();
@@ -1964,6 +1981,7 @@
             creatingNewSkill = false;
             creationDirectory = null;
             LoadSkillRevision(saved);
+            RefreshDependencyAudit();
             message = $"Saved skill revision {saved.Item.Skill.Id}@{saved.Item.Skill.Version}.";
         }
         catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
@@ -1993,12 +2011,20 @@
         profileBeingEdited = null;
         definition = workflow?.Definition;
         layout = workflow?.Layout;
+        RefreshDependencyAudit();
         if (workflow is not null && manifest?.Files.SingleOrDefault(file => file.Path == workflow.RelativePath) is { } file)
             AddEditorTab(file);
         runInput = "";
         runParameters = workflow?.Definition.Parameters?.ToDictionary(parameter => parameter.Key,
             parameter => parameter.Value.DefaultValue, StringComparer.Ordinal) ?? new(StringComparer.Ordinal);
         dirty = false;
+    }
+
+    private void RefreshDependencyAudit()
+    {
+        dependencyIssues = definition is null || manifest is null || sourceFiles is null
+            ? []
+            : StudioFolderDependencyAudit.Assess(definition, manifest, sourceFiles);
     }
 
     private void AddEditorTab(StudioProjectFile file)
@@ -2104,7 +2130,7 @@
     private void OpenRunDialog()
     {
         if (!CanOpenRunDialog) return;
-        if (!WorkflowValidator.Validate(definition!).IsEmpty)
+        if (!WorkflowValidator.Validate(definition!).IsEmpty || !dependencyIssues.IsEmpty)
         {
             folderRunValidationRequested = true;
             bottomTab = "issues";

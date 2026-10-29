@@ -663,6 +663,7 @@ and embedded workflow snapshots remain unchanged.
 
 - [x] **Mutable workflow source slice:** stable paths, valid external-edit hash refresh, optimistic stale checks, and journaled interrupted-save recovery.
 - [x] **Reusable source identity refresh:** stable, content-independent paths for skills, agent profiles, and graph functions now validate external edits and refresh only their manifest hashes; content-addressed revisions and embedded workflow snapshots remain unchanged. See [Git-native reusable source refresh](decisions/0040-git-native-reusable-source-refresh.md).
+- [x] **Dependency drift diagnostics:** folder workflow Problems audits embedded skill, agent-profile, and graph-function hashes against indexed source bytes and blocks execution for missing, stale, duplicate, or invalid dependencies without silently rebinding the workflow. See [folder dependency drift audit](decisions/0041-folder-dependency-drift-audit.md).
 - [ ] **Mutable supporting assets:** apply the same source semantics to skills, agent profiles, and graph functions with explicit compatibility and dependency rules.
 - [ ] **Immutable run closure:** persist exact workflow/dependency bytes and hashes plus bounded resolver/runtime provenance before queue admission.
 - [ ] **Git conflict and migration UX:** explicitly migrate legacy hash-named assets, surface duplicate identities and branch conflicts, and define safe rename/delete/reference diagnostics.
