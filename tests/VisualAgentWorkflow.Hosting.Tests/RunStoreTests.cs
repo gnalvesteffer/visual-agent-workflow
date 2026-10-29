@@ -71,6 +71,87 @@ public sealed class RunStoreTests : IDisposable
         Assert.Equal("completed", call.State);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Crash_prefix_and_interruption_replay_preserve_last_known_child_state(bool sqlite)
+    {
+        var store = Store(sqlite);
+        var revision = Revision();
+        var run = store.Create(revision, "hello");
+        var childRevision = Guid.NewGuid();
+        var childHash = new string('c', 64);
+        store.Append(run.Header.RunId, 0, [
+            Event(run, 1),
+            ChildEvidence(run, 2, ExecutionEventKinds.SubworkflowStarted, childRevision, childHash)
+        ]);
+
+        var prefix = Store(sqlite).Get(run.Header.RunId)!;
+        Assert.Equal("running", prefix.Status);
+        Assert.True(WorkflowCallEvidence.TryReconstructPlayback(prefix.Events, out var prefixPlayback));
+        Assert.Equal("running", prefixPlayback!.Status);
+        Assert.Equal("running", Assert.Single(prefixPlayback.Calls).State);
+
+        Store(sqlite).MarkUnfinishedAsInterrupted();
+
+        var interrupted = Store(sqlite).Get(run.Header.RunId)!;
+        Assert.Equal("interrupted", interrupted.Status);
+        Assert.True(WorkflowCallEvidence.TryReconstructPlayback(interrupted.Events, out var interruptedPlayback));
+        Assert.Equal("interrupted", interruptedPlayback!.Status);
+        Assert.Equal("running", Assert.Single(interruptedPlayback.Calls).State);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Stores_return_tampered_nested_hashes_but_playback_rejects_them(bool sqlite)
+    {
+        var store = Store(sqlite);
+        var revision = Revision();
+        var run = store.Create(revision, "hello");
+        var childRevision = Guid.NewGuid();
+        var childHash = new string('c', 64);
+        store.Append(run.Header.RunId, 0, [
+            Event(run, 1),
+            ChildEvidence(run, 2, ExecutionEventKinds.SubworkflowStarted, childRevision, childHash),
+            ChildEvidence(run, 3, ExecutionEventKinds.SubworkflowCompleted, childRevision, childHash),
+            Event(run, 4, ExecutionEventKinds.Completed)
+        ]);
+
+        RewriteEvent(sqlite, run.Header.RunId, 3, executionEvent => executionEvent with
+        {
+            Data = executionEvent.Data!.Replace(childHash, new string('d', 64), StringComparison.Ordinal)
+        });
+
+        var tampered = Store(sqlite).Get(run.Header.RunId)!;
+        Assert.NotNull(tampered.Events[2].Data);
+        Assert.False(WorkflowCallEvidence.TryReconstructPlayback(tampered.Events, out _));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Stores_return_tampered_nested_envelopes_but_playback_rejects_them(bool sqlite)
+    {
+        var store = Store(sqlite);
+        var revision = Revision();
+        var run = store.Create(revision, "hello");
+        var childRevision = Guid.NewGuid();
+        var childHash = new string('c', 64);
+        store.Append(run.Header.RunId, 0, [
+            Event(run, 1),
+            ChildEvidence(run, 2, ExecutionEventKinds.SubworkflowStarted, childRevision, childHash),
+            ChildEvidence(run, 3, ExecutionEventKinds.SubworkflowCompleted, childRevision, childHash),
+            Event(run, 4, ExecutionEventKinds.Completed)
+        ]);
+
+        RewriteEvent(sqlite, run.Header.RunId, 3, executionEvent => executionEvent with { ScopeId = "other-call" });
+
+        var tampered = Store(sqlite).Get(run.Header.RunId)!;
+        Assert.Equal("other-call", tampered.Events[2].ScopeId);
+        Assert.False(WorkflowCallEvidence.TryReconstructPlayback(tampered.Events, out _));
+    }
+
     [Fact]
     public void FileJournalCanReadAndInterruptHistoricalRunsWithLegacyProviderVersions()
     {
@@ -361,4 +442,34 @@ public sealed class RunStoreTests : IDisposable
     }
 
     public void Dispose() { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+
+    private void RewriteEvent(bool sqlite, Guid runId, long sequence, Func<ExecutionEvent, ExecutionEvent> mutate)
+    {
+        if (sqlite)
+        {
+            using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Database, Pooling = false }.ToString());
+            connection.Open();
+            using var read = connection.CreateCommand();
+            read.CommandText = "SELECT event_json FROM run_events WHERE run_id=$id AND sequence=$sequence;";
+            read.Parameters.AddWithValue("$id", runId.ToString());
+            read.Parameters.AddWithValue("$sequence", sequence);
+            var executionEvent = JsonSerializer.Deserialize<ExecutionEvent>((string)read.ExecuteScalar()!, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            using var update = connection.CreateCommand();
+            update.CommandText = "UPDATE run_events SET event_json=$event WHERE run_id=$id AND sequence=$sequence;";
+            update.Parameters.AddWithValue("$id", runId.ToString());
+            update.Parameters.AddWithValue("$sequence", sequence);
+            update.Parameters.AddWithValue("$event", JsonSerializer.Serialize(mutate(executionEvent), new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            update.ExecuteNonQuery();
+            return;
+        }
+
+        var path = Path.Combine(directory, $"{runId:D}.snapshot.json");
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var snapshot = JsonSerializer.Deserialize<RunSnapshot>(File.ReadAllText(path), options)!;
+        var index = checked((int)sequence - 1);
+        File.WriteAllText(path, JsonSerializer.Serialize(snapshot with
+        {
+            Events = snapshot.Events.SetItem(index, mutate(snapshot.Events[index]))
+        }, options));
+    }
 }

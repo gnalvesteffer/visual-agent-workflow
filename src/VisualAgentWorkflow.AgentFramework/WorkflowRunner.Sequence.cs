@@ -76,7 +76,8 @@ public sealed partial class WorkflowRunner
     /// </summary>
     internal Task<WorkflowExecutionResult> ExecuteSequenceWorkflowCallProductionProofAsync(Guid runId, string input,
         Func<ExecutionEvent, ValueTask> record, SequenceWorkflowCallProofOutcome outcome = SequenceWorkflowCallProofOutcome.Success,
-        IWorkflowExecutionGate? gate = null, CancellationToken cancellationToken = default)
+        IWorkflowExecutionGate? gate = null, CancellationToken cancellationToken = default,
+        Func<string, CancellationTokenSource?>? callScopeCancellation = null)
     {
         var firstChild = SequenceWorkflowCallProofChild(outcome, "sequence-call-proof-first");
         var secondChild = SequenceWorkflowCallProofChild(SequenceWorkflowCallProofOutcome.Success, "sequence-call-proof-second");
@@ -97,7 +98,8 @@ public sealed partial class WorkflowRunner
             new SequenceProductionOutput("sibling", 1, "sibling", "sequence", "then.sibling", "sequence-sibling")
         ], null, SequenceTerminalState.Completed);
         return ExecuteCoreAsync(runId, parent, input, null, record, gate, cancellationToken,
-            rootRevision: parent, sequencePlan: plan, sequenceWorkflowCallProof: true);
+            rootRevision: parent, sequencePlan: plan, sequenceWorkflowCallProof: true,
+            callScopeCancellation: callScopeCancellation);
     }
 
     private static WorkflowRevision SequenceWorkflowCallProofChild(SequenceWorkflowCallProofOutcome outcome, string workflowId)
@@ -192,18 +194,20 @@ public sealed partial class WorkflowRunner
         SequenceProductionPlan plan,
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit,
         IWorkflowExecutionGate? gate, WorkflowRevision rootRevision,
-        ImmutableArray<WorkflowApprovalScope> workflowPath)
+        ImmutableArray<WorkflowApprovalScope> workflowPath,
+        Func<string, CancellationTokenSource?>? callScopeCancellation = null)
     {
         var sequenceInvocationId = Guid.NewGuid();
         var connectionIds = plan.Outputs.ToDictionary(output => output.OutputId, output => output.ConnectionId,
             StringComparer.Ordinal);
-        var coordinator = new SequenceRuntimeCoordinator(sequenceInvocationId, plan.SequenceNodeId,
-            plan.Outputs.Select(output => output.OutputId).ToArray(), connectionIds, plan.AllowSingleOutput);
-        var sequenceEventGate = new SemaphoreSlim(1, 1);
         var callSettlements = SequenceWorkflowCallTopology.Analyze(revision.Definition).Paths
             .ToDictionary(path => path.CallNodeId, path => new SequenceWorkflowCallSettlement(
                 new SequenceWorkflowCallIdentity(path.OutputId, path.CallNodeId, path.ChildWorkflowId,
                     path.ChildRevisionId, path.ChildContentHash)), StringComparer.Ordinal);
+        var coordinator = new SequenceRuntimeCoordinator(sequenceInvocationId, plan.SequenceNodeId,
+            plan.Outputs.Select(output => output.OutputId).ToArray(), connectionIds, plan.AllowSingleOutput,
+            callSettlements);
+        var sequenceEventGate = new SemaphoreSlim(1, 1);
 
         async ValueTask FlushSequenceEvents()
         {
@@ -241,7 +245,7 @@ public sealed partial class WorkflowRunner
                     if (coordinator.IsActivationTerminal(lineage.OutputActivationId)) return;
                     coordinator.Complete(lineage.OutputActivationId, terminalState);
                     await FlushSequenceEvents();
-                }, null, callSettlements.GetValueOrDefault(outputNodeId), true), StringComparer.Ordinal);
+                }, null, callSettlements.GetValueOrDefault(outputNodeId), true, callScopeCancellation), StringComparer.Ordinal);
         var source = new SequenceProductionSource(plan.SequenceNodeId, plan, coordinator, FlushSequenceEvents, emit, gate);
         var collector = new SequenceProductionCollector("sequence-collector", plan, coordinator,
             FlushSequenceEvents, emit);

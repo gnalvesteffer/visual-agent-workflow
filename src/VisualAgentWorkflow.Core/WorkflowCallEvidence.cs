@@ -30,6 +30,10 @@ public static class WorkflowCallEvidence
         {
             if (executionEvent.Kind == ExecutionEventKinds.SubworkflowEvidence)
             {
+                // Once the run has reached its root terminal no further nested evidence may appear: a new child start
+                // or a duplicated terminal after the terminal is tampering, and the write-time ordering rule
+                // (evidence only before the terminal) must hold at read time as well.
+                if (rootTerminal is not null) return false;
                 if (!WorkflowCallLifecycleEvidence.TryRead(executionEvent.Data, out var evidence) || evidence is null ||
                     executionEvent.ScopeId != evidence.ChildScopeId || executionEvent.NodeId != evidence.CallNodeId)
                     return false;
@@ -70,16 +74,20 @@ public static class WorkflowCallEvidence
 
             if (executionEvent.ScopeId is not null) continue;
             if (executionEvent.Kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Terminated or
-                ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled)
+                ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Interrupted)
             {
                 if (rootTerminal is not null) return false;
-                if (calls.Values.Any(call => !call.Terminal)) return false;
+                // An interruption is a store-level process-death fact, not an execution outcome: child scopes may
+                // legitimately still be in flight when the owner appends it, so only execution terminals require every
+                // call to have settled. Calls keep their last-known state and are never upgraded to terminal.
+                if (executionEvent.Kind != ExecutionEventKinds.Interrupted && calls.Values.Any(call => !call.Terminal)) return false;
                 rootTerminal = executionEvent.Kind switch
                 {
                     ExecutionEventKinds.Completed => calls.Values.Any(call => call.State == "unknown") ? null : "completed",
                     ExecutionEventKinds.Terminated => calls.Values.Any(call => call.State == "unknown") ? null : "terminated",
                     ExecutionEventKinds.Failed => "failed",
                     ExecutionEventKinds.Cancelled => "cancelled",
+                    ExecutionEventKinds.Interrupted => "interrupted",
                     _ => null
                 };
                 if (rootTerminal is null) return false;

@@ -15,11 +15,13 @@ internal sealed class SequenceRuntimeCoordinator
     private readonly List<SequenceRuntimeEvent> events = [];
     private readonly Dictionary<Guid, string> completedResults = [];
     private readonly object gate = new();
+    private readonly IReadOnlyDictionary<string, SequenceWorkflowCallSettlement>? callSettlements;
     private SequenceTerminalState? terminalState;
 
     public SequenceRuntimeCoordinator(Guid sequenceInvocationId, string sequenceNodeId,
         IReadOnlyList<string> outputIds, IReadOnlyDictionary<string, string> connectionIds,
-        bool allowSingleOutput = false)
+        bool allowSingleOutput = false,
+        IReadOnlyDictionary<string, SequenceWorkflowCallSettlement>? callSettlements = null)
     {
         if (sequenceInvocationId == Guid.Empty) throw new ArgumentException("A sequence invocation ID is required.", nameof(sequenceInvocationId));
         if (string.IsNullOrWhiteSpace(sequenceNodeId)) throw new ArgumentException("A sequence node ID is required.", nameof(sequenceNodeId));
@@ -30,6 +32,7 @@ internal sealed class SequenceRuntimeCoordinator
         this.sequenceInvocationId = sequenceInvocationId;
         this.sequenceNodeId = sequenceNodeId;
         this.connectionIds = new Dictionary<string, string>(connectionIds, StringComparer.Ordinal);
+        this.callSettlements = callSettlements;
         ledger = new SequenceActivationLedger(outputIds, allowSingleOutput);
         events.Add(new SequenceRuntimeEvent(ExecutionEventKinds.SequenceStarted, sequenceNodeId, sequenceInvocationId, null, null, null, null));
     }
@@ -111,7 +114,7 @@ internal sealed class SequenceRuntimeCoordinator
             Add(new(terminalKind, sequenceNodeId, sequenceInvocationId, snapshot.OutputId,
                 snapshot.Ordinal, activationId, connectionIds[snapshot.OutputId]));
 
-            var settled = terminalState == SequenceTerminalState.Completed ? [] : ledger.CancelAll();
+            var settled = terminalState == SequenceTerminalState.Completed ? [] : CancelProjectedPending();
             foreach (var cancelled in settled.Where(item => item.State == SequenceActivationState.Cancelled))
                 if (!events.Any(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled && evt.OutputId == cancelled.OutputId))
                     Add(new(ExecutionEventKinds.SequenceOutputCancelled, sequenceNodeId, sequenceInvocationId, cancelled.OutputId,
@@ -156,7 +159,7 @@ internal sealed class SequenceRuntimeCoordinator
         lock (gate)
         {
             if (ledger.IsTerminal) return;
-            var cancelled = ledger.CancelAll();
+            var cancelled = CancelProjectedPending();
             terminalState ??= SequenceTerminalState.Cancelled;
             foreach (var active in cancelled.Where(item => item.State == SequenceActivationState.Cancelled))
                 Add(new(ExecutionEventKinds.SequenceOutputCancelled, sequenceNodeId, sequenceInvocationId, active.OutputId,
@@ -173,6 +176,46 @@ internal sealed class SequenceRuntimeCoordinator
     private void Add(SequenceRuntimeEvent runtimeEvent)
     {
         lock (gate) events.Add(runtimeEvent);
+    }
+
+    /// <summary>
+    /// Before cascade-cancelling in-flight outputs, projects each pending output's own call
+    /// settlement (settled on the child root event): completed work stays Completed and other
+    /// terminal facts keep their state. Only calls still running are cancelled, so the
+    /// sequence-level journal agrees with the per-call evidence regardless of collector order.
+    /// </summary>
+    private IReadOnlyList<SequenceActivationSnapshot> CancelProjectedPending()
+    {
+        foreach (var pending in ledger.Snapshot
+            .Where(item => item.State == SequenceActivationState.Dispatched && item.ActivationId is not null)
+            .ToArray())
+        {
+            if (ProjectSettlement(pending.OutputId) is not { } projectedState) continue;
+            var snapshot = ledger.RecordTerminal(pending.ActivationId!.Value, projectedState);
+            Add(new(projectedState switch
+            {
+                SequenceTerminalState.Failed => ExecutionEventKinds.SequenceOutputFailed,
+                SequenceTerminalState.Cancelled => ExecutionEventKinds.SequenceOutputCancelled,
+                _ => ExecutionEventKinds.SequenceOutputCompleted
+            }, sequenceNodeId, sequenceInvocationId, snapshot.OutputId, snapshot.Ordinal, pending.ActivationId, connectionIds[snapshot.OutputId]));
+        }
+        return ledger.CancelAll();
+    }
+
+    private SequenceTerminalState? ProjectSettlement(string outputId)
+    {
+        if (callSettlements is null || !callSettlements.TryGetValue(outputId, out var settlement))
+            return null;
+        var outcome = settlement.State == SequenceWorkflowCallSettlementState.OutputSettled
+            ? settlement.ChildOutcome
+            : settlement.State;
+        return outcome switch
+        {
+            SequenceWorkflowCallSettlementState.Completed => SequenceTerminalState.Completed,
+            SequenceWorkflowCallSettlementState.Failed or SequenceWorkflowCallSettlementState.Unknown => SequenceTerminalState.Failed,
+            SequenceWorkflowCallSettlementState.Cancelled => SequenceTerminalState.Cancelled,
+            _ => null
+        };
     }
 }
 

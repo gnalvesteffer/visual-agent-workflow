@@ -40,19 +40,36 @@ public sealed class SequenceProductionRunnerTests
     public async Task Proof_sequence_child_failure_settles_the_output_and_fails_the_parent()
     {
         var events = new List<ExecutionEvent>();
+        // Hold the sibling's child at its input node so it is provably still running when the call
+        // fails: the cascade-cancel projection below must be deterministic, not a scheduling coincidence.
+        var gate = new ReleaseGate("sequence-call-proof-second-input");
+        var outputFailed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var result = await new WorkflowRunner()
-            .ExecuteSequenceWorkflowCallProductionProofAsync(Guid.NewGuid(), "hello",
-                evt => { events.Add(evt); return ValueTask.CompletedTask; }, SequenceWorkflowCallProofOutcome.Failure);
+        var execution = new WorkflowRunner().ExecuteSequenceWorkflowCallProductionProofAsync(Guid.NewGuid(), "hello",
+            evt =>
+            {
+                events.Add(evt);
+                if (evt.Kind == ExecutionEventKinds.SequenceOutputFailed && ReadEvidence(evt).OutputId == "call")
+                    outputFailed.TrySetResult(true);
+                return ValueTask.CompletedTask;
+            }, SequenceWorkflowCallProofOutcome.Failure, gate: gate);
+
+        await gate.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await outputFailed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        gate.Release.TrySetResult();
+        var result = await execution;
 
         Assert.True(result.Failed);
         Assert.Null(result.Output);
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowFailed && evt.ScopeId == "call");
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed &&
             ReadEvidence(evt).OutputId == "call");
+        // The sibling was still running when the barrier settled: it is cascade-cancelled at the sequence level...
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled &&
             ReadEvidence(evt).OutputId == "sibling");
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+        // ...while its child completes at the call level once the gate releases (the documented two-level divergence).
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted && evt.ScopeId == "sibling");
     }
 
     [Fact]
@@ -135,6 +152,49 @@ public sealed class SequenceProductionRunnerTests
             ReadEvidence(evt).OutputId == "call");
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.ScopeId is null);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
+    }
+
+    [Fact]
+    public async Task Proof_child_local_cancellation_settles_the_call_cancelled_and_fails_the_parent_deterministically()
+    {
+        var events = new List<ExecutionEvent>();
+        var gate = new ReleaseGate("sequence-call-proof-first-input");
+        using var callScope = new CancellationTokenSource();
+        var execution = new WorkflowRunner().ExecuteSequenceWorkflowCallProductionProofAsync(Guid.NewGuid(), "hello",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }, gate: gate,
+            callScopeCancellation: nodeId => nodeId == "call" ? callScope : null);
+
+        await gate.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.Delay(50);
+        Assert.True(events.Any(evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted &&
+            evt.ScopeId == "sibling"),
+            string.Join(" | ", events.Select(evt => $"{evt.Sequence}:{evt.Kind}:{evt.NodeId}:{evt.ScopeId}")));
+
+        callScope.Cancel();
+        var result = await execution;
+
+        // A child-local cancellation must not escape as an OCE: the parent run fails deterministically.
+        Assert.True(result.Failed);
+        Assert.Null(result.Output);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCancelled && evt.ScopeId == "call");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted && evt.ScopeId == "call");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted &&
+            ReadEvidence(evt).OutputId == "sibling");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled &&
+            ReadEvidence(evt).OutputId == "call");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceCancelled);
+        // The sibling terminal lands before the root failure and the journal keeps exactly one terminal per call.
+        var all = events.ToArray();
+        Assert.True(Array.IndexOf(all, all.Single(evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted &&
+            evt.ScopeId == "sibling")) < Array.IndexOf(all, all.Single(evt => evt.Kind == ExecutionEventKinds.Failed &&
+            evt.ScopeId is null)));
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.ScopeId is null);
+        Assert.Equal(ExecutionEventKinds.Failed, events[^1].Kind);
+        // Dual projection: the call itself is cancelled while the run-level status is failed.
+        Assert.True(WorkflowCallEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal("failed", playback!.Status);
+        Assert.Equal("cancelled", playback.Calls.Single(call => call.CallNodeId == "call").State);
+        Assert.Equal("completed", playback.Calls.Single(call => call.CallNodeId == "sibling").State);
     }
 
     [Fact]

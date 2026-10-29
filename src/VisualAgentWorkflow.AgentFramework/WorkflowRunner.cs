@@ -9,7 +9,7 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.AgentFramework;
 
 public sealed record WorkflowExecutionResult(string? Output, bool Terminated, bool Failed = false,
-    bool OutcomeUnknown = false);
+    bool OutcomeUnknown = false, bool Cancelled = false);
 
 /// <summary>Host-resolved defaults for bounded collaborative workflow regions.</summary>
 public sealed record ParallelCollaborationRuntimeOptions(TimeSpan? DefaultTimeout = null);
@@ -66,7 +66,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         Func<ExecutionEvent, ValueTask> record, IWorkflowExecutionGate? gate, CancellationToken cancellationToken,
         WorkflowRevision? rootRevision = null, ImmutableArray<WorkflowApprovalScope> workflowPath = default,
         SequenceProductionPlan? sequencePlan = null, bool sequenceWorkflowCallProof = false,
-        bool allowOutcomeUnknown = false)
+        bool allowOutcomeUnknown = false,
+        Func<string, CancellationTokenSource?>? callScopeCancellation = null)
     {
         var callerCancellationToken = cancellationToken;
         ArgumentNullException.ThrowIfNull(revision);
@@ -112,7 +113,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         var workflow = sequencePlan is null
             ? BuildWorkflow(runId, revision, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
                 collaborationRuntime, variableStore)
-            : BuildSequenceProductionWorkflow(runId, revision, sequencePlan, Emit, gate, rootRevision, workflowPath);
+            : BuildSequenceProductionWorkflow(runId, revision, sequencePlan, Emit, gate, rootRevision, workflowPath,
+                callScopeCancellation);
 
         await Emit(ExecutionEventKinds.Started);
         try
@@ -935,7 +937,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         Func<SequenceMessageLineage, SequenceTerminalState, ValueTask>? recordSequenceTerminal = null,
         CheckpointBoundaryTracker? boundaryTracker = null,
         SequenceWorkflowCallSettlement? callSettlement = null,
-        bool allowOutcomeUnknown = false)
+        bool allowOutcomeUnknown = false,
+        Func<string, CancellationTokenSource?>? callScopeCancellation = null)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -1126,7 +1129,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     callSettlement?.TryStart();
                     try
                     {
-                        childOutcome = await ExecuteWorkflowCall(message, cancellationToken);
+                        childOutcome = await ExecuteWorkflowCall(message, cancellationToken, callScopeCancellation);
                         callSettlement?.TrySettleChild(childOutcome.OutcomeUnknown
                             ? SequenceWorkflowCallSettlementState.Unknown
                             : childOutcome.Failed
@@ -1138,6 +1141,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         callSettlement?.TrySettleChild(SequenceWorkflowCallSettlementState.Cancelled);
                         throw;
                     }
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        // A child-local scope cancelled the nested run while this run continues. The call
+                        // settles as Cancelled rather than Failed, and execution keeps flowing through the
+                        // deterministic sequence termination path instead of escaping the OCE.
+                        callSettlement?.TrySettleChild(SequenceWorkflowCallSettlementState.Cancelled);
+                        childOutcome = new WorkflowExecutionResult(null, Terminated: true, Cancelled: true);
+                    }
                     catch
                     {
                         callSettlement?.TrySettleChild(SequenceWorkflowCallSettlementState.Failed);
@@ -1147,6 +1158,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 if (recordSequenceTerminal is not null && received.SequenceLineage is { } childLineage &&
                     childOutcome is { Failed: true })
                     await recordSequenceTerminal(childLineage, SequenceTerminalState.Failed);
+                else if (recordSequenceTerminal is not null && received.SequenceLineage is { } cancelledLineage &&
+                         childOutcome is { Cancelled: true })
+                    await recordSequenceTerminal(cancelledLineage, SequenceTerminalState.Cancelled);
                 else if (recordSequenceTerminal is not null && received.SequenceLineage is { } terminatedLineage &&
                          childOutcome is { Terminated: true })
                     await recordSequenceTerminal(terminatedLineage, SequenceTerminalState.Completed);
@@ -1315,6 +1329,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null,
                         routeSelection is not null ? JsonSerializer.Serialize(new { routeId = agentRouteId, port }) :
                         node.Type == NodeTypes.Loop ? JsonSerializer.Serialize(new { port, iteration = received.LoopIteration, maximumIterations = node.Loop!.MaximumIterations }) :
+                        node.Type == NodeTypes.WorkflowCall && childOutcome!.Cancelled ? "Nested workflow was cancelled by its own scope." :
                         node.Type == NodeTypes.WorkflowCall && childOutcome!.Failed ? "Nested workflow ended at a failure termination." :
                         node.Type == NodeTypes.WorkflowCall && childOutcome!.Terminated ? "Nested workflow terminated successfully." :
                         node.Type == NodeTypes.Terminate && node.Termination?.Outcome == WorkflowTerminationOutcomes.Failure ? "Workflow ended at a failure termination." :
@@ -1343,7 +1358,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     node.Type == NodeTypes.Agent && node.Agent?.RequireStructuredResult == true ? "json" :
                     WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) ? "string" : WorkflowPorts.Outputs(node).Single(output => output.Id == port).DataType;
                 var failureSignal = node.Termination?.Outcome == WorkflowTerminationOutcomes.Failure ||
-                    received.FailureSignal || childOutcome?.Failed == true;
+                    received.FailureSignal || childOutcome?.Failed == true || childOutcome?.Cancelled == true;
                 var terminated = node.Type == NodeTypes.Terminate || received.TerminationSignal || childOutcome?.Terminated == true;
                 if (routeSelection is not null)
                     await Emit(ExecutionEventKinds.AgentRouteCommitted, Id, invocation, null, JsonSerializer.Serialize(new { routeId = agentRouteId, port }));
@@ -1414,7 +1429,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             (collaborationRuntime!.IsPhased ? grant.Role == role : grant.Phase == role)
                 ? grant.Channels : null;
 
-        private async Task<WorkflowExecutionResult> ExecuteWorkflowCall(string input, CancellationToken cancellationToken)
+        private async Task<WorkflowExecutionResult> ExecuteWorkflowCall(string input, CancellationToken cancellationToken,
+            Func<string, CancellationTokenSource?>? callScopeCancellation = null)
         {
             var call = node.WorkflowCall ?? throw new InvalidOperationException("The nested workflow revision is unavailable.");
             var child = WorkflowRevision.Rehydrate(call.RevisionId, call.Definition, "embedded-workflow-prefab", null,
@@ -1432,6 +1448,24 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     ExecutionEventKinds.OutcomeUnknown => ExecutionEventKinds.SubworkflowOutcomeUnknown,
                     _ => childEvent.Kind
                 };
+                if (kind is ExecutionEventKinds.SubworkflowCompleted or ExecutionEventKinds.SubworkflowTerminated or
+                    ExecutionEventKinds.SubworkflowFailed or ExecutionEventKinds.SubworkflowCancelled or
+                    ExecutionEventKinds.SubworkflowOutcomeUnknown)
+                {
+                    // A call records exactly one terminal lifecycle fact. The settlement state machine is the
+                    // authority: a late or duplicate terminal projection is rejected before it reaches the
+                    // journal so passive playback stays reconstructable.
+                    var childState = kind switch
+                    {
+                        ExecutionEventKinds.SubworkflowCompleted or ExecutionEventKinds.SubworkflowTerminated =>
+                            SequenceWorkflowCallSettlementState.Completed,
+                        ExecutionEventKinds.SubworkflowFailed => SequenceWorkflowCallSettlementState.Failed,
+                        ExecutionEventKinds.SubworkflowCancelled => SequenceWorkflowCallSettlementState.Cancelled,
+                        _ => SequenceWorkflowCallSettlementState.Unknown
+                    };
+                    if (callSettlement is not null && !callSettlement.TrySettleChild(childState))
+                        return;
+                }
                 var nestedScope = childEvent.ScopeId is null ? childScope : $"{childScope}/{childEvent.ScopeId}";
                 await Emit(kind, childEvent.NodeId, childEvent.InvocationId, childEvent.ConnectionId, childEvent.Data, nestedScope);
                 if (kind is ExecutionEventKinds.SubworkflowStarted or ExecutionEventKinds.SubworkflowCompleted or
@@ -1448,12 +1482,17 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             IReadOnlyDictionary<string, string>? childParameters = call.ParameterMappings is { Length: > 0 } mappings
                 ? mappings.ToDictionary(mapping => mapping.ChildParameterId, mapping => parameters![mapping.ParentParameterId], StringComparer.Ordinal)
                 : null;
+            var scopeCancellation = callScopeCancellation?.Invoke(Id);
+            using var scopeSource = scopeCancellation is null
+                ? null
+                : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, scopeCancellation.Token);
+            var childCancellationToken = scopeSource?.Token ?? cancellationToken;
             try
             {
                 return gate is null
-                    ? await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, null, cancellationToken,
+                    ? await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, null, childCancellationToken,
                         rootRevision, childWorkflowPath, allowOutcomeUnknown: allowOutcomeUnknown)
-                    : await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, gate, cancellationToken,
+                    : await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, gate, childCancellationToken,
                         rootRevision, childWorkflowPath, allowOutcomeUnknown: allowOutcomeUnknown);
             }
             catch (OperationCanceledException)
