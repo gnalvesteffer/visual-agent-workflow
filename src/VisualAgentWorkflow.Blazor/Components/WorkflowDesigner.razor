@@ -243,6 +243,8 @@
                     @if (!IdeMode) { <button type="button" data-graph-save @onclick="Save" disabled="@(busy || !interactive)">Save draft</button> }
                     @if (!IdeMode)
                     { <button type="button" class="vaw-primary" @onclick="Publish" disabled="@(busy || dirty || generation == 0 || WorkflowValidator.Validate(definition!).Length > 0)">Publish &amp; activate</button> }
+                    @if (CanPromoteWorkflowCallDraft)
+                    { <button type="button" class="vaw-primary" @onclick="PromoteWorkflowCallDraft">Promote WorkflowCall draft</button> }
                     <button type="button" data-graph-undo @onclick="Undo" disabled="@(busy || undo.Count == 0)">Undo edit</button>
                     <button type="button" data-graph-redo @onclick="Redo" disabled="@(busy || redo.Count == 0)">Redo edit</button>
                     @if (ToolCatalog is not null) { <button type="button" @onclick="RefreshTools" disabled="@busy">Refresh MCP tools</button> }

@@ -53,7 +53,7 @@ public static class WorkflowJson
         // publication, and execution still use WorkflowValidator.ThrowIfInvalid.
         // Schema 1.34 branch-local routes are also authored incrementally; preserve incomplete branch
         // outcomes for draft recovery while strict serialization, publication, and execution stay strict.
-        var blockingIssue = issues.FirstOrDefault(issue => !IsDraftableIssue(issue));
+        var blockingIssue = issues.FirstOrDefault(issue => !IsDraftableIssue(definition, issue));
         if (blockingIssue is not null)
             throw new ArgumentException($"Draft structure is invalid at {blockingIssue.Path}: {blockingIssue.Message}", nameof(definition));
     }
@@ -61,8 +61,14 @@ public static class WorkflowJson
     internal static bool HasOnlyDraftableIssues(WorkflowDefinition definition)
     {
         var issues = WorkflowValidator.Validate(definition);
-        return !issues.IsEmpty && issues.All(IsDraftableIssue);
+        return !issues.IsEmpty && issues.All(issue => IsDraftableIssue(definition, issue));
     }
+
+    private static bool IsDraftableIssue(WorkflowDefinition definition, ValidationIssue issue) =>
+        IsDraftableIssue(issue) || definition.SchemaVersion == WorkflowSchemaVersions.SequenceTransformChainGraph &&
+        definition.Nodes.Values.Any(node => node.Type == NodeTypes.WorkflowCall) &&
+        (issue.Code == "execution.node.unsupported" || issue.Code.StartsWith("workflowCall.", StringComparison.Ordinal) ||
+            issue.Code.StartsWith("sequence.call.", StringComparison.Ordinal));
 
     private static bool IsDraftableIssue(ValidationIssue issue) =>
         issue.Code is "workflow.degree" or "graph.degree" or "graph.unreachable" or "graph.cycle" or "data.unreachable" or

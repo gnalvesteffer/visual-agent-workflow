@@ -53,9 +53,11 @@ MCP nodes may precede one terminal exact-pinned string child call on each
 disjoint Sequence path, and the call must connect directly to Output. The
 normal runner executes serialized revisions and preserves scoped lifecycle and
 barrier settlement. The migration registry accepts only valid source revisions;
-invalid call-bearing drafts remain saveable but need the separate draft
-promotion operation, Studio authoring, and publication work described in
-[Decision 0050](decisions/0050-sequence-workflow-call-public-slice.md).
+invalid call-bearing drafts remain saveable but can now be explicitly promoted
+through the separate draft envelope, catalog publication, package format 1.2,
+and guarded Studio action described in [Decision 0050](decisions/0050-sequence-workflow-call-public-slice.md).
+Direct insertion/editing of a call into a Sequence path remains the next
+authoring increment.
 
 ## Verification
 

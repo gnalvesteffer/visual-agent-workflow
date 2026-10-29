@@ -81,6 +81,28 @@ public sealed class MigrationCatalogTests : IDisposable
         Assert.Null((await reopened.GetRevisionAsync(published.Revision.RevisionId))!.Revision.MigrationProvenance);
     }
 
+    [Fact]
+    public async Task Promoted_draft_updates_the_saved_design_and_persists_distinct_provenance()
+    {
+        var catalog = new SqliteWorkflowCatalog(Database, "promotion-test");
+        var child = WorkflowRevision.Create(WorkflowTemplates.Create("uppercase") with { WorkflowId = "promotion-child" }, "test");
+        var source = CallBearingDraft(child);
+        var saved = await catalog.SaveDesignAsync(source, WorkflowLayout.Create(source), 0);
+        var candidate = WorkflowDraftPromotionCandidate.Create(saved.Draft.Definition, saved.Layout, saved.Draft.Generation);
+        var promotion = WorkflowDraftPromotion.TryPromote(candidate, "studio");
+
+        var published = await ((IWorkflowDraftPromotionCatalog)catalog).PublishPromotedDraftAsync(promotion, saved.Draft.Generation);
+        var reopened = new SqliteWorkflowCatalog(Database, "promotion-test");
+        var stored = (await reopened.GetRevisionAsync(published.Revision.RevisionId))!.Revision;
+        var draft = (await reopened.GetDesignAsync(source.WorkflowId))!;
+
+        Assert.Equal(WorkflowSchemaVersions.SequenceWorkflowCallGraph, draft.Draft.Definition.SchemaVersion);
+        Assert.Equal(WorkflowSchemaVersions.SequenceWorkflowCallGraph, stored.Definition.SchemaVersion);
+        Assert.NotNull(stored.DraftPromotionProvenance);
+        Assert.Equal(promotion.Provenance.SourceDefinitionHash, stored.DraftPromotionProvenance.SourceDefinitionHash);
+        Assert.Null(stored.MigrationProvenance);
+    }
+
     private static WorkflowDefinition SequenceTransformPath()
     {
         var input = new NodeDefinition(NodeTypes.Input, "1.0.0");
@@ -112,6 +134,29 @@ public sealed class MigrationCatalogTests : IDisposable
             ExecutionConnections = execution
         };
         return GraphEditing.EnableSequenceTransformPathGraph(definition);
+    }
+
+    private static WorkflowDefinition CallBearingDraft(WorkflowRevision child)
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("sequence", new(NodeTypes.Sequence, "1.0.0") { Sequence = new([new("call", "Call"), new("sibling", "Sibling")]) })
+            .Add("call", new(NodeTypes.WorkflowCall, "1.0.0")
+            {
+                WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
+            })
+            .Add("sibling", new(NodeTypes.McpTool, "1.0.0", new("sibling", new string('c', 64))) { McpArgumentsJson = "{}" })
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        return new(WorkflowSchemaVersions.SequenceTransformChainGraph, "promotion-catalog", "input", nodes,
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-sequence", new(new("input", "then"), new("sequence", "execute"), "execution"))
+                .Add("sequence-call", new(new("sequence", "then.call"), new("call", "execute"), "execution"))
+                .Add("call-output", new(new("call", "out"), new("output", "execute"), "execution"))
+                .Add("sequence-sibling", new(new("sequence", "then.sibling"), new("sibling", "execute"), "execution"))
+                .Add("sibling-output", new(new("sibling", "then"), new("output", "execute"), "execution"))
+        };
     }
 
     public void Dispose()

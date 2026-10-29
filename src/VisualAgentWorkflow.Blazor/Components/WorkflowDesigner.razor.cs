@@ -557,6 +557,30 @@ public partial class WorkflowDesigner
         message = $"Published and activated version {published.Version}.";
     });
 
+    private bool CanPromoteWorkflowCallDraft => !IdeMode && !dirty && !busy && generation > 0 &&
+        Catalog is IWorkflowDraftPromotionCatalog && definition is not null && layout is not null &&
+        definition.SchemaVersion == WorkflowSchemaVersions.SequenceTransformChainGraph &&
+        definition.Nodes.Values.Any(node => node.Type == NodeTypes.WorkflowCall);
+
+    private Task PromoteWorkflowCallDraft() => Perform(async current =>
+    {
+        if (!CanPromoteWorkflowCallDraft || definition is null || layout is null ||
+            current.Catalog is not IWorkflowDraftPromotionCatalog promotions) return;
+        var draft = await current.Catalog.GetDraftAsync(definition.WorkflowId).WaitAsync(current.Token)
+            ?? throw new KeyNotFoundException("Workflow draft not found.");
+        var candidate = WorkflowDraftPromotionCandidate.Create(definition, layout, generation);
+        var promotion = WorkflowDraftPromotion.TryPromote(candidate, "studio", draft.HeadRevisionId);
+        var published = await promotions.PublishPromotedDraftAsync(promotion, generation).WaitAsync(current.Token);
+        var refreshed = await current.Catalog.GetDraftAsync(definition.WorkflowId).WaitAsync(current.Token)
+            ?? throw new KeyNotFoundException("Promoted workflow draft not found.");
+        await Load(refreshed, current);
+        if (Current(current))
+        {
+            selectedRevisionId = published.Revision.RevisionId;
+            message = $"Promoted the call-bearing draft to schema 1.50 and published version {published.Version}.";
+        }
+    });
+
     private Task Discard() => Perform(async current =>
     {
         var draft = definition is null ? null : await current.Catalog.GetDraftAsync(definition.WorkflowId).WaitAsync(current.Token);

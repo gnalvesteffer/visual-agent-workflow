@@ -25,6 +25,13 @@ public interface IWorkflowMigrationCatalog
     Task<PublishedWorkflowRevision> PublishMigratedAsync(WorkflowRevision revision, long expectedGeneration);
 }
 
+/// <summary>Catalog boundary for explicitly promoting a saveable invalid draft into a valid revision.</summary>
+public interface IWorkflowDraftPromotionCatalog
+{
+    Task<PublishedWorkflowRevision> PublishPromotedDraftAsync(WorkflowDraftPromotionResult promotion,
+        long expectedGeneration);
+}
+
 public interface IPublishedWorkflowClient : IWorkflowClient
 {
     Task<RunSnapshot> StartPublishedRunAsync(Guid revisionId, string input);

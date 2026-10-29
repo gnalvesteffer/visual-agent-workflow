@@ -45,8 +45,8 @@ internal static class WorkflowEndpoints
             var revision = await catalog.GetRevisionAsync(revisionId);
             if (revision is null) return Results.NotFound();
             var presentation = catalog is IWorkflowDesignCatalog designs ? await designs.GetRevisionLayoutAsync(revisionId) : null;
-            return Results.Text(WorkflowPackageJson.Serialize(revision.Revision.Definition,
-                presentation ?? WorkflowLayout.Create(revision.Revision.Definition)), "application/json");
+            return Results.Text(WorkflowPackageJson.Serialize(revision.Revision,
+                presentation ?? revision.Revision.Layout ?? WorkflowLayout.Create(revision.Revision.Definition)), "application/json");
         });
         group.MapPost("/workflows/{workflowId}/publish", async (string workflowId, GenerationRequest request, IWorkflowCatalog catalog) =>
             Results.Ok(await catalog.PublishAsync(workflowId, request.ExpectedGeneration)));

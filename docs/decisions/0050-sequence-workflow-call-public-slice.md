@@ -1,6 +1,6 @@
 # Decision 0050: Bounded public Sequence WorkflowCall slice
 
-**Status: Core/runtime slice implemented; draft promotion and Studio authoring remain deferred.**
+**Status: Core/runtime, draft-promotion, catalog/package, and guarded Studio promotion slices implemented; direct Sequence-path authoring remains deferred.**
 
 ## Context
 
@@ -34,12 +34,25 @@ entry point as other persisted revisions. The production planner uses the
 shared topology analyzer and preserves nested lifecycle evidence and Sequence
 barrier settlement. No proof-only bypass is used by this path.
 
+The invalid-draft boundary is implemented separately from valid-revision
+migration. A schema-1.49 call-bearing draft is saved with its generation,
+canonical definition/layout bytes, hashes, and validation diagnostics. Studio
+can explicitly promote that draft; promotion recomputes the diagnostics and
+requires the resulting schema-1.50 revision to pass strict validation before
+the catalog publishes it. SQLite stores the promotion provenance in schema 5,
+and packages export the source envelope in format 1.2. This provenance is
+historical evidence and an integrity boundary, not an authorization grant.
+The Studio does not yet author the WorkflowCall directly into a Sequence path;
+that remains the next bounded authoring increment.
+
 ## Verification
 
 Core validates valid and malformed call-bearing topologies, exact child pins,
 ordinary MCP sibling compatibility, and the explicit 1.49 → 1.50 migration.
 Agent Framework tests execute a serialized two-path schema 1.50 revision
 through `ExecuteWithOutcomeAsync` and verify both nested child completions and
-the parent completion event. Draft-candidate promotion, Studio controls, and
-the broader Blueprint topology remain roadmap work.
+the parent completion event. Draft-candidate promotion, catalog persistence,
+package round trips, and the guarded Studio promotion action are covered by
+Core, Hosting, and Studio regressions. Direct Sequence-path call
+insertion/editing and the broader Blueprint topology remain roadmap work.
 

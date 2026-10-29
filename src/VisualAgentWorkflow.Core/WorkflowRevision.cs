@@ -19,6 +19,9 @@ public sealed record WorkflowRevision
     /// <summary>Optional immutable evidence describing the explicit migration that produced this revision.</summary>
     public WorkflowMigrationProvenance? MigrationProvenance { get; init; }
 
+    /// <summary>Optional immutable evidence for promotion from a saveable invalid draft.</summary>
+    public WorkflowDraftPromotionProvenance? DraftPromotionProvenance { get; init; }
+
     private WorkflowRevision(WorkflowDefinition definition, string author, Guid? parentRevisionId)
         : this(Guid.NewGuid(), definition, author, parentRevisionId, DateTimeOffset.UtcNow) { }
 
@@ -59,14 +62,18 @@ public sealed record WorkflowRevision
     /// <summary>Reconstruct stored evidence without generating another revision identity.</summary>
     public static WorkflowRevision Rehydrate(Guid revisionId, WorkflowDefinition definition, string author,
         Guid? parentRevisionId, DateTimeOffset createdAt, string contentHash,
-        WorkflowMigrationProvenance? migrationProvenance = null)
+        WorkflowMigrationProvenance? migrationProvenance = null,
+        WorkflowDraftPromotionProvenance? draftPromotionProvenance = null)
     {
         var revision = new WorkflowRevision(revisionId, definition, author, parentRevisionId, createdAt, contentHash)
         {
-            MigrationProvenance = migrationProvenance
+            MigrationProvenance = migrationProvenance,
+            DraftPromotionProvenance = draftPromotionProvenance
         };
         if (migrationProvenance is not null)
             WorkflowMigrationRegistry.ValidateProvenance(migrationProvenance, revision);
+        if (draftPromotionProvenance is not null)
+            draftPromotionProvenance.Validate(revision);
         return revision;
     }
 
