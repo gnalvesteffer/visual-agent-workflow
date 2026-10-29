@@ -202,6 +202,9 @@ public partial class WorkflowEditor
     private bool CanUpgradeSequenceTransformPathGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.SequencePathGraph &&
         WorkflowValidator.Validate(Definition).IsEmpty;
     private Task EnableSequenceTransformPathPreview() => Edit(() => GraphEditing.EnableSequenceTransformPathGraph(Definition));
+    private bool CanUpgradeSequenceReversePathGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.SequenceTransformPathGraph &&
+        WorkflowValidator.Validate(Definition).IsEmpty;
+    private Task EnableSequenceReversePathPreview() => Edit(() => GraphEditing.EnableSequenceReversePathGraph(Definition));
     private int configurableParallelBranchCount = 3;
     private bool CanCreateConfigurableParallelGraph
     {
@@ -302,16 +305,19 @@ public partial class WorkflowEditor
                 explicitEntries.AddRange(Providers.Select(provider => new WorkflowNodeLibraryEntry(
                     ProviderKey(provider), provider.DisplayName, "Agents", $"Agent node · {provider.ModelId}",
                     !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.NumberGraph)
+            if (Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.NumberGraph)
                 explicitEntries.InsertRange(0, Bindings.Select(binding => new WorkflowNodeLibraryEntry(
                     ToolKey(binding), binding.DisplayName, "MCP tools", "Direct deterministic call; node grants and the pinned tool contract still apply",
                     !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph)
+            if (Definition.SchemaVersion is WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph)
                 explicitEntries.Insert(0, ContractEntry(NodeTypes.Sequence, !ReadOnly && !Disabled && Definition.Nodes.Count < 256,
                     "Fan out ordered execution pins; each output must be connected exactly once."));
             if (Definition.SchemaVersion == WorkflowSchemaVersions.SequenceTransformPathGraph)
                 explicitEntries.Insert(0, ContractEntry(NodeTypes.SequenceUppercase, !ReadOnly && !Disabled && Definition.Nodes.Count < 256,
                     "Uppercase the incoming path text as the terminal deterministic Sequence step."));
+            if (Definition.SchemaVersion == WorkflowSchemaVersions.SequenceReversePathGraph)
+                explicitEntries.Insert(0, ContractEntry(NodeTypes.SequenceReverse, !ReadOnly && !Disabled && Definition.Nodes.Count < 256,
+                    "Reverse the incoming path text as the terminal deterministic Sequence step."));
             if (Definition.SchemaVersion is WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph)
                 explicitEntries.Add(ContractEntry(NodeTypes.ParallelRendezvous, !ReadOnly && !Disabled && Definition.Nodes.Count < 256 && Definition.Nodes.Values.All(node => node.Type != NodeTypes.ParallelRendezvous), "Add one unwired communication barrier; configure its branch pins and grants in node properties"));
             explicitEntries.AddRange(TemplateEntries());
@@ -350,6 +356,8 @@ public partial class WorkflowEditor
         ];
         if (Definition.SchemaVersion == WorkflowSchemaVersions.SequenceTransformPathGraph)
             entries.Insert(0, ContractEntry(NodeTypes.SequenceUppercase, canCreate, "Uppercase text as the terminal deterministic Sequence path step"));
+        if (Definition.SchemaVersion == WorkflowSchemaVersions.SequenceReversePathGraph)
+            entries.Insert(0, ContractEntry(NodeTypes.SequenceReverse, canCreate, "Reverse text as the terminal deterministic Sequence path step"));
         entries.InsertRange(0, Bindings.Select(b => new WorkflowNodeLibraryEntry(
             ToolKey(b), b.DisplayName, "MCP tools", "Host-registered tool; node grants still apply", canCreate)));
         entries.AddRange(Providers.Select(p => new WorkflowNodeLibraryEntry(ProviderKey(p), p.DisplayName, "Agents", p.ModelId, canCreate)));

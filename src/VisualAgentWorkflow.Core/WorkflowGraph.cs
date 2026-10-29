@@ -78,7 +78,7 @@ internal static class WorkflowPortShapeCatalog
 
     public static ImmutableArray<string> ExplicitExecutionInputs(NodeDefinition node) => node.Type switch
     {
-        NodeTypes.SequenceUppercase => ["execute"],
+        NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse => ["execute"],
         NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Sequence or NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.Loop or NodeTypes.LoopBody => ["execute"],
         NodeTypes.ParallelJoin when node.ParallelJoin is { } join => [.. join.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
         NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
@@ -87,7 +87,7 @@ internal static class WorkflowPortShapeCatalog
 
     public static ImmutableArray<string> ExplicitExecutionOutputs(NodeDefinition node) => node.Type switch
     {
-        NodeTypes.SequenceUppercase => ["then"],
+        NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse => ["then"],
         NodeTypes.Input => ["then"],
         NodeTypes.Agent when node.Agent?.Routes is { IsDefaultOrEmpty: false } routes => [.. routes.Where(route => route is not null).Select(route => AgentExecutionRouteLimits.PinId(route.Id))],
         NodeTypes.Agent => ["out"],

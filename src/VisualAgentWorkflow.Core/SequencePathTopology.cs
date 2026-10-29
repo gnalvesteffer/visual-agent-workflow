@@ -34,7 +34,7 @@ public sealed record SequencePathTopologyAnalysis(
 /// <summary>
 /// Analyzes disjoint, bounded Sequence output paths using the same node-family contract as the public schema catalog.
 /// Schema 1.46 paths may contain zero or more direct MCP nodes followed by one terminal plain-text Agent;
-/// schema 1.47 additionally admits one terminal deterministic uppercase step.
+/// schemas 1.47 and 1.48 additionally admit one terminal deterministic text step.
 /// </summary>
 public static class SequencePathTopologyAnalyzer
 {
@@ -128,7 +128,7 @@ public static class SequencePathTopologyAnalyzer
                         $"Sequence output {name} reaches missing node '{current}'.");
                     break;
                 }
-                if (node.Type is not (NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.SequenceUppercase))
+                if (node.Type is not (NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse))
                 {
                     Issue("sequence.path.node", $"nodes.{current}",
                         $"Sequence output {name} reaches '{current}', which is neither a direct MCP tool, an approved plain-text Agent, nor a deterministic uppercase step.");
@@ -152,9 +152,9 @@ public static class SequencePathTopologyAnalyzer
                     agentCount++;
                     ValidateAgent(node, current, outputId, Issue);
                 }
-                if (node.Type == NodeTypes.SequenceUppercase && nodeIds.Count != 1)
+                if (node.Type is (NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse) && nodeIds.Count != 1)
                     Issue("sequence.transform.position", $"nodes.{current}", "The deterministic uppercase step must be the terminal node after any direct MCP tools.");
-                if (node.Type == NodeTypes.SequenceUppercase) containsTransform = true;
+                if (node.Type is NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse) containsTransform = true;
                 var next = outgoing.GetValueOrDefault(current) ?? [];
                 if (next.Length != 1)
                 {
@@ -167,9 +167,9 @@ public static class SequencePathTopologyAnalyzer
                     Issue("sequence.path.port", $"nodes.{current}", "Each Sequence path successor must enter the target execution pin.");
                 if (node.Type == NodeTypes.McpTool && nextEdge.Source.PortId != "then" ||
                     node.Type == NodeTypes.Agent && nextEdge.Source.PortId != "out" ||
-                    node.Type == NodeTypes.SequenceUppercase && nextEdge.Source.PortId != "then")
+                    node.Type is (NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse) && nextEdge.Source.PortId != "then")
                     Issue("sequence.path.port", $"nodes.{current}", "MCP tool paths must leave through 'then', Agent paths through 'out', and uppercase paths through 'then'.");
-                if (node.Type == NodeTypes.SequenceUppercase && nextEdge.Target.NodeId != output.Key)
+                if (node.Type is (NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse) && nextEdge.Target.NodeId != output.Key)
                     Issue("sequence.transform.position", $"nodes.{current}", "The deterministic uppercase step must connect directly to Output.");
                 current = nextEdge.Target.NodeId;
             }

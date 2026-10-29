@@ -25,6 +25,7 @@ public sealed class WorkflowSchemaPromotionCatalogTests
             ("sequence-paths", "1.38", "1.43", nameof(GraphEditing.EnableSequencePathGraph)),
             ("sequence-agent-paths", "1.43", "1.46", nameof(GraphEditing.EnableSequenceAgentPathGraph)),
             ("sequence-transform-paths", "1.43", "1.47", nameof(GraphEditing.EnableSequenceTransformPathGraph)),
+            ("sequence-reverse-paths", "1.47", "1.48", nameof(GraphEditing.EnableSequenceReversePathGraph)),
             ("mutable-variables", "1.23", "1.44", nameof(GraphEditing.EnableMutableVariablesGraph))
         };
 

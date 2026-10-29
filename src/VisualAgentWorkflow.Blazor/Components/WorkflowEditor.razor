@@ -136,6 +136,14 @@
                 <button type="button" @onclick="EnableSequenceTransformPathPreview" disabled="@Disabled">Enable terminal uppercase paths</button>
             </section>
         }
+        @if (CanUpgradeSequenceReversePathGraph)
+        {
+            <section class="vaw-library-note" aria-label="Sequence deterministic reverse paths">
+                <strong>Sequence deterministic reverse paths</strong>
+                <p class="vaw-help">Promote this valid schema 1.47 transform path to allow a terminal reverse text step after direct MCP tools.</p>
+                <button type="button" @onclick="EnableSequenceReversePathPreview" disabled="@Disabled">Enable terminal reverse paths</button>
+            </section>
+        }
         @if (CanCreateConfigurableParallelGraph)
         {
             <section class="vaw-library-note" aria-label="Configurable parallel graph">
@@ -981,7 +989,7 @@
         return LayoutChanged.InvokeAsync(value);
     }
     [Parameter] public IReadOnlyList<ToolBindingDescriptor> Bindings { get; set; } = [];
-    private bool DirectMcpAuthoring => Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph;
+    private bool DirectMcpAuthoring => Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph;
     private bool IsSequenceTerminalAgent => Definition.SchemaVersion == WorkflowSchemaVersions.SequenceAgentPathGraph;
     private bool SchemaDrivenMcpPins => WorkflowSchemaVersions.UsesDirectMcpPins(Definition.SchemaVersion);
     [Parameter] public IReadOnlyList<AgentProviderDescriptor> Providers { get; set; } = [];
@@ -1019,6 +1027,7 @@
         NodeTypes.Output => "Workflow result",
         NodeTypes.Uppercase => "Convert text to uppercase",
         NodeTypes.SequenceUppercase => "Terminal uppercase Sequence step",
+        NodeTypes.SequenceReverse => "Terminal reverse Sequence step",
         NodeTypes.Reverse => "Reverse text",
         NodeTypes.JsonSelectString => $"JSON pointer · {node.JsonPropertySelection?.Pointer}",
         NodeTypes.JsonProject => $"JSON object · {string.Join(", ", node.JsonProjection?.Fields.Select(field => $"{field.Name}: {field.ValueSchema?.Type ?? field.ValueType ?? "any"}") ?? [])}",

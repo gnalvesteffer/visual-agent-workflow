@@ -353,6 +353,45 @@ public sealed class SequenceGraphTests
     }
 
     [Fact]
+    public void Sequence_reverse_path_schema_accepts_a_terminal_reverse_step()
+    {
+        var source = PathDefinition();
+        var definition = source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceReversePathGraph,
+            Nodes = source.Nodes.Remove("inventory-tool").Add("inventory-reverse", new(NodeTypes.SequenceReverse, "1.0.0")),
+            ExecutionConnections = source.ExecutionConnections!
+                .Remove("sequence-inventory")
+                .Remove("inventory-output")
+                .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("inventory-reverse", "execute"), "execution"))
+                .Add("inventory-output", new(new("inventory-reverse", "then"), new("output", "execute"), "execution"))
+        };
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+    }
+
+    [Fact]
+    public void Sequence_reverse_path_promotion_preserves_an_existing_uppercase_path()
+    {
+        var source = PathDefinition();
+        var uppercase = source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceTransformPathGraph,
+            Nodes = source.Nodes.Remove("inventory-tool").Add("inventory-uppercase", new(NodeTypes.SequenceUppercase, "1.0.0")),
+            ExecutionConnections = source.ExecutionConnections!
+                .Remove("sequence-inventory")
+                .Remove("inventory-output")
+                .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("inventory-uppercase", "execute"), "execution"))
+                .Add("inventory-output", new(new("inventory-uppercase", "then"), new("output", "execute"), "execution"))
+        };
+
+        var promoted = GraphEditing.EnableSequenceReversePathGraph(uppercase);
+
+        Assert.Equal(WorkflowSchemaVersions.SequenceReversePathGraph, promoted.SchemaVersion);
+        Assert.Empty(WorkflowValidator.Validate(promoted));
+    }
+
+    [Fact]
     public void Sequence_agent_path_schema_rejects_unbounded_agent_limits_and_capabilities()
     {
         var source = PathDefinition();

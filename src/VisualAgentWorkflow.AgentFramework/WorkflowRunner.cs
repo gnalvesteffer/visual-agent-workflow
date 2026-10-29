@@ -1143,6 +1143,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         ? throw new InvalidOperationException("The workflow parameter was not resolved for this run.") : value,
                     NodeTypes.Uppercase => message.ToUpperInvariant(),
                     NodeTypes.SequenceUppercase => message.ToUpperInvariant(),
+                    NodeTypes.SequenceReverse => string.Concat(message.EnumerateRunes().Reverse()),
                     NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
                     NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph
                         ? await InvokeDirectMcpTool(message, invocation, toolArgumentEvaluations, cancellationToken)
@@ -1212,7 +1213,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 var port = agentRouteId is null ? "out" : AgentExecutionRouteLimits.PinId(agentRouteId);
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Input) port = "then";
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.McpTool) port = "then";
-                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.SequenceUppercase) port = "then";
+                if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type is NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse) port = "then";
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type is NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.LoopBody) port = "then";
                 if (UsesConfigurableParallelGraph && node.Type == NodeTypes.ParallelBranch) port = "then";
                 if (node.Type == NodeTypes.BooleanBranch)

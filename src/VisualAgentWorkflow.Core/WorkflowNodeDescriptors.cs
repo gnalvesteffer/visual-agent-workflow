@@ -413,6 +413,7 @@ public static class WorkflowNodeDescriptorRegistry
     [
         Descriptor(NodeTypes.Uppercase, "uppercase", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String)], "1.23"),
         Descriptor(NodeTypes.SequenceUppercase, "sequence-uppercase", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("then")], "1.47"),
+        Descriptor(NodeTypes.SequenceReverse, "sequence-reverse", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("then")], "1.48"),
         Descriptor(NodeTypes.Reverse, "reverse", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String)], "1.23"),
         Descriptor(NodeTypes.StringConstant, "string-constant", [Output(WorkflowDataTypes.String)], "1.23"),
         Descriptor(NodeTypes.BooleanConstant, "boolean-constant", [Output(WorkflowDataTypes.Boolean)], "1.25"),

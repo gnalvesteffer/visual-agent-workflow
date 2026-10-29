@@ -141,6 +141,27 @@ public sealed class SequenceProductionRunnerTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted);
     }
 
+    [Fact]
+    public async Task Schema_1_48_executes_a_terminal_deterministic_reverse_path_step()
+    {
+        var events = new List<ExecutionEvent>();
+        var source = SequenceTransformPathDefinition();
+        var definition = source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceReversePathGraph,
+            Nodes = source.Nodes
+                .SetItem("uppercase", new(NodeTypes.SequenceReverse, "1.0.0"))
+                .SetItem("uppercase-second", new(NodeTypes.SequenceReverse, "1.0.0"))
+        };
+        var result = await new WorkflowRunner(new RecordingBroker()).ExecuteWithOutcomeAsync(
+            Guid.NewGuid(), WorkflowRevision.Create(definition, "sequence-reverse-path"), "hello", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("olleh", result.Output);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "uppercase");
+    }
+
     private static WorkflowDefinition SequenceTransformPathDefinition()
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty

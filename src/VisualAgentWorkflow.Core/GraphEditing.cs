@@ -413,7 +413,7 @@ public static class GraphEditing
         string outputId, string label)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph) ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration || !SequenceOutputLimits.IsValidId(outputId) ||
             string.IsNullOrWhiteSpace(label) || label.Trim().Length > SequenceOutputLimits.MaximumLabelLength ||
@@ -430,7 +430,7 @@ public static class GraphEditing
     {
         ArgumentNullException.ThrowIfNull(definition);
         if (offset is not (-1 or 1)) throw new ArgumentOutOfRangeException(nameof(offset));
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph) ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration)
             throw new ArgumentException("Choose a configured Sequence node.", nameof(sequenceNodeId));
@@ -448,7 +448,7 @@ public static class GraphEditing
     {
         ArgumentNullException.ThrowIfNull(definition);
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph) ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration || definition.ExecutionConnections is not { } execution)
             throw new ArgumentException("Choose a configured Sequence node.", nameof(sequenceNodeId));
@@ -521,6 +521,16 @@ public static class GraphEditing
         return definition with { SchemaVersion = WorkflowSchemaVersions.SequenceTransformPathGraph };
     }
 
+    /// <summary>Promotes a valid deterministic-transform path graph to the reverse-step contract.</summary>
+    public static WorkflowDefinition EnableSequenceReversePathGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceTransformPathGraph ||
+            definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty)
+            throw new ArgumentException("Enable Sequence reverse paths only from a valid schema 1.47 graph.", nameof(definition));
+        return definition with { SchemaVersion = WorkflowSchemaVersions.SequenceReversePathGraph };
+    }
+
     private static (NodeDefinition Fork, ParallelForkConfiguration ForkConfiguration, string JoinId, NodeDefinition Join,
         ParallelJoinConfiguration JoinConfiguration) ConfigurableParallelRegion(WorkflowDefinition definition, string forkNodeId)
     {
@@ -546,7 +556,7 @@ public static class GraphEditing
             NodeTypes.Agent => "agent", NodeTypes.McpTool => "mcp", NodeTypes.StringConstant => "constant", NodeTypes.TextConcat => "concat",
             NodeTypes.StringEquals => "equals", NodeTypes.BooleanBranch => "branch",
             NodeTypes.BooleanConstant => "boolean", NodeTypes.BooleanNot => "not", NodeTypes.IntegerConstant => "integer", NodeTypes.NumberConstant => "number",
-            NodeTypes.IntegerAdd => "add", NodeTypes.NumberAdd => "number-add", NodeTypes.IntegerEquals => "integer-equals", NodeTypes.Sequence => "sequence", NodeTypes.SequenceUppercase => "uppercase", _ => node.Type
+            NodeTypes.IntegerAdd => "add", NodeTypes.NumberAdd => "number-add", NodeTypes.IntegerEquals => "integer-equals", NodeTypes.Sequence => "sequence", NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse => "transform", _ => node.Type
         };
         var id = NewId(prefix);
         return definition with
@@ -1068,7 +1078,7 @@ public static class GraphEditing
             ? edge : throw new ArgumentException("Choose a connected output port.");
     private static void RequireProcessing(string type)
     {
-        if (type is not (NodeTypes.Uppercase or NodeTypes.SequenceUppercase or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.WorkflowValue or NodeTypes.JsonSelectString or NodeTypes.JsonProject or NodeTypes.TextTemplate or NodeTypes.WorkflowCall))
+        if (type is not (NodeTypes.Uppercase or NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.WorkflowValue or NodeTypes.JsonSelectString or NodeTypes.JsonProject or NodeTypes.TextTemplate or NodeTypes.WorkflowCall))
             throw new ArgumentException("Only processing nodes can be inserted, replaced or removed here.");
     }
 }
