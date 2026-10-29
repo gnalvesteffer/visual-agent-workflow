@@ -24,6 +24,8 @@ public sealed class WorkflowPackageMigrationTests
         var provenance = package.MigrationProvenance!;
         var sourcePackage = WorkflowPackageJson.Deserialize(provenance.SourcePackageJson);
 
+        Assert.Equal("1.1", package.FormatVersion);
+        Assert.Equal("1.0", sourcePackage.FormatVersion);
         Assert.Null(sourcePackage.MigrationProvenance);
         Assert.Equal(result.Provenance.SourceContentHash, sourcePackage.DefinitionHash);
         Assert.Equal(result.Provenance.TargetContentHash, package.DefinitionHash);
@@ -48,6 +50,17 @@ public sealed class WorkflowPackageMigrationTests
         var root = JsonNode.Parse(WorkflowPackageJson.Serialize(migration.Result!))!.AsObject();
         root["migrationProvenance"]!["sourcePackageJson"] = "{}";
 
+        Assert.Throws<ArgumentException>(() => WorkflowPackageJson.Deserialize(root.ToJsonString()));
+    }
+
+    [Fact]
+    public void Provenance_and_package_format_must_agree()
+    {
+        var source = WorkflowRevision.Create(SequenceTransformPath(), "source");
+        var migration = WorkflowMigrationRegistry.TryMigrate(new(source, ["sequence-reverse-paths"], "migrator"));
+        var root = JsonNode.Parse(WorkflowPackageJson.Serialize(migration.Result!))!.AsObject();
+
+        root["formatVersion"] = "1.0";
         Assert.Throws<ArgumentException>(() => WorkflowPackageJson.Deserialize(root.ToJsonString()));
     }
 

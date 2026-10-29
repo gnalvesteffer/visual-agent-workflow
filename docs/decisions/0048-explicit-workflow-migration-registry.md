@@ -34,10 +34,12 @@ provenance remains the valid legacy state; no normal publish, load, restore, or
 run path performs migration implicitly.
 
 Portable package exports created from a migration result now carry an additive
-provenance envelope containing the canonical source package JSON and its hash.
-Import validates the source package, canonical bytes, source/target hashes and
-schemas, and the explicit operation chain. Legacy packages remain
-provenance-free and readable.
+provenance envelope in package format `1.1`, containing the canonical source
+package JSON and its hash. Import validates the source package, canonical
+bytes, source/target hashes and schemas, and the explicit operation chain.
+Legacy format-`1.0` packages remain provenance-free and readable; older readers
+fail closed on the unsupported `1.1` format instead of executing without audit
+metadata.
 
 The registry is deliberately separate from `WorkflowSchemaPromotionCatalog` and
 does not add schema 1.50 to the schema catalog, validator, Studio, or runtime.
@@ -46,9 +48,9 @@ not execute migrations. It cannot migrate the private WorkflowCall proof seam.
 
 ## Compatibility boundary
 
-This is still not the complete compatibility gate for schema 1.50. Older-reader
-behavior, package/revision identity policy, and the WorkflowCall migration
-contract remain required before public schema admission. The catalog/package
+This is still not the complete compatibility gate for schema 1.50. Package/
+revision identity policy and the WorkflowCall migration contract remain
+required before public schema admission. The catalog/package
 provenance hashes detect inconsistent stored bytes but are not signatures or
 author-authentication mechanisms. Downgrades, automatic
 load/run migration, topology repair, capability rebinding, and “migrate to

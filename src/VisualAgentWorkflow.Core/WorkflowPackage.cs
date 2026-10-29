@@ -48,7 +48,7 @@ public static class WorkflowPackageJson
     {
         var normalized = WorkflowJson.Deserialize(WorkflowJson.Serialize(definition));
         var presentation = WorkflowLayoutJson.Deserialize(WorkflowLayoutJson.Serialize(layout, normalized), normalized);
-        var package = new WorkflowPackage("1.0", normalized, presentation, Requirements(normalized),
+        var package = new WorkflowPackage(migrationProvenance is null ? "1.0" : "1.1", normalized, presentation, Requirements(normalized),
             WorkflowJson.ComputeHash(normalized), WorkflowLayoutJson.ComputeHash(presentation, normalized), migrationProvenance);
         if (migrationProvenance is not null)
             ValidateMigrationProvenance(package);
@@ -124,7 +124,10 @@ public static class WorkflowPackageJson
         using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 64 });
         JsonDocumentSafety.RejectDuplicateProperties(document.RootElement);
         var package = JsonSerializer.Deserialize<WorkflowPackage>(json, Options) ?? throw new JsonException("Package required.");
-        if (package.FormatVersion != "1.0" || package.Definition is null || package.Layout is null ||
+        if (package.FormatVersion is not ("1.0" or "1.1") ||
+            package.FormatVersion == "1.0" && package.MigrationProvenance is not null ||
+            package.FormatVersion == "1.1" && package.MigrationProvenance is null ||
+            package.Definition is null || package.Layout is null ||
             package.Requirements.IsDefault || package.Requirements.Length > 3000 || package.Requirements.Any(r => r is null))
             throw new ArgumentException("Unsupported or incomplete workflow package.");
         var definition = WorkflowJson.Deserialize(document.RootElement.GetProperty("definition").GetRawText());
