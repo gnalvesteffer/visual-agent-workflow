@@ -478,7 +478,13 @@
 .vaw-properties .vaw-inspector pre { max-block-size: 15rem; overflow: auto; }
 .vaw-properties .vaw-approval { padding: var(--vaw-space-3); }
 .vaw-properties :where(.vaw-inspector h3) { font-size: 1rem; }
+.vaw-inspector-ports dt { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
 .vaw-inspector-ports dd { display: grid; gap: .2rem; }
+.vaw-input-status { flex: 0 0 auto; border: 1px solid var(--vaw-border); border-radius: 999px; padding: .13rem .42rem; color: var(--vaw-muted); font-size: .68rem; font-weight: 600; line-height: 1.2; letter-spacing: .01em; }
+.vaw-input-status-connected { border-color: color-mix(in srgb, var(--vaw-success) 65%, var(--vaw-border)); color: var(--vaw-success); }
+.vaw-input-status-static { border-color: color-mix(in srgb, var(--vaw-accent) 65%, var(--vaw-border)); color: var(--vaw-accent); }
+.vaw-input-status-missing { border-color: color-mix(in srgb, var(--vaw-warning) 70%, var(--vaw-border)); color: var(--vaw-warning); }
+.vaw-input-status-legend { margin-block-start: var(--vaw-space-3); }
 .vaw-port-description { display: block; line-height: 1.35; }
 .vaw-canvas-toolbar [aria-label="Playback controls"] { flex: 1 1 100%; margin: 0; }
 .vaw-canvas-toolbar .vaw-controls label { flex: 1; }

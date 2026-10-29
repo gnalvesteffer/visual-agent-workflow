@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using System.Reflection;
 using System.Collections.Immutable;
 using VisualAgentWorkflow.Blazor;
 using VisualAgentWorkflow.Blazor.Components;
@@ -12,6 +13,44 @@ namespace VisualAgentWorkflow.Hosting.Tests;
 
 public sealed class GraphCanvasRenderingTests
 {
+    [Fact]
+    public async Task InputsInspectorShowsBindingStateForEachDataPin()
+    {
+        var definition = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.14" };
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        RenderFragment<string> summary = id => builder => builder.AddContent(0, $"Summary {id}");
+        RenderFragment<string> inspector = id => builder => builder.AddContent(0, $"Properties {id}");
+        WorkflowGraphCanvas? canvas = null;
+
+        var root = await renderer.Dispatcher.InvokeAsync(() => renderer.BeginRenderingComponent<ComponentLifecycleTests.CaptureHost<WorkflowGraphCanvas>>(
+            ParameterView.FromDictionary(new Dictionary<string, object?>
+            {
+                ["ChildParameters"] = new Dictionary<string, object?>
+                {
+                    [nameof(WorkflowGraphCanvas.Definition)] = definition,
+                    [nameof(WorkflowGraphCanvas.Layout)] = WorkflowLayout.Create(definition),
+                    [nameof(WorkflowGraphCanvas.NodeContent)] = summary,
+                    [nameof(WorkflowGraphCanvas.NodeInspector)] = inspector,
+                    [nameof(WorkflowGraphCanvas.IdeMode)] = true,
+                    [nameof(WorkflowGraphCanvas.SelectedNodeId)] = "step-1"
+                },
+                ["Capture"] = (Action<WorkflowGraphCanvas>)(component => canvas = component)
+            })));
+        await root.QuiescenceTask;
+
+        await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            typeof(WorkflowGraphCanvas).GetField("inspectorTab", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(canvas, "inputs");
+            await canvas!.SetParametersAsync(ParameterView.Empty);
+        });
+
+        var html = await renderer.Dispatcher.InvokeAsync(root.ToHtmlString);
+        Assert.Contains("data-input-status=\"Connected\">Connected</span>", html);
+        Assert.Contains("Connected values take precedence over configured values.", html);
+    }
+
     [Fact]
     public async Task ContextNodeLibraryPutsMcpToolsBeforeOtherActions()
     {

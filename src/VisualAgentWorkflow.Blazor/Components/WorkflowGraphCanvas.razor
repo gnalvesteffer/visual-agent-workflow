@@ -158,9 +158,25 @@
                     var direction = inspectorTab == "inputs" ? WorkflowPortDirection.Input : WorkflowPortDirection.Output;
                     <dl class="vaw-inspector-ports">
                         @foreach (var port in Ports(Definition.Nodes[selection]).Where(item => item.Direction == direction))
-                        { <dt>@(port.DisplayName ?? port.Id)</dt><dd>@(port.DataType ?? "execution") · @port.Kind.ToString().ToLowerInvariant()@if (!string.IsNullOrWhiteSpace(port.Description)) { <span class="vaw-help vaw-port-description">@port.Description</span> }</dd> }
+                        {
+                            <dt>
+                                <span>@(port.DisplayName ?? port.Id)</span>
+                                @if (direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data)
+                                {
+                                    <span class="vaw-input-status vaw-input-status-@InputStatusKind(selection, port).ToString().ToLowerInvariant()" data-input-status="@InputStatusKind(selection, port)">@InputStatusLabel(selection, port)</span>
+                                }
+                            </dt>
+                            <dd>
+                                @(port.DataType ?? "execution") · @port.Kind.ToString().ToLowerInvariant()
+                                @if (!string.IsNullOrWhiteSpace(port.Description)) { <span class="vaw-help vaw-port-description">@port.Description</span> }
+                                @if (direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data && InputStatusKind(selection, port) == InputBindingStatus.Static)
+                                { <span class="vaw-help vaw-port-description">A configured value is used until a connection supplies this input.</span> }
+                            </dd>
+                        }
                     </dl>
                     @if (!Ports(Definition.Nodes[selection]).Any(item => item.Direction == direction)) { <p class="vaw-help">This node has no @(inspectorTab == "inputs" ? "input" : "output") pins.</p> }
+                    @if (inspectorTab == "inputs" && Ports(Definition.Nodes[selection]).Any(item => item.Direction == WorkflowPortDirection.Input && item.Kind == WorkflowPortKind.Data))
+                    { <p class="vaw-help vaw-input-status-legend">Connected values take precedence over configured values. Required inputs must be connected or configured before execution.</p> }
                 }
             }
             <div hidden="@(IdeMode && inspectorTab != "configure")">

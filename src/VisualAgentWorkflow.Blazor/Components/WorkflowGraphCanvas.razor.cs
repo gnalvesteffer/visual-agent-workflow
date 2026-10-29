@@ -92,6 +92,49 @@ public partial class WorkflowGraphCanvas
            .. WorkflowPorts.Outputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType))]);
     private string Title(string id) => string.IsNullOrWhiteSpace(Layout.Nodes[id].Label) ? FriendlyName(Definition.Nodes[id]) : Layout.Nodes[id].Label;
     private static string TooltipId(string id) => $"vaw-node-comment-{id}";
+
+    private enum InputBindingStatus
+    {
+        Connected,
+        Static,
+        Optional,
+        Missing
+    }
+
+    private InputBindingStatus InputStatusKind(string nodeId, WorkflowPortDescriptor port)
+    {
+        var node = Definition.Nodes[nodeId];
+        if (Definition.Connections.Values.Any(connection =>
+                connection.Target.NodeId == nodeId && connection.Target.PortId == port.Id))
+            return InputBindingStatus.Connected;
+
+        if (node.Type == NodeTypes.McpTool && port.Kind == WorkflowPortKind.Data &&
+            WorkflowNodeDescriptorResolver.TryResolveMcpArguments(node, out var arguments) &&
+            arguments.Any(argument => argument.Port.Id == port.Id && HasStaticArgument(node.McpArgumentsJson, argument.Argument.Name)))
+            return InputBindingStatus.Static;
+
+        return port.Required ? InputBindingStatus.Missing : InputBindingStatus.Optional;
+    }
+
+    private string InputStatusLabel(string nodeId, WorkflowPortDescriptor port) => InputStatusKind(nodeId, port) switch
+    {
+        InputBindingStatus.Connected => "Connected",
+        InputBindingStatus.Static => "Static",
+        InputBindingStatus.Missing => "Required · missing",
+        _ => "Optional"
+    };
+
+    private static bool HasStaticArgument(string? arguments, string name)
+    {
+        if (string.IsNullOrWhiteSpace(arguments)) return false;
+        try
+        {
+            using var document = JsonDocument.Parse(arguments);
+            return document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty(name, out _);
+        }
+        catch (JsonException) { return false; }
+    }
+
     internal static string FriendlyName(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input => "Input", NodeTypes.Output => "Output", NodeTypes.Uppercase => "Uppercase", NodeTypes.Reverse => "Reverse", NodeTypes.TextTemplate => "Text template",
