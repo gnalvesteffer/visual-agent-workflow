@@ -1,0 +1,31 @@
+# Persisted-definition descriptor audit
+
+**Status: Implemented bounded advisory slice**  
+**Scope: Blueprint-inspired pin-shape convergence**  
+**Decision date: 2026-10-29**
+
+The Core now provides `WorkflowDefinitionDescriptorAudit`, a read-only audit of
+persisted workflow node configuration. It resolves each node using only the
+configuration stored in the definition, checks the resolved descriptor against
+the existing Core port projection, and reports deterministic node paths and
+diagnostic codes. Nested workflow-call definitions are audited recursively.
+
+The audit deliberately does not consult live MCP discovery, grant authority,
+change the definition, compute a new hash, replace schema validation, alter
+runtime dispatch, or reinterpret historical playback. It is convergence
+evidence while those authorities remain separate.
+
+The audit fails closed for unknown node families, unsupported implementation
+versions, unresolved descriptors, malformed resolved descriptor metadata, and
+MCP argument mappings that do not map one-to-one to persisted typed ports. A
+definition may still be an invalid draft; the audit reports descriptor drift
+without turning advisory findings into a new admission rule.
+
+## Remaining gates
+
+- Make static descriptors schema-qualified authorities only after validator,
+  graph editing, runtime, package, checkpoint, and playback consumers migrate
+  together.
+- Define persisted dynamic descriptor identity and historical compatibility.
+- Add explicit migration and source-preservation rules before changing any
+  serialized descriptor contract.

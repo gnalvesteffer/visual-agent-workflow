@@ -14,6 +14,13 @@ projections consume the same Core pin-shape catalog. This aligns pin identity,
 type, and order without making the non-serialized descriptor a schema or
 runtime authority.
 
+`WorkflowDefinitionDescriptorAudit` provides a read-only audit for persisted
+definitions. It resolves stored node configuration without live discovery,
+checks descriptor pins against the Core projections, audits nested workflow
+calls, and reports deterministic paths for unsupported versions, unresolved
+descriptors, malformed metadata, and MCP mapping drift. It is advisory: it
+does not admit, execute, grant, migrate, or replay a workflow.
+
 This page documents the canonical metadata in
 [`WorkflowNodeContractCatalog`](../src/VisualAgentWorkflow.Core/WorkflowNodeContracts.cs).
 It is an authoring and review reference, not a replacement for schema-specific

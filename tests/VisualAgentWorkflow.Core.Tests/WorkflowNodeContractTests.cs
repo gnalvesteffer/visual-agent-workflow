@@ -417,6 +417,54 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Persisted_definition_descriptor_audit_covers_every_canonical_family_without_live_discovery()
+    {
+        var nodes = WorkflowNodeContractCatalog.All
+            .Select((contract, index) => new KeyValuePair<string, NodeDefinition>(
+                $"node-{index}", new NodeDefinition(contract.Type, contract.TypeVersion)))
+            .ToImmutableSortedDictionary(StringComparer.Ordinal);
+        var definition = new WorkflowDefinition("1.44", "descriptor-audit", "node-0", nodes,
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty);
+        var before = definition;
+
+        Assert.Empty(WorkflowDefinitionDescriptorAudit.Audit(definition));
+        Assert.Equal(before, definition);
+    }
+
+    [Fact]
+    public void Persisted_definition_descriptor_audit_fails_closed_for_version_and_mcp_mapping_drift()
+    {
+        var definition = new WorkflowDefinition("1.37", "descriptor-audit-invalid", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["tool"] = new(NodeTypes.McpTool, "0.9.0")
+                {
+                    McpInputPorts = [
+                        new("arg.query", "query", WorkflowDataTypes.String, true),
+                        new("arg.query", "other", WorkflowDataTypes.Integer, false)]
+                }
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty);
+
+        var issues = WorkflowDefinitionDescriptorAudit.Audit(definition);
+
+        Assert.Contains(issues, issue => issue.Code == "node.version" && issue.Path == "nodes.tool");
+        Assert.DoesNotContain(issues, issue => issue.Code == "mcp.mapping");
+
+        var current = definition with
+        {
+            Nodes = definition.Nodes.SetItem("tool", new NodeDefinition(NodeTypes.McpTool, "1.0.0")
+            {
+                McpInputPorts = [
+                    new("arg.query", "query", WorkflowDataTypes.String, true),
+                    new("arg.query", "other", WorkflowDataTypes.Integer, false)]
+            })
+        };
+        Assert.Contains(WorkflowDefinitionDescriptorAudit.Audit(current), issue => issue.Code == "mcp.mapping");
+    }
+
+    [Fact]
     public void Validator_admits_valid_static_descriptors_without_descriptor_boundary_issues()
     {
         var definition = new WorkflowDefinition(

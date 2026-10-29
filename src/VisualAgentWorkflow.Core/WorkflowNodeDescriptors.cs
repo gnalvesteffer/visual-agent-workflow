@@ -42,6 +42,104 @@ public sealed record WorkflowNodeDescriptorAuditIssue(
     string Authority,
     string Message);
 
+/// <summary>A deterministic, read-only audit finding for one persisted workflow node.</summary>
+public sealed record WorkflowDefinitionDescriptorAuditIssue(
+    string Code,
+    string Path,
+    string Message);
+
+/// <summary>
+/// Audits descriptor resolution for persisted definitions without consulting live discovery.
+/// This is advisory evidence for convergence work; it does not replace schema validation,
+/// runtime dispatch, host admission, or historical playback authorities.
+/// </summary>
+public static class WorkflowDefinitionDescriptorAudit
+{
+    public static ImmutableArray<WorkflowDefinitionDescriptorAuditIssue> Audit(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        var issues = ImmutableArray.CreateBuilder<WorkflowDefinitionDescriptorAuditIssue>();
+        var ancestry = new HashSet<string>(StringComparer.Ordinal) { definition.WorkflowId };
+        AuditDefinition(definition, "", ancestry, issues);
+        return issues.ToImmutable();
+    }
+
+    private static void AuditDefinition(WorkflowDefinition definition, string path,
+        HashSet<string> ancestry, ImmutableArray<WorkflowDefinitionDescriptorAuditIssue>.Builder issues)
+    {
+        if (definition.Nodes is null) return;
+        foreach (var (nodeId, node) in definition.Nodes)
+        {
+            var nodePath = string.IsNullOrEmpty(path) ? $"nodes.{nodeId}" : $"{path}nodes.{nodeId}";
+            if (node is null)
+            {
+                issues.Add(new("node.null", nodePath, "The persisted node is null."));
+                continue;
+            }
+
+            if (!WorkflowNodeContractCatalog.TryGet(node.Type, out var contract))
+            {
+                issues.Add(new("node.type", nodePath, $"Node type '{node.Type}' is not registered."));
+                continue;
+            }
+            if (!string.Equals(node.TypeVersion, contract.TypeVersion, StringComparison.Ordinal))
+            {
+                issues.Add(new("node.version", nodePath,
+                    $"Node type '{node.Type}' uses unsupported implementation version '{node.TypeVersion}'."));
+                continue;
+            }
+            if (!WorkflowNodeDescriptorResolver.TryResolve(node, null, null, out var descriptor))
+            {
+                issues.Add(new("descriptor.unresolved", nodePath,
+                    "The persisted node configuration cannot be represented by the descriptor resolver."));
+                continue;
+            }
+
+            foreach (var issue in WorkflowNodeDescriptorConformance.ValidateResolved(node))
+                issues.Add(new($"descriptor.{issue.Code}", nodePath + ".descriptor", issue.Message));
+
+            if (node.Type == NodeTypes.McpTool && !WorkflowNodeDescriptorResolver.TryResolveMcpArguments(node, out _))
+                issues.Add(new("mcp.mapping", nodePath + ".mcpInputPorts",
+                    "Persisted MCP input mappings must resolve to one unique descriptor port per argument with a matching data type and property name."));
+
+            AddProjectionIssues(node, descriptor, nodePath, issues);
+
+            if (node.WorkflowCall?.Definition is { } child && ancestry.Add(child.WorkflowId))
+            {
+                AuditDefinition(child, nodePath + ".workflowCall.definition.", ancestry, issues);
+                ancestry.Remove(child.WorkflowId);
+            }
+        }
+    }
+
+    private static void AddProjectionIssues(NodeDefinition node, WorkflowNodeDescriptor descriptor, string nodePath,
+        ImmutableArray<WorkflowDefinitionDescriptorAuditIssue>.Builder issues)
+    {
+        void Compare<T>(string code, IEnumerable<T> expected, IEnumerable<T> actual, string message)
+        {
+            if (!expected.SequenceEqual(actual))
+                issues.Add(new(code, nodePath + ".descriptor", message));
+        }
+
+        Compare("ports.data-inputs", WorkflowPorts.ExplicitDataInputs(node).Select(port => (port.Id, port.DataType)),
+            descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data)
+                .Select(port => (port.Id, port.DataType!)),
+            "Descriptor data inputs differ from the persisted Core port projection.");
+        Compare("ports.data-outputs", WorkflowPorts.ExplicitDataOutputs(node).Select(port => (port.Id, port.DataType)),
+            descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Data)
+                .Select(port => (port.Id, port.DataType!)),
+            "Descriptor data outputs differ from the persisted Core port projection.");
+        Compare("ports.execution-inputs", WorkflowPorts.ExplicitExecutionInputs(node),
+            descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Execution)
+                .Select(port => port.Id),
+            "Descriptor execution inputs differ from the persisted Core port projection.");
+        Compare("ports.execution-outputs", WorkflowPorts.ExplicitExecutionOutputs(node),
+            descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Execution)
+                .Select(port => port.Id),
+            "Descriptor execution outputs differ from the persisted Core port projection.");
+    }
+}
+
 /// <summary>
 /// Compares the non-authoritative node descriptor projection with the existing Core
 /// consumers that expose the same configured pin shape.
