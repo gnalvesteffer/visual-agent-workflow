@@ -54,6 +54,52 @@ public sealed class WorkflowDraftPromotionTests
         Assert.Equal(WorkflowSchemaVersions.SequenceWorkflowCallGraph, restored.Definition.SchemaVersion);
     }
 
+    [Fact]
+    public void Promoted_public_call_package_round_trip_preserves_child_identity_layout_and_hashes()
+    {
+        var child = WorkflowRevision.Create(Baseline("child"), "test");
+        var source = CallGraph(child);
+        var candidate = WorkflowDraftPromotionCandidate.Create(source, WorkflowLayout.Create(source), 7);
+        var promotion = WorkflowDraftPromotion.TryPromote(candidate, "studio", Guid.NewGuid());
+
+        var json = WorkflowPackageJson.Serialize(promotion);
+        var restored = WorkflowPackageJson.Deserialize(json);
+        var restoredCall = restored.Definition.Nodes["call"].WorkflowCall!;
+        var originalCall = promotion.TargetRevision.Definition.Nodes["call"].WorkflowCall!;
+
+        Assert.Equal("1.2", restored.FormatVersion);
+        Assert.Equal(WorkflowSchemaVersions.SequenceWorkflowCallGraph, restored.Definition.SchemaVersion);
+        Assert.Equal(originalCall.Identity, restoredCall.Identity);
+        Assert.Equal(WorkflowJson.Serialize(originalCall.Definition), WorkflowJson.Serialize(restoredCall.Definition));
+        Assert.Equal(promotion.TargetRevision.ContentHash, restored.DefinitionHash);
+        Assert.Equal(WorkflowLayoutJson.Serialize(promotion.TargetRevision.Layout!, promotion.TargetRevision.Definition),
+            WorkflowLayoutJson.Serialize(restored.Layout, restored.Definition));
+        Assert.NotNull(restored.DraftPromotionProvenance);
+        Assert.Equal(restored.DefinitionHash, WorkflowJson.ComputeHash(restored.Definition));
+        Assert.Equal(restored.LayoutHash, WorkflowLayoutJson.ComputeHash(restored.Layout, restored.Definition));
+    }
+
+    [Fact]
+    public void Unsupported_post_call_topology_remains_a_saveable_draft_but_cannot_be_published()
+    {
+        var child = WorkflowRevision.Create(Baseline("child"), "test");
+        var source = CallGraph(child) with
+        {
+            Nodes = CallGraph(child).Nodes.Add("transform", new(NodeTypes.SequenceUppercase, "1.0.0")),
+            ExecutionConnections = CallGraph(child).ExecutionConnections!
+                .SetItem("call-output", new(new("call", "out"), new("transform", "execute"), "execution"))
+                .Add("transform-output", new(new("transform", "then"), new("output", "execute"), "execution"))
+        };
+
+        var issues = WorkflowValidator.Validate(source);
+
+        Assert.Contains(issues, issue => issue.Code == "execution.node.unsupported");
+        Assert.Contains(issues, issue => issue.Code == "sequence.call.path.terminal");
+        var draftJson = WorkflowJson.SerializeDraft(source);
+        Assert.Equal(draftJson, WorkflowJson.SerializeDraft(WorkflowJson.DeserializeDraft(draftJson)));
+        Assert.Throws<ArgumentException>(() => WorkflowJson.Serialize(source));
+    }
+
     private static WorkflowDefinition CallGraph(WorkflowRevision child) =>
         new(WorkflowSchemaVersions.SequenceTransformChainGraph, "draft-call", "input",
             ImmutableSortedDictionary<string, NodeDefinition>.Empty

@@ -56,7 +56,11 @@ ordinary MCP sibling compatibility, and the explicit 1.49 → 1.50 migration.
 Agent Framework tests execute a serialized two-path schema 1.50 revision
 through `ExecuteWithOutcomeAsync` and verify both nested child completions and
 the parent completion event. Draft-candidate promotion, catalog persistence,
-package round trips, guarded Studio promotion, and direct Sequence-path
+package round trips, exact child/layout/hash preservation, unsupported
+post-call draft persistence, both run-store replay prefixes, uncertain and
+tampered evidence, guarded Studio promotion, and direct Sequence-path
 authoring regressions are covered by Core, Hosting, and Studio compilation
-coverage. Broader Blueprint topology remains roadmap work.
+coverage. The public call remains terminal at Output; post-call transforms,
+Agents, branches, loops, and shared descendants require a separate reviewed
+topology contract.
 
