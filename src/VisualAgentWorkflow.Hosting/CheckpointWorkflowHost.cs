@@ -59,7 +59,7 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
                 WorkflowRunner.ValidateCheckpointGraph(revision.Definition);
                 snapshot = store.Create(revision, input);
             }
-            var sink = new Sink(store, snapshot, restored?.Native, suspendAfterCompletedNodes);
+            var sink = new Sink(store, snapshot, revision!, restored?.Native, suspendAfterCompletedNodes);
             await new WorkflowRunner().ExecuteCheckpointedAsync(snapshot.Header.RunId, revision!, input!, sink.RecordAsync, sink, linked.Token);
             return store.Get(snapshot.Header.RunId)!;
         }
@@ -80,10 +80,15 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
         // The cancellation source/semaphore remain valid for callers already queued during disposal.
     }
 
-    private sealed class Sink(SqliteWorkflowRunStore store, RunSnapshot initial, NativeWorkflowCheckpoint? restored, int? suspendAfter) : IWorkflowCheckpointSink
+    private sealed class Sink(SqliteWorkflowRunStore store, RunSnapshot initial, WorkflowRevision revision,
+        NativeWorkflowCheckpoint? restored, int? suspendAfter) : IWorkflowCheckpointSink, IWorkflowCheckpointBoundarySink
     {
         private RunSnapshot snapshot = initial;
+        private (NativeWorkflowCheckpoint Checkpoint, CheckpointBoundaryObservation Observation)? boundary;
         public NativeWorkflowCheckpoint? RestoredCheckpoint => restored;
+
+        public void ObserveBoundary(NativeWorkflowCheckpoint checkpoint, CheckpointBoundaryObservation observation) =>
+            boundary = (checkpoint, observation);
 
         public ValueTask RecordAsync(ExecutionEvent evt)
         {
@@ -110,7 +115,31 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
             {
                 VariableStateHash = native.VariableState?.ComputeHash()
             };
+            if (suspended && revision.Definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph)
+            {
+                var observed = boundary ?? throw new InvalidOperationException("The loop checkpoint boundary was not captured by the host.");
+                if (!string.Equals(observed.Checkpoint.CheckpointId, native.CheckpointId, StringComparison.Ordinal) ||
+                    !string.Equals(observed.Checkpoint.Payload, native.Payload, StringComparison.Ordinal))
+                    throw new InvalidOperationException("The loop checkpoint boundary does not match the native checkpoint being committed.");
+                var loopId = revision.Definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.Loop).Key;
+                var bodyId = revision.Definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.LoopBody).Key;
+                var loopEvent = snapshot.Events.LastOrDefault(evt => evt.NodeId == loopId &&
+                    evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped)
+                    ?? throw new InvalidOperationException("The loop checkpoint boundary has no recorded loop evidence.");
+                var cursor = new LoopCheckpointCursor(loopId, bodyId, observed.Observation.LoopIteration,
+                    revision.Definition.Nodes[loopId].Loop!.MaximumIterations,
+                    observed.Observation.NextNodeId ?? throw new InvalidOperationException("The loop checkpoint boundary has no next node."),
+                    observed.Observation.NextInputPortId ?? throw new InvalidOperationException("The loop checkpoint boundary has no next input port."),
+                    observed.Observation.SourceNodeId, observed.Observation.SourcePortId, loopEvent.Sequence);
+                var evidence = snapshot.Events.Concat(events).ToArray();
+                checkpoint = checkpoint with
+                {
+                    Frame = WorkflowCheckpointFrame.Create(revision, snapshot.Header.RunId, native.Payload, cursor,
+                        native.VariableState ?? throw new InvalidOperationException("The loop checkpoint has no variable snapshot."), evidence)
+                };
+            }
             snapshot = store.CommitCheckpoint(snapshot.Header.RunId, snapshot.Events.Length, events, checkpoint);
+            boundary = null;
             return ValueTask.FromResult(suspended);
         }
     }

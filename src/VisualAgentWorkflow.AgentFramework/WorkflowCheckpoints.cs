@@ -17,7 +17,7 @@ public interface IWorkflowCheckpointSink
     ValueTask<bool> CaptureAsync(NativeWorkflowCheckpoint checkpoint);
 }
 
-internal sealed record CheckpointBoundaryObservation(
+public sealed record CheckpointBoundaryObservation(
     long Generation,
     int CheckpointCallbacks,
     int ActiveHandlers,
@@ -28,7 +28,8 @@ internal sealed record CheckpointBoundaryObservation(
     string? NextInputPortId,
     int LoopIteration);
 
-internal interface ICheckpointBoundaryProbeSink
+/// <summary>Receives the paired quiescent boundary observed immediately before a native checkpoint capture.</summary>
+public interface IWorkflowCheckpointBoundarySink
 {
     void ObserveBoundary(NativeWorkflowCheckpoint checkpoint, CheckpointBoundaryObservation observation);
 }
@@ -231,8 +232,14 @@ public sealed partial class WorkflowRunner
         {
             var key = new CheckpointInfo(sessionId, Guid.NewGuid().ToString("N"));
             var checkpoint = new NativeWorkflowCheckpoint(sessionId, key.CheckpointId, parent?.CheckpointId, value.GetRawText(), variableStore?.Snapshot());
-            if (boundaryTracker is not null && boundaryTracker.TryCapture(out var observation) && sink is ICheckpointBoundaryProbeSink probe)
+            if (boundaryTracker is not null)
+            {
+                if (!boundaryTracker.TryCapture(out var observation))
+                    throw new InvalidOperationException("The loop checkpoint boundary was not quiescent and cannot be recovered safely.");
+                if (sink is not IWorkflowCheckpointBoundarySink probe)
+                    throw new InvalidOperationException("Loop checkpoint capture requires a host boundary sink that records the paired native checkpoint identity.");
                 probe.ObserveBoundary(checkpoint, observation);
+            }
             if (await sink.CaptureAsync(checkpoint))
             {
                 // Saving at the native superstep callback precedes scheduling the next superstep.

@@ -215,6 +215,18 @@ public sealed class MutableVariableExecutionTests
     }
 
     [Fact]
+    public async Task Loop_checkpoint_capture_requires_a_boundary_sink()
+    {
+        var revision = WorkflowRevision.Create(LoopDefinition(), "loop-checkpoint-boundary-sink");
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner().ExecuteCheckpointedProofAsync(
+            Guid.NewGuid(), revision, "continue", _ => ValueTask.CompletedTask,
+            new LoopWithoutBoundarySink()));
+
+        Assert.Contains("boundary sink", error.Message);
+    }
+
+    [Fact]
     public async Task Cancellation_before_capture_is_terminal_but_cancellation_after_capture_keeps_saved_boundary()
     {
         var beforeEvents = new List<ExecutionEvent>();
@@ -540,7 +552,7 @@ public sealed class MutableVariableExecutionTests
     }
 
     private sealed class ProofCheckpointSink(List<ExecutionEvent> events, int? suspendAfterCompletedNodes = null,
-        NativeWorkflowCheckpoint? restored = null) : IWorkflowCheckpointSink, ICheckpointBoundaryProbeSink
+        NativeWorkflowCheckpoint? restored = null) : IWorkflowCheckpointSink, IWorkflowCheckpointBoundarySink
     {
         public NativeWorkflowCheckpoint? RestoredCheckpoint { get; } = restored;
         public NativeWorkflowCheckpoint? Last { get; private set; }
@@ -573,6 +585,13 @@ public sealed class MutableVariableExecutionTests
             cancellation.Cancel();
             return ValueTask.FromResult(true);
         }
+    }
+
+    private sealed class LoopWithoutBoundarySink : IWorkflowCheckpointSink
+    {
+        public NativeWorkflowCheckpoint? RestoredCheckpoint => null;
+
+        public ValueTask<bool> CaptureAsync(NativeWorkflowCheckpoint checkpoint) => ValueTask.FromResult(false);
     }
 
     private sealed class CancelOnRestoreSink(NativeWorkflowCheckpoint restored, CancellationTokenSource cancellation) : IWorkflowCheckpointSink
@@ -661,11 +680,15 @@ public sealed class MutableVariableExecutionTests
 
     private sealed class DurableLoopProofSink(SqliteWorkflowRunStore store, RunSnapshot initial,
         WorkflowRevision revision, NativeWorkflowCheckpoint? restored, int? suspendAfter,
-        CancellationTokenSource? cancelAfterCommit = null) : IWorkflowCheckpointSink
+        CancellationTokenSource? cancelAfterCommit = null) : IWorkflowCheckpointSink, IWorkflowCheckpointBoundarySink
     {
         private RunSnapshot snapshot = initial;
+        private (NativeWorkflowCheckpoint Checkpoint, CheckpointBoundaryObservation Observation)? boundary;
         public NativeWorkflowCheckpoint? RestoredCheckpoint => restored;
         public string? LastCheckpointId { get; private set; }
+
+        public void ObserveBoundary(NativeWorkflowCheckpoint checkpoint, CheckpointBoundaryObservation observation) =>
+            boundary = (checkpoint, observation);
 
         public ValueTask RecordAsync(ExecutionEvent evt)
         {
@@ -690,13 +713,15 @@ public sealed class MutableVariableExecutionTests
             var evidence = snapshot.Events.Concat([capture, suspended]).ToArray();
             var loopId = revision.Definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.Loop).Key;
             var bodyId = revision.Definition.Nodes.Single(pair => pair.Value.Type == NodeTypes.LoopBody).Key;
+            var observed = boundary ?? throw new InvalidOperationException("The proof sink did not receive a checkpoint boundary observation.");
+            Assert.Equal(native.CheckpointId, observed.Checkpoint.CheckpointId);
             var loopEvent = snapshot.Events.Last(evt => evt.NodeId == loopId &&
                 evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped);
-            using var loopData = JsonDocument.Parse(loopEvent.Data!);
-            var iterationProperty = loopEvent.Kind == ExecutionEventKinds.LoopStopped ? "iterations" : "iteration";
-            var iteration = loopData.RootElement.GetProperty(iterationProperty).GetInt32();
-            var cursor = new LoopCheckpointCursor(loopId, bodyId, iteration, revision.Definition.Nodes[loopId].Loop!.MaximumIterations,
-                "set", "execute", bodyId, "then", loopEvent.Sequence);
+            var cursor = new LoopCheckpointCursor(loopId, bodyId, observed.Observation.LoopIteration,
+                revision.Definition.Nodes[loopId].Loop!.MaximumIterations,
+                observed.Observation.NextNodeId ?? throw new InvalidOperationException("The proof boundary has no next node."),
+                observed.Observation.NextInputPortId ?? throw new InvalidOperationException("The proof boundary has no next input port."),
+                observed.Observation.SourceNodeId, observed.Observation.SourcePortId, loopEvent.Sequence);
             var frame = WorkflowCheckpointFrame.Create(revision, snapshot.Header.RunId, native.Payload, cursor,
                 native.VariableState!, evidence);
             var checkpoint = new WorkflowRunCheckpoint("1.0", WorkflowRunner.CheckpointRuntimeVersion,
