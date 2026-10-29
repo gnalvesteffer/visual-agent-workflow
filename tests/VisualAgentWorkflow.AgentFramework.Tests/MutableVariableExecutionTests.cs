@@ -255,6 +255,34 @@ public sealed class MutableVariableExecutionTests
     }
 
     [Fact]
+    public async Task Reopened_opt_in_loop_history_supports_passive_playback_without_execution()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "vaw-loop-passive-playback-" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var database = Path.Combine(directory, "runs.sqlite3");
+            RunSnapshot suspended;
+            await using (var host = new CheckpointWorkflowHost(new SqliteWorkflowRunStore(database),
+                new CheckpointWorkflowHostOptions(true)))
+            {
+                suspended = await host.StartAsync(WorkflowRevision.Create(LoopDefinition(), "loop-passive-playback"), "continue", 4);
+            }
+
+            var reopened = new SqliteWorkflowRunStore(database).Get(suspended.Header.RunId)!;
+            Assert.Equal("suspended", reopened.Status);
+            Assert.True(VariableEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+            Assert.NotNull(playback);
+            Assert.Equal("continue", playback!.Values["message"].Value);
+            Assert.Single(playback.Operations);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public async Task Loop_checkpoint_capture_requires_a_boundary_sink()
     {
         var revision = WorkflowRevision.Create(LoopDefinition(), "loop-checkpoint-boundary-sink");

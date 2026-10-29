@@ -55,8 +55,10 @@ loop.
   and process-fatal failures remain outside this normalization boundary.
 - [ ] Qualify cancellation, publication failure, process loss, competing
   recovery, and disposal races on the public host path.
-- [ ] Reopen production-generated history with no executor/model/tool calls and
-  prove passive playback plus unchanged schema 1.44 compatibility.
+- [x] Reopen production-generated loop history after host disposal with no
+  executor/model/tool calls and prove passive variable playback. The existing
+  schema-1.44 recovery regression continues to prove the legacy envelope and
+  resume path remain unchanged.
 - [ ] Only then promote the bounded loop subset; do not infer authorization from
   a structurally valid or hash-consistent frame alone.
 
