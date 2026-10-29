@@ -40,7 +40,7 @@ public class BrokerTests
     {
         var broker = CreateBroker(policy: new DemoToolPolicy());
         var bindings = await broker.ListBindingsAsync();
-        Assert.Equal(6, bindings.Count);
+        Assert.Equal(7, bindings.Count);
         var reverse = bindings.Single(b => b.BindingId == "demo.reverse");
         Assert.Contains("Reverses Unicode", reverse.ToolDescription);
         Assert.Equal(McpToolDescription.ComputeHash(reverse.ToolDescription), reverse.DescriptionHash);
@@ -82,7 +82,7 @@ public class BrokerTests
 
         var bindings = await CreateBroker(registrations).ListBindingsAsync();
 
-        Assert.Equal(6, bindings.Count);
+        Assert.Equal(7, bindings.Count);
         Assert.Equal(1, connectionCount);
     }
 
