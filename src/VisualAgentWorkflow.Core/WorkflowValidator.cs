@@ -258,7 +258,7 @@ public static class WorkflowValidator
                     try { hashMatches = WorkflowJson.MatchesHash(child, call.ContentHash); }
                     catch (ArgumentException) { }
                 }
-        if (definition.SchemaVersion is not ("1.19" or "1.22" or "1.21" or "1.20" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph) || call is null || string.IsNullOrWhiteSpace(call.WorkflowId) ||
+        if (definition.SchemaVersion is not ("1.19" or "1.22" or "1.21" or "1.20" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph) || call is null || string.IsNullOrWhiteSpace(call.WorkflowId) ||
                     call.WorkflowId.Length > 256 || call.WorkflowId != call.Definition?.WorkflowId || call.RevisionId == Guid.Empty ||
                     call.Version < 1 || !ValidHash(call.ContentHash) || !hashMatches || call.Definition is { } childDefinition && !HasSupportedWorkflowCallContract(childDefinition))
                     Error("workflowCall.configuration", $"nodes.{id}.workflowCall", "Workflow call nodes require schema 1.19 and an embedded, hash-matching workflow with string or JSON input and output contracts.");
@@ -607,7 +607,7 @@ public static class WorkflowValidator
                 ValidateMutableVariableGraph(definition, Error);
             else if (definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph)
                 ValidateLoopVariableGraph(definition, Error);
-            else if (definition.SchemaVersion is WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph)
+            else if (definition.SchemaVersion is WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph)
                 ValidateSequenceGraph(definition, Error);
             else
             if (definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph)
@@ -917,15 +917,22 @@ public static class WorkflowValidator
             return;
         }
 
-        var isPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph;
+        var isPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph;
         var isAgentPathGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceAgentPathGraph;
         var isTransformPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph;
         var isTransformChainGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceTransformChainGraph;
         var isWorkflowCallGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallGraph;
+        var isWorkflowCallTransformGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph;
         var supported = new HashSet<string>(StringComparer.Ordinal) { NodeTypes.Input, NodeTypes.Sequence, NodeTypes.Output };
         if (isPathGraph) supported.Add(NodeTypes.McpTool);
         if (isAgentPathGraph) supported.Add(NodeTypes.Agent);
         if (isWorkflowCallGraph) supported.Add(NodeTypes.WorkflowCall);
+        if (isWorkflowCallTransformGraph)
+        {
+            supported.Add(NodeTypes.WorkflowCall);
+            supported.Add(NodeTypes.SequenceUppercase);
+            supported.Add(NodeTypes.SequenceReverse);
+        }
         if (isTransformPathGraph)
         {
             // Schema 1.48 is additive: existing uppercase paths remain valid while
@@ -942,6 +949,8 @@ public static class WorkflowValidator
                             ? isTransformChainGraph
                                 ? "Schema 1.49 supports input, Sequence, direct MCP tool, at most one uppercase and one reverse deterministic text step, and output nodes; paths are linear and disjoint."
                                 : "Schema 1.47/1.48 supports input, Sequence, direct MCP tool, one terminal deterministic text step, and output nodes; paths are linear and disjoint."
+                                : isWorkflowCallTransformGraph
+                                    ? "Schema 1.51 supports input, Sequence, direct MCP nodes, one pinned string WorkflowCall, one terminal deterministic text step, and output nodes; paths are linear and disjoint."
                                 : isWorkflowCallGraph
                                     ? "Schema 1.50 supports input, Sequence, direct MCP tool, one terminal pinned string WorkflowCall, and output nodes; paths are linear and disjoint."
                                     : "Schema 1.43 supports input, Sequence, direct MCP tool, and output nodes; paths are linear and disjoint."
@@ -1155,9 +1164,18 @@ public static class WorkflowValidator
         if (reached.Count != definition.Nodes.Count)
             error("graph.unreachable", "nodes", "Every node must be reachable from the input entry.");
 
-        var callTopology = SequenceWorkflowCallTopology.Analyze(definition);
-        foreach (var issue in callTopology.Issues)
-            error(issue.Code, issue.Path, issue.Message);
+        if (isWorkflowCallTransformGraph)
+        {
+            var callTransformTopology = SequenceWorkflowCallTransformTopology.Analyze(definition);
+            foreach (var issue in callTransformTopology.Issues)
+                error(issue.Code, issue.Path, issue.Message);
+        }
+        else
+        {
+            var callTopology = SequenceWorkflowCallTopology.Analyze(definition);
+            foreach (var issue in callTopology.Issues)
+                error(issue.Code, issue.Path, issue.Message);
+        }
     }
 
     private static void ValidateSequenceAgentLimits(NodeDefinition node, string nodeId, string outputName,

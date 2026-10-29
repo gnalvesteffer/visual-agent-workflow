@@ -200,7 +200,12 @@ public sealed partial class WorkflowRunner
         var sequenceInvocationId = Guid.NewGuid();
         var connectionIds = plan.Outputs.ToDictionary(output => output.OutputId, output => output.ConnectionId,
             StringComparer.Ordinal);
-        var callSettlements = SequenceWorkflowCallTopology.Analyze(revision.Definition).Paths
+        var callPaths = revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph
+            ? SequenceWorkflowCallTransformTopology.Analyze(revision.Definition).Paths.Select(path =>
+                new SequenceWorkflowCallPath(path.OutputId, path.NodeIds, path.CallNodeId, path.ChildWorkflowId,
+                    path.ChildRevisionId, path.ChildContentHash))
+            : SequenceWorkflowCallTopology.Analyze(revision.Definition).Paths;
+        var callSettlements = callPaths
             .ToDictionary(path => path.CallNodeId, path => new SequenceWorkflowCallSettlement(
                 new SequenceWorkflowCallIdentity(path.OutputId, path.CallNodeId, path.ChildWorkflowId,
                     path.ChildRevisionId, path.ChildContentHash)), StringComparer.Ordinal);
@@ -391,10 +396,13 @@ public sealed partial class WorkflowRunner
 
     private SequenceProductionPlan? CreateSequenceProductionPlan(WorkflowRevision revision)
     {
-        if (revision.Definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph)) return null;
+        if (revision.Definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph)) return null;
         if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallGraph &&
             !SequenceWorkflowCallTopology.Analyze(revision.Definition).IsValid)
             throw new InvalidOperationException("Schema 1.50 requires a valid bounded WorkflowCall topology before execution.");
+        if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph &&
+            !SequenceWorkflowCallTransformTopology.Analyze(revision.Definition).IsValid)
+            throw new InvalidOperationException("Schema 1.51 requires a valid bounded WorkflowCall transform topology before execution.");
         var sequence = revision.Definition.Nodes.SingleOrDefault(entry => entry.Value.Type == NodeTypes.Sequence);
         if (sequence.Value?.Sequence is not { } configuration || revision.Definition.ExecutionConnections is not { } edges)
             throw new InvalidOperationException("The Sequence definition is missing its ordered outputs or execution connections.");
@@ -501,7 +509,8 @@ public sealed partial class WorkflowRunner
             {
                 var terminalState = plan.TerminalOutputId == lineage.OutputId
                     ? plan.TerminalState : SequenceTerminalState.Completed;
-                coordinator.Complete(lineage.OutputActivationId, terminalState, terminalState == SequenceTerminalState.Completed ? message.Text : null);
+                coordinator.Complete(lineage.OutputActivationId, terminalState,
+                    terminalState == SequenceTerminalState.Completed && message.HasValue ? message.Text : null);
                 await flushSequenceEvents();
                 await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, lineage.ConnectionId,
                     terminalState == SequenceTerminalState.Completed ? "Sequence output completed." :

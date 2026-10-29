@@ -9,6 +9,40 @@ public sealed record WorkflowCallUpgradeResult(WorkflowDefinition Definition,
 public static class WorkflowCallEditing
 {
     /// <summary>
+    /// Adds one deterministic transform after a terminal call while preserving schema 1.50 as
+    /// an editable draft. Explicit draft promotion is required before the graph can run.
+    /// </summary>
+    public static WorkflowDefinition AppendSequenceWorkflowCallTransformDraft(WorkflowDefinition parent,
+        string callNodeId, string transformType)
+    {
+        ArgumentNullException.ThrowIfNull(parent);
+        ArgumentException.ThrowIfNullOrWhiteSpace(callNodeId);
+        if (parent.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallGraph ||
+            parent.ExecutionConnections is not { } execution ||
+            !parent.Nodes.TryGetValue(callNodeId, out var call) || call.Type != NodeTypes.WorkflowCall)
+            throw new ArgumentException("Transform authoring requires a schema 1.50 WorkflowCall draft.", nameof(parent));
+        if (transformType is not (NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse))
+            throw new ArgumentException("Only the bounded uppercase or reverse transform is supported.", nameof(transformType));
+        if (!SequenceWorkflowCallTopology.Analyze(parent).IsValid)
+            throw new ArgumentException("The source WorkflowCall topology must be valid before adding a transform.", nameof(parent));
+
+        var output = parent.Nodes.Single(entry => entry.Value.Type == NodeTypes.Output).Key;
+        var edge = execution.Single(entry => entry.Value.Source.NodeId == callNodeId &&
+            entry.Value.Source.PortId == "out" && entry.Value.Target.NodeId == output);
+        var transformId = "workflow-call-transform-" + Guid.NewGuid().ToString("N");
+        var updated = parent with
+        {
+            Nodes = parent.Nodes.Add(transformId, new NodeDefinition(transformType, "1.0.0")),
+            ExecutionConnections = execution
+                .SetItem(edge.Key, edge.Value with { Target = new(transformId, "execute") })
+                .Add("workflow-call-transform-" + Guid.NewGuid().ToString("N"),
+                    new(new(transformId, "then"), new(output, "execute"), "execution"))
+        };
+        WorkflowJson.SerializeDraft(updated);
+        return updated;
+    }
+
+    /// <summary>
     /// Appends a pinned child to one direct-MCP Sequence output path while preserving the
     /// source schema as a saveable draft. The explicit draft-promotion boundary upgrades it
     /// only after the complete schema-1.50 topology validates.

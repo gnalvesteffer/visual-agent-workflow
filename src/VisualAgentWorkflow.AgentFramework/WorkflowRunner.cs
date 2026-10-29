@@ -9,7 +9,7 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.AgentFramework;
 
 public sealed record WorkflowExecutionResult(string? Output, bool Terminated, bool Failed = false,
-    bool OutcomeUnknown = false, bool Cancelled = false);
+    bool OutcomeUnknown = false, bool Cancelled = false, bool HasOutput = true);
 
 /// <summary>Host-resolved defaults for bounded collaborative workflow regions.</summary>
 public sealed record ParallelCollaborationRuntimeOptions(TimeSpan? DefaultTimeout = null);
@@ -147,17 +147,17 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (output.FailureSignal)
             {
                 await Emit(ExecutionEventKinds.Failed, output.SourceNode, data: "Workflow ended at a failure termination.");
-                return new(null, true, true);
+                return new(null, true, true, HasOutput: false);
             }
             if (output.TerminationSignal)
             {
                 activationLedger.ThrowIfActive();
                 await Emit(ExecutionEventKinds.Terminated, output.SourceNode);
-                return new(null, true);
+                return new(null, true, HasOutput: false);
             }
             activationLedger.ThrowIfActive();
             await Emit(ExecutionEventKinds.Completed, data: output.Text);
-            return new(output.Text, false);
+            return new(output.Text, false, HasOutput: true);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -176,7 +176,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (allowOutcomeUnknown && IsOutcomeUnknownException(exception))
             {
                 await Emit(ExecutionEventKinds.OutcomeUnknown, data: "Workflow execution ended with an unresolved external outcome.");
-                return new(null, true, Failed: true, OutcomeUnknown: true);
+                return new(null, true, Failed: true, OutcomeUnknown: true, HasOutput: false);
             }
             if (collaborationRuntime is not null) await collaborationRuntime.AbortAsync("A collaboration member or workflow node failed.");
             // Do not copy arbitrary exception messages or provider internals into captured payloads.
@@ -287,7 +287,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         bool TerminationSignal = false, bool FailureSignal = false,
         Guid? ParallelActivationId = null, string? ParallelBranchId = null, string? ParallelForkNodeId = null,
         string? CollaborationTargetBranchId = null, bool CollaborationTransition = false,
-        SequenceMessageLineage? SequenceLineage = null);
+        SequenceMessageLineage? SequenceLineage = null, bool HasValue = true);
 
     /// <summary>Private transport identity for a future Sequence activation; never authored or persisted.</summary>
     private sealed record SequenceMessageLineage(Guid SequenceInvocationId, string SequenceNodeId,
@@ -1147,7 +1147,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         // settles as Cancelled rather than Failed, and execution keeps flowing through the
                         // deterministic sequence termination path instead of escaping the OCE.
                         callSettlement?.TrySettleChild(SequenceWorkflowCallSettlementState.Cancelled);
-                        childOutcome = new WorkflowExecutionResult(null, Terminated: true, Cancelled: true);
+                        childOutcome = new WorkflowExecutionResult(null, Terminated: true, Cancelled: true, HasOutput: false);
                     }
                     catch
                     {
@@ -1195,6 +1195,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         loopIteration = received.LoopIteration
                     }));
                 }
+                var resultAvailable = received.HasValue;
+                if (node.Type == NodeTypes.WorkflowCall)
+                    resultAvailable = childOutcome?.HasOutput == true;
                 var result = node.Type switch
                 {
                     NodeTypes.Input when node.InputDataType == "json" => NormalizeJson(message),
@@ -1212,7 +1215,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.SequenceUppercase => message.ToUpperInvariant(),
                     NodeTypes.SequenceReverse => string.Concat(message.EnumerateRunes().Reverse()),
                     NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
-                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph
+                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph
                         ? await InvokeDirectMcpTool(message, invocation, toolArgumentEvaluations, cancellationToken)
                         : await InvokeTool(message, invocation, cancellationToken),
                     NodeTypes.WorkflowCall => childOutcome?.Output ?? string.Empty,
@@ -1367,7 +1370,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 boundaryTracker?.PublishTransition(Id, port, next?.Target.NodeId, next?.Target.PortId, nextLoopIteration);
                 return new(result, internalTerminationHandoff ? received.SourceNode : Id, terminated ? "terminated" : port, permit, outputType, nextLoopIteration,
                     terminated, failureSignal, received.ParallelActivationId, received.ParallelBranchId, received.ParallelForkNodeId,
-                    SequenceLineage: received.SequenceLineage);
+                    SequenceLineage: received.SequenceLineage, HasValue: resultAvailable);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -1504,7 +1507,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 // The child runner has already recorded its terminal failure. Keep the
                 // failure inside the call boundary so the parent can settle the call
                 // and continue its own deterministic failure path.
-                return new WorkflowExecutionResult(null, Terminated: true, Failed: true);
+                return new WorkflowExecutionResult(null, Terminated: true, Failed: true, HasOutput: false);
             }
         }
 

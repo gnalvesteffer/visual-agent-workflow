@@ -113,8 +113,8 @@ public static class WorkflowDraftPromotion
         if (string.IsNullOrWhiteSpace(author)) throw new ArgumentException("An author is required.", nameof(author));
         if (candidate.Marker != WorkflowDraftPromotionProvenance.CurrentMarker)
             throw new ArgumentException("The draft promotion marker is unsupported.", nameof(candidate));
-        if (candidate.Definition.SchemaVersion != WorkflowSchemaVersions.SequenceTransformChainGraph)
-            throw new ArgumentException("Only schema 1.49 drafts may be promoted by this operation.", nameof(candidate));
+        if (candidate.Definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph))
+            throw new ArgumentException("Only schema 1.49 or 1.50 drafts may be promoted by this operation.", nameof(candidate));
         if (candidate.DefinitionHash != WorkflowJson.ComputeDraftHash(candidate.Definition) ||
             candidate.LayoutHash != WorkflowLayoutJson.ComputeHash(candidate.Layout, candidate.Definition))
             throw new ArgumentException("The draft promotion candidate hashes do not match its canonical source.", nameof(candidate));
@@ -122,7 +122,10 @@ public static class WorkflowDraftPromotion
         if (sourceDiagnostics.IsDefaultOrEmpty || !sourceDiagnostics.SequenceEqual(candidate.Diagnostics))
             throw new ArgumentException("The draft diagnostics no longer match its canonical source definition.", nameof(candidate));
 
-        var targetDefinition = candidate.Definition with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallGraph };
+        var targetSchema = candidate.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceTransformChainGraph
+            ? WorkflowSchemaVersions.SequenceWorkflowCallGraph
+            : WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph;
+        var targetDefinition = candidate.Definition with { SchemaVersion = targetSchema };
         WorkflowValidator.ThrowIfInvalid(targetDefinition);
         var target = WorkflowRevision.Create(targetDefinition, author, parentRevisionId) with { Layout = candidate.Layout };
         var provenance = new WorkflowDraftPromotionProvenance(

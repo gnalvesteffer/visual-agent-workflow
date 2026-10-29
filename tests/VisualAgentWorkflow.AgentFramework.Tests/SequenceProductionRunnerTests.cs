@@ -10,6 +10,49 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 public sealed class SequenceProductionRunnerTests
 {
     [Fact]
+    public async Task Public_schema_1_51_applies_one_transform_after_a_pinned_workflow_call()
+    {
+        var child = WorkflowRevision.Create(
+            WorkflowEditing.InsertAfter(LinearBaseline("public-sequence-transform-child"), "input", NodeTypes.Uppercase),
+            "test");
+        var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
+        };
+        var sibling = call with { WorkflowCall = call.WorkflowCall! with { WorkflowId = child.Definition.WorkflowId } };
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph,
+            "public-sequence-transform-parent", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["sequence"] = new(NodeTypes.Sequence, "1.0.0") { Sequence = new([new("call", "Pinned child"), new("sibling", "Second child")]) },
+                ["call"] = call,
+                ["sibling"] = sibling,
+                ["reverse"] = new(NodeTypes.SequenceReverse, "1.0.0"),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(), ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-sequence"] = new(new("input", "then"), new("sequence", "execute"), "execution"),
+                ["sequence-call"] = new(new("sequence", "then.call"), new("call", "execute"), "execution"),
+                ["call-reverse"] = new(new("call", "out"), new("reverse", "execute"), "execution"),
+                ["reverse-output"] = new(new("reverse", "then"), new("output", "execute"), "execution"),
+                ["sequence-sibling"] = new(new("sequence", "then.sibling"), new("sibling", "execute"), "execution"),
+                ["sibling-output"] = new(new("sibling", "out"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+        var revision = WorkflowRevision.Create(WorkflowJson.Deserialize(WorkflowJson.Serialize(definition)), "test");
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(), revision, "hello", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed, string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.Data}")));
+        Assert.Equal("OLLEH", result.Output);
+    }
+
+    [Fact]
     public async Task Public_schema_1_50_executes_a_pinned_workflow_call_through_the_normal_runner()
     {
         var child = WorkflowRevision.Create(

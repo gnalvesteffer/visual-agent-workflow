@@ -63,6 +63,12 @@ draft** before publishing or running. Existing call revision editing preserves
 the call node identity. Transforms, Agents, shared paths, and non-linear
 Sequence paths are intentionally excluded from this bounded authoring slice.
 
+Schema 1.51 adds one deterministic `Sequence uppercase` or `Sequence reverse` step after the
+pinned child and before the Output barrier. The child must provide an actual string result;
+successful empty strings remain values, while no-result termination, failure, cancellation, and
+uncertain outcomes do not activate the transform. This is an explicit draft edit followed by
+promotion, not an implicit schema rewrite. See [Decision 0051](decisions/0051-sequence-workflow-call-transform.md).
+
 ## Verification
 
 Core tests cover exact revision pins, recursive package requirements, round trips, invalid hashes, schema gates, and cycle rejection. Agent Framework tests execute a child without a catalog, verify one parent-owned audit sequence with child scope, and confirm successful child termination propagates to the parent. Existing hosts and consumer observation continue using the same run-store contract.

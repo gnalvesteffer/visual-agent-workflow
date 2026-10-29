@@ -65,7 +65,7 @@ public static class WorkflowJson
     }
 
     private static bool IsDraftableIssue(WorkflowDefinition definition, ValidationIssue issue) =>
-        IsDraftableIssue(issue) || definition.SchemaVersion == WorkflowSchemaVersions.SequenceTransformChainGraph &&
+        IsDraftableIssue(issue) || (definition.SchemaVersion is WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph) &&
         definition.Nodes.Values.Any(node => node.Type == NodeTypes.WorkflowCall) &&
         (issue.Code == "execution.node.unsupported" || issue.Code.StartsWith("workflowCall.", StringComparison.Ordinal) ||
             issue.Code.StartsWith("sequence.call.", StringComparison.Ordinal));

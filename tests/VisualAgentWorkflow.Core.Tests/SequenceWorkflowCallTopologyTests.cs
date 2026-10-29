@@ -68,6 +68,28 @@ public sealed class SequenceWorkflowCallTopologyTests
         Assert.Contains(analysis.Issues, issue => issue.Code == "sequence.call.path.terminal");
     }
 
+    [Fact]
+    public void Schema_1_51_allows_exactly_one_transform_after_the_call()
+    {
+        var child = WorkflowRevision.Create(Baseline("child"), "test");
+        var source = CallGraph(child, WorkflowSchemaVersions.SequenceWorkflowCallGraph);
+        var execution = source.ExecutionConnections!
+            .SetItem("call-output", source.ExecutionConnections["call-output"] with { Target = new("transform", "execute") })
+            .Add("transform-output", new(new("transform", "then"), new("output", "execute"), "execution"));
+        var definition = source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph,
+            Nodes = source.Nodes.Add("transform", new(NodeTypes.SequenceUppercase, "1.0.0")),
+            ExecutionConnections = execution
+        };
+
+        var analysis = SequenceWorkflowCallTransformTopology.Analyze(definition);
+
+        Assert.True(analysis.IsValid, string.Join("; ", analysis.Issues.Select(issue => $"{issue.Code}:{issue.Message}")));
+        Assert.Equal("transform", Assert.Single(analysis.Paths).TransformNodeId);
+        Assert.Empty(WorkflowValidator.Validate(definition));
+    }
+
     private static WorkflowDefinition CallGraph(WorkflowRevision child, string schema = WorkflowSchemaVersions.SequenceTransformChainGraph)
     {
         var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
