@@ -120,6 +120,14 @@
                 <button type="button" @onclick="EnableSequencePathPreview" disabled="@Disabled">Enable Sequence paths</button>
             </section>
         }
+        @if (CanUpgradeSequenceAgentPathGraph)
+        {
+            <section class="vaw-library-note" aria-label="Sequence terminal Agent paths">
+                <strong>Sequence terminal Agent paths</strong>
+                <p class="vaw-help">Promote this valid Sequence path graph to allow one bounded terminal Agent on each ordered path. Agents use the incoming text and a plain-text result with fixed model-turn and total-token limits; tools, skills, routes, delegation, and structured results are unavailable in this slice.</p>
+                <button type="button" @onclick="EnableSequenceAgentPathPreview" disabled="@Disabled">Enable terminal Agent paths</button>
+            </section>
+        }
         @if (CanCreateConfigurableParallelGraph)
         {
             <section class="vaw-library-note" aria-label="Configurable parallel graph">
@@ -757,28 +765,32 @@
                     @if (node.Agent is { } agent)
                     {
                         <p>Model connection: @agent.ProviderId</p>
-                        @if (!ReadOnly)
+                    @if (!ReadOnly)
                         {
+                        @if (IsSequenceTerminalAgent)
+                        {
+                            <p class="vaw-help">Bounded terminal Agent: configure fixed output, total-token, and model-turn limits. This Blueprint path intentionally has no tools, skills, routes, delegation, structured result, timeout, or workflow-bound limits.</p>
+                        }
                             <label>Maximum output tokens
-                                <select aria-label="Output token limit source for @id" value="@LimitSource(agent.MaxOutputTokensParameterId)" @onchange="args => SetAgentLimitBinding(id, false, args)" disabled="@Disabled">
+                                <select aria-label="Output token limit source for @id" value="@LimitSource(agent.MaxOutputTokensParameterId)" @onchange="args => SetAgentLimitBinding(id, false, args)" disabled="@(Disabled || IsSequenceTerminalAgent)">
                                     <option value="static">Fixed value</option>
-                                    @foreach (var (parameterId, parameter) in IntegerParameters(AgentOutputTokenLimits.Minimum, AgentOutputTokenLimits.Maximum))
+                                    @foreach (var (parameterId, parameter) in IntegerParameters(AgentOutputTokenLimits.Minimum, AgentOutputTokenLimits.Maximum).Where(_ => !IsSequenceTerminalAgent))
                                     { <option value="parameter:@parameterId">Workflow input: @parameter.DisplayName</option> }
                                 </select>
                             </label>
-                            @if (agent.MaxOutputTokensParameterId is null)
+                            @if (agent.MaxOutputTokensParameterId is null || IsSequenceTerminalAgent)
                             { <input aria-label="Maximum output tokens for @id" type="number" min="@AgentOutputTokenLimits.Minimum" max="@AgentOutputTokenLimits.Maximum" step="256" value="@(agent.MaxOutputTokens ?? AgentOutputTokenLimits.LegacyDefault)" @onchange="args => MaxOutputTokens(id, args)" disabled="@Disabled" /> }
                             else if (ParameterDefinitions.TryGetValue(agent.MaxOutputTokensParameterId, out var outputLimitParameter))
                             { <p class="vaw-help">Uses “@outputLimitParameter.DisplayName” (default @outputLimitParameter.DefaultValue), validated from @AgentOutputTokenLimits.Minimum to @AgentOutputTokenLimits.Maximum. The endpoint may enforce a lower model-specific limit.</p> }
                             <p class="vaw-help">Caps each model response. The endpoint may enforce a lower model-specific limit.</p>
                             <label>Maximum total tokens
-                                <select aria-label="Total token limit source for @id" value="@LimitSource(agent.MaxTotalTokensParameterId)" @onchange="args => SetAgentLimitBinding(id, true, args)" disabled="@Disabled">
+                                <select aria-label="Total token limit source for @id" value="@LimitSource(agent.MaxTotalTokensParameterId)" @onchange="args => SetAgentLimitBinding(id, true, args)" disabled="@(Disabled || IsSequenceTerminalAgent)">
                                     <option value="static">Fixed value</option>
-                                    @foreach (var (parameterId, parameter) in IntegerParameters(AgentTotalTokenLimits.Minimum, AgentTotalTokenLimits.Maximum))
+                                    @foreach (var (parameterId, parameter) in IntegerParameters(AgentTotalTokenLimits.Minimum, AgentTotalTokenLimits.Maximum).Where(_ => !IsSequenceTerminalAgent))
                                     { <option value="parameter:@parameterId">Workflow input: @parameter.DisplayName</option> }
                                 </select>
                             </label>
-                            @if (agent.MaxTotalTokensParameterId is null)
+                            @if (agent.MaxTotalTokensParameterId is null || IsSequenceTerminalAgent)
                             { <input aria-label="Maximum total tokens for @id" type="number" min="@AgentTotalTokenLimits.Minimum" max="@AgentTotalTokenLimits.Maximum" value="@agent.MaxTotalTokens" placeholder="No agent limit" @onchange="args => MaxTotalTokens(id, args)" disabled="@Disabled" /> }
                             else if (ParameterDefinitions.TryGetValue(agent.MaxTotalTokensParameterId, out var totalLimitParameter))
                             { <p class="vaw-help">Uses “@totalLimitParameter.DisplayName” (default @totalLimitParameter.DefaultValue), validated from @AgentTotalTokenLimits.Minimum to @AgentTotalTokenLimits.Maximum.</p> }
@@ -787,18 +799,21 @@
                                 <input aria-label="Maximum model turns for @id" type="number" min="@AgentExecutionLimits.UnlimitedTurns" step="1" value="@(agent.MaxTurns ?? AgentExecutionLimits.DefaultMaximumTurns)" @onchange="args => MaxTurns(id, args)" disabled="@Disabled" />
                             </label>
                             <p class="vaw-help">Limits model responses, including tool-call rounds. Enter -1 for unlimited; any positive integer is allowed. Zero is invalid. Default: @AgentExecutionLimits.DefaultMaximumTurns. Timeout and token limits can still bound execution.</p>
-                            <label><input aria-label="Require structured result for @id" type="checkbox" checked="@(agent.RequireStructuredResult == true)" @onchange="args => RequireStructuredResult(id, args)" disabled="@Disabled" /> Require a structured result</label>
-                            <p class="vaw-help">Adds a built-in submit_result tool. The node returns JSON with status and payload; select status to route success, reported failure, or runtime limit outcomes.</p>
-                            <label>Agent timeout in seconds
-                                <input aria-label="Agent timeout in seconds for @id" type="number" min="1" step="1" value="@agent.TimeoutSeconds" placeholder="Host default" @onchange="args => AgentTimeout(id, args)" disabled="@Disabled" />
-                            </label>
-                            <p class="vaw-help">Any positive whole number of seconds. This node timeout takes priority over the model connection default. Blank uses the connection timeout.</p>
+                            @if (!IsSequenceTerminalAgent)
+                            {
+                                <label><input aria-label="Require structured result for @id" type="checkbox" checked="@(agent.RequireStructuredResult == true)" @onchange="args => RequireStructuredResult(id, args)" disabled="@Disabled" /> Require a structured result</label>
+                                <p class="vaw-help">Adds a built-in submit_result tool. The node returns JSON with status and payload; select status to route success, reported failure, or runtime limit outcomes.</p>
+                                <label>Agent timeout in seconds
+                                    <input aria-label="Agent timeout in seconds for @id" type="number" min="1" step="1" value="@agent.TimeoutSeconds" placeholder="Host default" @onchange="args => AgentTimeout(id, args)" disabled="@Disabled" />
+                                </label>
+                                <p class="vaw-help">Any positive whole number of seconds. This node timeout takes priority over the model connection default. Blank uses the connection timeout.</p>
+                            }
                         }
                         else
                         {
                             <p>Limits: @(agent.MaxOutputTokens ?? AgentOutputTokenLimits.LegacyDefault) output tokens per response, @(agent.MaxTotalTokens?.ToString() ?? "no total-token cap") reported total tokens, @(agent.MaxTurns is null ? $"{AgentExecutionLimits.DefaultMaximumTurns} (default)" : agent.MaxTurns == AgentExecutionLimits.UnlimitedTurns ? "unlimited" : agent.MaxTurns.ToString()) model turns, and @(agent.TimeoutSeconds is { } seconds ? $"{seconds} seconds" : "host-configured timeout"). Structured result: @(agent.RequireStructuredResult == true ? "required" : "disabled").</p>
                         }
-                        @if (!ReadOnly && Providers.FirstOrDefault(p => p.ProviderId == agent.ProviderId) is { SupportsReasoningEffort: true })
+                        @if (!ReadOnly && !IsSequenceTerminalAgent && Providers.FirstOrDefault(p => p.ProviderId == agent.ProviderId) is { SupportsReasoningEffort: true })
                         {
                             <label>Reasoning effort
                                 <select aria-label="Reasoning effort for @id" value="@(agent.ReasoningEffortParameterId is { } reasoningParam ? "parameter:" + reasoningParam : agent.ReasoningEffort?.ToString() ?? "")" @onchange="args => ReasoningEffort(id, args)" disabled="@Disabled">
@@ -823,7 +838,7 @@
                             <label>System instructions
                                 <textarea aria-label="Agent instructions for @id" value="@agent.Instructions" @onchange="args => Instructions(id, args)" maxlength="8192" rows="3" disabled="@Disabled"></textarea>
                             </label>
-                            @if (Definition.ExecutionConnections is not null)
+                            @if (Definition.ExecutionConnections is not null && !IsSequenceTerminalAgent)
                             {
                                 <label>Agent-selected execution routes
                                     <textarea aria-label="Agent routes for @id" value="@FormatAgentRoutes(agent.Routes)" @onchange="args => AgentRoutes(id, args)" maxlength="12000" rows="4" disabled="@Disabled" placeholder="research | Research | Gather supporting evidence&#10;answer | Answer | Produce the final response"></textarea>
@@ -834,7 +849,7 @@
                             {
                                 <p class="vaw-help">Agent-selected routes require explicit execution wires. This workflow still uses implicit linear execution, so configure a Condition node for branching.</p>
                             }
-                            <fieldset disabled="@Disabled">
+                            <fieldset disabled="@(Disabled || IsSequenceTerminalAgent)">
                                 <legend>User message</legend>
                                 <p class="vaw-help">The incoming graph value is used by default. Reference tokens resolve only declared inputs, never arbitrary expressions.</p>
                                 @if (agent.UserMessage is null)
@@ -842,7 +857,7 @@
                                 else
                                 { <PromptTemplateEditor Value="agent.UserMessage" Parameters="ParameterDefinitions" ValueChanged="template => SetUserTemplate(id, template)" Disabled="Disabled" /> }
                             </fieldset>
-                            <fieldset disabled="@Disabled"><legend>Skills</legend>
+                            <fieldset disabled="@(Disabled || IsSequenceTerminalAgent)"><legend>Skills</legend>
                                 <p class="vaw-help">Only assigned revisions are sent to this agent. Skills cannot grant tools.</p>
                                 @foreach (var item in SkillLibrary?.List() ?? [])
                                 {
@@ -854,7 +869,7 @@
                                 { <p>Assigned: @reference.Id · @reference.Version · @reference.ContentHash[..8]</p> }
                                 @if (SkillLibrary is not null) { <a href="/projects/@ProjectId/skills">Manage skill library</a> }
                             </fieldset>
-                            <fieldset disabled="@Disabled"><legend>Subagents</legend>
+                            <fieldset disabled="@(Disabled || IsSequenceTerminalAgent)"><legend>Subagents</legend>
                                 <p class="vaw-help">Selected profiles appear as delegate tools, so the parent agent chooses which specialist to call and when. Sequential delegate turns can exchange bounded messages on shared Agent Designer channels; the parallel team tool uses a separate channel scope for that team call. Membership is pinned with each profile revision. Each child gets only its own profile tools within host authorization. Teams run up to four members concurrently, one level deep, with a four-child-call limit per parent-agent invocation.</p>
                                 @foreach (var item in AgentProfileLibrary?.List() ?? [])
                                 {
@@ -896,7 +911,7 @@
                                     var assigned = agent.Tools.Any(request => BindingMatches(request, binding));
                                     <div class="vaw-agent-tool-assignment" @key="ToolKey(binding)">
                                         <label><input type="checkbox" aria-label="Assign @binding.BindingId to @id" checked="@assigned"
-                                            @onchange="args => AssignTool(id, binding, args)" disabled="@Disabled" /> @binding.DisplayName</label>
+                                            @onchange="args => AssignTool(id, binding, args)" disabled="@(Disabled || IsSequenceTerminalAgent)" /> @binding.DisplayName</label>
                                         <details>
                                             <summary>Tool details</summary>
                                             @if (!string.IsNullOrWhiteSpace(binding.ToolDescription)) { <p>@binding.ToolDescription</p> }
@@ -959,6 +974,7 @@
     }
     [Parameter] public IReadOnlyList<ToolBindingDescriptor> Bindings { get; set; } = [];
     private bool DirectMcpAuthoring => Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph;
+    private bool IsSequenceTerminalAgent => Definition.SchemaVersion == WorkflowSchemaVersions.SequenceAgentPathGraph;
     private bool SchemaDrivenMcpPins => WorkflowSchemaVersions.UsesDirectMcpPins(Definition.SchemaVersion);
     [Parameter] public IReadOnlyList<AgentProviderDescriptor> Providers { get; set; } = [];
     [Parameter] public bool ProviderChoicesLoading { get; set; }
@@ -1449,8 +1465,33 @@
         if (FunctionCatalog?.List().FirstOrDefault(item => FunctionKey(item.Function) == value) is { } function)
             return new(NodeTypes.FunctionCall, "1.0.0") { GraphFunction = function.Function };
         var provider = Providers.SingleOrDefault(p => ProviderKey(p) == value);
-        if (provider is not null) return new(NodeTypes.Agent, "1.0.0", Agent: (existing?.Agent ?? new(provider.ProviderId, null,
-            "Use assigned tools when available and return the result.", [])) with { ProviderId = provider.ProviderId });
+        if (provider is not null)
+        {
+            var agent = (existing?.Agent ?? new AgentConfiguration(provider.ProviderId, null,
+                "Return a concise plain-text result for the incoming value.", [])) with { ProviderId = provider.ProviderId };
+            if (IsSequenceTerminalAgent)
+            {
+                agent = agent with
+                {
+                    ProviderContractHash = provider.ContractHash,
+                    MaxTurns = agent.MaxTurns is { } turns and >= 1 ? turns : 1,
+                    MaxTotalTokens = agent.MaxTotalTokens is { } totalTokens and >= AgentTotalTokenLimits.Minimum ? totalTokens : AgentTotalTokenLimits.AuthoringDefault,
+                    MaxOutputTokensParameterId = null,
+                    MaxTotalTokensParameterId = null,
+                    RequireStructuredResult = null,
+                    TimeoutSeconds = null,
+                    ReasoningEffort = null,
+                    ReasoningEffortParameterId = null,
+                    UserMessage = null,
+                    Skills = null,
+                    Delegates = null,
+                    GraphFunctionTools = null,
+                    Routes = null,
+                    Tools = []
+                };
+            }
+            return new(NodeTypes.Agent, "1.0.0", Agent: agent);
+        }
         var binding = Bindings.SingleOrDefault(b => ToolKey(b) == value);
         return binding is null ? new(value, "1.0.0") : new(NodeTypes.McpTool, "1.0.0", new(binding.BindingId, binding.ContractHash)
         { DescriptionHash = binding.DescriptionHash }) { McpInputPorts = SchemaDrivenMcpPins ? McpInputPorts(binding) : null };

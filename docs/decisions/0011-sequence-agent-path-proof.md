@@ -113,8 +113,9 @@ include the terminal Agent provider, an exact host snapshot admits it, and a
 missing provider is rejected before a run record is created. Still required
 before marking this capability fully shipped: provider contract/grant-denial
 coverage for the public definition, tamper-resistant run-store handling,
-broader public settlement, package/1.43-to-1.46 compatibility proofs, and
-Studio authoring controls. Both file and SQLite stores now have nested
+broader public settlement, and package/1.43-to-1.46 compatibility proofs.
+The bounded Studio authoring slice is now present; it does not establish
+older-runtime compatibility or complete public promotion. Both file and SQLite stores now have nested
 Sequence/Agent/model playback proofs for success, Agent failure, and host
 cancellation, with no live executor calls during reopen. Schema 1.46 package JSON now also
 round-trips the Agent configuration, execution topology, provider requirement,
@@ -158,9 +159,15 @@ Promotion gates, in order:
   legacy playback readers before public 1.46 promotion. Legacy Sequence
   evidence remains readable through the nested projection with empty Agent and
   model collections; it does not invent descendant calls.
-- [ ] Add package/Studio authoring and invalid-topology coverage only after the
-  remaining runtime/evidence gates above pass; then advertise schema 1.46 as a
-  complete public capability.
+- [x] Add the bounded Studio authoring slice and invalid-topology affordance after
+  the runtime/evidence gates above pass. The editor promotes a valid 1.43 path,
+  exposes provider-backed terminal Agents in the explicit picker, pins the
+  provider contract, applies finite static defaults, and does not offer tools,
+  skills, delegation, routes, structured results, or parameter-bound limits for
+  this schema. Package compatibility with older runtimes and complete public
+  promotion remain open.
+- [ ] Qualify package compatibility with older runtimes and the remaining public
+  promotion gates before advertising schema 1.46 as a complete capability.
 
 ## Grant-denial evidence addendum (2026-10-29)
 

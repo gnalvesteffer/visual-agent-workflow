@@ -196,6 +196,9 @@ public partial class WorkflowEditor
     private bool CanUpgradeSequencePathGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.SequenceGraph &&
         WorkflowValidator.Validate(Definition).IsEmpty;
     private Task EnableSequencePathPreview() => Edit(() => GraphEditing.EnableSequencePathGraph(Definition));
+    private bool CanUpgradeSequenceAgentPathGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.SequencePathGraph &&
+        WorkflowValidator.Validate(Definition).IsEmpty;
+    private Task EnableSequenceAgentPathPreview() => Edit(() => GraphEditing.EnableSequenceAgentPathGraph(Definition));
     private int configurableParallelBranchCount = 3;
     private bool CanCreateConfigurableParallelGraph
     {
@@ -292,7 +295,7 @@ public partial class WorkflowEditor
                     FunctionKey(entry.Function), $"Function · {entry.Function.Definition.DisplayName} v{entry.Function.Definition.Version}",
                     "Functions", $"{entry.Function.Definition.Inputs.Count} inputs · {entry.Function.Definition.Outputs.Count} outputs · snapshot pinned on insert",
                         !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)
+            if (Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceAgentPathGraph)
                 explicitEntries.AddRange(Providers.Select(provider => new WorkflowNodeLibraryEntry(
                     ProviderKey(provider), provider.DisplayName, "Agents", $"Agent node · {provider.ModelId}",
                     !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));

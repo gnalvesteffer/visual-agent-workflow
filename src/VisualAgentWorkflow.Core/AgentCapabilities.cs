@@ -90,6 +90,7 @@ public static class AgentOutputTokenLimits
 
 public static class AgentTotalTokenLimits
 {
+    public const int AuthoringDefault = 4_000;
     public const int Minimum = 1;
     public const int Maximum = 100_000;
 }
