@@ -102,8 +102,32 @@
                         </select>
                     </label>
                     <button type="button" @onclick="InsertReusableWorkflow" disabled="@(preview is not null || WorkflowGraph.HasControlNodes(definition) || ReusableHasControlNodes || reusableRevisionId is null)">Insert published workflow</button>
-                    <button type="button" @onclick="InsertReusableWorkflowCall" disabled="@(preview is not null || reusableRevisionId is null || reusableWorkflowId == definition.WorkflowId)">Call pinned workflow version</button>
+                    <button type="button" @onclick="InsertReusableWorkflowCall" disabled="@(preview is not null || reusableRevisionId is null || reusableWorkflowId == definition.WorkflowId || IsSequenceCallDraft)">Call pinned workflow version</button>
                     <p class="vaw-help">A call embeds the selected immutable revision. Pins inherit the child’s string or JSON boundary types; compatible parent parameters can be mapped in the call node properties. Its tools and provider requirements remain host-configured.</p>
+                    @if (IsSequenceCallDraft)
+                    {
+                        <fieldset class="vaw-sequence-call-authoring" aria-label="Append a workflow call to a Sequence output">
+                            <legend>Sequence path call</legend>
+                            <p class="vaw-help">Append the selected published child to a direct-MCP Sequence output. The graph stays a saveable schema 1.49 draft until you explicitly promote the WorkflowCall path.</p>
+                            @if (SequenceCallPaths.IsEmpty)
+                            {
+                                <p class="vaw-help">No eligible direct-MCP output paths are available. Transforms, Agents, and existing calls cannot precede this bounded call.</p>
+                            }
+                            else
+                            {
+                                <label>Sequence output
+                                    <select aria-label="Sequence output for workflow call" @bind="sequenceCallOutputId" disabled="@(preview is not null || busy || reusableRevisionId is null)">
+                                        <option value="">Choose an eligible output</option>
+                                        @foreach (var path in SequenceCallPaths)
+                                        {
+                                            <option @key="path.OutputId" value="@path.OutputId">@path.OutputId · @path.NodeIds.Length direct MCP node(s)</option>
+                                        }
+                                    </select>
+                                </label>
+                                <button type="button" @onclick="InsertSequenceWorkflowCall" disabled="@(preview is not null || busy || reusableRevisionId is null || string.IsNullOrWhiteSpace(sequenceCallOutputId) || !SequenceCallPaths.Any(path => path.OutputId == sequenceCallOutputId))">Append call to Sequence output</button>
+                            }
+                        </fieldset>
+                    }
                     <ul class="vaw-requirements">
                         @foreach (var requirement in reusableRequirements)
                         { <li @key="requirement">@RequirementLabel(requirement): @RequirementAvailability(requirement)</li> }

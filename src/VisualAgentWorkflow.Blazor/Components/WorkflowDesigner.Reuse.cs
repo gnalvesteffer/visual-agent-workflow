@@ -13,6 +13,7 @@ public partial class WorkflowDesigner
         WorkflowGraph.HasControlNodes(selected.Revision.Definition);
     private string insertAfterNode = "";
     private string reusableSectionId = "";
+    private string sequenceCallOutputId = "";
     private string newReusableWorkflowId = "workflow-" + Guid.NewGuid().ToString("N")[..8];
     private IReadOnlyList<PublishedWorkflowRevision> reusableVersions = [];
     private IReadOnlyList<PackageRequirement> reusableRequirements = [];
@@ -57,7 +58,7 @@ public partial class WorkflowDesigner
     private void ResetReuse()
     {
         reusableWorkflowId = ""; reusableRevisionId = null; reusableVersions = []; reusableRequirements = [];
-        packageRequirements = []; reusableSectionId = ""; insertAfterNode = "";
+        packageRequirements = []; reusableSectionId = ""; insertAfterNode = ""; sequenceCallOutputId = "";
         ResetCallUpgrade();
         newReusableWorkflowId = "workflow-" + Guid.NewGuid().ToString("N")[..8];
     }
@@ -99,6 +100,21 @@ public partial class WorkflowDesigner
         upgradeReviewError = null; upgradeReviewBaseHash = ""; upgradeReviewOpen = false; upgradeReviewValid = false;
     }
 
+    private bool IsSequenceCallDraft => definition?.SchemaVersion == WorkflowSchemaVersions.SequenceTransformChainGraph;
+
+    private ImmutableArray<SequencePathTopology> SequenceCallPaths => definition is { } current &&
+        IsSequenceCallDraft && WorkflowValidator.Validate(current).IsEmpty
+        ? SequencePathTopologyAnalyzer.Analyze(current).Paths.Where(path => path.IsDirectMcpPath).ToImmutableArray()
+        : [];
+
+    private bool CanAuthorSequenceWorkflowCall => !IdeMode && preview is null && !busy &&
+        reusableRevisionId is not null && SequenceCallPaths.Any();
+
+    private WorkflowCallUpgradeResult UpgradeSelectedCall(PublishedWorkflowRevision target) =>
+        definition?.SchemaVersion == WorkflowSchemaVersions.SequenceTransformChainGraph
+            ? WorkflowCallEditing.UpgradeSequenceWorkflowCallDraft(definition, upgradeCallNodeId, target)
+            : WorkflowCallEditing.Upgrade(definition!, upgradeCallNodeId, target);
+
     private void ReviewWorkflowCallUpgrade()
     {
         if (definition is null || upgradeCallNodeId.Length == 0 || SelectedCallForUpgrade is not { } call ||
@@ -112,7 +128,7 @@ public partial class WorkflowDesigner
         upgradeReviewError = null;
         try
         {
-            var result = WorkflowCallEditing.Upgrade(definition, upgradeCallNodeId, target);
+            var result = UpgradeSelectedCall(target);
             droppedUpgradeMappings = result.DroppedParameterMappings;
             upgradeReviewValid = true;
         }
@@ -135,7 +151,7 @@ public partial class WorkflowDesigner
 
         try
         {
-            var result = WorkflowCallEditing.Upgrade(definition, upgradeCallNodeId, target);
+            var result = UpgradeSelectedCall(target);
             ApplyComposition(new(result.Definition, layout));
             upgradeChildLayout = WorkflowLayout.Create(target.Revision.Definition);
             upgradeChildLayoutIsDerived = true;
@@ -263,6 +279,20 @@ public partial class WorkflowDesigner
         if (!Current(current)) return;
         ApplyComposition(new(next, layout.Reconcile(next)));
         message = $"Added a call to '{source.Revision.Definition.WorkflowId}' version {sourceVersion.Version}. This child revision is embedded and pinned in this workflow.";
+    });
+
+    private Task InsertSequenceWorkflowCall() => Perform(async current =>
+    {
+        if (!CanAuthorSequenceWorkflowCall || definition is null || layout is null || reusableRevisionId is not { } id ||
+            !SequenceCallPaths.Any(path => path.OutputId == sequenceCallOutputId)) return;
+        var source = await current.Catalog.GetRevisionAsync(id).WaitAsync(current.Token) ?? throw new KeyNotFoundException();
+        if (source.Revision.Definition.WorkflowId != reusableWorkflowId || source.Revision.Definition.WorkflowId == definition.WorkflowId)
+            throw new ArgumentException("Choose a different published workflow revision.");
+        var next = WorkflowCallEditing.AppendSequenceWorkflowCallDraft(definition, definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.Sequence).Key,
+            sequenceCallOutputId, source);
+        if (!Current(current)) return;
+        ApplyComposition(new(next, layout.Reconcile(next)));
+        message = $"Added the pinned call to Sequence output '{sequenceCallOutputId}'. Save this schema 1.49 draft, then promote the WorkflowCall draft before publishing or running.";
     });
 
     private void ApplyComposition(WorkflowComposition next)

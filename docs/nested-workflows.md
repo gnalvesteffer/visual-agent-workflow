@@ -56,8 +56,12 @@ barrier settlement. The migration registry accepts only valid source revisions;
 invalid call-bearing drafts remain saveable but can now be explicitly promoted
 through the separate draft envelope, catalog publication, package format 1.2,
 and guarded Studio action described in [Decision 0050](decisions/0050-sequence-workflow-call-public-slice.md).
-Direct insertion/editing of a call into a Sequence path remains the next
-authoring increment.
+Studio now also offers an output-scoped action for eligible direct-MCP
+Sequence paths. It appends an exact published string child revision while
+leaving the parent as a saveable schema 1.49 draft; use **Promote WorkflowCall
+draft** before publishing or running. Existing call revision editing preserves
+the call node identity. Transforms, Agents, shared paths, and non-linear
+Sequence paths are intentionally excluded from this bounded authoring slice.
 
 ## Verification
 

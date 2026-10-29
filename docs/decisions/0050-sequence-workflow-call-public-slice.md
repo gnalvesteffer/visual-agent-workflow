@@ -42,8 +42,12 @@ requires the resulting schema-1.50 revision to pass strict validation before
 the catalog publishes it. SQLite stores the promotion provenance in schema 5,
 and packages export the source envelope in format 1.2. This provenance is
 historical evidence and an integrity boundary, not an authorization grant.
-The Studio does not yet author the WorkflowCall directly into a Sequence path;
-that remains the next bounded authoring increment.
+The Studio authors the WorkflowCall through an output-scoped draft action.
+The action accepts only an eligible direct-MCP path, appends the exact selected
+published child revision, preserves schema 1.49, and leaves explicit promotion
+to the existing draft-promotion control. It rejects transforms, Agents,
+existing calls, shared paths, and non-linear paths. Existing call revision
+editing uses a draft-aware replacement that preserves the call node identity.
 
 ## Verification
 
@@ -52,7 +56,7 @@ ordinary MCP sibling compatibility, and the explicit 1.49 → 1.50 migration.
 Agent Framework tests execute a serialized two-path schema 1.50 revision
 through `ExecuteWithOutcomeAsync` and verify both nested child completions and
 the parent completion event. Draft-candidate promotion, catalog persistence,
-package round trips, and the guarded Studio promotion action are covered by
-Core, Hosting, and Studio regressions. Direct Sequence-path call
-insertion/editing and the broader Blueprint topology remain roadmap work.
+package round trips, guarded Studio promotion, and direct Sequence-path
+authoring regressions are covered by Core, Hosting, and Studio compilation
+coverage. Broader Blueprint topology remains roadmap work.
 
