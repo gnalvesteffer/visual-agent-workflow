@@ -49,6 +49,10 @@ loop.
 - [x] Exercise the opt-in public host through two successive suspensions and
   reconstruct its variable evidence prefix passively, without another
   workflow execution for the playback assertion.
+- [x] Recover an opt-in public-host suspension after the owner process is
+  terminated, then resume twice without duplicating committed loop-body writes.
+  Checkpoint validation now checks the exact recorded evidence prefix rather
+  than incorrectly treating later history as part of the saved frame.
 - [x] Make recovery assessment total at the persisted-state boundary: malformed
   snapshots, checkpoint envelopes, frame data, and evidence are reported as
   ineligible rather than escaping as inspection/recovery exceptions. Cancellation

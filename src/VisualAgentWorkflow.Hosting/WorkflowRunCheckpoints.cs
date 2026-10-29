@@ -37,7 +37,9 @@ public sealed record WorkflowRunCheckpoint(string SchemaVersion, string RuntimeV
                 throw new InvalidDataException("Loop checkpoint state is missing its composite recovery frame.");
             var revision = WorkflowRevision.Rehydrate(snapshot.Header.RevisionId, snapshot.Header.Definition,
                 snapshot.Header.Author, snapshot.Header.ParentRevisionId, snapshot.Header.CreatedAt, snapshot.Header.ContentHash);
-            Frame.Validate(revision, snapshot.Events);
+            if (Sequence > snapshot.Events.Length)
+                throw new InvalidDataException("Loop checkpoint state points beyond the recorded evidence prefix.");
+            Frame.Validate(revision, snapshot.Events.Take((int)Sequence).ToArray());
             if (Frame.EvidenceCursor != Sequence ||
                 !string.Equals(Frame.NativePayload, Native.Payload, StringComparison.Ordinal) ||
                 !string.Equals(Frame.NativePayloadHash, PayloadHash, StringComparison.Ordinal) ||

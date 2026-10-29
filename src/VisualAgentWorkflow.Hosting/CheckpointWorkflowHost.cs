@@ -115,6 +115,12 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
                 boundary = null;
                 return ValueTask.FromResult(false);
             }
+            if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph &&
+                boundary is { Observation.NextNodeId: null })
+            {
+                boundary = null;
+                return ValueTask.FromResult(false);
+            }
             var hash = WorkflowRunCheckpoint.Hash(native.Payload);
             var metadata = JsonSerializer.Serialize(new { native.CheckpointId, payloadHash = hash, runtimeVersion = WorkflowRunner.CheckpointRuntimeVersion });
             var events = new List<ExecutionEvent>

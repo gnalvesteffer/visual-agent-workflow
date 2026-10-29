@@ -218,8 +218,11 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   binds a future loop frame to its native checkpoint ID/payload before commit;
   this closes the boundary-capture subgate without enabling schema 1.45. The
   opt-in host regression now persists two successive frames and reconstructs
-  the resulting variable evidence prefix passively; process-loss, race, and
-  final production-admission qualification remain open.
+  the resulting variable evidence prefix passively; race and final
+  production-admission qualification remain open.
+  A fresh-process opt-in-host regression now survives owner termination and
+  resumes twice without duplicate variable writes; checkpoint validation uses
+  the exact saved evidence prefix rather than later appended history.
   A two-process replacement-host race now qualifies the supported local
   ownership contract: exactly one process resumes and no duplicate variable
   writes occur; distributed fencing remains out of scope.

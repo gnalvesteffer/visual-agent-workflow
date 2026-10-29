@@ -444,7 +444,8 @@ public sealed class MutableVariableExecutionTests
                 initial.Header.RunId, revision, "continue", Record, resumeSink, cancellation.Token));
 
             var after = store.Get(initial.Header.RunId)!;
-            Assert.Throws<InvalidDataException>(() => store.GetCheckpoint(initial.Header.RunId));
+            var advancedCheckpoint = store.GetCheckpoint(initial.Header.RunId)!;
+            Assert.False(WorkflowCheckpointRecovery.Assess(after, advancedCheckpoint).CanResume);
             Assert.Equal(1, after.Events.Count(evt => evt.Kind == ExecutionEventKinds.VariableWritten));
             Assert.False(WorkflowCheckpointRecovery.Assess(after, checkpoint).CanResume);
             Assert.Contains(after.Events, evt => evt.Kind == ExecutionEventKinds.Cancelled);
@@ -526,6 +527,53 @@ public sealed class MutableVariableExecutionTests
     }
 
     [Fact]
+    public async Task Opted_in_public_loop_host_recovers_after_owner_process_loss()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "vaw-loop-host-process-" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        var database = Path.Combine(directory, "runs.sqlite3");
+        var startResult = Path.Combine(directory, "start.json");
+        var secondResumeResult = Path.Combine(directory, "resume-2.json");
+        var finalResumeResult = Path.Combine(directory, "resume-final.json");
+        try
+        {
+            var start = await RunCheckpointProbeAndKillAsync(database, startResult, "host-start");
+            Assert.NotEqual(0, start.ExitCode);
+            var started = await ReadProbeResultAsync(startResult);
+            var store = new SqliteWorkflowRunStore(database);
+            var snapshot = store.Get(started.RunId)!;
+            var checkpoint = store.GetCheckpoint(started.RunId)!;
+            Assert.Equal("suspended", snapshot.Status);
+            Assert.NotNull(checkpoint.Frame);
+            Assert.True(WorkflowCheckpointRecovery.Assess(snapshot, checkpoint).CanResume);
+
+            var secondResume = await RunCheckpointProbeAsync(database, secondResumeResult, "host-resume", started.RunId,
+                started.CheckpointId, suspendAfterCompletedNodes: 8);
+            Assert.True(secondResume.ExitCode == 0, secondResume.StandardOutput + Environment.NewLine + secondResume.StandardError);
+            var resumed = await ReadProbeResultAsync(secondResumeResult);
+            Assert.Equal(started.RunId, resumed.RunId);
+            var repeated = new SqliteWorkflowRunStore(database).Get(started.RunId)!;
+            var repeatedCheckpoint = new SqliteWorkflowRunStore(database).GetCheckpoint(started.RunId)!;
+            Assert.Equal("suspended", repeated.Status);
+            Assert.True(WorkflowCheckpointRecovery.Assess(repeated, repeatedCheckpoint).CanResume);
+            Assert.Equal(new long[] { 2, 3 }, repeated.Events.Where(evt => evt.Kind == ExecutionEventKinds.VariableWritten)
+                .Select(evt => JsonDocument.Parse(evt.Data!).RootElement.GetProperty("version").GetInt64()).ToArray());
+
+            var finalResume = await RunCheckpointProbeAsync(database, finalResumeResult, "host-resume", started.RunId,
+                resumed.CheckpointId);
+            Assert.True(finalResume.ExitCode == 0, finalResume.StandardOutput + Environment.NewLine + finalResume.StandardError);
+            var completed = new SqliteWorkflowRunStore(database).Get(started.RunId)!;
+            Assert.Equal("completed", completed.Status);
+            Assert.Equal(new long[] { 2, 3, 4 }, completed.Events.Where(evt => evt.Kind == ExecutionEventKinds.VariableWritten)
+                .Select(evt => JsonDocument.Parse(evt.Data!).RootElement.GetProperty("version").GetInt64()).ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public async Task Fresh_process_checkpoint_probe()
     {
         var operation = Environment.GetEnvironmentVariable("VAW_CHECKPOINT_PROBE");
@@ -535,6 +583,31 @@ public sealed class MutableVariableExecutionTests
         var resultPath = Environment.GetEnvironmentVariable("VAW_CHECKPOINT_RESULT")!;
         var input = "continue";
         var store = new SqliteWorkflowRunStore(database);
+        if (operation.StartsWith("host-", StringComparison.Ordinal))
+        {
+            await using var host = new CheckpointWorkflowHost(store, new CheckpointWorkflowHostOptions(true));
+            RunSnapshot hostRun;
+            if (operation == "host-start")
+            {
+                var hostRevision = WorkflowRevision.Create(LoopDefinition(), "loop-host-process-proof");
+                hostRun = await host.StartAsync(hostRevision, input, 4);
+            }
+            else
+            {
+                var hostRunId = Guid.Parse(Environment.GetEnvironmentVariable("VAW_CHECKPOINT_RUN_ID")!);
+                var hostCheckpointId = Environment.GetEnvironmentVariable("VAW_CHECKPOINT_ID")!;
+                var hostThreshold = int.TryParse(Environment.GetEnvironmentVariable("VAW_CHECKPOINT_SUSPEND_AFTER"), out var parsed)
+                    ? parsed : (int?)null;
+                hostRun = await host.ResumeAsync(hostRunId, hostCheckpointId, hostThreshold);
+            }
+            var hostCheckpoint = store.GetCheckpoint(hostRun.Header.RunId);
+            var hostOutput = hostRun.Status == "completed" ? hostRun.Events.LastOrDefault(evt => evt.Kind == ExecutionEventKinds.Completed)?.Data : null;
+            await File.WriteAllTextAsync(resultPath, JsonSerializer.Serialize(new ProbeResult(hostRun.Header.RunId,
+                hostCheckpoint?.Native.CheckpointId ?? "", Environment.ProcessId, hostOutput)));
+            if (Environment.GetEnvironmentVariable("VAW_CHECKPOINT_HOLD") == "1")
+                await Task.Delay(Timeout.InfiniteTimeSpan);
+            return;
+        }
         using var ownership = store.AcquireRuntimeOwnership();
         Guid runId;
         string? expectedCheckpoint = null;
