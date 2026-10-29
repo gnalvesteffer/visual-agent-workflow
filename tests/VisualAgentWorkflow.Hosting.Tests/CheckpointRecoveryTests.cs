@@ -219,6 +219,36 @@ public sealed class CheckpointRecoveryTests : IDisposable
     }
 
     [Fact]
+    public async Task Host_disposal_waits_for_active_checkpoint_publication_and_releases_ownership()
+    {
+        var inner = Store();
+        var publication = new BlockingPublicationStore(inner);
+        var runtime = new CheckpointWorkflowHost(publication);
+
+        try
+        {
+            var runTask = runtime.StartAsync(Revision(), "abc", 1);
+            await publication.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            var disposeTask = runtime.DisposeAsync().AsTask();
+            await Task.Delay(50);
+            Assert.False(disposeTask.IsCompleted);
+
+            publication.Release();
+            var run = await runTask;
+            await disposeTask;
+
+            Assert.Equal("suspended", run.Status);
+            Assert.True(WorkflowCheckpointRecovery.Assess(run, inner.GetCheckpoint(run.Header.RunId)).CanResume);
+            await using var replacement = new CheckpointWorkflowHost(inner);
+        }
+        finally
+        {
+            await runtime.DisposeAsync();
+        }
+    }
+
+    [Fact]
     public void Malformed_persisted_run_state_is_reported_as_ineligible_instead_of_throwing()
     {
         var malformed = new RunSnapshot(null!, []);
@@ -390,6 +420,28 @@ public sealed class CheckpointRecoveryTests : IDisposable
             if (Interlocked.Exchange(ref cancelled, 1) == 0) cancellation.Cancel();
             return inner.CommitCheckpoint(runId, expectedSequence, events, checkpoint);
         }
+    }
+
+    private sealed class BlockingPublicationStore(SqliteWorkflowRunStore inner) : IWorkflowCheckpointHostStore
+    {
+        public TaskCompletionSource<bool> Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public RunSnapshot Create(WorkflowRevision revision, string input) => inner.Create(revision, input);
+        public RunSnapshot? Get(Guid runId) => inner.Get(runId);
+        public IReadOnlyList<RunSnapshot> List() => inner.List();
+        public RunSnapshot Append(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events) => inner.Append(runId, expectedSequence, events);
+        public IDisposable AcquireRuntimeOwnership() => inner.AcquireRuntimeOwnership();
+        public WorkflowRunCheckpoint? GetCheckpoint(Guid runId) => inner.GetCheckpoint(runId);
+        public RunSnapshot CommitCheckpoint(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events,
+            WorkflowRunCheckpoint checkpoint)
+        {
+            Entered.TrySetResult(true);
+            release.Task.GetAwaiter().GetResult();
+            return inner.CommitCheckpoint(runId, expectedSequence, events, checkpoint);
+        }
+
+        public void Release() => release.TrySetResult(true);
     }
 
     private static WorkflowRevision VariableRevision()

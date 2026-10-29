@@ -78,6 +78,9 @@ loop.
   public host path: cancellation before commit records a cancelled run without
   a checkpoint, while cancellation during a successful commit preserves the
   committed suspended boundary.
+- [x] Qualify disposal during active checkpoint publication: disposal waits for
+  the in-flight commit, preserves the suspended boundary, and releases local
+  ownership for a replacement host.
 - [x] Reopen production-generated loop history after host disposal with no
   executor/model/tool calls and prove passive variable playback. The existing
   schema-1.44 recovery regression continues to prove the legacy envelope and

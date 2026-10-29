@@ -235,7 +235,10 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   commit boundary: cancellation before publication leaves a cancelled run with
   no checkpoint, while cancellation during a successful commit preserves the
   resumable suspension. Active-resume crash windows and disposal during active
-  execution/publication remain open.
+  execution/publication are now covered by a blocking-publication host
+  regression: disposal waits for the commit, preserves the suspension, and
+  releases local ownership for a replacement host. Active-resume crash windows
+  remain open.
 - [x] Add passive playback and prefix reconstruction for variable reads/writes
   without re-execution; the run inspector renders the reconstructed value,
   version, and operation history.
