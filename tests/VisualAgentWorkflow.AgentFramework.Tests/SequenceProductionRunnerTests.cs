@@ -162,6 +162,22 @@ public sealed class SequenceProductionRunnerTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "uppercase");
     }
 
+    [Fact]
+    public async Task Schema_1_49_executes_two_ordered_deterministic_transform_steps()
+    {
+        var events = new List<ExecutionEvent>();
+        var result = await new WorkflowRunner(new RecordingBroker()).ExecuteWithOutcomeAsync(
+            Guid.NewGuid(), WorkflowRevision.Create(SequenceTransformChainDefinition(), "sequence-transform-chain"), "hello", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("OLLEH", result.Output);
+        Assert.True(events.IndexOf(events.Single(evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "uppercase-first")) <
+            events.IndexOf(events.Single(evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "reverse-first")));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "reverse-first" && evt.Data == "OLLEH");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted);
+    }
+
     private static WorkflowDefinition SequenceTransformPathDefinition()
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
@@ -177,6 +193,31 @@ public sealed class SequenceProductionRunnerTests
             .Add("sequence-uppercase-second", new(new("sequence", "then.second"), new("uppercase-second", "execute"), "execution"))
             .Add("uppercase-second-output", new(new("uppercase-second", "then"), new("output", "execute"), "execution"));
         return new WorkflowDefinition(WorkflowSchemaVersions.SequenceTransformPathGraph, "sequence-transform-path", "input", nodes,
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
+        {
+            ExecutionConnections = execution
+        };
+    }
+
+    private static WorkflowDefinition SequenceTransformChainDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("sequence", new(NodeTypes.Sequence, "1.0.0") { Sequence = new([new("first", "First"), new("second", "Second")]) })
+            .Add("uppercase-first", new(NodeTypes.SequenceUppercase, "1.0.0"))
+            .Add("reverse-first", new(NodeTypes.SequenceReverse, "1.0.0"))
+            .Add("reverse-second", new(NodeTypes.SequenceReverse, "1.0.0"))
+            .Add("uppercase-second", new(NodeTypes.SequenceUppercase, "1.0.0"))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-sequence", new(new("input", "then"), new("sequence", "execute"), "execution"))
+            .Add("sequence-uppercase-first", new(new("sequence", "then.first"), new("uppercase-first", "execute"), "execution"))
+            .Add("uppercase-first-reverse", new(new("uppercase-first", "then"), new("reverse-first", "execute"), "execution"))
+            .Add("reverse-first-output", new(new("reverse-first", "then"), new("output", "execute"), "execution"))
+            .Add("sequence-reverse-second", new(new("sequence", "then.second"), new("reverse-second", "execute"), "execution"))
+            .Add("reverse-second-uppercase", new(new("reverse-second", "then"), new("uppercase-second", "execute"), "execution"))
+            .Add("uppercase-second-output", new(new("uppercase-second", "then"), new("output", "execute"), "execution"));
+        return new WorkflowDefinition(WorkflowSchemaVersions.SequenceTransformChainGraph, "sequence-transform-chain", "input", nodes,
             ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
         {
             ExecutionConnections = execution

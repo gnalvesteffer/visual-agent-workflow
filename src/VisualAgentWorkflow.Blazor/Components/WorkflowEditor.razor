@@ -144,6 +144,14 @@
                 <button type="button" @onclick="EnableSequenceReversePathPreview" disabled="@Disabled">Enable terminal reverse paths</button>
             </section>
         }
+        @if (CanUpgradeSequenceTransformChainGraph)
+        {
+            <section class="vaw-library-note" aria-label="Sequence deterministic transform chains">
+                <strong>Sequence deterministic transform chains</strong>
+                <p class="vaw-help">Promote this valid one-transform Sequence path to allow one uppercase and one reverse step in a bounded linear chain. Direct MCP tools must remain before the transforms, and the final step connects directly to Output.</p>
+                <button type="button" @onclick="EnableSequenceTransformChainPreview" disabled="@Disabled">Enable transform chains</button>
+            </section>
+        }
         @if (CanCreateConfigurableParallelGraph)
         {
             <section class="vaw-library-note" aria-label="Configurable parallel graph">
@@ -989,7 +997,7 @@
         return LayoutChanged.InvokeAsync(value);
     }
     [Parameter] public IReadOnlyList<ToolBindingDescriptor> Bindings { get; set; } = [];
-    private bool DirectMcpAuthoring => Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph;
+    private bool DirectMcpAuthoring => Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph;
     private bool IsSequenceTerminalAgent => Definition.SchemaVersion == WorkflowSchemaVersions.SequenceAgentPathGraph;
     private bool SchemaDrivenMcpPins => WorkflowSchemaVersions.UsesDirectMcpPins(Definition.SchemaVersion);
     [Parameter] public IReadOnlyList<AgentProviderDescriptor> Providers { get; set; } = [];

@@ -353,6 +353,25 @@ public sealed class SequenceGraphTests
     }
 
     [Fact]
+    public void Sequence_transform_topology_allows_a_direct_mcp_prefix()
+    {
+        var source = PathDefinition();
+        var definition = source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceTransformPathGraph,
+            Nodes = source.Nodes.Add("inventory-uppercase", new(NodeTypes.SequenceUppercase, "1.0.0")),
+            ExecutionConnections = source.ExecutionConnections!
+                .Remove("inventory-output")
+                .Add("inventory-uppercase", new(new("inventory-tool", "then"), new("inventory-uppercase", "execute"), "execution"))
+                .Add("inventory-output", new(new("inventory-uppercase", "then"), new("output", "execute"), "execution"))
+        };
+
+        var analysis = SequencePathTopologyAnalyzer.Analyze(definition);
+        Assert.True(analysis.IsValid, string.Join(Environment.NewLine, analysis.Issues.Select(issue => issue.Message)));
+        Assert.Empty(WorkflowValidator.Validate(definition));
+    }
+
+    [Fact]
     public void Sequence_reverse_path_schema_accepts_a_terminal_reverse_step()
     {
         var source = PathDefinition();
@@ -389,6 +408,74 @@ public sealed class SequenceGraphTests
 
         Assert.Equal(WorkflowSchemaVersions.SequenceReversePathGraph, promoted.SchemaVersion);
         Assert.Empty(WorkflowValidator.Validate(promoted));
+    }
+
+    [Fact]
+    public void Sequence_transform_chain_schema_accepts_both_deterministic_steps_in_order()
+    {
+        var source = PathDefinition();
+        var definition = source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceTransformChainGraph,
+            Nodes = source.Nodes.Remove("inventory-tool")
+                .Add("inventory-uppercase", new(NodeTypes.SequenceUppercase, "1.0.0"))
+                .Add("inventory-reverse", new(NodeTypes.SequenceReverse, "1.0.0")),
+            ExecutionConnections = source.ExecutionConnections!
+                .Remove("sequence-inventory")
+                .Remove("inventory-output")
+                .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("inventory-uppercase", "execute"), "execution"))
+                .Add("inventory-uppercase-reverse", new(new("inventory-uppercase", "then"), new("inventory-reverse", "execute"), "execution"))
+                .Add("inventory-output", new(new("inventory-reverse", "then"), new("output", "execute"), "execution"))
+        };
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        var analysis = SequencePathTopologyAnalyzer.Analyze(definition);
+        Assert.True(analysis.IsValid, string.Join(Environment.NewLine, analysis.Issues.Select(issue => issue.Message)));
+    }
+
+    [Fact]
+    public void Sequence_transform_chain_rejects_duplicate_transform_kinds()
+    {
+        var source = PathDefinition();
+        var definition = source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceTransformChainGraph,
+            Nodes = source.Nodes.Remove("inventory-tool")
+                .Add("inventory-uppercase", new(NodeTypes.SequenceUppercase, "1.0.0"))
+                .Add("inventory-uppercase-second", new(NodeTypes.SequenceUppercase, "1.0.0")),
+            ExecutionConnections = source.ExecutionConnections!
+                .Remove("sequence-inventory")
+                .Remove("inventory-output")
+                .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("inventory-uppercase", "execute"), "execution"))
+                .Add("inventory-uppercase-second-edge", new(new("inventory-uppercase", "then"), new("inventory-uppercase-second", "execute"), "execution"))
+                .Add("inventory-output", new(new("inventory-uppercase-second", "then"), new("output", "execute"), "execution"))
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "sequence.transform.duplicate");
+    }
+
+    [Fact]
+    public void Sequence_transform_chain_promotion_accepts_either_existing_transform_schema()
+    {
+        var source = PathDefinition();
+        var uppercase = source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceTransformPathGraph,
+            Nodes = source.Nodes.Remove("inventory-tool").Add("inventory-uppercase", new(NodeTypes.SequenceUppercase, "1.0.0")),
+            ExecutionConnections = source.ExecutionConnections!
+                .Remove("sequence-inventory")
+                .Remove("inventory-output")
+                .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("inventory-uppercase", "execute"), "execution"))
+                .Add("inventory-output", new(new("inventory-uppercase", "then"), new("output", "execute"), "execution"))
+        };
+        var reverse = uppercase with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceReversePathGraph,
+            Nodes = uppercase.Nodes.SetItem("inventory-uppercase", new(NodeTypes.SequenceReverse, "1.0.0"))
+        };
+
+        Assert.Equal(WorkflowSchemaVersions.SequenceTransformChainGraph, GraphEditing.EnableSequenceTransformChainGraph(uppercase).SchemaVersion);
+        Assert.Equal(WorkflowSchemaVersions.SequenceTransformChainGraph, GraphEditing.EnableSequenceTransformChainGraph(reverse).SchemaVersion);
     }
 
     [Fact]

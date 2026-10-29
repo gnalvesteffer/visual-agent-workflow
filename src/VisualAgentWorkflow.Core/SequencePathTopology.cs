@@ -34,7 +34,8 @@ public sealed record SequencePathTopologyAnalysis(
 /// <summary>
 /// Analyzes disjoint, bounded Sequence output paths using the same node-family contract as the public schema catalog.
 /// Schema 1.46 paths may contain zero or more direct MCP nodes followed by one terminal plain-text Agent;
-/// schemas 1.47 and 1.48 additionally admit one terminal deterministic text step.
+/// schemas 1.47 and 1.48 additionally admit one terminal deterministic text step;
+/// schema 1.49 admits at most one uppercase and one reverse step in sequence.
 /// </summary>
 public static class SequencePathTopologyAnalyzer
 {
@@ -114,6 +115,11 @@ public static class SequencePathTopologyAnalyzer
             var containsAgent = false;
             var containsTransform = false;
             var agentCount = 0;
+            var transformCount = 0;
+            var sawUppercase = false;
+            var sawReverse = false;
+            var transformStarted = false;
+            var isTransformChainGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceTransformChainGraph;
             while (current != output.Key && visited.Add(current))
             {
                 if (nodeIds.Count >= MaximumPathNodes)
@@ -152,9 +158,26 @@ public static class SequencePathTopologyAnalyzer
                     agentCount++;
                     ValidateAgent(node, current, outputId, Issue);
                 }
-                if (node.Type is (NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse) && nodeIds.Count != 1)
-                    Issue("sequence.transform.position", $"nodes.{current}", "The deterministic uppercase step must be the terminal node after any direct MCP tools.");
-                if (node.Type is NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse) containsTransform = true;
+                var isTransform = node.Type is (NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse);
+                if (isTransform)
+                {
+                    containsTransform = true;
+                    var hadTransformBefore = transformStarted;
+                    transformCount++;
+                    if (!isTransformChainGraph && hadTransformBefore)
+                        Issue("sequence.transform.position", $"nodes.{current}", "The deterministic text step must be terminal after any direct MCP tools.");
+                    transformStarted = true;
+                    if (transformCount > 2)
+                        Issue("sequence.transform.limit", $"nodes.{current}", "Schema 1.49 permits at most one uppercase and one reverse step per Sequence path.");
+                    if (node.Type == NodeTypes.SequenceUppercase && sawUppercase)
+                        Issue("sequence.transform.duplicate", $"nodes.{current}", "Schema 1.49 permits at most one uppercase step per Sequence path.");
+                    if (node.Type == NodeTypes.SequenceReverse && sawReverse)
+                        Issue("sequence.transform.duplicate", $"nodes.{current}", "Schema 1.49 permits at most one reverse step per Sequence path.");
+                    sawUppercase |= node.Type == NodeTypes.SequenceUppercase;
+                    sawReverse |= node.Type == NodeTypes.SequenceReverse;
+                }
+                if (isTransformChainGraph && node.Type == NodeTypes.McpTool && transformStarted)
+                    Issue("sequence.transform.order", $"nodes.{current}", "Schema 1.49 requires all direct MCP nodes to precede deterministic text steps.");
                 var next = outgoing.GetValueOrDefault(current) ?? [];
                 if (next.Length != 1)
                 {
@@ -169,8 +192,16 @@ public static class SequencePathTopologyAnalyzer
                     node.Type == NodeTypes.Agent && nextEdge.Source.PortId != "out" ||
                     node.Type is (NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse) && nextEdge.Source.PortId != "then")
                     Issue("sequence.path.port", $"nodes.{current}", "MCP tool paths must leave through 'then', Agent paths through 'out', and uppercase paths through 'then'.");
-                if (node.Type is (NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse) && nextEdge.Target.NodeId != output.Key)
-                    Issue("sequence.transform.position", $"nodes.{current}", "The deterministic uppercase step must connect directly to Output.");
+                if (isTransform)
+                {
+                    var nextIsTransform = definition.Nodes.TryGetValue(nextEdge.Target.NodeId, out var nextNode) &&
+                        nextNode?.Type is (NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse);
+                    if ((!isTransformChainGraph && nextEdge.Target.NodeId != output.Key) ||
+                        (isTransformChainGraph && nextEdge.Target.NodeId != output.Key && !nextIsTransform))
+                        Issue("sequence.transform.position", $"nodes.{current}", isTransformChainGraph
+                            ? "Schema 1.49 transform steps may only be followed by the other deterministic text step or Output."
+                            : "The deterministic text step must connect directly to Output.");
+                }
                 current = nextEdge.Target.NodeId;
             }
 

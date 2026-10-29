@@ -607,7 +607,7 @@ public static class WorkflowValidator
                 ValidateMutableVariableGraph(definition, Error);
             else if (definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph)
                 ValidateLoopVariableGraph(definition, Error);
-            else if (definition.SchemaVersion is WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph)
+            else if (definition.SchemaVersion is WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph)
                 ValidateSequenceGraph(definition, Error);
             else
             if (definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph)
@@ -917,9 +917,10 @@ public static class WorkflowValidator
             return;
         }
 
-        var isPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph;
+        var isPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph;
         var isAgentPathGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceAgentPathGraph;
-        var isTransformPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph;
+        var isTransformPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph;
+        var isTransformChainGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceTransformChainGraph;
         var supported = new HashSet<string>(StringComparer.Ordinal) { NodeTypes.Input, NodeTypes.Sequence, NodeTypes.Output };
         if (isPathGraph) supported.Add(NodeTypes.McpTool);
         if (isAgentPathGraph) supported.Add(NodeTypes.Agent);
@@ -936,7 +937,9 @@ public static class WorkflowValidator
                     ? isAgentPathGraph
                         ? "Schema 1.46 supports input, Sequence, direct MCP tool, terminal plain-text Agent, and output nodes; paths are linear and disjoint."
                         : isTransformPathGraph
-                            ? "Schema 1.47/1.48 supports input, Sequence, direct MCP tool, one terminal deterministic text step, and output nodes; paths are linear and disjoint."
+                            ? isTransformChainGraph
+                                ? "Schema 1.49 supports input, Sequence, direct MCP tool, at most one uppercase and one reverse deterministic text step, and output nodes; paths are linear and disjoint."
+                                : "Schema 1.47/1.48 supports input, Sequence, direct MCP tool, one terminal deterministic text step, and output nodes; paths are linear and disjoint."
                             : "Schema 1.43 supports input, Sequence, direct MCP tool, and output nodes; paths are linear and disjoint."
                     : "Schema 1.38 supports input, Sequence, and output nodes.");
 
@@ -1044,6 +1047,10 @@ public static class WorkflowValidator
                 var visited = new HashSet<string>(StringComparer.Ordinal);
                 var pathLength = 0;
                 var agentCount = 0;
+                var transformCount = 0;
+                var sawUppercase = false;
+                var sawReverse = false;
+                var transformStarted = false;
                 while (current != output && visited.Add(current))
                 {
                     pathLength++;
@@ -1078,12 +1085,28 @@ public static class WorkflowValidator
                     }
                     else if (current != output)
                         pathOwners[current] = outputId;
-                    if (isTransformPathGraph && currentNode.Type is (NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse) && current != output)
+                    var isTransform = currentNode.Type is (NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse);
+                    if (isTransformPathGraph && !isTransformChainGraph && isTransform && current != output)
                     {
                         var transformSuccessors = definition.ExecutionConnections.Values.Count(edge => edge.Source.NodeId == current);
                         if (transformSuccessors != 1)
                             error("sequence.transform.position", $"nodes.{current}", "The schema 1.47/1.48 deterministic text step must be the terminal node on its path.");
                     }
+                    if (isTransformChainGraph && isTransform)
+                    {
+                        transformStarted = true;
+                        transformCount++;
+                        if (transformCount > 2)
+                            error("sequence.transform.limit", $"nodes.{current}", "Schema 1.49 permits at most one uppercase and one reverse step per Sequence path.");
+                        if (currentNode.Type == NodeTypes.SequenceUppercase && !sawUppercase) sawUppercase = true;
+                        else if (currentNode.Type == NodeTypes.SequenceUppercase)
+                            error("sequence.transform.duplicate", $"nodes.{current}", "Schema 1.49 permits at most one uppercase step per Sequence path.");
+                        if (currentNode.Type == NodeTypes.SequenceReverse && !sawReverse) sawReverse = true;
+                        else if (currentNode.Type == NodeTypes.SequenceReverse)
+                            error("sequence.transform.duplicate", $"nodes.{current}", "Schema 1.49 permits at most one reverse step per Sequence path.");
+                    }
+                    if (isTransformChainGraph && currentNode.Type == NodeTypes.McpTool && transformStarted)
+                        error("sequence.transform.order", $"nodes.{current}", "Schema 1.49 requires all direct MCP nodes to precede deterministic text steps.");
                     var nextEdges = definition.ExecutionConnections.Values.Where(edge => edge.Source.NodeId == current).ToArray();
                     if (nextEdges.Length != 1)
                     {
@@ -1095,6 +1118,14 @@ public static class WorkflowValidator
                         currentNode.Type == NodeTypes.Agent && nextEdges[0].Source.PortId != "out" ||
                         currentNode.Type is (NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse) && nextEdges[0].Source.PortId != "then")
                         error("sequence.path.port", $"nodes.{current}", "Direct MCP paths must leave through 'then' and Agent paths must leave through 'out'.");
+                    if (isTransformChainGraph && isTransform)
+                    {
+                        var nextNodeId = nextEdges[0].Target.NodeId;
+                        var nextIsTransform = definition.Nodes.TryGetValue(nextNodeId, out var nextNode) &&
+                            nextNode?.Type is (NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse);
+                        if (nextNodeId != output && !nextIsTransform)
+                            error("sequence.transform.position", $"nodes.{current}", "Schema 1.49 transform steps may only be followed by the other deterministic text step or Output.");
+                    }
                     if (isAgentPathGraph && currentNode.Type == NodeTypes.Agent && nextEdges[0].Target.NodeId != output)
                         error("sequence.agent.terminal", $"nodes.{current}", "A terminal Agent must connect directly to the workflow Output.");
                     current = nextEdges[0].Target.NodeId;
