@@ -202,6 +202,11 @@ Descriptor progress: Core now has a canonical node-family catalog for stable dis
 
 The independent proponent/opponent/adjudicator review keeps public Sequence execution bounded to a definition-driven first slice. The proof covers Blueprint-style ordered dispatch with overlapping active descendants, completion-order divergence, cancellation between outputs, distinct failed/cancelled terminal outcomes with skipped later outputs, and deterministic pause/host-stop behavior at the inter-dispatch boundary. That harness now routes descendant start/completion facts through runner-owned active-node accounting, and Core can reconstruct recorded Sequence prefixes passively. Production `GraphMessage` transport also carries a private, non-persisted lineage envelope, and the normal `WorkflowRunner` now consumes persisted schema 1.38 descriptors for the bounded Input → Sequence → Output runtime slice. See [bounded Sequence dispatch boundary](decisions/0003-bounded-sequence-dispatch-boundary.md). Mutable variables remain deferred for the same contract/evidence reasons.
 
+Checkpoint proof progress: the loop frame now has direct regressions for
+malformed, oversized, foreign, stale/advanced, terminal, and unsettled
+boundaries; production schema-1.45 checkpoint admission remains closed pending
+native promotion semantics and exact public-admission review.
+
 Sequence proof checklist:
 
 - [x] Define a non-public, two-to-four-output activation ledger with stable order and explicit terminal/skipped states.

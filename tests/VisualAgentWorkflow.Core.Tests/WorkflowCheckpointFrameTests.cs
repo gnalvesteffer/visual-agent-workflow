@@ -39,6 +39,35 @@ public sealed class WorkflowCheckpointFrameTests
     }
 
     [Fact]
+    public void Proof_frame_rejects_malformed_and_oversized_native_payloads()
+    {
+        var revision = WorkflowRevision.Create(LoopVariableTopologyTests.Candidate(), "checkpoint-proof");
+        var runId = Guid.NewGuid();
+        var events = Evidence(runId, revision.RevisionId);
+        var variables = new WorkflowVariableStore(revision.Definition).Snapshot();
+        var frame = WorkflowCheckpointFrame.Create(revision, runId, "{}",
+            new("loop", "body", 1, 3, "body", "execute", "loop", "body", 2), variables, events);
+
+        Assert.Throws<InvalidDataException>(() => (frame with { NativePayload = "[]" }).Validate(revision, events));
+        Assert.Throws<InvalidDataException>(() => (frame with { NativePayload = new string('x', 1_048_577) }).Validate(revision, events));
+    }
+
+    [Fact]
+    public void Proof_frame_rejects_foreign_run_identity()
+    {
+        var revision = WorkflowRevision.Create(LoopVariableTopologyTests.Candidate(), "checkpoint-proof");
+        var runId = Guid.NewGuid();
+        var events = Evidence(runId, revision.RevisionId);
+        var variables = new WorkflowVariableStore(revision.Definition).Snapshot();
+        var frame = WorkflowCheckpointFrame.Create(revision, runId, "{}",
+            new("loop", "body", 1, 3, "body", "execute", "loop", "body", 2), variables, events);
+        var foreign = frame with { RunId = Guid.NewGuid(), FrameHash = null };
+        foreign = foreign with { FrameHash = foreign.ComputeFrameHash() };
+
+        Assert.Throws<InvalidDataException>(() => foreign.Validate(revision, events));
+    }
+
+    [Fact]
     public void Proof_frame_rejects_cursor_that_does_not_match_recorded_iteration()
     {
         var revision = WorkflowRevision.Create(LoopVariableTopologyTests.Candidate(), "checkpoint-proof");

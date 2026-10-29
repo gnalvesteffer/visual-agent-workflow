@@ -85,8 +85,10 @@ established by this proof.
   suspension remains internally valid and resumable.
 - [x] Cancel during loop resume and verify no body write is replayed; the
   advanced evidence makes the older checkpoint conservatively stale.
-- Reject stale, advanced, foreign, malformed, oversized, tampered, terminal,
-  and unsettled frames before native execution begins.
+- [x] Reject stale, advanced, foreign, malformed, oversized, tampered, terminal,
+  and unsettled frames before native execution begins; Core frame tests cover
+  malformed/oversized/foreign payloads and Hosting recovery tests cover
+  advanced, terminal, and unsettled boundaries.
 - Preserve schema 1.44 and older checkpoint formats and behavior unchanged.
 
 See [the loop-variable topology decision](0030-loop-variable-topology-proof.md)

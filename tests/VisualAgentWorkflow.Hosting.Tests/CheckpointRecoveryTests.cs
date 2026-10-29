@@ -93,6 +93,27 @@ public sealed class CheckpointRecoveryTests : IDisposable
     }
 
     [Fact]
+    public async Task Unsettled_recorded_work_cannot_reuse_a_saved_checkpoint_boundary()
+    {
+        var store = Store();
+        await using var runtime = new CheckpointWorkflowHost(store);
+        var run = await runtime.StartAsync(Revision(), "abc", 1);
+        var checkpoint = store.GetCheckpoint(run.Header.RunId)!;
+        var invocation = Guid.NewGuid();
+        var unsettledEvent = new ExecutionEvent(run.Header.RunId, run.Header.RevisionId,
+            run.Events.Length + 1, DateTimeOffset.UtcNow, ExecutionEventKinds.NodeStarted, "step-1", invocation);
+        var secondSuspension = new ExecutionEvent(run.Header.RunId, run.Header.RevisionId,
+            run.Events.Length + 2, DateTimeOffset.UtcNow, ExecutionEventKinds.Suspended);
+        var unsettled = run with { Events = run.Events.Add(unsettledEvent).Add(secondSuspension) };
+        var alignedCheckpoint = checkpoint with { Sequence = unsettled.Events.Length };
+
+        var assessment = WorkflowCheckpointRecovery.Assess(unsettled, alignedCheckpoint);
+
+        Assert.False(assessment.CanResume);
+        Assert.Equal("Recorded work is unsettled or ambiguously correlated.", assessment.Reason);
+    }
+
+    [Fact]
     public async Task ExternalNodesFailBeforeAdmissionAndCorruptOrForeignStateCannotResume()
     {
         var store = Store();
