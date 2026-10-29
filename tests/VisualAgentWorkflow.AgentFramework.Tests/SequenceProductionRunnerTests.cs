@@ -334,6 +334,50 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Persisted_terminal_agent_paths_settle_real_executor_failure_and_cancel_in_flight_sibling()
+    {
+        var events = new List<ExecutionEvent>();
+        var source = SequenceAgentPathDefinition();
+        var siblingProvider = new AgentProviderDescriptor("sequence-sibling", "Sibling", "scripted-text-v1", true);
+        var sibling = new NodeDefinition(NodeTypes.Agent, "1.0.0")
+        {
+            Agent = new AgentConfiguration(siblingProvider.ProviderId, null, "Return the supplied text.", [])
+            {
+                ProviderContractHash = siblingProvider.ContractHash,
+                MaxTurns = 1,
+                MaxTotalTokens = 4000
+            }
+        };
+        var definition = source with
+        {
+            Nodes = source.Nodes.Remove("architecture-tool").Add("architecture-agent", sibling),
+            ExecutionConnections = source.ExecutionConnections!
+                .Remove("sequence-architecture")
+                .Remove("architecture-output")
+                .Add("sequence-architecture", new(new("sequence", "then.architecture"), new("architecture-agent", "execute"), "execution"))
+                .Add("architecture-output", new(new("architecture-agent", "out"), new("output", "execute"), "execution"))
+        };
+        var siblingStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var agents = new AgentNodeExecutor(
+            [
+                new AgentProviderRegistration(new("sequence-proof", "Failing", "scripted-failure-v1", true), static () => new FailingChatClient()),
+                new AgentProviderRegistration(siblingProvider, () => new CancellationAwareChatClient(siblingStarted))
+            ],
+            new RecordingBroker());
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(new RecordingBroker(), agents)
+            .ExecuteWithOutcomeAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "sequence-agent-settlement"), "hello", null,
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        await siblingStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.NotNull(failure);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+    }
+
+    [Fact]
     public async Task Private_agent_sequence_proof_records_provider_timeout_as_failure_without_retry()
     {
         var events = new List<ExecutionEvent>();
@@ -625,6 +669,40 @@ public sealed class SequenceProductionRunnerTests
             FinishReason = ChatFinishReason.Stop,
             Usage = new UsageDetails { InputTokenCount = 4, OutputTokenCount = 3, TotalTokenCount = 7 }
         });
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose() { }
+    }
+
+    private sealed class FailingChatClient : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromException<ChatResponse>(new InvalidOperationException("scripted provider failure"));
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose() { }
+    }
+
+    private sealed class CancellationAwareChatClient(TaskCompletionSource<bool> started) : IChatClient
+    {
+        public async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            started.TrySetResult(true);
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new OperationCanceledException(cancellationToken);
+        }
 
         public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
             ChatOptions? options = null, CancellationToken cancellationToken = default) =>

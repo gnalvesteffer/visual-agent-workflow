@@ -134,8 +134,9 @@ Promotion gates, in order:
   provider fail-closed admission, provider timeout uncertainty, and two
   distinct Agent paths completing out of order; passive Sequence playback
   remains read-only.
-- [ ] Prove the same settlement contract for the public candidate with the
-  real Agent executor and host capability admission; never complete the
+- [x] Prove the same settlement contract for the public candidate with the
+  real Agent executor and host capability admission; a failed terminal Agent
+  settles its output, cancels an in-flight sibling, and never completes the
   workflow while descendant work remains active.
 - [ ] Add public-subset model-turn limit admission and execution tests once
   the remaining public runtime settlement contract is admitted.
@@ -175,3 +176,9 @@ when the provider reports usage above that budget, records the limit outcome,
 and settles the corresponding Sequence failure. Model-turn-limit coverage on
 the public path remains separate because the candidate deliberately excludes
 tool-call rounds.
+
+Public settlement is now qualified as well: a persisted two-output 1.46 graph
+using two real `AgentNodeExecutor` invocations records the failed output,
+cancels the in-flight sibling, and records Sequence failure without a
+completion event. The Core/Hosting admission tests independently require the
+exact host grant before run creation.
