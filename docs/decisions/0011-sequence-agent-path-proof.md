@@ -6,7 +6,10 @@
 
 ## Decision
 
-Do not expose Agent nodes in persisted Sequence paths or add schema 1.44 yet.
+Do not expose Agent nodes in persisted Sequence paths or add a public Agent-path
+schema yet. Schemas 1.44 and 1.45 are already assigned to mutable-variable
+slices; any future public Agent-path schema must be a newly reviewed additive
+version, currently expected to be 1.46.
 The next verified increment is an internal production proof only:
 
 ```text
@@ -64,8 +67,8 @@ failure admission. The private failure/cancellation fan-out still uses a
 deterministic executor, and public host-grant admission, persisted nested
 playback, and public schema compatibility remain unproven.
 
-The candidate future schema is additive `1.44`, preserving schemas 1.38 and
-1.43. It may eventually allow each of the existing two-to-four Sequence
+The candidate future schema is additive `1.46`, preserving schemas 1.38, 1.43,
+1.44, and 1.45. It may eventually allow each of the existing two-to-four Sequence
 outputs to use either its current direct-MCP path or exactly one terminal
 plain-text Agent immediately before Output. The candidate excludes Agent
 routes, structured results, MCP or graph-function tools, skills, delegation,
@@ -96,4 +99,5 @@ Promotion gates, in order:
 - [ ] Prove passive playback of nested Sequence/Agent/model identity with zero
   provider, tool, or executor calls, plus schema 1.38/1.43 compatibility.
 - [ ] Add Core/package/Studio authoring and invalid-topology coverage only after
-  the runtime and evidence gates above pass; then consider schema 1.44.
+  the runtime and evidence gates above pass; then consider the new additive
+  schema 1.46.

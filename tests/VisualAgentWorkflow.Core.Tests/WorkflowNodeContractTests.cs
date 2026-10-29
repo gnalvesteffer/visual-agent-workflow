@@ -384,6 +384,30 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Advisory_descriptor_audit_covers_every_canonical_node_family()
+    {
+        Assert.Empty(WorkflowNodeDescriptorAudit.AuditCatalog());
+        Assert.Empty(WorkflowNodeDescriptorAudit.AuditNodeFamilies());
+    }
+
+    [Fact]
+    public void Advisory_descriptor_audit_reports_port_projection_drift_without_mutating_workflow_data()
+    {
+        var node = new NodeDefinition(NodeTypes.StringConstant, "1.0.0");
+        var descriptor = WorkflowNodeDescriptorRegistry.Get(NodeTypes.StringConstant) with
+        {
+            Ports = [new("wrong", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String)]
+        };
+
+        var issues = WorkflowNodeDescriptorAudit.Audit(node, descriptor);
+
+        Assert.Contains(issues, issue => issue.Code == "ports.data-outputs" && issue.Authority == "port-projection");
+        Assert.Contains(issues, issue => issue.Code == "projection.descriptor" && issue.Authority == "capability-projection");
+        Assert.Equal("wrong", descriptor.Ports.Single().Id);
+        Assert.Equal("out", WorkflowPorts.ExplicitDataOutputs(node).Single().Id);
+    }
+
+    [Fact]
     public void Validator_admits_valid_static_descriptors_without_descriptor_boundary_issues()
     {
         var definition = new WorkflowDefinition(

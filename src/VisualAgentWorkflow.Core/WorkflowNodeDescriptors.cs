@@ -14,6 +14,139 @@ public sealed record WorkflowNodeDescriptor(
 
 public sealed record WorkflowNodeDescriptorIssue(string Code, string Message);
 
+/// <summary>A diagnostic emitted by the advisory cross-layer descriptor audit.</summary>
+/// <remarks>
+/// These diagnostics identify metadata drift for maintainers and tests only. They are
+/// intentionally not part of workflow validation, persistence, admission, or runtime
+/// authority.
+/// </remarks>
+public sealed record WorkflowNodeDescriptorAuditIssue(
+    string Code,
+    string NodeType,
+    string Authority,
+    string Message);
+
+/// <summary>
+/// Compares the non-authoritative node descriptor projection with the existing Core
+/// consumers that expose the same configured pin shape.
+/// </summary>
+public static class WorkflowNodeDescriptorAudit
+{
+    public static ImmutableArray<WorkflowNodeDescriptorAuditIssue> AuditCatalog()
+    {
+        var issues = ImmutableArray.CreateBuilder<WorkflowNodeDescriptorAuditIssue>();
+        foreach (var descriptor in WorkflowNodeDescriptorRegistry.All)
+            Audit(new NodeDefinition(descriptor.NodeType, descriptor.NodeContract.TypeVersion), issues, descriptor);
+
+        return issues.ToImmutable();
+    }
+
+    /// <summary>Audits one safe default configuration for every canonical node family.</summary>
+    public static ImmutableArray<WorkflowNodeDescriptorAuditIssue> AuditNodeFamilies()
+    {
+        var issues = ImmutableArray.CreateBuilder<WorkflowNodeDescriptorAuditIssue>();
+        foreach (var contract in WorkflowNodeContractCatalog.All)
+        {
+            var node = new NodeDefinition(contract.Type, contract.TypeVersion);
+            if (!WorkflowNodeDescriptorResolver.TryResolve(node, null, null, out var descriptor))
+            {
+                issues.Add(new("descriptor.unresolved", node.Type, "descriptor",
+                    "The default node configuration cannot be represented by the current descriptor projection."));
+                continue;
+            }
+
+            Audit(node, issues, descriptor);
+        }
+
+        return issues.ToImmutable();
+    }
+
+    public static ImmutableArray<WorkflowNodeDescriptorAuditIssue> Audit(
+        NodeDefinition node,
+        ImmutableArray<McpInputPortDefinition>? discoveredMcpInputPorts = null,
+        IReadOnlyDictionary<string, string>? discoveredMcpInputDescriptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        var issues = ImmutableArray.CreateBuilder<WorkflowNodeDescriptorAuditIssue>();
+        if (!WorkflowNodeDescriptorResolver.TryResolve(node, discoveredMcpInputPorts, discoveredMcpInputDescriptions, out var descriptor))
+        {
+            issues.Add(new("descriptor.unresolved", node.Type, "descriptor",
+                "The configured node cannot be represented by the current descriptor projection."));
+            return issues.ToImmutable();
+        }
+
+        Audit(node, issues, descriptor);
+        return issues.ToImmutable();
+    }
+
+    /// <summary>
+    /// Audits an explicitly supplied descriptor. This overload lets tests detect
+    /// drift without mutating the canonical registry or workflow definitions.
+    /// </summary>
+    public static ImmutableArray<WorkflowNodeDescriptorAuditIssue> Audit(
+        NodeDefinition node,
+        WorkflowNodeDescriptor descriptor)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        var issues = ImmutableArray.CreateBuilder<WorkflowNodeDescriptorAuditIssue>();
+        Audit(node, issues, descriptor);
+        return issues.ToImmutable();
+    }
+
+    private static void Audit(
+        NodeDefinition node,
+        ImmutableArray<WorkflowNodeDescriptorAuditIssue>.Builder issues,
+        WorkflowNodeDescriptor descriptor)
+    {
+        void Issue(string code, string authority, string message) =>
+            issues.Add(new(code, node.Type, authority, message));
+
+        foreach (var conformanceIssue in WorkflowNodeDescriptorConformance.ValidateResolved(node))
+            Issue($"descriptor.{conformanceIssue.Code}", "descriptor", conformanceIssue.Message);
+
+        var expectedDataInputs = WorkflowPorts.ExplicitDataInputs(node)
+            .Select(port => (port.Id, port.DataType)).ToArray();
+        var actualDataInputs = descriptor.Ports
+            .Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data)
+            .Select(port => (port.Id, port.DataType!)).ToArray();
+        if (!expectedDataInputs.SequenceEqual(actualDataInputs))
+            Issue("ports.data-inputs", "port-projection", "Descriptor data inputs differ from the canonical Core port projection.");
+
+        var expectedDataOutputs = WorkflowPorts.ExplicitDataOutputs(node)
+            .Select(port => (port.Id, port.DataType)).ToArray();
+        var actualDataOutputs = descriptor.Ports
+            .Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Data)
+            .Select(port => (port.Id, port.DataType!)).ToArray();
+        if (!expectedDataOutputs.SequenceEqual(actualDataOutputs))
+            Issue("ports.data-outputs", "port-projection", "Descriptor data outputs differ from the canonical Core port projection.");
+
+        var expectedExecutionInputs = WorkflowPorts.ExplicitExecutionInputs(node);
+        var actualExecutionInputs = descriptor.Ports
+            .Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Execution)
+            .Select(port => port.Id).ToImmutableArray();
+        if (!expectedExecutionInputs.SequenceEqual(actualExecutionInputs))
+            Issue("ports.execution-inputs", "port-projection", "Descriptor execution inputs differ from the canonical Core port projection.");
+
+        var expectedExecutionOutputs = WorkflowPorts.ExplicitExecutionOutputs(node);
+        var actualExecutionOutputs = descriptor.Ports
+            .Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Execution)
+            .Select(port => port.Id).ToImmutableArray();
+        if (!expectedExecutionOutputs.SequenceEqual(actualExecutionOutputs))
+            Issue("ports.execution-outputs", "port-projection", "Descriptor execution outputs differ from the canonical Core port projection.");
+
+        if (!WorkflowNodeCapabilityProjectionResolver.TryResolve(node, out var projection) ||
+            !DescriptorEquivalent(projection.Descriptor, descriptor))
+            Issue("projection.descriptor", "capability-projection", "Capability projection does not expose the audited descriptor.");
+    }
+
+    private static bool DescriptorEquivalent(WorkflowNodeDescriptor left, WorkflowNodeDescriptor right) =>
+        string.Equals(left.NodeType, right.NodeType, StringComparison.Ordinal) &&
+        string.Equals(left.DescriptorVersion, right.DescriptorVersion, StringComparison.Ordinal) &&
+        string.Equals(left.ConfigurationKind, right.ConfigurationKind, StringComparison.Ordinal) &&
+        left.Ports.SequenceEqual(right.Ports);
+}
+
 /// <summary>Checks the schema-neutral invariants of a registered static descriptor.</summary>
 /// <remarks>
 /// This is deliberately limited to descriptors whose pin shape is independent of node configuration.

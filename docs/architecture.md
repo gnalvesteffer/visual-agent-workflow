@@ -154,7 +154,7 @@ Core exposes a deterministic, non-authoritative analyzer for a future bounded
 Sequence path contract. It describes each persisted output path as either
 direct-MCP-only or one terminal plain-text Agent and reports stable diagnostics
 for sharing, cycles, unsupported Agent capabilities, invalid pins, and
-unreachable nodes. It does not promote schema 1.44, admit runtime execution,
+unreachable nodes. It does not promote a public Agent-path schema, admit runtime execution,
 change package compatibility, or grant host capabilities. The persisted schema
 1.43 validator and runner continue to reject Agent descendants until the
 promotion gates in [decision 0021](decisions/0021-sequence-agent-topology-analyzer.md)
