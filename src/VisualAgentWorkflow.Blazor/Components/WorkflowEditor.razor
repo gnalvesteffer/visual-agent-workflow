@@ -1383,8 +1383,8 @@
         }
         return WorkflowSchemaVersions.UsesExplicitGraph(Definition)
             ? WorkflowPorts.Explicit(node)
-            : [.. WorkflowPorts.Inputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType)),
-                .. WorkflowPorts.Outputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType))];
+            : [.. WorkflowPorts.Inputs(node).Select(port => LegacyDataPort(port, WorkflowPortDirection.Input)),
+                .. WorkflowPorts.Outputs(node).Select(port => LegacyDataPort(port, WorkflowPortDirection.Output))];
     }
     private NodeDefinition FromSelection(string value, NodeDefinition? existing = null)
     {

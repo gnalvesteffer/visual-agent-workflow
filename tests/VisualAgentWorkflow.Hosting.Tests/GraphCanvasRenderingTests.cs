@@ -54,7 +54,7 @@ public sealed class GraphCanvasRenderingTests
     [Fact]
     public async Task InputsInspectorSurfacesOverConnectedSingleValuePins()
     {
-        var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.23" };
+        var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.14" };
         var definition = baseline with
         {
             Connections = baseline.Connections.Add("duplicate-input", new ConnectionDefinition(

@@ -6,6 +6,15 @@ namespace VisualAgentWorkflow.Blazor.Components;
 
 public partial class WorkflowEditor
 {
+    private static WorkflowPortDescriptor LegacyDataPort(WorkflowPort port, WorkflowPortDirection direction) =>
+        new(port.Id, direction, WorkflowPortKind.Data, port.DataType)
+        {
+            Required = direction == WorkflowPortDirection.Input,
+            Cardinality = direction == WorkflowPortDirection.Input
+                ? WorkflowPortCardinality.ExactlyOne
+                : WorkflowPortCardinality.Many
+        };
+
     private static WorkflowNodeLibraryEntry ContractEntry(string type, bool enabled, string? description = null)
     {
         var contract = WorkflowNodeContractCatalog.Get(type);

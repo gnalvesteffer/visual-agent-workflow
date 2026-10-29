@@ -88,8 +88,16 @@ public partial class WorkflowGraphCanvas
     private CanvasConnection? FindConnection(string? id) => id is null ? null : CanvasConnections.FirstOrDefault(edge => edge.Id == id);
     private ImmutableArray<WorkflowPortDescriptor> Ports(NodeDefinition node) => PortResolver?.Invoke(node) ?? (WorkflowSchemaVersions.UsesExplicitGraph(Definition)
         ? WorkflowPorts.Explicit(node)
-        : [.. WorkflowPorts.Inputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType)),
-           .. WorkflowPorts.Outputs(node).Select(port => new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType))]);
+        : [.. WorkflowPorts.Inputs(node).Select(port => LegacyDataPort(port, WorkflowPortDirection.Input)),
+           .. WorkflowPorts.Outputs(node).Select(port => LegacyDataPort(port, WorkflowPortDirection.Output))]);
+    private static WorkflowPortDescriptor LegacyDataPort(WorkflowPort port, WorkflowPortDirection direction) =>
+        new(port.Id, direction, WorkflowPortKind.Data, port.DataType)
+        {
+            Required = direction == WorkflowPortDirection.Input,
+            Cardinality = direction == WorkflowPortDirection.Input
+                ? WorkflowPortCardinality.ExactlyOne
+                : WorkflowPortCardinality.Many
+        };
     private string Title(string id) => string.IsNullOrWhiteSpace(Layout.Nodes[id].Label) ? FriendlyName(Definition.Nodes[id]) : Layout.Nodes[id].Label;
     private static string TooltipId(string id) => $"vaw-node-comment-{id}";
 
