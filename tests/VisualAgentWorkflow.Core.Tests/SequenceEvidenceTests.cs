@@ -75,6 +75,66 @@ public sealed class SequenceEvidenceTests
     }
 
     [Fact]
+    public void Agent_playback_reconstructs_nested_lineage_without_runtime_services()
+    {
+        var sequenceId = Guid.NewGuid();
+        var runId = Guid.NewGuid();
+        var revisionId = Guid.NewGuid();
+        var activationId = Guid.NewGuid();
+        var agentInvocationId = Guid.NewGuid();
+        var modelCallId = Guid.NewGuid();
+        var events = new List<ExecutionEvent>
+        {
+            Lifecycle(runId, revisionId, 1, ExecutionEventKinds.SequenceStarted, sequenceId,
+                new(sequenceId, "sequence", null, null, null, null)),
+            Lifecycle(runId, revisionId, 2, ExecutionEventKinds.SequenceOutputDispatched, sequenceId,
+                new(sequenceId, "sequence", "research", 0, activationId, "sequence-research")),
+            Descendant(runId, revisionId, 3, ExecutionEventKinds.AgentStarted, "agent", agentInvocationId,
+                Lineage(sequenceId, "research", 0, activationId, "sequence-research")),
+            Descendant(runId, revisionId, 4, ExecutionEventKinds.ModelRequested, "agent", agentInvocationId,
+                Lineage(sequenceId, "research", 0, activationId, "sequence-research", modelCallId)),
+            Descendant(runId, revisionId, 5, ExecutionEventKinds.ModelResponded, "agent", agentInvocationId,
+                Lineage(sequenceId, "research", 0, activationId, "sequence-research", modelCallId)),
+            Descendant(runId, revisionId, 6, ExecutionEventKinds.AgentCompleted, "agent", agentInvocationId,
+                Lineage(sequenceId, "research", 0, activationId, "sequence-research")),
+            Lifecycle(runId, revisionId, 7, ExecutionEventKinds.SequenceOutputCompleted, sequenceId,
+                new(sequenceId, "sequence", "research", 0, activationId, "sequence-research")),
+            Lifecycle(runId, revisionId, 8, ExecutionEventKinds.SequenceCompleted, sequenceId,
+                new(sequenceId, "sequence", null, null, null, null))
+        };
+
+        Assert.True(SequenceAgentEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal("completed", playback!.Sequence.Status);
+        var agent = Assert.Single(playback.Agents);
+        Assert.Equal("completed", agent.State);
+        Assert.Equal("research", agent.OutputId);
+        var model = Assert.Single(playback.ModelCalls);
+        Assert.Equal(modelCallId, model.ModelCallId);
+        Assert.Equal("completed", model.State);
+    }
+
+    [Fact]
+    public void Agent_playback_rejects_tampered_nested_lineage()
+    {
+        var sequenceId = Guid.NewGuid();
+        var runId = Guid.NewGuid();
+        var revisionId = Guid.NewGuid();
+        var activationId = Guid.NewGuid();
+        var agentInvocationId = Guid.NewGuid();
+        var events = new List<ExecutionEvent>
+        {
+            Lifecycle(runId, revisionId, 1, ExecutionEventKinds.SequenceStarted, sequenceId,
+                new(sequenceId, "sequence", null, null, null, null)),
+            Lifecycle(runId, revisionId, 2, ExecutionEventKinds.SequenceOutputDispatched, sequenceId,
+                new(sequenceId, "sequence", "research", 0, activationId, "sequence-research")),
+            Descendant(runId, revisionId, 3, ExecutionEventKinds.AgentStarted, "agent", agentInvocationId,
+                Lineage(sequenceId, "research", 0, activationId, "tampered-connection"))
+        };
+
+        Assert.False(SequenceAgentEvidence.TryReconstructPlayback(events, out _));
+    }
+
+    [Fact]
     public void Playback_reconstructs_running_prefix_and_cancelled_skips()
     {
         var sequenceId = Guid.NewGuid();
@@ -176,4 +236,25 @@ public sealed class SequenceEvidenceTests
     private static ExecutionEvent Lifecycle(Guid runId, Guid revisionId, long sequence, string kind, Guid invocationId,
         SequenceLifecycleEvidence evidence) => new(runId, revisionId, sequence, DateTimeOffset.UtcNow, kind,
         evidence.SequenceNodeId, invocationId, evidence.ConnectionId, SequenceEvidence.Serialize(evidence));
+
+    private static ExecutionEvent Descendant(Guid runId, Guid revisionId, long sequence, string kind, string nodeId,
+        Guid invocationId, string data) => new(runId, revisionId, sequence, DateTimeOffset.UtcNow, kind,
+        nodeId, invocationId, Data: data);
+
+    private static string Lineage(Guid sequenceId, string outputId, int ordinal, Guid activationId,
+        string connectionId, Guid? modelCallId = null)
+    {
+        var lineage = new
+        {
+            sequenceInvocationId = sequenceId,
+            sequenceNodeId = "sequence",
+            outputId,
+            ordinal,
+            outputActivationId = activationId,
+            connectionId
+        };
+        return modelCallId is null
+            ? JsonSerializer.Serialize(new { sequenceLineage = lineage })
+            : JsonSerializer.Serialize(new { sequenceLineage = lineage, modelCallId });
+    }
 }

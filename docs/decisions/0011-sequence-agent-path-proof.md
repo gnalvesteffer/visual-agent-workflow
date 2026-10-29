@@ -90,9 +90,11 @@ The bounded provider-ID admission seam is now covered: package requirements
 include the terminal Agent provider, an exact host snapshot admits it, and a
 missing provider is rejected before a run record is created. Still required
 before marking this capability fully shipped: provider contract/grant-denial
-coverage for the public definition, both run-store persistence and tamper
-handling, passive nested Sequence/Agent/model playback with no live calls,
-package/1.43-to-1.46 compatibility proofs, and Studio authoring controls.
+coverage for the public definition, tamper-resistant run-store handling,
+broader passive nested failure/cancellation playback, package/1.43-to-1.46
+compatibility proofs, and Studio authoring controls. Both file and SQLite
+stores now have a success-path nested Sequence/Agent/model playback proof
+with no live executor calls during reopen.
 
 Promotion gates, in order:
 

@@ -71,9 +71,32 @@ public sealed class SequencePathEvidencePersistenceTests : IDisposable
         Assert.All(playback.Outputs, output => Assert.True(output.State is "cancelled" or "skipped"));
     }
 
-    private async Task<Guid> ExecuteThroughRuntime(IWorkflowRunStore store, WorkflowRevision revision, SequenceBroker broker)
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Schema_1_46_agent_lineage_survives_reopen_and_passive_playback(bool sqlite)
     {
-        using var runtime = new LocalWorkflowRuntime(store, NullLogger<LocalWorkflowRuntime>.Instance, broker);
+        var store = CreateStore(sqlite);
+        var revision = WorkflowRevision.Create(AgentDefinition(), "sequence-agent-persistence");
+        var agent = new SequenceAgentExecutor();
+        var broker = new SequenceBroker((_, _) => Task.FromResult("tool-result"));
+        var runId = await ExecuteThroughRuntime(store, revision, broker, agent);
+
+        var reopened = CreateStore(sqlite).Get(runId)!;
+        Assert.Equal("completed", reopened.Status);
+        Assert.True(SequenceAgentEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal("completed", playback!.Sequence.Status);
+        var agentPlayback = Assert.Single(playback.Agents);
+        Assert.Equal("completed", agentPlayback.State);
+        Assert.Equal("inventory", agentPlayback.OutputId);
+        Assert.Equal("completed", Assert.Single(playback.ModelCalls).State);
+        Assert.Equal(1, agent.InvocationCount);
+    }
+
+    private async Task<Guid> ExecuteThroughRuntime(IWorkflowRunStore store, WorkflowRevision revision, SequenceBroker broker,
+        IAgentNodeExecutor? agents = null)
+    {
+        using var runtime = new LocalWorkflowRuntime(store, NullLogger<LocalWorkflowRuntime>.Instance, broker, agents);
         await runtime.StartAsync(CancellationToken.None);
         try
         {
@@ -153,6 +176,26 @@ public sealed class SequencePathEvidencePersistenceTests : IDisposable
         };
     }
 
+    private static WorkflowDefinition AgentDefinition()
+    {
+        var definition = Definition();
+        var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0")
+        {
+            Agent = new AgentConfiguration("sequence-proof", null, "Return the supplied text.", [])
+            { MaxTurns = 1, MaxTotalTokens = 4000 }
+        };
+        return definition with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceAgentPathGraph,
+            Nodes = definition.Nodes.Remove("inventory-tool").Add("research-agent", agent),
+            ExecutionConnections = definition.ExecutionConnections!
+                .Remove("sequence-inventory")
+                .Remove("inventory-output")
+                .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("research-agent", "execute"), "execution"))
+                .Add("inventory-output", new(new("research-agent", "out"), new("output", "execute"), "execution"))
+        };
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
@@ -188,6 +231,30 @@ public sealed class SequencePathEvidencePersistenceTests : IDisposable
             }
 
             public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class SequenceAgentExecutor : IAgentNodeExecutor
+    {
+        public int InvocationCount { get; private set; }
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>([new("sequence-proof", "Proof", "proof", false)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            InvocationCount++;
+            await invocation.RecordEventAsync(ExecutionEventKinds.AgentStarted,
+                JsonSerializer.Serialize(new { provider = new { modelId = "sequence-proof" } }));
+            var modelCallId = Guid.NewGuid();
+            await invocation.RecordEventForAsync(modelCallId, ExecutionEventKinds.ModelRequested,
+                JsonSerializer.Serialize(new { modelCallId, input }));
+            await invocation.RecordEventForAsync(modelCallId, ExecutionEventKinds.ModelResponded,
+                JsonSerializer.Serialize(new { modelCallId, output = input }));
+            await invocation.RecordEventAsync(ExecutionEventKinds.AgentCompleted,
+                JsonSerializer.Serialize(new { output = input }));
+            return input;
         }
     }
 }
