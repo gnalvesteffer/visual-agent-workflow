@@ -49,7 +49,7 @@ change the exact typed pin set for dynamic families.
 | MCP tool | Capabilities | Data + execution | Execution / host-owned | Propagates / capability invocation | External tool capability; host grant required | Static argument bound; `McpArgumentId` dynamic pins |
 | Workflow call | Composition | Data + execution | Child workflow / run-scoped | Child outcome propagation / child workflow | Calls a pinned child revision | Depth and expanded-node bounds |
 | Function input, Function output | Functions | Data only | Data evaluation / stateless | Propagates / data evaluation | Pure graph-function boundary | Interface-defined typed pins |
-| Function call | Functions | Data only | Data evaluation / stateless | Propagates / data evaluation | Pure pinned computation | Body-node and node-visit bounds; `GraphFunctionPortId` dynamic pins |
+| Function call | Functions | Data only | Data evaluation / stateless | Propagates / data evaluation | Pure pinned computation | Body-node and node-visit bounds; `GraphFunctionPortId` dynamic pins; legacy and explicit Core port projections share the pinned function's ordered typed ports |
 
 ## Authority boundaries
 

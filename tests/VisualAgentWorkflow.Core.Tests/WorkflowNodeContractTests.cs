@@ -637,6 +637,62 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Function_call_data_ports_are_consistent_across_legacy_and_explicit_port_apis()
+    {
+        var function = new GraphFunctionDefinition("typed.fn", 1, "Typed function", "",
+            new Dictionary<string, GraphFunctionPort>
+            {
+                ["count"] = new("Count", WorkflowDataTypes.Integer),
+                ["query"] = new("Query", WorkflowDataTypes.String)
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            new Dictionary<string, GraphFunctionPort>
+            {
+                ["answer"] = new("Answer", WorkflowDataTypes.String),
+                ["score"] = new("Score", WorkflowDataTypes.Number)
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty,
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty);
+        var call = new NodeDefinition(NodeTypes.FunctionCall, "1.0.0")
+        {
+            GraphFunction = new(function, GraphFunctionJson.ComputeHash(function))
+        };
+
+        var expectedInputs = new[]
+        {
+            new WorkflowPort("count", WorkflowDataTypes.Integer),
+            new WorkflowPort("query", WorkflowDataTypes.String)
+        };
+        var expectedOutputs = new[]
+        {
+            new WorkflowPort("answer", WorkflowDataTypes.String),
+            new WorkflowPort("score", WorkflowDataTypes.Number)
+        };
+
+        Assert.Equal(expectedInputs, WorkflowPorts.Inputs(call));
+        Assert.Equal(expectedInputs, WorkflowPorts.ExplicitDataInputs(call));
+        Assert.Equal(expectedOutputs, WorkflowPorts.Outputs(call));
+        Assert.Equal(expectedOutputs, WorkflowPorts.ExplicitDataOutputs(call));
+        Assert.Equal(expectedInputs.Select(port => (port.Id, port.DataType)),
+            WorkflowPorts.Explicit(call).Where(port => port.Direction == WorkflowPortDirection.Input)
+                .Select(port => (port.Id, port.DataType!)));
+        Assert.Equal(expectedOutputs.Select(port => (port.Id, port.DataType)),
+            WorkflowPorts.Explicit(call).Where(port => port.Direction == WorkflowPortDirection.Output)
+                .Select(port => (port.Id, port.DataType!)));
+    }
+
+    [Fact]
+    public void Function_call_without_valid_configuration_does_not_receive_generic_fallback_ports()
+    {
+        var missing = new NodeDefinition(NodeTypes.FunctionCall, "1.0.0");
+        var unsupported = missing with { TypeVersion = "0.0.1" };
+
+        Assert.Empty(WorkflowPorts.Inputs(missing));
+        Assert.Empty(WorkflowPorts.Outputs(missing));
+        Assert.Empty(WorkflowPorts.Inputs(unsupported));
+        Assert.Empty(WorkflowPorts.Outputs(unsupported));
+    }
+
+    [Fact]
     public void Dynamic_port_projection_ignores_malformed_null_members_without_losing_valid_ordered_pins()
     {
         var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0",

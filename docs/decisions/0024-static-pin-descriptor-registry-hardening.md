@@ -31,6 +31,22 @@ increment. Dynamic/configuration-derived families continue through their
 existing resolvers and schema-specific validation. The remaining switch-based
 fallbacks in `WorkflowPorts` are intentionally not replaced here.
 
+## Bounded follow-up: graph-function call data ports
+
+The first convergence increment reconciles `FunctionCall` data-port projection
+across the legacy `Inputs`/`Outputs` helpers, explicit data-port helpers, and
+the descriptor resolver. A pinned graph-function's sorted input/output IDs and
+declared data types are now the same through each Core port API. Missing or
+unsupported function-call configuration receives no generic `in`/`out`
+fallback pins, preserving fail-closed behavior for malformed definitions.
+
+This remains schema-neutral: descriptor versions are not serialized, workflow
+JSON and hashes are unchanged, execution pins and scheduling are untouched,
+and historical node versions still receive no current pin semantics. Focused
+tests cover multi-port typed functions, explicit/legacy projection parity, and
+missing or unsupported function-call versions. Dynamic MCP, Agent, parallel,
+Sequence, and graph-function migration behavior remain separate gates.
+
 ## Follow-up gates
 
 Before claiming descriptor convergence, define historical descriptor

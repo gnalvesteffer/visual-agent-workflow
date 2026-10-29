@@ -65,7 +65,7 @@ public static class WorkflowPorts
         NodeTypes.VariableSet => [new("value", node.InputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.McpTool when node.McpInputPorts is { } ports => [.. ports.Where(port => port is not null).Select(port => new WorkflowPort(port.Id, port.DataType))],
         NodeTypes.McpTool => [new("in", WorkflowDataTypes.String)],
-        NodeTypes.FunctionCall when node.GraphFunction?.Definition?.Inputs is { } inputs => [.. inputs.Where(pair => pair.Value is not null).Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))],
+        NodeTypes.FunctionCall => FunctionCallDataInputs(node),
         _ => []
     };
 
@@ -86,7 +86,7 @@ public static class WorkflowPorts
         NodeTypes.McpTool => [new("out", WorkflowDataTypes.String)],
         NodeTypes.ParallelJoin => [new("out", WorkflowDataTypes.Json)],
         NodeTypes.StringEquals or NodeTypes.IntegerEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", WorkflowDataTypes.Boolean)],
-        NodeTypes.FunctionCall when node.GraphFunction?.Definition?.Outputs is { } outputs => [.. outputs.Where(pair => pair.Value is not null).Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))],
+        NodeTypes.FunctionCall => FunctionCallDataOutputs(node),
         _ => []
     };
 
@@ -138,6 +138,7 @@ public static class WorkflowPorts
         NodeTypes.ParallelJoin => [new("branch_1", WorkflowDataTypes.String), new("branch_2", WorkflowDataTypes.String)],
         NodeTypes.Output => [new("in", node.OutputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.WorkflowCall => [new("in", WorkflowCallInputType(node))],
+        NodeTypes.FunctionCall => FunctionCallDataInputs(node),
         NodeTypes.Terminate => [new("in", WorkflowDataTypes.String)],
         _ => [new("in", WorkflowDataTypes.String)]
     };
@@ -148,6 +149,7 @@ public static class WorkflowPorts
     {
         NodeTypes.Output or NodeTypes.Terminate => [],
         NodeTypes.WorkflowCall => [new("out", WorkflowCallOutputType(node))],
+        NodeTypes.FunctionCall => FunctionCallDataOutputs(node),
         NodeTypes.Agent when node.Agent?.RequireStructuredResult == true => [new("out", WorkflowDataTypes.Json)],
         NodeTypes.Condition => [new("true", WorkflowDataTypes.String), new("false", WorkflowDataTypes.String)],
         NodeTypes.Input when node.InputDataType == WorkflowDataTypes.Json => [new("out", WorkflowDataTypes.Json)],
@@ -168,6 +170,16 @@ public static class WorkflowPorts
         node.WorkflowCall?.Definition?.Nodes is { } nodes && nodes.Values.FirstOrDefault(candidate => candidate?.Type == NodeTypes.Output) is { } output
             ? Inputs(output).SingleOrDefault()?.DataType ?? WorkflowDataTypes.String
             : WorkflowDataTypes.String;
+
+    private static ImmutableArray<WorkflowPort> FunctionCallDataInputs(NodeDefinition node) =>
+        node.GraphFunction?.Definition?.Inputs is { } inputs
+            ? [.. inputs.Where(pair => pair.Value is not null).Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))]
+            : [];
+
+    private static ImmutableArray<WorkflowPort> FunctionCallDataOutputs(NodeDefinition node) =>
+        node.GraphFunction?.Definition?.Outputs is { } outputs
+            ? [.. outputs.Where(pair => pair.Value is not null).Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))]
+            : [];
 
     private static bool IsSupportedNodeVersion(NodeDefinition node) =>
         WorkflowNodeContractCatalog.TryGet(node.Type, out var contract) &&

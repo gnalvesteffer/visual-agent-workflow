@@ -114,6 +114,11 @@ Make every Blueprint-inspired authoring affordance traceable to a stable definit
 - [ ] **Verification:** add deterministic contract/runtime tests, compatibility and failure cases, browser authoring smokes, package/playback proofs, and responsiveness/accessibility checks for each shipped increment.
 - [ ] **Expansion gate:** promote richer containers, mutable variables, events, nested control flow, interfaces, templates, or durable waits into separate roadmap phases only after their contracts, compatibility policy, security boundary, and evidence semantics are reviewed and proven.
 
+The first descriptor-convergence slice now makes pinned FunctionCall data ports
+identical through legacy and explicit Core projections and removes generic
+fallback pins for missing or unsupported function configuration. The broader
+descriptor item remains unchecked.
+
 ### Active parity phase: run-scoped mutable variable proof
 
 **Status: Shipped bounded slice; follow-up proofs remain planned.** The required
