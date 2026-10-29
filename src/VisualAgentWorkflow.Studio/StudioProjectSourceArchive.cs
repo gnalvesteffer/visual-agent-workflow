@@ -205,6 +205,43 @@ public static class StudioProjectSourceArchive
         return $"workflows/{safeId}-{idHash}-{contentHash[..16].ToLowerInvariant()}.workflow";
     }
 
+    /// <summary>Returns the stable, Git-friendly source path for a mutable folder workflow.</summary>
+    public static string WorkflowSourcePath(string workflowId, string directory = "workflows")
+    {
+        if (!ValidAssetId(workflowId)) throw new ArgumentException("A safe workflow ID is required.", nameof(workflowId));
+        if (string.IsNullOrWhiteSpace(directory)) throw new ArgumentException("A workflow directory is required.", nameof(directory));
+        var safeId = Segment(workflowId);
+        var idHash = Hash(System.Text.Encoding.UTF8.GetBytes(workflowId))[..8];
+        return $"{directory.TrimEnd('/')}/{safeId}-{idHash}.workflow";
+    }
+
+    public static bool IsStableWorkflowPath(StudioProjectFile file)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        var directory = Path.GetDirectoryName(file.Path)?.Replace('\\', '/') ?? string.Empty;
+        return file.Kind == "workflow" && string.Equals(file.Path, WorkflowSourcePath(file.Id, directory), StringComparison.Ordinal);
+    }
+
+    /// <summary>Refreshes manifest hashes for valid, stable workflow source files edited outside Studio.</summary>
+    public static StudioProjectManifest RefreshMutableWorkflowHashes(StudioProjectManifest manifest,
+        IReadOnlyDictionary<string, byte[]> files)
+    {
+        var updated = manifest.Files.ToBuilder();
+        var changed = false;
+        for (var index = 0; index < updated.Count; index++)
+        {
+            var file = updated[index];
+            if (!IsStableWorkflowPath(file) || !files.TryGetValue(file.Path, out var content) ||
+                string.Equals(file.Sha256, ComputeContentHash(content), StringComparison.Ordinal)) continue;
+            var source = DeserializeWorkflowSource(content);
+            if (!string.Equals(source.Definition.WorkflowId, file.Id, StringComparison.Ordinal))
+                throw new InvalidDataException($"Project asset '{file.Path}' does not match its workflow ID.");
+            updated[index] = file with { Sha256 = ComputeContentHash(content) };
+            changed = true;
+        }
+        return changed ? manifest with { Files = updated.ToImmutable() } : manifest;
+    }
+
     public static string SkillAssetPath(string id, string version, string contentHash)
     {
         if (contentHash is null || contentHash.Length != 64 || !contentHash.All(Uri.IsHexDigit))

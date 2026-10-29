@@ -316,7 +316,7 @@ app.MapPost("/api/settings/model-providers", (AddModelProviderRequest request, S
     catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
     catch (InvalidOperationException error) { return Results.BadRequest(new { error = error.Message }); }
 });
-app.MapGet("/api/templates/default", () => Results.Text(WorkflowJson.Serialize(WorkflowTemplates.Create("uppercase-reverse")), "application/json"));
+app.MapGet("/api/templates/default", () => Results.Text(WorkflowJson.Serialize(WorkflowTemplates.CreateExplicit("uppercase-reverse")), "application/json"));
 app.MapPost("/api/runs", async (StartRunRequest request, IWorkflowClient client) =>
 {
     try

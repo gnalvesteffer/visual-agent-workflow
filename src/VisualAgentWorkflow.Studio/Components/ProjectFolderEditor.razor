@@ -1659,7 +1659,7 @@
         treeContext = null;
         editorTabs.Clear();
         var id = "workflow-" + Guid.NewGuid().ToString("N");
-        var created = WorkflowTemplates.Create("uppercase-reverse") with { WorkflowId = id, DisplayName = "Untitled workflow" };
+        var created = WorkflowTemplates.CreateExplicit("uppercase-reverse") with { WorkflowId = id, DisplayName = "Untitled workflow" };
         openedWorkflow = new(id, "Untitled workflow", "", "", created, WorkflowLayout.Create(created));
         openedSkill = null;
         openedProfile = null;

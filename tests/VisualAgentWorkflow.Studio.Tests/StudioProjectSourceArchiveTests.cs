@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.IO.Compression;
 using System.Text;
+using System.Text.Json;
 using VisualAgentWorkflow.Blazor;
 using VisualAgentWorkflow.Core;
 using VisualAgentWorkflow.Hosting;
@@ -414,7 +415,7 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
     }
 
     [Fact]
-    public void FolderWorkflowSource_SavesHashAddressedDraftAndRejectsStaleEdits()
+    public void FolderWorkflowSource_SavesStableDraftAndRejectsStaleEdits()
     {
         var folder = Path.Combine(directory, "folder-workflow");
         StudioProjectSourceDirectory.Write(folder,
@@ -436,9 +437,74 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
         Assert.Equal(WorkflowLayoutJson.Serialize(editedLayout, editedDefinition),
             WorkflowLayoutJson.Serialize(Assert.Single(source.List()).Layout, editedDefinition));
         Assert.NotEqual(firstSave.ContentHash, secondSave.ContentHash);
-        Assert.NotEqual(firstSave.RelativePath, secondSave.RelativePath);
+        Assert.Equal(firstSave.RelativePath, secondSave.RelativePath);
         Assert.Throws<StudioFolderWorkflowConflictException>(() => source.Save(initial, initialLayout, firstSave.ContentHash));
         Assert.Equal(secondSave.ContentHash, Assert.Single(source.List()).ContentHash);
+    }
+
+    [Fact]
+    public void StableWorkflowFileCanBeEditedOutsideStudioAndItsManifestHashIsRefreshed()
+    {
+        var folder = Path.Combine(directory, "manual-workflow");
+        StudioProjectSourceDirectory.Write(folder,
+            new StudioProjectManifest("1.0", "manual-project", "Manual project", []),
+            new Dictionary<string, byte[]>());
+        var source = new StudioFolderWorkflowSource(folder);
+        var definition = WorkflowTemplates.Create("uppercase") with { WorkflowId = "manual-workflow" };
+        var saved = source.Save(definition, WorkflowLayout.Create(definition), null);
+        var edited = definition with { DisplayName = "Edited by a text editor" };
+        var editedBytes = Encoding.UTF8.GetBytes(StudioProjectSourceArchive.SerializeWorkflowSource(
+            edited, WorkflowLayout.Create(edited)));
+        File.WriteAllBytes(Path.Combine(folder, saved.RelativePath), editedBytes);
+
+        var loaded = Assert.Single(source.List());
+        Assert.Equal("Edited by a text editor", loaded.Definition.DisplayName);
+        Assert.Equal(StudioProjectSourceArchive.ComputeContentHash(editedBytes), loaded.ContentHash);
+        var manifestFile = Assert.Single(StudioProjectSourceDirectory.Read(folder).Manifest.Files);
+        Assert.Equal(loaded.ContentHash, manifestFile.Sha256);
+    }
+
+    [Fact]
+    public void FolderReadRecoversAnInterruptedWorkflowSaveBeforeValidatingTheProject()
+    {
+        var folder = Path.Combine(directory, "recover-workflow");
+        StudioProjectSourceDirectory.Write(folder,
+            new StudioProjectManifest("1.0", "recover-project", "Recover project", []),
+            new Dictionary<string, byte[]>());
+        var source = new StudioFolderWorkflowSource(folder);
+        var definition = WorkflowTemplates.Create("reverse") with { WorkflowId = "recover-workflow" };
+        var saved = source.Save(definition, WorkflowLayout.Create(definition), null);
+        var oldManifest = StudioProjectSourceDirectory.Read(folder).Manifest;
+        var edited = definition with { DisplayName = "Recovered edit" };
+        var editedBytes = Encoding.UTF8.GetBytes(StudioProjectSourceArchive.SerializeWorkflowSource(
+            edited, WorkflowLayout.Create(edited)));
+        var editedHash = StudioProjectSourceArchive.ComputeContentHash(editedBytes);
+        var newManifest = oldManifest with
+        {
+            Files = oldManifest.Files.SetItem(0, oldManifest.Files[0] with { Sha256 = editedHash })
+        };
+        var temporaryPath = ".vaw/workflow-recovery.tmp";
+        Directory.CreateDirectory(Path.Combine(folder, ".vaw"));
+        File.WriteAllBytes(Path.Combine(folder, temporaryPath), editedBytes);
+        var journal = new
+        {
+            formatVersion = "1.0",
+            expectedManifestHash = StudioProjectSourceArchive.ComputeManifestHash(oldManifest),
+            expectedTargetHash = saved.ContentHash,
+            contentHash = editedHash,
+            newManifestHash = StudioProjectSourceArchive.ComputeManifestHash(newManifest),
+            targetPath = saved.RelativePath,
+            tempPath = temporaryPath,
+            newManifestJson = StudioProjectSourceArchive.SerializeManifest(newManifest)
+        };
+        File.WriteAllBytes(Path.Combine(folder, ".vaw", "pending-workflow-save.json"),
+            JsonSerializer.SerializeToUtf8Bytes(journal, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+
+        var recovered = Assert.Single(source.List());
+
+        Assert.Equal("Recovered edit", recovered.Definition.DisplayName);
+        Assert.False(File.Exists(Path.Combine(folder, ".vaw", "pending-workflow-save.json")));
+        Assert.False(File.Exists(Path.Combine(folder, temporaryPath)));
     }
 
     [Fact]

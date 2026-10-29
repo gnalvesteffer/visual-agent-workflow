@@ -12,7 +12,7 @@ public sealed class WorkflowTemplateTests
     [InlineData("uppercase-reverse")]
     public void New_text_templates_use_the_explicit_graph_contract(string operation)
     {
-        var definition = WorkflowTemplates.Create(operation);
+        var definition = WorkflowTemplates.CreateExplicit(operation);
 
         Assert.Equal(WorkflowSchemaVersions.ExplicitGraph, definition.SchemaVersion);
         Assert.NotNull(definition.ExecutionConnections);

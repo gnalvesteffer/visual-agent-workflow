@@ -11,6 +11,7 @@ public static class StudioProjectSourceDirectory
         var root = Path.GetFullPath(directory);
         if (!Directory.Exists(root)) throw new DirectoryNotFoundException("The project source folder does not exist.");
         RejectReparsePoint(root);
+        StudioFolderSourceWriter.RecoverPendingWorkflowSave(root);
 
         var manifestPath = Path.Combine(root, StudioProjectSourceArchive.ManifestFileName);
         RejectReparsePoint(manifestPath);
@@ -37,7 +38,9 @@ public static class StudioProjectSourceDirectory
             files.Add(asset.Path, content);
         }
 
-        var validationArchive = StudioProjectSourceArchive.CreateArchive(manifest, files);
+        var refreshedManifest = StudioProjectSourceArchive.RefreshMutableWorkflowHashes(manifest, files);
+        if (!refreshedManifest.Equals(manifest)) ReplaceManifest(root, refreshedManifest);
+        var validationArchive = StudioProjectSourceArchive.CreateArchive(refreshedManifest, files);
         return StudioProjectSourceArchive.Read(validationArchive);
     }
 

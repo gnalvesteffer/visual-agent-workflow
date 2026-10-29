@@ -51,8 +51,7 @@ public sealed class StudioFolderWorkflowSource(string projectDirectory)
         var contentHash = StudioProjectSourceArchive.ComputeContentHash(bytes);
         var destinationDirectory = targetDirectory ?? (currentFile is null ? "workflows" :
             Path.GetDirectoryName(currentFile.Path)?.Replace('\\', '/') ?? "");
-        var relativePath = StudioProjectSourceArchive.AssetPathInDirectory(destinationDirectory,
-            StudioProjectSourceArchive.SafeAssetFileStem(definition.WorkflowId), ".workflow", contentHash);
+        var relativePath = StudioProjectSourceArchive.WorkflowSourcePath(definition.WorkflowId, destinationDirectory);
         var file = new StudioProjectFile("workflow", definition.WorkflowId, "draft", relativePath, contentHash);
         if (currentFile?.Sha256 == contentHash)
             return ToWorkflow(currentFile, existingFiles[currentFile.Path]);
@@ -72,8 +71,8 @@ public sealed class StudioFolderWorkflowSource(string projectDirectory)
         updatedFiles.Add(relativePath, bytes);
         _ = StudioProjectSourceArchive.CreateArchive(updatedManifest, updatedFiles);
 
-        StudioFolderSourceWriter.PublishImmutableAsset(root, StudioProjectSourceArchive.ComputeManifestHash(manifest),
-            updatedManifest, relativePath, bytes, contentHash,
+        StudioFolderSourceWriter.PublishMutableWorkflow(root, StudioProjectSourceArchive.ComputeManifestHash(manifest),
+            updatedManifest, relativePath, bytes, contentHash, currentFile?.Sha256,
             sourcePath => new StudioFolderWorkflowConflictException(sourcePath));
 
         // Leave old content-addressed source files in place. A reader that loaded the previous
