@@ -49,6 +49,10 @@ loop.
 - [x] Exercise the opt-in public host through two successive suspensions and
   reconstruct its variable evidence prefix passively, without another
   workflow execution for the playback assertion.
+- [x] Make recovery assessment total at the persisted-state boundary: malformed
+  snapshots, checkpoint envelopes, frame data, and evidence are reported as
+  ineligible rather than escaping as inspection/recovery exceptions. Cancellation
+  and process-fatal failures remain outside this normalization boundary.
 - [ ] Qualify cancellation, publication failure, process loss, competing
   recovery, and disposal races on the public host path.
 - [ ] Reopen production-generated history with no executor/model/tool calls and

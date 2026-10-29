@@ -134,6 +134,21 @@ public sealed class CheckpointRecoveryTests : IDisposable
     }
 
     [Fact]
+    public void Malformed_persisted_run_state_is_reported_as_ineligible_instead_of_throwing()
+    {
+        var malformed = new RunSnapshot(null!, []);
+        var checkpoint = new WorkflowRunCheckpoint(
+            "1.0", WorkflowRunner.CheckpointRuntimeVersion, Guid.NewGuid(), Guid.NewGuid(),
+            "invalid", 1, new NativeWorkflowCheckpoint(Guid.NewGuid().ToString("D"), "checkpoint", null, "{}"),
+            WorkflowRunCheckpoint.Hash("{}"));
+
+        var assessment = WorkflowCheckpointRecovery.Assess(malformed, checkpoint);
+
+        Assert.False(assessment.CanResume);
+        Assert.Equal("The checkpoint is incompatible or invalid.", assessment.Reason);
+    }
+
+    [Fact]
     public async Task VariableGraphsRestore_state_before_resuming_execution()
     {
         var store = Store();

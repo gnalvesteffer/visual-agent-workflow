@@ -77,21 +77,30 @@ public static class WorkflowCheckpointRecovery
 {
     public static WorkflowRecoveryAssessment Assess(RunSnapshot snapshot, WorkflowRunCheckpoint? checkpoint)
     {
-        if (snapshot.IsTerminal) return new(false, "The run is terminal.");
-        if (checkpoint is null) return new(false, "No committed checkpoint exists.");
-        try { checkpoint.Validate(snapshot); }
-        catch (Exception error) when (error is InvalidDataException or InvalidOperationException or ArgumentException or JsonException)
-        { return new(false, "The checkpoint is incompatible or invalid."); }
-        if (snapshot.Events.Length != checkpoint.Sequence)
-            return new(false, "Evidence advanced after the checkpoint; automatic replay is unsafe.");
-        if (snapshot.Status != "suspended" || snapshot.Events[^1].Kind != ExecutionEventKinds.Suspended)
-            return new(false, "Recovery requires an explicitly saved suspension.");
-        var unsettled = WorkflowWorkEvidence.Read(snapshot);
-        if (unsettled.TotalUnresolvedWork > 0 || unsettled.HasIncompleteCorrelation)
-            return new(false, "Recorded work is unsettled or ambiguously correlated.");
-        var started = snapshot.Events.Where(e => e.Kind == ExecutionEventKinds.NodeStarted).Select(e => e.InvocationId).ToHashSet();
-        var completed = snapshot.Events.Where(e => e.Kind == ExecutionEventKinds.NodeCompleted).Select(e => e.InvocationId).ToHashSet();
-        if (!started.SetEquals(completed)) return new(false, "An invocation has no recorded completed boundary.");
-        return new(true, "A deterministic native checkpoint can be resumed by an exclusive host.");
+        try
+        {
+            if (snapshot.IsTerminal) return new(false, "The run is terminal.");
+            if (checkpoint is null) return new(false, "No committed checkpoint exists.");
+            checkpoint.Validate(snapshot);
+            if (snapshot.Events.Length != checkpoint.Sequence)
+                return new(false, "Evidence advanced after the checkpoint; automatic replay is unsafe.");
+            if (snapshot.Status != "suspended" || snapshot.Events[^1].Kind != ExecutionEventKinds.Suspended)
+                return new(false, "Recovery requires an explicitly saved suspension.");
+            var unsettled = WorkflowWorkEvidence.Read(snapshot);
+            if (unsettled.TotalUnresolvedWork > 0 || unsettled.HasIncompleteCorrelation)
+                return new(false, "Recorded work is unsettled or ambiguously correlated.");
+            var started = snapshot.Events.Where(e => e.Kind == ExecutionEventKinds.NodeStarted).Select(e => e.InvocationId).ToHashSet();
+            var completed = snapshot.Events.Where(e => e.Kind == ExecutionEventKinds.NodeCompleted).Select(e => e.InvocationId).ToHashSet();
+            if (!started.SetEquals(completed)) return new(false, "An invocation has no recorded completed boundary.");
+            return new(true, "A deterministic native checkpoint can be resumed by an exclusive host.");
+        }
+        // This is a persisted-state trust boundary. Malformed snapshot or checkpoint
+        // data must make recovery ineligible, never turn inspection into an exception.
+        // Cancellation and process-fatal failures remain outside this normalization.
+        catch (Exception error) when (error is not (OperationCanceledException or
+            OutOfMemoryException or StackOverflowException or AccessViolationException))
+        {
+            return new(false, "The checkpoint is incompatible or invalid.");
+        }
     }
 }
