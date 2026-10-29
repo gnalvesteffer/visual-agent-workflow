@@ -87,7 +87,7 @@ public sealed class StudioModelProviderStoreTests
             var result = await store.TestConnectionAsync("local.test", "Local", "served-model", "https://models.example/v1/", 10, secret, false);
 
             Assert.False(result.Succeeded);
-            Assert.Contains("Authentication failed", result.Message, StringComparison.Ordinal);
+            Assert.Contains("rejected authentication", result.Message, StringComparison.Ordinal);
             Assert.DoesNotContain(secret, result.Message, StringComparison.Ordinal);
             Assert.Empty(store.List());
         }

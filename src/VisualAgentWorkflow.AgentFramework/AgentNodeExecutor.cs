@@ -672,9 +672,11 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         }
         catch (AgentProviderRequestException failure)
         {
+            var reason = failure.UserMessage;
             if (configuration.RequireStructuredResult == true)
-                return await StructuredOutcomeAsync(AgentResultStatuses.ProviderError, "The configured provider request failed.");
-            await Record(ExecutionEventKinds.AgentFailed, new { reason = "Configured provider request failed; no automatic retry.",
+                return await StructuredOutcomeAsync(AgentResultStatuses.ProviderError, reason);
+            await Record(ExecutionEventKinds.AgentFailed, new { reason,
+                noAutomaticRetry = true,
                 failureKind = failure.FailureKind.ToString(), statusCode = failure.StatusCode });
             throw;
         }

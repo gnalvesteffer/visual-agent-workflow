@@ -158,16 +158,7 @@ public sealed class StudioModelProviderStore
         }
         catch (AgentProviderRequestException failure)
         {
-            var detail = failure.FailureKind switch
-            {
-                AgentProviderFailureKind.Authentication => "Authentication failed. Check the API key and endpoint permissions.",
-                AgentProviderFailureKind.RateLimited => "The endpoint is reachable but rate limited the test request.",
-                AgentProviderFailureKind.Unavailable => "The endpoint is reachable but the service is unavailable.",
-                AgentProviderFailureKind.InvalidRequest => "The endpoint rejected the model or request settings. Check the model ID and compatibility.",
-                AgentProviderFailureKind.InvalidResponse => "The endpoint returned an unsupported response. Check its chat completions compatibility.",
-                _ => "Could not reach the endpoint. Check the URL, network, and TLS configuration."
-            };
-            return new(false, failure.StatusCode is { } status ? $"{detail} (HTTP {status})" : detail);
+            return new(false, failure.UserMessage);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {

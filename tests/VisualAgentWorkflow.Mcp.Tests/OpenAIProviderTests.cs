@@ -90,6 +90,16 @@ public sealed class OpenAIProviderTests
         (kind, data) => { events.Add((kind, data)); return ValueTask.CompletedTask; });
 
     [Fact]
+    public void ProviderFailureUserMessage_is_actionable_without_vendor_payloads()
+    {
+        var failure = new AgentProviderRequestException(AgentProviderFailureKind.InvalidRequest, 400);
+
+        Assert.Contains("model or request settings", failure.UserMessage, StringComparison.Ordinal);
+        Assert.Contains("HTTP 400", failure.UserMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain(Key, failure.UserMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task OfficialSdkPreservesInstructionsModelOutputAndUsageWithoutCapturingCredentials()
     {
         var requests = 0;
