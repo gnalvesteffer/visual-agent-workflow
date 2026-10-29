@@ -154,8 +154,10 @@ Promotion gates, in order:
   provider, tool, or executor calls after file/SQLite reopen. The projection
   preserves cancellation as a distinct Agent state and rejects tampered
   Sequence lineage.
-- [ ] Prove nested-evidence compatibility across schema 1.38/1.43 loading and
-  older-runtime readers before public 1.46 promotion.
+- [x] Prove nested-evidence compatibility across schema 1.38/1.43 loading and
+  legacy playback readers before public 1.46 promotion. Legacy Sequence
+  evidence remains readable through the nested projection with empty Agent and
+  model collections; it does not invent descendant calls.
 - [ ] Add package/Studio authoring and invalid-topology coverage only after the
   remaining runtime/evidence gates above pass; then advertise schema 1.46 as a
   complete public capability.
@@ -182,3 +184,9 @@ using two real `AgentNodeExecutor` invocations records the failed output,
 cancels the in-flight sibling, and records Sequence failure without a
 completion event. The Core/Hosting admission tests independently require the
 exact host grant before run creation.
+
+Compatibility coverage also confirms that the passive nested projection accepts
+legacy Sequence lifecycle evidence without Agent/model lineage and preserves
+the legacy output state. Existing persisted schema-1.38 and schema-1.43
+success/failure playback tests continue to use the same read-only evidence
+reader. No live executor is consulted during compatibility projection.

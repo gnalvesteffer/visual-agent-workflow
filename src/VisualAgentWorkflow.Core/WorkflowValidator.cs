@@ -63,7 +63,7 @@ public static class WorkflowValidator
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
 
         if (!WorkflowSchemaCatalog.IsSupported(definition.SchemaVersion))
-            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44, and 1.45.");
+            Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44, 1.45, and 1.46.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.DisplayName is { } displayName &&
@@ -981,7 +981,7 @@ public static class WorkflowValidator
                 edge.Target.PortId == "execute";
             if (!validPorts) error("execution.port", path, "Execution edges must connect declared Sequence execution ports.");
             if (!validRoute) error("execution.target", path, isPathGraph
-                ? "Schema 1.43 routes each ordered Sequence output through a bounded linear path to the output node."
+                ? $"Schema {(isAgentPathGraph ? "1.46" : "1.43")} routes each ordered Sequence output through a bounded linear path to the output node."
                 : "Schema 1.38 routes input to Sequence and each ordered Sequence output to the output node.");
             incoming[(targetId, edge.Target.PortId)] = incoming.GetValueOrDefault((targetId, edge.Target.PortId)) + 1;
             outgoing[(sourceId, edge.Source.PortId)] = outgoing.GetValueOrDefault((sourceId, edge.Source.PortId)) + 1;

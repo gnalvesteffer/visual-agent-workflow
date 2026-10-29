@@ -75,6 +75,31 @@ public sealed class SequenceEvidenceTests
     }
 
     [Fact]
+    public void Legacy_sequence_evidence_remains_usable_by_the_nested_reader_without_agent_events()
+    {
+        var sequenceId = Guid.NewGuid();
+        var runId = Guid.NewGuid();
+        var revisionId = Guid.NewGuid();
+        var activationId = Guid.NewGuid();
+        var events = new[]
+        {
+            Lifecycle(runId, revisionId, 1, ExecutionEventKinds.SequenceStarted, sequenceId,
+                new(sequenceId, "sequence", null, null, null, null)),
+            Lifecycle(runId, revisionId, 2, ExecutionEventKinds.SequenceOutputDispatched, sequenceId,
+                new(sequenceId, "sequence", "legacy", 0, activationId, "legacy-output")),
+            Lifecycle(runId, revisionId, 3, ExecutionEventKinds.SequenceOutputCompleted, sequenceId,
+                new(sequenceId, "sequence", "legacy", 0, activationId, "legacy-output")),
+            Lifecycle(runId, revisionId, 4, ExecutionEventKinds.SequenceCompleted, sequenceId,
+                new(sequenceId, "sequence", null, null, null, null))
+        };
+
+        Assert.True(SequenceAgentEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal("completed", playback!.Sequence.Status);
+        Assert.Empty(playback.Agents);
+        Assert.Empty(playback.ModelCalls);
+    }
+
+    [Fact]
     public void Agent_playback_reconstructs_nested_lineage_without_runtime_services()
     {
         var sequenceId = Guid.NewGuid();
