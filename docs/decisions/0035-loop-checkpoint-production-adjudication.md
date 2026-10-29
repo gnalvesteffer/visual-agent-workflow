@@ -48,6 +48,9 @@ loop.
 - [x] Add a fail-closed acknowledgement-reconciliation guard: an uncertain
   publication may be adopted only when the reopened run is suspended, resumable,
   and its checkpoint ID and native payload exactly match the attempted capture.
+- [x] Qualify lost acknowledgement handling through the host/store boundary:
+  a transactional test store commits the checkpoint and drops the return value;
+  the host reopens and adopts the exact suspension without terminalizing it.
 - [x] Add an explicit host capability that defaults disabled and apply the same
   exact topology/frame admission to both start and resume. The opt-in host is
   intentionally experimental and is not enabled by the Studio/default host.
@@ -68,8 +71,8 @@ loop.
   not claim distributed fencing or failover semantics.
 - [x] Prove repeated/concurrent host disposal is idempotent, releases local
   ownership, and makes later calls fail deterministically as disposed.
-- [ ] Qualify cancellation, acknowledgement loss, and publication failure
-  races during active execution/publication on the public host path.
+- [ ] Qualify cancellation and publication failure races during active
+  execution/publication on the public host path.
 - [x] Reopen production-generated loop history after host disposal with no
   executor/model/tool calls and prove passive variable playback. The existing
   schema-1.44 recovery regression continues to prove the legacy envelope and

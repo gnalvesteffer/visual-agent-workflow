@@ -10,14 +10,14 @@ public sealed record CheckpointWorkflowHostOptions(bool EnableLoopCheckpointReco
 /// <summary>Opt-in explicit deterministic checkpoint execution. Not the Studio queue, automatic failover or external-call recovery.</summary>
 public sealed class CheckpointWorkflowHost : IAsyncDisposable
 {
-    private readonly SqliteWorkflowRunStore store;
+    private readonly IWorkflowCheckpointHostStore store;
     private readonly IDisposable ownership;
     private readonly SemaphoreSlim execution = new(1, 1);
     private readonly CancellationTokenSource lifetime = new();
     private readonly CheckpointWorkflowHostOptions options;
     private bool disposed;
 
-    public CheckpointWorkflowHost(SqliteWorkflowRunStore store, CheckpointWorkflowHostOptions? options = null)
+    public CheckpointWorkflowHost(IWorkflowCheckpointHostStore store, CheckpointWorkflowHostOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         this.store = store;
@@ -93,7 +93,7 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
         // The cancellation source/semaphore remain valid for callers already queued during disposal.
     }
 
-    private sealed class Sink(SqliteWorkflowRunStore store, RunSnapshot initial, WorkflowRevision revision,
+    private sealed class Sink(IWorkflowCheckpointHostStore store, RunSnapshot initial, WorkflowRevision revision,
         NativeWorkflowCheckpoint? restored, int? suspendAfter, bool allowLoopCheckpointRecovery) : IWorkflowCheckpointSink, IWorkflowCheckpointBoundarySink
     {
         private RunSnapshot snapshot = initial;

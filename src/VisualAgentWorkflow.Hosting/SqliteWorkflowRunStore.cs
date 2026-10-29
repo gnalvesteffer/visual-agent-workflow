@@ -6,7 +6,7 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>Transactional local run evidence. Concurrent appends use expected sequences; runtime ownership is still exclusive.</summary>
-public sealed partial class SqliteWorkflowRunStore : IWorkflowCheckpointStore, IParameterizedWorkflowRunStore, ILocalRuntimeOwnershipStore, IWorkflowRunReconciliationStore, IWorkflowRunReconciliationDecisionStore
+public sealed partial class SqliteWorkflowRunStore : IWorkflowCheckpointHostStore, IParameterizedWorkflowRunStore, IWorkflowRunReconciliationStore, IWorkflowRunReconciliationDecisionStore
 {
     private const int ApplicationId = 0x56415752;
     private readonly string connectionString;

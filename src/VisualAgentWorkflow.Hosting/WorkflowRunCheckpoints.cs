@@ -73,6 +73,9 @@ public interface IWorkflowCheckpointStore : IWorkflowRunStore
     WorkflowRunCheckpoint? GetCheckpoint(Guid runId);
 }
 
+/// <summary>Transactional checkpoint store with the host's exclusive local ownership capability.</summary>
+public interface IWorkflowCheckpointHostStore : IWorkflowCheckpointStore, ILocalRuntimeOwnershipStore { }
+
 public sealed record WorkflowRecoveryAssessment(bool CanResume, string Reason);
 
 public static class WorkflowCheckpointRecovery

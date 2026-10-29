@@ -160,6 +160,19 @@ public sealed class CheckpointRecoveryTests : IDisposable
     }
 
     [Fact]
+    public async Task Host_reconciles_a_checkpoint_when_commit_acknowledgement_is_lost()
+    {
+        var inner = Store();
+        await using var runtime = new CheckpointWorkflowHost(new AcknowledgementLossStore(inner));
+
+        var run = await runtime.StartAsync(Revision(), "abc", 1);
+
+        Assert.Equal("suspended", run.Status);
+        var checkpoint = inner.GetCheckpoint(run.Header.RunId)!;
+        Assert.True(WorkflowCheckpointRecovery.IsCommittedSuspension(run, checkpoint, checkpoint.Native));
+    }
+
+    [Fact]
     public void Malformed_persisted_run_state_is_reported_as_ineligible_instead_of_throwing()
     {
         var malformed = new RunSnapshot(null!, []);
@@ -262,6 +275,30 @@ public sealed class CheckpointRecoveryTests : IDisposable
     }
 
     public void Dispose() { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+
+    private sealed class AcknowledgementLossStore(SqliteWorkflowRunStore inner) : IWorkflowCheckpointHostStore
+    {
+        private bool loseAcknowledgement = true;
+
+        public RunSnapshot Create(WorkflowRevision revision, string input) => inner.Create(revision, input);
+        public RunSnapshot? Get(Guid runId) => inner.Get(runId);
+        public IReadOnlyList<RunSnapshot> List() => inner.List();
+        public RunSnapshot Append(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events) => inner.Append(runId, expectedSequence, events);
+        public IDisposable AcquireRuntimeOwnership() => inner.AcquireRuntimeOwnership();
+        public WorkflowRunCheckpoint? GetCheckpoint(Guid runId) => inner.GetCheckpoint(runId);
+
+        public RunSnapshot CommitCheckpoint(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events,
+            WorkflowRunCheckpoint checkpoint)
+        {
+            var result = inner.CommitCheckpoint(runId, expectedSequence, events, checkpoint);
+            if (loseAcknowledgement)
+            {
+                loseAcknowledgement = false;
+                throw new IOException("Injected lost checkpoint acknowledgement.");
+            }
+            return result;
+        }
+    }
 
     private static WorkflowRevision VariableRevision()
     {
