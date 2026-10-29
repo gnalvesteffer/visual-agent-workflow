@@ -138,6 +138,22 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Proof_sequence_child_capability_denial_fails_the_call_without_uncertainty()
+    {
+        var events = new List<ExecutionEvent>();
+        var result = await new WorkflowRunner(new DeniedOutcomeBroker())
+            .ExecuteSequenceWorkflowCallProductionProofAsync(Guid.NewGuid(), "hello",
+                evt => { events.Add(evt); return ValueTask.CompletedTask; }, SequenceWorkflowCallProofOutcome.CapabilityDenied);
+
+        Assert.True(result.Failed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowFailed && evt.ScopeId == "call");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed &&
+            ReadEvidence(evt).OutputId == "call");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowOutcomeUnknown);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
+    }
+
+    [Fact]
     public async Task Production_runner_consumes_a_persisted_sequence_definition()
     {
         var events = new List<ExecutionEvent>();
@@ -1125,6 +1141,28 @@ public sealed class SequenceProductionRunnerTests
 
             public Task<string> InvokeAsync(string bindingId, string input, CancellationToken cancellationToken = default) =>
                 Task.FromException<string>(new ToolInvocationException("The proof tool outcome is unknown.", ToolInvocationFailureDisposition.OutcomeUnknown));
+
+            public Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments, CancellationToken cancellationToken = default) =>
+                InvokeAsync(bindingId, arguments.GetRawText(), cancellationToken);
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class DeniedOutcomeBroker : INodeToolBroker
+    {
+        public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([new("sequence-proof-denied", "Denied", "proof", "denied", new string('d', 64))]);
+
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new Scope();
+
+        private sealed class Scope : INodeToolScope
+        {
+            public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+            public Task<string> InvokeAsync(string bindingId, string input, CancellationToken cancellationToken = default) =>
+                Task.FromException<string>(new ToolAccessDeniedException());
 
             public Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments, CancellationToken cancellationToken = default) =>
                 InvokeAsync(bindingId, arguments.GetRawText(), cancellationToken);

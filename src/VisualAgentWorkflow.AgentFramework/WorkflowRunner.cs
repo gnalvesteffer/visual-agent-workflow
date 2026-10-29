@@ -190,6 +190,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         catch (InvalidOperationException) { }
     }
 
+    private static bool IsCapabilityDeniedException(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+            if (current is ToolAccessDeniedException)
+                return true;
+        return false;
+    }
+
     private static bool IsOutcomeUnknownException(Exception exception)
     {
         for (var current = exception; current is not null; current = current.InnerException)
@@ -1440,11 +1448,25 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             IReadOnlyDictionary<string, string>? childParameters = call.ParameterMappings is { Length: > 0 } mappings
                 ? mappings.ToDictionary(mapping => mapping.ChildParameterId, mapping => parameters![mapping.ParentParameterId], StringComparer.Ordinal)
                 : null;
-            return gate is null
-                ? await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, null, cancellationToken,
-                    rootRevision, childWorkflowPath, allowOutcomeUnknown: allowOutcomeUnknown)
-                : await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, gate, cancellationToken,
-                    rootRevision, childWorkflowPath, allowOutcomeUnknown: allowOutcomeUnknown);
+            try
+            {
+                return gate is null
+                    ? await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, null, cancellationToken,
+                        rootRevision, childWorkflowPath, allowOutcomeUnknown: allowOutcomeUnknown)
+                    : await runner.ExecuteCoreAsync(runId, child, input, childParameters, RecordChild, gate, cancellationToken,
+                        rootRevision, childWorkflowPath, allowOutcomeUnknown: allowOutcomeUnknown);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception) when (IsCapabilityDeniedException(exception))
+            {
+                // The child runner has already recorded its terminal failure. Keep the
+                // failure inside the call boundary so the parent can settle the call
+                // and continue its own deterministic failure path.
+                return new WorkflowExecutionResult(null, Terminated: true, Failed: true);
+            }
         }
 
         private (bool Started, bool Complete, string? Result, int ReceivedCount) CollectParallelJoinInput(string inputPort, string input)

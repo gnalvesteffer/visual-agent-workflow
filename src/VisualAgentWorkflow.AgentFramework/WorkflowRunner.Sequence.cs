@@ -9,7 +9,8 @@ internal enum SequenceWorkflowCallProofOutcome
     Success,
     Termination,
     Failure,
-    Unknown
+    Unknown,
+    CapabilityDenied
 }
 
 public sealed partial class WorkflowRunner
@@ -103,15 +104,19 @@ public sealed partial class WorkflowRunner
     {
         var inputNodeId = $"{workflowId}-input";
         var outputNodeId = $"{workflowId}-output";
-        if (outcome is SequenceWorkflowCallProofOutcome.Unknown)
+        if (outcome is SequenceWorkflowCallProofOutcome.Unknown or SequenceWorkflowCallProofOutcome.CapabilityDenied)
         {
             var toolNodeId = $"{workflowId}-unknown-tool";
-            var unknownDefinition = new WorkflowDefinition("1.1", workflowId, inputNodeId,
+            var bindingId = outcome is SequenceWorkflowCallProofOutcome.CapabilityDenied
+                ? "sequence-proof-denied" : "sequence-proof-unknown";
+            var contractHash = outcome is SequenceWorkflowCallProofOutcome.CapabilityDenied
+                ? new string('d', 64) : new string('a', 64);
+            var toolDefinition = new WorkflowDefinition("1.1", workflowId, inputNodeId,
                 new Dictionary<string, NodeDefinition>
                 {
                     [inputNodeId] = new(NodeTypes.Input, "1.0.0"),
                     [toolNodeId] = new(NodeTypes.McpTool, "1.0.0",
-                        new ToolBindingRequest("sequence-proof-unknown", new string('a', 64)))
+                        new ToolBindingRequest(bindingId, contractHash))
                     { McpArgumentsJson = "{}" },
                     [outputNodeId] = new(NodeTypes.Output, "1.0.0")
                 }.ToImmutableSortedDictionary(),
@@ -120,7 +125,7 @@ public sealed partial class WorkflowRunner
                     ["input-tool"] = new(new(inputNodeId, "out"), new(toolNodeId, "in"), "data"),
                     ["tool-output"] = new(new(toolNodeId, "out"), new(outputNodeId, "in"), "data")
                 }.ToImmutableSortedDictionary());
-            return WorkflowRevision.Create(unknownDefinition, workflowId);
+            return WorkflowRevision.Create(toolDefinition, workflowId);
         }
         var definition = new WorkflowDefinition("1.0", workflowId, inputNodeId,
             new Dictionary<string, NodeDefinition>
