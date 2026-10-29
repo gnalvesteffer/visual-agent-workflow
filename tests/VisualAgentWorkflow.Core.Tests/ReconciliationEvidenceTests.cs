@@ -67,6 +67,16 @@ public sealed class ReconciliationEvidenceTests
     }
 
     [Fact]
+    public void RecoverableToolFeedbackSettlesOnlyThatFailedAttempt()
+    {
+        var id = Guid.NewGuid();
+        var failed = JsonSerializer.Serialize(new { toolCallId = id, disposition = ToolInvocationFailureDisposition.RecoverableFeedback.ToString() });
+        var run = Snapshot((ExecutionEventKinds.ToolRequested, Tool(id)), (ExecutionEventKinds.ToolAuthorized, Tool(id)),
+            (ExecutionEventKinds.ToolFailed, failed));
+        Assert.Empty(WorkflowWorkEvidence.Read(run).UnresolvedWork);
+    }
+
+    [Fact]
     public void LegacySerialEvidenceWorksButAmbiguousOrMalformedEvidenceFailsClosed()
     {
         var serial = Snapshot((ExecutionEventKinds.ToolRequested, "{}"), (ExecutionEventKinds.ToolCompleted, "{}"),

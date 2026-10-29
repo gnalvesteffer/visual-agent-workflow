@@ -216,9 +216,9 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                         catch (ToolInvocationException failure) when (failure.Disposition == ToolInvocationFailureDisposition.RecoverableFeedback)
                         {
                             toolInvocationFailed = true;
-                            if (Interlocked.Increment(ref recoverableToolFeedbacks) > 1)
-                                throw new ToolInvocationException("The agent received too many recoverable tool failures.");
-                            return "The tool reported a known failure. Do not repeat the same call unchanged; correct the arguments or choose another assigned tool.";
+                            if (Interlocked.Increment(ref recoverableToolFeedbacks) > AgentExecutionLimits.MaximumRecoverableToolFeedbacks)
+                                throw new ToolInvocationException($"The agent received too many recoverable tool failures (limit {AgentExecutionLimits.MaximumRecoverableToolFeedbacks}).");
+                            return $"The assigned tool reported a recoverable failure: {failure.Message} Do not repeat the same call unchanged; correct the arguments or choose another assigned tool.";
                         }
                         catch
                         {

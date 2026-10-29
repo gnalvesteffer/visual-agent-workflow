@@ -62,7 +62,11 @@ public static class WorkflowWorkEvidence
                 case ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ToolUncertain:
                     if (Find(UnresolvedWorkKind.Tool, Correlation("toolCallId")) is { } tool)
                     {
-                        if (tool.Authorized || evt.Kind == ExecutionEventKinds.ToolUncertain)
+                        if (evt.Kind == ExecutionEventKinds.ToolFailed && IsRecoverableFeedback(evt))
+                        {
+                            tool.Resolved = true;
+                        }
+                        else if (tool.Authorized || evt.Kind == ExecutionEventKinds.ToolUncertain)
                         { tool.State = UnresolvedWorkState.OutcomeUnknown; tool.LastSequence = evt.Sequence; tool.LegacyClosed = true; }
                         else tool.Resolved = true;
                     }
@@ -123,6 +127,20 @@ public static class WorkflowWorkEvidence
             return null;
         }
         catch (JsonException) { return null; }
+    }
+
+    private static bool IsRecoverableFeedback(ExecutionEvent evt)
+    {
+        if (evt.Data is null) return false;
+        try
+        {
+            using var json = JsonDocument.Parse(evt.Data);
+            return json.RootElement.ValueKind == JsonValueKind.Object &&
+                json.RootElement.TryGetProperty("disposition", out var disposition) &&
+                disposition.ValueKind == JsonValueKind.String &&
+                string.Equals(disposition.GetString(), ToolInvocationFailureDisposition.RecoverableFeedback.ToString(), StringComparison.Ordinal);
+        }
+        catch (JsonException) { return false; }
     }
 
     private sealed class Pending(UnresolvedWorkKind kind, string? nodeId, Guid? invocationId, Guid? callId, long sequence)

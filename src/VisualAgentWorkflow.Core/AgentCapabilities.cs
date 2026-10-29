@@ -95,6 +95,8 @@ public static class AgentTotalTokenLimits
 public static class AgentExecutionLimits
 {
     public const int DefaultMaximumTurns = 8;
+    /// <summary>Bounds model-driven correction feedback without automatically retrying a tool call.</summary>
+    public const int MaximumRecoverableToolFeedbacks = 3;
     public const int UnlimitedTurns = -1;
 
     public static bool IsValidMaximumTurns(int value) => value == UnlimitedTurns || value >= 1;

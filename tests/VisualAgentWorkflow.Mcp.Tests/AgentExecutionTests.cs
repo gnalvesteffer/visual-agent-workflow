@@ -1208,6 +1208,38 @@ public class AgentExecutionTests
     }
 
     [Fact]
+    public async Task MultipleKnownMcpFailuresRemainBoundedAndCanRecover()
+    {
+        var broker = BrokerTests.CreateBroker(policy: new DemoToolPolicy());
+        var submit = (await broker.ListBindingsAsync()).Single(binding => binding.BindingId == "demo.submit-answer");
+        var responses = 0;
+        var registration = DeterministicDemoChatClient.Registration() with
+        {
+            Create = () => new CallbackClient((_, _, _) =>
+            {
+                var response = ++responses <= AgentExecutionLimits.MaximumRecoverableToolFeedbacks
+                    ? new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                        [new FunctionCallContent($"invalid-answer-{responses}", "tool_0", new Dictionary<string, object?> { ["text"] = "not-a-number" })]))
+                      { FinishReason = ChatFinishReason.ToolCalls }
+                    : new ChatResponse(new ChatMessage(ChatRole.Assistant, "Recovered after bounded tool feedback."))
+                      { FinishReason = ChatFinishReason.Stop };
+                return Task.FromResult(response);
+            })
+        };
+        var events = new List<ExecutionEvent>();
+
+        var output = await new WorkflowRunner(broker, new AgentNodeExecutor([registration], broker)).ExecuteAsync(
+            Guid.NewGuid(), Revision(new ToolBindingRequest(submit.BindingId, submit.ContractHash)), "question",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("Recovered after bounded tool feedback.", output);
+        Assert.Equal(AgentExecutionLimits.MaximumRecoverableToolFeedbacks + 1, events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested));
+        Assert.Equal(AgentExecutionLimits.MaximumRecoverableToolFeedbacks, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolFailed && evt.Data!.Contains("RecoverableFeedback", StringComparison.Ordinal)));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentCompleted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed);
+    }
+
+    [Fact]
     public async Task SuccessfulToolCallIsWorkflowOutputWhenModelEndsWithoutText()
     {
         var broker = BrokerTests.CreateBroker(policy: new DemoToolPolicy());
