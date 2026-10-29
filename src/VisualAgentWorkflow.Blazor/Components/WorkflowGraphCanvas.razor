@@ -169,6 +169,8 @@
                             <dd>
                                 @(port.DataType ?? "execution") · @port.Kind.ToString().ToLowerInvariant()
                                 @if (!string.IsNullOrWhiteSpace(port.Description)) { <span class="vaw-help vaw-port-description">@port.Description</span> }
+                                @if (direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data && InputStatusKind(selection, port) == InputBindingStatus.TooMany)
+                                { <span class="vaw-help vaw-port-description">This input accepts only one connection. Remove the extra connection before running.</span> }
                                 @if (direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data && InputStatusKind(selection, port) == InputBindingStatus.Static)
                                 { <span class="vaw-help vaw-port-description">A configured value is used until a connection supplies this input.</span> }
                             </dd>

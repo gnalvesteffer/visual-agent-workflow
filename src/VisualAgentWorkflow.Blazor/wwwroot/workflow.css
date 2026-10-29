@@ -484,6 +484,7 @@
 .vaw-input-status-connected { border-color: color-mix(in srgb, var(--vaw-success) 65%, var(--vaw-border)); color: var(--vaw-success); }
 .vaw-input-status-static { border-color: color-mix(in srgb, var(--vaw-accent) 65%, var(--vaw-border)); color: var(--vaw-accent); }
 .vaw-input-status-missing { border-color: color-mix(in srgb, var(--vaw-warning) 70%, var(--vaw-border)); color: var(--vaw-warning); }
+.vaw-input-status-toomany { border-color: color-mix(in srgb, var(--vaw-error) 70%, var(--vaw-border)); color: var(--vaw-error); }
 .vaw-input-status-legend { margin-block-start: var(--vaw-space-3); }
 .vaw-port-description { display: block; line-height: 1.35; }
 .vaw-canvas-toolbar [aria-label="Playback controls"] { flex: 1 1 100%; margin: 0; }

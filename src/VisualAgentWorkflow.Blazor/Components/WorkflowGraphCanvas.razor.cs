@@ -98,14 +98,18 @@ public partial class WorkflowGraphCanvas
         Connected,
         Static,
         Optional,
-        Missing
+        Missing,
+        TooMany
     }
 
     private InputBindingStatus InputStatusKind(string nodeId, WorkflowPortDescriptor port)
     {
         var node = Definition.Nodes[nodeId];
-        if (Definition.Connections.Values.Any(connection =>
-                connection.Target.NodeId == nodeId && connection.Target.PortId == port.Id))
+        var incomingCount = Definition.Connections.Values.Count(connection =>
+                connection.Target.NodeId == nodeId && connection.Target.PortId == port.Id);
+        if (port.Cardinality != WorkflowPortCardinality.Many && incomingCount > 1)
+            return InputBindingStatus.TooMany;
+        if (incomingCount > 0)
             return InputBindingStatus.Connected;
 
         if (node.Type == NodeTypes.McpTool && port.Kind == WorkflowPortKind.Data &&
@@ -121,6 +125,7 @@ public partial class WorkflowGraphCanvas
         InputBindingStatus.Connected => "Connected",
         InputBindingStatus.Static => "Static",
         InputBindingStatus.Missing => "Required · missing",
+        InputBindingStatus.TooMany => "Too many",
         _ => "Optional"
     };
 

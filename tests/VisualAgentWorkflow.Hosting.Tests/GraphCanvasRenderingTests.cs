@@ -52,6 +52,49 @@ public sealed class GraphCanvasRenderingTests
     }
 
     [Fact]
+    public async Task InputsInspectorSurfacesOverConnectedSingleValuePins()
+    {
+        var baseline = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.23" };
+        var definition = baseline with
+        {
+            Connections = baseline.Connections.Add("duplicate-input", new ConnectionDefinition(
+                new("input", "out"), new("step-1", "in"), "data"))
+        };
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        RenderFragment<string> summary = id => builder => builder.AddContent(0, $"Summary {id}");
+        RenderFragment<string> inspector = id => builder => builder.AddContent(0, $"Properties {id}");
+        WorkflowGraphCanvas? canvas = null;
+
+        var root = await renderer.Dispatcher.InvokeAsync(() => renderer.BeginRenderingComponent<ComponentLifecycleTests.CaptureHost<WorkflowGraphCanvas>>(
+            ParameterView.FromDictionary(new Dictionary<string, object?>
+            {
+                ["ChildParameters"] = new Dictionary<string, object?>
+                {
+                    [nameof(WorkflowGraphCanvas.Definition)] = definition,
+                    [nameof(WorkflowGraphCanvas.Layout)] = WorkflowLayout.Create(definition),
+                    [nameof(WorkflowGraphCanvas.NodeContent)] = summary,
+                    [nameof(WorkflowGraphCanvas.NodeInspector)] = inspector,
+                    [nameof(WorkflowGraphCanvas.IdeMode)] = true,
+                    [nameof(WorkflowGraphCanvas.SelectedNodeId)] = "step-1"
+                },
+                ["Capture"] = (Action<WorkflowGraphCanvas>)(component => canvas = component)
+            })));
+        await root.QuiescenceTask;
+
+        await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            typeof(WorkflowGraphCanvas).GetField("inspectorTab", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(canvas, "inputs");
+            await canvas!.SetParametersAsync(ParameterView.Empty);
+        });
+
+        var html = await renderer.Dispatcher.InvokeAsync(root.ToHtmlString);
+        Assert.Contains("data-input-status=\"TooMany\">Too many</span>", html);
+        Assert.Contains("This input accepts only one connection.", html);
+    }
+
+    [Fact]
     public async Task ContextNodeLibraryPutsMcpToolsBeforeOtherActions()
     {
         var definition = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.14" };
