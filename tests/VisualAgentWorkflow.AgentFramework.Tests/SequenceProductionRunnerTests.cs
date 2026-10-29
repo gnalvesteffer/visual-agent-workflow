@@ -22,6 +22,12 @@ public sealed class SequenceProductionRunnerTests
         Assert.Equal("HELLO", result.Output);
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowStarted && evt.ScopeId == "call");
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted && evt.ScopeId == "call");
+        var childEvidence = events.Where(evt => evt.Kind == ExecutionEventKinds.SubworkflowEvidence)
+            .Select(ReadChildEvidence).ToArray();
+        Assert.Contains(childEvidence, evidence => evidence.CallNodeId == "call" &&
+            evidence.ChildWorkflowId == "sequence-call-proof-first");
+        Assert.Contains(childEvidence, evidence => evidence.CallNodeId == "sibling" &&
+            evidence.ChildWorkflowId == "sequence-call-proof-second");
         Assert.Equal(["call", "sibling"], events.Where(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted)
             .Select(ReadEvidence).Select(evidence => evidence.OutputId).OrderBy(id => id, StringComparer.Ordinal));
         Assert.Equal(ExecutionEventKinds.Completed, events[^1].Kind);
@@ -666,6 +672,12 @@ public sealed class SequenceProductionRunnerTests
     private static SequenceLifecycleEvidence ReadEvidence(ExecutionEvent executionEvent)
     {
         Assert.True(SequenceEvidence.TryRead(executionEvent, out var evidence));
+        return evidence!;
+    }
+
+    private static WorkflowCallLifecycleEvidence ReadChildEvidence(ExecutionEvent executionEvent)
+    {
+        Assert.True(WorkflowCallLifecycleEvidence.TryRead(executionEvent.Data, out var evidence));
         return evidence!;
     }
 

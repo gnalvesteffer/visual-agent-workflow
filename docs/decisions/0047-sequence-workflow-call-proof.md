@@ -26,7 +26,7 @@ The proof-only revision factory bypasses validation and serialization only for t
 
 Core now owns a framework-independent `SequenceWorkflowCallTopology` contract. It recognizes only call-bearing paths with a direct-MCP prefix, one terminal pinned string WorkflowCall, and the Output barrier; it rejects malformed pins, sharing, cycles/incomplete paths, transforms or other nodes around the call, and invalid child bindings. Public Sequence validation consumes its diagnostics while still rejecting the unsupported WorkflowCall node under schema 1.49, and the proof runner checks the same result before execution. Non-call sibling paths remain governed by their existing schema-specific contract.
 
-The current production proof also dispatches a second sibling output and demonstrates out-of-order sibling completion plus a no-result child coexisting with a sibling result. It is not yet the required two-child barrier proof: deterministic child controls, uncertain/late outcomes, persisted file/SQLite replay, child identity/hash evidence, capability denial, and migration compatibility remain open.
+The current production proof now dispatches two real pinned child-workflow descendants. Core also owns a per-call settlement state machine that rejects duplicate and late outcomes, and nested lifecycle events emit separate child workflow/revision/content-hash evidence without changing the existing raw child result payload. The proof is not yet the required barrier qualification: deterministic child controls, controlled out-of-order completion assertions, uncertain/late outcomes, persisted file/SQLite replay, capability denial, and migration compatibility remain open.
 
 ## Deferred public gates
 

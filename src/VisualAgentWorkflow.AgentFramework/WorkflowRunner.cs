@@ -910,7 +910,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         ParallelCollaborationRuntimeOptions? collaborationOptions,
         ParallelCollaborationRuntime? collaborationRuntime = null,
         Func<SequenceMessageLineage, SequenceTerminalState, ValueTask>? recordSequenceTerminal = null,
-        CheckpointBoundaryTracker? boundaryTracker = null)
+        CheckpointBoundaryTracker? boundaryTracker = null,
+        SequenceWorkflowCallSettlement? callSettlement = null)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -1095,9 +1096,28 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 foreach (var value in (outputEvaluation?.Evaluations ?? []).Concat(branchEvaluation?.Evaluations ?? []).Concat(variableSetEvaluation?.Evaluations ?? []))
                     await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
                         value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value));
-                var childOutcome = node.Type == NodeTypes.WorkflowCall
-                    ? await ExecuteWorkflowCall(message, cancellationToken)
-                    : null;
+                WorkflowExecutionResult? childOutcome = null;
+                if (node.Type == NodeTypes.WorkflowCall)
+                {
+                    callSettlement?.TryStart();
+                    try
+                    {
+                        childOutcome = await ExecuteWorkflowCall(message, cancellationToken);
+                        callSettlement?.TrySettleChild(childOutcome.Failed
+                            ? SequenceWorkflowCallSettlementState.Failed
+                            : SequenceWorkflowCallSettlementState.Completed);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        callSettlement?.TrySettleChild(SequenceWorkflowCallSettlementState.Cancelled);
+                        throw;
+                    }
+                    catch
+                    {
+                        callSettlement?.TrySettleChild(SequenceWorkflowCallSettlementState.Failed);
+                        throw;
+                    }
+                }
                 if (recordSequenceTerminal is not null && received.SequenceLineage is { } childLineage &&
                     childOutcome is { Failed: true })
                     await recordSequenceTerminal(childLineage, SequenceTerminalState.Failed);
@@ -1387,6 +1407,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 };
                 var nestedScope = childEvent.ScopeId is null ? childScope : $"{childScope}/{childEvent.ScopeId}";
                 await Emit(kind, childEvent.NodeId, childEvent.InvocationId, childEvent.ConnectionId, childEvent.Data, nestedScope);
+                if (kind is ExecutionEventKinds.SubworkflowStarted or ExecutionEventKinds.SubworkflowCompleted or
+                    ExecutionEventKinds.SubworkflowTerminated or ExecutionEventKinds.SubworkflowFailed or
+                    ExecutionEventKinds.SubworkflowCancelled)
+                    await Emit(ExecutionEventKinds.SubworkflowEvidence, Id, childEvent.InvocationId,
+                        childEvent.ConnectionId,
+                        new WorkflowCallLifecycleEvidence(kind, Id, child.Definition.WorkflowId, child.RevisionId,
+                            child.ContentHash, nestedScope, childEvent.Data).Serialize(), nestedScope);
             }
 
             var runner = new WorkflowRunner(tools, agents, collaborationOptions);

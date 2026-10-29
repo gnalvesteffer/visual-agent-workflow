@@ -76,14 +76,19 @@ public sealed partial class WorkflowRunner
         Func<ExecutionEvent, ValueTask> record, SequenceWorkflowCallProofOutcome outcome = SequenceWorkflowCallProofOutcome.Success,
         CancellationToken cancellationToken = default)
     {
-        var child = SequenceWorkflowCallProofChild(outcome);
+        var firstChild = SequenceWorkflowCallProofChild(outcome, "sequence-call-proof-first");
+        var secondChild = SequenceWorkflowCallProofChild(SequenceWorkflowCallProofOutcome.Success, "sequence-call-proof-second");
         var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
         {
-            WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
+            WorkflowCall = new(firstChild.Definition.WorkflowId, firstChild.RevisionId, 1, firstChild.ContentHash, firstChild.Definition)
         };
-        var parent = SequenceWorkflowCallProofParent(call);
+        var siblingCall = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(secondChild.Definition.WorkflowId, secondChild.RevisionId, 1, secondChild.ContentHash, secondChild.Definition)
+        };
+        var parent = SequenceWorkflowCallProofParent(call, siblingCall);
         var topology = SequenceWorkflowCallTopology.Analyze(parent.Definition);
-        if (!topology.IsValid || topology.Paths.Length != 1)
+        if (!topology.IsValid || topology.Paths.Length != 2)
             throw new InvalidOperationException("The private Sequence-to-WorkflowCall proof definition does not satisfy its topology contract.");
         var plan = new SequenceProductionPlan("sequence", [
             new SequenceProductionOutput("call", 0, "call", "sequence", "then.call", "sequence-call"),
@@ -93,9 +98,9 @@ public sealed partial class WorkflowRunner
             rootRevision: parent, sequencePlan: plan, sequenceWorkflowCallProof: true);
     }
 
-    private static WorkflowRevision SequenceWorkflowCallProofChild(SequenceWorkflowCallProofOutcome outcome)
+    private static WorkflowRevision SequenceWorkflowCallProofChild(SequenceWorkflowCallProofOutcome outcome, string workflowId)
     {
-        var definition = new WorkflowDefinition("1.0", "sequence-call-proof-child", "input",
+        var definition = new WorkflowDefinition("1.0", workflowId, "input",
             new Dictionary<string, NodeDefinition>
             {
                 ["input"] = new(NodeTypes.Input, "1.0.0"),
@@ -125,10 +130,10 @@ public sealed partial class WorkflowRunner
                 })
             };
         }
-        return WorkflowRevision.Create(definition, "sequence-call-proof-child");
+        return WorkflowRevision.Create(definition, workflowId);
     }
 
-    private static WorkflowRevision SequenceWorkflowCallProofParent(NodeDefinition call)
+    private static WorkflowRevision SequenceWorkflowCallProofParent(NodeDefinition call, NodeDefinition siblingCall)
     {
         var definition = new WorkflowDefinition(WorkflowSchemaVersions.SequenceTransformChainGraph,
             "sequence-call-proof-parent", "input",
@@ -137,10 +142,10 @@ public sealed partial class WorkflowRunner
                 ["input"] = new(NodeTypes.Input, "1.0.0"),
                 ["sequence"] = new(NodeTypes.Sequence, "1.0.0")
                 {
-                    Sequence = new([new("call", "Child workflow"), new("sibling", "Sibling transform")])
+                    Sequence = new([new("call", "First child workflow"), new("sibling", "Second child workflow")])
                 },
                 ["call"] = call,
-                ["sibling"] = new(NodeTypes.Uppercase, "1.0.0"),
+                ["sibling"] = siblingCall,
                 ["output"] = new(NodeTypes.Output, "1.0.0")
             }.ToImmutableSortedDictionary(), ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
         {
@@ -168,6 +173,10 @@ public sealed partial class WorkflowRunner
         var coordinator = new SequenceRuntimeCoordinator(sequenceInvocationId, plan.SequenceNodeId,
             plan.Outputs.Select(output => output.OutputId).ToArray(), connectionIds, plan.AllowSingleOutput);
         var sequenceEventGate = new SemaphoreSlim(1, 1);
+        var callSettlements = SequenceWorkflowCallTopology.Analyze(revision.Definition).Paths
+            .ToDictionary(path => path.CallNodeId, path => new SequenceWorkflowCallSettlement(
+                new SequenceWorkflowCallIdentity(path.OutputId, path.CallNodeId, path.ChildWorkflowId,
+                    path.ChildRevisionId, path.ChildContentHash)), StringComparer.Ordinal);
 
         async ValueTask FlushSequenceEvents()
         {
@@ -200,10 +209,12 @@ public sealed partial class WorkflowRunner
                 emit, gate, null, rootRevision, workflowPath, collaborationOptions, null,
                 async (lineage, terminalState) =>
                 {
+                    if (callSettlements.TryGetValue(outputNodeId, out var settlement))
+                        settlement.TrySettleOutput();
                     if (coordinator.IsActivationTerminal(lineage.OutputActivationId)) return;
                     coordinator.Complete(lineage.OutputActivationId, terminalState);
                     await FlushSequenceEvents();
-                }), StringComparer.Ordinal);
+                }, null, callSettlements.GetValueOrDefault(outputNodeId)), StringComparer.Ordinal);
         var source = new SequenceProductionSource(plan.SequenceNodeId, plan, coordinator, FlushSequenceEvents, emit, gate);
         var collector = new SequenceProductionCollector("sequence-collector", plan, coordinator,
             FlushSequenceEvents, emit);
