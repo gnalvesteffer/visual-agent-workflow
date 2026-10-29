@@ -134,6 +134,17 @@ public sealed class MutableVariableExecutionTests
         var saved = Assert.IsType<NativeWorkflowCheckpoint>(first.Last);
         Assert.NotNull(saved.VariableState);
         Assert.Contains("loop", saved.Payload, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(first.Boundaries);
+        Assert.All(first.Boundaries, boundary =>
+        {
+            Assert.True(boundary.Generation > 0);
+            Assert.True(boundary.CheckpointCallbacks > 0);
+            Assert.Equal(0, boundary.ActiveHandlers);
+            Assert.NotNull(boundary.SourceNodeId);
+            Assert.NotNull(boundary.SourcePortId);
+            Assert.NotNull(boundary.NextNodeId);
+            Assert.NotNull(boundary.NextInputPortId);
+        });
         Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.VariableWritten));
 
         var resumed = new ProofCheckpointSink(events, restored: saved);
@@ -142,6 +153,34 @@ public sealed class MutableVariableExecutionTests
         Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.VariableWritten));
         Assert.Equal([2L, 3L, 4L], events.Where(evt => evt.Kind == ExecutionEventKinds.VariableWritten)
             .Select(evt => JsonDocument.Parse(evt.Data!).RootElement.GetProperty("version").GetInt64()));
+    }
+
+    [Fact]
+    public void Checkpoint_boundary_probe_fails_closed_when_a_handler_changes_after_pre_save()
+    {
+        var tracker = new CheckpointBoundaryTracker();
+        tracker.BeginHandler("body", "loop", "body", 1);
+        tracker.OnCheckpointing("body");
+        tracker.PublishTransition("body", "then", "set", "execute", 1);
+
+        Assert.False(tracker.TryCapture(out var observation));
+        Assert.Equal(0, observation.ActiveHandlers);
+    }
+
+    [Fact]
+    public void Checkpoint_boundary_probe_accepts_multiple_stable_executor_callbacks_once()
+    {
+        var tracker = new CheckpointBoundaryTracker();
+        tracker.BeginHandler("loop", "input", "then", 0);
+        tracker.PublishTransition("loop", "body", "body", "execute", 1);
+        tracker.OnCheckpointing("loop");
+        tracker.OnCheckpointing("body");
+
+        Assert.True(tracker.TryCapture(out var observation));
+        Assert.Equal(2, observation.CheckpointCallbacks);
+        Assert.Equal("loop", observation.SourceNodeId);
+        Assert.Equal("body", observation.NextNodeId);
+        Assert.Equal("execute", observation.NextInputPortId);
     }
 
     [Fact]
@@ -497,10 +536,14 @@ public sealed class MutableVariableExecutionTests
     }
 
     private sealed class ProofCheckpointSink(List<ExecutionEvent> events, int? suspendAfterCompletedNodes = null,
-        NativeWorkflowCheckpoint? restored = null) : IWorkflowCheckpointSink
+        NativeWorkflowCheckpoint? restored = null) : IWorkflowCheckpointSink, ICheckpointBoundaryProbeSink
     {
         public NativeWorkflowCheckpoint? RestoredCheckpoint { get; } = restored;
         public NativeWorkflowCheckpoint? Last { get; private set; }
+        public List<CheckpointBoundaryObservation> Boundaries { get; } = [];
+
+        public void ObserveBoundary(NativeWorkflowCheckpoint checkpoint, CheckpointBoundaryObservation observation) =>
+            Boundaries.Add(observation);
 
         public ValueTask<bool> CaptureAsync(NativeWorkflowCheckpoint checkpoint)
         {

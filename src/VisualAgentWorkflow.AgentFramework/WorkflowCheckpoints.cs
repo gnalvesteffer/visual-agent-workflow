@@ -17,6 +17,113 @@ public interface IWorkflowCheckpointSink
     ValueTask<bool> CaptureAsync(NativeWorkflowCheckpoint checkpoint);
 }
 
+internal sealed record CheckpointBoundaryObservation(
+    long Generation,
+    int CheckpointCallbacks,
+    int ActiveHandlers,
+    string? CurrentNodeId,
+    string? SourceNodeId,
+    string? SourcePortId,
+    string? NextNodeId,
+    string? NextInputPortId,
+    int LoopIteration);
+
+internal interface ICheckpointBoundaryProbeSink
+{
+    void ObserveBoundary(NativeWorkflowCheckpoint checkpoint, CheckpointBoundaryObservation observation);
+}
+
+/// <summary>
+/// Test-only pairing probe for the future loop checkpoint promotion gate.
+/// It never authorizes recovery and intentionally exposes no public checkpoint API.
+/// </summary>
+internal sealed class CheckpointBoundaryTracker
+{
+    private readonly object sync = new();
+    private long generation;
+    private int activeHandlers;
+    private string? currentNodeId;
+    private string? sourceNodeId;
+    private string? sourcePortId;
+    private string? nextNodeId;
+    private string? nextInputPortId;
+    private int loopIteration;
+    private long? preparedGeneration;
+    private int checkpointCallbacks;
+    private bool invalid;
+
+    public void BeginHandler(string nodeId, string? sourceNode, string? sourcePort, int iteration)
+    {
+        lock (sync)
+        {
+            activeHandlers++;
+            currentNodeId = nodeId;
+            sourceNodeId = sourceNode;
+            sourcePortId = sourcePort;
+            loopIteration = iteration;
+            invalid = false;
+        }
+    }
+
+    public void PublishTransition(string nodeId, string outputPort, string? nextNode, string? nextInput, int iteration)
+    {
+        lock (sync)
+        {
+            currentNodeId = nodeId;
+            sourceNodeId = nodeId;
+            sourcePortId = outputPort;
+            nextNodeId = nextNode;
+            nextInputPortId = nextInput;
+            loopIteration = iteration;
+            generation++;
+            activeHandlers = Math.Max(0, activeHandlers - 1);
+        }
+    }
+
+    public void AbortHandler()
+    {
+        lock (sync)
+        {
+            activeHandlers = Math.Max(0, activeHandlers - 1);
+            invalid = true;
+        }
+    }
+
+    public void OnCheckpointing(string executorId)
+    {
+        lock (sync)
+        {
+            if (preparedGeneration is null)
+                preparedGeneration = generation;
+            else if (preparedGeneration != generation)
+                invalid = true;
+            checkpointCallbacks++;
+        }
+    }
+
+    public bool TryCapture(out CheckpointBoundaryObservation observation)
+    {
+        lock (sync)
+        {
+            observation = new(
+                generation,
+                checkpointCallbacks,
+                activeHandlers,
+                currentNodeId,
+                sourceNodeId,
+                sourcePortId,
+                nextNodeId,
+                nextInputPortId,
+                loopIteration);
+            var valid = preparedGeneration == generation && checkpointCallbacks > 0 && activeHandlers == 0 && !invalid;
+            preparedGeneration = null;
+            checkpointCallbacks = 0;
+            invalid = false;
+            return valid;
+        }
+    }
+}
+
 public sealed partial class WorkflowRunner
 {
     public const string CheckpointRuntimeVersion = "agent-framework/1.26.0;vaw-adapter/1";
@@ -51,12 +158,17 @@ public sealed partial class WorkflowRunner
                 ? WorkflowVariableStore.FromSnapshot(revision.Definition, restoredState)
                 : new WorkflowVariableStore(revision.Definition)
             : null;
-        var bridge = new NativeCheckpointBridge(checkpoints, variableStore);
+        var boundaryTracker = revision.Definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph
+            ? new CheckpointBoundaryTracker() : null;
+        var bridge = new NativeCheckpointBridge(checkpoints, variableStore, boundaryTracker);
         var manager = CheckpointManager.CreateJson(bridge, new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() });
         long sequence = 0;
         ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null, string? data = null) =>
             record(new(runId, revision.RevisionId, Interlocked.Increment(ref sequence), DateTimeOffset.UtcNow, kind, node, invocation, connection, data));
-        var workflow = BuildWorkflow(runId, revision, input, null, Emit, null, revision, [], variableStore: variableStore);
+        var workflow = BuildWorkflow(runId, revision, input, null,
+            (kind, node, invocation, connection, data, _) => Emit(kind, node, invocation, connection, data), null, revision, [],
+            variableStore: variableStore,
+            boundaryTracker: boundaryTracker);
         await Emit(checkpoints.RestoredCheckpoint is null ? ExecutionEventKinds.Started : ExecutionEventKinds.Recovered);
         try
         {
@@ -102,7 +214,8 @@ public sealed partial class WorkflowRunner
 
     private sealed class SavedBoundarySignal : Exception;
 
-    private sealed class NativeCheckpointBridge(IWorkflowCheckpointSink sink, WorkflowVariableStore? variableStore) : ICheckpointStore<JsonElement>
+    private sealed class NativeCheckpointBridge(IWorkflowCheckpointSink sink, WorkflowVariableStore? variableStore,
+        CheckpointBoundaryTracker? boundaryTracker) : ICheckpointStore<JsonElement>
     {
         private NativeWorkflowCheckpoint? latest = sink.RestoredCheckpoint;
         private readonly List<(CheckpointInfo Info, string? Parent)> index = sink.RestoredCheckpoint is { } restored
@@ -113,6 +226,8 @@ public sealed partial class WorkflowRunner
         {
             var key = new CheckpointInfo(sessionId, Guid.NewGuid().ToString("N"));
             var checkpoint = new NativeWorkflowCheckpoint(sessionId, key.CheckpointId, parent?.CheckpointId, value.GetRawText(), variableStore?.Snapshot());
+            if (boundaryTracker is not null && boundaryTracker.TryCapture(out var observation) && sink is ICheckpointBoundaryProbeSink probe)
+                probe.ObserveBoundary(checkpoint, observation);
             if (await sink.CaptureAsync(checkpoint))
             {
                 // Saving at the native superstep callback precedes scheduling the next superstep.

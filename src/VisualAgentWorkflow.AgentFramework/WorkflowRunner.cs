@@ -199,19 +199,20 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         IReadOnlyDictionary<string, string>? parameters,
         Func<string, string?, Guid?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate,
         WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath, WorkflowVariableStore? variableStore = null) =>
-        BuildWorkflow(runId, revision, input, parameters, (kind, node, invocation, connection, data, _) => emit(kind, node, invocation, connection, data), gate, rootRevision, workflowPath, null, variableStore);
+        BuildWorkflow(runId, revision, input, parameters, (kind, node, invocation, connection, data, _) => emit(kind, node, invocation, connection, data), gate, rootRevision, workflowPath, null, variableStore, null);
 
     private Workflow BuildWorkflow(Guid runId, WorkflowRevision revision, string input,
         IReadOnlyDictionary<string, string>? parameters,
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate,
         WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath,
-        ParallelCollaborationRuntime? collaborationRuntime = null, WorkflowVariableStore? variableStore = null)
+        ParallelCollaborationRuntime? collaborationRuntime = null, WorkflowVariableStore? variableStore = null,
+        CheckpointBoundaryTracker? boundaryTracker = null)
     {
         var definition = revision.Definition;
         var dataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(definition) ? new ExplicitGraphDataEvaluator(definition, input, parameters) : null;
         var executors = definition.Nodes.ToDictionary(
             n => n.Key,
-            n => (Executor<GraphMessage, GraphMessage>)new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, dataEvaluator, variableStore, emit, gate, null, rootRevision, workflowPath, collaborationOptions, collaborationRuntime));
+            n => (Executor<GraphMessage, GraphMessage>)new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, dataEvaluator, variableStore, emit, gate, null, rootRevision, workflowPath, collaborationOptions, collaborationRuntime, null, boundaryTracker));
         if (collaborationRuntime is not null)
         {
             var region = collaborationRuntime.Region;
@@ -906,7 +907,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         string? scopeId, WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath,
         ParallelCollaborationRuntimeOptions? collaborationOptions,
         ParallelCollaborationRuntime? collaborationRuntime = null,
-        Func<SequenceMessageLineage, SequenceTerminalState, ValueTask>? recordSequenceTerminal = null)
+        Func<SequenceMessageLineage, SequenceTerminalState, ValueTask>? recordSequenceTerminal = null,
+        CheckpointBoundaryTracker? boundaryTracker = null)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -937,6 +939,12 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         private bool UsesConfigurableParallelGraph => revision.Definition.SchemaVersion is
             WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or
             WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph;
+
+        protected override ValueTask OnCheckpointingAsync(IWorkflowContext context, CancellationToken cancellationToken)
+        {
+            boundaryTracker?.OnCheckpointing(Id);
+            return ValueTask.CompletedTask;
+        }
 
         public override async ValueTask<GraphMessage> HandleAsync(GraphMessage received, IWorkflowContext context, CancellationToken cancellationToken = default)
         {
@@ -1056,6 +1064,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 finally { parallelJoinExecution.Release(); }
             }
             if (!internalTerminationHandoff) await Emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, message);
+            boundaryTracker?.BeginHandler(Id, received.SourceNode, received.SourcePort, received.LoopIteration);
             try
             {
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Output &&
@@ -1275,12 +1284,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 var terminated = node.Type == NodeTypes.Terminate || received.TerminationSignal || childOutcome?.Terminated == true;
                 if (routeSelection is not null)
                     await Emit(ExecutionEventKinds.AgentRouteCommitted, Id, invocation, null, JsonSerializer.Serialize(new { routeId = agentRouteId, port }));
+                var next = revision.Definition.ExecutionConnections?.Values.FirstOrDefault(edge =>
+                    edge.Source.NodeId == Id && edge.Source.PortId == port);
+                boundaryTracker?.PublishTransition(Id, port, next?.Target.NodeId, next?.Target.PortId, nextLoopIteration);
                 return new(result, internalTerminationHandoff ? received.SourceNode : Id, terminated ? "terminated" : port, permit, outputType, nextLoopIteration,
                     terminated, failureSignal, received.ParallelActivationId, received.ParallelBranchId, received.ParallelForkNodeId,
                     SequenceLineage: received.SequenceLineage);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+                boundaryTracker?.AbortHandler();
                 if (recordSequenceTerminal is not null && received.SequenceLineage is { } sequenceLineage)
                     await recordSequenceTerminal(sequenceLineage, SequenceTerminalState.Cancelled);
                 await Emit(ExecutionEventKinds.NodeCancelled, Id, invocation, null, "Node execution cancelled.");
@@ -1288,6 +1301,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             }
             catch (JsonProjectionContractException exception)
             {
+                boundaryTracker?.AbortHandler();
                 if (recordSequenceTerminal is not null && received.SequenceLineage is { } sequenceLineage)
                     await recordSequenceTerminal(sequenceLineage, SequenceTerminalState.Failed);
                 await Emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, exception.Message);
@@ -1295,6 +1309,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             }
             catch (GraphDataEvaluationException exception)
             {
+                boundaryTracker?.AbortHandler();
                 if (recordSequenceTerminal is not null && received.SequenceLineage is { } sequenceLineage)
                     await recordSequenceTerminal(sequenceLineage, SequenceTerminalState.Failed);
                 await Emit(ExecutionEventKinds.NodeFailed, exception.NodeId, invocation, null, exception.Message);
@@ -1303,6 +1318,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             }
             catch
             {
+                boundaryTracker?.AbortHandler();
                 if (recordSequenceTerminal is not null && received.SequenceLineage is { } sequenceLineage)
                     await recordSequenceTerminal(sequenceLineage, SequenceTerminalState.Failed);
                 if (routeSelection is not null)

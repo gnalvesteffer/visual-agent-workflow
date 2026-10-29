@@ -192,6 +192,10 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   evidence seam](decisions/0029-loop-variable-evidence-seam.md), [loop-variable
   topology proof](decisions/0030-loop-variable-topology-proof.md), and
   [variable checkpoint frame](decisions/0028-variable-checkpoint-frame.md).
+  A test-only lifecycle probe now pairs actual loop transitions with the
+  framework pre-save callback and native checkpoint callback, rejecting active
+  or unstable boundaries without changing production admission. Public loop
+  recovery remains gated on proving native-state pairing.
 - [x] Add passive playback and prefix reconstruction for variable reads/writes
   without re-execution; the run inspector renders the reconstructed value,
   version, and operation history.

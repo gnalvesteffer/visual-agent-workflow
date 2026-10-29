@@ -38,6 +38,22 @@ iteration must match the corresponding recorded loop event. These checks reject
 component substitution before native recovery; they do not by themselves make
 schema 1.45 production-admissible.
 
+## Characterization slice
+
+The adapter now has an internal, test-only boundary probe. Loop execution
+records the actual routed source/output and next target/input at the executor
+transition, while `Executor.OnCheckpointingAsync` records the framework's
+pre-save callbacks. The native checkpoint bridge consumes the probe only after
+the callbacks and passes the paired observation to a test sink. The probe
+rejects an active handler or a transition that changes after pre-save, and
+accepts multiple stable executor callbacks for one boundary. It does not parse
+private native JSON, expose a new sink contract, create production frames, or
+change schema 1.45 admission.
+
+This is lifecycle characterization, not promotion: the remaining gate is to
+prove the callback-to-native-state pairing across all boundary and failure
+windows before any public loop recovery API is enabled.
+
 A test-only adapter seam exercises the real Agent Framework native checkpoint
 serializer for a schema 1.45 loop-variable graph. It suspends after a body
 write, publishes the composite frame with the checkpoint/evidence transaction,
@@ -89,7 +105,10 @@ established by this proof.
   and unsettled frames before native execution begins; Core frame tests cover
   malformed/oversized/foreign payloads and Hosting recovery tests cover
   advanced, terminal, and unsettled boundaries.
-- Preserve schema 1.44 and older checkpoint formats and behavior unchanged.
+- [x] Preserve schema 1.44 and older checkpoint formats and behavior unchanged;
+  the existing schema-1.44 host recovery path explicitly asserts that it uses
+  the legacy variable-state envelope without a loop frame, then resumes through
+  the same public host API.
 
 See [the loop-variable topology decision](0030-loop-variable-topology-proof.md)
 and [the existing variable checkpoint frame](0028-variable-checkpoint-frame.md).
