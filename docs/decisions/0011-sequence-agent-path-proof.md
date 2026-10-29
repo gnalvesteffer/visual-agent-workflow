@@ -75,6 +75,23 @@ teams, collaboration, approvals, workflow calls, loops, branches, joins,
 retries, nested Sequences, and durable resume. It is implemented in Core and
 the normal runner, but not advertised as complete parity.
 
+## Authority review addendum (2026-10-29)
+
+The required proponent/opponent/adjudicator review of stronger terminal-Agent
+admission recommends **revise, then proceed**. Provider-ID-only admission is
+not enough to prevent a host from substituting a different model or adapter
+behind the same logical ID, and Agent paths do not yet have an explicit
+host-owned grant boundary comparable to MCP nodes. Before implementing this
+gate, the project must define a schema-1.46-only, credential-free execution
+contract fingerprint whose canonical inputs exclude mutable display, pricing,
+and telemetry fields; a grant bound to the workflow definition hash, terminal
+Agent node, provider ID, and fingerprint; and a run-scoped immutable admission
+lease or equivalent atomic revalidation that closes provider replacement after
+admission. Unknown requirements must fail closed, and older readers must reject
+or explicitly decline schema 1.46 rather than silently ignoring the stronger
+requirement. No public Agent-path promotion is claimed until those contracts
+and their exact/mismatch/denial/replacement/compatibility proofs are complete.
+
 ## Backend slice update (2026-10-29)
 
 Schema 1.46 now authoritatively validates the bounded topology and runs it
