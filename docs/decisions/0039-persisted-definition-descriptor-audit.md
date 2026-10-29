@@ -28,6 +28,18 @@ returns an empty descriptor for an unsupported node. The discovery state is
 reserved for future transient authoring APIs and is not produced by the
 persisted-definition resolver.
 
+## Follow-up authority review
+
+A second adversarial proponent/opponent/adjudicator review on 2026-10-29
+considered promoting the current static registry to authoritative pin shape for
+explicit graphs. The adjudicated outcome was **revise and proceed**: retain
+the typed fail-closed resolution boundary, but do not promote descriptor
+authority yet. The remaining blockers are schema-qualified descriptor identity,
+historical hash compatibility, runtime and checkpoint plan binding, and passive
+playback that cannot reinterpret old definitions through a changed code-owned
+registry. Dynamic MCP, Agent, Sequence, parallel, graph-function, and variable
+descriptors remain outside any authority promotion.
+
 ## Remaining gates
 
 - Make static descriptors schema-qualified authorities only after validator,
