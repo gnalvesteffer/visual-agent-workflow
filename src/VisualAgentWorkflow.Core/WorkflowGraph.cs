@@ -32,6 +32,86 @@ public sealed record StringCondition(string Operator, string Operand)
     };
 }
 
+/// <summary>
+/// Shared fallback shape definitions for configuration-derived pins. The descriptor
+/// resolver consumes this catalog directly; the legacy projections use it only as
+/// their compatibility view. This keeps shape definitions from drifting without
+/// making descriptors authoritative for schema or runtime behavior.
+/// </summary>
+internal static class WorkflowPortShapeCatalog
+{
+    public static ImmutableArray<WorkflowPort> ExplicitDataInputs(NodeDefinition node) => node.Type switch
+    {
+        NodeTypes.FunctionOutput => [new("in", node.InputDataType ?? WorkflowDataTypes.String)],
+        NodeTypes.Output => [new("in", node.OutputDataType ?? WorkflowDataTypes.String)],
+        NodeTypes.TextConcat => [new("left", WorkflowDataTypes.String), new("right", WorkflowDataTypes.String)],
+        NodeTypes.StringEquals => [new("left", WorkflowDataTypes.String), new("right", WorkflowDataTypes.String)],
+        NodeTypes.IntegerAdd or NodeTypes.IntegerEquals => [new("left", WorkflowDataTypes.Integer), new("right", WorkflowDataTypes.Integer)],
+        NodeTypes.NumberAdd => [new("left", WorkflowDataTypes.Number), new("right", WorkflowDataTypes.Number)],
+        NodeTypes.BooleanBranch => [new("condition", WorkflowDataTypes.Boolean)],
+        NodeTypes.BooleanNot => [new("value", WorkflowDataTypes.Boolean)],
+        NodeTypes.StringToInteger => [new("in", WorkflowDataTypes.String)],
+        NodeTypes.VariableSet => [new("value", node.InputDataType ?? WorkflowDataTypes.String)],
+        NodeTypes.McpTool when node.McpInputPorts is { } ports => [.. ports.Where(port => port is not null).Select(port => new WorkflowPort(port.Id, port.DataType))],
+        NodeTypes.McpTool => [new("in", WorkflowDataTypes.String)],
+        NodeTypes.FunctionCall => FunctionCallDataInputs(node),
+        _ => []
+    };
+
+    public static ImmutableArray<WorkflowPort> ExplicitDataOutputs(NodeDefinition node) => node.Type switch
+    {
+        NodeTypes.FunctionInput => [new("out", node.OutputDataType ?? WorkflowDataTypes.String)],
+        NodeTypes.Input or NodeTypes.StringConstant or NodeTypes.TextConcat => [new("out", WorkflowDataTypes.String)],
+        NodeTypes.IntegerConstant or NodeTypes.IntegerAdd => [new("out", WorkflowDataTypes.Integer)],
+        NodeTypes.NumberConstant => [new("out", WorkflowDataTypes.Number)],
+        NodeTypes.NumberAdd => [new("out", WorkflowDataTypes.Number)],
+        NodeTypes.StringToInteger => [new("out", WorkflowDataTypes.Integer)],
+        NodeTypes.WorkflowValue => [new("out", node.OutputDataType ?? WorkflowDataTypes.String)],
+        NodeTypes.VariableGet => [new("out", node.OutputDataType ?? WorkflowDataTypes.String)],
+        NodeTypes.Agent => [new("out", node.Agent?.RequireStructuredResult == true ? WorkflowDataTypes.Json : WorkflowDataTypes.String)],
+        NodeTypes.McpTool => [new("out", WorkflowDataTypes.String)],
+        NodeTypes.ParallelJoin => [new("out", WorkflowDataTypes.Json)],
+        NodeTypes.StringEquals or NodeTypes.IntegerEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", WorkflowDataTypes.Boolean)],
+        NodeTypes.FunctionCall => FunctionCallDataOutputs(node),
+        _ => []
+    };
+
+    public static ImmutableArray<string> ExplicitExecutionInputs(NodeDefinition node) => node.Type switch
+    {
+        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Sequence or NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.Loop or NodeTypes.LoopBody => ["execute"],
+        NodeTypes.ParallelJoin when node.ParallelJoin is { } join => [.. join.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
+        NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
+        _ => []
+    };
+
+    public static ImmutableArray<string> ExplicitExecutionOutputs(NodeDefinition node) => node.Type switch
+    {
+        NodeTypes.Input => ["then"],
+        NodeTypes.Agent when node.Agent?.Routes is { IsDefaultOrEmpty: false } routes => [.. routes.Where(route => route is not null).Select(route => AgentExecutionRouteLimits.PinId(route.Id))],
+        NodeTypes.Agent => ["out"],
+        NodeTypes.McpTool => ["then"],
+        NodeTypes.BooleanBranch => ["true", "false"],
+        NodeTypes.ParallelFork when node.ParallelFork is { } fork => [.. fork.Branches.Where(branch => branch is not null).Select(branch => ParallelBranchLimits.PinId(branch.Id))],
+        NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
+        NodeTypes.ParallelBranch => ["then"],
+        NodeTypes.ParallelJoin => ["then"],
+        NodeTypes.Sequence when node.Sequence is { } sequence => [.. sequence.Outputs.Where(output => output is not null).Select(output => SequenceOutputLimits.PinId(output.Id))],
+        NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.LoopBody => ["then"],
+        NodeTypes.Loop => ["body", "done"],
+        _ => []
+    };
+
+    private static ImmutableArray<WorkflowPort> FunctionCallDataInputs(NodeDefinition node) =>
+        node.GraphFunction?.Definition?.Inputs is { } inputs
+            ? [.. inputs.Where(pair => pair.Value is not null).Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))]
+            : [];
+
+    private static ImmutableArray<WorkflowPort> FunctionCallDataOutputs(NodeDefinition node) =>
+        node.GraphFunction?.Definition?.Outputs is { } outputs
+            ? [.. outputs.Where(pair => pair.Value is not null).Select(pair => new WorkflowPort(pair.Key, pair.Value.DataType))]
+            : [];
+}
+
 /// <summary>Explicit typed ports for the bounded workflow graph; no CLR types or executable expressions.</summary>
 public static class WorkflowPorts
 {
@@ -51,79 +131,22 @@ public static class WorkflowPorts
     public static ImmutableArray<WorkflowPort> ExplicitDataInputs(NodeDefinition node) =>
         !IsSupportedNodeVersion(node) ? [] : WorkflowNodeDescriptorRegistry.TryGetForNode(node, out var staticDescriptor)
             ? [.. staticDescriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data).Select(port => new WorkflowPort(port.Id, port.DataType!))]
-            : node.Type switch
-    {
-        NodeTypes.FunctionOutput => [new("in", node.InputDataType ?? WorkflowDataTypes.String)],
-        NodeTypes.Output => [new("in", node.OutputDataType ?? WorkflowDataTypes.String)],
-        NodeTypes.TextConcat => [new("left", WorkflowDataTypes.String), new("right", WorkflowDataTypes.String)],
-        NodeTypes.StringEquals => [new("left", WorkflowDataTypes.String), new("right", WorkflowDataTypes.String)],
-        NodeTypes.IntegerAdd or NodeTypes.IntegerEquals => [new("left", WorkflowDataTypes.Integer), new("right", WorkflowDataTypes.Integer)],
-        NodeTypes.NumberAdd => [new("left", WorkflowDataTypes.Number), new("right", WorkflowDataTypes.Number)],
-        NodeTypes.BooleanBranch => [new("condition", WorkflowDataTypes.Boolean)],
-        NodeTypes.BooleanNot => [new("value", WorkflowDataTypes.Boolean)],
-        NodeTypes.StringToInteger => [new("in", WorkflowDataTypes.String)],
-        NodeTypes.VariableSet => [new("value", node.InputDataType ?? WorkflowDataTypes.String)],
-        NodeTypes.McpTool when node.McpInputPorts is { } ports => [.. ports.Where(port => port is not null).Select(port => new WorkflowPort(port.Id, port.DataType))],
-        NodeTypes.McpTool => [new("in", WorkflowDataTypes.String)],
-        NodeTypes.FunctionCall => FunctionCallDataInputs(node),
-        _ => []
-    };
+            : WorkflowPortShapeCatalog.ExplicitDataInputs(node);
 
     public static ImmutableArray<WorkflowPort> ExplicitDataOutputs(NodeDefinition node) =>
         !IsSupportedNodeVersion(node) ? [] : WorkflowNodeDescriptorRegistry.TryGetForNode(node, out var staticDescriptor)
             ? [.. staticDescriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Data).Select(port => new WorkflowPort(port.Id, port.DataType!))]
-            : node.Type switch
-    {
-        NodeTypes.FunctionInput => [new("out", node.OutputDataType ?? WorkflowDataTypes.String)],
-        NodeTypes.Input or NodeTypes.StringConstant or NodeTypes.TextConcat => [new("out", WorkflowDataTypes.String)],
-        NodeTypes.IntegerConstant or NodeTypes.IntegerAdd => [new("out", WorkflowDataTypes.Integer)],
-        NodeTypes.NumberConstant => [new("out", WorkflowDataTypes.Number)],
-        NodeTypes.NumberAdd => [new("out", WorkflowDataTypes.Number)],
-        NodeTypes.StringToInteger => [new("out", WorkflowDataTypes.Integer)],
-        NodeTypes.WorkflowValue => [new("out", node.OutputDataType ?? WorkflowDataTypes.String)],
-        NodeTypes.VariableGet => [new("out", node.OutputDataType ?? WorkflowDataTypes.String)],
-        NodeTypes.Agent => [new("out", node.Agent?.RequireStructuredResult == true ? WorkflowDataTypes.Json : WorkflowDataTypes.String)],
-        NodeTypes.McpTool => [new("out", WorkflowDataTypes.String)],
-        NodeTypes.ParallelJoin => [new("out", WorkflowDataTypes.Json)],
-        NodeTypes.StringEquals or NodeTypes.IntegerEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", WorkflowDataTypes.Boolean)],
-        NodeTypes.FunctionCall => FunctionCallDataOutputs(node),
-        _ => []
-    };
+            : WorkflowPortShapeCatalog.ExplicitDataOutputs(node);
 
     public static ImmutableArray<string> ExplicitExecutionInputs(NodeDefinition node) =>
         !IsSupportedNodeVersion(node) ? [] : WorkflowNodeDescriptorRegistry.TryGetForNode(node, out var descriptor)
             ? [.. descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Execution).Select(port => port.Id)]
-            : ExplicitExecutionInputsFallback(node);
-
-    private static ImmutableArray<string> ExplicitExecutionInputsFallback(NodeDefinition node) => node.Type switch
-    {
-        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Sequence or NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.Loop or NodeTypes.LoopBody => ["execute"],
-        NodeTypes.ParallelJoin when node.ParallelJoin is { } join => [.. join.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
-        NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
-        _ => []
-    };
+            : WorkflowPortShapeCatalog.ExplicitExecutionInputs(node);
 
     public static ImmutableArray<string> ExplicitExecutionOutputs(NodeDefinition node) =>
         !IsSupportedNodeVersion(node) ? [] : WorkflowNodeDescriptorRegistry.TryGetForNode(node, out var descriptor)
             ? [.. descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Execution).Select(port => port.Id)]
-            : ExplicitExecutionOutputsFallback(node);
-
-    private static ImmutableArray<string> ExplicitExecutionOutputsFallback(NodeDefinition node) => node.Type switch
-    {
-        NodeTypes.Input => ["then"],
-        NodeTypes.Agent when node.Agent?.Routes is { IsDefaultOrEmpty: false } routes => [.. routes.Where(route => route is not null).Select(route => AgentExecutionRouteLimits.PinId(route.Id))],
-        NodeTypes.Agent => ["out"],
-        NodeTypes.McpTool => ["then"],
-        NodeTypes.BooleanBranch => ["true", "false"],
-        NodeTypes.ParallelFork when node.ParallelFork is { } fork => [.. fork.Branches.Where(branch => branch is not null).Select(branch => ParallelBranchLimits.PinId(branch.Id))],
-        NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
-        NodeTypes.ParallelBranch => ["then"],
-        NodeTypes.ParallelJoin => ["then"],
-        NodeTypes.Sequence when node.Sequence is { } sequence => [.. sequence.Outputs.Where(output => output is not null).Select(output => SequenceOutputLimits.PinId(output.Id))],
-        NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.LoopBody => ["then"],
-        NodeTypes.Loop => ["body", "done"],
-        _ => []
-    };
+            : WorkflowPortShapeCatalog.ExplicitExecutionOutputs(node);
 
     public static ImmutableArray<WorkflowPort> Inputs(NodeDefinition node) =>
         !IsSupportedNodeVersion(node) ? [] : WorkflowNodeDescriptorRegistry.TryGetForNode(node, out var staticDescriptor)

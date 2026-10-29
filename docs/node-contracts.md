@@ -9,6 +9,11 @@ historical evidence. Those decisions remain owned by the schema validator,
 runtime, host admission, and recorded revision boundaries. See [descriptor
 authority boundary](decisions/0036-descriptor-authority-boundary.md).
 
+For configuration-derived nodes, the descriptor resolver and compatibility
+projections consume the same Core pin-shape catalog. This aligns pin identity,
+type, and order without making the non-serialized descriptor a schema or
+runtime authority.
+
 This page documents the canonical metadata in
 [`WorkflowNodeContractCatalog`](../src/VisualAgentWorkflow.Core/WorkflowNodeContracts.cs).
 It is an authoring and review reference, not a replacement for schema-specific

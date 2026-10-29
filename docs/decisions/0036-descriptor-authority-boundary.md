@@ -20,6 +20,10 @@ historical definitions when a non-serialized descriptor changes.
 
 - The graph canvas and editor insertion controls use the same resolved authoring
   descriptor for configured output pins, including Agent routes.
+- Dynamic descriptor resolution and the compatibility projections now consume one
+  shared Core pin-shape catalog, removing the resolver's reverse dependency on
+  the public legacy switch methods while retaining those methods for older
+  callers.
 - Static descriptor registry conformance and advisory cross-layer drift tests
   remain in place.
 - Schema-specific validators and runtime consumers retain their existing

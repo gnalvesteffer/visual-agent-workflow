@@ -433,7 +433,7 @@ public static class WorkflowNodeDescriptorResolver
         var ports = new List<WorkflowPortDescriptor>();
         var mcpInputs = effectiveNode.McpInputPorts;
 
-        foreach (var port in WorkflowPorts.ExplicitDataInputs(effectiveNode))
+        foreach (var port in WorkflowPortShapeCatalog.ExplicitDataInputs(effectiveNode))
         {
             var mcpPort = effectiveNode.Type == NodeTypes.McpTool
                 ? mcpInputs?.FirstOrDefault(candidate => candidate is not null && candidate.Id == port.Id)
@@ -450,20 +450,20 @@ public static class WorkflowNodeDescriptorResolver
             });
         }
 
-        foreach (var port in WorkflowPorts.ExplicitDataOutputs(effectiveNode))
+        foreach (var port in WorkflowPortShapeCatalog.ExplicitDataOutputs(effectiveNode))
             ports.Add(new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType)
             {
                 Cardinality = WorkflowPortCardinality.Many
             });
 
-        foreach (var port in WorkflowPorts.ExplicitExecutionInputs(effectiveNode))
+        foreach (var port in WorkflowPortShapeCatalog.ExplicitExecutionInputs(effectiveNode))
             ports.Add(new WorkflowPortDescriptor(port, WorkflowPortDirection.Input, WorkflowPortKind.Execution)
             {
                 Required = true,
                 Cardinality = WorkflowPortCardinality.ExactlyOne
             });
 
-        foreach (var port in WorkflowPorts.ExplicitExecutionOutputs(effectiveNode))
+        foreach (var port in WorkflowPortShapeCatalog.ExplicitExecutionOutputs(effectiveNode))
             ports.Add(new WorkflowPortDescriptor(port, WorkflowPortDirection.Output, WorkflowPortKind.Execution,
                 DisplayName: ExecutionPortLabel(effectiveNode, port))
             {
