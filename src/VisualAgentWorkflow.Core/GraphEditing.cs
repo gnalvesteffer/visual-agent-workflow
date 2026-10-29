@@ -2,6 +2,8 @@ using System.Collections.Immutable;
 
 namespace VisualAgentWorkflow.Core;
 
+public sealed record WorkflowNodeDuplicationResult(WorkflowDefinition Definition, string NodeId);
+
 /// <summary>Validated local edge edits. No topological order is treated as an execution sequence.</summary>
 public static class GraphEditing
 {
@@ -532,6 +534,19 @@ public static class GraphEditing
             SchemaVersion = WorkflowEditing.SchemaFor(definition, node),
             Nodes = definition.Nodes.Add(id, node)
         };
+    }
+
+    /// <summary>Duplicates one node's configuration as a new unconnected editable node.</summary>
+    /// <remarks>Connections are intentionally not copied; callers own layout/presentation cloning.</remarks>
+    public static WorkflowNodeDuplicationResult DuplicateNode(WorkflowDefinition definition, string nodeId)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (string.IsNullOrWhiteSpace(nodeId) || !definition.Nodes.TryGetValue(nodeId, out var node))
+            throw new ArgumentException("Choose an existing node to duplicate.", nameof(nodeId));
+
+        var duplicated = AddUnconnectedNode(definition, node);
+        var newId = duplicated.Nodes.Keys.Except(definition.Nodes.Keys, StringComparer.Ordinal).Single();
+        return new(duplicated, newId);
     }
 
     /// <summary>Reconnects pins in an editable draft. Structural validation remains visible until every issue is fixed.</summary>

@@ -1719,7 +1719,7 @@
     });
 
     private async Task Edit(Func<WorkflowDefinition> edit, GraphContextRequest? placement = null, PortReference? insertion = null,
-        string? preserveSelection = null)
+        string? preserveSelection = null, string? copyPresentationFrom = null)
     {
         if (ReadOnly || Disabled) return;
         try
@@ -1730,6 +1730,20 @@
             if (preserveSelection is not null && next.Nodes.ContainsKey(preserveSelection)) selectedNode = preserveSelection;
             else if (added.Length > 0) selectedNode = added.FirstOrDefault(id => next.Nodes[id].Type == NodeTypes.ParallelFork) ?? added.FirstOrDefault(id => next.Nodes[id].Type is NodeTypes.Condition or NodeTypes.Approval) ?? added[0];
             var nextLayout = PlaceAddedNodes(next, EffectiveLayout.Reconcile(next), added, placement, insertion);
+            if (copyPresentationFrom is { } sourceId && added.Length == 1 &&
+                EffectiveLayout.Nodes.TryGetValue(sourceId, out var sourcePresentation) &&
+                nextLayout.Nodes.TryGetValue(added[0], out var duplicatePresentation))
+            {
+                nextLayout = nextLayout with
+                {
+                    Nodes = nextLayout.Nodes.SetItem(added[0], duplicatePresentation with
+                    {
+                        Label = sourcePresentation.Label,
+                        Comment = sourcePresentation.Comment,
+                        CommentExpanded = sourcePresentation.CommentExpanded
+                    })
+                };
+            }
             if (GraphEdited.HasDelegate) await GraphEdited.InvokeAsync(new(next, nextLayout));
             else
             {

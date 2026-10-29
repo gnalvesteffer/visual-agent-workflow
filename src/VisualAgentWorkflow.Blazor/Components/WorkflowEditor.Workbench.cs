@@ -543,7 +543,7 @@ public partial class WorkflowEditor
     {
         if (!CanDuplicate(id)) return;
         await CloseMenu(context);
-        await Edit(() => GraphEditing.AddUnconnectedNode(Definition, Definition.Nodes[id]), context);
+        await Edit(() => GraphEditing.DuplicateNode(Definition, id).Definition, context, copyPresentationFrom: id);
     }
 
     private Task CloseMenu(GraphContextRequest? context) => context is not null && canvas is not null ? canvas.CloseContextMenu(context.Id) : Task.CompletedTask;

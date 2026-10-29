@@ -18,6 +18,10 @@ Positions are finite and bounded to 0–32768 logical canvas units. Limits are 1
 
 `IWorkflowDesignCatalog` extends the optional host contract without changing existing `IWorkflowCatalog` methods. Its design save updates definition and layout under one expected generation and SQLite transaction. An explicit save records `draft.saved` and `layout.saved`; the latter identifies the presentation hash. Publishing snapshots layout with the immutable revision; restoring restores both. Older catalogs/revisions without layout use deterministic default positions. Definition-only API saves preserve annotations for surviving node IDs and prune routes/sections whose references disappear.
 
+## Duplicate a node
+
+Use a node's context menu to duplicate an authorable node. Duplication creates a new node with the same configuration and copies its label/comment presentation, but intentionally copies no incoming or outgoing wires. The new node is placed at the requested canvas location and remains an editable draft until its pins are connected. Input/output and structural boundary nodes remain protected from duplication where their topology would be misleading.
+
 SQLite schema 2 adds presentation tables to schema 1 without changing existing definitions, generations, revisions, or hashes. The development database remains single-host and unauthenticated, as documented in [roadmap and current scope](roadmap.md).
 
 ## Creation workbench
