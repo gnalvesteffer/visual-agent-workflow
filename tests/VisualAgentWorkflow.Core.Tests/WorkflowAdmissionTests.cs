@@ -69,6 +69,21 @@ public sealed class WorkflowAdmissionTests
     }
 
     [Fact]
+    public void Sequence_agent_path_package_requires_the_terminal_agent_provider()
+    {
+        var definition = SequenceAgentPathDefinition();
+
+        var requirements = WorkflowPackageJson.Requirements(definition);
+        var provider = Assert.Single(requirements, requirement => requirement.Kind == "agent-provider");
+
+        Assert.Equal("sequence-proof", provider.Id);
+        Assert.True(WorkflowAdmission.Assess(definition, new([provider.Id],
+            [new WorkflowAdmissionToolFact("demo.inventory", new string('a', 64))])).HostDependenciesSatisfied);
+        Assert.Contains(WorkflowAdmission.Assess(definition, WorkflowAdmissionHostSnapshot.Empty).Issues,
+            issue => issue.Kind == WorkflowAdmissionIssueKind.Missing && issue.Requirement == provider);
+    }
+
+    [Fact]
     public void Fabricated_package_requirements_are_rejected_before_assessment()
     {
         var definition = Definition();
@@ -113,5 +128,39 @@ public sealed class WorkflowAdmissionTests
                 ["first"] = new(new("input", "out"), new("agent", "in"), "data"),
                 ["last"] = new(new("agent", "out"), new("output", "in"), "data")
             }.ToImmutableSortedDictionary());
+    }
+
+    private static WorkflowDefinition SequenceAgentPathDefinition()
+    {
+        var nodes = new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["sequence"] = new(NodeTypes.Sequence, "1.0.0")
+            {
+                Sequence = new SequenceConfiguration([new("inventory", "Inventory"), new("research", "Research")])
+            },
+            ["inventory-tool"] = new(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest("demo.inventory", new string('a', 64))) { McpArgumentsJson = "{}" },
+            ["research-agent"] = new(NodeTypes.Agent, "1.0.0")
+            {
+                Agent = new AgentConfiguration("sequence-proof", null, "Return the supplied text.", [])
+                { MaxTurns = 1, MaxTotalTokens = 4000 }
+            },
+            ["output"] = new(NodeTypes.Output, "1.0.0")
+        };
+        var execution = new Dictionary<string, ConnectionDefinition>
+        {
+            ["input-sequence"] = new(new("input", "then"), new("sequence", "execute"), "execution"),
+            ["sequence-inventory"] = new(new("sequence", "then.inventory"), new("inventory-tool", "execute"), "execution"),
+            ["inventory-output"] = new(new("inventory-tool", "then"), new("output", "execute"), "execution"),
+            ["sequence-research"] = new(new("sequence", "then.research"), new("research-agent", "execute"), "execution"),
+            ["research-output"] = new(new("research-agent", "out"), new("output", "execute"), "execution")
+        };
+        return new WorkflowDefinition(WorkflowSchemaVersions.SequenceAgentPathGraph, "sequence-admission", "input",
+            nodes.ToImmutableSortedDictionary(),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal))
+        {
+            ExecutionConnections = execution.ToImmutableSortedDictionary()
+        };
     }
 }
