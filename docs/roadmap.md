@@ -164,8 +164,8 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   1.45 remains outside checkpoint admission until
   failure/publication races and all exact admission semantics are proven. See
   [loop checkpoint proof frame](decisions/0031-loop-checkpoint-proof-frame.md).
-  Cancellation-position is proven at the atomic variable-store boundary: a
-  pre-cancelled write cannot mutate state or advance its version; a separate
+  Cancellation position is proven at the atomic variable-store boundary: a
+  pre-cancelled write cannot mutate state or advance its version; separate
   runtime regressions now prove cancellation or recorder failure after a
   committed write preserves the recorded passive prefix, and Core playback
   coverage reconstructs every valid operation prefix without execution. The
@@ -175,7 +175,9 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   read/write prefix with the captured scalar snapshot, rejecting a
   hash-consistent but evidence-inconsistent state. The bounded
   durable-loop proof also covers cancellation immediately after publication;
-  the saved suspension remains resumable. The bounded
+  the saved suspension remains resumable. Cancellation during a resumed loop
+  advances evidence without replaying a body write, and the older checkpoint
+  is conservatively rejected as stale. The bounded
   linear schema 1.44 checkpoint frame captures a hashed variable snapshot with
   native state, validates it against the pinned definition, and restores it
   before resumed execution. Failure-injection, cancellation-race around durable

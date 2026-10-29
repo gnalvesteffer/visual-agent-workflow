@@ -83,6 +83,8 @@ established by this proof.
   boundary.
 - [x] Cancel immediately after durable publication and verify the committed
   suspension remains internally valid and resumable.
+- [x] Cancel during loop resume and verify no body write is replayed; the
+  advanced evidence makes the older checkpoint conservatively stale.
 - Reject stale, advanced, foreign, malformed, oversized, tampered, terminal,
   and unsettled frames before native execution begins.
 - Preserve schema 1.44 and older checkpoint formats and behavior unchanged.

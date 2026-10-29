@@ -25,9 +25,10 @@ that the atomic SQLite transaction leaves no partial capture marker or
 checkpoint pointer. When variable evidence is present, validation also checks
 that the captured scalar snapshot agrees with that passive prefix. The proof
 also covers cancellation immediately after durable publication; the saved
-suspension remains resumable. See
-[decision
-0031](decisions/0031-loop-checkpoint-proof-frame.md).
+  suspension remains resumable. Cancellation during a resumed loop instead
+  advances the run evidence and conservatively invalidates the older checkpoint
+  without replaying loop writes. See [decision
+  0031](decisions/0031-loop-checkpoint-proof-frame.md).
 
 ## Use the host API
 
