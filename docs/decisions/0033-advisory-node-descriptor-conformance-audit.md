@@ -24,6 +24,14 @@ their own compatibility and runtime evidence contracts.
 
 ## Follow-up gates
 
+- [x] Qualify persisted schema-1.43 success, failure, and cancellation evidence
+  through the local runtime against both the file journal and SQLite store.
+- [x] Reopen each store and reconstruct the Sequence prefix passively, including
+  failed/cancelled sibling settlement, without invoking a tool during replay.
+- [x] Cover schema-1.43 package round-trip, stable output wiring, and tampered
+  invocation/connection identity rejection.
+- [ ] Add provider-specific uncertain/timeout and host-denial fixtures with
+  their distinct broker evidence before promoting a public Agent path.
 - Keep the public Sequence-to-Agent path deferred until host admission,
   multi-descendant settlement, persisted nested identity, and passive replay are
   proven under a new additive schema (currently expected to be 1.46).

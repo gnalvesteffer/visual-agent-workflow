@@ -127,6 +127,55 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Schema_1_43_records_failed_tool_path_and_sequence_failure_evidence()
+    {
+        var events = new List<ExecutionEvent>();
+        var broker = new SequencePathBroker((_, _) => throw new InvalidOperationException("simulated tool failure"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new WorkflowRunner(broker).ExecuteWithOutcomeAsync(
+            Guid.NewGuid(), WorkflowRevision.Create(SequencePathDefinition(), "sequence-path-failure"), "ignored", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+            evt.NodeId is "inventory-tool" or "architecture-tool");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+        Assert.True(SequenceEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal("failed", playback!.Status);
+        Assert.Contains(playback.Outputs, output => output.State == "failed");
+        Assert.Contains(playback.Outputs, output => output.State == "cancelled");
+    }
+
+    [Fact]
+    public async Task Schema_1_43_records_cancelled_tool_path_and_sequence_cancellation_evidence()
+    {
+        var events = new List<ExecutionEvent>();
+        var broker = new SequencePathBroker(async (_, cancellationToken) =>
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return "unreachable";
+        });
+        using var cancellation = new CancellationTokenSource();
+        var execution = new WorkflowRunner(broker).ExecuteWithOutcomeAsync(
+            Guid.NewGuid(), WorkflowRevision.Create(SequencePathDefinition(), "sequence-path-cancellation"), "ignored", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }, cancellation.Token);
+
+        await broker.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => execution);
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == "inventory-tool");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled &&
+            ReadEvidence(evt).OutputId == "inventory");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceCancelled);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+        Assert.True(SequenceEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Equal("cancelled", playback!.Status);
+        Assert.Equal("cancelled", Assert.Single(playback.Outputs, output => output.OutputId == "inventory").State);
+    }
+
+    [Fact]
     public async Task Private_agent_sequence_proof_records_nested_agent_events_with_sequence_lineage()
     {
         var events = new List<ExecutionEvent>();
@@ -488,6 +537,36 @@ public sealed class SequenceProductionRunnerTests
             if (nextNodeId != blockedBoundary) return ValueTask.CompletedTask;
             Blocked.TrySetResult();
             return new(Release.Task.WaitAsync(cancellationToken));
+        }
+    }
+
+    private sealed class SequencePathBroker(Func<string, CancellationToken, Task<string>> invoke) : INodeToolBroker
+    {
+        public TaskCompletionSource<bool> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new Scope(this, invoke);
+
+        private sealed class Scope(SequencePathBroker owner, Func<string, CancellationToken, Task<string>> invoke) : INodeToolScope
+        {
+            public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+            public Task<string> InvokeAsync(string bindingId, string input, CancellationToken cancellationToken = default)
+            {
+                owner.Started.TrySetResult(true);
+                return invoke(input, cancellationToken);
+            }
+
+            public Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments, CancellationToken cancellationToken = default)
+            {
+                owner.Started.TrySetResult(true);
+                return invoke(arguments.GetRawText(), cancellationToken);
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         }
     }
 }

@@ -111,6 +111,21 @@ public sealed class SequenceGraphTests
     }
 
     [Fact]
+    public void Sequence_path_package_round_trip_preserves_schema_outputs_and_execution_connections()
+    {
+        var definition = PathDefinition();
+        var package = WorkflowPackageJson.Create(definition, WorkflowLayout.Create(definition));
+        var restored = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(definition, package.Layout)).Definition;
+
+        Assert.Equal(WorkflowSchemaVersions.SequencePathGraph, restored.SchemaVersion);
+        Assert.Equal(definition.Nodes["sequence"].Sequence!.Outputs.ToArray(),
+            restored.Nodes["sequence"].Sequence!.Outputs.ToArray());
+        Assert.Equal(definition.ExecutionConnections, restored.ExecutionConnections);
+        Assert.Equal(WorkflowJson.ComputeHash(definition), WorkflowJson.ComputeHash(restored));
+        Assert.Empty(WorkflowValidator.Validate(restored));
+    }
+
+    [Fact]
     public void Sequence_path_schema_rejects_shared_downstream_nodes()
     {
         var definition = PathDefinition() with

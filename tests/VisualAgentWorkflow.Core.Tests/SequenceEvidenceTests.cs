@@ -155,6 +155,24 @@ public sealed class SequenceEvidenceTests
         Assert.False(SequenceEvidence.TryReconstructPlayback(afterTerminal, out _));
     }
 
+    [Fact]
+    public void Playback_rejects_tampered_invocation_or_connection_identity()
+    {
+        var sequenceId = Guid.NewGuid();
+        var runId = Guid.NewGuid();
+        var revisionId = Guid.NewGuid();
+        var activationId = Guid.NewGuid();
+        var started = Lifecycle(runId, revisionId, 1, ExecutionEventKinds.SequenceStarted, sequenceId,
+            new(sequenceId, "sequence", null, null, null, null));
+        var dispatched = Lifecycle(runId, revisionId, 2, ExecutionEventKinds.SequenceOutputDispatched, sequenceId,
+            new(sequenceId, "sequence", "first", 0, activationId, "connection-a"));
+
+        Assert.False(SequenceEvidence.TryReconstructPlayback(
+            [started, dispatched with { InvocationId = Guid.NewGuid() }], out _));
+        Assert.False(SequenceEvidence.TryReconstructPlayback(
+            [started, dispatched with { ConnectionId = "connection-tampered" }], out _));
+    }
+
     private static ExecutionEvent Lifecycle(Guid runId, Guid revisionId, long sequence, string kind, Guid invocationId,
         SequenceLifecycleEvidence evidence) => new(runId, revisionId, sequence, DateTimeOffset.UtcNow, kind,
         evidence.SequenceNodeId, invocationId, evidence.ConnectionId, SequenceEvidence.Serialize(evidence));

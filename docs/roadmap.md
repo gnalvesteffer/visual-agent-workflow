@@ -255,6 +255,7 @@ Sequence proof checklist:
 - [x] Add schema promotion and richer Sequence diagnostics for unsupported downstream topology. Schema 1.38 drafts can be explicitly promoted to schema 1.43, and invalid paths identify the affected ordered output, path node, competing owner, and repair constraint without making the draft unsaveable.
 - [x] Add public runtime evidence/playback binding for the bounded slice.
 - [x] Add compatibility coverage for the bounded 1.38 → 1.43 promotion, including source-hash preservation and invalid-source rejection.
+- [x] Qualify schema 1.43 success, failure, and cancellation evidence through both persisted run stores, reopen it without executors, and passively reconstruct the terminal path state; package round-trip and tampered invocation/connection identity regressions are included. Provider-specific uncertain/timeout and host-denial fixtures remain a gate for any public Agent-path promotion.
 - [ ] Add broader supported downstream node topology and its migration coverage.
 
 ### Sequencing and exit criteria

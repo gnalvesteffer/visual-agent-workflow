@@ -1,0 +1,193 @@
+using System.Collections.Immutable;
+using System.Text.Json;
+using Microsoft.Extensions.Logging.Abstractions;
+using VisualAgentWorkflow.AgentFramework;
+using VisualAgentWorkflow.Core;
+using Xunit;
+
+namespace VisualAgentWorkflow.Hosting.Tests;
+
+public sealed class SequencePathEvidencePersistenceTests : IDisposable
+{
+    private readonly string directory = Path.Combine(Path.GetTempPath(), "vaw-sequence-evidence-" + Guid.NewGuid());
+    private string Database => Path.Combine(directory, "runs.sqlite3");
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Schema_1_43_success_survives_runtime_shutdown_and_store_reopen(bool sqlite)
+    {
+        var store = CreateStore(sqlite);
+        var revision = WorkflowRevision.Create(Definition(), "sequence-persistence");
+        var broker = new SequenceBroker((_, _) => Task.FromResult("tool-result"));
+        var runId = await ExecuteThroughRuntime(store, revision, broker);
+
+        var reopened = CreateStore(sqlite).Get(runId)!;
+        Assert.Equal("completed", reopened.Status);
+        Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal("completed", playback!.Status);
+        Assert.Equal(["inventory", "architecture"], playback.Outputs.Select(output => output.OutputId));
+        Assert.All(playback.Outputs, output => Assert.Equal("completed", output.State));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Schema_1_43_failure_survives_runtime_shutdown_and_replays_without_tool_calls(bool sqlite)
+    {
+        var store = CreateStore(sqlite);
+        var revision = WorkflowRevision.Create(Definition(), "sequence-persistence-failure");
+        var broker = new SequenceBroker((_, _) => throw new InvalidOperationException("simulated failure"));
+        var runId = await ExecuteThroughRuntime(store, revision, broker);
+
+        var reopened = CreateStore(sqlite).Get(runId)!;
+        Assert.Equal("failed", reopened.Status);
+        Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal("failed", playback!.Status);
+        Assert.Contains(playback.Outputs, output => output.State == "failed");
+        Assert.Contains(playback.Outputs, output => output.State == "cancelled");
+        Assert.InRange(broker.InvocationCount, 1, 2);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Schema_1_43_cancellation_survives_runtime_shutdown_and_replays_skips(bool sqlite)
+    {
+        var store = CreateStore(sqlite);
+        var revision = WorkflowRevision.Create(Definition(), "sequence-persistence-cancel");
+        var broker = new SequenceBroker(async (_, cancellationToken) =>
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return "unreachable";
+        });
+        var runId = await ExecuteCancelledThroughRuntime(store, revision, broker);
+
+        var reopened = CreateStore(sqlite).Get(runId)!;
+        Assert.Equal("cancelled", reopened.Status);
+        Assert.True(SequenceEvidence.TryReconstructPlayback(reopened.Events, out var playback));
+        Assert.Equal("cancelled", playback!.Status);
+        Assert.Contains(playback.Outputs, output => output.State == "cancelled");
+        Assert.All(playback.Outputs, output => Assert.True(output.State is "cancelled" or "skipped"));
+    }
+
+    private async Task<Guid> ExecuteThroughRuntime(IWorkflowRunStore store, WorkflowRevision revision, SequenceBroker broker)
+    {
+        using var runtime = new LocalWorkflowRuntime(store, NullLogger<LocalWorkflowRuntime>.Instance, broker);
+        await runtime.StartAsync(CancellationToken.None);
+        try
+        {
+            var queued = await runtime.StartRevisionAsync(revision, "research input");
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            RunSnapshot snapshot;
+            do
+            {
+                await Task.Delay(10, deadline.Token);
+                snapshot = (await runtime.GetRunAsync(queued.Header.RunId))!;
+            } while (!snapshot.IsTerminal);
+
+            return snapshot.Header.RunId;
+        }
+        finally
+        {
+            await runtime.StopAsync(CancellationToken.None);
+        }
+    }
+
+    private async Task<Guid> ExecuteCancelledThroughRuntime(IWorkflowRunStore store, WorkflowRevision revision, SequenceBroker broker)
+    {
+        using var runtime = new LocalWorkflowRuntime(store, NullLogger<LocalWorkflowRuntime>.Instance, broker);
+        await runtime.StartAsync(CancellationToken.None);
+        try
+        {
+            var queued = await runtime.StartRevisionAsync(revision, "research input");
+            await broker.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await runtime.CancelRunAsync(queued.Header.RunId);
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            RunSnapshot snapshot;
+            do
+            {
+                await Task.Delay(10, deadline.Token);
+                snapshot = (await runtime.GetRunAsync(queued.Header.RunId))!;
+            } while (!snapshot.IsTerminal);
+
+            return snapshot.Header.RunId;
+        }
+        finally
+        {
+            await runtime.StopAsync(CancellationToken.None);
+        }
+    }
+
+    private IWorkflowRunStore CreateStore(bool sqlite) => sqlite
+        ? new SqliteWorkflowRunStore(Database)
+        : new FileRunJournal(directory);
+
+    private static WorkflowDefinition Definition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("sequence", new(NodeTypes.Sequence, "1.0.0")
+            {
+                Sequence = new SequenceConfiguration([new("inventory", "Inventory"), new("architecture", "Architecture")])
+            })
+            .Add("inventory-tool", new(NodeTypes.McpTool, "1.0.0", new("demo.inventory", new string('a', 64)))
+            {
+                McpArgumentsJson = "{}"
+            })
+            .Add("architecture-tool", new(NodeTypes.McpTool, "1.0.0", new("demo.architecture", new string('b', 64)))
+            {
+                McpArgumentsJson = "{}"
+            })
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input-sequence", new(new("input", "then"), new("sequence", "execute"), "execution"))
+            .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("inventory-tool", "execute"), "execution"))
+            .Add("inventory-output", new(new("inventory-tool", "then"), new("output", "execute"), "execution"))
+            .Add("sequence-architecture", new(new("sequence", "then.architecture"), new("architecture-tool", "execute"), "execution"))
+            .Add("architecture-output", new(new("architecture-tool", "then"), new("output", "execute"), "execution"));
+        return new WorkflowDefinition(WorkflowSchemaVersions.SequencePathGraph, "sequence-persistence", "input", nodes,
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal))
+        {
+            ExecutionConnections = execution
+        };
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+    }
+
+    private sealed class SequenceBroker(Func<string, CancellationToken, Task<string>> invoke) : INodeToolBroker
+    {
+        public int InvocationCount { get; private set; }
+        public TaskCompletionSource<bool> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new Scope(this, invoke);
+
+        private sealed class Scope(SequenceBroker owner, Func<string, CancellationToken, Task<string>> invoke) : INodeToolScope
+        {
+            public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+            public Task<string> InvokeAsync(string bindingId, string input, CancellationToken cancellationToken = default)
+            {
+                owner.InvocationCount++;
+                owner.Started.TrySetResult(true);
+                return invoke(input, cancellationToken);
+            }
+
+            public Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments, CancellationToken cancellationToken = default)
+            {
+                owner.InvocationCount++;
+                owner.Started.TrySetResult(true);
+                return invoke(arguments.GetRawText(), cancellationToken);
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+}
