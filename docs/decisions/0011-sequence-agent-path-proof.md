@@ -137,8 +137,11 @@ Promotion gates, in order:
 - [ ] Prove the same settlement contract for the public candidate with the
   real Agent executor and host capability admission; never complete the
   workflow while descendant work remains active.
-- [ ] Add public-subset finite resource limits and explicit grant-denial tests
-  once the schema-1.44 candidate is admitted for implementation.
+- [ ] Add public-subset finite resource-limit admission and execution tests once
+  the remaining public runtime settlement contract is admitted.
+- [x] Prove schema-1.46 provider-contract grant denial in both Core assessment
+  and Hosting admission: a matching provider fact without the exact
+  workflow-definition/node grant is rejected before journal/run creation.
 - [x] Define deterministic private final-result semantics: the lowest authored
   output ordinal wins even when a later Agent path completes first.
 - [x] Prove passive playback of nested Sequence/Agent/model identity for the
@@ -151,3 +154,13 @@ Promotion gates, in order:
 - [ ] Add package/Studio authoring and invalid-topology coverage only after the
   remaining runtime/evidence gates above pass; then advertise schema 1.46 as a
   complete public capability.
+
+## Grant-denial evidence addendum (2026-10-29)
+
+Core and Hosting regression coverage now proves that a matching provider
+contract is not sufficient for a terminal Agent path. The host must also
+provide the exact grant bound to the workflow definition hash, Agent node, and
+contract hash. Missing that grant produces a typed `GrantDenied` admission
+issue and prevents journal/run creation. This closes the grant-denial proof
+gate without promoting schema 1.46 to Studio authoring or changing the
+remaining settlement, resource-limit, package, and playback gates.

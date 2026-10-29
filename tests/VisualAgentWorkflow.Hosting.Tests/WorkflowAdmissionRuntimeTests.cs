@@ -146,4 +146,31 @@ public sealed class WorkflowAdmissionRuntimeTests : IDisposable
             return Task.FromResult(snapshot!);
         }
     }
+
+    [Fact]
+    public async Task SequenceAgentGrantDenialIsRejectedBeforeRunCreation()
+    {
+        var definition = SequenceAgentPathDefinition();
+        var package = WorkflowPackageJson.Create(definition, WorkflowLayout.Create(definition));
+        var requirement = Assert.Single(package.Requirements, item => item.Kind == "agent-provider-contract");
+        var journal = new FileRunJournal(directory);
+        var provider = new SnapshotProvider(new WorkflowAdmissionHostSnapshot([requirement.Id], [])
+        {
+            ProviderFacts = [new WorkflowAdmissionProviderFact(requirement.Id, requirement.ContractHash!)]
+        });
+        using var runtime = new LocalWorkflowRuntime(journal, NullLogger<LocalWorkflowRuntime>.Instance,
+            admissionProvider: provider);
+        await runtime.StartAsync(CancellationToken.None);
+        try
+        {
+            var error = await Assert.ThrowsAsync<WorkflowAdmissionException>(() =>
+                runtime.StartPausedRunAsync(definition, "input"));
+
+            Assert.Contains(error.Report.Issues, issue => issue.Kind == WorkflowAdmissionIssueKind.GrantDenied &&
+                issue.Requirement == requirement);
+            Assert.Empty(journal.List());
+            Assert.Equal(1, provider.Calls);
+        }
+        finally { await runtime.StopAsync(CancellationToken.None); }
+    }
 }

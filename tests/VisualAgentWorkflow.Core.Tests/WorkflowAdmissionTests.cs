@@ -91,6 +91,24 @@ public sealed class WorkflowAdmissionTests
     }
 
     [Fact]
+    public void Sequence_agent_path_requires_an_exact_workflow_node_grant()
+    {
+        var definition = SequenceAgentPathDefinition();
+        var package = WorkflowPackageJson.Create(definition, WorkflowLayout.Create(definition));
+        var provider = Assert.Single(package.Requirements, requirement => requirement.Kind == "agent-provider-contract");
+        var host = new WorkflowAdmissionHostSnapshot([provider.Id], [])
+        {
+            ProviderFacts = [new WorkflowAdmissionProviderFact(provider.Id, provider.ContractHash!)]
+        };
+
+        var report = WorkflowAdmission.Assess(package, host);
+
+        var issue = Assert.Single(report.Issues, item => item.Kind == WorkflowAdmissionIssueKind.GrantDenied);
+        Assert.Contains("research-agent", issue.Message, StringComparison.Ordinal);
+        Assert.False(report.HostDependenciesSatisfied);
+    }
+
+    [Fact]
     public void Fabricated_package_requirements_are_rejected_before_assessment()
     {
         var definition = Definition();
