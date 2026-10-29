@@ -51,6 +51,32 @@ public sealed class GraphClipboardTests
         Assert.Throws<ArgumentException>(() => GraphClipboardJson.Serialize(fragment));
     }
 
+    [Fact]
+    public void Multi_node_pure_fragment_preserves_internal_edges_and_boundary_hints()
+    {
+        var source = ExplicitWorkflow() with
+        {
+            Nodes = ExplicitWorkflow().Nodes.Remove("constant")
+                .Add("left", new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("left") })
+                .Add("right", new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("right") })
+                .Add("join", new(NodeTypes.TextConcat, "1.0.0")),
+            Connections = ExplicitWorkflow().Connections
+                .SetItem("left-join", new(new("left", "out"), new("join", "left"), "data"))
+                .SetItem("right-join", new(new("right", "out"), new("join", "right"), "data"))
+                .SetItem("join-output", new(new("join", "out"), new("output", "in"), "data"))
+                .Remove("data")
+        };
+
+        var fragment = GraphClipboardEditing.Extract(source, WorkflowLayout.Create(source), ["left", "right", "join"], [],
+            [new("result", "string", "join", "out")]);
+
+        Assert.Equal(3, fragment.Nodes.Count);
+        Assert.Equal(2, fragment.Connections.Count);
+        Assert.Equal("output", Assert.Single(fragment.Outputs).TargetNodeId);
+        Assert.All(fragment.Connections.Values, edge =>
+            Assert.Contains(edge.Source.NodeId, new[] { "left", "right", "join" }));
+    }
+
     private static WorkflowDefinition ExplicitWorkflow() => new(
         WorkflowSchemaVersions.ExplicitGraph, "clipboard", "input",
         new Dictionary<string, NodeDefinition>

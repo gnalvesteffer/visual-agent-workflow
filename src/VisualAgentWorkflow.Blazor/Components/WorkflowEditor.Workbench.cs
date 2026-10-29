@@ -558,26 +558,31 @@ public partial class WorkflowEditor
             !contract.HasExecutionPins && node.Origin is null;
     }
 
-    private async Task CopyClipboardNode(string id, GraphContextRequest context)
+    private async Task CopyClipboardSelection(string id, GraphContextRequest context)
     {
         if (!CanCopyClipboardNode(id)) return;
         try
         {
+            var selected = canvas is null ? [] : await canvas.SelectedNodeIds();
+            var nodeIds = selected.Length > 0 && selected.Contains(id, StringComparer.Ordinal) ? selected : [id];
+            if (nodeIds.Any(nodeId => !CanCopyClipboardNode(nodeId)))
+                throw new ArgumentException("Every selected node must be a stateless pure data node without execution pins.");
+            var selectedSet = nodeIds.ToHashSet(StringComparer.Ordinal);
             var incoming = Definition.Connections.Values
-                .Where(edge => edge.Target.NodeId == id && edge.Source.NodeId != id)
+                .Where(edge => !selectedSet.Contains(edge.Source.NodeId) && selectedSet.Contains(edge.Target.NodeId))
                 .Select(edge => new GraphClipboardInputBoundary(
                     ClipboardBoundaryId("input", edge.Target.NodeId, edge.Target.PortId),
                     DataPortType(edge.Source.NodeId, edge.Source.PortId, WorkflowPortDirection.Output),
                     edge.Target.NodeId, edge.Target.PortId))
                 .ToArray();
             var outgoing = Definition.Connections.Values
-                .Where(edge => edge.Source.NodeId == id && edge.Target.NodeId != id)
+                .Where(edge => selectedSet.Contains(edge.Source.NodeId) && !selectedSet.Contains(edge.Target.NodeId))
                 .Select(edge => new GraphClipboardOutputBoundary(
                     ClipboardBoundaryId("output", edge.Source.NodeId, edge.Source.PortId),
                     DataPortType(edge.Target.NodeId, edge.Target.PortId, WorkflowPortDirection.Input),
                     edge.Source.NodeId, edge.Source.PortId))
                 .ToArray();
-            var fragment = GraphClipboardEditing.Extract(Definition, EffectiveLayout, [id], incoming, outgoing);
+            var fragment = GraphClipboardEditing.Extract(Definition, EffectiveLayout, nodeIds, incoming, outgoing);
             await JavaScript.InvokeVoidAsync("navigator.clipboard.writeText", GraphClipboardJson.Serialize(fragment));
             error = null;
             await CloseMenu(context);

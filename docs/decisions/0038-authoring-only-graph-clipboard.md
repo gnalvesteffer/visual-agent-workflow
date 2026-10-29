@@ -3,7 +3,7 @@
 ## Status
 
 Accepted as a bounded authoring slice. Core owns the strict contract, and Studio exposes
-single-node copy/paste through the graph context menu for eligible pure data nodes.
+selection-aware copy/paste through the graph context menu for eligible pure data nodes.
 
 ## Decision
 
@@ -17,5 +17,5 @@ Host capability references, credentials, grants, approvals, endpoints, subscript
 
 ## Rationale and follow-up
 
-This deliberately does not broaden the pure-template envelope from [decision 0023](0023-pure-graph-template-proof.md). The first Studio UI exposes only single-node context-menu commands; it does not copy execution wires, annotations, capabilities, stateful nodes, or cross-workflow dependency metadata. Multi-selection, keyboard shortcuts, explicit binding prompts, and project-aware transport require separate boundary, security, compatibility, and evidence proofs.
+This deliberately does not broaden the pure-template envelope from [decision 0023](0023-pure-graph-template-proof.md). The Studio UI uses the canvas's existing box/Ctrl/Shift selection and context-menu commands; it does not copy execution wires, annotations, capabilities, stateful nodes, or cross-workflow dependency metadata. Keyboard shortcuts, explicit binding prompts, and project-aware transport require separate boundary, security, compatibility, and evidence proofs.
 

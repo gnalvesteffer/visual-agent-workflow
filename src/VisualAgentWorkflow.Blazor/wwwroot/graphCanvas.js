@@ -149,7 +149,7 @@ export function attach(root, callback) {
     };
     document.addEventListener('fullscreenchange', state.fullscreenChanged);
     window.addEventListener('resize', state.resize);
-    state.handle = { refresh: () => sync(root), center: () => center(state), fit: () => fit(state), reset: () => reset(state), select: id => { state.selection = state.nodes.has(id) ? new Set([id]) : new Set(); applySelection(state); }, dispose: () => detach(root) };
+    state.handle = { refresh: () => sync(root), center: () => center(state), fit: () => fit(state), reset: () => reset(state), select: id => { state.selection = state.nodes.has(id) ? new Set([id]) : new Set(); applySelection(state); }, selection: () => [...state.selection], dispose: () => detach(root) };
     canvases.set(root, state);
     sync(root);
     return state.handle;

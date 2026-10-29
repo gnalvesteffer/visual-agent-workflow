@@ -292,6 +292,13 @@ public partial class WorkflowGraphCanvas
     {
         if (browserSession is not null) zoom = Math.Clamp(await browserSession.InvokeAsync<double>("reset"), 0.25, 1.5);
     }
+
+    public async Task<string[]> SelectedNodeIds()
+    {
+        if (browserSession is not null)
+            return await browserSession.InvokeAsync<string[]>("selection");
+        return selectedNode is { } id ? [id] : [];
+    }
     private Task AutoLayout()
     {
         var arranged = WorkflowLayout.Create(Definition);

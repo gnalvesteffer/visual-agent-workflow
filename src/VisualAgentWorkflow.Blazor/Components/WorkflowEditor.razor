@@ -170,7 +170,7 @@
             <div class="vaw-context-actions">
                 <button type="button" @onclick="() => CloseMenu(context)">Edit selected node properties</button>
                 <button type="button" disabled="@(!CanDuplicate(contextNode))" @onclick="() => Duplicate(contextNode, context)">Duplicate node</button>
-                <button type="button" disabled="@(!CanCopyClipboardNode(contextNode))" @onclick="() => CopyClipboardNode(contextNode, context)">Copy pure data node</button>
+                <button type="button" disabled="@(!CanCopyClipboardNode(contextNode))" @onclick="() => CopyClipboardSelection(contextNode, context)">Copy selected pure data nodes</button>
                 <button type="button" disabled="@(!CanRemove(contextNode))" @onclick="() => RemoveSelected(contextNode, context)">@(Definition.Nodes[contextNode].Type == NodeTypes.ParallelRendezvous ? "Remove collaboration region…" : Definition.Nodes[contextNode].Type == NodeTypes.Merge ? "Remove merge and split paths" : Definition.Nodes[contextNode].Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin ? "Remove parallel block…" : Definition.Nodes[contextNode].Type == NodeTypes.Loop ? "Remove loop (run body once)" : "Delete node")</button>
                 @if (Definition.Nodes[contextNode].Type == NodeTypes.Condition)
                 { <button type="button" disabled="@Disabled" @onclick="() => RequestBlockRemoval(contextNode, context)">Remove conditional block…</button> }
