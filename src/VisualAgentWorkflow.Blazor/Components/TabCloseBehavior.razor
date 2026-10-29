@@ -5,7 +5,8 @@
     {
         if (!firstRender) return;
         if (Services.GetService(typeof(IJSRuntime)) is not IJSRuntime javaScript) return;
-        await using var module = await javaScript.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/tabInteractions.js");
+        var assetVersion = typeof(TabCloseBehavior).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+        await using var module = await javaScript.InvokeAsync<IJSObjectReference>("import", $"./_content/VisualAgentWorkflow.Blazor/tabInteractions.js?v={assetVersion}");
         await module.InvokeVoidAsync("install");
     }
 }

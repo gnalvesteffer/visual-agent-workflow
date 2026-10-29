@@ -122,6 +122,22 @@ public sealed class GraphCanvasRenderingTests
     }
 
     [Fact]
+    public void Wire_context_library_offers_only_unary_pure_bridges()
+    {
+        var definition = TypedBooleanInsertionGraph();
+        var editor = new WorkflowEditor();
+        typeof(WorkflowEditor).GetProperty(nameof(WorkflowEditor.Definition))!.SetValue(editor, definition);
+        var context = new GraphContextRequest("wire-menu", null, "equals-invert", 0, new(400, 240), 0, 0,
+            "equals", "out", "invert", "value");
+        var method = typeof(WorkflowEditor).GetMethod("LibraryEntries", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var entries = (IReadOnlyList<WorkflowNodeLibraryEntry>)method.Invoke(editor, [context])!;
+
+        Assert.Contains(entries, entry => entry.Key == NodeTypes.BooleanNot);
+        Assert.DoesNotContain(entries, entry => entry.Key == NodeTypes.BooleanConstant);
+        Assert.DoesNotContain(entries, entry => entry.Key == NodeTypes.TextConcat);
+    }
+
+    [Fact]
     public async Task InsertionOutputPickerUsesResolvedAgentRouteDescriptors()
     {
         var baseline = WorkflowTemplates.Create("uppercase") with
@@ -166,6 +182,28 @@ public sealed class GraphCanvasRenderingTests
         Assert.Contains("value=\"route.inventory\"", html);
         Assert.Contains("value=\"route.quality\"", html);
     }
+
+    private static WorkflowDefinition TypedBooleanInsertionGraph() => new(WorkflowSchemaVersions.TypedBooleanGraph, "typed-boolean", "input",
+        ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("expected", new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("yes") })
+            .Add("equals", new(NodeTypes.StringEquals, "1.0.0"))
+            .Add("invert", new(NodeTypes.BooleanNot, "1.0.0"))
+            .Add("branch", new(NodeTypes.BooleanBranch, "1.0.0"))
+            .Add("output", new(NodeTypes.Output, "1.0.0"))
+            .Add("terminate", new(NodeTypes.Terminate, "1.0.0") { Termination = new(WorkflowTerminationOutcomes.Failure) }),
+        ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-left", new(new("input", "out"), new("equals", "left"), "data"))
+            .Add("expected-right", new(new("expected", "out"), new("equals", "right"), "data"))
+            .Add("equals-invert", new(new("equals", "out"), new("invert", "value"), "data"))
+            .Add("invert-branch", new(new("invert", "out"), new("branch", "condition"), "data") )
+            .Add("output-value", new(new("input", "out"), new("output", "in"), "data")))
+    {
+        ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("activate-branch", new(new("input", "then"), new("branch", "execute"), "execution"))
+            .Add("true-route", new(new("branch", "true"), new("output", "execute"), "execution"))
+            .Add("false-route", new(new("branch", "false"), new("terminate", "execute"), "execution"))
+    };
 
     [Fact]
     public async Task IdeGraphMinimapIncludesViewportIndicator()

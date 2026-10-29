@@ -59,6 +59,10 @@ public partial class WorkflowEditor
 
     private string InsertionDescription(GraphContextRequest? context)
     {
+        if (context is { ConnectionId: not null, SourceNodeId: { } wireSourceNodeId, SourcePortId: { } wireSourcePortId,
+            TargetNodeId: { } wireTargetNodeId, TargetPortId: { } wireTargetPortId })
+            return $"Insert a compatible pure node between {NodeLabel(wireSourceNodeId)} · {wireSourcePortId} and {NodeLabel(wireTargetNodeId)} · {wireTargetPortId}.";
+
         if (context is { SourceNodeId: { } sourceNodeId, SourcePortId: { } sourcePortId } &&
             Definition.Nodes.TryGetValue(sourceNodeId, out var sourceNode))
         {
@@ -109,6 +113,23 @@ public partial class WorkflowEditor
         if (!WorkflowSchemaVersions.UsesExplicitGraph(Definition) || context?.SourceNodeId is not { } sourceNodeId ||
             context.SourcePortId is not { } sourcePortId || !Definition.Nodes.TryGetValue(sourceNodeId, out var sourceNode))
             return entries;
+
+        if (context.ConnectionId is { } connectionId && context.TargetNodeId is { } targetNodeId &&
+            context.TargetPortId is { } targetPortId && Definition.Nodes.ContainsKey(targetNodeId))
+        {
+            return entries.Where(entry =>
+            {
+                if (entry.Key.StartsWith("template:", StringComparison.Ordinal)) return false;
+                try
+                {
+                    // The Core operation is the authoritative candidate filter:
+                    // the picker must never advertise a node the atomic edit will reject.
+                    _ = GraphEditing.InsertPureNodeBetween(Definition, connectionId, FromSelection(entry.Key));
+                    return true;
+                }
+                catch (ArgumentException) { return false; }
+            }).ToArray();
+        }
 
         var sourcePort = CanvasPorts(sourceNode).FirstOrDefault(port => port.Direction == WorkflowPortDirection.Output && port.Id == sourcePortId);
         if (sourcePort is null) return entries;
@@ -354,6 +375,18 @@ public partial class WorkflowEditor
         if (!LibraryEntries(context).Any(e => e.Key == key && e.Enabled)) return;
         var insertion = Insertion(context);
         await CloseMenu(context);
+        if (context?.ConnectionId is { } connectionId && context.TargetNodeId is not null &&
+            WorkflowSchemaVersions.UsesExplicitGraph(Definition))
+        {
+            try
+            {
+                var node = FromSelection(key);
+                await Edit(() => GraphEditing.InsertPureNodeBetween(Definition, connectionId, node), context);
+            }
+            catch (ArgumentException exception) { error = $"The pure node could not be inserted: {exception.Message}"; }
+            insertionConnection = null;
+            return;
+        }
         if (key.StartsWith("template:", StringComparison.Ordinal))
         {
             OpenTemplateDialog(key, context);

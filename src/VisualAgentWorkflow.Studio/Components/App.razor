@@ -4,17 +4,24 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <base href="/" />
-    <script src="studioTheme.js"></script>
-    <link rel="stylesheet" href="_content/VisualAgentWorkflow.Blazor/workflow.css" />
-    <link rel="stylesheet" href="studio.css" />
-    <link rel="stylesheet" href="studio-theme-polish.css" />
-    <link rel="stylesheet" href="VisualAgentWorkflow.Studio.styles.css" />
+    <script src="studioTheme.js?v=@StudioAssetVersion"></script>
+    <link rel="stylesheet" href="_content/VisualAgentWorkflow.Blazor/workflow.css?v=@BlazorAssetVersion" />
+    <link rel="stylesheet" href="studio.css?v=@StudioAssetVersion" />
+    <link rel="stylesheet" href="studio-theme-polish.css?v=@StudioAssetVersion" />
+    <link rel="stylesheet" href="VisualAgentWorkflow.Studio.styles.css?v=@StudioAssetVersion" />
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
 <body class="vaw-app">
     <div class="vaw-navigation-status" role="status" aria-live="polite" hidden><span>Loading page…</span></div>
     <Routes @rendermode="InteractiveServer" />
-    <script src="studioReconnection.js"></script>
+    <script src="studioReconnection.js?v=@StudioAssetVersion"></script>
     <script src="_framework/blazor.web.js"></script>
 </body>
 </html>
+
+@code {
+    // A module version ID changes on every successful assembly build, so browsers
+    // fetch the new shell and component styles without requiring users to clear site data.
+    private static string StudioAssetVersion => typeof(StudioIdeLayout).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+    private static string BlazorAssetVersion => typeof(WorkflowGraphCanvas).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+}

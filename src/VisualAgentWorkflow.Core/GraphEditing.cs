@@ -564,6 +564,59 @@ public static class GraphEditing
         };
     }
 
+    /// <summary>
+    /// Inserts one unary pure data node into an existing explicit data connection.
+    /// The connection ID is the authoring selection identity; stale or ambiguous
+    /// selections are rejected rather than repairing unrelated topology.
+    /// </summary>
+    public static WorkflowDefinition InsertPureNodeBetween(WorkflowDefinition definition, string connectionId, NodeDefinition node)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(node);
+        if (!WorkflowSchemaVersions.UsesExplicitGraph(definition))
+            throw new ArgumentException("Pure pin insertion requires an explicit typed graph.", nameof(definition));
+        WorkflowValidator.ThrowIfInvalid(definition);
+        if (definition.Nodes.Count >= 256)
+            throw new ArgumentException("The inserted node would exceed the 256-node workflow limit.", nameof(definition));
+        if (!definition.Connections.TryGetValue(connectionId, out var selected) || selected.Kind != "data")
+            throw new ArgumentException("Choose one existing data connection.", nameof(connectionId));
+        if (!definition.Nodes.TryGetValue(selected.Source.NodeId, out var source) ||
+            !definition.Nodes.TryGetValue(selected.Target.NodeId, out var target) ||
+            selected.Source.NodeId == selected.Target.NodeId)
+            throw new ArgumentException("The selected connection must reference two existing nodes.", nameof(connectionId));
+        if (!WorkflowNodeContractCatalog.TryGet(node.Type, out var contract) ||
+            !string.Equals(node.TypeVersion, contract.TypeVersion, StringComparison.Ordinal) ||
+            !contract.IsPure || contract.Effects != WorkflowNodeEffectFlags.None ||
+            contract.Activation != WorkflowNodeActivationKind.DataEvaluation || contract.HasDynamicPins)
+            throw new ArgumentException("Only current, static, pure data nodes can be inserted.", nameof(node));
+
+        var candidatePorts = WorkflowPorts.Explicit(node);
+        var candidateInputs = candidatePorts.Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data).ToArray();
+        var candidateOutputs = candidatePorts.Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Data).ToArray();
+        if (candidatePorts.Any(port => port.Kind == WorkflowPortKind.Execution) || candidateInputs.Length != 1 || candidateOutputs.Length != 1)
+            throw new ArgumentException("The inserted node must have exactly one data input and one data output, with no execution pins.", nameof(node));
+
+        var sourcePort = WorkflowPorts.Explicit(source).SingleOrDefault(port =>
+            port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Data && port.Id == selected.Source.PortId);
+        var targetPort = WorkflowPorts.Explicit(target).SingleOrDefault(port =>
+            port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data && port.Id == selected.Target.PortId);
+        if (sourcePort is null || targetPort is null || sourcePort.DataType != candidateInputs[0].DataType ||
+            candidateOutputs[0].DataType != targetPort.DataType)
+            throw new ArgumentException("The pure node's data pins must exactly bridge the selected connection.", nameof(node));
+        if (definition.Connections.Values.Any(edge => edge != selected && edge.Target == selected.Target))
+            throw new ArgumentException("The selected target input has another data connection.", nameof(connectionId));
+
+        var insertedId = NewId("pure");
+        var connections = definition.Connections
+            .SetItem(connectionId, new(selected.Source, new(insertedId, candidateInputs[0].Id), "data"))
+            .Add(NewId("link"), new(new(insertedId, candidateOutputs[0].Id), selected.Target, "data"));
+        return Checked(definition with
+        {
+            Nodes = definition.Nodes.Add(insertedId, node),
+            Connections = connections
+        });
+    }
+
     public static WorkflowDefinition Disconnect(WorkflowDefinition definition, string connectionId)
     {
         if (connectionId.StartsWith("execution:", StringComparison.Ordinal))

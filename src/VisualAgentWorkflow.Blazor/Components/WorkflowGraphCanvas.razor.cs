@@ -236,7 +236,8 @@ public partial class WorkflowGraphCanvas
         {
             if (firstRender && Services.GetService(typeof(IJSRuntime)) is IJSRuntime js)
             {
-                module = await js.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/graphCanvas.js");
+                var assetVersion = typeof(WorkflowGraphCanvas).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+                module = await js.InvokeAsync<IJSObjectReference>("import", $"./_content/VisualAgentWorkflow.Blazor/graphCanvas.js?v={assetVersion}");
                 if (disposed) { await module.DisposeAsync(); module = null; return; }
                 callback = DotNetObjectReference.Create(this);
                 var session = await module.InvokeAsync<IJSObjectReference>("attach", root, callback);
@@ -247,7 +248,7 @@ public partial class WorkflowGraphCanvas
                     return;
                 }
                 browserSession = session;
-                paneModule = await js.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/paneLayout.js");
+                paneModule = await js.InvokeAsync<IJSObjectReference>("import", $"./_content/VisualAgentWorkflow.Blazor/paneLayout.js?v={assetVersion}");
                 paneSession = await paneModule.InvokeAsync<IJSObjectReference>("attach", root);
                 zoom = Math.Clamp(await browserSession.InvokeAsync<double>("center"), 0.25, 1.5);
                 ready = true;
@@ -395,10 +396,25 @@ public partial class WorkflowGraphCanvas
         sourcePortId = sourceNodeId is null || string.IsNullOrWhiteSpace(sourcePortId) ? null : sourcePortId;
         targetPortId = nodeId is null || string.IsNullOrWhiteSpace(targetPortId) ? null : targetPortId;
         connectionId = FindConnection(connectionId) is not null ? connectionId : null;
-        if (connectionId is not null) await SelectWire(connectionId);
+        var targetNodeId = nodeId;
+        if (connectionId is not null && FindConnection(connectionId) is { } connection)
+        {
+            // A wire context menu carries both endpoints so the editor can offer
+            // typed Blueprint-style insertion actions without guessing from a
+            // previously selected node or a stale drag gesture.
+            nodeId = null;
+            if (connection.Kind == "data")
+            {
+                sourceNodeId = connection.Definition.Source.NodeId;
+                sourcePortId = connection.Definition.Source.PortId;
+                targetNodeId = connection.Definition.Target.NodeId;
+                targetPortId = connection.Definition.Target.PortId;
+            }
+            await SelectWire(connectionId);
+        }
         else if (nodeId is not null) await SelectNode(nodeId);
         contextMenu = new(Guid.NewGuid().ToString("N"), nodeId, connectionId, segment, Snap(x, y), clientX, clientY,
-            sourceNodeId, sourcePortId, nodeId, targetPortId);
+            sourceNodeId, sourcePortId, targetNodeId, targetPortId);
         await InvokeAsync(StateHasChanged);
     }
 

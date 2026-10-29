@@ -46,7 +46,8 @@
     {
         if (firstRender)
         {
-            module = await JavaScript.InvokeAsync<IJSObjectReference>("import", "./studioProjectPicker.js");
+            var assetVersion = typeof(StudioProjectPicker).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+            module = await JavaScript.InvokeAsync<IJSObjectReference>("import", $"./studioProjectPicker.js?v={assetVersion}");
             await module.InvokeVoidAsync("initialize", root);
             ready = true;
             StateHasChanged();

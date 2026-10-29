@@ -108,6 +108,24 @@ builder.Services.AddScoped<IGraphTemplateCatalog>(services => services.GetRequir
 builder.Services.AddSingleton<ObservationSources>();
 var app = builder.Build();
 
+// The document is the cache-busting boundary for the interactive shell. Never
+// let a browser reuse an old HTML document after a Studio rebuild; its versioned
+// asset references then load the matching CSS and JavaScript modules.
+app.Use(async (context, next) =>
+{
+    var acceptsHtml = context.Request.Headers.Accept.ToString().Contains("text/html", StringComparison.OrdinalIgnoreCase);
+    if (HttpMethods.IsGet(context.Request.Method) && acceptsHtml && !context.Request.Path.StartsWithSegments("/api"))
+    {
+        context.Response.OnStarting(() =>
+        {
+            context.Response.Headers.CacheControl = "no-store, max-age=0";
+            context.Response.Headers.Pragma = "no-cache";
+            return Task.CompletedTask;
+        });
+    }
+    await next();
+});
+
 // Development containment, not a production authentication boundary. Do not put behind a public proxy.
 app.Use(async (context, next) =>
 {

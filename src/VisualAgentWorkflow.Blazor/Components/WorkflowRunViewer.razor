@@ -811,7 +811,8 @@
             {
                 try
                 {
-                    await using var module = await javaScript.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/tabInteractions.js");
+                    var assetVersion = typeof(WorkflowRunViewer).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+                    await using var module = await javaScript.InvokeAsync<IJSObjectReference>("import", $"./_content/VisualAgentWorkflow.Blazor/tabInteractions.js?v={assetVersion}");
                     await module.InvokeVoidAsync("closeModalDialog", eventDialog);
                 }
                 catch (JSDisconnectedException) { }
@@ -831,7 +832,8 @@
     {
         if (firstRender && Services.GetService(typeof(IJSRuntime)) is IJSRuntime layoutJs)
         {
-            layoutModule = await layoutJs.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/paneLayout.js");
+            var assetVersion = typeof(WorkflowRunViewer).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+            layoutModule = await layoutJs.InvokeAsync<IJSObjectReference>("import", $"./_content/VisualAgentWorkflow.Blazor/paneLayout.js?v={assetVersion}");
             layoutSession = await layoutModule.InvokeAsync<IJSObjectReference>("attach", viewerRoot);
         }
         if (eventNodeId is not null && !eventDialogShown)
@@ -840,7 +842,8 @@
             {
                 try
                 {
-                    await using var module = await javaScript.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/tabInteractions.js");
+                    var assetVersion = typeof(WorkflowRunViewer).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+                    await using var module = await javaScript.InvokeAsync<IJSObjectReference>("import", $"./_content/VisualAgentWorkflow.Blazor/tabInteractions.js?v={assetVersion}");
                     await module.InvokeVoidAsync("showModalDialog", eventDialog);
                     eventDialogShown = true;
                 }

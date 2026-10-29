@@ -18,7 +18,8 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
-        await using var module = await JavaScript.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/tabInteractions.js");
+        var assetVersion = typeof(DiscardChangesDialog).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+        await using var module = await JavaScript.InvokeAsync<IJSObjectReference>("import", $"./_content/VisualAgentWorkflow.Blazor/tabInteractions.js?v={assetVersion}");
         await module.InvokeVoidAsync("showDiscardDialog", dialog);
     }
 }

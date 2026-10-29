@@ -35,13 +35,15 @@ public partial class GraphTemplateInsertionDialog
     {
         if (Open && !dialogShown)
         {
-            await using var module = await JavaScript.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/tabInteractions.js");
+            var assetVersion = typeof(GraphTemplateInsertionDialog).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+            await using var module = await JavaScript.InvokeAsync<IJSObjectReference>("import", $"./_content/VisualAgentWorkflow.Blazor/tabInteractions.js?v={assetVersion}");
             await module.InvokeVoidAsync("showModalDialog", dialog);
             dialogShown = true;
         }
         else if (!Open && dialogShown)
         {
-            await using var module = await JavaScript.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/tabInteractions.js");
+            var assetVersion = typeof(GraphTemplateInsertionDialog).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+            await using var module = await JavaScript.InvokeAsync<IJSObjectReference>("import", $"./_content/VisualAgentWorkflow.Blazor/tabInteractions.js?v={assetVersion}");
             await module.InvokeVoidAsync("closeModalDialog", dialog);
             dialogShown = false;
         }

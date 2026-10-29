@@ -98,7 +98,8 @@ public partial class WorkflowDesigner
         {
             try
             {
-                await using var module = await js.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/tabInteractions.js");
+                var assetVersion = typeof(WorkflowDesigner).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+                await using var module = await js.InvokeAsync<IJSObjectReference>("import", $"./_content/VisualAgentWorkflow.Blazor/tabInteractions.js?v={assetVersion}");
                 await module.InvokeVoidAsync("closeModalDialog", runDialog);
             }
             catch (JSException) { }
@@ -222,7 +223,8 @@ public partial class WorkflowDesigner
     {
         if (firstRender && !disposed && Services.GetService(typeof(IJSRuntime)) is IJSRuntime layoutJs)
         {
-            var layoutModule = await layoutJs.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/paneLayout.js");
+            var assetVersion = typeof(WorkflowDesigner).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+            var layoutModule = await layoutJs.InvokeAsync<IJSObjectReference>("import", $"./_content/VisualAgentWorkflow.Blazor/paneLayout.js?v={assetVersion}");
             paneModule = layoutModule;
             paneSession = await layoutModule.InvokeAsync<IJSObjectReference>("attach", designerRoot);
         }
@@ -230,7 +232,8 @@ public partial class WorkflowDesigner
             await js.InvokeVoidAsync("vawStudioIde.revealActiveTab", workflowTabStrip);
         if (runDialogOpen && !runDialogShown && Services.GetService(typeof(IJSRuntime)) is IJSRuntime dialogJs)
         {
-            await using var module = await dialogJs.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/tabInteractions.js");
+            var assetVersion = typeof(WorkflowDesigner).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+            await using var module = await dialogJs.InvokeAsync<IJSObjectReference>("import", $"./_content/VisualAgentWorkflow.Blazor/tabInteractions.js?v={assetVersion}");
             await module.InvokeVoidAsync("showModalDialog", runDialog);
             runDialogShown = true;
         }

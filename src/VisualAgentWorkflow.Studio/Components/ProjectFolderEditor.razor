@@ -551,6 +551,7 @@
     private string? providerChoicesError;
     private bool dirty;
     private bool busy;
+    private static string AssetVersion => typeof(ProjectFolderEditor).Assembly.ManifestModule.ModuleVersionId.ToString("N");
     private bool CanManageTree => manifest is not null && openDirectory is not null && !busy && !HasUnsavedEdits && !externalSourceChanged;
     private string? TreeOperationError { get; set; }
     private string runInput = "";
@@ -707,7 +708,7 @@
     {
         if (IsActive && runDialogOpen && !runDialogShown)
         {
-            await using var dialogModule = await JavaScript.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/tabInteractions.js");
+            await using var dialogModule = await JavaScript.InvokeAsync<IJSObjectReference>("import", $"./_content/VisualAgentWorkflow.Blazor/tabInteractions.js?v={AssetVersion}");
             await dialogModule.InvokeVoidAsync("showModalDialog", runDialog);
             runDialogShown = true;
         }
@@ -1007,7 +1008,7 @@
         if (markdownEditorError is not null || (markdownEditorCreated && !markdownEditorNeedsSync)) return;
         try
         {
-            markdownEditorModule ??= await JavaScript.InvokeAsync<IJSObjectReference>("import", "./markdownEditor.js");
+            markdownEditorModule ??= await JavaScript.InvokeAsync<IJSObjectReference>("import", $"./markdownEditor.js?v={AssetVersion}");
             markdownEditorDotNet ??= DotNetObjectReference.Create(this);
             if (!markdownEditorCreated)
             {
@@ -2119,7 +2120,7 @@
         {
             try
             {
-                await using var dialogModule = await JavaScript.InvokeAsync<IJSObjectReference>("import", "./_content/VisualAgentWorkflow.Blazor/tabInteractions.js");
+                await using var dialogModule = await JavaScript.InvokeAsync<IJSObjectReference>("import", $"./_content/VisualAgentWorkflow.Blazor/tabInteractions.js?v={AssetVersion}");
                 await dialogModule.InvokeVoidAsync("closeModalDialog", runDialog);
             }
             catch (JSException) { }
