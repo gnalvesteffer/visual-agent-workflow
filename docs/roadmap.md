@@ -211,6 +211,9 @@ run-scoped variable proof gate](decisions/0027-run-scoped-variable-proof-gate.md
   1.45 as a generic unsupported graph, while the public host remains
   fail-closed until the listed frame, race, admission, compatibility, and
   passive-playback gates are proven.
+  The shared checkpoint sink now receives the paired quiescent observation and
+  binds a future loop frame to its native checkpoint ID/payload before commit;
+  this closes the boundary-capture subgate without enabling schema 1.45.
 - [x] Add passive playback and prefix reconstruction for variable reads/writes
   without re-execution; the run inspector renders the reconstructed value,
   version, and operation history.

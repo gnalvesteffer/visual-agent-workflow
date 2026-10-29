@@ -33,9 +33,12 @@ loop.
 
 ## Promotion checklist
 
-- [ ] Carry the actual quiescent boundary observation through the public host,
-  fail closed when callbacks are missing/active/unstable, and bind it to the
-  exact native checkpoint identity.
+- [x] Carry the actual quiescent boundary observation through the shared host
+  sink, fail closed when callbacks are missing/active/unstable, and bind it to
+  the exact native checkpoint identity. The public host sink now constructs a
+  composite frame from that observation when a loop suspension is eventually
+  admitted; schema 1.45 admission remains closed while the later transaction
+  and race gates are completed.
 - [ ] Persist the composite frame, evidence prefix, and suspension marker in
   one host-owned transaction; acknowledge suspension only after commit.
 - [ ] Add an explicit host capability that defaults disabled and apply the same
