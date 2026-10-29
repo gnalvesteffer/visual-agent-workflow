@@ -61,8 +61,10 @@ loop.
   independent replacement processes racing the same checkpoint produce one
   winner, one ownership failure, and no duplicate variable writes. This does
   not claim distributed fencing or failover semantics.
+- [x] Prove repeated/concurrent host disposal is idempotent, releases local
+  ownership, and makes later calls fail deterministically as disposed.
 - [ ] Qualify cancellation, publication failure, process loss, and disposal
-  races on the public host path.
+  races during active execution/publication on the public host path.
 - [x] Reopen production-generated loop history after host disposal with no
   executor/model/tool calls and prove passive variable playback. The existing
   schema-1.44 recovery regression continues to prove the legacy envelope and

@@ -55,6 +55,17 @@ public sealed class CheckpointRecoveryTests : IDisposable
         await using var next = new CheckpointWorkflowHost(Store());
     }
 
+    [Fact]
+    public async Task Concurrent_disposal_is_idempotent_and_releases_store_ownership()
+    {
+        var host = new CheckpointWorkflowHost(Store());
+
+        await Task.WhenAll(host.DisposeAsync().AsTask(), host.DisposeAsync().AsTask());
+
+        await using var replacement = new CheckpointWorkflowHost(Store());
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => host.StartAsync(Revision(), "abc", 1));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

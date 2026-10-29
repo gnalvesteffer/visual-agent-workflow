@@ -36,8 +36,16 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
 
     private async Task<RunSnapshot> ExecuteAsync(Guid? runId, string? expectedCheckpointId, WorkflowRevision? revision, string? input, int? suspendAfterCompletedNodes, CancellationToken cancellationToken)
     {
+        ObjectDisposedException.ThrowIf(disposed, this);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token, cancellationToken);
-        await execution.WaitAsync(linked.Token);
+        try
+        {
+            await execution.WaitAsync(linked.Token);
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
+        {
+            throw new ObjectDisposedException(nameof(CheckpointWorkflowHost));
+        }
         try
         {
             ObjectDisposedException.ThrowIf(disposed, this);
