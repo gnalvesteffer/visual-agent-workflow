@@ -220,7 +220,8 @@ public sealed class ComponentLifecycleTests
     }
 
     private static ServiceProvider Services() => new ServiceCollection().AddLogging()
-        .AddSingleton<IErrorBoundaryLogger, UnexpectedBoundaryLogger>().BuildServiceProvider();
+        .AddSingleton<IErrorBoundaryLogger, UnexpectedBoundaryLogger>()
+        .AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
     private static ParameterView Parameters(params (string Name, object? Value)[] values) =>
         ParameterView.FromDictionary(values.ToDictionary(v => v.Name, v => v.Value));
     private static ToolBindingDescriptor Tool(string name) => new("text", name, "server", "text", new string('a', 64));

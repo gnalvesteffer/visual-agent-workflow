@@ -17,7 +17,7 @@ public sealed class GraphCanvasRenderingTests
     public async Task InputsInspectorShowsBindingStateForEachDataPin()
     {
         var definition = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.14" };
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
         RenderFragment<string> summary = id => builder => builder.AddContent(0, $"Summary {id}");
         RenderFragment<string> inspector = id => builder => builder.AddContent(0, $"Properties {id}");
@@ -60,7 +60,7 @@ public sealed class GraphCanvasRenderingTests
             Connections = baseline.Connections.Add("duplicate-input", new ConnectionDefinition(
                 new("input", "out"), new("step-1", "in"), "data"))
         };
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
         RenderFragment<string> summary = id => builder => builder.AddContent(0, $"Summary {id}");
         RenderFragment<string> inspector = id => builder => builder.AddContent(0, $"Properties {id}");
@@ -100,7 +100,7 @@ public sealed class GraphCanvasRenderingTests
         var definition = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.14" };
         var binding = new ToolBindingDescriptor("demo.reverse", "MCP · reverse", "demo-text", "reverse",
             "a") { InputSchemaJson = "{}", ToolDescription = "Reverses text", InputSummary = "text: string required", DescriptionHash = "b" };
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
 
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
@@ -154,7 +154,7 @@ public sealed class GraphCanvasRenderingTests
                         new AgentExecutionRoute("quality", "Quality", "Quality path")]
                 }))
         };
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
         WorkflowEditor? editor = null;
 
@@ -209,7 +209,7 @@ public sealed class GraphCanvasRenderingTests
     public async Task IdeGraphMinimapIncludesViewportIndicator()
     {
         var definition = WorkflowTemplates.Create("uppercase") with { SchemaVersion = "1.14" };
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
 
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
@@ -239,7 +239,7 @@ public sealed class GraphCanvasRenderingTests
             Nodes = layout.Nodes.SetItem("step-1",
                 new NodePresentation(new(440, 100), Comment: "A long node comment that is expanded on the graph.", CommentExpanded: true))
         };
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
 
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
@@ -267,7 +267,7 @@ public sealed class GraphCanvasRenderingTests
             Nodes = baseline.Nodes.SetItem("step-1", new(NodeTypes.Agent, "1.0.0",
                 Agent: new("connection.current", null, "Answer the question.", [])))
         };
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
 
         var loadingHtml = await renderer.Dispatcher.InvokeAsync(async () =>
@@ -314,7 +314,7 @@ public sealed class GraphCanvasRenderingTests
             new ExecutionEvent(runId, revision.RevisionId, 5, DateTimeOffset.UtcNow, ExecutionEventKinds.AgentContextCompacted, "step-1", invocationId));
         var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
             revision.ContentHash, definition, "question"), events);
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
 
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
@@ -348,7 +348,7 @@ public sealed class GraphCanvasRenderingTests
             new ExecutionEvent(runId, revision.RevisionId, 2, DateTimeOffset.UtcNow, ExecutionEventKinds.NodeCompleted, definition.EntryNodeId, invocationId, Data: "output"));
         var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
             revision.ContentHash, definition, "question"), events);
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
 
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
@@ -377,7 +377,7 @@ public sealed class GraphCanvasRenderingTests
                 definition.EntryNodeId, invocationId, ConnectionId: "input.then", Data: "input"));
         var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
             revision.ContentHash, definition, "question"), events);
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
 
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
@@ -412,7 +412,7 @@ public sealed class GraphCanvasRenderingTests
                 Data: "Run cancelled by host."));
         var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
             revision.ContentHash, definition, "question"), events);
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
 
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
@@ -453,7 +453,7 @@ public sealed class GraphCanvasRenderingTests
                 Data: "Node execution failed."));
         var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", now,
             revision.ContentHash, definition, "question"), events);
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
 
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
@@ -489,7 +489,7 @@ public sealed class GraphCanvasRenderingTests
                 Data: """{"modelCallId":"request-1","ModelId":"test-model","finishReason":"stop"}"""));
         var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
             revision.ContentHash, definition, "question"), events);
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
 
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
@@ -523,7 +523,7 @@ public sealed class GraphCanvasRenderingTests
                 Data: """{"modelCallId":"model-1","ModelId":"test-model","usage":{"InputTokenCount":602,"OutputTokenCount":111,"TotalTokenCount":713,"CachedInputTokenCount":null,"ReasoningTokenCount":65,"cacheWriteInputTokenCount":0}}"""));
         var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
             revision.ContentHash, definition, "question"), events);
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
 
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
@@ -556,7 +556,7 @@ public sealed class GraphCanvasRenderingTests
                 Data: """{"ModelId":"test-model","usage":{"prompt_tokens":400,"completion_tokens":50,"prompt_tokens_details":{"cached_tokens":25},"completion_tokens_details":{"reasoning_tokens":10}}}"""));
         var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
             revision.ContentHash, definition, "question"), events);
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
 
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
@@ -591,7 +591,7 @@ public sealed class GraphCanvasRenderingTests
                 Data: """{"modelCallId":"request-1"}"""));
         var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
             revision.ContentHash, definition, "question"), events);
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
 
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
@@ -623,7 +623,7 @@ public sealed class GraphCanvasRenderingTests
                 Data: """{"ModelId":"test-model","usage":{"InputTokenCount":12,"OutputTokenCount":2,"TotalTokenCount":14}}"""));
         var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
             revision.ContentHash, definition, "question"), events);
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
 
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
@@ -659,7 +659,7 @@ public sealed class GraphCanvasRenderingTests
                 Data: """{"modelCallId":"request-2"}"""));
         var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
             revision.ContentHash, definition, "question"), events);
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
 
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
@@ -687,7 +687,7 @@ public sealed class GraphCanvasRenderingTests
         var revision = WorkflowRevision.Create(definition, "test");
         var snapshot = new RunSnapshot(new(Guid.NewGuid(), revision.RevisionId, null, "test", DateTimeOffset.UtcNow,
             revision.ContentHash, definition, "hello"), []);
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddSingleton<Microsoft.JSInterop.IJSRuntime, NoopJsRuntime>().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
         {
