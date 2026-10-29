@@ -64,7 +64,8 @@ public static class WorkflowPackageJson
             requirements.Add(new("node", node.Type, node.TypeVersion));
             if (node.WorkflowCall is { } workflowCall)
             {
-                requirements.Add(new("workflow-revision", workflowCall.WorkflowId, workflowCall.Version.ToString(System.Globalization.CultureInfo.InvariantCulture), workflowCall.ContentHash));
+                var identity = workflowCall.Identity;
+                requirements.Add(new("workflow-revision", identity.WorkflowId, identity.Version.ToString(System.Globalization.CultureInfo.InvariantCulture), identity.ContentHash));
                 foreach (var requirement in Requirements(workflowCall.Definition)) requirements.Add(requirement);
             }
             if (node.GraphFunction is { } graphFunction)

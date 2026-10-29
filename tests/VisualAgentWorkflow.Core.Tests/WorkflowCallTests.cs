@@ -40,6 +40,25 @@ public sealed class WorkflowCallTests
     }
 
     [Fact]
+    public void Package_round_trip_preserves_the_workflow_call_identity_tuple_and_snapshot()
+    {
+        var child = WorkflowRevision.Create(Baseline("child"), "test");
+        var parent = GraphEditing.InsertNodeAfter(Baseline("parent"), "input", "out", Call(child));
+        var call = parent.Nodes.Single(entry => entry.Value.Type == NodeTypes.WorkflowCall).Value.WorkflowCall!;
+
+        var roundTrip = WorkflowPackageJson.Deserialize(
+            WorkflowPackageJson.Serialize(parent, WorkflowLayout.Create(parent)));
+        var roundTripCall = roundTrip.Definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.WorkflowCall).Value.WorkflowCall!;
+
+        Assert.Equal(new WorkflowCallIdentity(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash), call.Identity);
+        Assert.Equal(call.Identity, roundTripCall.Identity);
+        Assert.Equal(WorkflowJson.Serialize(call.Definition), WorkflowJson.Serialize(roundTripCall.Definition));
+        Assert.Contains(roundTrip.Requirements, requirement => requirement.Kind == "workflow-revision" &&
+            requirement.Id == call.Identity.WorkflowId && requirement.Version == call.Identity.Version.ToString() &&
+            requirement.ContractHash == call.Identity.ContentHash);
+    }
+
+    [Fact]
     public void WorkflowCallMappingsRequireDeclaredCompatibleParameters()
     {
         var childDefinition = WorkflowParameterEditing.Add(Baseline("child"), "tone", "Tone", "calm");

@@ -388,10 +388,17 @@ public static class WorkflowTerminationOutcomes
     public const string Failure = "failure";
 }
 
+/// <summary>The immutable identity tuple for the exact child release used by a WorkflowCall.</summary>
+public sealed record WorkflowCallIdentity(string WorkflowId, Guid RevisionId, int Version, string ContentHash);
+
 /// <summary>An immutable, self-contained reference to the exact child release used by this node.</summary>
 public sealed record WorkflowCallConfiguration(string WorkflowId, Guid RevisionId, int Version, string ContentHash,
     WorkflowDefinition Definition)
 {
+    /// <summary>Returns the identity tuple without exposing the embedded snapshot as identity.</summary>
+    [JsonIgnore]
+    public WorkflowCallIdentity Identity => new(WorkflowId, RevisionId, Version, ContentHash);
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ImmutableArray<WorkflowCallParameterMapping>? ParameterMappings { get; init; }
 }

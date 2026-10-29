@@ -48,9 +48,11 @@ not execute migrations. It cannot migrate the private WorkflowCall proof seam.
 
 ## Compatibility boundary
 
-This is still not the complete compatibility gate for schema 1.50. Package/
-revision identity policy and the WorkflowCall migration contract remain
-required before public schema admission. The catalog/package
+This is still not the complete compatibility gate for schema 1.50. The
+immutable WorkflowCall identity policy is now documented in
+[Decision 0049](0049-workflow-call-identity-policy.md), but the WorkflowCall
+migration contract remains required before public schema admission. The
+catalog/package
 provenance hashes detect inconsistent stored bytes but are not signatures or
 author-authentication mechanisms. Downgrades, automatic
 load/run migration, topology repair, capability rebinding, and “migrate to
