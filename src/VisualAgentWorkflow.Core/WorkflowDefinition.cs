@@ -199,6 +199,7 @@ public static class WorkflowSchemaPromotionCatalog
         new("sequence-transform-chains-from-reverse", "1.48", "1.49", nameof(GraphEditing.EnableSequenceTransformChainGraph), false),
         new("sequence-workflow-call-paths", "1.49", "1.50", nameof(GraphEditing.EnableSequenceWorkflowCallGraph), true),
         new("sequence-workflow-call-transforms", "1.50", "1.51", nameof(GraphEditing.EnableSequenceWorkflowCallTransformGraph), false),
+        new("sequence-workflow-call-agents", "1.51", "1.52", nameof(GraphEditing.EnableSequenceWorkflowCallAgentGraph), false),
         new("mutable-variables", "1.23", "1.44", nameof(GraphEditing.EnableMutableVariablesGraph), true)
     ];
 }
@@ -208,13 +209,13 @@ public static class WorkflowSchemaPromotionCatalog
 public static class WorkflowSchemaCatalog
 {
     public static ImmutableArray<WorkflowSchemaDescriptor> All { get; } =
-        [.. Enumerable.Range(0, 52).Select(number =>
+        [.. Enumerable.Range(0, 53).Select(number =>
         {
             var version = $"1.{number}";
             var explicitGraph = version is "1.23" or "1.24" or "1.25" or "1.26" or "1.27" or "1.28" or
                 "1.30" or "1.31" or "1.32" or "1.33" or "1.34" or "1.35" or "1.36" or "1.37" or
-                "1.38" or "1.39" or "1.40" or "1.41" or "1.42" or "1.43" or "1.44" or "1.45" or "1.46" or "1.47" or "1.48" or "1.49" or "1.50" or "1.51";
-            var directMcpPins = version is "1.37" or "1.40" or "1.41" or "1.42" or "1.43" or "1.46" or "1.47" or "1.48" or "1.49" or "1.50" or "1.51";
+                "1.38" or "1.39" or "1.40" or "1.41" or "1.42" or "1.43" or "1.44" or "1.45" or "1.46" or "1.47" or "1.48" or "1.49" or "1.50" or "1.51" or "1.52";
+            var directMcpPins = version is "1.37" or "1.40" or "1.41" or "1.42" or "1.43" or "1.46" or "1.47" or "1.48" or "1.49" or "1.50" or "1.51" or "1.52";
             return new WorkflowSchemaDescriptor(version, true, explicitGraph, directMcpPins);
         })];
 
@@ -267,6 +268,8 @@ public static class WorkflowSchemaVersions
     public const string SequenceWorkflowCallGraph = "1.50";
     /// <summary>Bounded Sequence paths with a pinned string WorkflowCall followed by one deterministic text transform.</summary>
     public const string SequenceWorkflowCallTransformGraph = "1.51";
+    /// <summary>Bounded Sequence paths with a pinned string WorkflowCall followed by one terminal plain-text Agent.</summary>
+    public const string SequenceWorkflowCallAgentGraph = "1.52";
 
     public static bool IsSupported(string? version) => WorkflowSchemaCatalog.IsSupported(version);
 
@@ -278,7 +281,7 @@ public static class WorkflowSchemaVersions
 
     public static bool UsesExplicitGraph(WorkflowDefinition definition) =>
         UsesExplicitGraph(definition.SchemaVersion) ||
-        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or SequenceGraph or SequencePathGraph or SequenceAgentPathGraph or SequenceTransformPathGraph or SequenceReversePathGraph or SequenceTransformChainGraph or SequenceWorkflowCallGraph or SequenceWorkflowCallTransformGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph or NumberArithmeticGraph or MutableVariablesGraph or LoopVariablesGraph && definition.ExecutionConnections is not null;
+        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or SequenceGraph or SequencePathGraph or SequenceAgentPathGraph or SequenceTransformPathGraph or SequenceReversePathGraph or SequenceTransformChainGraph or SequenceWorkflowCallGraph or SequenceWorkflowCallTransformGraph or SequenceWorkflowCallAgentGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph or NumberArithmeticGraph or MutableVariablesGraph or LoopVariablesGraph && definition.ExecutionConnections is not null;
 }
 
 /// <summary>Runtime value held by one workflow invocation's variable store.</summary>

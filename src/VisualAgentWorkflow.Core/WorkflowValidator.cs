@@ -258,7 +258,7 @@ public static class WorkflowValidator
                     try { hashMatches = WorkflowJson.MatchesHash(child, call.ContentHash); }
                     catch (ArgumentException) { }
                 }
-        if (definition.SchemaVersion is not ("1.19" or "1.22" or "1.21" or "1.20" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph) || call is null || string.IsNullOrWhiteSpace(call.WorkflowId) ||
+        if (definition.SchemaVersion is not ("1.19" or "1.22" or "1.21" or "1.20" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph) || call is null || string.IsNullOrWhiteSpace(call.WorkflowId) ||
                     call.WorkflowId.Length > 256 || call.WorkflowId != call.Definition?.WorkflowId || call.RevisionId == Guid.Empty ||
                     call.Version < 1 || !ValidHash(call.ContentHash) || !hashMatches || call.Definition is { } childDefinition && !HasSupportedWorkflowCallContract(childDefinition))
                     Error("workflowCall.configuration", $"nodes.{id}.workflowCall", "Workflow call nodes require schema 1.19 and an embedded, hash-matching workflow with string or JSON input and output contracts.");
@@ -504,7 +504,7 @@ public static class WorkflowValidator
                 Error("tool.unexpected", $"nodes.{id}.tool", "This node type cannot declare an MCP tool.");
             if (node.Type == NodeTypes.Agent)
             {
-                if (definition.SchemaVersion is not ("1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceAgentPathGraph)) Error("node.schema", $"nodes.{id}", "Agent nodes require schema 1.2 or later.");
+                if (definition.SchemaVersion is not ("1.2" or "1.3" or "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph)) Error("node.schema", $"nodes.{id}", "Agent nodes require schema 1.2 or later.");
                 if (node.Agent is not { } agent || string.IsNullOrWhiteSpace(agent.ProviderId) || agent.ProviderId.Length > 128 ||
                     agent.Instructions is null || agent.Instructions.Length > 8192 || agent.Tools.IsDefault ||
                     agent.Tools.Any(t => t is null || !ValidBinding(t)) || agent.Tools.Select(t => t.BindingId).Distinct(StringComparer.Ordinal).Count() != agent.Tools.Length)
@@ -512,10 +512,10 @@ public static class WorkflowValidator
                 if (node.Agent is { } configured)
                 {
                     if (configured.ProviderContractHash is not null &&
-                        (definition.SchemaVersion != WorkflowSchemaVersions.SequenceAgentPathGraph || !ValidHash(configured.ProviderContractHash)))
+                        (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph) || !ValidHash(configured.ProviderContractHash)))
                         Error("agent.providerContract", $"nodes.{id}.agent.providerContractHash", "Provider contract hashes require schema 1.46 and a lowercase SHA-256 value.");
-                    if (definition.SchemaVersion == WorkflowSchemaVersions.SequenceAgentPathGraph && !ValidHash(configured.ProviderContractHash ?? ""))
-                        Error("agent.providerContract", $"nodes.{id}.agent.providerContractHash", "Schema 1.46 Agent nodes require an immutable provider contract hash.");
+                    if (definition.SchemaVersion is (WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph) && !ValidHash(configured.ProviderContractHash ?? ""))
+                        Error("agent.providerContract", $"nodes.{id}.agent.providerContractHash", "Bounded Sequence Agent nodes require an immutable provider contract hash.");
                     if (configured.Routes is { } routes &&
                         (definition.SchemaVersion != WorkflowSchemaVersions.AgentExecutionRoutes || routes.IsDefault || routes.Length is < 1 or > AgentExecutionRouteLimits.MaximumRoutes ||
                          routes.Any(route => route is null || !ValidParameterId(route.Id) || route.Label is null || string.IsNullOrWhiteSpace(route.Label) || route.Label.Length > AgentExecutionRouteLimits.MaximumLabelLength || route.Label.Any(char.IsControl) || route.Description is null || route.Description.Length > AgentExecutionRouteLimits.MaximumDescriptionLength) ||
@@ -542,7 +542,7 @@ public static class WorkflowValidator
                          configured.ReasoningEffortParameterId is not null))
                         Error("agent.reasoning", $"nodes.{id}.agent.reasoningEffort", "Reasoning effort requires schema 1.7; explicit off requires schema 1.10.");
                     if (configured.MaxOutputTokens is { } maxOutputTokens &&
-                        (definition.SchemaVersion is not ("1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceAgentPathGraph) || maxOutputTokens is < AgentOutputTokenLimits.Minimum or > AgentOutputTokenLimits.Maximum))
+                        (definition.SchemaVersion is not ("1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph) || maxOutputTokens is < AgentOutputTokenLimits.Minimum or > AgentOutputTokenLimits.Maximum))
                         Error("agent.outputTokens", $"nodes.{id}.agent.maxOutputTokens", "Maximum output tokens require schema 1.10 and a value from 1 to 16,384.");
                     if (configured.MaxOutputTokensParameterId is { } outputParameter &&
                         (definition.SchemaVersion is not (WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph) || configured.MaxOutputTokens is not null ||
@@ -551,7 +551,7 @@ public static class WorkflowValidator
                          outputDefault is < AgentOutputTokenLimits.Minimum or > AgentOutputTokenLimits.Maximum))
                         Error("agent.outputTokens.parameter", $"nodes.{id}.agent.maxOutputTokensParameterId", $"Maximum output token bindings require schema 1.29, an integer parameter with a default from {AgentOutputTokenLimits.Minimum} to {AgentOutputTokenLimits.Maximum}, and no static output limit.");
                     if (configured.MaxTotalTokens is { } maxTotalTokens &&
-                        (definition.SchemaVersion is not ("1.22" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceAgentPathGraph) || maxTotalTokens is < AgentTotalTokenLimits.Minimum or > AgentTotalTokenLimits.Maximum))
+                        (definition.SchemaVersion is not ("1.22" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph) || maxTotalTokens is < AgentTotalTokenLimits.Minimum or > AgentTotalTokenLimits.Maximum))
                         Error("agent.totalTokens", $"nodes.{id}.agent.maxTotalTokens", $"Maximum total tokens require schema 1.22 and a value from {AgentTotalTokenLimits.Minimum} to {AgentTotalTokenLimits.Maximum}.");
                     if (configured.MaxTotalTokensParameterId is { } totalParameter &&
                         (definition.SchemaVersion is not (WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph) || configured.MaxTotalTokens is not null ||
@@ -560,7 +560,7 @@ public static class WorkflowValidator
                          totalDefault is < AgentTotalTokenLimits.Minimum or > AgentTotalTokenLimits.Maximum))
                         Error("agent.totalTokens.parameter", $"nodes.{id}.agent.maxTotalTokensParameterId", $"Maximum total-token bindings require schema 1.29, an integer parameter with a default from {AgentTotalTokenLimits.Minimum} to {AgentTotalTokenLimits.Maximum}, and no static total-token limit.");
                     if (configured.MaxTurns is { } maxTurns &&
-                        (definition.SchemaVersion is not ("1.21" or "1.22" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceAgentPathGraph) || !AgentExecutionLimits.IsValidMaximumTurns(maxTurns)))
+                        (definition.SchemaVersion is not ("1.21" or "1.22" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph) || !AgentExecutionLimits.IsValidMaximumTurns(maxTurns)))
                         Error("agent.maxTurns", $"nodes.{id}.agent.maxTurns", "Maximum turns require schema 1.21 or later and must be -1 (unlimited) or a positive integer.");
                     if (configured.TimeoutSeconds is { } timeoutSeconds &&
                         (definition.SchemaVersion is not ("1.21" or "1.22" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph) || !AgentExecutionLimits.IsValidTimeoutSeconds(timeoutSeconds)))
@@ -607,7 +607,7 @@ public static class WorkflowValidator
                 ValidateMutableVariableGraph(definition, Error);
             else if (definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph)
                 ValidateLoopVariableGraph(definition, Error);
-            else if (definition.SchemaVersion is WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph)
+            else if (definition.SchemaVersion is WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph)
                 ValidateSequenceGraph(definition, Error);
             else
             if (definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph)
@@ -917,17 +917,24 @@ public static class WorkflowValidator
             return;
         }
 
-        var isPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph;
-        var isAgentPathGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceAgentPathGraph;
+        var isPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph;
+        var isAgentPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph;
         var isTransformPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph;
         var isTransformChainGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceTransformChainGraph;
         var isWorkflowCallGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallGraph;
         var isWorkflowCallTransformGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph;
+        var isWorkflowCallAgentGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph;
         var supported = new HashSet<string>(StringComparer.Ordinal) { NodeTypes.Input, NodeTypes.Sequence, NodeTypes.Output };
         if (isPathGraph) supported.Add(NodeTypes.McpTool);
         if (isAgentPathGraph) supported.Add(NodeTypes.Agent);
         if (isWorkflowCallGraph) supported.Add(NodeTypes.WorkflowCall);
         if (isWorkflowCallTransformGraph)
+        {
+            supported.Add(NodeTypes.WorkflowCall);
+            supported.Add(NodeTypes.SequenceUppercase);
+            supported.Add(NodeTypes.SequenceReverse);
+        }
+        if (isWorkflowCallAgentGraph)
         {
             supported.Add(NodeTypes.WorkflowCall);
             supported.Add(NodeTypes.SequenceUppercase);
@@ -951,6 +958,8 @@ public static class WorkflowValidator
                                 : "Schema 1.47/1.48 supports input, Sequence, direct MCP tool, one terminal deterministic text step, and output nodes; paths are linear and disjoint."
                                 : isWorkflowCallTransformGraph
                                     ? "Schema 1.51 supports input, Sequence, direct MCP nodes, one pinned string WorkflowCall, one terminal deterministic text step, and output nodes; paths are linear and disjoint."
+                                : isWorkflowCallAgentGraph
+                                    ? "Schema 1.52 supports input, Sequence, direct MCP nodes, one pinned string WorkflowCall, and one terminal plain-text Agent or deterministic text step; paths are linear and disjoint."
                                 : isWorkflowCallGraph
                                     ? "Schema 1.50 supports input, Sequence, direct MCP tool, one terminal pinned string WorkflowCall, and output nodes; paths are linear and disjoint."
                                     : "Schema 1.43 supports input, Sequence, direct MCP tool, and output nodes; paths are linear and disjoint."
@@ -1168,6 +1177,12 @@ public static class WorkflowValidator
         {
             var callTransformTopology = SequenceWorkflowCallTransformTopology.Analyze(definition);
             foreach (var issue in callTransformTopology.Issues)
+                error(issue.Code, issue.Path, issue.Message);
+        }
+        else if (isWorkflowCallAgentGraph)
+        {
+            var callAgentTopology = SequenceWorkflowCallAgentTopology.Analyze(definition);
+            foreach (var issue in callAgentTopology.Issues)
                 error(issue.Code, issue.Path, issue.Message);
         }
         else

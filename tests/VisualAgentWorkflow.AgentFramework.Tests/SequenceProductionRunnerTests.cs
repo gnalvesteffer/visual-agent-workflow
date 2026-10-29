@@ -10,6 +10,57 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 public sealed class SequenceProductionRunnerTests
 {
     [Fact]
+    public async Task Public_schema_1_52_passes_a_pinned_workflow_call_result_to_one_terminal_agent()
+    {
+        var child = WorkflowRevision.Create(
+            WorkflowEditing.InsertAfter(LinearBaseline("public-sequence-agent-child"), "input", NodeTypes.Uppercase),
+            "test");
+        var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
+        };
+        var sibling = call with { WorkflowCall = call.WorkflowCall! with { WorkflowId = child.Definition.WorkflowId } };
+        var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0", Agent: new AgentConfiguration(
+            "sequence-proof", null, "Return the post-call text.", [] )
+        { MaxTurns = 1, MaxTotalTokens = 4000, ProviderContractHash = new string('b', 64) });
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph,
+            "public-sequence-agent-parent", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["sequence"] = new(NodeTypes.Sequence, "1.0.0") { Sequence = new([new("call", "Pinned child"), new("sibling", "Second child")]) },
+                ["call"] = call,
+                ["sibling"] = sibling,
+                ["agent"] = agent,
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(), ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-sequence"] = new(new("input", "then"), new("sequence", "execute"), "execution"),
+                ["sequence-call"] = new(new("sequence", "then.call"), new("call", "execute"), "execution"),
+                ["call-agent"] = new(new("call", "out"), new("agent", "execute"), "execution"),
+                ["agent-output"] = new(new("agent", "out"), new("output", "execute"), "execution"),
+                ["sequence-sibling"] = new(new("sequence", "then.sibling"), new("sibling", "execute"), "execution"),
+                ["sibling-output"] = new(new("sibling", "out"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+        var events = new List<ExecutionEvent>();
+        var agentExecutor = new SequenceProofAgentExecutor();
+
+        var result = await new WorkflowRunner(new RecordingBroker(), agentExecutor).ExecuteWithOutcomeAsync(
+            Guid.NewGuid(), WorkflowRevision.Create(WorkflowJson.Deserialize(WorkflowJson.Serialize(definition)), "test"),
+            "hello", null, evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed, string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
+        Assert.Equal("HELLO", result.Output);
+        Assert.True(agentExecutor.InvocationObserved);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentStarted && evt.NodeId == "agent");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentCompleted && evt.NodeId == "agent");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted && evt.ScopeId == "call");
+    }
+
+    [Fact]
     public async Task Public_schema_1_51_applies_one_transform_after_a_pinned_workflow_call()
     {
         var child = WorkflowRevision.Create(

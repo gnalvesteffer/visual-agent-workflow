@@ -69,6 +69,13 @@ successful empty strings remain values, while no-result termination, failure, ca
 uncertain outcomes do not activate the transform. This is an explicit draft edit followed by
 promotion, not an implicit schema rewrite. See [Decision 0051](decisions/0051-sequence-workflow-call-transform.md).
 
+Schema 1.52 adds one terminal plain-text Agent as an alternative post-call successor. The
+Agent is bounded to finite static limits, a pinned provider contract, one string input/output,
+and no Agent-owned tools, skills, delegation, graph-function tools, routes, or structured
+results. An available child result, including an empty string, activates the Agent; a child
+no-result termination, failure, cancellation, or uncertain outcome bypasses it and preserves
+the existing terminal disposition. See [Decision 0052](decisions/0052-sequence-workflow-call-agent.md).
+
 ## Verification
 
 Core tests cover exact revision pins, recursive package requirements, round trips, invalid hashes, schema gates, and cycle rejection. Agent Framework tests execute a child without a catalog, verify one parent-owned audit sequence with child scope, and confirm successful child termination propagates to the parent. Existing hosts and consumer observation continue using the same run-store contract.

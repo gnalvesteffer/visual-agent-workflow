@@ -167,6 +167,15 @@ validator and barrier settlement. The migration registry promotes only valid
 revisions; invalid call-bearing drafts require the separate future draft
 promotion boundary described in [Decision 0050](decisions/0050-sequence-workflow-call-public-slice.md).
 
+Schema 1.52 preserves the 1.51 call and transform forms and adds one terminal
+plain-text Agent alternative after a pinned string child. The Agent has one
+string input/output, finite static limits, and a pinned provider contract; it
+does not inherit child or parent tools and cannot use tools, skills, delegation,
+routes, graph-function tools, or structured results in this bounded slice.
+Available child results, including empty strings, use the normal `out` handoff;
+no-result termination, failure, cancellation, and uncertainty bypass the Agent
+and retain their existing terminal disposition. See [Decision 0052](decisions/0052-sequence-workflow-call-agent.md).
+
 Schema 1.40 adds a finite IEEE-754 `number` constant for direct-MCP graphs.
 Top-level MCP JSON Schema number properties become exact typed input pins and
 are serialized as JSON numbers. Non-finite values are rejected; integer/number

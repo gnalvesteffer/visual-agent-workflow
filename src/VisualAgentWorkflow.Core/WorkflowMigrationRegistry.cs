@@ -62,7 +62,8 @@ public static class WorkflowMigrationRegistry
             new WorkflowMigrationDescriptor("sequence-transform-chains-from-uppercase", "1.47", "1.49", ImplementationVersion),
             new WorkflowMigrationDescriptor("sequence-transform-chains-from-reverse", "1.48", "1.49", ImplementationVersion),
             new WorkflowMigrationDescriptor("sequence-workflow-call-paths", "1.49", "1.50", ImplementationVersion),
-            new WorkflowMigrationDescriptor("sequence-workflow-call-transforms", "1.50", "1.51", ImplementationVersion)
+            new WorkflowMigrationDescriptor("sequence-workflow-call-transforms", "1.50", "1.51", ImplementationVersion),
+            new WorkflowMigrationDescriptor("sequence-workflow-call-agents", "1.51", "1.52", ImplementationVersion)
         }.ToImmutableDictionary(descriptor => descriptor.OperationId, StringComparer.Ordinal);
 
     public static ImmutableArray<WorkflowMigrationDescriptor> All { get; } =
@@ -223,6 +224,7 @@ public static class WorkflowMigrationRegistry
         "sequence-transform-chains-from-reverse" => GraphEditing.EnableSequenceTransformChainGraph(definition),
         "sequence-workflow-call-paths" => GraphEditing.EnableSequenceWorkflowCallGraph(definition),
         "sequence-workflow-call-transforms" => GraphEditing.EnableSequenceWorkflowCallTransformGraph(definition),
+        "sequence-workflow-call-agents" => GraphEditing.EnableSequenceWorkflowCallAgentGraph(definition),
         _ => throw new InvalidOperationException($"Migration operation '{operationId}' is not executable.")
     };
 }
