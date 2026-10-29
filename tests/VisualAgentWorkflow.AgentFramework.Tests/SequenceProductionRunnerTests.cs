@@ -146,6 +146,29 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Schema_1_46_persisted_terminal_agent_path_admits_and_executes_its_finite_turn_limit()
+    {
+        var events = new List<ExecutionEvent>();
+        var definition = SequenceAgentPathDefinition();
+        var agentConfiguration = definition.Nodes["inventory-agent"].Agent!;
+        Assert.Equal(1, agentConfiguration.MaxTurns);
+
+        var provider = new AgentProviderDescriptor("sequence-proof", "Proof", "scripted-text-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, static () => new OverBudgetChatClient())],
+            new RecordingBroker());
+        var result = await new WorkflowRunner(new RecordingBroker(), agents).ExecuteWithOutcomeAsync(
+            Guid.NewGuid(), WorkflowRevision.Create(definition, "sequence-agent-turn-limit"), "hello", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentStarted &&
+            evt.Data?.Contains("maximumTurns", StringComparison.Ordinal) == true);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentCompleted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.AgentLimitExceeded);
+    }
+
+    [Fact]
     public async Task Schema_1_46_records_agent_failure_before_sequence_failure()
     {
         var events = new List<ExecutionEvent>();

@@ -139,8 +139,10 @@ Promotion gates, in order:
   real Agent executor and host capability admission; a failed terminal Agent
   settles its output, cancels an in-flight sibling, and never completes the
   workflow while descendant work remains active.
-- [ ] Add public-subset model-turn limit admission and execution tests once
-  the remaining public runtime settlement contract is admitted.
+- [x] Add public-subset model-turn limit admission and execution tests. The
+  persisted schema-1.46 terminal path admits a finite static limit and runs
+  through the real `AgentNodeExecutor`; multi-turn/tool-driven limit semantics
+  remain outside this bounded subset.
 - [x] Prove the public-schema aggregate-token limit through the persisted
   Sequence runner and real `AgentNodeExecutor`; an over-budget provider
   response records `AgentLimitExceeded`, settles the Sequence output as
