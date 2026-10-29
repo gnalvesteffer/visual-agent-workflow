@@ -2,6 +2,12 @@
 
 ## Current implementation
 
+Stable folder paths are now also recognized for skills, agent profiles, and
+graph functions. On authoritative project reads, valid external edits to those
+files refresh only the manifest hash; embedded workflow snapshots and existing
+content-addressed revisions remain unchanged. Studio save forms still create
+new revisions, and explicit dependency rebinding is not yet implemented.
+
 Studio offers a local project registry and project selection for catalog-backed and folder-backed projects. Catalog-backed workflows live in a project-scoped SQLite catalog; skills, agent profiles, and graph functions use JSON catalogs under the Studio data directory. Folder-backed projects are registered by canonical root path and reopen in the source editor. Studio supports up to eight folder roots open as tabs, each with a separate mounted editor session and project tree. Folder projects do not use catalog publication; Studio can run a validated saved workflow or test a workflow directly from a validated restore point.
 
 The IDE activity bar and Explorer navigate project assets. The title bar's **Studio settings** menu holds user-specific model and MCP connection configuration, while the project sidebar stays focused on files and workflow authoring. Workflow tabs have explicit close buttons and support middle-click; closing unsaved work prompts before discarding it. Workflow settings open as an overlay so configuration does not replace or shift the graph canvas. In catalog projects, right-click a workflow for **Open**, **Duplicate**, **Copy**, **Rename**, and **Delete**. **Copy** snapshots the saved draft and layout; right-click `workflows/` and choose **Paste workflow** to create a new workflow from it. Rename preserves the workflow ID used by references. Duplicate and paste create a new workflow ID and draft/layout copy without published revisions or run history. Delete moves the item to **Deleted workflows**, where it can be restored with its revisions, audit evidence, and run history intact. Save or discard unsaved editor changes before using these actions. Right-clicking an asset category or blank Explorer space opens creation actions; folder projects also support filesystem-backed nested folder and file operations.

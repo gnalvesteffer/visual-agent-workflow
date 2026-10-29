@@ -222,6 +222,25 @@ public static class StudioProjectSourceArchive
         return file.Kind == "workflow" && string.Equals(file.Path, WorkflowSourcePath(file.Id, directory), StringComparison.Ordinal);
     }
 
+    /// <summary>Returns the deterministic, content-independent source path for a reusable project asset.</summary>
+    public static string StableSkillSourcePath(string id, string version) => AssetPath("skills", id, version);
+
+    public static string StableAgentProfileSourcePath(string id, string version) => AssetPath("agents", id, version);
+
+    public static string StableGraphFunctionSourcePath(string id, string version) => AssetPath("functions", id, version);
+
+    public static bool IsStableReusableAssetPath(StudioProjectFile file)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        return file.Kind switch
+        {
+            "skill" => string.Equals(file.Path, StableSkillSourcePath(file.Id, file.Version), StringComparison.Ordinal),
+            "agent-profile" => string.Equals(file.Path, StableAgentProfileSourcePath(file.Id, file.Version), StringComparison.Ordinal),
+            "graph-function" => string.Equals(file.Path, StableGraphFunctionSourcePath(file.Id, file.Version), StringComparison.Ordinal),
+            _ => false
+        };
+    }
+
     /// <summary>Refreshes manifest hashes for valid, stable workflow source files edited outside Studio.</summary>
     public static StudioProjectManifest RefreshMutableWorkflowHashes(StudioProjectManifest manifest,
         IReadOnlyDictionary<string, byte[]> files)
@@ -236,6 +255,27 @@ public static class StudioProjectSourceArchive
             var source = DeserializeWorkflowSource(content);
             if (!string.Equals(source.Definition.WorkflowId, file.Id, StringComparison.Ordinal))
                 throw new InvalidDataException($"Project asset '{file.Path}' does not match its workflow ID.");
+            updated[index] = file with { Sha256 = ComputeContentHash(content) };
+            changed = true;
+        }
+        return changed ? manifest with { Files = updated.ToImmutable() } : manifest;
+    }
+
+    /// <summary>
+    /// Refreshes hashes for stable reusable source files edited outside Studio after validating
+    /// their declared identity and semantic asset contract. Content-addressed revisions are untouched.
+    /// </summary>
+    public static StudioProjectManifest RefreshMutableReusableAssetHashes(StudioProjectManifest manifest,
+        IReadOnlyDictionary<string, byte[]> files)
+    {
+        var updated = manifest.Files.ToBuilder();
+        var changed = false;
+        for (var index = 0; index < updated.Count; index++)
+        {
+            var file = updated[index];
+            if (!IsStableReusableAssetPath(file) || !files.TryGetValue(file.Path, out var content) ||
+                string.Equals(file.Sha256, ComputeContentHash(content), StringComparison.Ordinal)) continue;
+            ValidateLibraryAsset(file, content);
             updated[index] = file with { Sha256 = ComputeContentHash(content) };
             changed = true;
         }

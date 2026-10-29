@@ -544,6 +544,50 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
     }
 
     [Fact]
+    public void Read_Refreshes_hashes_for_stable_reusable_sources_without_touching_immutable_revisions()
+    {
+        var folder = Path.Combine(directory, "stable-reusable-sources");
+        var skill = new SkillLibraryItem(WorkflowSkill.Create("research", "1.0.0", "Research", "Use the original guidance."), "Research");
+        var profile = new AgentProfileLibraryItem(AgentProfile.Create("reviewer", "1.0.0", "Reviewer", "Reviews evidence.",
+            "model.primary", "Review the supplied evidence.", ImmutableArray<ToolBindingRequest>.Empty), "Agents");
+        var function = new GraphFunctionCatalogEntry(
+            new(AppendSuffixFunction(), GraphFunctionJson.ComputeHash(AppendSuffixFunction())), "Functions");
+        var skillPath = StudioProjectSourceArchive.StableSkillSourcePath(skill.Skill.Id, skill.Skill.Version);
+        var profilePath = StudioProjectSourceArchive.StableAgentProfileSourcePath(profile.Profile.Id, profile.Profile.Version);
+        var functionPath = StudioProjectSourceArchive.StableGraphFunctionSourcePath(function.Function.Definition.FunctionId,
+            function.Function.Definition.Version.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        var contents = new Dictionary<string, byte[]>
+        {
+            [skillPath] = Encoding.UTF8.GetBytes(StudioProjectSourceArchive.SerializeSkillAsset(skill)),
+            [profilePath] = Encoding.UTF8.GetBytes(StudioProjectSourceArchive.SerializeAgentProfileAsset(profile)),
+            [functionPath] = Encoding.UTF8.GetBytes(StudioProjectSourceArchive.SerializeGraphFunctionAsset(function))
+        };
+        var manifest = new StudioProjectManifest("1.2", "stable-sources", "Stable sources", contents.Select(pair =>
+            new StudioProjectFile(pair.Key.EndsWith(".skill") ? "skill" : pair.Key.EndsWith(".agent") ? "agent-profile" : "graph-function",
+                pair.Key.Contains("research", StringComparison.Ordinal) ? "research" : pair.Key.Contains("reviewer", StringComparison.Ordinal) ? "reviewer" : "text.append-suffix",
+                pair.Key.Contains("reviewer", StringComparison.Ordinal) || pair.Key.Contains("research", StringComparison.Ordinal) ? "1.0.0" : "1",
+                pair.Key, StudioProjectSourceArchive.ComputeContentHash(pair.Value))).ToImmutableArray())
+        {
+            Directories = StudioProjectSourceArchive.DirectoriesForPaths(contents.Keys)
+        };
+        StudioProjectSourceDirectory.Write(folder, manifest, contents);
+
+        var revisedSkill = new SkillLibraryItem(WorkflowSkill.Create("research", "1.0.0", "Research", "Use the revised guidance."), "Research");
+        var revisedProfile = new AgentProfileLibraryItem(AgentProfile.Create("reviewer", "1.0.0", "Reviewer", "Reviews evidence.",
+            "model.primary", "Review the revised evidence.", ImmutableArray<ToolBindingRequest>.Empty), "Agents");
+        File.WriteAllText(Path.Combine(folder, skillPath), StudioProjectSourceArchive.SerializeSkillAsset(revisedSkill));
+        File.WriteAllText(Path.Combine(folder, profilePath), StudioProjectSourceArchive.SerializeAgentProfileAsset(revisedProfile));
+
+        var (refreshed, _) = StudioProjectSourceDirectory.Read(folder);
+        Assert.Equal(StudioProjectSourceArchive.ComputeContentHash(File.ReadAllBytes(Path.Combine(folder, skillPath))),
+            refreshed.Files.Single(file => file.Path == skillPath).Sha256);
+        Assert.Equal(StudioProjectSourceArchive.ComputeContentHash(File.ReadAllBytes(Path.Combine(folder, profilePath))),
+            refreshed.Files.Single(file => file.Path == profilePath).Sha256);
+        Assert.Equal(manifest.Files.Single(file => file.Path == functionPath).Sha256,
+            refreshed.Files.Single(file => file.Path == functionPath).Sha256);
+    }
+
+    [Fact]
     public void FolderAgentProfileSource_SavesImmutableProfileAndExposesItOnlyToFolderConsumers()
     {
         var folder = Path.Combine(directory, "folder-agent-profiles");

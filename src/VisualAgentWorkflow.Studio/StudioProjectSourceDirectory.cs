@@ -39,6 +39,7 @@ public static class StudioProjectSourceDirectory
         }
 
         var refreshedManifest = StudioProjectSourceArchive.RefreshMutableWorkflowHashes(manifest, files);
+        refreshedManifest = StudioProjectSourceArchive.RefreshMutableReusableAssetHashes(refreshedManifest, files);
         if (!refreshedManifest.Equals(manifest)) ReplaceManifest(root, refreshedManifest);
         var validationArchive = StudioProjectSourceArchive.CreateArchive(refreshedManifest, files);
         return StudioProjectSourceArchive.Read(validationArchive);

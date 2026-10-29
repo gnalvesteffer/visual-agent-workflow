@@ -656,7 +656,13 @@ Reusable workflow packages, insertion, and read-only child-graph drill-in are co
 
 Workflow source has now taken the first bounded step toward this model: folder projects write stable, collision-resistant `.workflow` paths, valid external JSON edits refresh the manifest hash, and a pending journal recovers interrupted workflow/manifest switches. Catalog-backed projects and skill/profile/function assets remain unchanged. The full phase remains open: remove semantic revision histories from all editable folder assets, define dependency closure capture and runtime provenance, add reverse-reference and Git conflict UX, and migrate legacy hash-named assets explicitly. Runs still capture a validated in-memory workflow/layout plus current top-level hashes; they do not yet claim complete durable dependency-byte closure evidence. Local `.vaw/` restore points remain optional convenience snapshots, not the project's version-control system. This boundary was reviewed adversarially: mutable files simplify normal development, while durable transitive snapshots and explicit source-change visibility preserve reproducible runs and packages.
 
+The reusable-source refresh below is the exception to the unchanged-asset
+boundary: stable skill/profile/function files may have their manifest hash
+refreshed after a valid external edit, while their existing immutable revisions
+and embedded workflow snapshots remain unchanged.
+
 - [x] **Mutable workflow source slice:** stable paths, valid external-edit hash refresh, optimistic stale checks, and journaled interrupted-save recovery.
+- [x] **Reusable source identity refresh:** stable, content-independent paths for skills, agent profiles, and graph functions now validate external edits and refresh only their manifest hashes; content-addressed revisions and embedded workflow snapshots remain unchanged. See [Git-native reusable source refresh](decisions/0040-git-native-reusable-source-refresh.md).
 - [ ] **Mutable supporting assets:** apply the same source semantics to skills, agent profiles, and graph functions with explicit compatibility and dependency rules.
 - [ ] **Immutable run closure:** persist exact workflow/dependency bytes and hashes plus bounded resolver/runtime provenance before queue admission.
 - [ ] **Git conflict and migration UX:** explicitly migrate legacy hash-named assets, surface duplicate identities and branch conflicts, and define safe rename/delete/reference diagnostics.
