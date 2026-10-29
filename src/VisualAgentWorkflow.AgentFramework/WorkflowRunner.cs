@@ -1445,8 +1445,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         private async Task<string> InvokeDirectMcpTool(string input, Guid invocation, List<DataInputEvaluation> evaluations, CancellationToken cancellationToken)
         {
             if (tools is null) throw new InvalidOperationException("No tool broker is configured.");
+            var usesPins = WorkflowSchemaVersions.UsesDirectMcpPins(revision.Definition.SchemaVersion);
+            var mcpArguments = System.Collections.Immutable.ImmutableArray<WorkflowMcpArgumentDescriptor>.Empty;
+            if (usesPins && node.McpInputPorts is not null &&
+                !WorkflowNodeDescriptorResolver.TryResolveMcpArguments(node, out mcpArguments))
+                throw new InvalidOperationException("The direct MCP node's persisted argument pins do not match its resolved descriptor.");
             JsonObject arguments;
-            if (WorkflowSchemaVersions.UsesDirectMcpPins(revision.Definition.SchemaVersion) && node.McpInputPorts is not null && node.McpArgumentsJson is null)
+            if (usesPins && node.McpInputPorts is not null && node.McpArgumentsJson is null)
             {
                 arguments = new();
             }
@@ -1460,15 +1465,15 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 try { arguments = JsonNode.Parse(input)?.AsObject() ?? throw new InvalidOperationException("A direct MCP node requires a JSON object of tool arguments. For text tools, use {\"text\":\"...\"}."); }
                 catch (JsonException exception) { throw new InvalidOperationException("A direct MCP node requires a JSON object of tool arguments. For text tools, use {\"text\":\"...\"}.", exception); }
             }
-            if (WorkflowSchemaVersions.UsesDirectMcpPins(revision.Definition.SchemaVersion) && node.McpInputPorts is { } inputPorts)
+            if (usesPins && node.McpInputPorts is not null)
             {
-                foreach (var port in inputPorts)
+                foreach (var argument in mcpArguments)
                 {
-                    var connection = revision.Definition.Connections.FirstOrDefault(edge => edge.Value.Target.NodeId == Id && edge.Value.Target.PortId == port.Id);
+                    var connection = revision.Definition.Connections.FirstOrDefault(edge => edge.Value.Target.NodeId == Id && edge.Value.Target.PortId == argument.Port.Id);
                     if (connection.Value is null) continue;
-                    var evaluation = dataEvaluator!.ResolveInput(Id, port.Id);
+                    var evaluation = dataEvaluator!.ResolveInput(Id, argument.Port.Id);
                     evaluations.Add(evaluation);
-                    arguments[port.Name] = ToJsonNode(evaluation.Result);
+                    arguments[argument.Argument.Name] = ToJsonNode(evaluation.Result);
                 }
             }
             var json = JsonSerializer.SerializeToElement(arguments, new JsonSerializerOptions(JsonSerializerDefaults.Web));

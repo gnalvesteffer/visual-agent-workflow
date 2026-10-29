@@ -12,6 +12,11 @@ public sealed record WorkflowNodeDescriptor(
     public WorkflowNodeContract NodeContract => WorkflowNodeContractCatalog.Get(NodeType);
 }
 
+/// <summary>Pairs one resolved MCP argument pin with its persisted tool-property identity.</summary>
+public sealed record WorkflowMcpArgumentDescriptor(
+    WorkflowPortDescriptor Port,
+    McpInputPortDefinition Argument);
+
 public sealed record WorkflowNodeDescriptorIssue(string Code, string Message);
 
 /// <summary>A diagnostic emitted by the advisory cross-layer descriptor audit.</summary>
@@ -364,6 +369,38 @@ public static class WorkflowNodeDescriptorRegistry
 /// </remarks>
 public static class WorkflowNodeDescriptorResolver
 {
+    /// <summary>
+    /// Resolves persisted direct-MCP argument pins through the same descriptor used by
+    /// editor and validator projections. A malformed or incomplete mapping fails closed.
+    /// </summary>
+    public static bool TryResolveMcpArguments(NodeDefinition node,
+        out ImmutableArray<WorkflowMcpArgumentDescriptor> arguments)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        arguments = [];
+        if (node.Type != NodeTypes.McpTool || node.McpInputPorts is not { } persisted)
+            return true;
+        if (!TryResolve(node, null, null, out var descriptor)) return false;
+
+        var inputPorts = descriptor.Ports
+            .Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data)
+            .ToArray();
+        var resolved = ImmutableArray.CreateBuilder<WorkflowMcpArgumentDescriptor>(inputPorts.Length);
+        foreach (var port in inputPorts)
+        {
+            var matches = persisted.Where(argument => argument is not null && argument.Id == port.Id).ToArray();
+            if (matches.Length != 1 || matches[0].DataType != port.DataType)
+                return false;
+            resolved.Add(new(port, matches[0]));
+        }
+
+        if (resolved.Count != persisted.Length ||
+            resolved.Select(item => item.Argument.Name).Distinct(StringComparer.Ordinal).Count() != resolved.Count)
+            return false;
+        arguments = resolved.ToImmutable();
+        return true;
+    }
+
     public static bool TryResolve(NodeDefinition node,
         ImmutableArray<McpInputPortDefinition>? discoveredMcpInputPorts,
         IReadOnlyDictionary<string, string>? discoveredMcpInputDescriptions,

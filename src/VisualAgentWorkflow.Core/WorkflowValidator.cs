@@ -1164,15 +1164,21 @@ public static class WorkflowValidator
             if (node is null) continue;
             if (pinsGraph && node.Type == NodeTypes.McpTool && node.McpInputPorts is null)
                 error("mcp.input-ports", $"nodes.{id}.mcpInputPorts", "Schema 1.37 MCP nodes must persist their discovered top-level input pins.");
+            var mcpArguments = ImmutableArray<WorkflowMcpArgumentDescriptor>.Empty;
+            var hasResolvedMcpArguments = node.Type != NodeTypes.McpTool || node.McpInputPorts is null ||
+                WorkflowNodeDescriptorResolver.TryResolveMcpArguments(node, out mcpArguments);
+            if (!hasResolvedMcpArguments)
+                error("mcp.input-ports", $"nodes.{id}.mcpInputPorts", "MCP input pins must match the resolved descriptor exactly.");
             var hasConfiguredMcpArguments = node.Type == NodeTypes.McpTool && node.McpArgumentsJson is not null;
             foreach (var port in WorkflowPorts.Explicit(node).Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data))
             {
                 var count = dataIncoming.GetValueOrDefault((id, port.Id));
-                if (pinsGraph && node.Type == NodeTypes.McpTool && node.McpInputPorts is { } inputPorts && inputPorts.FirstOrDefault(candidate => candidate.Id == port.Id) is { } inputPort)
+                if (pinsGraph && node.Type == NodeTypes.McpTool && hasResolvedMcpArguments &&
+                    mcpArguments.FirstOrDefault(candidate => candidate.Port.Id == port.Id) is { } inputPort)
                 {
                     if (port.Cardinality == WorkflowPortCardinality.AtMostOne && count > 1)
                         error("data.degree", $"nodes.{id}.inputs.{port.Id}", "Each MCP argument pin accepts at most one data edge.");
-                    else if (count == 0 && inputPort.Required && !HasStaticArgument(node.McpArgumentsJson, inputPort.Name))
+                    else if (count == 0 && inputPort.Port.Required && !HasStaticArgument(node.McpArgumentsJson, inputPort.Argument.Name))
                         error("data.degree", $"nodes.{id}.inputs.{port.Id}", "Every required MCP argument must be connected or configured as a static argument.");
                 }
                 else if (node.Type == NodeTypes.McpTool && port.Id == "in" && hasConfiguredMcpArguments)

@@ -541,6 +541,35 @@ public sealed class WorkflowNodeContractTests
     }
 
     [Fact]
+    public void Persisted_mcp_argument_descriptor_preserves_pin_and_property_identity()
+    {
+        var node = new NodeDefinition(NodeTypes.McpTool, "1.0.0")
+        {
+            McpInputPorts = [new("arg.path", "path", WorkflowDataTypes.String, true),
+                new("arg.maxBytes", "maxBytes", WorkflowDataTypes.Integer, false)]
+        };
+
+        Assert.True(WorkflowNodeDescriptorResolver.TryResolveMcpArguments(node, out var arguments));
+        Assert.Equal(
+            [("arg.path", "path", WorkflowDataTypes.String, true),
+             ("arg.maxBytes", "maxBytes", WorkflowDataTypes.Integer, false)],
+            arguments.Select(argument => (argument.Port.Id, argument.Argument.Name,
+                argument.Port.DataType!, argument.Port.Required)));
+    }
+
+    [Fact]
+    public void Persisted_mcp_argument_descriptor_fails_closed_on_duplicate_pin_identity()
+    {
+        var node = new NodeDefinition(NodeTypes.McpTool, "1.0.0")
+        {
+            McpInputPorts = [new("arg.path", "path", WorkflowDataTypes.String, true),
+                new("arg.path", "other", WorkflowDataTypes.String, false)]
+        };
+
+        Assert.False(WorkflowNodeDescriptorResolver.TryResolveMcpArguments(node, out _));
+    }
+
+    [Fact]
     public void Unknown_dynamic_descriptor_fails_closed()
     {
         Assert.False(WorkflowNodeDescriptorResolver.TryResolve(new NodeDefinition("unknown.node", "1.0.0"), null, null, out _));
