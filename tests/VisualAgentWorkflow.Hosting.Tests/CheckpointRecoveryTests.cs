@@ -173,6 +173,20 @@ public sealed class CheckpointRecoveryTests : IDisposable
     }
 
     [Fact]
+    public async Task Host_publication_failure_records_failure_without_partial_checkpoint_state()
+    {
+        var inner = Store();
+        await using var runtime = new CheckpointWorkflowHost(new PublicationFailureStore(inner));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => runtime.StartAsync(Revision(), "abc", 1));
+
+        var run = Assert.Single(inner.List());
+        Assert.Equal("failed", run.Status);
+        Assert.Null(inner.GetCheckpoint(run.Header.RunId));
+        Assert.DoesNotContain(run.Events, evt => evt.Kind is ExecutionEventKinds.CheckpointCaptured or ExecutionEventKinds.Suspended);
+    }
+
+    [Fact]
     public void Malformed_persisted_run_state_is_reported_as_ineligible_instead_of_throwing()
     {
         var malformed = new RunSnapshot(null!, []);
@@ -298,6 +312,18 @@ public sealed class CheckpointRecoveryTests : IDisposable
             }
             return result;
         }
+    }
+
+    private sealed class PublicationFailureStore(SqliteWorkflowRunStore inner) : IWorkflowCheckpointHostStore
+    {
+        public RunSnapshot Create(WorkflowRevision revision, string input) => inner.Create(revision, input);
+        public RunSnapshot? Get(Guid runId) => inner.Get(runId);
+        public IReadOnlyList<RunSnapshot> List() => inner.List();
+        public RunSnapshot Append(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events) => inner.Append(runId, expectedSequence, events);
+        public IDisposable AcquireRuntimeOwnership() => inner.AcquireRuntimeOwnership();
+        public WorkflowRunCheckpoint? GetCheckpoint(Guid runId) => inner.GetCheckpoint(runId);
+        public RunSnapshot CommitCheckpoint(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events,
+            WorkflowRunCheckpoint checkpoint) => throw new IOException("Injected checkpoint publication failure.");
     }
 
     private static WorkflowRevision VariableRevision()
