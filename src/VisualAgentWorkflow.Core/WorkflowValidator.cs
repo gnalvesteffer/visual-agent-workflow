@@ -1145,6 +1145,10 @@ public static class WorkflowValidator
         if (input is not null) { var pending = new Stack<string>([input]); while (pending.TryPop(out var current)) { if (!reached.Add(current)) continue; foreach (var next in adjacency.GetValueOrDefault(current) ?? []) pending.Push(next); } }
         if (reached.Count != definition.Nodes.Count)
             error("graph.unreachable", "nodes", "Every node must be reachable from the input entry.");
+
+        var callTopology = SequenceWorkflowCallTopology.Analyze(definition);
+        foreach (var issue in callTopology.Issues)
+            error(issue.Code, issue.Path, issue.Message);
     }
 
     private static void ValidateSequenceAgentLimits(NodeDefinition node, string nodeId, string outputName,

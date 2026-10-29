@@ -22,6 +22,12 @@ The proof covers:
 
 The proof-only revision factory bypasses validation and serialization only for this internal harness. It is not reachable from workflow files, schema catalogs, migrations, Studio controls, package import/export, or runtime admission of user-authored definitions.
 
+## Progress after the initial proof
+
+Core now owns a framework-independent `SequenceWorkflowCallTopology` contract. It recognizes only call-bearing paths with a direct-MCP prefix, one terminal pinned string WorkflowCall, and the Output barrier; it rejects malformed pins, sharing, cycles/incomplete paths, transforms or other nodes around the call, and invalid child bindings. Public Sequence validation consumes its diagnostics while still rejecting the unsupported WorkflowCall node under schema 1.49, and the proof runner checks the same result before execution. Non-call sibling paths remain governed by their existing schema-specific contract.
+
+The current production proof also dispatches a second sibling output and demonstrates out-of-order sibling completion plus a no-result child coexisting with a sibling result. It is not yet the required two-child barrier proof: deterministic child controls, uncertain/late outcomes, persisted file/SQLite replay, child identity/hash evidence, capability denial, and migration compatibility remain open.
+
 ## Deferred public gates
 
 Schema 1.50 may be considered only after a reviewed implementation provides all of the following:

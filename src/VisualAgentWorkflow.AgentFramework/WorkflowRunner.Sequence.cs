@@ -82,9 +82,13 @@ public sealed partial class WorkflowRunner
             WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
         };
         var parent = SequenceWorkflowCallProofParent(call);
+        var topology = SequenceWorkflowCallTopology.Analyze(parent.Definition);
+        if (!topology.IsValid || topology.Paths.Length != 1)
+            throw new InvalidOperationException("The private Sequence-to-WorkflowCall proof definition does not satisfy its topology contract.");
         var plan = new SequenceProductionPlan("sequence", [
-            new SequenceProductionOutput("call", 0, "call", "sequence", "then.call", "sequence-call")
-        ], null, SequenceTerminalState.Completed, AllowSingleOutput: true);
+            new SequenceProductionOutput("call", 0, "call", "sequence", "then.call", "sequence-call"),
+            new SequenceProductionOutput("sibling", 1, "sibling", "sequence", "then.sibling", "sequence-sibling")
+        ], null, SequenceTerminalState.Completed);
         return ExecuteCoreAsync(runId, parent, input, null, record, null, cancellationToken,
             rootRevision: parent, sequencePlan: plan, sequenceWorkflowCallProof: true);
     }
@@ -133,9 +137,10 @@ public sealed partial class WorkflowRunner
                 ["input"] = new(NodeTypes.Input, "1.0.0"),
                 ["sequence"] = new(NodeTypes.Sequence, "1.0.0")
                 {
-                    Sequence = new([new("call", "Child workflow")])
+                    Sequence = new([new("call", "Child workflow"), new("sibling", "Sibling transform")])
                 },
                 ["call"] = call,
+                ["sibling"] = new(NodeTypes.Uppercase, "1.0.0"),
                 ["output"] = new(NodeTypes.Output, "1.0.0")
             }.ToImmutableSortedDictionary(), ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
         {
@@ -143,7 +148,9 @@ public sealed partial class WorkflowRunner
             {
                 ["input-sequence"] = new(new("input", "then"), new("sequence", "execute"), "execution"),
                 ["sequence-call"] = new(new("sequence", "then.call"), new("call", "execute"), "execution"),
-                ["call-output"] = new(new("call", "out"), new("output", "execute"), "execution")
+                ["call-output"] = new(new("call", "out"), new("output", "execute"), "execution"),
+                ["sequence-sibling"] = new(new("sequence", "then.sibling"), new("sibling", "execute"), "execution"),
+                ["sibling-output"] = new(new("sibling", "out"), new("output", "execute"), "execution")
             }.ToImmutableSortedDictionary()
         };
         return WorkflowRevision.CreateProofOnly(definition, "sequence-call-proof-parent");

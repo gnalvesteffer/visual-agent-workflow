@@ -22,8 +22,8 @@ public sealed class SequenceProductionRunnerTests
         Assert.Equal("HELLO", result.Output);
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowStarted && evt.ScopeId == "call");
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted && evt.ScopeId == "call");
-        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted &&
-            ReadEvidence(evt).OutputId == "call");
+        Assert.Equal(["call", "sibling"], events.Where(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted)
+            .Select(ReadEvidence).Select(evidence => evidence.OutputId).OrderBy(id => id, StringComparer.Ordinal));
         Assert.Equal(ExecutionEventKinds.Completed, events[^1].Kind);
     }
 
@@ -41,6 +41,8 @@ public sealed class SequenceProductionRunnerTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowFailed && evt.ScopeId == "call");
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed &&
             ReadEvidence(evt).OutputId == "call");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled &&
+            ReadEvidence(evt).OutputId == "sibling");
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
     }
 
@@ -52,12 +54,13 @@ public sealed class SequenceProductionRunnerTests
         var result = await new WorkflowRunner().ExecuteSequenceWorkflowCallProductionProofAsync(Guid.NewGuid(), "hello",
             evt => { events.Add(evt); return ValueTask.CompletedTask; }, SequenceWorkflowCallProofOutcome.Termination);
 
-        Assert.True(result.Terminated);
-        Assert.Null(result.Output);
+        Assert.False(result.Terminated);
+        Assert.False(result.Failed);
+        Assert.Equal("HELLO", result.Output);
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowTerminated && evt.ScopeId == "call");
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted &&
             ReadEvidence(evt).OutputId == "call");
-        Assert.Equal(ExecutionEventKinds.Terminated, events[^1].Kind);
+        Assert.Equal(ExecutionEventKinds.Completed, events[^1].Kind);
     }
 
     [Fact]
