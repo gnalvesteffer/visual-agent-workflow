@@ -94,7 +94,10 @@ coverage for the public definition, tamper-resistant run-store handling,
 broader passive nested failure/cancellation playback, package/1.43-to-1.46
 compatibility proofs, and Studio authoring controls. Both file and SQLite
 stores now have a success-path nested Sequence/Agent/model playback proof
-with no live executor calls during reopen.
+with no live executor calls during reopen. Schema 1.46 package JSON now also
+round-trips the Agent configuration, execution topology, provider requirement,
+and definition hash; this does not establish migration or older-runtime
+compatibility.
 
 Promotion gates, in order:
 

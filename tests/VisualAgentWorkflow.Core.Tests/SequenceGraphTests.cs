@@ -137,6 +137,22 @@ public sealed class SequenceGraphTests
     }
 
     [Fact]
+    public void Sequence_agent_path_package_round_trip_preserves_agent_contract_and_hash()
+    {
+        var definition = AgentPathDefinition();
+        var package = WorkflowPackageJson.Create(definition, WorkflowLayout.Create(definition));
+        var restored = WorkflowPackageJson.Deserialize(WorkflowPackageJson.Serialize(definition, package.Layout));
+
+        Assert.Equal(WorkflowSchemaVersions.SequenceAgentPathGraph, restored.Definition.SchemaVersion);
+        Assert.Equal(definition.Nodes["research-agent"].Agent, restored.Definition.Nodes["research-agent"].Agent);
+        Assert.Equal(definition.ExecutionConnections, restored.Definition.ExecutionConnections);
+        Assert.Equal(WorkflowJson.ComputeHash(definition), WorkflowJson.ComputeHash(restored.Definition));
+        Assert.Contains(restored.Requirements, requirement => requirement.Kind == "agent-provider" &&
+            requirement.Id == "sequence-proof");
+        Assert.Empty(WorkflowValidator.Validate(restored.Definition));
+    }
+
+    [Fact]
     public void Sequence_path_schema_rejects_shared_downstream_nodes()
     {
         var definition = PathDefinition() with
@@ -395,6 +411,26 @@ public sealed class SequenceGraphTests
             SchemaVersion = WorkflowSchemaVersions.SequencePathGraph,
             Nodes = nodes,
             ExecutionConnections = execution
+        };
+    }
+
+    private static WorkflowDefinition AgentPathDefinition()
+    {
+        var source = PathDefinition();
+        var agent = new NodeDefinition(NodeTypes.Agent, "1.0.0")
+        {
+            Agent = new AgentConfiguration("sequence-proof", null, "Return the supplied text.", [])
+            { MaxTurns = 1, MaxTotalTokens = 4000 }
+        };
+        return source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceAgentPathGraph,
+            Nodes = source.Nodes.Remove("inventory-tool").Add("research-agent", agent),
+            ExecutionConnections = source.ExecutionConnections!
+                .Remove("sequence-inventory")
+                .Remove("inventory-output")
+                .Add("sequence-inventory", new(new("sequence", "then.inventory"), new("research-agent", "execute"), "execution"))
+                .Add("inventory-output", new(new("research-agent", "out"), new("output", "execute"), "execution"))
         };
     }
 }
