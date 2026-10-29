@@ -74,7 +74,7 @@ public sealed partial class WorkflowRunner
     /// </summary>
     internal Task<WorkflowExecutionResult> ExecuteSequenceWorkflowCallProductionProofAsync(Guid runId, string input,
         Func<ExecutionEvent, ValueTask> record, SequenceWorkflowCallProofOutcome outcome = SequenceWorkflowCallProofOutcome.Success,
-        CancellationToken cancellationToken = default)
+        IWorkflowExecutionGate? gate = null, CancellationToken cancellationToken = default)
     {
         var firstChild = SequenceWorkflowCallProofChild(outcome, "sequence-call-proof-first");
         var secondChild = SequenceWorkflowCallProofChild(SequenceWorkflowCallProofOutcome.Success, "sequence-call-proof-second");
@@ -94,24 +94,26 @@ public sealed partial class WorkflowRunner
             new SequenceProductionOutput("call", 0, "call", "sequence", "then.call", "sequence-call"),
             new SequenceProductionOutput("sibling", 1, "sibling", "sequence", "then.sibling", "sequence-sibling")
         ], null, SequenceTerminalState.Completed);
-        return ExecuteCoreAsync(runId, parent, input, null, record, null, cancellationToken,
+        return ExecuteCoreAsync(runId, parent, input, null, record, gate, cancellationToken,
             rootRevision: parent, sequencePlan: plan, sequenceWorkflowCallProof: true);
     }
 
     private static WorkflowRevision SequenceWorkflowCallProofChild(SequenceWorkflowCallProofOutcome outcome, string workflowId)
     {
-        var definition = new WorkflowDefinition("1.0", workflowId, "input",
+        var inputNodeId = $"{workflowId}-input";
+        var outputNodeId = $"{workflowId}-output";
+        var definition = new WorkflowDefinition("1.0", workflowId, inputNodeId,
             new Dictionary<string, NodeDefinition>
             {
-                ["input"] = new(NodeTypes.Input, "1.0.0"),
-                ["output"] = new(NodeTypes.Output, "1.0.0")
+                [inputNodeId] = new(NodeTypes.Input, "1.0.0"),
+                [outputNodeId] = new(NodeTypes.Output, "1.0.0")
             }.ToImmutableSortedDictionary(),
             new Dictionary<string, ConnectionDefinition>
             {
-                ["edge"] = new(new("input", "out"), new("output", "in"), "data")
+                ["edge"] = new(new(inputNodeId, "out"), new(outputNodeId, "in"), "data")
             }.ToImmutableSortedDictionary());
         if (outcome is SequenceWorkflowCallProofOutcome.Success)
-            definition = GraphEditing.InsertNodeAfter(definition, "input", "out", new(NodeTypes.Uppercase, "1.0.0"));
+            definition = GraphEditing.InsertNodeAfter(definition, inputNodeId, "out", new(NodeTypes.Uppercase, "1.0.0"));
         else
         {
             definition = definition with { SchemaVersion = "1.20" };
@@ -120,7 +122,7 @@ public sealed partial class WorkflowRunner
                 Termination = new(outcome is SequenceWorkflowCallProofOutcome.Termination
                     ? WorkflowTerminationOutcomes.Success : WorkflowTerminationOutcomes.Failure)
             };
-            definition = GraphEditing.InsertTerminationAfter(definition, "input", "out");
+            definition = GraphEditing.InsertTerminationAfter(definition, inputNodeId, "out");
             var terminateId = definition.Nodes.Single(entry => entry.Value.Type == NodeTypes.Terminate).Key;
             definition = definition with
             {
@@ -411,6 +413,7 @@ public sealed partial class WorkflowRunner
                 }
 
                 await flushSequenceEvents();
+                var pendingOutputs = new List<ValueTask>();
                 foreach (var output in plan.Outputs)
                 {
                     if (gate is not null)
@@ -422,10 +425,11 @@ public sealed partial class WorkflowRunner
                         activation.ActivationId!.Value, output.ConnectionId,
                         $"sequence/{activation.OutputId}");
                     await flushSequenceEvents();
-                    await context.SendMessageAsync(new GraphMessage(message.Text, output.SourceNodeId,
+                    pendingOutputs.Add(context.SendMessageAsync(new GraphMessage(message.Text, output.SourceNodeId,
                         output.SourcePortId, DataType: "string", SequenceLineage: lineage), output.OutputNodeId,
-                        cancellationToken);
+                        cancellationToken));
                 }
+                await Task.WhenAll(pendingOutputs.Select(pending => pending.AsTask()));
                 await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, "All Sequence outputs dispatched.", null);
                 return new(message.Text, Id, "continue");
             }

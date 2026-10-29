@@ -70,6 +70,34 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Proof_sequence_barrier_waits_for_a_delayed_child_and_records_out_of_order_completion()
+    {
+        var events = new List<ExecutionEvent>();
+        var gate = new ReleaseGate("sequence-call-proof-first-input");
+        var execution = new WorkflowRunner().ExecuteSequenceWorkflowCallProductionProofAsync(Guid.NewGuid(), "hello",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }, gate: gate);
+
+        await gate.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.Delay(50);
+        Assert.True(events.Any(evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted &&
+            evt.ScopeId == "sibling"),
+            string.Join(" | ", events.Select(evt => $"{evt.Sequence}:{evt.Kind}:{evt.NodeId}:{evt.ScopeId}")));
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
+
+        gate.Release.TrySetResult();
+        var result = await execution;
+
+        Assert.False(result.Failed);
+        Assert.Equal("HELLO", result.Output);
+        var completed = events.Where(evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted)
+            .ToArray();
+        Assert.True(Array.IndexOf(events.ToArray(), completed.Single(evt => evt.ScopeId == "sibling")) <
+            Array.IndexOf(events.ToArray(), completed.Single(evt => evt.ScopeId == "call")));
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
+        Assert.Equal(ExecutionEventKinds.Completed, events[^1].Kind);
+    }
+
+    [Fact]
     public async Task Production_runner_consumes_a_persisted_sequence_definition()
     {
         var events = new List<ExecutionEvent>();
