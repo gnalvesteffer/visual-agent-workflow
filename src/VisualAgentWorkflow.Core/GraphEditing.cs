@@ -195,6 +195,51 @@ public static class GraphEditing
         return definition with { SchemaVersion = WorkflowSchemaVersions.StringIntegerConversionGraph };
     }
 
+    /// <summary>Enables the bounded explicit integer-to-string conversion schema.</summary>
+    public static WorkflowDefinition EnableIntegerStringConversionGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph) || definition.ExecutionConnections is null)
+            throw new ArgumentException("Enable an explicit conversion or schema 1.57 graph before adding integer-to-string conversion.", nameof(definition));
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition with { SchemaVersion = WorkflowSchemaVersions.IntegerStringConversionGraph };
+    }
+
+    /// <summary>Inserts a pure integer-to-string conversion between an incompatible data pair.</summary>
+    public static WorkflowDefinition InsertIntegerStringConversion(
+        WorkflowDefinition definition, string sourceId, string sourcePortId, string targetId, string targetPortId)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.IntegerStringConversionGraph || definition.ExecutionConnections is null)
+            throw new ArgumentException("Integer-to-string insertion requires an explicit schema 1.58 conversion graph.", nameof(definition));
+        if (sourceId == targetId || !definition.Nodes.TryGetValue(sourceId, out var source) ||
+            !definition.Nodes.TryGetValue(targetId, out var target))
+            throw new ArgumentException("Choose two existing nodes for the conversion.", nameof(sourceId));
+
+        var sourcePort = WorkflowPorts.Explicit(source).SingleOrDefault(port =>
+            port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Data && port.Id == sourcePortId);
+        var targetPort = WorkflowPorts.Explicit(target).SingleOrDefault(port =>
+            port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data && port.Id == targetPortId);
+        if (sourcePort?.DataType != WorkflowDataTypes.Integer || targetPort?.DataType != WorkflowDataTypes.String)
+            throw new ArgumentException("Only an integer output to a string input can use this explicit conversion.", nameof(targetPortId));
+        if (definition.Nodes.Count >= 256)
+            throw new ArgumentException("The conversion node would exceed the 256-node workflow limit.", nameof(definition));
+        if (definition.Connections.Values.Any(edge => edge.Target == new PortReference(targetId, targetPortId)))
+            throw new ArgumentException("Disconnect the target input before inserting an explicit conversion.", nameof(targetPortId));
+        if (definition.Connections.Values.Any(edge => edge.Source == new PortReference(sourceId, sourcePortId)))
+            throw new ArgumentException("Disconnect the source output before inserting an explicit conversion.", nameof(sourcePortId));
+
+        var conversionId = NewId("convert");
+        var connections = definition.Connections
+            .Add(NewId("link"), new(new(sourceId, sourcePortId), new(conversionId, "in"), "data"))
+            .Add(NewId("link"), new(new(conversionId, "out"), new(targetId, targetPortId), "data"));
+        return Checked(definition with
+        {
+            Nodes = definition.Nodes.Add(conversionId, new(NodeTypes.IntegerToString, "1.0.0")),
+            Connections = connections
+        });
+    }
+
     /// <summary>
     /// Inserts the existing explicit string-to-integer conversion between an
     /// incompatible data pair. This is opt-in authoring, not implicit coercion.

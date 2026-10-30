@@ -421,6 +421,7 @@ public static class WorkflowNodeDescriptorRegistry
         Descriptor(NodeTypes.NumberConstant, "number-constant", [Output(WorkflowDataTypes.Number)], "1.40"),
         Descriptor(NodeTypes.NumberAdd, "number-add", [Input("left", WorkflowDataTypes.Number), Input("right", WorkflowDataTypes.Number), Output(WorkflowDataTypes.Number)], "1.42"),
         Descriptor(NodeTypes.StringToInteger, "string-to-integer", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.Integer)], "1.39"),
+        Descriptor(NodeTypes.IntegerToString, "integer-to-string", [Input("in", WorkflowDataTypes.Integer), Output(WorkflowDataTypes.String)], "1.58"),
         Descriptor(NodeTypes.TextConcat, "text-concat", [Input("left", WorkflowDataTypes.String), Input("right", WorkflowDataTypes.String), Output(WorkflowDataTypes.String)], "1.23"),
         Descriptor(NodeTypes.StringEquals, "string-equals", [Input("left", WorkflowDataTypes.String), Input("right", WorkflowDataTypes.String), Output(WorkflowDataTypes.Boolean)], "1.24"),
         Descriptor(NodeTypes.IntegerAdd, "integer-add", [Input("left", WorkflowDataTypes.Integer), Input("right", WorkflowDataTypes.Integer), Output(WorkflowDataTypes.Integer)], "1.31"),

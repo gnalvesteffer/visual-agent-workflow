@@ -258,6 +258,7 @@ public sealed class WorkflowNodeContractTests
             [NodeTypes.NumberConstant] = ("number-constant", [("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Number)]),
             [NodeTypes.NumberAdd] = ("number-add", [("left", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Number), ("right", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Number), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Number)]),
             [NodeTypes.StringToInteger] = ("string-to-integer", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Integer)]),
+            [NodeTypes.IntegerToString] = ("integer-to-string", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Integer), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String)]),
             [NodeTypes.TextConcat] = ("text-concat", [("left", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("right", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String)]),
             [NodeTypes.StringEquals] = ("string-equals", [("left", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("right", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Boolean)]),
             [NodeTypes.IntegerAdd] = ("integer-add", [("left", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Integer), ("right", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Integer), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Integer)]),
@@ -428,7 +429,7 @@ public sealed class WorkflowNodeContractTests
             .Select((contract, index) => new KeyValuePair<string, NodeDefinition>(
                 $"node-{index}", new NodeDefinition(contract.Type, contract.TypeVersion)))
             .ToImmutableSortedDictionary(StringComparer.Ordinal);
-        var definition = new WorkflowDefinition(WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph, "descriptor-audit", "node-0", nodes,
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.IntegerStringConversionGraph, "descriptor-audit", "node-0", nodes,
             ImmutableSortedDictionary<string, ConnectionDefinition>.Empty);
         var before = definition;
 

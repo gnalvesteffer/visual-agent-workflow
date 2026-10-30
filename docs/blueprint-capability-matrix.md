@@ -2,6 +2,8 @@
 
 This matrix is the audit baseline for the [Blueprint-inspired authoring contracts and ergonomics](roadmap.md#planned-phase-blueprint-inspired-authoring-contracts-and-ergonomics) phase. It compares the capability target in the [Unreal Blueprint reference](unreal-blueprint-reference.md) with the current Visual Agent Workflow implementation. “Shipped” means the repository contains a versioned contract, backend behavior, and focused verification; a palette item or a visual card is not evidence by itself.
 
+Schema 1.58 extends the shipped, bounded typed-value slice with explicit invariant integer-to-string conversion. See [Decision 0059](decisions/0059-explicit-integer-string-conversion.md).
+
 The target is capability parity at the level of visual programming, not Unreal API or runtime compatibility. The matrix deliberately separates implemented behavior, bounded/partial behavior, future work, and concepts that are intentionally different because workflow authority and evidence have different requirements.
 
 ## Matrix

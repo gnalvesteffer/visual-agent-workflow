@@ -139,6 +139,37 @@ public sealed class StringIntegerConversionTests
                 "input", "out", "add", "left"));
     }
 
+    [Theory]
+    [InlineData(long.MinValue, "-9223372036854775808")]
+    [InlineData(0, "0")]
+    [InlineData(long.MaxValue, "9223372036854775807")]
+    public void Integer_to_string_uses_invariant_signed_decimal_format(long value, string expected)
+    {
+        Assert.Equal(expected, IntegerStringConversion.Format(value));
+        Assert.InRange(expected.Length, 1, IntegerStringConversion.MaximumOutputLength);
+    }
+
+    [Fact]
+    public void Integer_to_string_has_typed_ports_and_is_rejected_by_older_schema()
+    {
+        var node = new NodeDefinition(NodeTypes.IntegerToString, "1.0.0");
+        Assert.Equal(("in", "integer"), Assert.Single(WorkflowPorts.ExplicitDataInputs(node)) is { } input ? (input.Id, input.DataType) : default);
+        Assert.Equal(("out", "string"), Assert.Single(WorkflowPorts.ExplicitDataOutputs(node)) is { } output ? (output.Id, output.DataType) : default);
+        Assert.Contains(WorkflowNodeContractCatalog.All, contract => contract.Type == NodeTypes.IntegerToString && contract.IsPure);
+        Assert.Contains(WorkflowValidator.Validate(IntegerToStringGraph(WorkflowSchemaVersions.IntegerGraph)), issue => issue.Path == "nodes.integer");
+    }
+
+    [Fact]
+    public void Integer_to_string_insertion_reconnects_typed_pins_atomically()
+    {
+        var graph = IntegerToStringGraph(WorkflowSchemaVersions.IntegerStringConversionGraph);
+        var inserted = GraphEditing.InsertIntegerStringConversion(graph, "integer", "out", "output", "in");
+        var conversion = Assert.Single(inserted.Nodes, pair => pair.Value.Type == NodeTypes.IntegerToString).Key;
+        Assert.Contains(inserted.Connections.Values, edge => edge.Source == new PortReference("integer", "out") && edge.Target == new PortReference(conversion, "in"));
+        Assert.Contains(inserted.Connections.Values, edge => edge.Source == new PortReference(conversion, "out") && edge.Target == new PortReference("output", "in"));
+        Assert.Empty(WorkflowValidator.Validate(inserted));
+    }
+
     private static WorkflowDefinition ConversionWorkflow(string schema) => new(schema, "conversion", "input",
         ImmutableSortedDictionary<string, NodeDefinition>.Empty
             .Add("input", new(NodeTypes.Input, "1.0.0"))
@@ -161,6 +192,17 @@ public sealed class StringIntegerConversionTests
         ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
             .Add("right", new(new("right", "out"), new("add", "right"), "data"))
             .Add("result", new(new("add", "out"), new("output", "in"), "data")))
+    {
+        ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("activate", new(new("input", "then"), new("output", "execute"), "execution"))
+    };
+
+    private static WorkflowDefinition IntegerToStringGraph(string schema) => new(schema, "integer-output", "input",
+        ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("integer", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(42) })
+            .Add("output", new(NodeTypes.Output, "1.0.0")),
+        ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
     {
         ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
             .Add("activate", new(new("input", "then"), new("output", "execute"), "execution"))

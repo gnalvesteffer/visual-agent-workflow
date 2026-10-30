@@ -717,6 +717,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.NumberConstant when outputPort == "out" && node.NumberConstant is { Value: var value } && double.IsFinite(value) => new ExplicitGraphValue("number", value),
                     NodeTypes.NumberAdd when outputPort == "out" => new ExplicitGraphValue("number", AddNumbers(nodeId, evaluated, cache, active)),
                     NodeTypes.StringToInteger when outputPort == "out" => ConvertStringToInteger(nodeId, evaluated, cache, active),
+                    NodeTypes.IntegerToString when outputPort == "out" => new ExplicitGraphValue(WorkflowDataTypes.String,
+                        IntegerStringConversion.Format(ResolveIntegerInput(nodeId, "in", evaluated, cache, active))),
                     NodeTypes.IntegerAdd when outputPort == "out" => new ExplicitGraphValue("integer", AddIntegers(nodeId, evaluated, cache, active)),
                     NodeTypes.IntegerEquals when outputPort == "out" => new ExplicitGraphValue("boolean", IntegersEqual(nodeId, evaluated, cache, active)),
                     NodeTypes.BooleanConstant when outputPort == "out" => new ExplicitGraphValue("boolean",

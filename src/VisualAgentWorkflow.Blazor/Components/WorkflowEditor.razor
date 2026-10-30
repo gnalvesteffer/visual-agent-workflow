@@ -96,6 +96,14 @@
                 <button type="button" @onclick="EnableStringIntegerConversionPreview" disabled="@Disabled">Enable string-to-integer conversion</button>
             </section>
         }
+        @if (CanUpgradeIntegerStringConversionGraph)
+        {
+            <section class="vaw-library-note" aria-label="Integer to string conversion">
+                <strong>Explicit integer-to-string conversion</strong>
+                <p class="vaw-help">Upgrade this valid graph to format signed Int64 values as invariant decimal text through a visible, typed conversion node.</p>
+                <button type="button" @onclick="EnableIntegerStringConversionPreview" disabled="@Disabled">Enable integer-to-string conversion</button>
+            </section>
+        }
         @if (CanUpgradeNumberGraph)
         {
             <section class="vaw-library-note" aria-label="Finite number graph values">
@@ -192,6 +200,14 @@
                 <strong>Explicit conversion available</strong>
                 <p class="vaw-help">Insert a visible string-to-integer node and reconnect both data pins. The draft remains schema 1.39.</p>
                 <button type="button" @onclick="() => InsertStringIntegerConversion(context)">Insert string → integer conversion</button>
+            </section>
+        }
+        @if (CanInsertIntegerStringConversion(context))
+        {
+            <section class="vaw-context-recovery" aria-label="Integer-to-string conversion">
+                <strong>Explicit conversion available</strong>
+                <p class="vaw-help">Insert a visible integer-to-string node and reconnect both data pins.</p>
+                <button type="button" @onclick="() => InsertIntegerStringConversion(context)">Insert integer → string conversion</button>
             </section>
         }
         <WorkflowNodeLibrary @key="context.Id" Title="Add node" SearchLabel="Search node actions" Entries="LibraryEntries(context)"

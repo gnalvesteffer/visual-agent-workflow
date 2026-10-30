@@ -94,6 +94,8 @@ Schema 1.31 adds `Int64` constants, checked addition, equality, and string/Boole
 
 Schema 1.39 adds the first explicit conversion node: `core.convert.string-to-integer`. The Studio upgrade path and Values library expose its typed string input and integer output, and an incompatible string-to-integer pin drop can offer the same conversion as one explicit atomic edit. The shared Core parser enforces the portable ASCII grammar and bounds, while the Agent Framework records stable failure evidence against the conversion node before propagating failure to the requesting node. Its pins now also use the canonical static descriptor registry. Existing schemas remain unchanged; graph functions and checkpoint recovery deliberately reject the node. Core regression tests cover parser boundaries, schema compatibility, typed ports, graph-function rejection, legacy hash stability, and descriptor conformance. Agent Framework tests cover successful typed output and deterministic failure evidence. Broader conversion families remain follow-up work.
 
+Schema 1.58 adds the reviewed `core.convert.integer-to-string` counterpart. It is pure, visible, lazy, invariant, and bounded to signed Int64 decimal output; the runtime records typed data evidence and Studio exposes schema-gated promotion, library insertion, and typed-wire insertion. Graph functions and checkpoint recovery remain intentionally excluded until separately contracted.
+
 ## Finite-number direct MCP pins
 
 Schema 1.40 adds the bounded finite-number slice: a Number constant and

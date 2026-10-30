@@ -169,6 +169,24 @@ public sealed class ExplicitGraphExecutionTests
     }
 
     [Theory]
+    [InlineData(long.MinValue, "-9223372036854775808")]
+    [InlineData(long.MaxValue, "9223372036854775807")]
+    public async Task Integer_to_string_conversion_is_lazy_typed_and_recorded(long value, string expected)
+    {
+        var events = new List<ExecutionEvent>();
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(IntegerStringConversionDefinition(value), "test"), "ignored", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal(expected, result.Output);
+        var conversion = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "convert");
+        using var evidence = JsonDocument.Parse(conversion.Data!);
+        Assert.Equal("string", evidence.RootElement.GetProperty("dataType").GetString());
+        Assert.Equal(expected, evidence.RootElement.GetProperty("value").GetString());
+    }
+
+    [Theory]
     [InlineData(false, false, "failure", true, null, 1)]
     [InlineData(true, false, "success", true, null, 2)]
     [InlineData(true, true, "output", false, "Hello", 2)]
@@ -425,6 +443,25 @@ public sealed class ExplicitGraphExecutionTests
         {
             ["input"] = new(new("input", "out"), new("convert", "in"), "data"),
             ["output"] = new(new("convert", "out"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+    {
+        ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("activate", new(new("input", "then"), new("output", "execute"), "execution"))
+    };
+
+    private static WorkflowDefinition IntegerStringConversionDefinition(long value) => new WorkflowDefinition(
+        WorkflowSchemaVersions.IntegerStringConversionGraph, "integer-string", "input",
+        new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["integer"] = new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(value) },
+            ["convert"] = new(NodeTypes.IntegerToString, "1.0.0"),
+            ["output"] = new(NodeTypes.Output, "1.0.0")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+        new Dictionary<string, ConnectionDefinition>
+        {
+            ["value"] = new(new("integer", "out"), new("convert", "in"), "data"),
+            ["result"] = new(new("convert", "out"), new("output", "in"), "data")
         }.ToImmutableSortedDictionary(StringComparer.Ordinal))
     {
         ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)

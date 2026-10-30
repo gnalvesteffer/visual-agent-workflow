@@ -16,6 +16,8 @@ nodes and passive evidence playback. Extend this slice to loop, concurrency,
 nested-workflow, checkpoint, and richer replay semantics only through separate
 reviewed contracts.
 
+Schema 1.58 also provides a visible `core.convert.integer-to-string` node. It formats signed Int64 values with invariant decimal notation, including both bounds, and never performs implicit coercion.
+
 ```mermaid
 flowchart LR
     Input[Input] -->|data: string| Compare[Compare strings]

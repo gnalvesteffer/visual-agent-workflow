@@ -110,6 +110,29 @@ public partial class WorkflowEditor
             context.TargetNodeId!, context.TargetPortId!), context);
     }
 
+    private bool CanInsertIntegerStringConversion(GraphContextRequest context)
+    {
+        if (context.SourceNodeId is null || context.SourcePortId is null ||
+            context.TargetNodeId is null || context.TargetPortId is null ||
+            Definition.SchemaVersion != WorkflowSchemaVersions.IntegerStringConversionGraph)
+            return false;
+        try
+        {
+            GraphEditing.InsertIntegerStringConversion(Definition, context.SourceNodeId, context.SourcePortId,
+                context.TargetNodeId, context.TargetPortId);
+            return true;
+        }
+        catch (ArgumentException) { return false; }
+    }
+
+    private async Task InsertIntegerStringConversion(GraphContextRequest context)
+    {
+        if (!CanInsertIntegerStringConversion(context)) return;
+        await CloseMenu(context);
+        await Edit(() => GraphEditing.InsertIntegerStringConversion(Definition, context.SourceNodeId!, context.SourcePortId!,
+            context.TargetNodeId!, context.TargetPortId!), context);
+    }
+
     private IReadOnlyList<WorkflowNodeLibraryEntry> FilterBySourcePin(IReadOnlyList<WorkflowNodeLibraryEntry> entries, GraphContextRequest? context)
     {
         if (!WorkflowSchemaVersions.UsesExplicitGraph(Definition) || context?.SourceNodeId is not { } sourceNodeId ||
@@ -187,6 +210,9 @@ public partial class WorkflowEditor
     private bool CanUpgradeStringIntegerConversionGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.IntegerGraph &&
         WorkflowValidator.Validate(Definition).IsEmpty;
     private Task EnableStringIntegerConversionPreview() => Edit(() => GraphEditing.EnableStringIntegerConversionGraph(Definition));
+    private bool CanUpgradeIntegerStringConversionGraph => !ReadOnly && !Disabled && Definition.SchemaVersion is WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph &&
+        WorkflowValidator.Validate(Definition).IsEmpty;
+    private Task EnableIntegerStringConversionPreview() => Edit(() => GraphEditing.EnableIntegerStringConversionGraph(Definition));
     private bool CanUpgradeNumberGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpPinsGraph &&
         WorkflowValidator.Validate(Definition).IsEmpty;
     private Task EnableNumberGraphPreview() => Edit(() => GraphEditing.EnableNumberGraph(Definition));
@@ -260,7 +286,7 @@ public partial class WorkflowEditor
                 ContractEntry(NodeTypes.StringConstant, !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
                 ContractEntry(NodeTypes.TextConcat, !ReadOnly && !Disabled && Definition.Nodes.Count < 256)
             ];
-        if (WorkflowSchemaVersions.UsesExplicitGraph(Definition) && Definition.SchemaVersion is WorkflowSchemaVersions.ExplicitBranchGraph or WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph or WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph)
+        if (WorkflowSchemaVersions.UsesExplicitGraph(Definition) && Definition.SchemaVersion is WorkflowSchemaVersions.ExplicitBranchGraph or WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.IntegerStringConversionGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph or WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph)
         {
             var explicitEntries = new List<WorkflowNodeLibraryEntry>
             {
@@ -279,7 +305,7 @@ public partial class WorkflowEditor
                 explicitEntries.Insert(0, ContractEntry(NodeTypes.BooleanConstant, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
                 explicitEntries.Insert(1, ContractEntry(NodeTypes.BooleanNot, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
             }
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph)
+            if (Definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.IntegerStringConversionGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph)
             {
                 explicitEntries.Insert(0, ContractEntry(NodeTypes.IntegerConstant, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
                 explicitEntries.Insert(1, ContractEntry(NodeTypes.IntegerAdd, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
@@ -296,6 +322,8 @@ public partial class WorkflowEditor
             }
             if (Definition.SchemaVersion == WorkflowSchemaVersions.StringIntegerConversionGraph)
                 explicitEntries.Insert(3, ContractEntry(NodeTypes.StringToInteger, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
+            if (Definition.SchemaVersion == WorkflowSchemaVersions.IntegerStringConversionGraph)
+                explicitEntries.Insert(3, ContractEntry(NodeTypes.IntegerToString, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
             if (Definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph)
                 explicitEntries.Insert(0, ContractEntry(NodeTypes.NumberConstant, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
             if (Definition.SchemaVersion == WorkflowSchemaVersions.NumberArithmeticGraph)
