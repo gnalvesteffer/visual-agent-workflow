@@ -558,7 +558,7 @@ public class WorkflowTests
     [Fact]
     public void UnsupportedSchemaAndMissingGraphAreReported()
     {
-        var issues = WorkflowValidator.Validate(Workflow() with { SchemaVersion = "2.0", Nodes = null! });
+        var issues = WorkflowValidator.Validate(Workflow() with { SchemaVersion = "9.9", Nodes = null! });
         Assert.Contains(issues, i => i.Code == "schema.unsupported");
         Assert.Contains(issues, i => i.Code == "graph.missing");
     }

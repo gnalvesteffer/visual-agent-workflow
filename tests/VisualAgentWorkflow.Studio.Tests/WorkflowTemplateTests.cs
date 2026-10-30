@@ -14,7 +14,7 @@ public sealed class WorkflowTemplateTests
     {
         var definition = WorkflowTemplates.CreateExplicit(operation);
 
-        Assert.Equal(WorkflowSchemaVersions.ExplicitGraph, definition.SchemaVersion);
+        Assert.Equal(WorkflowSchemaVersions.CurrentAuthoringSchema, definition.SchemaVersion);
         Assert.NotNull(definition.ExecutionConnections);
         Assert.Equal(
             new ConnectionDefinition(new("input", "then"), new("output", "execute"), "execution"),

@@ -280,6 +280,9 @@ public partial class WorkflowEditor
 
     private IReadOnlyList<WorkflowNodeLibraryEntry> LibraryEntries(GraphContextRequest? context = null)
     {
+        if (Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
+            return FilterBySourcePin(UnifiedLibraryEntries(), context);
+
         if (Definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph)
             return
             [
@@ -411,6 +414,48 @@ public partial class WorkflowEditor
         entries.InsertRange(0, Bindings.Select(b => new WorkflowNodeLibraryEntry(
             ToolKey(b), b.DisplayName, "MCP tools", "Host-registered tool; node grants still apply", canCreate)));
         entries.AddRange(Providers.Select(p => new WorkflowNodeLibraryEntry(ProviderKey(p), p.DisplayName, "Agents", p.ModelId, canCreate)));
+        entries.AddRange(TemplateEntries());
+        return entries;
+    }
+
+    private IReadOnlyList<WorkflowNodeLibraryEntry> UnifiedLibraryEntries()
+    {
+        var canAdd = !ReadOnly && !Disabled && Definition.Nodes.Count < 256;
+        var entries = new List<WorkflowNodeLibraryEntry>
+        {
+            ContractEntry(NodeTypes.StringConstant, canAdd),
+            ContractEntry(NodeTypes.TextConcat, canAdd),
+            ContractEntry(NodeTypes.StringEquals, canAdd),
+            ContractEntry(NodeTypes.BooleanConstant, canAdd),
+            ContractEntry(NodeTypes.BooleanNot, canAdd),
+            ContractEntry(NodeTypes.BooleanBranch, canAdd),
+            ContractEntry(NodeTypes.Terminate, canAdd),
+            ContractEntry(NodeTypes.IntegerConstant, canAdd),
+            ContractEntry(NodeTypes.IntegerAdd, canAdd),
+            ContractEntry(NodeTypes.IntegerEquals, canAdd),
+            ContractEntry(NodeTypes.StringToInteger, canAdd),
+            ContractEntry(NodeTypes.IntegerToString, canAdd),
+            ContractEntry(NodeTypes.NumberConstant, canAdd),
+            ContractEntry(NodeTypes.NumberAdd, canAdd),
+            ContractEntry(NodeTypes.JsonToArray, canAdd, "Refine a JSON array root into a bounded immutable array value."),
+            ContractEntry(NodeTypes.ArrayLength, canAdd, "Count the items in a bounded immutable JSON array."),
+            ContractEntry(NodeTypes.Sequence, canAdd, "Fan out ordered execution pins; each output must be connected exactly once."),
+            ContractEntry(NodeTypes.SequenceUppercase, canAdd),
+            ContractEntry(NodeTypes.SequenceReverse, canAdd),
+            ContractEntry(NodeTypes.ParallelFork, canAdd),
+            ContractEntry(NodeTypes.ParallelBranch, canAdd),
+            ContractEntry(NodeTypes.ParallelJoin, canAdd),
+            ContractEntry(NodeTypes.ParallelRendezvous, canAdd),
+            ContractEntry(NodeTypes.VariableGet, canAdd, "Read a declared run-scoped scalar variable."),
+            ContractEntry(NodeTypes.VariableSet, canAdd, "Write a declared run-scoped scalar variable.")
+        };
+        entries.AddRange((FunctionCatalog?.List() ?? []).Select(entry => new WorkflowNodeLibraryEntry(
+            FunctionKey(entry.Function), $"Function · {entry.Function.Definition.DisplayName} v{entry.Function.Definition.Version}",
+            "Functions", $"{entry.Function.Definition.Inputs.Count} inputs · {entry.Function.Definition.Outputs.Count} outputs · snapshot pinned on insert", canAdd)));
+        entries.AddRange(Providers.Select(provider => new WorkflowNodeLibraryEntry(
+            ProviderKey(provider), provider.DisplayName, "Agents", $"Agent node · {provider.ModelId}", canAdd)));
+        entries.InsertRange(0, Bindings.Select(binding => new WorkflowNodeLibraryEntry(
+            ToolKey(binding), binding.DisplayName, "MCP tools", "Direct deterministic call; node grants and the pinned tool contract still apply", canAdd)));
         entries.AddRange(TemplateEntries());
         return entries;
     }

@@ -75,7 +75,7 @@ public static class WorkflowValidator
         }
 
         if (!WorkflowSchemaCatalog.IsSupported(definition.SchemaVersion))
-        Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44, 1.45, 1.46, 1.47, 1.48, 1.49, 1.50, 1.51, 1.52, 1.53, 1.54, 1.55, 1.56, 1.57, and 1.58.");
+        Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.58 and 2.0.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.DisplayName is { } displayName &&
@@ -621,7 +621,9 @@ public static class WorkflowValidator
 
         if (WorkflowSchemaVersions.UsesExplicitGraph(definition))
         {
-            if (definition.SchemaVersion == WorkflowSchemaVersions.MutableVariablesGraph)
+            if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                ValidateUnifiedGraph(definition, Error);
+            else if (definition.SchemaVersion == WorkflowSchemaVersions.MutableVariablesGraph)
                 ValidateMutableVariableGraph(definition, Error);
             else if (definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph)
                 ValidateLoopVariableGraph(definition, Error);
@@ -745,6 +747,41 @@ public static class WorkflowValidator
         if (visited.Count != definition.Nodes.Count)
             Error("graph.unreachable", "nodes", "Every node must be reachable from the entry.");
         return issues.ToImmutable();
+    }
+
+    private static void ValidateUnifiedGraph(WorkflowDefinition definition, Action<string, string, string> error)
+    {
+        // The first unified contract deliberately reuses the proven explicit
+        // graph invariants for ordinary data/control graphs. Feature-specific
+        // plan dispatch is added below without changing the meaning of 1.x
+        // revisions. This keeps new definitions on one schema while retaining
+        // the historical validators for playback compatibility.
+        if (definition.Nodes.Values.Any(node => node?.Type == NodeTypes.Sequence))
+        {
+            ValidateSequenceGraph(definition with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph }, error);
+            return;
+        }
+
+        if (definition.Nodes.Values.Any(node => node?.Type == NodeTypes.McpTool))
+        {
+            ValidateDirectMcpGraph(definition with { SchemaVersion = WorkflowSchemaVersions.DirectMcpPinsGraph }, error);
+            return;
+        }
+
+        if (definition.Nodes.Values.All(node => node?.Type is NodeTypes.Input or NodeTypes.Output or NodeTypes.Uppercase or NodeTypes.Reverse))
+        {
+            ValidateExplicitGraph(definition, error);
+            return;
+        }
+
+        ValidateExplicitBranchGraph(definition, error,
+            allowBooleanTopology: true,
+            allowGraphFunctions: true,
+            allowAgentNodes: true,
+            allowConfigurableParallel: true,
+            allowCollaborativeParallel: true,
+            allowSimpleDataGraph: true,
+            allowFiniteNumbers: true);
     }
 
     private static string DataConnectionDiagnostic(ConnectionDefinition edge, WorkflowPort? sourcePort, WorkflowPort? targetPort)

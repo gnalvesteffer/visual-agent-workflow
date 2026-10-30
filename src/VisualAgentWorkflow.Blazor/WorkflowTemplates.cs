@@ -42,7 +42,7 @@ public static class WorkflowTemplates
         nodes["output"] = new(NodeTypes.Output, "1.0.0");
         connections["link-output"] = new(new(previous, "out"), new("output", "in"), "data");
         executionConnections["activate-output"] = new(new("input", "then"), new("output", "execute"), "execution");
-        return new(WorkflowSchemaVersions.ExplicitGraph, "text-pipeline", "input", nodes.ToImmutable(), connections.ToImmutable())
+        return new(WorkflowSchemaVersions.CurrentAuthoringSchema, "text-pipeline", "input", nodes.ToImmutable(), connections.ToImmutable())
         {
             ExecutionConnections = executionConnections.ToImmutable()
         };

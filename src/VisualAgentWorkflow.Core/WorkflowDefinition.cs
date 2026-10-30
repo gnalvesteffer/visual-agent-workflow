@@ -227,7 +227,11 @@ public static class WorkflowSchemaCatalog
                 "1.38" or "1.39" or "1.40" or "1.41" or "1.42" or "1.43" or "1.44" or "1.45" or "1.46" or "1.47" or "1.48" or "1.49" or "1.50" or "1.51" or "1.52" or "1.53" or "1.54" or "1.55" or "1.56" or "1.57" or "1.58";
             var directMcpPins = version is "1.37" or "1.40" or "1.41" or "1.42" or "1.43" or "1.46" or "1.47" or "1.48" or "1.49" or "1.50" or "1.51" or "1.52" or "1.53" or "1.54" or "1.55" or "1.56" or "1.57";
             return new WorkflowSchemaDescriptor(version, true, explicitGraph, directMcpPins);
-        })];
+        }),
+        // 2.0 is the unified authoring contract. Unlike the historical 1.x
+        // entries, its available node families are derived from the graph and
+        // node contracts rather than selected by a promotion step.
+        new("2.0", true, UsesExplicitGraph: true, UsesDirectMcpPins: true)];
 
     public static bool IsSupported(string? version) => TryGet(version, out var descriptor) && descriptor.Supported;
 
@@ -240,6 +244,9 @@ public static class WorkflowSchemaCatalog
 
 public static class WorkflowSchemaVersions
 {
+    /// <summary>Unified current authoring schema. New workflows use this contract.</summary>
+    public const string UnifiedWorkflowGraph = "2.0";
+    public const string CurrentAuthoringSchema = UnifiedWorkflowGraph;
     public const string ExplicitGraph = "1.23";
     public const string ExplicitBranchGraph = "1.24";
     public const string TypedBooleanGraph = "1.25";
