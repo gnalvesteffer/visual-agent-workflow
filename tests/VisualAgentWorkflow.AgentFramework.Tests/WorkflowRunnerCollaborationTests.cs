@@ -9,10 +9,11 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 public sealed class WorkflowRunnerCollaborationTests
 {
     [Theory]
-    [InlineData(2)]
-    [InlineData(3)]
-    [InlineData(8)]
-    public async Task Schema135Workflow_ReleasesTwoOrderedSnapshotsAndJoinsEveryBranch(int branchCount)
+    [InlineData(2, false)]
+    [InlineData(3, false)]
+    [InlineData(8, false)]
+    [InlineData(2, true)]
+    public async Task Schema135Workflow_ReleasesTwoOrderedSnapshotsAndJoinsEveryBranch(int branchCount, bool unified)
     {
         var events = new ConcurrentQueue<ExecutionEvent>();
         var executor = new PhasedCollaborationAgentExecutor();
@@ -20,7 +21,8 @@ public sealed class WorkflowRunnerCollaborationTests
         try
         {
             result = await new WorkflowRunner(agents: executor)
-                .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(CreatePhasedGraph(branchCount, 30), "test"), "question",
+                .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(CreatePhasedGraph(branchCount, 30) with
+                    { SchemaVersion = unified ? WorkflowSchemaVersions.UnifiedWorkflowGraph : WorkflowSchemaVersions.PhasedCollaborativeParallelGraph }, "test"), "question",
                     evt => { events.Enqueue(evt); return ValueTask.CompletedTask; })
                 .WaitAsync(TimeSpan.FromSeconds(10));
         }

@@ -47,22 +47,35 @@ the historical promotion chain.
 
 - [x] Register schema 2.0 as the current authoring identity and make new
   explicit text templates use it.
-- [ ] Derive unified validation from node contracts, typed pins, configuration,
+- [x] Derive unified validation from node contracts, typed pins, configuration,
   and topology rather than exact 1.x capability allowlists.
-- [ ] Derive runtime execution plans for unified Sequence, MCP, agent,
+- [x] Derive runtime execution plans for unified Sequence, MCP, agent,
   workflow-call, variable, JSON, loop, parallel, and collaboration graphs
   without changing historical 1.x dispatch.
-- [ ] Expose all implemented node families and insertion actions in the Studio
-  for 2.0 without promotion gates; retain historical upgrade actions only for
-  legacy definitions.
+- [x] Expose implemented node families and insertion actions in the Studio
+  for 2.0 without promotion gates; remove graph-promotion and preview controls
+  and their handlers. Property edits and reuse preserve the current schema.
 - [ ] Add deterministic explicit normalization from legacy 1.x definitions to
   2.0 with source/target hash, revision, schema, normalizer version, and
-  diagnostics provenance.
-- [ ] Update package, reuse, graph-function, clipboard, and nested-workflow
-  paths to preserve 2.0 and normalization provenance.
-- [ ] Add Core, runtime, Hosting, Studio, package, and browser regressions for
+  diagnostics provenance. The implemented `NormalizeForEditing` covers
+  explicit graphs and verified implicit linear text graphs, preserves source
+  identities and pinned snapshots, and reports unsupported translations.
+  Full historical implicit-control translation and persisted normalization
+  provenance remain future compatibility work.
+- [x] Preserve 2.0 through package, reuse, graph-function, clipboard, and
+  nested-workflow editing paths while preserving pinned dependency snapshots.
+- [x] Add Core, runtime, Hosting, Studio, package, and browser regressions for
   mixed current-feature graphs, legacy hash/playback stability, normalization,
   and host security boundaries.
+
+The consolidation includes typed MCP arguments combined with agents and scalar
+operations, both explicit integer conversions, JSON entry/projection/arrays,
+bounded loop processing, ordered Sequence paths, static parallel branches and
+one/two-phase collaboration. Checkpoint recovery admits the same proven
+deterministic scalar-variable and loop-variable shapes under 2.0, preserving
+the host loop opt-in and exact frame/revision integrity; effectful or broader
+loop bodies remain outside crash recovery. Browser verification covers node
+creation, wiring, save, and deterministic execution with no promotion controls.
 
 ### Audit outcome (2026-10-27)
 

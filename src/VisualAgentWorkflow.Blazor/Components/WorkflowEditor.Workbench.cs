@@ -91,7 +91,7 @@ public partial class WorkflowEditor
     {
         if (context.SourceNodeId is null || context.SourcePortId is null ||
             context.TargetNodeId is null || context.TargetPortId is null ||
-            Definition.SchemaVersion != WorkflowSchemaVersions.StringIntegerConversionGraph)
+            Definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.StringIntegerConversionGraph))
             return false;
         try
         {
@@ -114,7 +114,7 @@ public partial class WorkflowEditor
     {
         if (context.SourceNodeId is null || context.SourcePortId is null ||
             context.TargetNodeId is null || context.TargetPortId is null ||
-            Definition.SchemaVersion != WorkflowSchemaVersions.IntegerStringConversionGraph)
+            Definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerStringConversionGraph))
             return false;
         try
         {
@@ -170,77 +170,12 @@ public partial class WorkflowEditor
         }).ToArray();
     }
 
-    private bool CanUpgradeBlankGraph => !ReadOnly && !Disabled && Definition.SchemaVersion != "1.23" &&
-        Definition.Nodes.Count == 2 && Definition.Nodes.TryGetValue(Definition.EntryNodeId, out var entry) && entry.Type == NodeTypes.Input &&
-        Definition.Nodes.Values.Count(node => node.Type == NodeTypes.Output) == 1 && Definition.Connections.Count == 1 &&
-        Definition.Connections.Values.Any(edge => edge.Source.NodeId == Definition.EntryNodeId && edge.Source.PortId == "out" &&
-            Definition.Nodes.TryGetValue(edge.Target.NodeId, out var target) && target.Type == NodeTypes.Output && edge.Target.PortId == "in");
-
-    private bool CanUpgradeMutableVariablesGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph &&
-        Definition.Nodes.Count == 2 && Definition.Nodes.TryGetValue(Definition.EntryNodeId, out var variableEntry) && variableEntry.Type == NodeTypes.Input &&
-        Definition.Nodes.Values.Count(node => node.Type == NodeTypes.Output) == 1 && Definition.Connections.Count == 1 &&
-        Definition.ExecutionConnections is { Count: 1 } execution && Definition.Connections.Values.Any(edge => edge.Source.NodeId == Definition.EntryNodeId && edge.Source.PortId == "out" &&
-            Definition.Nodes.TryGetValue(edge.Target.NodeId, out var target) && target.Type == NodeTypes.Output && edge.Target.PortId == "in") &&
-        execution.Values.Any(edge => edge.Source.NodeId == Definition.EntryNodeId && edge.Target.NodeId == Definition.Nodes.Single(node => node.Value.Type == NodeTypes.Output).Key);
-
-    private Task EnableMutableVariablesPreview() => Edit(() => GraphEditing.EnableMutableVariablesGraph(Definition));
-
-    private Task EnableExplicitPreview() => Edit(() => GraphEditing.EnableExplicitGraph(Definition));
-    private bool CanUpgradeDirectMcpGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph &&
-        WorkflowValidator.Validate(Definition).IsEmpty;
-    private Task EnableDirectMcpPreview() => Edit(() => GraphEditing.EnableDirectMcpGraph(Definition));
-    private bool CanUpgradeBranchGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph &&
-        WorkflowValidator.Validate(Definition).IsEmpty;
-    private Task EnableBranchPreview() => Edit(() => GraphEditing.EnableExplicitBranchGraph(Definition));
-    private bool CanUpgradeTypedBooleanGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.ExplicitBranchGraph &&
-        WorkflowValidator.Validate(Definition).IsEmpty;
-    private Task EnableTypedBooleanPreview() => Edit(() => GraphEditing.EnableTypedBooleanGraph(Definition));
-    private bool CanUpgradeBooleanTopology => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.TypedBooleanGraph &&
-        WorkflowValidator.Validate(Definition).IsEmpty;
-    private Task EnableBooleanTopologyPreview() => Edit(() => GraphEditing.EnableBooleanTopologyGraph(Definition));
-    private bool CanUpgradePureGraphFunctions => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.BooleanTopologyGraph &&
-        WorkflowValidator.Validate(Definition).IsEmpty;
-    private Task EnablePureGraphFunctionsPreview() => Edit(() => GraphEditing.EnablePureGraphFunctions(Definition));
-    private bool CanUpgradeAgentGraphFunctionTools => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.PureGraphFunctions &&
-        WorkflowValidator.Validate(Definition).IsEmpty;
-    private Task EnableAgentGraphFunctionToolsPreview() => Edit(() => GraphEditing.EnableAgentGraphFunctionTools(Definition));
-    private bool CanUpgradeIntegerGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.AgentExecutionRoutes &&
-        WorkflowValidator.Validate(Definition).IsEmpty;
-    private Task EnableIntegerGraphPreview() => Edit(() => GraphEditing.EnableIntegerGraph(Definition));
-    private bool CanUpgradeStringIntegerConversionGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.IntegerGraph &&
-        WorkflowValidator.Validate(Definition).IsEmpty;
-    private Task EnableStringIntegerConversionPreview() => Edit(() => GraphEditing.EnableStringIntegerConversionGraph(Definition));
-    private bool CanUpgradeIntegerStringConversionGraph => !ReadOnly && !Disabled && Definition.SchemaVersion is WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph &&
-        WorkflowValidator.Validate(Definition).IsEmpty;
-    private Task EnableIntegerStringConversionPreview() => Edit(() => GraphEditing.EnableIntegerStringConversionGraph(Definition));
-    private bool CanUpgradeNumberGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.DirectMcpPinsGraph &&
-        WorkflowValidator.Validate(Definition).IsEmpty;
-    private Task EnableNumberGraphPreview() => Edit(() => GraphEditing.EnableNumberGraph(Definition));
-    private bool CanUpgradeNumberPropagationGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.NumberGraph &&
-        WorkflowValidator.Validate(Definition).IsEmpty;
-    private Task EnableNumberPropagationPreview() => Edit(() => GraphEditing.EnableNumberPropagationGraph(Definition));
-    private bool CanUpgradeSequencePathGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.SequenceGraph &&
-        WorkflowValidator.Validate(Definition).IsEmpty;
-    private Task EnableSequencePathPreview() => Edit(() => GraphEditing.EnableSequencePathGraph(Definition));
-    private bool CanUpgradeSequenceAgentPathGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.SequencePathGraph &&
-        WorkflowValidator.Validate(Definition).IsEmpty;
-    private Task EnableSequenceAgentPathPreview() => Edit(() => GraphEditing.EnableSequenceAgentPathGraph(Definition));
-    private bool CanUpgradeSequenceTransformPathGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.SequencePathGraph &&
-        WorkflowValidator.Validate(Definition).IsEmpty;
-    private Task EnableSequenceTransformPathPreview() => Edit(() => GraphEditing.EnableSequenceTransformPathGraph(Definition));
-    private bool CanUpgradeSequenceReversePathGraph => !ReadOnly && !Disabled && Definition.SchemaVersion == WorkflowSchemaVersions.SequenceTransformPathGraph &&
-        WorkflowValidator.Validate(Definition).IsEmpty;
-    private Task EnableSequenceReversePathPreview() => Edit(() => GraphEditing.EnableSequenceReversePathGraph(Definition));
-    private bool CanUpgradeSequenceTransformChainGraph => !ReadOnly && !Disabled &&
-        Definition.SchemaVersion is WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph &&
-        WorkflowValidator.Validate(Definition).IsEmpty;
-    private Task EnableSequenceTransformChainPreview() => Edit(() => GraphEditing.EnableSequenceTransformChainGraph(Definition));
     private int configurableParallelBranchCount = 3;
     private bool CanCreateConfigurableParallelGraph
     {
         get
         {
-            if (ReadOnly || Disabled || Definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph ||
+            if (ReadOnly || Disabled || Definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerGraph) ||
                 Definition.Nodes.Count > 256 - configurableParallelBranchCount - 2 ||
                 !Definition.Nodes.TryGetValue(Definition.EntryNodeId, out var input) || input.Type != NodeTypes.Input ||
                 Definition.Nodes.Values.Count(node => node.Type == NodeTypes.Output) != 1 ||
@@ -267,7 +202,7 @@ public partial class WorkflowEditor
         GraphEditing.RemoveEmptyConfigurableParallelBranch(Definition, forkNodeId, branchId));
     private bool CanRemoveEmptyConfigurableParallelBranch(string forkNodeId, ParallelBranchDescriptor branch)
     {
-            if (Definition.SchemaVersion is not (WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph) ||
+            if (Definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph) ||
             !Definition.Nodes.TryGetValue(forkNodeId, out var fork) || fork.ParallelFork is not { } configuration ||
             configuration.Branches.Length <= ParallelBranchLimits.MinimumBranches || Definition.ExecutionConnections is not { } execution)
             return false;
@@ -280,142 +215,7 @@ public partial class WorkflowEditor
 
     private IReadOnlyList<WorkflowNodeLibraryEntry> LibraryEntries(GraphContextRequest? context = null)
     {
-        if (Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
-            return FilterBySourcePin(UnifiedLibraryEntries(), context);
-
-        if (Definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph)
-            return
-            [
-                ContractEntry(NodeTypes.StringConstant, !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
-                ContractEntry(NodeTypes.TextConcat, !ReadOnly && !Disabled && Definition.Nodes.Count < 256)
-            ];
-        if (WorkflowSchemaVersions.UsesExplicitGraph(Definition) && Definition.SchemaVersion is WorkflowSchemaVersions.ExplicitBranchGraph or WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.IntegerStringConversionGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph or WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph)
-        {
-            var explicitEntries = new List<WorkflowNodeLibraryEntry>
-            {
-                ContractEntry(NodeTypes.StringConstant, !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
-                ContractEntry(NodeTypes.TextConcat, !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
-                ContractEntry(NodeTypes.StringEquals, !ReadOnly && !Disabled && Definition.Nodes.Count < 256),
-                ContractEntry(NodeTypes.BooleanBranch, !ReadOnly && !Disabled && Definition.Nodes.Count < 256 &&
-                    (Definition.SchemaVersion is WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph
-                        ? Definition.Nodes.Values.Count(node => node.Type == NodeTypes.BooleanBranch) < 8
-                        : Definition.Nodes.Values.All(node => node.Type != NodeTypes.BooleanBranch))),
-                ContractEntry(NodeTypes.Terminate, !ReadOnly && !Disabled && Definition.Nodes.Count < 256 &&
-                    Definition.Nodes.Values.Count(node => node.Type == NodeTypes.Terminate) < (Definition.SchemaVersion is WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph ? 16 : 1))
-            };
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)
-            {
-                explicitEntries.Insert(0, ContractEntry(NodeTypes.BooleanConstant, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
-                explicitEntries.Insert(1, ContractEntry(NodeTypes.BooleanNot, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
-            }
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.IntegerStringConversionGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph)
-            {
-                explicitEntries.Insert(0, ContractEntry(NodeTypes.IntegerConstant, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
-                explicitEntries.Insert(1, ContractEntry(NodeTypes.IntegerAdd, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
-                explicitEntries.Insert(2, ContractEntry(NodeTypes.IntegerEquals, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
-                if (ParameterDefinitions.Values.Any(parameter => WorkflowParameterGraphTypes.DataType(parameter, Definition.SchemaVersion is WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) is not null))
-                    explicitEntries.Insert(3, ContractEntry(NodeTypes.WorkflowValue, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
-            }
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph)
-            {
-                explicitEntries.Insert(0, ContractEntry(NodeTypes.JsonToArray, !ReadOnly && !Disabled && Definition.Nodes.Count < 256,
-                    "Refine a JSON array root into a bounded immutable array value."));
-                explicitEntries.Insert(1, ContractEntry(NodeTypes.ArrayLength, !ReadOnly && !Disabled && Definition.Nodes.Count < 256,
-                    "Count the items in a bounded immutable JSON array."));
-            }
-            if (Definition.SchemaVersion == WorkflowSchemaVersions.StringIntegerConversionGraph)
-                explicitEntries.Insert(3, ContractEntry(NodeTypes.StringToInteger, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
-            if (Definition.SchemaVersion == WorkflowSchemaVersions.IntegerStringConversionGraph)
-                explicitEntries.Insert(3, ContractEntry(NodeTypes.IntegerToString, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph)
-                explicitEntries.Insert(0, ContractEntry(NodeTypes.NumberConstant, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
-            if (Definition.SchemaVersion == WorkflowSchemaVersions.NumberArithmeticGraph)
-                explicitEntries.Insert(1, ContractEntry(NodeTypes.NumberAdd, !ReadOnly && !Disabled && Definition.Nodes.Count < 256));
-            if (Definition.SchemaVersion == WorkflowSchemaVersions.MutableVariablesGraph && Definition.Variables is { Count: > 0 })
-            {
-                explicitEntries.Add(ContractEntry(NodeTypes.VariableGet, !ReadOnly && !Disabled && Definition.Nodes.Count < 256,
-                    "Read a declared run-scoped scalar variable."));
-                explicitEntries.Add(ContractEntry(NodeTypes.VariableSet, !ReadOnly && !Disabled && Definition.Nodes.Count < 256,
-                    "Write a declared run-scoped scalar variable."));
-            }
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)
-                explicitEntries.AddRange((FunctionCatalog?.List() ?? []).Select(entry => new WorkflowNodeLibraryEntry(
-                    FunctionKey(entry.Function), $"Function · {entry.Function.Definition.DisplayName} v{entry.Function.Definition.Version}",
-                    "Functions", $"{entry.Function.Definition.Inputs.Count} inputs · {entry.Function.Definition.Outputs.Count} outputs · snapshot pinned on insert",
-                        !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceAgentPathGraph)
-                explicitEntries.AddRange(Providers.Select(provider => new WorkflowNodeLibraryEntry(
-                    ProviderKey(provider), provider.DisplayName, "Agents", $"Agent node · {provider.ModelId}",
-                    !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.NumberGraph)
-                explicitEntries.InsertRange(0, Bindings.Select(binding => new WorkflowNodeLibraryEntry(
-                    ToolKey(binding), binding.DisplayName, "MCP tools", "Direct deterministic call; node grants and the pinned tool contract still apply",
-                    !ReadOnly && !Disabled && Definition.Nodes.Count < 256)));
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph)
-                explicitEntries.Insert(0, ContractEntry(NodeTypes.Sequence, !ReadOnly && !Disabled && Definition.Nodes.Count < 256,
-                    "Fan out ordered execution pins; each output must be connected exactly once."));
-            if (Definition.SchemaVersion == WorkflowSchemaVersions.SequenceTransformPathGraph)
-                explicitEntries.Insert(0, ContractEntry(NodeTypes.SequenceUppercase, !ReadOnly && !Disabled && Definition.Nodes.Count < 256,
-                    "Uppercase the incoming path text as the terminal deterministic Sequence step."));
-            if (Definition.SchemaVersion == WorkflowSchemaVersions.SequenceReversePathGraph)
-                explicitEntries.Insert(0, ContractEntry(NodeTypes.SequenceReverse, !ReadOnly && !Disabled && Definition.Nodes.Count < 256,
-                    "Reverse the incoming path text as the terminal deterministic Sequence step."));
-            if (Definition.SchemaVersion == WorkflowSchemaVersions.SequenceTransformChainGraph)
-            {
-                explicitEntries.Insert(0, ContractEntry(NodeTypes.SequenceReverse, !ReadOnly && !Disabled && Definition.Nodes.Count < 256,
-                    "Reverse the incoming path text as the second bounded deterministic Sequence step."));
-                explicitEntries.Insert(0, ContractEntry(NodeTypes.SequenceUppercase, !ReadOnly && !Disabled && Definition.Nodes.Count < 256,
-                    "Uppercase the incoming path text as a bounded deterministic Sequence step."));
-            }
-            if (Definition.SchemaVersion is WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph)
-                explicitEntries.Add(ContractEntry(NodeTypes.ParallelRendezvous, !ReadOnly && !Disabled && Definition.Nodes.Count < 256 && Definition.Nodes.Values.All(node => node.Type != NodeTypes.ParallelRendezvous), "Add one unwired communication barrier; configure its branch pins and grants in node properties"));
-            explicitEntries.AddRange(TemplateEntries());
-            return FilterBySourcePin(explicitEntries, context);
-        }
-        var insertion = Insertion(context);
-        var sourceType = insertion is { } source
-            ? CanvasPorts(Definition.Nodes[source.NodeId])
-                .FirstOrDefault(port => port.Direction == WorkflowPortDirection.Output &&
-                    port.Kind == WorkflowPortKind.Data && port.Id == source.PortId)?.DataType
-            : null;
-        var canCreate = !ReadOnly && !Disabled && Definition.Nodes.Count < 256;
-        var canInsert = canCreate && sourceType is not null;
-        var textPath = canInsert && sourceType == "string";
-        var jsonPath = canInsert && sourceType == "json";
-        var jsonSelectorWouldBreakPath = insertion is { } jsonSource &&
-            Definition.Nodes[jsonSource.NodeId].Type == NodeTypes.ParallelJoin &&
-            Definition.Connections.Values.FirstOrDefault(edge => edge.Source == jsonSource) is { } joinEdge &&
-            Definition.Nodes[joinEdge.Target.NodeId].Type == NodeTypes.JsonSelectString;
-        var selected = context?.NodeId ?? selectedNode;
-        var hasLoop = Definition.Nodes.Values.Any(node => node.Type == NodeTypes.Loop);
-        var canCreateCondition = canCreate && !hasLoop && !Definition.Nodes.Values.Any(node => node.Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin);
-        var canInsertLoop = textPath && Definition.Nodes.Count <= 254 && !WorkflowGraph.HasControlNodes(Definition) && !WorkflowGraph.HasTypedJson(Definition);
-        List<WorkflowNodeLibraryEntry> entries =
-        [
-            ContractEntry(NodeTypes.Uppercase, canCreate),
-            ContractEntry(NodeTypes.Reverse, canCreate),
-            ContractEntry(NodeTypes.TextTemplate, canCreate),
-            ContractEntry(NodeTypes.WorkflowValue, canCreate && ParameterDefinitions.Count > 0),
-            ContractEntry(NodeTypes.JsonProject, jsonPath),
-            new("json-selector", "Select JSON value as text", "Data", "Convert a selected JSON value to text", jsonPath && !jsonSelectorWouldBreakPath),
-            new("parallel", "Parallel block", "Flow", "Run two visible branch paths concurrently and collect named results", textPath && Definition.Nodes.Count <= 251 && !hasLoop && !Definition.Nodes.Values.Any(node => node.Type == NodeTypes.ParallelFork)),
-            ContractEntry(NodeTypes.Condition, canCreateCondition, "Add an unconnected true / false branch node"),
-            ContractEntry(NodeTypes.Merge, canCreate, "Add an unconnected join for routes that should share downstream work"),
-            new("loop", "Bounded loop", "Flow", "Repeat one linear body while a text condition holds, up to a fixed iteration limit", canInsertLoop),
-            ContractEntry(NodeTypes.Terminate, canCreate && Definition.Nodes.Values.Count(node => node.Type == NodeTypes.Terminate) < 16, "Add an unconnected success or failure exit"),
-            ContractEntry(NodeTypes.Approval, !hasLoop && textPath && selected is not null && Definition.Nodes.TryGetValue(selected, out var selectedDefinition) && selectedDefinition.Type == NodeTypes.McpTool && !GuardedTool(selected), "Select an MCP tool to require exact-action review")
-        ];
-        if (Definition.SchemaVersion == WorkflowSchemaVersions.SequenceTransformPathGraph)
-            entries.Insert(0, ContractEntry(NodeTypes.SequenceUppercase, canCreate, "Uppercase text as the terminal deterministic Sequence path step"));
-        if (Definition.SchemaVersion is WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph)
-            entries.Insert(0, ContractEntry(NodeTypes.SequenceReverse, canCreate, "Reverse text as the terminal deterministic Sequence path step"));
-        if (Definition.SchemaVersion == WorkflowSchemaVersions.SequenceTransformChainGraph)
-            entries.Insert(0, ContractEntry(NodeTypes.SequenceUppercase, canCreate, "Uppercase text as a bounded deterministic Sequence path step"));
-        entries.InsertRange(0, Bindings.Select(b => new WorkflowNodeLibraryEntry(
-            ToolKey(b), b.DisplayName, "MCP tools", "Host-registered tool; node grants still apply", canCreate)));
-        entries.AddRange(Providers.Select(p => new WorkflowNodeLibraryEntry(ProviderKey(p), p.DisplayName, "Agents", p.ModelId, canCreate)));
-        entries.AddRange(TemplateEntries());
-        return entries;
+        return FilterBySourcePin(UnifiedLibraryEntries(), context);
     }
 
     private IReadOnlyList<WorkflowNodeLibraryEntry> UnifiedLibraryEntries()
@@ -423,6 +223,18 @@ public partial class WorkflowEditor
         var canAdd = !ReadOnly && !Disabled && Definition.Nodes.Count < 256;
         var entries = new List<WorkflowNodeLibraryEntry>
         {
+            ContractEntry(NodeTypes.Uppercase, canAdd),
+            ContractEntry(NodeTypes.Reverse, canAdd),
+            ContractEntry(NodeTypes.TextTemplate, canAdd),
+            ContractEntry(NodeTypes.WorkflowValue, canAdd && ParameterDefinitions.Count > 0),
+            ContractEntry(NodeTypes.JsonSelectString, canAdd),
+            ContractEntry(NodeTypes.JsonProject, canAdd),
+            ContractEntry(NodeTypes.JsonMerge, canAdd),
+            ContractEntry(NodeTypes.Approval, canAdd),
+            ContractEntry(NodeTypes.Condition, canAdd),
+            ContractEntry(NodeTypes.Merge, canAdd),
+            ContractEntry(NodeTypes.Loop, canAdd),
+            ContractEntry(NodeTypes.LoopBody, canAdd),
             ContractEntry(NodeTypes.StringConstant, canAdd),
             ContractEntry(NodeTypes.TextConcat, canAdd),
             ContractEntry(NodeTypes.StringEquals, canAdd),
@@ -509,22 +321,16 @@ public partial class WorkflowEditor
             return;
         }
         if (key == NodeTypes.Approval)
-        {
-            var target = context?.NodeId ?? selectedNode!;
-            await Edit(() => GraphEditing.InsertApprovalBefore(Definition, target), context, insertion);
-        }
+            await Edit(() => GraphEditing.AddUnconnectedNode(Definition,
+                new(NodeTypes.Approval, "1.0.0") { Approval = new("Review this tool invocation before continuing.") }), context);
         else if (key == NodeTypes.Condition)
             await Edit(() => GraphEditing.AddUnconnectedNode(Definition, new(NodeTypes.Condition, "1.0.0") { Condition = new("contains", "yes") }), context, insertion);
         else if (key == NodeTypes.Merge)
             await Edit(() => GraphEditing.AddUnconnectedNode(Definition, new(NodeTypes.Merge, "1.0.0")), context, insertion);
-        else if (key == "parallel" && insertion is { } parallelInsertion)
-            await Edit(() => GraphEditing.InsertParallelBlockAfter(Definition, parallelInsertion.NodeId, parallelInsertion.PortId), context, parallelInsertion);
-        else if (key == "loop" && insertion is { } loopInsertion)
-            await Edit(() => GraphEditing.InsertBoundedLoopAfter(Definition, loopInsertion.NodeId, loopInsertion.PortId), context, loopInsertion);
         else if (key == NodeTypes.Terminate)
             await Edit(() => GraphEditing.AddUnconnectedNode(Definition, new(NodeTypes.Terminate, "1.0.0")), context, insertion);
         else if (key == NodeTypes.ParallelRendezvous)
-            await Edit(() => GraphEditing.AddUnconnectedNode(Definition with { SchemaVersion = WorkflowSchemaVersions.CollaborativeParallelGraph }, new(NodeTypes.ParallelRendezvous, "1.0.0")), context);
+            await Edit(() => GraphEditing.AddUnconnectedNode(Definition, new(NodeTypes.ParallelRendezvous, "1.0.0")), context);
         else if (key == "json-selector" && insertion is { } jsonInsertion)
             await Edit(() => GraphEditing.InsertJsonSelectorAfterJson(Definition, jsonInsertion.NodeId, jsonInsertion.PortId), context, jsonInsertion);
         else if (insertion is not null)
@@ -533,24 +339,17 @@ public partial class WorkflowEditor
                 var node = FromSelection(key);
                 var inserted = UsesGraphEditing ? GraphEditing.InsertNodeAfter(Definition, insertion.NodeId, insertion.PortId, node) :
                     WorkflowEditing.InsertNodeAfter(Definition, insertion.NodeId, node);
-                return UpgradeForBranchLocalRouting(inserted, node);
+                return inserted;
             }, context, insertion);
         else
             await Edit(() =>
             {
                 var node = FromSelection(key);
                 var added = GraphEditing.AddUnconnectedNode(Definition, node);
-                return UpgradeForBranchLocalRouting(added, node);
+                return added;
             }, context);
         insertionConnection = null;
     }
-
-    private static WorkflowDefinition UpgradeForBranchLocalRouting(WorkflowDefinition definition, NodeDefinition node) =>
-        // Apply the upgrade after GraphEditing has computed its node schema so that this opt-in
-        // authoring action is not overwritten while the unconnected node is added.
-        node.Type == NodeTypes.BooleanBranch && definition.SchemaVersion == WorkflowSchemaVersions.ConfigurableParallelGraph
-            ? definition with { SchemaVersion = WorkflowSchemaVersions.BranchLocalParallelGraph }
-            : definition;
 
     private Task SetTerminationOutcome(string id, ChangeEventArgs args) => Edit(() =>
         WorkflowTerminationEditing.SetOutcome(Definition, id, args.Value?.ToString() ?? string.Empty));
@@ -589,7 +388,7 @@ public partial class WorkflowEditor
             .Aggregate(definition, (current, nodeId) => GraphEditing.RemoveNode(current, nodeId));
         return next with
         {
-            SchemaVersion = WorkflowSchemaVersions.ConfigurableParallelGraph,
+            SchemaVersion = definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph ? definition.SchemaVersion : WorkflowSchemaVersions.ConfigurableParallelGraph,
             ParallelCollaborationRegions = null
         };
     }

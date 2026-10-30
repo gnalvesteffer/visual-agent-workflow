@@ -108,7 +108,7 @@
                     {
                         <fieldset class="vaw-sequence-call-authoring" aria-label="Append a workflow call to a Sequence output">
                             <legend>Sequence path call</legend>
-                            <p class="vaw-help">Append the selected published child to a direct-MCP Sequence output. The graph stays a saveable schema 1.49 draft until you explicitly promote the WorkflowCall path.</p>
+                            <p class="vaw-help">Append the selected published child to a direct-MCP Sequence output. Save the draft when the call and its connections are ready.</p>
                             @if (SequenceCallPaths.IsEmpty)
                             {
                                 <p class="vaw-help">No eligible direct-MCP output paths are available. Transforms, Agents, and existing calls cannot precede this bounded call.</p>
@@ -132,7 +132,7 @@
                     {
                         <fieldset class="vaw-sequence-call-authoring" aria-label="Append a deterministic transform after a WorkflowCall">
                             <legend>WorkflowCall transform</legend>
-                            <p class="vaw-help">Add one deterministic text step after a pinned string child. The graph stays a saveable schema 1.50 draft until you explicitly promote it to schema 1.51.</p>
+                            <p class="vaw-help">Add one deterministic text step after a pinned string child. Save the draft when the step and its connections are ready.</p>
                             @if (SequenceCallTransformPaths.IsEmpty)
                             {
                                 <p class="vaw-help">No eligible terminal WorkflowCall paths are available. The call must be pinned, valid, and connected directly to Output.</p>
@@ -389,8 +389,7 @@
                     @if (!IdeMode) { <button type="button" data-graph-save @onclick="Save" disabled="@(busy || !interactive)">Save draft</button> }
                     @if (!IdeMode)
                     { <button type="button" class="vaw-primary" @onclick="Publish" disabled="@(busy || dirty || generation == 0 || WorkflowValidator.Validate(definition!).Length > 0)">Publish &amp; activate</button> }
-                    @if (CanPromoteWorkflowCallDraft)
-                    { <button type="button" class="vaw-primary" @onclick="PromoteWorkflowCallDraft">Promote WorkflowCall draft</button> }
+
                     <button type="button" data-graph-undo @onclick="Undo" disabled="@(busy || undo.Count == 0)">Undo edit</button>
                     <button type="button" data-graph-redo @onclick="Redo" disabled="@(busy || redo.Count == 0)">Redo edit</button>
                     @if (ToolCatalog is not null) { <button type="button" @onclick="RefreshTools" disabled="@busy">Refresh MCP tools</button> }

@@ -4,7 +4,7 @@
     @if (!ReadOnly && ShowWorkflowSettings)
     {
         <WorkflowParameterSettings @key='(Definition.WorkflowId, "settings")' Definition="Definition" DefinitionChanged="next => Edit(() => next)" Disabled="Disabled" />
-        @if (Definition.SchemaVersion == WorkflowSchemaVersions.MutableVariablesGraph)
+        @if (Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.MutableVariablesGraph)
         {
             <WorkflowVariableSettings @key='(Definition.WorkflowId, "variables")' Definition="Definition" DefinitionChanged="next => Edit(() => next)" Disabled="Disabled" />
         }
@@ -16,150 +16,6 @@
         @EditorActions
     </ToolbarContent>
     <NodeLibrary>
-        @if (CanUpgradeBlankGraph)
-        {
-            <section class="vaw-library-note" aria-label="Typed graph preview">
-                <strong>Typed graph preview</strong>
-                <p class="vaw-help">Start a draft with separate execution and value wires. This preview currently supports text constants and concatenation.</p>
-                <button type="button" @onclick="EnableExplicitPreview" disabled="@Disabled">Start typed graph preview</button>
-            </section>
-        }
-        @if (CanUpgradeMutableVariablesGraph)
-        {
-            <section class="vaw-library-note" aria-label="Run-scoped variables">
-                <strong>Run-scoped variables</strong>
-                <p class="vaw-help">Promote this blank typed graph to the bounded Blueprint variable slice. Declare scalar variables, then add explicit Get variable and Set variable nodes and wire their execution and value pins.</p>
-                <button type="button" @onclick="EnableMutableVariablesPreview" disabled="@Disabled">Enable run-scoped variables</button>
-            </section>
-        }
-        @if (CanUpgradeBranchGraph)
-        {
-            <section class="vaw-library-note" aria-label="Boolean branch preview">
-                <strong>Boolean Branch preview</strong>
-                <p class="vaw-help">Add ordinal string comparison, a typed Boolean Branch, and success or failure termination routes. The new nodes remain unconnected until you wire them.</p>
-                <button type="button" @onclick="EnableBranchPreview" disabled="@Disabled">Enable Boolean Branch preview</button>
-            </section>
-        }
-        @if (CanUpgradeDirectMcpGraph)
-        {
-            <section class="vaw-library-note" aria-label="Direct MCP tools">
-                <strong>Direct MCP tools</strong>
-                <p class="vaw-help">Upgrade this linear typed graph to add deterministic MCP tool nodes. Each tool receives a JSON object and runs through the host’s normal node grant and contract checks.</p>
-                <button type="button" @onclick="EnableDirectMcpPreview" disabled="@Disabled">Enable direct MCP tools</button>
-            </section>
-        }
-        @if (CanUpgradeTypedBooleanGraph)
-        {
-            <section class="vaw-library-note" aria-label="Typed Boolean primitives">
-                <strong>Typed Boolean primitives</strong>
-                <p class="vaw-help">Add explicit true/false constants and Boolean NOT. These pure nodes only compute when a downstream data input requests their value.</p>
-                <button type="button" @onclick="EnableTypedBooleanPreview" disabled="@Disabled">Enable Boolean primitives</button>
-            </section>
-        }
-        @if (CanUpgradeBooleanTopology)
-        {
-            <section class="vaw-library-note" aria-label="Boolean branch topology">
-                <strong>Boolean branch topology</strong>
-                <p class="vaw-help">Allow up to eight Boolean Branch nodes and sixteen success/failure exits. Each reached Branch takes one wired route; a structurally connected Output may still be unreachable for particular values.</p>
-                <button type="button" @onclick="EnableBooleanTopologyPreview" disabled="@Disabled">Enable branch topologies</button>
-            </section>
-        }
-        @if (CanUpgradePureGraphFunctions)
-        {
-            <section class="vaw-library-note" aria-label="Pure graph functions">
-                <strong>Pure graph functions</strong>
-                <p class="vaw-help">Upgrade this valid graph to insert pinned, reusable string/Boolean function snapshots as lazy data nodes.</p>
-                <button type="button" @onclick="EnablePureGraphFunctionsPreview" disabled="@Disabled">Enable pure graph functions</button>
-            </section>
-        }
-        @if (CanUpgradeAgentGraphFunctionTools)
-        {
-            <section class="vaw-library-note" aria-label="Agent graph-function tools">
-                <strong>Agent graph-function tools</strong>
-                <p class="vaw-help">Upgrade this valid pure graph to add scheduled Agent nodes. Each agent can expose selected immutable pure function revisions as bounded tools.</p>
-                <button type="button" @onclick="EnableAgentGraphFunctionToolsPreview" disabled="@Disabled">Enable agent function tools</button>
-            </section>
-        }
-        @if (CanUpgradeIntegerGraph)
-        {
-            <section class="vaw-library-note" aria-label="Integer graph values">
-                <strong>Integer graph values</strong>
-                <p class="vaw-help">Upgrade this valid agent graph to use typed Int64 parameters and constants, checked addition, and integer equality in both workflows and reusable functions.</p>
-                <button type="button" @onclick="EnableIntegerGraphPreview" disabled="@Disabled">Enable integer graph values</button>
-            </section>
-        }
-        @if (CanUpgradeStringIntegerConversionGraph)
-        {
-            <section class="vaw-library-note" aria-label="Explicit conversions">
-                <strong>Explicit conversions</strong>
-                <p class="vaw-help">Upgrade this valid integer graph to add a strict, visible string-to-Int64 conversion node. No implicit coercion is applied.</p>
-                <button type="button" @onclick="EnableStringIntegerConversionPreview" disabled="@Disabled">Enable string-to-integer conversion</button>
-            </section>
-        }
-        @if (CanUpgradeIntegerStringConversionGraph)
-        {
-            <section class="vaw-library-note" aria-label="Integer to string conversion">
-                <strong>Explicit integer-to-string conversion</strong>
-                <p class="vaw-help">Upgrade this valid graph to format signed Int64 values as invariant decimal text through a visible, typed conversion node.</p>
-                <button type="button" @onclick="EnableIntegerStringConversionPreview" disabled="@Disabled">Enable integer-to-string conversion</button>
-            </section>
-        }
-        @if (CanUpgradeNumberGraph)
-        {
-            <section class="vaw-library-note" aria-label="Finite number graph values">
-                <strong>Finite number graph values</strong>
-                <p class="vaw-help">Upgrade direct MCP pins to add Number constants and top-level numeric MCP argument pins. Values must be finite and are sent as JSON numbers.</p>
-                <button type="button" @onclick="EnableNumberGraphPreview" disabled="@Disabled">Enable number graph values</button>
-            </section>
-        }
-        @if (CanUpgradeNumberPropagationGraph)
-        {
-            <section class="vaw-library-note" aria-label="Workflow number parameters">
-                <strong>Workflow number parameters</strong>
-                <p class="vaw-help">Allow finite number workflow parameters to feed the existing persisted MCP number pins. Values remain typed and are sent as JSON numbers.</p>
-                <button type="button" @onclick="EnableNumberPropagationPreview" disabled="@Disabled">Enable workflow number parameters</button>
-            </section>
-        }
-        @if (CanUpgradeSequencePathGraph)
-        {
-            <section class="vaw-library-note" aria-label="Sequence downstream paths">
-                <strong>Sequence downstream paths</strong>
-                <p class="vaw-help">Promote this valid Sequence graph to route each ordered output through a bounded, disjoint direct MCP path. Add tools from the MCP tools section, then connect execution pins explicitly.</p>
-                <button type="button" @onclick="EnableSequencePathPreview" disabled="@Disabled">Enable Sequence paths</button>
-            </section>
-        }
-        @if (CanUpgradeSequenceAgentPathGraph)
-        {
-            <section class="vaw-library-note" aria-label="Sequence terminal Agent paths">
-                <strong>Sequence terminal Agent paths</strong>
-                <p class="vaw-help">Promote this valid Sequence path graph to allow one bounded terminal Agent on each ordered path. Agents use the incoming text and a plain-text result with fixed model-turn and total-token limits; tools, skills, routes, delegation, and structured results are unavailable in this slice.</p>
-                <button type="button" @onclick="EnableSequenceAgentPathPreview" disabled="@Disabled">Enable terminal Agent paths</button>
-            </section>
-        }
-        @if (CanUpgradeSequenceTransformPathGraph)
-        {
-            <section class="vaw-library-note" aria-label="Sequence deterministic transform paths">
-                <strong>Sequence deterministic transform paths</strong>
-                <p class="vaw-help">Promote this valid Sequence path graph to allow one terminal uppercase text step after direct MCP tools. The step is deterministic, typed as string, and must connect directly to Output.</p>
-                <button type="button" @onclick="EnableSequenceTransformPathPreview" disabled="@Disabled">Enable terminal uppercase paths</button>
-            </section>
-        }
-        @if (CanUpgradeSequenceReversePathGraph)
-        {
-            <section class="vaw-library-note" aria-label="Sequence deterministic reverse paths">
-                <strong>Sequence deterministic reverse paths</strong>
-                <p class="vaw-help">Promote this valid schema 1.47 transform path to allow a terminal reverse text step after direct MCP tools.</p>
-                <button type="button" @onclick="EnableSequenceReversePathPreview" disabled="@Disabled">Enable terminal reverse paths</button>
-            </section>
-        }
-        @if (CanUpgradeSequenceTransformChainGraph)
-        {
-            <section class="vaw-library-note" aria-label="Sequence deterministic transform chains">
-                <strong>Sequence deterministic transform chains</strong>
-                <p class="vaw-help">Promote this valid one-transform Sequence path to allow one uppercase and one reverse step in a bounded linear chain. Direct MCP tools must remain before the transforms, and the final step connects directly to Output.</p>
-                <button type="button" @onclick="EnableSequenceTransformChainPreview" disabled="@Disabled">Enable transform chains</button>
-            </section>
-        }
         @if (CanCreateConfigurableParallelGraph)
         {
             <section class="vaw-library-note" aria-label="Configurable parallel graph">
@@ -245,6 +101,12 @@
                     @if (node.Type == NodeTypes.Input && WorkflowSchemaVersions.UsesExplicitGraph(Definition))
                     {
                         <p>The <strong>then</strong> pin activates the workflow path. The <strong>out</strong> pin is a value dependency and does not activate nodes.</p>
+                        @if (IsUnifiedGraph && !ReadOnly)
+                        {
+                            <label>Input value type <select aria-label="Workflow input value type" value="@(node.InputDataType ?? "string")" @onchange="args => SetTerminalType(id, args)" disabled="@Disabled">
+                                <option value="string">Text</option><option value="json">JSON</option>
+                            </select></label>
+                        }
                     }
                     else if (node.Type == NodeTypes.Input && !ReadOnly)
                     {
@@ -253,6 +115,12 @@
                         { <p class="vaw-help">This input is validated JSON. Add a JSON projection or select a value with an RFC 6901 pointer.</p> }
                         else
                         { <button type="button" @onclick="() => Edit(() => GraphEditing.InsertJsonSelectorAfterInput(Definition, id))" disabled="@(Disabled || Definition.Nodes.Count >= 256)">Use JSON input and add a value selector</button> }
+                    }
+                    else if (node.Type == NodeTypes.Output && IsUnifiedGraph && !ReadOnly)
+                    {
+                        <label>Output value type <select aria-label="Workflow output value type" value="@(node.OutputDataType ?? "string")" @onchange="args => SetTerminalType(id, args)" disabled="@Disabled">
+                            <option value="string">Text</option><option value="json">JSON</option>
+                        </select></label>
                     }
                     else if (node.Type == NodeTypes.JsonSelectString)
                     {
@@ -416,7 +284,7 @@
                     else if (node.Type == NodeTypes.ParallelFork)
                     {
                         <p>Starts every configured branch concurrently with the same input. Each branch output must reach its matching join input. A branch failure fails the workflow; side effects already performed by another branch are not rolled back.</p>
-                        @if (Definition.SchemaVersion is WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph && node.ParallelFork is { } forkConfiguration)
+                        @if (Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph && node.ParallelFork is { } forkConfiguration)
                         {
                             <fieldset aria-label="Parallel branch labels">
                                 <legend>Branch order, labels, and count</legend>
@@ -490,7 +358,7 @@
                     }
                     else if (node.Type == NodeTypes.ParallelJoin)
                     {
-                        @if (Definition.SchemaVersion is WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph && node.ParallelJoin is { } configurableJoin)
+                        @if (Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph && node.ParallelJoin is { } configurableJoin)
                         {
                             <p>Waits for @configurableJoin.BranchIds.Length named branch results, then emits them as a JSON object keyed by stable branch ID.</p>
                         }
@@ -535,12 +403,7 @@
                                 </label>
                                 <p class="vaw-help">Leave blank for the host default. A specified timeout must be positive.</p>
                                 <button type="button" @onclick="() => ConfigureCollaborationRegion(id)" disabled="@Disabled">Apply region and branch pins</button>
-                                @if (Definition.SchemaVersion == WorkflowSchemaVersions.CollaborativeParallelGraph && Definition.ParallelCollaborationRegions?.ContainsKey(id) == true)
-                                {
-                                    <p>Upgrade adds one unwired second barrier and preserves current Agent positions in phase 1.</p>
-                                    <button type="button" @onclick="() => UpgradeCollaborationToTwoPhases(id)" disabled="@(Disabled || Definition.Nodes.Count >= 256)">Upgrade to two phases</button>
-                                }
-                                @if (Definition.SchemaVersion == WorkflowSchemaVersions.PhasedCollaborativeParallelGraph && Definition.ParallelCollaborationRegions?.GetValueOrDefault(id) is { } phasedRegion)
+                                @if ((IsUnifiedGraph || Definition.SchemaVersion == WorkflowSchemaVersions.PhasedCollaborativeParallelGraph) && Definition.ParallelCollaborationRegions?.GetValueOrDefault(id) is { } phasedRegion)
                                 {
                                     <label>Second rendezvous
                                         <select aria-label="Second rendezvous for @id" value="@phasedRegion.SecondRendezvousNodeId" @onchange="args => SetSecondRendezvous(id, args.Value?.ToString())">
@@ -575,13 +438,13 @@
                                                     </label>
                                                     <label>Phase
                                                         <select aria-label="Grant phase for @branchId grant @grantRowIndex" value="@grant.Phase" @onchange="args => ChangeCollaborationGrant(id, branchId, grantRowIndex, phase: args.Value?.ToString())">
-                                                            @if (Definition.SchemaVersion == WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)
+                                                            @if (region.SecondRendezvousNodeId is not null)
                                                             { <option value="phase1">Phase 1</option><option value="phase2">Phase 2</option> }
                                                             else
                                                             { <option value="publish">Publish before rendezvous</option><option value="read">Read after rendezvous</option> }
                                                         </select>
                                                     </label>
-                                                    @if (Definition.SchemaVersion == WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)
+                                                    @if (region.SecondRendezvousNodeId is not null)
                                                     {
                                                         <label>Role
                                                             <select aria-label="Grant role for @branchId grant @grantRowIndex" value="@grant.Role" @onchange="args => ChangeCollaborationGrant(id, branchId, grantRowIndex, role: args.Value?.ToString())">
@@ -657,7 +520,7 @@
                     }
                     else if (node.Type == NodeTypes.WorkflowValue)
                     {
-                        var parameterChoices = ParameterDefinitions.Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) || WorkflowParameterGraphTypes.DataType(pair.Value, Definition.SchemaVersion is WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) is not null).ToDictionary(pair => pair.Key, pair => pair.Value);
+                        var parameterChoices = ParameterDefinitions.Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) || WorkflowParameterGraphTypes.DataType(pair.Value, Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) is not null).ToDictionary(pair => pair.Key, pair => pair.Value);
                         @if (!ReadOnly && parameterChoices.Count > 0)
                         {
                             <label>Workflow parameter
@@ -667,7 +530,7 @@
                             </label>
                         }
                         else if (node.ParameterId is { } parameterId && parameterChoices.TryGetValue(parameterId, out var parameter))
-                        { <p>@parameter.DisplayName · @parameterId · @(WorkflowParameterGraphTypes.DataType(parameter, Definition.SchemaVersion is WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) ?? "string")</p><p class="vaw-help">Passes the declared parameter value and type onward, replacing the incoming value.</p> }
+                        { <p>@parameter.DisplayName · @parameterId · @(WorkflowParameterGraphTypes.DataType(parameter, Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) ?? "string")</p><p class="vaw-help">Passes the declared parameter value and type onward, replacing the incoming value.</p> }
                     }
                     else if (node.Type is NodeTypes.VariableGet or NodeTypes.VariableSet)
                     {
@@ -924,7 +787,7 @@
                                 }
                                 @if (AgentProfileLibrary is not null) { <a href="/projects/@ProjectId/agents">Open Agent Designer</a> }
                             </fieldset>
-                            @if (WorkflowSchemaVersions.UsesExplicitGraph(Definition) && Definition.SchemaVersion is WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes)
+                            @if (WorkflowSchemaVersions.UsesExplicitGraph(Definition) && Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes)
                             {
                                 <fieldset disabled="@Disabled"><legend>Graph function tools</legend>
                                     <p class="vaw-help">Expose only selected immutable pure functions as tools. Their graph body runs deterministically in this workflow; it receives no MCP, network, filesystem, or parent-agent capabilities.</p>
@@ -1013,7 +876,8 @@
         return LayoutChanged.InvokeAsync(value);
     }
     [Parameter] public IReadOnlyList<ToolBindingDescriptor> Bindings { get; set; } = [];
-    private bool DirectMcpAuthoring => Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph;
+    private bool DirectMcpAuthoring => Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph;
+    private bool IsUnifiedGraph => Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph;
     private bool IsSequenceTerminalAgent => Definition.SchemaVersion == WorkflowSchemaVersions.SequenceAgentPathGraph;
     private bool SchemaDrivenMcpPins => WorkflowSchemaVersions.UsesDirectMcpPins(Definition.SchemaVersion);
     [Parameter] public IReadOnlyList<AgentProviderDescriptor> Providers { get; set; } = [];
@@ -1144,38 +1008,11 @@
             nodes = nodes.SetItem(secondId, secondNode with { ParallelRendezvous = new(branchIds) });
         return Definition with
         {
-            SchemaVersion = old?.SecondRendezvousNodeId is null ? WorkflowSchemaVersions.CollaborativeParallelGraph : WorkflowSchemaVersions.PhasedCollaborativeParallelGraph,
+            SchemaVersion = IsUnifiedGraph ? Definition.SchemaVersion : old?.SecondRendezvousNodeId is null ? WorkflowSchemaVersions.CollaborativeParallelGraph : WorkflowSchemaVersions.PhasedCollaborativeParallelGraph,
             Nodes = nodes,
             ParallelCollaborationRegions = regions.SetItem(rendezvousId, region)
         };
     });
-
-    private Task UpgradeCollaborationToTwoPhases(string rendezvousId) => Edit(() =>
-    {
-        if (Definition.SchemaVersion != WorkflowSchemaVersions.CollaborativeParallelGraph ||
-            Definition.ParallelCollaborationRegions?.TryGetValue(rendezvousId, out var region) != true || region is null)
-            throw new ArgumentException("Choose a configured schema-1.33 collaboration region to upgrade.");
-        if (Definition.Nodes.Count >= 256) throw new ArgumentException("The workflow has reached its 256-node limit.");
-
-        var branchIds = region.Branches.Select(branch => branch.BranchId).ToImmutableArray();
-        var added = GraphEditing.AddUnconnectedNode(Definition with { SchemaVersion = WorkflowSchemaVersions.PhasedCollaborativeParallelGraph },
-            new(NodeTypes.ParallelRendezvous, "1.0.0") { ParallelRendezvous = new(branchIds) });
-        var secondId = added.Nodes.Keys.Single(id => !Definition.Nodes.ContainsKey(id));
-        var branches = region.Branches.Select(branch => branch with
-        {
-            Agents = branch.Agents.Select(grant => grant with
-            {
-                Phase = ParallelCollaborationPhases.Phase1,
-                Role = grant.Phase == ParallelCollaborationPhases.Publish ? ParallelCollaborationRoles.Publish : ParallelCollaborationRoles.Read
-            }).ToImmutableArray()
-        }).ToImmutableArray();
-        var upgradedRegion = region with { SecondRendezvousNodeId = secondId, Branches = branches };
-        return added with
-        {
-            SchemaVersion = WorkflowSchemaVersions.PhasedCollaborativeParallelGraph,
-            ParallelCollaborationRegions = added.ParallelCollaborationRegions!.SetItem(rendezvousId, upgradedRegion)
-        };
-    }, preserveSelection: rendezvousId);
 
     private Task SetSecondRendezvous(string rendezvousId, string? secondId) => Edit(() =>
     {
@@ -1189,7 +1026,7 @@
         return Definition with
         {
             Nodes = nodes,
-            SchemaVersion = WorkflowSchemaVersions.PhasedCollaborativeParallelGraph,
+            SchemaVersion = IsUnifiedGraph ? Definition.SchemaVersion : WorkflowSchemaVersions.PhasedCollaborativeParallelGraph,
             ParallelCollaborationRegions = regions.SetItem(rendezvousId, region with { SecondRendezvousNodeId = selected })
         };
     });
@@ -1311,6 +1148,16 @@
 
     private Task ChangeType(string id, ChangeEventArgs args) =>
         Edit(() => ReplaceProcessing(id, FromSelection(args.Value?.ToString() ?? "", Definition.Nodes[id])));
+
+    private Task SetTerminalType(string id, ChangeEventArgs args) => Edit(() =>
+    {
+        var type = args.Value?.ToString();
+        if (type is not ("string" or "json")) throw new ArgumentException("Choose Text or JSON.");
+        var node = Definition.Nodes[id];
+        return GraphEditing.ReplaceNode(Definition, id, node.Type == NodeTypes.Input
+            ? node with { InputDataType = type == "string" ? null : type }
+            : node with { OutputDataType = type == "string" ? null : type });
+    });
 
     private Task JsonPointer(string id, ChangeEventArgs args) => Edit(() => GraphEditing.ReplaceNode(Definition, id,
         Definition.Nodes[id] with { JsonPropertySelection = new(args.Value?.ToString() ?? "") }));
@@ -1455,6 +1302,10 @@
     }
     private NodeDefinition FromSelection(string value, NodeDefinition? existing = null)
     {
+        if (value == NodeTypes.Loop)
+            return new(value, "1.0.0") { Loop = existing?.Loop ?? new(new("contains", "yes"), 3) };
+        if (value == NodeTypes.Condition)
+            return new(value, "1.0.0") { Condition = existing?.Condition ?? new("contains", "yes") };
         if (value == NodeTypes.StringConstant)
             return new(NodeTypes.StringConstant, "1.0.0") { StringConstant = existing?.StringConstant ?? new("") };
         if (value == NodeTypes.TextConcat) return new(NodeTypes.TextConcat, "1.0.0");
@@ -1487,10 +1338,10 @@
         if (value == NodeTypes.WorkflowValue)
         {
             var parameterId = ParameterDefinitions
-                .Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) || WorkflowParameterGraphTypes.DataType(pair.Value, Definition.SchemaVersion is WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) is not null)
+                .Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) || WorkflowParameterGraphTypes.DataType(pair.Value, Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) is not null)
                 .Select(pair => pair.Key).FirstOrDefault();
-            var outputType = (Definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) && parameterId is not null
-                ? WorkflowParameterGraphTypes.DataType(ParameterDefinitions[parameterId], Definition.SchemaVersion is WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph)
+            var outputType = (Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) && parameterId is not null
+                ? WorkflowParameterGraphTypes.DataType(ParameterDefinitions[parameterId], Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph)
                 : null;
             return new(NodeTypes.WorkflowValue, "1.0.0") { ParameterId = parameterId, OutputDataType = outputType };
         }
@@ -1583,7 +1434,7 @@
         var node = Definition.Nodes[id];
         var definition = Definition with
         {
-            SchemaVersion = routes.IsEmpty ? Definition.SchemaVersion : WorkflowSchemaVersions.AgentExecutionRoutes,
+            SchemaVersion = IsUnifiedGraph || routes.IsEmpty ? Definition.SchemaVersion : WorkflowSchemaVersions.AgentExecutionRoutes,
             Nodes = Definition.Nodes.SetItem(id, node with { Agent = node.Agent! with { Routes = routes.IsEmpty ? null : routes } })
         };
         return definition;
@@ -1598,9 +1449,9 @@
         var node = Definition.Nodes[id];
         var parameterIncludesOff = parameterId is not null && ParameterDefinitions.TryGetValue(parameterId, out var parameter) && parameter.Choices?.Contains("off") == true;
         var schema = effort == AgentReasoningEffort.Off || parameterIncludesOff ? Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10" : parameterId is not null ? Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" or "1.9" ? Definition.SchemaVersion : "1.8" : CapabilitySchema;
-        var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
+        var definition = Definition with { SchemaVersion = IsUnifiedGraph ? Definition.SchemaVersion : schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { ReasoningEffort = parameterId is null ? effort : null, ReasoningEffortParameterId = parameterId } }) };
-        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!IsUnifiedGraph) WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
     });
 
@@ -1610,9 +1461,9 @@
             throw new ArgumentException($"Choose an output limit from {AgentOutputTokenLimits.Minimum} to {AgentOutputTokenLimits.Maximum} tokens.");
         var node = Definition.Nodes[id];
         var schema = Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.10";
-        var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
+        var definition = Definition with { SchemaVersion = IsUnifiedGraph ? Definition.SchemaVersion : schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { MaxOutputTokens = limit, MaxOutputTokensParameterId = null } }) };
-        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!IsUnifiedGraph) WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
     });
 
@@ -1622,9 +1473,9 @@
             throw new ArgumentException("Choose -1 for unlimited model turns or enter a positive integer.");
         var node = Definition.Nodes[id];
         var schema = Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or "1.22" ? Definition.SchemaVersion : "1.21";
-        var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
+        var definition = Definition with { SchemaVersion = IsUnifiedGraph ? Definition.SchemaVersion : schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { MaxTurns = limit } }) };
-        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!IsUnifiedGraph) WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
     });
 
@@ -1640,9 +1491,9 @@
         var node = Definition.Nodes[id];
         var schema = Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes || limit is null
             ? Definition.SchemaVersion : "1.22";
-        var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
+        var definition = Definition with { SchemaVersion = IsUnifiedGraph ? Definition.SchemaVersion : schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { MaxTotalTokens = limit, MaxTotalTokensParameterId = null } }) };
-        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!IsUnifiedGraph) WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
     });
 
@@ -1654,7 +1505,7 @@
         var agent = node.Agent!;
         var definition = Definition with
         {
-            SchemaVersion = parameterId is null ? Definition.SchemaVersion : Definition.SchemaVersion == WorkflowSchemaVersions.AgentExecutionRoutes
+            SchemaVersion = IsUnifiedGraph || parameterId is null ? Definition.SchemaVersion : Definition.SchemaVersion == WorkflowSchemaVersions.AgentExecutionRoutes
                 ? WorkflowSchemaVersions.AgentExecutionRoutes : WorkflowSchemaVersions.AgentParameterBindings,
             Nodes = Definition.Nodes.SetItem(id, node with
             {
@@ -1663,7 +1514,7 @@
                     : agent with { MaxOutputTokens = null, MaxOutputTokensParameterId = parameterId }
             })
         };
-        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!IsUnifiedGraph) WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
     });
 
@@ -1672,9 +1523,9 @@
         var enabled = args.Value is true;
         var node = Definition.Nodes[id];
         var schema = enabled ? Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or "1.22" ? Definition.SchemaVersion : "1.21" : Definition.SchemaVersion;
-        var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
+        var definition = Definition with { SchemaVersion = IsUnifiedGraph ? Definition.SchemaVersion : schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { RequireStructuredResult = enabled ? true : null } }) };
-        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!IsUnifiedGraph) WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
     });
 
@@ -1689,9 +1540,9 @@
         }
         var node = Definition.Nodes[id];
         var schema = timeout is null && node.Agent!.MaxTurns is null ? Definition.SchemaVersion : Definition.SchemaVersion is WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or "1.22" ? Definition.SchemaVersion : "1.21";
-        var definition = Definition with { SchemaVersion = schema, Nodes = Definition.Nodes.SetItem(id,
+        var definition = Definition with { SchemaVersion = IsUnifiedGraph ? Definition.SchemaVersion : schema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { TimeoutSeconds = timeout } }) };
-        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!IsUnifiedGraph) WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
     });
 
@@ -1701,7 +1552,7 @@
         var node = Definition.Nodes[id];
         var definition = Definition with { SchemaVersion = CapabilitySchema, Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = node.Agent! with { UserMessage = template } }) };
-        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!IsUnifiedGraph) WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
     });
 
@@ -1717,15 +1568,15 @@
         }
         var definition = Definition with { SchemaVersion = CapabilitySchema, Skills = embedded.Count == 0 ? null : embedded,
             Nodes = Definition.Nodes.SetItem(id, node with { Agent = node.Agent with { Skills = references.IsEmpty ? null : references } }) };
-        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!IsUnifiedGraph) WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
     });
 
     private Task AssignGraphFunction(string id, GraphFunctionConfiguration function, ChangeEventArgs args) => Edit(() =>
     {
-        if (!WorkflowSchemaVersions.UsesExplicitGraph(Definition) || Definition.SchemaVersion is not (WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes))
-            throw new ArgumentException("Upgrade this workflow to the pure graph-function schema before assigning function tools.");
-        if (GraphFunctionJson.ComputeHash(function.Definition) != function.ContentHash || !GraphFunctionJson.Validate(function.Definition).IsEmpty)
+        if (!WorkflowSchemaVersions.UsesExplicitGraph(Definition) || Definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes))
+            throw new ArgumentException("Function tools require an explicit workflow graph.");
+        if (GraphFunctionJson.ComputeHash(function.Definition) != function.ContentHash || !GraphFunctionJson.Validate(function.Definition, allowNumberAdd: IsUnifiedGraph).IsEmpty)
             throw new ArgumentException("The selected function revision is invalid or its content hash changed.");
         var node = Definition.Nodes[id];
         var agent = node.Agent ?? throw new ArgumentException("Select an agent node first.");
@@ -1738,9 +1589,9 @@
             tools = tools.Add(function);
         }
         var nodes = Definition.Nodes.SetItem(id, node with { Agent = agent with { GraphFunctionTools = tools.IsEmpty ? null : tools } });
-        var definition = Definition with { SchemaVersion = Definition.SchemaVersion is WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes
+        var definition = Definition with { SchemaVersion = IsUnifiedGraph || Definition.SchemaVersion is WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes
             ? Definition.SchemaVersion : WorkflowSchemaVersions.AgentGraphFunctionTools, Nodes = nodes };
-        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!IsUnifiedGraph) WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
     });
 
@@ -1751,7 +1602,7 @@
         var tools = (agent.GraphFunctionTools ?? []).Where(function => function.ContentHash != contentHash).ToImmutableArray();
         var definition = Definition with { Nodes = Definition.Nodes.SetItem(id,
             node with { Agent = agent with { GraphFunctionTools = tools.IsEmpty ? null : tools } }) };
-        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!IsUnifiedGraph) WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
     });
 
@@ -1779,9 +1630,9 @@
         var stillUsed = nodes.Values.Where(item => item.Agent is not null).SelectMany(item => item.Agent!.Delegates ?? [])
             .Any(reference => reference.Id == profile.Id && reference.Version == profile.Version);
         if (!stillUsed) profiles = profiles.Remove(profile.Id + "@" + profile.Version);
-        var definition = Definition with { SchemaVersion = profile.Channels is not null ? (Definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" ? Definition.SchemaVersion : "1.12") : Definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.11", AgentProfiles = profiles.Count == 0 ? null : profiles,
+        var definition = Definition with { SchemaVersion = IsUnifiedGraph ? Definition.SchemaVersion : profile.Channels is not null ? (Definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" ? Definition.SchemaVersion : "1.12") : Definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" ? Definition.SchemaVersion : "1.11", AgentProfiles = profiles.Count == 0 ? null : profiles,
             Skills = skills.Count == 0 ? null : skills, Nodes = nodes };
-        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!IsUnifiedGraph) WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
     });
 
@@ -1795,7 +1646,7 @@
             .Any(item => item.Id == reference.Id && item.Version == reference.Version);
         if (!stillUsed) profiles = profiles.Remove(reference.Id + "@" + reference.Version);
         var definition = Definition with { AgentProfiles = profiles.Count == 0 ? null : profiles, Nodes = nodes };
-        WorkflowValidator.ThrowIfInvalid(definition);
+        if (!IsUnifiedGraph) WorkflowValidator.ThrowIfInvalid(definition);
         return definition;
     });
 
@@ -1821,6 +1672,7 @@
         {
             error = null;
             var next = edit();
+            if (IsUnifiedGraph) next = next with { SchemaVersion = Definition.SchemaVersion };
             var added = next.Nodes.Keys.Where(id => !Definition.Nodes.ContainsKey(id)).ToArray();
             var nextSelection = preserveSelection is not null && next.Nodes.ContainsKey(preserveSelection)
                 ? preserveSelection

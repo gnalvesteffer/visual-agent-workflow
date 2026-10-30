@@ -65,6 +65,13 @@ public static class WorkflowJson
     }
 
     private static bool IsDraftableIssue(WorkflowDefinition definition, ValidationIssue issue) =>
+        definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+        (issue.Code.StartsWith("sequence.", StringComparison.Ordinal) ||
+         issue.Code.StartsWith("loop.", StringComparison.Ordinal) ||
+         issue.Code is "variable.reference" or "parameter.reference" or "sequence.configuration" or
+             "workflowCall.configuration" or "graphFunction.configuration" or "data.cycle" or
+             "approval.target" or "approval.configuration" or "condition.configuration" or
+             "json.selection" or "json.projection" or "text.template" or "variables.missing") ||
             IsDraftableIssue(issue) || (definition.SchemaVersion is WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph) &&
         definition.Nodes.Values.Any(node => node.Type == NodeTypes.WorkflowCall) &&
         (issue.Code == "execution.node.unsupported" || issue.Code.StartsWith("workflowCall.", StringComparison.Ordinal) ||

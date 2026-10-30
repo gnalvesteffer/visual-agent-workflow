@@ -9,8 +9,10 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 
 public sealed class SequenceProductionRunnerTests
 {
-    [Fact]
-    public async Task Public_schema_1_53_preserves_a_json_child_result_for_the_output_evaluator()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Public_schema_1_53_preserves_a_json_child_result_for_the_output_evaluator(bool unified)
     {
         var child = WorkflowRevision.Create(JsonChild("public-sequence-json-child"), "test");
         var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
@@ -41,6 +43,7 @@ public sealed class SequenceProductionRunnerTests
                 ["sibling-output"] = new(new("sibling", "out"), new("output", "execute"), "execution")
             }.ToImmutableSortedDictionary()
         };
+        if (unified) definition = definition with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
         var events = new List<ExecutionEvent>();
 
         var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
@@ -52,8 +55,10 @@ public sealed class SequenceProductionRunnerTests
         Assert.Equal("{\"answer\":\"hello\"}", result.Output);
     }
 
-    [Fact]
-    public async Task Public_schema_1_54_evaluates_a_two_node_json_chain_and_records_each_value()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Public_schema_1_54_evaluates_a_two_node_json_chain_and_records_each_value(bool unified)
     {
         var child = WorkflowRevision.Create(JsonChild("public-sequence-json-chain-child"), "test");
         var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
@@ -94,6 +99,7 @@ public sealed class SequenceProductionRunnerTests
                 ["sibling-output"] = new(new("sibling", "out"), new("output", "execute"), "execution")
             }.ToImmutableSortedDictionary()
         };
+        if (unified) definition = definition with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
         var events = new List<ExecutionEvent>();
 
         var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
@@ -107,8 +113,10 @@ public sealed class SequenceProductionRunnerTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "select");
     }
 
-    [Fact]
-    public async Task Public_schema_1_55_merges_two_consumers_of_one_json_child_output()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Public_schema_1_55_merges_two_consumers_of_one_json_child_output(bool unified)
     {
         var child = WorkflowRevision.Create(JsonChild("public-sequence-json-merge-child"), "test");
         var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
@@ -147,6 +155,7 @@ public sealed class SequenceProductionRunnerTests
                 ["sibling-output"] = new(new("sibling", "then"), new("output", "execute"), "execution")
             }.ToImmutableSortedDictionary()
         };
+        if (unified) definition = definition with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
         var events = new List<ExecutionEvent>();
 
         var result = await new WorkflowRunner(new SequencePathBroker((_, _) => Task.FromResult("{}"))).ExecuteWithOutcomeAsync(Guid.NewGuid(),
@@ -166,8 +175,10 @@ public sealed class SequenceProductionRunnerTests
         Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "call"));
     }
 
-    [Fact]
-    public async Task Public_schema_1_56_refines_a_json_array_and_records_the_integer_length()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Public_schema_1_56_refines_a_json_array_and_records_the_integer_length(bool unified)
     {
         var child = WorkflowRevision.Create(JsonChild("public-sequence-json-array-child"), "test");
         var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
@@ -202,6 +213,7 @@ public sealed class SequenceProductionRunnerTests
                 ["sibling-output"] = new(new("sibling", "then"), new("output", "execute"), "execution")
             }.ToImmutableSortedDictionary()
         };
+        if (unified) definition = definition with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
         var events = new List<ExecutionEvent>();
 
         var result = await new WorkflowRunner(new SequencePathBroker((_, _) => Task.FromResult("{}"))).ExecuteWithOutcomeAsync(
@@ -214,8 +226,10 @@ public sealed class SequenceProductionRunnerTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "length");
     }
 
-    [Fact]
-    public async Task Public_schema_1_57_routes_equal_length_to_output_and_other_lengths_to_failure()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Public_schema_1_57_routes_equal_length_to_output_and_other_lengths_to_failure(bool unified)
     {
         var child = WorkflowRevision.Create(JsonChild("public-sequence-json-control-child"), "test");
         var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
@@ -260,6 +274,7 @@ public sealed class SequenceProductionRunnerTests
             }.ToImmutableSortedDictionary()
         };
 
+        if (unified) definition = definition with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
         var equalEvents = new List<ExecutionEvent>();
         var equal = await new WorkflowRunner(new SequencePathBroker((_, _) => Task.FromResult("{}"))).ExecuteWithOutcomeAsync(
             Guid.NewGuid(), WorkflowRevision.Create(WorkflowJson.Deserialize(WorkflowJson.Serialize(definition)), "test"),
@@ -277,8 +292,10 @@ public sealed class SequenceProductionRunnerTests
         Assert.Contains(unequalEvents, evt => evt.Kind == ExecutionEventKinds.BranchSelected && evt.NodeId == "branch");
     }
 
-    [Fact]
-    public async Task Public_schema_1_52_passes_a_pinned_workflow_call_result_to_one_terminal_agent()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Public_schema_1_52_passes_a_pinned_workflow_call_result_to_one_terminal_agent(bool unified)
     {
         var child = WorkflowRevision.Create(
             WorkflowEditing.InsertAfter(LinearBaseline("public-sequence-agent-child"), "input", NodeTypes.Uppercase),
@@ -313,6 +330,7 @@ public sealed class SequenceProductionRunnerTests
                 ["sibling-output"] = new(new("sibling", "out"), new("output", "execute"), "execution")
             }.ToImmutableSortedDictionary()
         };
+        if (unified) definition = definition with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
         var events = new List<ExecutionEvent>();
         var agentExecutor = new SequenceProofAgentExecutor();
 
@@ -339,8 +357,10 @@ public sealed class SequenceProductionRunnerTests
             ["value"] = new(new("input", "out"), new("output", "in"), "data")
         }.ToImmutableSortedDictionary());
 
-    [Fact]
-    public async Task Public_schema_1_51_applies_one_transform_after_a_pinned_workflow_call()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Public_schema_1_51_applies_one_transform_after_a_pinned_workflow_call(bool unified)
     {
         var child = WorkflowRevision.Create(
             WorkflowEditing.InsertAfter(LinearBaseline("public-sequence-transform-child"), "input", NodeTypes.Uppercase),
@@ -372,6 +392,7 @@ public sealed class SequenceProductionRunnerTests
                 ["sibling-output"] = new(new("sibling", "out"), new("output", "execute"), "execution")
             }.ToImmutableSortedDictionary()
         };
+        if (unified) definition = definition with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
         var revision = WorkflowRevision.Create(WorkflowJson.Deserialize(WorkflowJson.Serialize(definition)), "test");
         var events = new List<ExecutionEvent>();
 
@@ -382,8 +403,10 @@ public sealed class SequenceProductionRunnerTests
         Assert.Equal("OLLEH", result.Output);
     }
 
-    [Fact]
-    public async Task Public_schema_1_50_executes_a_pinned_workflow_call_through_the_normal_runner()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Public_schema_1_50_executes_a_pinned_workflow_call_through_the_normal_runner(bool unified)
     {
         var child = WorkflowRevision.Create(
             WorkflowEditing.InsertAfter(LinearBaseline("public-sequence-child"), "input", NodeTypes.Uppercase),
@@ -420,6 +443,7 @@ public sealed class SequenceProductionRunnerTests
                 ["sibling-output"] = new(new("sibling", "out"), new("output", "execute"), "execution")
             }.ToImmutableSortedDictionary()
         };
+        if (unified) parent = parent with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
         var revision = WorkflowRevision.Create(WorkflowJson.Deserialize(WorkflowJson.Serialize(parent)), "test");
         var events = new List<ExecutionEvent>();
 
@@ -770,6 +794,66 @@ public sealed class SequenceProductionRunnerTests
         Assert.False(result.Failed);
         Assert.Equal(3, events.Count(eventItem => eventItem.Kind == ExecutionEventKinds.SequenceOutputDispatched));
         Assert.DoesNotContain(events, eventItem => eventItem.Kind == ExecutionEventKinds.SequenceCancelled);
+    }
+
+    [Fact]
+    public async Task Unified_sequence_evaluates_pure_integer_addition_for_each_typed_mcp_argument()
+    {
+        var source = SequencePathDefinition();
+        var nodes = source.Nodes
+            .Add("left", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(40) })
+            .Add("right", new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(2) })
+            .Add("sum", new(NodeTypes.IntegerAdd, "1.0.0"));
+        foreach (var id in new[] { "inventory-tool", "architecture-tool" })
+            nodes = nodes.SetItem(id, nodes[id] with
+            { McpArgumentsJson = null, McpInputPorts = [new("arg.count", "count", WorkflowDataTypes.Integer, true)] });
+        var definition = source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Nodes = nodes,
+            Connections = source.Connections
+                .Add("left-sum", new(new("left", "out"), new("sum", "left"), "data"))
+                .Add("right-sum", new(new("right", "out"), new("sum", "right"), "data"))
+                .Add("inventory-count", new(new("sum", "out"), new("inventory-tool", "arg.count"), "data"))
+                .Add("architecture-count", new(new("sum", "out"), new("architecture-tool", "arg.count"), "data"))
+        };
+        var broker = new RecordingBroker();
+        var events = new List<ExecutionEvent>();
+        var result = await new WorkflowRunner(broker).ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "test"), "caller input", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("tool-result", result.Output);
+        Assert.Equal(2, broker.Arguments.Count);
+        Assert.All(broker.Arguments, arguments => Assert.Equal(42, arguments.GetProperty("count").GetInt64()));
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "sum"));
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId is "sum" or "left" or "right");
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
+    }
+
+    [Fact]
+    public async Task Unified_sequence_agent_result_flows_through_a_following_transform()
+    {
+        var source = SequenceAgentPathDefinition();
+        var definition = source with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Nodes = source.Nodes.Add("uppercase", new(NodeTypes.SequenceUppercase, "1.0.0")),
+            Connections = source.Connections.Add("agent-transform-value", new(new("inventory-agent", "out"), new("uppercase", "in"), "data")),
+            ExecutionConnections = source.ExecutionConnections!
+                .SetItem("inventory-output", new(new("inventory-agent", "out"), new("uppercase", "execute"), "execution"))
+                .Add("transform-output", new(new("uppercase", "then"), new("output", "execute"), "execution"))
+        };
+        var events = new List<ExecutionEvent>();
+        var result = await new WorkflowRunner(new RecordingBroker(), new SequenceProofAgentExecutor())
+            .ExecuteWithOutcomeAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "test"), "hello", null,
+                evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed);
+        Assert.Equal("HELLO", result.Output);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "uppercase" && evt.Data == "HELLO");
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
     }
 
     [Fact]
@@ -1567,12 +1651,14 @@ public sealed class SequenceProductionRunnerTests
 
     private sealed class RecordingBroker : INodeToolBroker
     {
+        public List<JsonElement> Arguments { get; } = [];
+
         public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
 
-        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new Scope();
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new Scope(this);
 
-        private sealed class Scope : INodeToolScope
+        private sealed class Scope(RecordingBroker owner) : INodeToolScope
         {
             public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default) =>
                 Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
@@ -1580,8 +1666,11 @@ public sealed class SequenceProductionRunnerTests
             public Task<string> InvokeAsync(string bindingId, string input, CancellationToken cancellationToken = default) =>
                 Task.FromResult("tool-result");
 
-            public Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments, CancellationToken cancellationToken = default) =>
-                Task.FromResult("tool-result");
+            public Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments, CancellationToken cancellationToken = default)
+            {
+                owner.Arguments.Add(arguments.Clone());
+                return Task.FromResult("tool-result");
+            }
 
             public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         }

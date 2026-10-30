@@ -7,10 +7,12 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 
 public sealed class ConfigurableParallelExecutionTests
 {
-    [Fact]
-    public async Task ConfigurableForkRunsThreeBranchesConcurrentlyAndRecordsNamedJoinPayload()
+    [Theory]
+    [InlineData("1.32")]
+    [InlineData("2.0")]
+    public async Task ConfigurableForkRunsThreeBranchesConcurrentlyAndRecordsNamedJoinPayload(string schemaVersion)
     {
-        var definition = Definition();
+        var definition = Definition() with { SchemaVersion = schemaVersion };
         var executor = new ThreeBranchExecutor();
         var events = new List<ExecutionEvent>();
 

@@ -7,6 +7,41 @@ namespace VisualAgentWorkflow.Core.Tests;
 public sealed class SequenceWorkflowCallEditingTests
 {
     [Fact]
+    public void Unified_json_composition_and_merge_need_no_promotion()
+    {
+        var child = WorkflowRevision.Create(JsonBaseline("json-child"), "test");
+        var source = WorkflowSchemaNormalization.NormalizeForEditing(PathGraph());
+        var direct = WorkflowCallEditing.AppendSequenceWorkflowCallJsonDraft(source, "sequence", new(1, child));
+        var callId = direct.Nodes.Single(entry => entry.Value.Type == NodeTypes.WorkflowCall).Key;
+        var projected = WorkflowCallEditing.AppendSequenceWorkflowCallJsonCompositionDraft(direct, callId, NodeTypes.JsonProject, "/answer");
+        var merged = WorkflowCallEditing.AppendSequenceWorkflowCallJsonMergeDraft(projected, callId);
+        Assert.Equal("2.0", merged.SchemaVersion);
+        Assert.Contains(merged.Nodes.Values, node => node.Type == NodeTypes.JsonMerge);
+        Assert.Empty(WorkflowValidator.Validate(merged));
+        Assert.Same(child.Definition, merged.Nodes[callId].WorkflowCall!.Definition);
+        var selected = WorkflowCallEditing.AppendSequenceWorkflowCallJsonChainCompositionDraft(projected, callId, NodeTypes.JsonSelectString, "/value");
+        Assert.Equal("2.0", selected.SchemaVersion);
+        Assert.Empty(WorkflowValidator.Validate(selected));
+    }
+
+    [Fact]
+    public void Unified_call_and_transform_edits_are_executable_without_promotion()
+    {
+        var child = WorkflowRevision.Create(Baseline("child"), "test");
+        var source = WorkflowSchemaNormalization.NormalizeForEditing(PathGraph());
+        var result = WorkflowCallEditing.AppendSequenceWorkflowCallDraft(source, "sequence", "empty", new(1, child));
+        var call = Assert.Single(result.Nodes, entry => entry.Value.Type == NodeTypes.WorkflowCall);
+        Assert.Equal("2.0", result.SchemaVersion);
+        Assert.Empty(WorkflowValidator.Validate(result));
+        Assert.Same(child.Definition, call.Value.WorkflowCall!.Definition);
+        var transformed = WorkflowCallEditing.AppendSequenceWorkflowCallTransformDraft(result, call.Key, NodeTypes.SequenceReverse);
+        Assert.Equal("2.0", transformed.SchemaVersion);
+        Assert.Empty(WorkflowValidator.Validate(transformed));
+        Assert.Same(child.Definition, transformed.Nodes[call.Key].WorkflowCall!.Definition);
+        Assert.DoesNotContain(source.Nodes.Values, node => node.Type == NodeTypes.WorkflowCall);
+    }
+
+    [Fact]
     public void Appends_a_pinned_call_to_an_empty_or_direct_mcp_sequence_path_as_a_saveable_draft()
     {
         var child = WorkflowRevision.Create(Baseline("child"), "test");

@@ -11,6 +11,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableExplicitGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion == WorkflowSchemaVersions.ExplicitGraph && definition.ExecutionConnections is not null) return definition;
         var onlyProcessingNodes = definition.Nodes.Count == 2 &&
             definition.Nodes.TryGetValue(definition.EntryNodeId, out var input) && input.Type == NodeTypes.Input &&
@@ -36,6 +37,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableMutableVariablesGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.ExplicitGraph || definition.ExecutionConnections is null)
             throw new ArgumentException("Start with a valid typed graph before enabling run-scoped variables.", nameof(definition));
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -81,6 +83,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableExplicitBranchGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.ExplicitGraph || definition.ExecutionConnections is null)
             throw new ArgumentException("Start the explicit graph preview before enabling branch routing.", nameof(definition));
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -91,6 +94,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableDirectMcpGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.ExplicitGraph || definition.ExecutionConnections is null)
             throw new ArgumentException("Start with a valid typed graph before enabling direct MCP tool nodes.", nameof(definition));
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -103,6 +107,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableNumberGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.DirectMcpPinsGraph || definition.ExecutionConnections is null)
             throw new ArgumentException("Enable direct MCP tools before adding typed number pins.", nameof(definition));
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -115,6 +120,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableNumberPropagationGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.NumberGraph || definition.ExecutionConnections is null)
             throw new ArgumentException("Enable finite number MCP pins before binding workflow number parameters.", nameof(definition));
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -127,6 +133,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableNumberArithmeticGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.NumberPropagationGraph || definition.ExecutionConnections is null)
             throw new ArgumentException("Enable finite-number propagation before adding number arithmetic nodes.", nameof(definition));
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -139,6 +146,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableTypedBooleanGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.ExplicitBranchGraph || definition.ExecutionConnections is null)
             throw new ArgumentException("Start the Boolean Branch preview before enabling Boolean constants and NOT.", nameof(definition));
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -149,6 +157,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableBooleanTopologyGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.TypedBooleanGraph || definition.ExecutionConnections is null)
             throw new ArgumentException("Enable Boolean primitives before expanding the branch topology.", nameof(definition));
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -159,6 +168,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnablePureGraphFunctions(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.BooleanTopologyGraph || definition.ExecutionConnections is null)
             throw new ArgumentException("Enable bounded Boolean branch topologies before adding pure graph functions.", nameof(definition));
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -169,6 +179,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableAgentGraphFunctionTools(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.PureGraphFunctions || definition.ExecutionConnections is null)
             throw new ArgumentException("Only a valid schema 1.27 pure-function graph can be upgraded to agent graph-function tools.", nameof(definition));
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -179,6 +190,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableIntegerGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.AgentExecutionRoutes || definition.ExecutionConnections is null)
             throw new ArgumentException("Enable the agent graph schema before adding typed integer values.", nameof(definition));
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -189,6 +201,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableStringIntegerConversionGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph || definition.ExecutionConnections is null)
             throw new ArgumentException("Enable typed integer graph values before adding explicit conversions.", nameof(definition));
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -199,7 +212,8 @@ public static class GraphEditing
     public static WorkflowDefinition EnableIntegerStringConversionGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph) || definition.ExecutionConnections is null)
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph) || definition.ExecutionConnections is null)
             throw new ArgumentException("Enable an explicit conversion or schema 1.57 graph before adding integer-to-string conversion.", nameof(definition));
         WorkflowValidator.ThrowIfInvalid(definition);
         return definition with { SchemaVersion = WorkflowSchemaVersions.IntegerStringConversionGraph };
@@ -210,7 +224,7 @@ public static class GraphEditing
         WorkflowDefinition definition, string sourceId, string sourcePortId, string targetId, string targetPortId)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (definition.SchemaVersion != WorkflowSchemaVersions.IntegerStringConversionGraph || definition.ExecutionConnections is null)
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerStringConversionGraph) || definition.ExecutionConnections is null)
             throw new ArgumentException("Integer-to-string insertion requires an explicit schema 1.58 conversion graph.", nameof(definition));
         if (sourceId == targetId || !definition.Nodes.TryGetValue(sourceId, out var source) ||
             !definition.Nodes.TryGetValue(targetId, out var target))
@@ -248,7 +262,7 @@ public static class GraphEditing
         WorkflowDefinition definition, string sourceId, string sourcePortId, string targetId, string targetPortId)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (definition.SchemaVersion != WorkflowSchemaVersions.StringIntegerConversionGraph ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.StringIntegerConversionGraph) ||
             definition.ExecutionConnections is null)
             throw new ArgumentException("String-to-integer insertion requires an explicit schema 1.39 conversion graph.", nameof(definition));
         if (sourceId == targetId || !definition.Nodes.TryGetValue(sourceId, out var source) ||
@@ -285,7 +299,7 @@ public static class GraphEditing
     public static WorkflowDefinition CreateConfigurableParallelGraph(WorkflowDefinition definition, int branchCount)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph || branchCount is < ParallelBranchLimits.MinimumBranches or > ParallelGraphLimits.MaximumExplicitBranches)
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerGraph) || branchCount is < ParallelBranchLimits.MinimumBranches or > ParallelGraphLimits.MaximumExplicitBranches)
             throw new ArgumentException($"Choose {ParallelBranchLimits.MinimumBranches}–{ParallelGraphLimits.MaximumExplicitBranches} branches on a schema 1.31 integer graph.", nameof(branchCount));
         WorkflowValidator.ThrowIfInvalid(definition);
 
@@ -334,7 +348,7 @@ public static class GraphEditing
             .Add(NewId("link"), new(new(joinId, "then"), entryRoute.Value.Target, "execution"));
         var result = definition with
         {
-            SchemaVersion = WorkflowSchemaVersions.ConfigurableParallelGraph,
+            SchemaVersion = definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph ? definition.SchemaVersion : WorkflowSchemaVersions.ConfigurableParallelGraph,
             Nodes = nodes.SetItem(forkId, nodes[forkId] with { ParallelFork = new(branchDescriptors) }),
             Connections = definition.Connections.Remove(outputData.Key).Add(NewId("link"), new(new(joinId, "out"), new(outputEntry.Key, "in"), "data")),
             ExecutionConnections = execution
@@ -345,7 +359,7 @@ public static class GraphEditing
     public static WorkflowDefinition RenameConfigurableParallelBranch(WorkflowDefinition definition, string forkNodeId,
         string branchId, string label)
     {
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph) ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph) ||
             !ParallelBranchLimits.IsValidId(branchId) || string.IsNullOrWhiteSpace(label) ||
             label.Length > ParallelBranchLimits.MaximumLabelLength ||
             !definition.Nodes.TryGetValue(forkNodeId, out var fork) || fork.Type != NodeTypes.ParallelFork || fork.ParallelFork is not { } configuration)
@@ -458,7 +472,7 @@ public static class GraphEditing
         string outputId, string label)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph) ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration || !SequenceOutputLimits.IsValidId(outputId) ||
             string.IsNullOrWhiteSpace(label) || label.Trim().Length > SequenceOutputLimits.MaximumLabelLength ||
@@ -475,7 +489,7 @@ public static class GraphEditing
     {
         ArgumentNullException.ThrowIfNull(definition);
         if (offset is not (-1 or 1)) throw new ArgumentOutOfRangeException(nameof(offset));
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph) ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration)
             throw new ArgumentException("Choose a configured Sequence node.", nameof(sequenceNodeId));
@@ -493,7 +507,7 @@ public static class GraphEditing
     {
         ArgumentNullException.ThrowIfNull(definition);
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph) ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration || definition.ExecutionConnections is not { } execution)
             throw new ArgumentException("Choose a configured Sequence node.", nameof(sequenceNodeId));
@@ -520,7 +534,7 @@ public static class GraphEditing
     {
         ArgumentNullException.ThrowIfNull(definition);
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph) ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph) ||
             !definition.Nodes.TryGetValue(sequenceNodeId, out var sequence) || sequence.Type != NodeTypes.Sequence ||
             sequence.Sequence is not { } configuration || definition.ExecutionConnections is not { } execution)
             throw new ArgumentException("Choose a configured Sequence node.", nameof(sequenceNodeId));
@@ -540,6 +554,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableSequencePathGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceGraph ||
             definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty)
             throw new ArgumentException("Enable Sequence paths only from a valid schema 1.38 graph.", nameof(definition));
@@ -550,6 +565,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableSequenceAgentPathGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.SequencePathGraph ||
             definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty)
             throw new ArgumentException("Enable Sequence Agent paths only from a valid schema 1.43 graph.", nameof(definition));
@@ -560,6 +576,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableSequenceTransformPathGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.SequencePathGraph ||
             definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty)
             throw new ArgumentException("Enable Sequence transform paths only from a valid schema 1.43 graph.", nameof(definition));
@@ -570,6 +587,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableSequenceReversePathGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceTransformPathGraph ||
             definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty)
             throw new ArgumentException("Enable Sequence reverse paths only from a valid schema 1.47 graph.", nameof(definition));
@@ -580,7 +598,8 @@ public static class GraphEditing
     public static WorkflowDefinition EnableSequenceTransformChainGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph) ||
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph) ||
             definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty)
             throw new ArgumentException("Enable Sequence transform chains only from a valid schema 1.47 or 1.48 graph.", nameof(definition));
         return definition with { SchemaVersion = WorkflowSchemaVersions.SequenceTransformChainGraph };
@@ -591,6 +610,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableSequenceWorkflowCallGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceTransformChainGraph ||
             definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty)
             throw new ArgumentException("Enable Sequence WorkflowCall paths only from a valid schema 1.49 graph.", nameof(definition));
@@ -601,6 +621,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableSequenceWorkflowCallTransformGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallGraph ||
             definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty)
             throw new ArgumentException("Enable Sequence WorkflowCall transforms only from a valid schema 1.50 graph.", nameof(definition));
@@ -611,6 +632,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableSequenceWorkflowCallAgentGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph ||
             definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty)
             throw new ArgumentException("Enable post-call Agents only from a valid schema 1.51 graph.", nameof(definition));
@@ -621,6 +643,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableSequenceWorkflowCallJsonGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph ||
             definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty)
             throw new ArgumentException("Enable post-call JSON composition only from a valid schema 1.52 graph.", nameof(definition));
@@ -631,6 +654,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableSequenceWorkflowCallJsonChainGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph ||
             definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty ||
             !SequenceWorkflowCallJsonTopology.Analyze(definition).IsValid)
@@ -642,6 +666,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableSequenceWorkflowCallJsonMergeGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph ||
             definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty ||
             !SequenceWorkflowCallJsonChainTopology.Analyze(definition).IsValid)
@@ -653,6 +678,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableSequenceWorkflowCallJsonArrayGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph ||
             definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty ||
             !SequenceWorkflowCallJsonMergeTopology.Analyze(definition).IsValid)
@@ -664,6 +690,7 @@ public static class GraphEditing
     public static WorkflowDefinition EnableSequenceWorkflowCallJsonControlGraph(WorkflowDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) return definition;
         if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph ||
             definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty ||
             !SequenceWorkflowCallJsonArrayTopology.Analyze(definition).IsValid)
@@ -674,7 +701,7 @@ public static class GraphEditing
     private static (NodeDefinition Fork, ParallelForkConfiguration ForkConfiguration, string JoinId, NodeDefinition Join,
         ParallelJoinConfiguration JoinConfiguration) ConfigurableParallelRegion(WorkflowDefinition definition, string forkNodeId)
     {
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph) ||
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph) ||
             !definition.Nodes.TryGetValue(forkNodeId, out var fork) || fork.Type != NodeTypes.ParallelFork ||
             fork.ParallelFork is not { } forkConfiguration || definition.ExecutionConnections is null)
             throw new ArgumentException("Choose a configurable parallel fork in a schema 1.32 graph.", nameof(forkNodeId));
@@ -744,7 +771,7 @@ public static class GraphEditing
             Nodes = target.Type == NodeTypes.Output
                 ? definition.Nodes.SetItem(targetId, target with { OutputDataType = output.DataType == "json" ? "json" : null })
                 : definition.Nodes,
-            SchemaVersion = output.DataType == "json" && definition.SchemaVersion is not ("1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16") ? "1.13" : definition.SchemaVersion,
+            SchemaVersion = output.DataType == "json" && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16") ? "1.13" : definition.SchemaVersion,
             Connections = connections.Add(connectionId, new(new(sourceId, sourcePortId), new(targetId, targetPortId), "data"))
         };
     }
@@ -828,7 +855,7 @@ public static class GraphEditing
             throw new ArgumentException("Choose pins on existing nodes.");
         var sourcePort = WorkflowPorts.Explicit(source).SingleOrDefault(port => port.Direction == WorkflowPortDirection.Output && port.Id == sourcePortId);
         if (sourcePort is not null && target.Type == NodeTypes.Output &&
-            (definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph))
+            (definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph))
             target = target with { OutputDataType = sourcePort.Kind == WorkflowPortKind.Data ? sourcePort.DataType : target.OutputDataType };
         var targetPort = WorkflowPorts.Explicit(target).SingleOrDefault(port => port.Direction == WorkflowPortDirection.Input && port.Id == targetPortId);
         if (sourcePort is null || targetPort is null || sourcePort.Kind != targetPort.Kind || sourcePort.DataType != targetPort.DataType)
@@ -844,7 +871,7 @@ public static class GraphEditing
         if (sourcePort.Kind == WorkflowPortKind.Execution)
         {
             var edges = definition.ExecutionConnections ?? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal);
-            var allowsAlternativeInput = definition.SchemaVersion is WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph &&
+            var allowsAlternativeInput = definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph &&
                 target.Type is NodeTypes.BooleanBranch or NodeTypes.Output or NodeTypes.Terminate;
             // Schema 1.26 treats incoming execution edges as mutually exclusive alternatives.
             // Each source pin still chooses only one destination; earlier schemas keep one edge per input.
@@ -877,7 +904,7 @@ public static class GraphEditing
         var connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(branch, "in"), "data"))
             .Add(NewId("link"), Link(branch, "true", merge)).Add(NewId("link"), Link(branch, "false", merge))
             .Add(NewId("link"), new(new(merge, "out"), edge.Value.Target, "data"));
-        return Checked(definition with { SchemaVersion = definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : "1.4", Nodes = nodes, Connections = connections });
+        return Checked(definition with { SchemaVersion = definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : definition.SchemaVersion == "1.5" ? "1.5" : "1.4", Nodes = nodes, Connections = connections });
     }
 
     public static WorkflowDefinition InsertParallelBlockAfter(WorkflowDefinition definition, string sourceId, string portId)
@@ -923,9 +950,9 @@ public static class GraphEditing
             : connections.Add(NewId("link"), new(new(joinId, "out"), new(selectorId, "in"), "data"))
                 .Add(NewId("link"), new(new(selectorId, "out"), edge.Value.Target, "data"));
 
-        var schemaVersion = existingBlockCount > 0 ? definition.SchemaVersion is "1.22" or "1.21" ? definition.SchemaVersion : "1.20" : definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16"
+        var schemaVersion = existingBlockCount > 0 ? definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or "1.22" or "1.21" ? definition.SchemaVersion : "1.20" : definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16"
             ? definition.SchemaVersion : definition.SchemaVersion == "1.15" ? "1.15" : "1.14";
-        return Checked(definition with { SchemaVersion = schemaVersion, Nodes = nodes, Connections = connections });
+        return Checked(definition with { SchemaVersion = definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph ? definition.SchemaVersion : schemaVersion, Nodes = nodes, Connections = connections });
     }
 
     public static WorkflowDefinition InsertBoundedLoopAfter(WorkflowDefinition definition, string sourceId, string portId)
@@ -944,7 +971,7 @@ public static class GraphEditing
         { Loop = new(new("contains", "continue"), 3) };
         return Checked(definition with
         {
-            SchemaVersion = definition.SchemaVersion is "1.22" or "1.21" or "1.20" ? definition.SchemaVersion : definition.SchemaVersion == "1.19" ? "1.19" : definition.SchemaVersion == "1.18" ? "1.18" : "1.17",
+            SchemaVersion = definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or "1.22" or "1.21" or "1.20" ? definition.SchemaVersion : definition.SchemaVersion == "1.19" ? "1.19" : definition.SchemaVersion == "1.18" ? "1.18" : "1.17",
             Nodes = definition.Nodes.Add(loopId, loop).Add(bodyId, new(NodeTypes.LoopBody, "1.0.0")),
             Connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(loopId, "in"), "data"))
                 .Add(NewId("link"), Link(loopId, "body", bodyId))
@@ -970,7 +997,7 @@ public static class GraphEditing
         var id = NewId("terminate");
         var result = definition with
         {
-            SchemaVersion = definition.SchemaVersion is "1.22" or "1.21" or "1.20" ? definition.SchemaVersion : definition.SchemaVersion == "1.19" ? "1.19" : "1.18",
+            SchemaVersion = definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or "1.22" or "1.21" or "1.20" ? definition.SchemaVersion : definition.SchemaVersion == "1.19" ? "1.19" : "1.18",
             Nodes = definition.Nodes.Add(id, new(NodeTypes.Terminate, "1.0.0")),
             Connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(id, "in"), "data"))
         };
@@ -1012,7 +1039,7 @@ public static class GraphEditing
 
         return Checked(definition with
         {
-            SchemaVersion = definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : "1.9",
+            SchemaVersion = definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : "1.9",
             Nodes = definition.Nodes.SetItem(inputId, input with { InputDataType = "json" }).Add(selectorId, selector),
             Connections = definition.Connections.SetItem(edge.Key, new(new(selectorId, "out"), edge.Value.Target, "data"))
                 .Add(NewId("link"), new(new(inputId, "out"), new(selectorId, "in"), "data"))
@@ -1173,7 +1200,7 @@ public static class GraphEditing
 
         return Checked(definition with
         {
-            SchemaVersion = sourceType == "json" && definition.SchemaVersion is not ("1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16") ? "1.13" : definition.SchemaVersion,
+            SchemaVersion = sourceType == "json" && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16") ? "1.13" : definition.SchemaVersion,
             Nodes = nodes,
             Connections = definition.Connections.Remove(incoming.Key).SetItem(outgoing.Key,
                 new(incoming.Value.Source, outgoing.Value.Target, "data"))
@@ -1190,7 +1217,7 @@ public static class GraphEditing
         var id = NewId("approval");
         return Checked(definition with
         {
-            SchemaVersion = definition.SchemaVersion is "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : "1.5",
+            SchemaVersion = definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or "1.22" or "1.21" or "1.20" or "1.19" or "1.18" or "1.17" or "1.16" or "1.15" or "1.14" or "1.13" or "1.12" or "1.11" or "1.10" ? definition.SchemaVersion : definition.SchemaVersion == "1.9" ? "1.9" : definition.SchemaVersion == "1.8" ? "1.8" : definition.SchemaVersion == "1.7" ? "1.7" : definition.SchemaVersion == "1.6" ? "1.6" : "1.5",
             Nodes = definition.Nodes.Add(id, new(NodeTypes.Approval, "1.0.0") { Approval = new("Review the exact MCP call before allowing it.") }),
             Connections = definition.Connections.SetItem(edge.Key, new(edge.Value.Source, new(id, "in"), "data"))
                 .Add(NewId("link"), Link(id, "out", targetId))

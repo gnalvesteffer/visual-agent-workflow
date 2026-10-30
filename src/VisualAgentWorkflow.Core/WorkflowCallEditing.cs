@@ -18,12 +18,12 @@ public static class WorkflowCallEditing
         ArgumentNullException.ThrowIfNull(parent);
         ArgumentException.ThrowIfNullOrWhiteSpace(callNodeId);
         ArgumentNullException.ThrowIfNull(pointer);
-        if (parent.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph ||
+        if (parent.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph) ||
             compositionType is not (NodeTypes.JsonSelectString or NodeTypes.JsonProject))
             throw new ArgumentException("JSON composition authoring requires a schema 1.53 graph and a JSON selector or projection node.", nameof(parent));
         WorkflowJsonPointer.Parse(pointer);
         WorkflowValidator.ThrowIfInvalid(parent);
-        var analysis = SequenceWorkflowCallJsonTopology.Analyze(parent);
+        var analysis = SequenceWorkflowCallJsonTopology.Analyze(parent.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph ? parent with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph } : parent);
         var path = analysis.Paths.SingleOrDefault(candidate => candidate.CallNodeId == callNodeId);
         if (!analysis.IsValid || path is null || path.JsonNodeId is not null)
             throw new ArgumentException("Choose a valid direct JSON WorkflowCall path without an existing composition node.", nameof(callNodeId));
@@ -67,12 +67,12 @@ public static class WorkflowCallEditing
         ArgumentNullException.ThrowIfNull(parent);
         ArgumentException.ThrowIfNullOrWhiteSpace(callNodeId);
         ArgumentNullException.ThrowIfNull(pointer);
-        if (parent.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph ||
+        if (parent.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph) ||
             compositionType is not (NodeTypes.JsonSelectString or NodeTypes.JsonProject))
             throw new ArgumentException("JSON chain authoring requires a schema 1.54 graph and a JSON selector or projection node.", nameof(parent));
         WorkflowJsonPointer.Parse(pointer);
         WorkflowValidator.ThrowIfInvalid(parent);
-        var analysis = SequenceWorkflowCallJsonChainTopology.Analyze(parent);
+        var analysis = SequenceWorkflowCallJsonChainTopology.Analyze(parent.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph ? parent with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph } : parent);
         var path = analysis.Paths.SingleOrDefault(candidate => candidate.CallNodeId == callNodeId);
         if (!analysis.IsValid || path is null || path.JsonNodeIds.Length != 1 ||
             parent.Nodes[path.JsonNodeIds[0]].Type != NodeTypes.JsonProject)
@@ -118,11 +118,11 @@ public static class WorkflowCallEditing
     {
         ArgumentNullException.ThrowIfNull(parent);
         ArgumentException.ThrowIfNullOrWhiteSpace(callNodeId);
-        if (parent.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph)
+        if (parent.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph))
             throw new ArgumentException("JSON merge authoring requires a schema 1.54 graph.", nameof(parent));
 
         WorkflowValidator.ThrowIfInvalid(parent);
-        var analysis = SequenceWorkflowCallJsonChainTopology.Analyze(parent);
+        var analysis = SequenceWorkflowCallJsonChainTopology.Analyze(parent.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph ? parent with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph } : parent);
         var path = analysis.Paths.SingleOrDefault(candidate => candidate.CallNodeId == callNodeId);
         if (!analysis.IsValid || path is null || path.JsonNodeIds.Length != 1 ||
             parent.Nodes[path.JsonNodeIds[0]].Type != NodeTypes.JsonProject)
@@ -139,14 +139,14 @@ public static class WorkflowCallEditing
         var mergeId = NewId("json-merge");
         var updated = parent with
         {
-            SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph,
+            SchemaVersion = parent.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph ? parent.SchemaVersion : WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph,
             Nodes = parent.Nodes.Add(mergeId, new NodeDefinition(NodeTypes.JsonMerge, "1.0.0")),
             Connections = parent.Connections.Remove(dataEdge.Key)
                 .Add(NewId("workflow-call-json-merge-data"), new(new(callNodeId, "out"), new(mergeId, "left"), "data"))
                 .Add(NewId("workflow-call-json-merge-data"), new(new(projectionId, "out"), new(mergeId, "right"), "data"))
                 .Add(NewId("workflow-call-json-merge-data"), new(new(mergeId, "out"), new(outputId, "in"), "data"))
         };
-        if (!SequenceWorkflowCallJsonMergeTopology.Analyze(updated).IsValid)
+        if (!SequenceWorkflowCallJsonMergeTopology.Analyze(updated.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph ? updated with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph } : updated).IsValid)
             throw new InvalidOperationException("The JSON merge authoring edit did not produce the bounded schema 1.55 topology.");
         WorkflowJson.SerializeDraft(updated);
         return updated;
@@ -157,7 +157,7 @@ public static class WorkflowCallEditing
     {
         ArgumentNullException.ThrowIfNull(parent);
         ArgumentException.ThrowIfNullOrWhiteSpace(callNodeId);
-        if (parent.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph)
+        if (parent.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph))
             throw new ArgumentException("JSON-array authoring requires a schema 1.55 graph.", nameof(parent));
 
         WorkflowValidator.ThrowIfInvalid(parent);
@@ -178,7 +178,7 @@ public static class WorkflowCallEditing
         var lengthId = NewId("array-length");
         var updated = parent with
         {
-            SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph,
+            SchemaVersion = parent.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph ? parent.SchemaVersion : WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph,
             Nodes = parent.Nodes
                 .Add(toArrayId, new NodeDefinition(NodeTypes.JsonToArray, "1.0.0"))
                 .Add(lengthId, new NodeDefinition(NodeTypes.ArrayLength, "1.0.0"))
@@ -188,7 +188,7 @@ public static class WorkflowCallEditing
                 .Add(NewId("workflow-call-json-array-data"), new(new(toArrayId, "out"), new(lengthId, "in"), "data"))
                 .Add(NewId("workflow-call-json-array-data"), new(new(lengthId, "out"), new(outputId, "in"), "data"))
         };
-        if (!SequenceWorkflowCallJsonArrayTopology.Analyze(updated).IsValid)
+        if (!SequenceWorkflowCallJsonArrayTopology.Analyze(updated.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph ? updated with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph } : updated).IsValid)
             throw new InvalidOperationException("The JSON-array authoring edit did not produce the bounded schema 1.56 topology.");
         WorkflowJson.SerializeDraft(updated);
         return updated;
@@ -199,11 +199,11 @@ public static class WorkflowCallEditing
     {
         ArgumentNullException.ThrowIfNull(parent);
         ArgumentException.ThrowIfNullOrWhiteSpace(callNodeId);
-        if (parent.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph)
+        if (parent.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph))
             throw new ArgumentException("JSON control authoring requires a schema 1.56 graph.", nameof(parent));
 
         WorkflowValidator.ThrowIfInvalid(parent);
-        var analysis = SequenceWorkflowCallJsonArrayTopology.Analyze(parent);
+        var analysis = SequenceWorkflowCallJsonArrayTopology.Analyze(parent.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph ? parent with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph } : parent);
         var path = analysis.Paths.SingleOrDefault(candidate => candidate.CallNodeId == callNodeId);
         if (!analysis.IsValid || path is null)
             throw new ArgumentException("Choose a valid bounded JSON-array WorkflowCall path.", nameof(callNodeId));
@@ -222,7 +222,7 @@ public static class WorkflowCallEditing
         var terminateId = NewId("terminate");
         var updated = parent with
         {
-            SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph,
+            SchemaVersion = parent.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph ? parent.SchemaVersion : WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph,
             Nodes = parent.Nodes
                 .Add(equalsId, new NodeDefinition(NodeTypes.IntegerEquals, "1.0.0"))
                 .Add(constantId, new NodeDefinition(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(expectedLength) })
@@ -240,7 +240,7 @@ public static class WorkflowCallEditing
                 .Add(NewId("workflow-call-json-control-execution"), new(new(branchId, "true"), new(outputId, "execute"), "execution"))
                 .Add(NewId("workflow-call-json-control-execution"), new(new(branchId, "false"), new(terminateId, "execute"), "execution"))
         };
-        if (!SequenceWorkflowCallJsonControlTopology.Analyze(updated).IsValid)
+        if (!SequenceWorkflowCallJsonControlTopology.Analyze(updated.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph ? updated with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph } : updated).IsValid)
             throw new InvalidOperationException("The JSON-control authoring edit did not produce the bounded schema 1.57 topology.");
         WorkflowJson.SerializeDraft(updated);
         return updated;
@@ -258,7 +258,7 @@ public static class WorkflowCallEditing
         ArgumentException.ThrowIfNullOrWhiteSpace(sequenceNodeId);
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(target.Revision);
-        if (parent.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph ||
+        if (parent.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph) ||
             target.Version < 1 || target.Revision.Definition.WorkflowId == parent.WorkflowId)
             throw new ArgumentException("JSON WorkflowCall authoring requires a schema 1.52 draft and a different published child.", nameof(parent));
         WorkflowValidator.ThrowIfInvalid(parent);
@@ -288,7 +288,7 @@ public static class WorkflowCallEditing
             .Add(NewId("workflow-call-json"), new(new(callId, "out"), new(outputNode.Key, "execute"), "execution"));
         var updated = withOutput with
         {
-            SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph,
+            SchemaVersion = parent.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph ? parent.SchemaVersion : WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph,
             Nodes = withOutput.Nodes
                 .SetItem(outputNode.Key, outputNode.Value with { OutputDataType = WorkflowDataTypes.Json })
                 .Add(callId, call),
@@ -309,7 +309,7 @@ public static class WorkflowCallEditing
     {
         ArgumentNullException.ThrowIfNull(parent);
         ArgumentException.ThrowIfNullOrWhiteSpace(callNodeId);
-        if (parent.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallGraph ||
+        if (parent.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph) ||
             parent.ExecutionConnections is not { } execution ||
             !parent.Nodes.TryGetValue(callNodeId, out var call) || call.Type != NodeTypes.WorkflowCall)
             throw new ArgumentException("Transform authoring requires a schema 1.50 WorkflowCall draft.", nameof(parent));
@@ -347,7 +347,7 @@ public static class WorkflowCallEditing
         ArgumentException.ThrowIfNullOrWhiteSpace(outputId);
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(target.Revision);
-        if (parent.SchemaVersion != WorkflowSchemaVersions.SequenceTransformChainGraph)
+        if (parent.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceTransformChainGraph))
             throw new ArgumentException("WorkflowCall authoring requires a schema 1.49 Sequence draft.", nameof(parent));
         if (target.Version < 1 || target.Revision.Definition.WorkflowId == parent.WorkflowId)
             throw new ArgumentException("Choose a different published child workflow revision.", nameof(target));
@@ -402,7 +402,7 @@ public static class WorkflowCallEditing
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(target.Revision);
-        if (parent.SchemaVersion != WorkflowSchemaVersions.SequenceTransformChainGraph)
+        if (parent.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceTransformChainGraph))
             throw new ArgumentException("WorkflowCall authoring requires a schema 1.49 Sequence draft.", nameof(parent));
         if (!parent.Nodes.TryGetValue(nodeId, out var node) || node.Type != NodeTypes.WorkflowCall || node.WorkflowCall is not { } call)
             throw new ArgumentException("Choose an existing WorkflowCall node.", nameof(nodeId));

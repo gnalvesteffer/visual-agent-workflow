@@ -91,10 +91,12 @@ public sealed class ExplicitGraphExecutionTests
         Assert.Equal(value, data.RootElement.GetProperty("value").GetBoolean());
     }
 
-    [Fact]
-    public async Task Integer_parameter_addition_and_equality_choose_branch_and_record_typed_values()
+    [Theory]
+    [InlineData("1.31")]
+    [InlineData("2.0")]
+    public async Task Integer_parameter_addition_and_equality_choose_branch_and_record_typed_values(string schemaVersion)
     {
-        var definition = IntegerParameterBranchDefinition();
+        var definition = IntegerParameterBranchDefinition() with { SchemaVersion = schemaVersion };
         Assert.Empty(WorkflowValidator.Validate(definition));
         var events = new List<ExecutionEvent>();
 

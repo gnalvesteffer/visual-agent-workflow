@@ -9,7 +9,7 @@ public static class WorkflowVariableEditing
         string defaultValue, string? description = null, string type = WorkflowDataTypes.String)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (definition.SchemaVersion != WorkflowSchemaVersions.MutableVariablesGraph)
+        if (definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.MutableVariablesGraph))
             throw new ArgumentException("Variables require schema 1.44.", nameof(definition));
         if (!IsValidId(id) || string.IsNullOrWhiteSpace(displayName) || displayName.Length > 128)
             throw new ArgumentException("Variable IDs use lowercase letters, digits, dashes, and underscores; names are required and limited to 128 characters.", nameof(id));

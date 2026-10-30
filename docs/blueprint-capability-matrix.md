@@ -2,7 +2,11 @@
 
 This matrix is the audit baseline for the [Blueprint-inspired authoring contracts and ergonomics](roadmap.md#planned-phase-blueprint-inspired-authoring-contracts-and-ergonomics) phase. It compares the capability target in the [Unreal Blueprint reference](unreal-blueprint-reference.md) with the current Visual Agent Workflow implementation. “Shipped” means the repository contains a versioned contract, backend behavior, and focused verification; a palette item or a visual card is not evidence by itself.
 
-Schema 1.58 extends the shipped, bounded typed-value slice with explicit invariant integer-to-string conversion. See [Decision 0059](decisions/0059-explicit-integer-string-conversion.md).
+Schema 2.0 consolidates implemented authoring capabilities into one node library,
+configuration contract, and topology-selected runtime. Graph promotion and
+preview controls are removed. Historical schema numbers in this matrix record
+delivery and compatibility boundaries; current authors do not opt into those
+features. Existing topology bounds remain. See [Decision 0060](decisions/0060-unified-authoring-schema.md).
 
 The target is capability parity at the level of visual programming, not Unreal API or runtime compatibility. The matrix deliberately separates implemented behavior, bounded/partial behavior, future work, and concepts that are intentionally different because workflow authority and evidence have different requirements.
 

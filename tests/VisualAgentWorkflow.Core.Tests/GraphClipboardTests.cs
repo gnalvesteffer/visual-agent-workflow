@@ -6,10 +6,13 @@ namespace VisualAgentWorkflow.Core.Tests;
 
 public sealed class GraphClipboardTests
 {
-    [Fact]
-    public void Pure_fragment_round_trips_and_pastes_with_fresh_ids_and_layout()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Pure_fragment_round_trips_and_pastes_with_fresh_ids_and_layout(bool unified)
     {
         var source = ExplicitWorkflow();
+        if (unified) source = WorkflowSchemaNormalization.NormalizeForEditing(source);
         var sourceLayout = WorkflowLayout.Create(source);
         var fragment = GraphClipboardEditing.Extract(source, sourceLayout, ["constant"], [],
             [new("result", "string", "constant", "out")]);
@@ -22,10 +25,12 @@ public sealed class GraphClipboardTests
         var restored = GraphClipboardJson.Deserialize(json);
         Assert.Equal(boundary, Assert.Single(restored.Outputs));
         var target = TargetWorkflow();
+        if (unified) target = WorkflowSchemaNormalization.NormalizeForEditing(target);
         var pasted = GraphClipboardEditing.Paste(target, WorkflowLayout.Create(target), restored, [],
             [new("result", "output", "in")], new(700, 300),
             id => "copy-" + id, id => "copy-edge-" + id);
 
+        Assert.Equal(target.SchemaVersion, pasted.Definition.SchemaVersion);
         var pastedNode = Assert.Single(pasted.NodeIdMap.Values);
         Assert.Equal("copy-constant", pastedNode);
         Assert.NotEqual("constant", pastedNode);

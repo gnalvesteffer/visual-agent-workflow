@@ -169,12 +169,12 @@ public sealed partial class WorkflowRunner
         ArgumentNullException.ThrowIfNull(record);
         ArgumentNullException.ThrowIfNull(input);
         if (runId == Guid.Empty || input.Length > 16_384) throw new ArgumentException("A run identity and bounded input are required.");
-        var variableStore = revision.Definition.SchemaVersion is WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.LoopVariablesGraph
+        var variableStore = WorkflowCheckpointShape.UsesVariableState(revision.Definition)
             ? checkpoints.RestoredCheckpoint?.VariableState is { } restoredState
                 ? WorkflowVariableStore.FromSnapshot(revision.Definition, restoredState)
                 : new WorkflowVariableStore(revision.Definition)
             : null;
-        var boundaryTracker = revision.Definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph
+        var boundaryTracker = WorkflowCheckpointShape.UsesLoopState(revision.Definition)
             ? new CheckpointBoundaryTracker(checkpoints.RestoredCheckpoint is not null) : null;
         var bridge = new NativeCheckpointBridge(checkpoints, variableStore, boundaryTracker);
         var manager = CheckpointManager.CreateJson(bridge, new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() });
@@ -224,11 +224,17 @@ public sealed partial class WorkflowRunner
     public static void ValidateCheckpointGraph(WorkflowDefinition definition, bool allowLoopCheckpointRecovery = false)
     {
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph && !allowLoopCheckpointRecovery)
+        if (WorkflowCheckpointShape.UsesLoopState(definition) && !allowLoopCheckpointRecovery)
             throw new InvalidOperationException(
-                "Checkpoint recovery for schema 1.45 loop graphs requires explicit host opt-in. " +
+                $"Checkpoint recovery for schema {definition.SchemaVersion} loop graphs requires explicit host opt-in. " +
                 "The native loop cursor, variable snapshot, evidence prefix, and suspension marker " +
                 "must be captured and recovered as one production checkpoint frame.");
+        var usesLoopState = WorkflowCheckpointShape.UsesLoopState(definition);
+        var unsupportedLoop = usesLoopState && !LoopVariableTopologyAnalyzer.Analyze(definition).IsValid;
+        var unsupportedUnifiedPath = definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+            !usesLoopState && !WorkflowCheckpointShape.IsLinearVariableGraph(definition);
+        if (unsupportedLoop || unsupportedUnifiedPath)
+            throw new InvalidOperationException("Checkpoint recovery requires the proven deterministic loop-variable or linear scalar-variable shape.");
         if (definition.Nodes.Values.Any(n =>
         {
             var deterministic = n.Type is NodeTypes.Input or NodeTypes.Output or NodeTypes.Uppercase or NodeTypes.Reverse or

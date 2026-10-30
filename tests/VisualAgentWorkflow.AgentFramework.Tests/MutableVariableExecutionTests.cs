@@ -10,10 +10,12 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 
 public sealed class MutableVariableExecutionTests
 {
-    [Fact]
-    public async Task Set_then_get_reads_the_committed_value_and_records_state_transitions()
+    [Theory]
+    [InlineData("1.44")]
+    [InlineData("2.0")]
+    public async Task Set_then_get_reads_the_committed_value_and_records_state_transitions(string schemaVersion)
     {
-        var revision = WorkflowRevision.Create(Definition(), "variable-proof");
+        var revision = WorkflowRevision.Create(Definition() with { SchemaVersion = schemaVersion }, "variable-proof");
         var events = new List<ExecutionEvent>();
 
         var result = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), revision, "from input",
@@ -96,10 +98,12 @@ public sealed class MutableVariableExecutionTests
         Assert.Equal(2, playback.Values["message"].Version);
     }
 
-    [Fact]
-    public async Task Loop_can_write_and_read_a_run_scoped_variable_on_each_bounded_pass()
+    [Theory]
+    [InlineData("1.45")]
+    [InlineData("2.0")]
+    public async Task Loop_can_write_and_read_a_run_scoped_variable_on_each_bounded_pass(string schemaVersion)
     {
-        var revision = WorkflowRevision.Create(LoopDefinition(), "loop-variable-runtime");
+        var revision = WorkflowRevision.Create(LoopDefinition() with { SchemaVersion = schemaVersion }, "loop-variable-runtime");
         var events = new List<ExecutionEvent>();
 
         var result = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), revision, "continue",

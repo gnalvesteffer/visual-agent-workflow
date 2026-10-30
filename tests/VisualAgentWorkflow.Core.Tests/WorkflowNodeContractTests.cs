@@ -573,7 +573,8 @@ public sealed class WorkflowNodeContractTests
         var agentPorts = WorkflowNodeDescriptorResolver.Resolve(agent).Ports;
         var sequencePorts = WorkflowNodeDescriptorResolver.Resolve(sequence).Ports;
 
-        Assert.Equal(["out", "execute", "route.review", "route.publish"], agentPorts.Select(port => port.Id));
+        Assert.Equal(["in", "out", "execute", "route.review", "route.publish"], agentPorts.Select(port => port.Id));
+        Assert.False(agentPorts.Single(port => port.Id == "in").Required);
         Assert.Equal(["Review", "Publish"], agentPorts.Where(port => port.Kind == WorkflowPortKind.Execution &&
             port.Direction == WorkflowPortDirection.Output).Select(port => port.DisplayName));
         Assert.Equal(["execute", "then.first", "then.second"], sequencePorts.Select(port => port.Id));

@@ -1,5 +1,13 @@
 # Blueprint-style graph editing
 
+Current workflows use schema `2.0` and one node library. There are no graph
+promotion, feature-enablement, or typed-graph preview controls. Add a node,
+configure it in the properties pane, and connect compatible data and execution
+pins. Incomplete graphs remain editable drafts; Problems explains issues and
+prevents execution until they are resolved. Historical schema references below
+record compatibility boundaries rather than required authoring steps.
+See [current schema consolidation](decisions/0060-unified-authoring-schema.md).
+
 ## Reference research
 
 Epic's current documentation pages (Connecting Nodes, Nodes, and the Blueprint Editor Cheat Sheet) were blocked by this environment's proxy during research. The following accessible references were inspected instead:

@@ -10,6 +10,13 @@ public static class WorkflowEditing
         WorkflowValidator.ThrowIfInvalid(definition);
         if (WorkflowGraph.HasControlNodes(definition) || WorkflowGraph.HasTypedJson(definition))
             throw new ArgumentException("Linear edits cannot flatten graphs with control or typed-data nodes.", nameof(definition));
+        if (WorkflowSchemaVersions.UsesExplicitGraph(definition) &&
+            (definition.ExecutionConnections is not { Count: 1 } execution ||
+             definition.Nodes.Values.Any(node => node.Type is not
+                 (NodeTypes.Input or NodeTypes.Output or NodeTypes.Uppercase or NodeTypes.Reverse)) ||
+             !execution.Values.Any(edge => edge.Source == new PortReference(definition.EntryNodeId, "then") &&
+                 definition.Nodes.TryGetValue(edge.Target.NodeId, out var target) && target.Type == NodeTypes.Output && edge.Target.PortId == "execute")))
+            throw new ArgumentException("Linear edits require a pure string path with one direct Input-to-Output execution wire; use graph editing for scheduled graphs.", nameof(definition));
         var successors = definition.Connections.Values.ToDictionary(e => e.Source.NodeId, e => e.Target.NodeId);
         var result = ImmutableArray.CreateBuilder<string>();
         var current = definition.EntryNodeId;
@@ -98,6 +105,13 @@ public static class WorkflowEditing
             connections[id] = new(new(order[i], "out"), new(order[i + 1], "in"), "data");
         }
         var result = definition with { Connections = connections.ToImmutable() };
+        if (WorkflowSchemaVersions.UsesExplicitGraph(definition))
+        {
+            var execution = definition.ExecutionConnections ?? ImmutableSortedDictionary<string, ConnectionDefinition>.Empty;
+            var edge = new ConnectionDefinition(new(order[0], "then"), new(order[^1], "execute"), "execution");
+            var id = execution.FirstOrDefault(entry => entry.Value == edge).Key ?? "activate-" + Guid.NewGuid().ToString("N");
+            result = result with { ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.Add(id, edge) };
+        }
         WorkflowValidator.ThrowIfInvalid(result);
         return result;
     }

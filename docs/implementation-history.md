@@ -2,6 +2,24 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Unified schema 2.0 authoring
+
+Removed graph promotion, capability-enablement, and typed-preview controls and
+their editor handlers. New graphs share one library and property forms for
+the implemented node families. Current validation checks typed connections,
+configuration, required MCP arguments and bounded control topology; runtime
+dispatch admits the existing MCP, Agent, JSON, Sequence, variable, loop,
+parallel and collaboration contracts under schema 2.0. Editing/reuse preserve
+2.0 instead of downgrading through a feature-specific schema helper.
+
+Focused and integrated regressions cover mixed scalar/MCP/Agent graphs,
+approvals, JSON, Sequence, variables, loop processing, collaboration, package
+round trips, editable invalid drafts, and checkpoint compatibility. Browser
+verification exercised palette creation, wiring, save and run with output
+`UNIFIED EDITOR WORKS` and no page errors. Legacy source revisions are retained;
+normalization currently covers explicit graphs and implicit linear text
+pipelines. See [Decision 0060](decisions/0060-unified-authoring-schema.md).
+
 ## Derived MCP schema descriptor
 
 The MCP layer now exposes a versioned, read-only descriptor derived from its

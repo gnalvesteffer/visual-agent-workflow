@@ -1,5 +1,21 @@
 # Implemented architecture
 
+## Current workflow authoring contract
+
+New workflows use schema `2.0`. One node library exposes the implemented node
+families without feature promotions or graph previews. Current validation
+checks node configuration, typed pins, required arguments, cardinality,
+reachability, bounded control regions, and execution paths. Sequence plans
+derive their existing bounded path contract from the nodes in the graph;
+static parallel and collaboration plans derive their branch and phase shape
+from persisted configuration. MCP grants, exact approvals, provider contracts,
+resource limits, and immutable run identity remain host/runtime checks.
+
+Historical 1.x validators and execution paths remain for stored revisions.
+Editor normalization creates a separate current draft and preserves the
+source; package and reuse operations preserve current schema identity and
+pinned dependencies. See [Decision 0060](decisions/0060-unified-authoring-schema.md).
+
 The engine and designer are independently consumable libraries; Studio is their optional IDE and development composition. User-owned service hosting is a first-class product goal, with direct execution APIs and a local hosting helper already available; a production SDK and stable package distribution remain planned. See [service integration](service-integration.md).
 
 The Studio is a .NET 10 Interactive Server development host that composes embeddable Blazor components, local project-scoped authoring catalogs, a background run queue, Microsoft Agent Framework adapters, and a node-scoped MCP broker. Execution belongs to the backend. A browser edits definitions and observes recorded evidence; closing it does not cancel a run. Studio project workspaces are single-operator; Git is the intended source-control mechanism, with no simultaneous editing or in-app Git client. Current SQLite/JSON project catalogs are transitional; the target is ordinary portable folders with ignored `.vaw/` local metadata and immutable run/package snapshots kept outside canonical source.

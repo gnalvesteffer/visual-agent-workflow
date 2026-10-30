@@ -115,7 +115,7 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
             var completed = snapshot.Events.Where(e => e.Kind == ExecutionEventKinds.NodeCompleted).ToArray();
             var suspended = suspendAfter is { } count && completed.Length >= count &&
                 !completed.Any(e => snapshot.Header.Definition.Nodes[e.NodeId!].Type == NodeTypes.Output);
-            if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph &&
+            if (WorkflowCheckpointShape.UsesLoopState(revision.Definition) &&
                 !snapshot.Events.Any(evt => evt.NodeId is not null &&
                     revision.Definition.Nodes.TryGetValue(evt.NodeId, out var node) && node.Type == NodeTypes.Loop &&
                     evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped))
@@ -123,7 +123,7 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
                 boundary = null;
                 return ValueTask.FromResult(false);
             }
-            if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph &&
+            if (WorkflowCheckpointShape.UsesLoopState(revision.Definition) &&
                 boundary is { Observation.NextNodeId: null })
             {
                 boundary = null;
@@ -143,7 +143,7 @@ public sealed class CheckpointWorkflowHost : IAsyncDisposable
             {
                 VariableStateHash = native.VariableState?.ComputeHash()
             };
-            if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph)
+            if (WorkflowCheckpointShape.UsesLoopState(revision.Definition))
             {
                 var observed = boundary ?? throw new InvalidOperationException("The loop checkpoint boundary was not captured by the host.");
                 if (!string.Equals(observed.Checkpoint.CheckpointId, native.CheckpointId, StringComparison.Ordinal) ||

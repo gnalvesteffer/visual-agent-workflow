@@ -104,7 +104,7 @@ public static class WorkflowPackageJson
             if (node.Tool is { } tool) requirements.Add(new("mcp-tool", tool.BindingId, "", tool.ContractHash) { DescriptionHash = tool.DescriptionHash });
             if (node.Agent is { } agent)
             {
-                requirements.Add((definition.SchemaVersion is WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph) && agent.ProviderContractHash is not null
+                requirements.Add((definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph) && agent.ProviderContractHash is not null
                     ? new("agent-provider-contract", agent.ProviderId, "1", agent.ProviderContractHash)
                     : new("agent-provider", agent.ProviderId, ""));
                 foreach (var request in agent.Tools) requirements.Add(new("mcp-tool", request.BindingId, "", request.ContractHash)

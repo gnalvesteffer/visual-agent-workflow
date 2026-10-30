@@ -704,7 +704,12 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 {
                     result = node.Type switch
                     {
+                    NodeTypes.Input when outputPort == "out" && definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph && node.InputDataType == WorkflowDataTypes.Json =>
+                        new ExplicitGraphValue(WorkflowDataTypes.Json, ParseJson(input)),
                     NodeTypes.Input when outputPort == "out" => new ExplicitGraphValue("string", input),
+                    NodeTypes.TextTemplate when outputPort == "out" && definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph =>
+                        new ExplicitGraphValue("string", PromptRendering.Render(node.TextTemplate!,
+                            ResolveStringInput(nodeId, "in", evaluated, cache, active), parameters)),
                     NodeTypes.WorkflowValue when outputPort == "out" => ResolveParameter(node),
                     NodeTypes.StringConstant when outputPort == "out" => new ExplicitGraphValue("string", node.StringConstant!.Value),
                     NodeTypes.TextConcat when outputPort == "out" => new ExplicitGraphValue("string", Concatenate(nodeId, "left", "right", evaluated, cache, active)),
@@ -805,9 +810,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (node.ParameterId is not { } parameterId || parameters is null || !parameters.TryGetValue(parameterId, out var value) ||
                 definition.Parameters is not { } declared || !declared.TryGetValue(parameterId, out var parameter))
                 throw new InvalidOperationException("The workflow parameter value is unavailable.");
-            if (definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph && definition.SchemaVersion != WorkflowSchemaVersions.NumberPropagationGraph && definition.SchemaVersion != WorkflowSchemaVersions.NumberArithmeticGraph)
+            if (definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph && definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph && definition.SchemaVersion != WorkflowSchemaVersions.NumberPropagationGraph && definition.SchemaVersion != WorkflowSchemaVersions.NumberArithmeticGraph)
                 return new("string", value);
-            var allowNumber = definition.SchemaVersion is WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph;
+            var allowNumber = definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph;
             var dataType = WorkflowParameterGraphTypes.DataType(parameter, allowNumber);
             if (dataType is null || node.OutputDataType is { } expectedType && expectedType != dataType)
                 throw new InvalidOperationException("The workflow parameter has an unsupported graph data type.");
@@ -1025,6 +1030,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         private Guid? configurableParallelActivationId;
         private Guid? parallelJoinInvocationId;
         private bool UsesConfigurableParallelGraph => revision.Definition.SchemaVersion is
+            WorkflowSchemaVersions.UnifiedWorkflowGraph or
             WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or
             WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph;
 
@@ -1092,7 +1098,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     var transferEvidence = received.SequenceLineage is { } sequenceLineage
                         ? JsonSerializer.Serialize(new { sequenceLineage, branchId = received.ParallelBranchId,
                             parallelActivationId = received.ParallelActivationId, forkNodeId = received.ParallelForkNodeId })
-                        : revision.Definition.SchemaVersion == WorkflowSchemaVersions.BranchLocalParallelGraph && received.ParallelBranchId is { } transferredBranch
+                        : revision.Definition.SchemaVersion is (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.BranchLocalParallelGraph) && received.ParallelBranchId is { } transferredBranch
                         ? JsonSerializer.Serialize(new
                         {
                             parallelActivationId = received.ParallelActivationId,
@@ -1163,6 +1169,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             {
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Output &&
                     !internalTerminationHandoff && (received.SequenceLineage is null ||
+                        revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+                        revision.Definition.Connections.Values.Any(edge => edge.Target.NodeId == Id && edge.Target.PortId == "in") ||
                         revision.Definition.SchemaVersion is WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph &&
                         (revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph
                             ? SequenceWorkflowCallJsonTopology.IsJsonCompositionGraph(revision.Definition)
@@ -1191,6 +1199,23 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 foreach (var value in (outputEvaluation?.Evaluations ?? []).Concat(branchEvaluation?.Evaluations ?? []).Concat(variableSetEvaluation?.Evaluations ?? []))
                     await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
                         value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value));
+                if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+                    node.Type is NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.Agent or NodeTypes.WorkflowCall or
+                        NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse or NodeTypes.TextTemplate or NodeTypes.McpTool &&
+                    !(node.Type == NodeTypes.McpTool && received.Approval is not null) &&
+                    revision.Definition.Connections.Values.Any(edge => edge.Target.NodeId == Id && edge.Target.PortId == "in"))
+                {
+                    var evaluation = dataEvaluator!.ResolveInput(Id, "in");
+                    message = evaluation.Result.Value switch
+                    {
+                        string text => text,
+                        JsonElement json => json.GetRawText(),
+                        _ => throw new InvalidOperationException("The execution input requires string or JSON data.")
+                    };
+                    foreach (var value in evaluation.Evaluations)
+                        await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
+                            value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value));
+                }
                 WorkflowExecutionResult? childOutcome = null;
                 if (node.Type == NodeTypes.WorkflowCall)
                 {
@@ -1283,8 +1308,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.SequenceUppercase => message.ToUpperInvariant(),
                     NodeTypes.SequenceReverse => string.Concat(message.EnumerateRunes().Reverse()),
                     NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
-                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph
-                        ? await InvokeDirectMcpTool(message, invocation, toolArgumentEvaluations, cancellationToken)
+                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph
+                        ? await InvokeDirectMcpTool(message, invocation, toolArgumentEvaluations, received.Approval is not null, cancellationToken)
                         : await InvokeTool(message, invocation, cancellationToken),
                     NodeTypes.WorkflowCall => childOutcome?.Output ?? string.Empty,
                     NodeTypes.Agent => agents is null ? throw new InvalidOperationException("No agent executor is configured.") :
@@ -1336,13 +1361,29 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     using var childJson = JsonDocument.Parse(result, new JsonDocumentOptions { MaxDepth = 32 });
                     dataEvaluator?.SetRuntimeOutput(Id, "out", WorkflowDataTypes.Json, childJson.RootElement.Clone());
                 }
+                if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+                    node.Type is NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.WorkflowCall or
+                        NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse or NodeTypes.TextTemplate &&
+                    childOutcome?.HasOutput != false &&
+                    !(node.Type == NodeTypes.WorkflowCall && WorkflowPorts.Outputs(node).SingleOrDefault()?.DataType == WorkflowDataTypes.Json))
+                    dataEvaluator?.SetRuntimeOutput(Id, "out", "string", result);
                 if (routeSelection is not null) agentRouteId = routeSelection.Commit();
                 WorkflowApprovalPermit? permit = null;
                 if (node.Type == NodeTypes.Approval)
                 {
                     if (gate is not IWorkflowApprovalGate approvals) throw new InvalidOperationException("No approval coordinator is configured.");
-                    var targetId = revision.Definition.Connections.Values.Single(e => e.Source.NodeId == Id).Target.NodeId;
+                    var approvalEdges = WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition)
+                        ? revision.Definition.ExecutionConnections!.Values
+                        : revision.Definition.Connections.Values;
+                    var targetId = approvalEdges.Single(e => e.Source.NodeId == Id).Target.NodeId;
                     var target = revision.Definition.Nodes[targetId];
+                    if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                    {
+                        message = ResolveDirectMcpArguments(target, targetId, message, toolArgumentEvaluations).GetRawText();
+                        foreach (var evaluation in toolArgumentEvaluations.SelectMany(item => item.Evaluations))
+                            await Emit(ExecutionEventKinds.DataEvaluated, evaluation.NodeId, invocation,
+                                evaluation.ConnectionId is null ? null : $"data:{evaluation.ConnectionId}", SerializeDataEvidence(Id, evaluation));
+                    }
                     var action = new WorkflowApprovalAction(runId, rootRevision.RevisionId, rootRevision.ContentHash, Id, invocation,
                         targetId, Guid.NewGuid(), target.Tool!, message, WorkflowApprovalAction.HashInput(message))
                     {
@@ -1353,6 +1394,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     permit = await approvals.WaitForApprovalAsync(action, node.Approval!.Prompt, cancellationToken);
                     if (permit.TargetInvocationId != action.TargetInvocationId || permit.ActionHash != action.ComputeHash() || permit.RequestId == Guid.Empty)
                         throw new InvalidOperationException("The approval permit does not match the recorded action.");
+                    if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                    {
+                        result = message;
+                        dataEvaluator?.SetRuntimeOutput(Id, "out", "string", result);
+                    }
                 }
                 var port = agentRouteId is null ? "out" : AgentExecutionRouteLimits.PinId(agentRouteId);
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Input) port = "then";
@@ -1360,11 +1406,12 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type is NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse) port = "then";
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type is NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.LoopBody) port = "then";
                 if (UsesConfigurableParallelGraph && node.Type == NodeTypes.ParallelBranch) port = "then";
+                if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph && node.Type is NodeTypes.Merge or NodeTypes.Approval) port = "then";
                 if (node.Type == NodeTypes.BooleanBranch)
                 {
                     var condition = branchEvaluation!.Result;
                     port = (bool)condition.Value ? "true" : "false";
-                    var decisionEvidence = revision.Definition.SchemaVersion == WorkflowSchemaVersions.BranchLocalParallelGraph && received.ParallelBranchId is { } decisionBranch
+                    var decisionEvidence = revision.Definition.SchemaVersion is (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.BranchLocalParallelGraph) && received.ParallelBranchId is { } decisionBranch
                         ? JsonSerializer.Serialize(new
                         {
                             port,
@@ -1378,6 +1425,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 if (node.Type == NodeTypes.Condition)
                 {
                     port = node.Condition!.Evaluate(message) ? "true" : "false";
+                    if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                        dataEvaluator?.SetRuntimeOutput(Id, port, "string", result);
                     await Emit(ExecutionEventKinds.BranchSelected, Id, invocation, null, JsonSerializer.Serialize(new { port }));
                 }
                 var nextLoopIteration = received.LoopIteration;
@@ -1646,20 +1695,31 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             return await scope.InvokeAsync(node.Tool!.BindingId, input, cancellationToken);
         }
 
-        private async Task<string> InvokeDirectMcpTool(string input, Guid invocation, List<DataInputEvaluation> evaluations, CancellationToken cancellationToken)
+        private async Task<string> InvokeDirectMcpTool(string input, Guid invocation, List<DataInputEvaluation> evaluations,
+            bool approved, CancellationToken cancellationToken)
         {
             if (tools is null) throw new InvalidOperationException("No tool broker is configured.");
+            using var approvedDocument = approved ? JsonDocument.Parse(input) : null;
+            var json = approvedDocument?.RootElement.Clone() ?? ResolveDirectMcpArguments(node, Id, input, evaluations);
+            await using var scope = tools.OpenScope(new(runId, revision, Id, invocation,
+                (kind, data) => Emit(kind, Id, invocation, null, data)));
+            return await scope.InvokeJsonAsync(node.Tool!.BindingId, json, cancellationToken);
+        }
+
+        private JsonElement ResolveDirectMcpArguments(NodeDefinition target, string targetId, string input,
+            List<DataInputEvaluation> evaluations)
+        {
             var usesPins = WorkflowSchemaVersions.UsesDirectMcpPins(revision.Definition.SchemaVersion);
             var mcpArguments = System.Collections.Immutable.ImmutableArray<WorkflowMcpArgumentDescriptor>.Empty;
-            if (usesPins && node.McpInputPorts is not null &&
-                !WorkflowNodeDescriptorResolver.TryResolveMcpArguments(node, out mcpArguments))
+            if (usesPins && target.McpInputPorts is not null &&
+                !WorkflowNodeDescriptorResolver.TryResolveMcpArguments(target, out mcpArguments))
                 throw new InvalidOperationException("The direct MCP node's persisted argument pins do not match its resolved descriptor.");
             JsonObject arguments;
-            if (usesPins && node.McpInputPorts is not null && node.McpArgumentsJson is null)
+            if (usesPins && target.McpInputPorts is not null && target.McpArgumentsJson is null)
             {
                 arguments = new();
             }
-            else if (node.McpArgumentsJson is { } configuredArguments)
+            else if (target.McpArgumentsJson is { } configuredArguments)
             {
                 try { arguments = JsonNode.Parse(configuredArguments)?.AsObject() ?? throw new InvalidOperationException("Configured MCP arguments must be a JSON object."); }
                 catch (JsonException exception) { throw new InvalidOperationException("Configured MCP arguments must be a JSON object.", exception); }
@@ -1669,21 +1729,18 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 try { arguments = JsonNode.Parse(input)?.AsObject() ?? throw new InvalidOperationException("A direct MCP node requires a JSON object of tool arguments. For text tools, use {\"text\":\"...\"}."); }
                 catch (JsonException exception) { throw new InvalidOperationException("A direct MCP node requires a JSON object of tool arguments. For text tools, use {\"text\":\"...\"}.", exception); }
             }
-            if (usesPins && node.McpInputPorts is not null)
+            if (usesPins && target.McpInputPorts is not null)
             {
                 foreach (var argument in mcpArguments)
                 {
-                    var connection = revision.Definition.Connections.FirstOrDefault(edge => edge.Value.Target.NodeId == Id && edge.Value.Target.PortId == argument.Port.Id);
+                    var connection = revision.Definition.Connections.FirstOrDefault(edge => edge.Value.Target.NodeId == targetId && edge.Value.Target.PortId == argument.Port.Id);
                     if (connection.Value is null) continue;
-                    var evaluation = dataEvaluator!.ResolveInput(Id, argument.Port.Id);
+                    var evaluation = dataEvaluator!.ResolveInput(targetId, argument.Port.Id);
                     evaluations.Add(evaluation);
                     arguments[argument.Argument.Name] = ToJsonNode(evaluation.Result);
                 }
             }
-            var json = JsonSerializer.SerializeToElement(arguments, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-            await using var scope = tools.OpenScope(new(runId, revision, Id, invocation,
-                (kind, data) => Emit(kind, Id, invocation, null, data)));
-            return await scope.InvokeJsonAsync(node.Tool!.BindingId, json, cancellationToken);
+            return JsonSerializer.SerializeToElement(arguments, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         }
 
         private static JsonNode ToJsonNode(ExplicitGraphValue value) => value.DataType switch

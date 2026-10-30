@@ -52,12 +52,14 @@ public sealed class DirectMcpExecutionTests
         Assert.Equal("{\"query\":\"configured\"}", broker.Input);
     }
 
-    [Fact]
-    public async Task Schema_1_37_builds_tool_arguments_from_typed_input_pins()
+    [Theory]
+    [InlineData("1.37")]
+    [InlineData("2.0")]
+    public async Task Schema_1_37_builds_tool_arguments_from_typed_input_pins(string schemaVersion)
     {
         var broker = new RecordingBroker();
         var result = await new WorkflowRunner(broker).ExecuteWithOutcomeAsync(Guid.NewGuid(),
-            WorkflowRevision.Create(PinDefinition(), "test"), "ignored", null,
+            WorkflowRevision.Create(PinDefinition() with { SchemaVersion = schemaVersion }, "test"), "ignored", null,
             _ => ValueTask.CompletedTask);
 
         Assert.False(result.Failed);
@@ -133,6 +135,45 @@ public sealed class DirectMcpExecutionTests
             ["complete"] = new(new("tool", "then"), new("output", "execute"), "execution")
         }.ToImmutableSortedDictionary(StringComparer.Ordinal)
     };
+
+    [Fact]
+    public async Task Unified_approval_captures_typed_arguments_and_dispatches_the_approved_snapshot()
+    {
+        var baseline = PinDefinition();
+        var definition = baseline with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Nodes = baseline.Nodes.Add("approval", new(NodeTypes.Approval, "1.0.0") { Approval = new("Approve read") }),
+            Connections = baseline.Connections.Add("approval-input", new(new("input", "out"), new("approval", "in"), "data")),
+            ExecutionConnections = baseline.ExecutionConnections!
+                .SetItem("activate-tool", new(new("input", "then"), new("approval", "execute"), "execution"))
+                .Add("approved-tool", new(new("approval", "then"), new("tool", "execute"), "execution"))
+        };
+        var broker = new RecordingBroker();
+        var gate = new CapturingApprovalGate();
+        var result = await new WorkflowRunner(broker).ExecuteControlledWithParametersAndOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "test"), "caller data", null, _ => ValueTask.CompletedTask, gate);
+
+        Assert.False(result.Failed);
+        Assert.Equal("tool-result", result.Output);
+        Assert.NotNull(gate.Action);
+        Assert.Equal(gate.Action.Input, broker.Input);
+        using var arguments = JsonDocument.Parse(gate.Action.Input);
+        Assert.Equal("README.md", arguments.RootElement.GetProperty("path").GetString());
+        Assert.Equal(50000, arguments.RootElement.GetProperty("maxBytes").GetInt64());
+    }
+
+    private sealed class CapturingApprovalGate : IWorkflowExecutionGate, IWorkflowApprovalGate
+    {
+        public WorkflowApprovalAction? Action { get; private set; }
+        public ValueTask WaitForBoundaryAsync(string? nextNodeId, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+        public ValueTask<WorkflowApprovalPermit> WaitForApprovalAsync(WorkflowApprovalAction action, string prompt,
+            CancellationToken cancellationToken)
+        {
+            Action = action;
+            return ValueTask.FromResult(new WorkflowApprovalPermit(Guid.NewGuid(), action.ComputeHash(), action.TargetInvocationId));
+        }
+    }
 
     private static WorkflowDefinition PinDefinition() => new(
         WorkflowSchemaVersions.DirectMcpPinsGraph, "direct-mcp-pins-runtime", "input",

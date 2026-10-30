@@ -263,18 +263,20 @@ public sealed class CheckpointRecoveryTests : IDisposable
         Assert.Equal("The checkpoint is incompatible or invalid.", assessment.Reason);
     }
 
-    [Fact]
-    public async Task VariableGraphsRestore_state_before_resuming_execution()
+    [Theory]
+    [InlineData(WorkflowSchemaVersions.MutableVariablesGraph)]
+    [InlineData(WorkflowSchemaVersions.UnifiedWorkflowGraph)]
+    public async Task VariableGraphsRestore_state_before_resuming_execution(string schemaVersion)
     {
         var store = Store();
         await using var runtime = new CheckpointWorkflowHost(store);
 
-        var suspended = await runtime.StartAsync(VariableRevision(), "next", 2);
+        var suspended = await runtime.StartAsync(VariableRevision(schemaVersion), "next", 2);
 
         Assert.Equal("suspended", suspended.Status);
         var checkpoint = store.GetCheckpoint(suspended.Header.RunId)!;
         Assert.NotNull(checkpoint.Native.VariableState);
-        Assert.Equal(WorkflowSchemaVersions.MutableVariablesGraph, suspended.Header.Definition.SchemaVersion);
+        Assert.Equal(schemaVersion, suspended.Header.Definition.SchemaVersion);
         Assert.Null(checkpoint.Frame);
         Assert.Equal(checkpoint.Native.VariableState!.ComputeHash(), checkpoint.VariableStateHash);
         Assert.True(WorkflowCheckpointRecovery.Assess(suspended, checkpoint).CanResume);
@@ -444,7 +446,7 @@ public sealed class CheckpointRecoveryTests : IDisposable
         public void Release() => release.TrySetResult(true);
     }
 
-    private static WorkflowRevision VariableRevision()
+    private static WorkflowRevision VariableRevision(string schemaVersion = WorkflowSchemaVersions.MutableVariablesGraph)
     {
         var nodes = new Dictionary<string, NodeDefinition>
         {
@@ -469,7 +471,7 @@ public sealed class CheckpointRecoveryTests : IDisposable
             ["set-get"] = new(new("set-again", "then"), new("get", "execute"), "execution"),
             ["get-output"] = new(new("get", "then"), new("output", "execute"), "execution")
         };
-        var definition = new WorkflowDefinition(WorkflowSchemaVersions.MutableVariablesGraph, "checkpoint-variable", "input",
+        var definition = new WorkflowDefinition(schemaVersion, "checkpoint-variable", "input",
             nodes.ToImmutableSortedDictionary(), data.ToImmutableSortedDictionary())
         {
             Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty

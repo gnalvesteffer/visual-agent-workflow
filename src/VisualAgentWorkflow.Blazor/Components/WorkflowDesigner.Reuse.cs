@@ -367,7 +367,7 @@ public partial class WorkflowDesigner
             sequenceCallOutputId, source);
         if (!Current(current)) return;
         ApplyComposition(new(next, layout.Reconcile(next)));
-        message = $"Added the pinned call to Sequence output '{sequenceCallOutputId}'. Save this schema 1.49 draft, then promote the WorkflowCall draft before publishing or running.";
+        message = $"Added the pinned call to Sequence output '{sequenceCallOutputId}'. Save the draft before publishing or running.";
     });
 
     private Task InsertSequenceWorkflowCallTransform() => Perform(async current =>
@@ -379,7 +379,7 @@ public partial class WorkflowDesigner
             sequenceCallTransformNodeId, sequenceCallTransformType);
         if (!Current(current)) return;
         ApplyComposition(new(next, layout.Reconcile(next)));
-        message = $"Added a {(sequenceCallTransformType == NodeTypes.SequenceReverse ? "reverse" : "uppercase")} step after the pinned call. Save this schema 1.50 draft, then promote it to schema 1.51 before publishing or running.";
+        message = $"Added a {(sequenceCallTransformType == NodeTypes.SequenceReverse ? "reverse" : "uppercase")} step after the pinned call. Save the draft before publishing or running.";
     });
 
     private Task InsertSequenceWorkflowCallJson() => Perform(async current =>

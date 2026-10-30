@@ -543,8 +543,8 @@ public static class WorkflowNodeDescriptorResolver
     }
 
     private static bool AtLeast(string actual, string minimum) =>
-        int.TryParse(actual.Split('.').LastOrDefault(), out var actualMinor) &&
-        int.TryParse(minimum.Split('.').LastOrDefault(), out var minimumMinor) && actualMinor >= minimumMinor;
+        Version.TryParse(actual, out var actualVersion) &&
+        Version.TryParse(minimum, out var minimumVersion) && actualVersion >= minimumVersion;
 
     /// <summary>
     /// Resolves persisted direct-MCP argument pins through the same descriptor used by
@@ -608,7 +608,7 @@ public static class WorkflowNodeDescriptorResolver
             {
                 Description = effectiveNode.Type == NodeTypes.McpTool && discoveredMcpInputDescriptions is not null &&
                     discoveredMcpInputDescriptions.TryGetValue(port.Id, out var description) ? description : null,
-                Required = effectiveNode.Type != NodeTypes.McpTool || mcpInputs is not { } || mcpPort?.Required == true,
+                Required = effectiveNode.Type != NodeTypes.Agent && (effectiveNode.Type != NodeTypes.McpTool || mcpInputs is not { } || mcpPort?.Required == true),
                 Cardinality = effectiveNode.Type == NodeTypes.McpTool
                     ? WorkflowPortCardinality.AtMostOne
                     : WorkflowPortCardinality.ExactlyOne,

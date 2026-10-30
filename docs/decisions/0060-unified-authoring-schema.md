@@ -10,9 +10,11 @@ current contract; authors do not perform a chain of schema promotions to reach
 features already shipped by the platform.
 
 Historical 1.x definitions retain their serialized bytes, hashes, revisions,
-and runtime semantics. Loading a legacy definition does not silently rewrite
-it. A later increment will provide an explicit, reviewable normalization to
-2.0 with source/target provenance and deterministic diagnostics.
+and runtime semantics. Loading a legacy definition does not rewrite stored
+source or published revisions. `WorkflowSchemaNormalization.NormalizeForEditing`
+creates a separate current draft, preserving graph identities and embedded
+snapshots. It accepts explicit graphs and verified implicit linear text graphs;
+unsupported translations return diagnostics. Saving remains an authored edit.
 
 Schema 2.0 does not remove host-owned security or correctness boundaries:
 typed pin compatibility, graph boundedness, MCP grants, approvals, provider
@@ -30,8 +32,21 @@ for playback and existing projects.
 
 ## Implementation boundary
 
-The first increment registers 2.0, makes new explicit templates use it, and
-routes ordinary unified graphs through the explicit validator. Follow-up
-increments must complete unified validation, runtime plan selection, editor
-library behavior, normalization, package/reuse support, and regression proof.
+Schema 2.0 uses common node-configuration checks and typed graph validation.
+Sequence, loop, and parallel regions select their existing bounded contracts
+from graph contents. Internal compatibility views do not change revision
+identity or create author-facing capability switches.
+
+The editor has one node library and node property forms. Feature promotion,
+schema preview, and enable-capability buttons are removed. Existing public
+1.x editing/migration APIs remain available to consumers of historical assets.
+They are compatibility APIs rather than the current Studio authoring path.
+
+New current graphs combine parameters, scalar operations and conversions,
+pure functions, JSON composition, Agents, typed MCP calls, approvals, explicit
+branches and termination. Bounded Sequence paths, variable loops, static
+parallel regions and collaboration retain their implemented topology limits.
+This consolidation makes existing capabilities available together; it does
+not introduce nested parallelism, unrestricted cyclic execution, implicit
+type coercion, or new authority grants.
 

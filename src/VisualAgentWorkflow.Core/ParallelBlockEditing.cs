@@ -9,7 +9,7 @@ public static class ParallelBlockEditing
     {
         ArgumentNullException.ThrowIfNull(definition);
         WorkflowValidator.ThrowIfInvalid(definition);
-        if (definition.SchemaVersion is WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph)
+        if (definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph)
             return ConfigurableNodes(definition, nodeId);
         if (!definition.Nodes.TryGetValue(nodeId, out var selected) ||
             selected.Type is not (NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin))
@@ -53,7 +53,7 @@ public static class ParallelBlockEditing
 
     public static WorkflowDefinition Remove(WorkflowDefinition definition, string nodeId)
     {
-        if (definition.SchemaVersion is WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph)
+        if (definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph)
             return RemoveConfigurable(definition, nodeId);
         var removed = Nodes(definition, nodeId).ToHashSet(StringComparer.Ordinal);
         var forkId = removed.Single(id => definition.Nodes[id].Type == NodeTypes.ParallelFork);
@@ -171,7 +171,7 @@ public static class ParallelBlockEditing
             .Add("link-" + Guid.NewGuid().ToString("N"), new(new(inputId, "out"), new(output.Key, "in"), "data"));
         var result = definition with
         {
-            SchemaVersion = WorkflowSchemaVersions.IntegerGraph,
+            SchemaVersion = definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph ? definition.SchemaVersion : WorkflowSchemaVersions.IntegerGraph,
             Nodes = nodes,
             Connections = data,
             ExecutionConnections = execution

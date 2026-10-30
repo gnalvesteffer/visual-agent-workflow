@@ -73,7 +73,8 @@ public sealed record WorkflowCheckpointFrame(
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(evidence);
-        if (FrameVersion != CurrentFrameVersion || WorkflowSchemaVersion != WorkflowSchemaVersions.LoopVariablesGraph ||
+        if (FrameVersion != CurrentFrameVersion || WorkflowSchemaVersion != revision.Definition.SchemaVersion ||
+            !WorkflowCheckpointShape.UsesLoopState(revision.Definition) ||
             RunId == Guid.Empty || RunId != evidence.FirstOrDefault()?.RunId || RevisionId != revision.RevisionId ||
             !string.Equals(ContentHash, revision.ContentHash, StringComparison.Ordinal) ||
             !WorkflowJson.MatchesHash(revision.Definition, ContentHash) ||
@@ -177,4 +178,43 @@ public sealed record WorkflowCheckpointFrame(
         character is >= '0' and <= '9' or >= 'a' and <= 'f');
 
     private static string Hash(string value) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+}
+
+/// <summary>Selects checkpoint state from the authored graph without changing its schema or revision.</summary>
+/// <remarks>These shape predicates do not grant recovery. Admission must also validate the graph,
+/// deterministic node limits, loop proof topology, and host opt-in.</remarks>
+public static class WorkflowCheckpointShape
+{
+    public static bool UsesLoopState(WorkflowDefinition definition) =>
+        definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph ||
+        definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+        definition.Nodes.Values.Any(node => node.Type is NodeTypes.Loop or NodeTypes.LoopBody);
+
+    public static bool UsesVariableState(WorkflowDefinition definition) =>
+        definition.SchemaVersion is WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.LoopVariablesGraph ||
+        definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+        definition.Variables is { Count: > 0 };
+
+    /// <summary>The previously supported straight scalar Get/Set execution path.</summary>
+    public static bool IsLinearVariableGraph(WorkflowDefinition definition)
+    {
+        if (definition.Variables is not { Count: > 0 } || definition.ExecutionConnections is null ||
+            definition.Nodes.Values.Any(node => node.Type is not (NodeTypes.Input or NodeTypes.Output or
+                NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.StringConstant or
+                NodeTypes.BooleanConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant)))
+            return false;
+        var edges = definition.ExecutionConnections.Values.ToArray();
+        return definition.Nodes.All(pair =>
+        {
+            var incoming = edges.Count(edge => edge.Target.NodeId == pair.Key);
+            var outgoing = edges.Count(edge => edge.Source.NodeId == pair.Key);
+            return pair.Value.Type switch
+            {
+                NodeTypes.Input => incoming == 0 && outgoing == 1,
+                NodeTypes.Output => incoming == 1 && outgoing == 0,
+                NodeTypes.VariableGet or NodeTypes.VariableSet => incoming == 1 && outgoing == 1,
+                _ => incoming == 0 && outgoing == 0
+            };
+        });
+    }
 }

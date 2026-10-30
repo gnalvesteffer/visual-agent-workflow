@@ -7,10 +7,12 @@ namespace VisualAgentWorkflow.Core.Tests;
 
 public sealed class WorkflowCheckpointFrameTests
 {
-    [Fact]
-    public void Proof_frame_binds_loop_cursor_variables_and_evidence_prefix()
+    [Theory]
+    [InlineData(WorkflowSchemaVersions.LoopVariablesGraph)]
+    [InlineData(WorkflowSchemaVersions.UnifiedWorkflowGraph)]
+    public void Proof_frame_binds_loop_cursor_variables_and_evidence_prefix(string schemaVersion)
     {
-        var revision = WorkflowRevision.Create(LoopVariableTopologyTests.Candidate(), "checkpoint-proof");
+        var revision = WorkflowRevision.Create(LoopVariableTopologyTests.Candidate() with { SchemaVersion = schemaVersion }, "checkpoint-proof");
         var runId = Guid.NewGuid();
         var events = Evidence(runId, revision.RevisionId);
         var variables = new WorkflowVariableStore(revision.Definition).Snapshot();
@@ -19,6 +21,7 @@ public sealed class WorkflowCheckpointFrameTests
 
         frame.Validate(revision, events);
         Assert.Equal(WorkflowCheckpointFrame.CurrentFrameVersion, frame.FrameVersion);
+        Assert.Equal(schemaVersion, frame.WorkflowSchemaVersion);
         Assert.Equal(2, frame.EvidenceCursor);
         Assert.Equal(64, frame.FrameHash!.Length);
     }

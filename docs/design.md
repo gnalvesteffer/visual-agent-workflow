@@ -15,6 +15,7 @@ Aim for broad extensibility, with explicit, validated execution semantics. Suppo
 - Microsoft Agent Framework is the intended agent and workflow execution foundation.
 - The browser is an editor and observer. Runs must outlive browser connections and UI processes.
 - Blueprint-style visual scripting is the default authoring model. General-purpose user scripting is not part of the initial design.
+- Current workflows use one consolidated schema and expose implemented features without graph promotions or preview modes. Schema versions describe document compatibility; typed contracts, graph topology, and host policy determine valid execution.
 - MCP servers are the primary providers of external tools and side effects.
 - Capabilities are granted explicitly, scoped to nodes, and enforced on every invocation by the backend.
 - Published definitions and dependencies are immutable and identifiable.
