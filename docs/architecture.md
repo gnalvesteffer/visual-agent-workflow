@@ -208,6 +208,17 @@ the explicit promotion is schema-only until an author adds the merge topology.
 No arrays, scalars, effectful nodes, arbitrary fan-out, or general merge chains
 are implied. See [Decision 0055](decisions/0055-sequence-workflow-call-json-merge.md).
 
+Schema 1.56 adds the first bounded typed container refinement beyond JSON objects:
+`WorkflowCall.out → core.json.to-array → core.array.length → Output.in`. The
+refinement accepts only a JSON array root, preserves it as an immutable
+`array<json>` value, limits it to 64 elements and the existing 32-depth/
+16,384-character JSON bounds, and exposes the count as a signed 64-bit integer.
+Execution remains the direct WorkflowCall-to-Output barrier. The promotion from
+1.55 is schema-only; existing 1.55 graphs remain valid and do not gain invented
+nodes. The array chain is deliberately disjoint from the object merge and does
+not yet imply arbitrary container operators, fan-out, mutable arrays, or
+data-driven control flow. See [Decision 0056](decisions/0056-sequence-workflow-call-json-arrays.md).
+
 Schema 1.40 adds a finite IEEE-754 `number` constant for direct-MCP graphs.
 Top-level MCP JSON Schema number properties become exact typed input pins and
 are serialized as JSON numbers. Non-finite values are rejected; integer/number

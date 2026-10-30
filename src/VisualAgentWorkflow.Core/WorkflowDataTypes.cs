@@ -9,6 +9,8 @@ public static class WorkflowDataTypes
     public const string Integer = "integer";
     public const string Number = "number";
     public const string Json = "json";
+    /// <summary>Bounded immutable ordered array whose elements retain JSON value shape.</summary>
+    public const string JsonArray = "array<json>";
 }
 
 /// <summary>Versioned metadata for a data type that can cross a portable workflow pin.</summary>
@@ -30,7 +32,8 @@ public static class WorkflowDataTypeCatalog
         new(WorkflowDataTypes.Boolean, "1.0.0", "Boolean", "True or false value.", false, false, false),
         new(WorkflowDataTypes.Integer, "1.0.0", "Integer", "Signed 64-bit integer value.", false, false, false),
         new(WorkflowDataTypes.Number, "1.0.0", "Number", "Finite IEEE-754 double value.", false, false, false),
-        new(WorkflowDataTypes.Json, "1.0.0", "JSON", "Bounded structured JSON value.", true, false, false)
+        new(WorkflowDataTypes.Json, "1.0.0", "JSON", "Bounded structured JSON value.", true, false, false),
+        new(WorkflowDataTypes.JsonArray, "1.0.0", "JSON array", "Bounded immutable ordered array of JSON values.", true, false, false)
     ];
 
     public static bool IsSupported(string? type) =>

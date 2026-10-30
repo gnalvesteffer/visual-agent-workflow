@@ -9,7 +9,7 @@ public sealed class WorkflowDataTypeTests
     public void Catalog_contains_only_the_supported_portable_graph_types()
     {
         Assert.Equal(
-            new[] { WorkflowDataTypes.String, WorkflowDataTypes.Boolean, WorkflowDataTypes.Integer, WorkflowDataTypes.Number, WorkflowDataTypes.Json },
+            new[] { WorkflowDataTypes.String, WorkflowDataTypes.Boolean, WorkflowDataTypes.Integer, WorkflowDataTypes.Number, WorkflowDataTypes.Json, WorkflowDataTypes.JsonArray },
             WorkflowDataTypeCatalog.All.Select(contract => contract.Id));
         Assert.All(WorkflowDataTypeCatalog.All, contract =>
         {

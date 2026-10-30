@@ -730,6 +730,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         ParseJson(StringExecutor.MergeJson(
                             ResolveJsonInput(nodeId, "left", evaluated, cache, active),
                             ResolveJsonInput(nodeId, "right", evaluated, cache, active)))),
+                    NodeTypes.JsonToArray when outputPort == "out" => ConvertJsonToArray(nodeId, evaluated, cache, active),
+                    NodeTypes.ArrayLength when outputPort == "out" => new ExplicitGraphValue(WorkflowDataTypes.Integer,
+                        (long)ResolveJsonArrayInput(nodeId, "in", evaluated, cache, active).GetArrayLength()),
                     NodeTypes.FunctionCall when node.GraphFunction is { } function && function.Definition.Outputs.TryGetValue(outputPort, out var output) =>
                         EvaluateFunction(nodeId, outputPort, output.DataType, function, evaluated, cache, active),
                         _ => throw new InvalidOperationException("The data source is not a supported pure value node.")
@@ -913,6 +916,32 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (value.DataType != WorkflowDataTypes.Json || value.Value is not JsonElement json)
                 throw new InvalidOperationException("The pure data input requires a JSON value.");
             return json.GetRawText();
+        }
+
+        private ExplicitGraphValue ConvertJsonToArray(string nodeId,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            var input = ResolveJsonInput(nodeId, "in", evaluated, cache, active);
+            using var document = JsonDocument.Parse(input, new JsonDocumentOptions { MaxDepth = 32 });
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+                throw new InvalidOperationException("JSON-to-array requires an array root value.");
+            if (document.RootElement.GetArrayLength() > SequenceWorkflowCallJsonArrayTopology.MaximumArrayItems)
+                throw new InvalidOperationException($"JSON array exceeds {SequenceWorkflowCallJsonArrayTopology.MaximumArrayItems} items.");
+            return new ExplicitGraphValue(WorkflowDataTypes.JsonArray, document.RootElement.Clone());
+        }
+
+        private JsonElement ResolveJsonArrayInput(string nodeId, string inputPort,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            var edge = definition.Connections.Single(connection => connection.Value.Target.NodeId == nodeId && connection.Value.Target.PortId == inputPort);
+            var value = ResolveOutput(edge.Value.Source.NodeId, edge.Value.Source.PortId, edge.Key, evaluated, cache, active);
+            if (value.DataType != WorkflowDataTypes.JsonArray || value.Value is not JsonElement json || json.ValueKind != JsonValueKind.Array)
+                throw new InvalidOperationException("The pure data input requires a bounded JSON array.");
+            return json;
         }
 
         private static JsonElement ParseJson(string value)
@@ -1131,12 +1160,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             {
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Output &&
                     !internalTerminationHandoff && (received.SequenceLineage is null ||
-                        revision.Definition.SchemaVersion is WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph &&
+                        revision.Definition.SchemaVersion is WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph &&
                         (revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph
                             ? SequenceWorkflowCallJsonTopology.IsJsonCompositionGraph(revision.Definition)
                             : revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph
                                 ? SequenceWorkflowCallJsonChainTopology.IsJsonCompositionGraph(revision.Definition)
-                                : SequenceWorkflowCallJsonMergeTopology.Analyze(revision.Definition).IsValid)))
+                                : revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph
+                                    ? SequenceWorkflowCallJsonArrayTopology.Analyze(revision.Definition).IsValid
+                                    : SequenceWorkflowCallJsonMergeTopology.Analyze(revision.Definition).IsValid)))
                 {
                     outputEvaluation = dataEvaluator!.ResolveInput(Id, "in");
                     message = outputEvaluation.Result.DataType switch
@@ -1247,7 +1278,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.SequenceUppercase => message.ToUpperInvariant(),
                     NodeTypes.SequenceReverse => string.Concat(message.EnumerateRunes().Reverse()),
                     NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
-                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph
+                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph
                         ? await InvokeDirectMcpTool(message, invocation, toolArgumentEvaluations, cancellationToken)
                         : await InvokeTool(message, invocation, cancellationToken),
                     NodeTypes.WorkflowCall => childOutcome?.Output ?? string.Empty,

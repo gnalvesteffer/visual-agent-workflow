@@ -110,7 +110,7 @@ public static class WorkflowEditing
 
     private static void RequireEditable(string type)
     {
-        if (type is not (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.WorkflowValue or NodeTypes.JsonSelectString or NodeTypes.JsonProject or NodeTypes.TextTemplate))
+        if (type is not (NodeTypes.Uppercase or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.WorkflowValue or NodeTypes.JsonSelectString or NodeTypes.JsonProject or NodeTypes.JsonToArray or NodeTypes.ArrayLength or NodeTypes.TextTemplate))
             throw new ArgumentException("Only registered processing nodes can be edited.", nameof(type));
     }
 

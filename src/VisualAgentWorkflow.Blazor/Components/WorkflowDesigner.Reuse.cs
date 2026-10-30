@@ -152,6 +152,13 @@ public partial class WorkflowDesigner
         ? SequenceWorkflowCallJsonChainTopology.Analyze(current).Paths.Where(path => path.JsonNodeIds.Length == 1).ToImmutableArray()
         : [];
 
+    private ImmutableArray<SequenceWorkflowCallJsonChainPath> SequenceCallJsonArrayPaths => definition is { } current &&
+        current.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph &&
+        WorkflowValidator.Validate(current).IsEmpty
+        ? SequenceWorkflowCallJsonChainTopology.Analyze(current with
+            { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph }).Paths.Where(path => path.JsonNodeIds.IsEmpty).ToImmutableArray()
+        : [];
+
     private bool CanAuthorSequenceWorkflowCallJsonMerge => !IdeMode && preview is null && !busy &&
         !string.IsNullOrWhiteSpace(sequenceCallJsonNodeId) &&
         SequenceCallJsonChainPaths.Any(path => path.CallNodeId == sequenceCallJsonNodeId &&
@@ -166,6 +173,10 @@ public partial class WorkflowDesigner
         !string.IsNullOrWhiteSpace(sequenceCallJsonNodeId) &&
         SequenceCallJsonChainPaths.Any(path => path.CallNodeId == sequenceCallJsonNodeId) &&
         sequenceCallJsonCompositionType is NodeTypes.JsonSelectString or NodeTypes.JsonProject;
+
+    private bool CanAuthorSequenceWorkflowCallJsonArray => !IdeMode && preview is null && !busy &&
+        !string.IsNullOrWhiteSpace(sequenceCallJsonNodeId) &&
+        SequenceCallJsonArrayPaths.Any(path => path.CallNodeId == sequenceCallJsonNodeId);
 
     private WorkflowCallUpgradeResult UpgradeSelectedCall(PublishedWorkflowRevision target) =>
         definition?.SchemaVersion == WorkflowSchemaVersions.SequenceTransformChainGraph
@@ -408,6 +419,16 @@ public partial class WorkflowDesigner
         if (!Current(current)) return;
         ApplyComposition(new(next, layout.Reconcile(next)));
         message = "Added the bounded JSON object merge. The child output now feeds both the projection and merge; save and publish after reviewing the topology.";
+    });
+
+    private Task InsertSequenceWorkflowCallJsonArray() => Perform(async current =>
+    {
+        if (!CanAuthorSequenceWorkflowCallJsonArray || definition is null || layout is null)
+            return;
+        var next = WorkflowCallEditing.AppendSequenceWorkflowCallJsonArrayDraft(definition, sequenceCallJsonNodeId);
+        if (!Current(current)) return;
+        ApplyComposition(new(next, layout.Reconcile(next)));
+        message = "Added the bounded JSON-array refinement and length node. The call remains the execution barrier; save and publish after reviewing the typed integer result.";
     });
 
     private static bool HasJsonBoundary(WorkflowDefinition child)

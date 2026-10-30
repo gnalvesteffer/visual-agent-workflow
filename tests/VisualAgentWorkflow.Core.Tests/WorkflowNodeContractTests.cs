@@ -264,6 +264,8 @@ public sealed class WorkflowNodeContractTests
             [NodeTypes.IntegerEquals] = ("integer-equals", [("left", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Integer), ("right", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Integer), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Boolean)]),
             [NodeTypes.BooleanNot] = ("boolean-not", [("value", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Boolean), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Boolean)]),
             [NodeTypes.JsonMerge] = ("json-merge", [("left", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Json), ("right", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Json), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Json)]),
+            [NodeTypes.JsonToArray] = ("json-to-array", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Json), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.JsonArray)]),
+            [NodeTypes.ArrayLength] = ("array-length", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.JsonArray), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Integer)]),
             [NodeTypes.BooleanBranch] = ("boolean-branch", [("condition", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Boolean), ("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution, null), ("true", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null), ("false", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null)])
         };
 
@@ -426,7 +428,7 @@ public sealed class WorkflowNodeContractTests
             .Select((contract, index) => new KeyValuePair<string, NodeDefinition>(
                 $"node-{index}", new NodeDefinition(contract.Type, contract.TypeVersion)))
             .ToImmutableSortedDictionary(StringComparer.Ordinal);
-        var definition = new WorkflowDefinition(WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph, "descriptor-audit", "node-0", nodes,
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph, "descriptor-audit", "node-0", nodes,
             ImmutableSortedDictionary<string, ConnectionDefinition>.Empty);
         var before = definition;
 

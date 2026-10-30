@@ -427,6 +427,8 @@ public static class WorkflowNodeDescriptorRegistry
         Descriptor(NodeTypes.IntegerEquals, "integer-equals", [Input("left", WorkflowDataTypes.Integer), Input("right", WorkflowDataTypes.Integer), Output(WorkflowDataTypes.Boolean)], "1.31"),
         Descriptor(NodeTypes.BooleanNot, "boolean-not", [Input("value", WorkflowDataTypes.Boolean), Output(WorkflowDataTypes.Boolean)], "1.25"),
         Descriptor(NodeTypes.JsonMerge, "json-merge", [Input("left", WorkflowDataTypes.Json), Input("right", WorkflowDataTypes.Json), Output(WorkflowDataTypes.Json)], "1.55"),
+        Descriptor(NodeTypes.JsonToArray, "json-to-array", [Input("in", WorkflowDataTypes.Json), Output(WorkflowDataTypes.JsonArray)], "1.56"),
+        Descriptor(NodeTypes.ArrayLength, "array-length", [Input("in", WorkflowDataTypes.JsonArray), Output(WorkflowDataTypes.Integer)], "1.56"),
         Descriptor(NodeTypes.BooleanBranch, "boolean-branch", [
             Input("condition", WorkflowDataTypes.Boolean),
             ExecutionInput("execute"),

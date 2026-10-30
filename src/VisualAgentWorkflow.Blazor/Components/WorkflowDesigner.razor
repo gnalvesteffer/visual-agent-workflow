@@ -228,6 +228,23 @@
                             <button type="button" @onclick="InsertSequenceWorkflowCallJsonMerge" disabled="@(preview is not null || busy || !CanAuthorSequenceWorkflowCallJsonMerge)">Add bounded JSON merge</button>
                         </fieldset>
                     }
+                    @if (SequenceCallJsonArrayPaths.Length > 0)
+                    {
+                        <fieldset class="vaw-sequence-call-authoring" aria-label="Add a bounded JSON array length node">
+                            <legend>JSON array</legend>
+                            <p class="vaw-help">Refine the pinned child’s JSON array result into a bounded immutable array, then expose its item count as an integer. Execution still goes directly to Output.</p>
+                            <label>WorkflowCall path
+                                <select aria-label="WorkflowCall path for JSON array" @bind="sequenceCallJsonNodeId" disabled="@(preview is not null || busy)">
+                                    <option value="">Choose a direct JSON call</option>
+                                    @foreach (var path in SequenceCallJsonArrayPaths)
+                                    {
+                                        <option @key="path.CallNodeId" value="@path.CallNodeId">@path.CallNodeId · @path.ChildWorkflowId</option>
+                                    }
+                                </select>
+                            </label>
+                            <button type="button" @onclick="InsertSequenceWorkflowCallJsonArray" disabled="@(preview is not null || busy || !CanAuthorSequenceWorkflowCallJsonArray)">Add array length</button>
+                        </fieldset>
+                    }
                     <ul class="vaw-requirements">
                         @foreach (var requirement in reusableRequirements)
                         { <li @key="requirement">@RequirementLabel(requirement): @RequirementAvailability(requirement)</li> }

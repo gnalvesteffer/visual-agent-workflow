@@ -1464,6 +1464,8 @@
             return new(NodeTypes.JsonSelectString, "1.0.0") { JsonPropertySelection = existing?.JsonPropertySelection ?? new("/name") };
         if (value == NodeTypes.JsonProject)
             return new(NodeTypes.JsonProject, "1.0.0") { JsonProjection = existing?.JsonProjection ?? new([new("name", "/name")]) };
+        if (value is NodeTypes.JsonToArray or NodeTypes.ArrayLength)
+            return new(value, "1.0.0");
         if (value == NodeTypes.TextTemplate)
             return new(NodeTypes.TextTemplate, "1.0.0") { TextTemplate = existing?.TextTemplate ?? new([new("input", "")]) };
         if (value == NodeTypes.WorkflowValue)

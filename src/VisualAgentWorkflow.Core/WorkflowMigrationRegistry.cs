@@ -66,6 +66,7 @@ public static class WorkflowMigrationRegistry
             new WorkflowMigrationDescriptor("sequence-workflow-call-json", "1.52", "1.53", ImplementationVersion),
             new WorkflowMigrationDescriptor("sequence-workflow-call-json-chains", "1.53", "1.54", ImplementationVersion),
             new WorkflowMigrationDescriptor("sequence-workflow-call-json-merge", "1.54", "1.55", ImplementationVersion),
+            new WorkflowMigrationDescriptor("sequence-workflow-call-json-arrays", "1.55", "1.56", ImplementationVersion),
             new WorkflowMigrationDescriptor("sequence-workflow-call-agents", "1.51", "1.52", ImplementationVersion)
         }.ToImmutableDictionary(descriptor => descriptor.OperationId, StringComparer.Ordinal);
 
@@ -231,6 +232,7 @@ public static class WorkflowMigrationRegistry
         "sequence-workflow-call-json" => GraphEditing.EnableSequenceWorkflowCallJsonGraph(definition),
         "sequence-workflow-call-json-chains" => GraphEditing.EnableSequenceWorkflowCallJsonChainGraph(definition),
         "sequence-workflow-call-json-merge" => GraphEditing.EnableSequenceWorkflowCallJsonMergeGraph(definition),
+        "sequence-workflow-call-json-arrays" => GraphEditing.EnableSequenceWorkflowCallJsonArrayGraph(definition),
         _ => throw new InvalidOperationException($"Migration operation '{operationId}' is not executable.")
     };
 }

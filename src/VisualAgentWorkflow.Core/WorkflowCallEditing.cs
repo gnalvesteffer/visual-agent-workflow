@@ -152,6 +152,48 @@ public static class WorkflowCallEditing
         return updated;
     }
 
+    /// <summary>Adds the bounded schema-1.56 JSON-array refinement and length node to a direct JSON call path.</summary>
+    public static WorkflowDefinition AppendSequenceWorkflowCallJsonArrayDraft(WorkflowDefinition parent, string callNodeId)
+    {
+        ArgumentNullException.ThrowIfNull(parent);
+        ArgumentException.ThrowIfNullOrWhiteSpace(callNodeId);
+        if (parent.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph)
+            throw new ArgumentException("JSON-array authoring requires a schema 1.55 graph.", nameof(parent));
+
+        WorkflowValidator.ThrowIfInvalid(parent);
+        var analysis = SequenceWorkflowCallJsonChainTopology.Analyze(parent with
+        { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph });
+        var path = analysis.Paths.SingleOrDefault(candidate => candidate.CallNodeId == callNodeId);
+        if (!analysis.IsValid || path is null || path.JsonNodeIds.Length != 0)
+            throw new ArgumentException("Choose a valid direct JSON WorkflowCall path without an existing merge.", nameof(callNodeId));
+
+        var outputId = parent.Nodes.Single(entry => entry.Value.Type == NodeTypes.Output).Key;
+        var dataEdge = parent.Connections.SingleOrDefault(entry =>
+            entry.Value.Source == new PortReference(callNodeId, "out") &&
+            entry.Value.Target == new PortReference(outputId, "in"));
+        if (dataEdge.Value is null)
+            throw new ArgumentException("The direct JSON call must be the only data source for Output.", nameof(callNodeId));
+
+        var toArrayId = NewId("json-to-array");
+        var lengthId = NewId("array-length");
+        var updated = parent with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph,
+            Nodes = parent.Nodes
+                .Add(toArrayId, new NodeDefinition(NodeTypes.JsonToArray, "1.0.0"))
+                .Add(lengthId, new NodeDefinition(NodeTypes.ArrayLength, "1.0.0"))
+                .SetItem(outputId, parent.Nodes[outputId] with { OutputDataType = WorkflowDataTypes.Integer }),
+            Connections = parent.Connections.Remove(dataEdge.Key)
+                .Add(NewId("workflow-call-json-array-data"), new(new(callNodeId, "out"), new(toArrayId, "in"), "data"))
+                .Add(NewId("workflow-call-json-array-data"), new(new(toArrayId, "out"), new(lengthId, "in"), "data"))
+                .Add(NewId("workflow-call-json-array-data"), new(new(lengthId, "out"), new(outputId, "in"), "data"))
+        };
+        if (!SequenceWorkflowCallJsonArrayTopology.Analyze(updated).IsValid)
+            throw new InvalidOperationException("The JSON-array authoring edit did not produce the bounded schema 1.56 topology.");
+        WorkflowJson.SerializeDraft(updated);
+        return updated;
+    }
+
     /// <summary>
     /// Adds a new pinned JSON child path to a clean schema-1.52 Sequence draft. The edit
     /// creates a fresh Sequence output and moves the draft to schema 1.53; it deliberately

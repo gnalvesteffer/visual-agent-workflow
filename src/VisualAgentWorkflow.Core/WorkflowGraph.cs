@@ -46,6 +46,8 @@ internal static class WorkflowPortShapeCatalog
         NodeTypes.Output => [new("in", node.OutputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.TextConcat => [new("left", WorkflowDataTypes.String), new("right", WorkflowDataTypes.String)],
         NodeTypes.JsonMerge => [new("left", WorkflowDataTypes.Json), new("right", WorkflowDataTypes.Json)],
+        NodeTypes.JsonToArray => [new("in", WorkflowDataTypes.Json)],
+        NodeTypes.ArrayLength => [new("in", WorkflowDataTypes.JsonArray)],
         NodeTypes.StringEquals => [new("left", WorkflowDataTypes.String), new("right", WorkflowDataTypes.String)],
         NodeTypes.IntegerAdd or NodeTypes.IntegerEquals => [new("left", WorkflowDataTypes.Integer), new("right", WorkflowDataTypes.Integer)],
         NodeTypes.NumberAdd => [new("left", WorkflowDataTypes.Number), new("right", WorkflowDataTypes.Number)],
@@ -64,6 +66,8 @@ internal static class WorkflowPortShapeCatalog
         NodeTypes.FunctionInput => [new("out", node.OutputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.Input or NodeTypes.StringConstant or NodeTypes.TextConcat => [new("out", WorkflowDataTypes.String)],
         NodeTypes.JsonMerge => [new("out", WorkflowDataTypes.Json)],
+        NodeTypes.JsonToArray => [new("out", WorkflowDataTypes.JsonArray)],
+        NodeTypes.ArrayLength => [new("out", WorkflowDataTypes.Integer)],
         NodeTypes.IntegerConstant or NodeTypes.IntegerAdd => [new("out", WorkflowDataTypes.Integer)],
         NodeTypes.NumberConstant => [new("out", WorkflowDataTypes.Number)],
         NodeTypes.NumberAdd => [new("out", WorkflowDataTypes.Number)],
@@ -159,7 +163,8 @@ public static class WorkflowPorts
             : node.Type switch
     {
         NodeTypes.Input => [],
-        NodeTypes.JsonSelectString or NodeTypes.JsonProject => [new("in", WorkflowDataTypes.Json)],
+        NodeTypes.JsonSelectString or NodeTypes.JsonProject or NodeTypes.JsonToArray => [new("in", WorkflowDataTypes.Json)],
+        NodeTypes.ArrayLength => [new("in", WorkflowDataTypes.JsonArray)],
         NodeTypes.JsonMerge => [new("left", WorkflowDataTypes.Json), new("right", WorkflowDataTypes.Json)],
         NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Loop or NodeTypes.LoopBody => [new("in", WorkflowDataTypes.String)],
         NodeTypes.VariableSet => [new("value", node.InputDataType ?? WorkflowDataTypes.String)],
@@ -183,6 +188,8 @@ public static class WorkflowPorts
         NodeTypes.Condition => [new("true", WorkflowDataTypes.String), new("false", WorkflowDataTypes.String)],
         NodeTypes.Input when node.InputDataType == WorkflowDataTypes.Json => [new("out", WorkflowDataTypes.Json)],
         NodeTypes.JsonProject or NodeTypes.JsonMerge => [new("out", WorkflowDataTypes.Json)],
+        NodeTypes.JsonToArray => [new("out", WorkflowDataTypes.JsonArray)],
+        NodeTypes.ArrayLength => [new("out", WorkflowDataTypes.Integer)],
         NodeTypes.ParallelFork when node.ParallelFork is not null => [],
         NodeTypes.ParallelFork => [new("branch_1", WorkflowDataTypes.String), new("branch_2", WorkflowDataTypes.String)],
         NodeTypes.ParallelJoin => [new("out", WorkflowDataTypes.Json)],
@@ -309,7 +316,7 @@ public static class WorkflowGraph
     public static bool HasControlNodes(WorkflowDefinition definition) => HasRouting(definition) || definition.Nodes.Values.Any(n => n?.Type == NodeTypes.Approval);
 
     public static bool HasTypedJson(WorkflowDefinition definition) => definition.Nodes.Values.Any(node =>
-        node?.Type is NodeTypes.JsonSelectString or NodeTypes.JsonProject or NodeTypes.JsonMerge || node?.InputDataType == WorkflowDataTypes.Json || node?.OutputDataType == WorkflowDataTypes.Json);
+        node?.Type is NodeTypes.JsonSelectString or NodeTypes.JsonProject or NodeTypes.JsonMerge or NodeTypes.JsonToArray or NodeTypes.ArrayLength || node?.InputDataType == WorkflowDataTypes.Json || node?.OutputDataType == WorkflowDataTypes.Json || node?.InputDataType == WorkflowDataTypes.JsonArray || node?.OutputDataType == WorkflowDataTypes.JsonArray);
 
     /// <summary>Deterministic presentation/analysis order, never a runtime scheduler.</summary>
     public static ImmutableArray<string> OrderedNodes(WorkflowDefinition definition)

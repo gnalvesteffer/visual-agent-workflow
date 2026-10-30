@@ -604,6 +604,17 @@ public static class GraphEditing
         return definition with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph };
     }
 
+    /// <summary>Promotes a valid schema 1.55 JSON graph to the bounded typed-array contract.</summary>
+    public static WorkflowDefinition EnableSequenceWorkflowCallJsonArrayGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph ||
+            definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty ||
+            !SequenceWorkflowCallJsonMergeTopology.Analyze(definition).IsValid)
+            throw new ArgumentException("Enable typed JSON arrays only from a valid schema 1.55 graph.", nameof(definition));
+        return definition with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph };
+    }
+
     private static (NodeDefinition Fork, ParallelForkConfiguration ForkConfiguration, string JoinId, NodeDefinition Join,
         ParallelJoinConfiguration JoinConfiguration) ConfigurableParallelRegion(WorkflowDefinition definition, string forkNodeId)
     {
@@ -1151,7 +1162,7 @@ public static class GraphEditing
             ? edge : throw new ArgumentException("Choose a connected output port.");
     private static void RequireProcessing(string type)
     {
-        if (type is not (NodeTypes.Uppercase or NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.WorkflowValue or NodeTypes.JsonSelectString or NodeTypes.JsonProject or NodeTypes.TextTemplate or NodeTypes.WorkflowCall))
+        if (type is not (NodeTypes.Uppercase or NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse or NodeTypes.Reverse or NodeTypes.McpTool or NodeTypes.Agent or NodeTypes.WorkflowValue or NodeTypes.JsonSelectString or NodeTypes.JsonProject or NodeTypes.JsonToArray or NodeTypes.ArrayLength or NodeTypes.TextTemplate or NodeTypes.WorkflowCall))
             throw new ArgumentException("Only processing nodes can be inserted, replaced or removed here.");
     }
 }

@@ -10,7 +10,7 @@ public sealed class WorkflowMigrationRegistryTests
     public void Registry_exposes_the_explicit_sequence_schema_transitions()
     {
         Assert.Equal(
-            ["sequence-reverse-paths", "sequence-transform-chains-from-reverse", "sequence-transform-chains-from-uppercase", "sequence-workflow-call-agents", "sequence-workflow-call-json", "sequence-workflow-call-json-chains", "sequence-workflow-call-json-merge", "sequence-workflow-call-paths", "sequence-workflow-call-transforms"],
+            ["sequence-reverse-paths", "sequence-transform-chains-from-reverse", "sequence-transform-chains-from-uppercase", "sequence-workflow-call-agents", "sequence-workflow-call-json", "sequence-workflow-call-json-arrays", "sequence-workflow-call-json-chains", "sequence-workflow-call-json-merge", "sequence-workflow-call-paths", "sequence-workflow-call-transforms"],
             WorkflowMigrationRegistry.All.Select(descriptor => descriptor.OperationId));
         var descriptor = Assert.Single(WorkflowMigrationRegistry.All, item => item.OperationId == "sequence-workflow-call-paths");
         Assert.Equal("1.49", descriptor.FromSchema);
