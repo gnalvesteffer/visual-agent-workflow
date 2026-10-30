@@ -67,7 +67,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         WorkflowRevision? rootRevision = null, ImmutableArray<WorkflowApprovalScope> workflowPath = default,
         SequenceProductionPlan? sequencePlan = null, bool sequenceWorkflowCallProof = false,
         bool allowOutcomeUnknown = false,
-        Func<string, CancellationTokenSource?>? callScopeCancellation = null)
+        Func<string, CancellationTokenSource?>? callScopeCancellation = null,
+        bool skipValidationForInternalProof = false)
     {
         var callerCancellationToken = cancellationToken;
         ArgumentNullException.ThrowIfNull(revision);
@@ -75,7 +76,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         ArgumentNullException.ThrowIfNull(record);
         if (runId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(runId));
         if (input.Length > 16_384) throw new ArgumentException("Input exceeds 16,384 characters.", nameof(input));
-        if (!sequenceWorkflowCallProof)
+        if (!sequenceWorkflowCallProof && !skipValidationForInternalProof)
             WorkflowValidator.ThrowIfInvalid(revision.Definition);
         var collaborationRegion = revision.Definition.ParallelCollaborationRegions?.Values.SingleOrDefault();
         if (revision.Definition.ParallelCollaborationRegions is { Count: > 1 })

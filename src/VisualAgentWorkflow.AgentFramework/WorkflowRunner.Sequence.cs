@@ -40,6 +40,44 @@ public sealed partial class WorkflowRunner
     }
 
     /// <summary>
+    /// Runs the private Sequence descendant-termination proof. This verifies that a
+    /// failure termination settles its Sequence activation through the production
+    /// collector; it is not a public schema or authoring capability.
+    /// </summary>
+    internal Task<WorkflowExecutionResult> ExecuteSequenceTerminationProductionProofAsync(Guid runId, string input,
+        Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default)
+    {
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.SequencePathGraph,
+            "sequence-termination-production-proof", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["sequence"] = new(NodeTypes.Sequence, "1.0.0")
+                {
+                    Sequence = new([new("terminate", "Failure route")])
+                },
+                ["terminate"] = new(NodeTypes.Terminate, "1.0.0")
+                {
+                    Termination = new(WorkflowTerminationOutcomes.Failure)
+                }
+            }.ToImmutableSortedDictionary(),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-sequence"] = new(new("input", "then"), new("sequence", "execute"), "execution"),
+                ["sequence-terminate"] = new(new("sequence", "then.terminate"), new("terminate", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition, "sequence-termination-production-proof");
+        var plan = new SequenceProductionPlan("sequence", [
+            new SequenceProductionOutput("terminate", 0, "terminate", "sequence", "then.terminate", "sequence-terminate")
+        ], null, SequenceTerminalState.Completed, AllowSingleOutput: true);
+        return ExecuteCoreAsync(runId, revision, input, null, record, null, cancellationToken,
+            rootRevision: revision, sequencePlan: plan, skipValidationForInternalProof: true);
+    }
+
+    /// <summary>
     /// Runs the non-public Sequence-to-Agent lifecycle proof. This deliberately uses a
     /// validator-valid private definition and an injected host Agent executor; it is not
     /// reachable from persisted workflow schemas or Studio authoring.
@@ -311,6 +349,14 @@ public sealed partial class WorkflowRunner
         {
             builder.AddEdge<GraphMessage>(branches[outputNodeId], (ExecutorBinding)collector,
                 message => message?.SourceNode == outputNodeId && message.SourcePort == "out");
+        }
+        foreach (var terminateNodeId in plan.BypassRevisionExecutionEdges ? [] : revision.Definition.Nodes
+                     .Where(entry => entry.Value.Type == NodeTypes.Terminate)
+                     .Select(entry => entry.Key))
+        {
+            builder.AddEdge<GraphMessage>(branches[terminateNodeId], (ExecutorBinding)collector,
+                message => message?.SourceNode == terminateNodeId && message.SourcePort == "terminated" && message.TerminationSignal);
+        }
         foreach (var callNodeId in revision.Definition.Nodes
                      .Where(entry => entry.Value.Type == NodeTypes.WorkflowCall)
                      .Select(entry => entry.Key))
@@ -322,7 +368,6 @@ public sealed partial class WorkflowRunner
                     message => message?.SourceNode == callNodeId && message.SourcePort == "terminated" && message.TerminationSignal);
             builder.AddEdge<GraphMessage>(branches[callNodeId], (ExecutorBinding)collector,
                 message => message?.SourceNode == callNodeId && message.SourcePort == "terminated" && message.TerminationSignal);
-        }
         }
         if (plan.DirectOutputCollection)
             foreach (var output in plan.Outputs)
@@ -555,10 +600,12 @@ public sealed partial class WorkflowRunner
                 message.Text, lineage.DescendantScopeId);
             try
             {
-                var terminalState = plan.TerminalOutputId == lineage.OutputId
+                var terminalState = message.FailureSignal
+                    ? SequenceTerminalState.Failed
+                    : plan.TerminalOutputId == lineage.OutputId
                     ? plan.TerminalState : SequenceTerminalState.Completed;
                 coordinator.Complete(lineage.OutputActivationId, terminalState,
-                    terminalState == SequenceTerminalState.Completed && message.HasValue ? message.Text : null);
+                    terminalState == SequenceTerminalState.Completed && message.HasValue && !message.TerminationSignal ? message.Text : null);
                 await flushSequenceEvents();
                 await emit(ExecutionEventKinds.NodeCompleted, Id, invocation, lineage.ConnectionId,
                     terminalState == SequenceTerminalState.Completed ? "Sequence output completed." :

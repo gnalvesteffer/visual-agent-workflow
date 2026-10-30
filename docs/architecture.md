@@ -219,6 +219,13 @@ nodes. The array chain is deliberately disjoint from the object merge and does
 not yet imply arbitrary container operators, fan-out, mutable arrays, or
 data-driven control flow. See [Decision 0056](decisions/0056-sequence-workflow-call-json-arrays.md).
 
+The production Sequence builder also has a proof-only descendant-termination
+boundary: a `Terminate` signal preserves the Sequence output lineage into the
+collector, where a failure termination settles exactly that activation as
+failed before the parent run closes. This does not yet admit data-driven
+control flow or successful no-result termination; both require a separate
+schema-qualified result contract and replay coverage. See [Decision 0057](decisions/0057-sequence-descendant-termination-collection.md).
+
 Schema 1.40 adds a finite IEEE-754 `number` constant for direct-MCP graphs.
 Top-level MCP JSON Schema number properties become exact typed input pins and
 are serialized as JSON numbers. Non-finite values are rejected; integer/number

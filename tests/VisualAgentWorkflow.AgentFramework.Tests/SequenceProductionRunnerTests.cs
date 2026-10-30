@@ -410,6 +410,27 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Proof_sequence_failure_termination_settles_through_the_production_collector()
+    {
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteSequenceTerminationProductionProofAsync(
+            Guid.NewGuid(), "hello", evt =>
+            {
+                events.Add(evt);
+                return ValueTask.CompletedTask;
+            });
+
+        Assert.True(result.Failed);
+        Assert.Null(result.Output);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed &&
+            ReadEvidence(evt).OutputId == "terminate");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
+    }
+
+    [Fact]
     public async Task Proof_sequence_child_failure_settles_the_output_and_fails_the_parent()
     {
         var events = new List<ExecutionEvent>();
