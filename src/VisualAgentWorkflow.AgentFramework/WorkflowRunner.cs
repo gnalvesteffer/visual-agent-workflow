@@ -1161,14 +1161,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             {
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Output &&
                     !internalTerminationHandoff && (received.SequenceLineage is null ||
-                        revision.Definition.SchemaVersion is WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph &&
+                        revision.Definition.SchemaVersion is WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph &&
                         (revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph
                             ? SequenceWorkflowCallJsonTopology.IsJsonCompositionGraph(revision.Definition)
                             : revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph
                                 ? SequenceWorkflowCallJsonChainTopology.IsJsonCompositionGraph(revision.Definition)
                                 : revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph
                                     ? SequenceWorkflowCallJsonArrayTopology.Analyze(revision.Definition).IsValid
-                                    : SequenceWorkflowCallJsonMergeTopology.Analyze(revision.Definition).IsValid)))
+                                    : revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph
+                                        ? SequenceWorkflowCallJsonControlTopology.Analyze(revision.Definition).IsValid
+                                        : SequenceWorkflowCallJsonMergeTopology.Analyze(revision.Definition).IsValid)))
                 {
                     outputEvaluation = dataEvaluator!.ResolveInput(Id, "in");
                     message = outputEvaluation.Result.DataType switch
@@ -1279,7 +1281,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.SequenceUppercase => message.ToUpperInvariant(),
                     NodeTypes.SequenceReverse => string.Concat(message.EnumerateRunes().Reverse()),
                     NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
-                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph
+                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph
                         ? await InvokeDirectMcpTool(message, invocation, toolArgumentEvaluations, cancellationToken)
                         : await InvokeTool(message, invocation, cancellationToken),
                     NodeTypes.WorkflowCall => childOutcome?.Output ?? string.Empty,

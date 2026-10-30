@@ -19,6 +19,7 @@ public partial class WorkflowDesigner
     private string sequenceCallJsonNodeId = "";
     private string sequenceCallJsonCompositionType = NodeTypes.JsonSelectString;
     private string sequenceCallJsonPointer = "/name";
+    private long sequenceCallJsonExpectedLength;
     private string newReusableWorkflowId = "workflow-" + Guid.NewGuid().ToString("N")[..8];
     private IReadOnlyList<PublishedWorkflowRevision> reusableVersions = [];
     private IReadOnlyList<PackageRequirement> reusableRequirements = [];
@@ -66,6 +67,7 @@ public partial class WorkflowDesigner
         packageRequirements = []; reusableSectionId = ""; insertAfterNode = ""; sequenceCallOutputId = "";
         sequenceCallTransformNodeId = ""; sequenceCallTransformType = NodeTypes.SequenceUppercase;
         sequenceCallJsonNodeId = ""; sequenceCallJsonCompositionType = NodeTypes.JsonSelectString; sequenceCallJsonPointer = "/name";
+        sequenceCallJsonExpectedLength = 0;
         ResetCallUpgrade();
         newReusableWorkflowId = "workflow-" + Guid.NewGuid().ToString("N")[..8];
     }
@@ -176,6 +178,11 @@ public partial class WorkflowDesigner
 
     private bool CanAuthorSequenceWorkflowCallJsonArray => !IdeMode && preview is null && !busy &&
         !string.IsNullOrWhiteSpace(sequenceCallJsonNodeId) &&
+        SequenceCallJsonArrayPaths.Any(path => path.CallNodeId == sequenceCallJsonNodeId);
+
+    private bool CanAuthorSequenceWorkflowCallJsonControl => !IdeMode && preview is null && !busy &&
+        !string.IsNullOrWhiteSpace(sequenceCallJsonNodeId) &&
+        definition?.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph &&
         SequenceCallJsonArrayPaths.Any(path => path.CallNodeId == sequenceCallJsonNodeId);
 
     private WorkflowCallUpgradeResult UpgradeSelectedCall(PublishedWorkflowRevision target) =>
@@ -429,6 +436,16 @@ public partial class WorkflowDesigner
         if (!Current(current)) return;
         ApplyComposition(new(next, layout.Reconcile(next)));
         message = "Added the bounded JSON-array refinement and length node. The call remains the execution barrier; save and publish after reviewing the typed integer result.";
+    });
+
+    private Task InsertSequenceWorkflowCallJsonControl() => Perform(async current =>
+    {
+        if (!CanAuthorSequenceWorkflowCallJsonControl || definition is null || layout is null)
+            return;
+        var next = WorkflowCallEditing.AppendSequenceWorkflowCallJsonControlDraft(definition, sequenceCallJsonNodeId, sequenceCallJsonExpectedLength);
+        if (!Current(current)) return;
+        ApplyComposition(new(next, layout.Reconcile(next)));
+        message = $"Added the bounded length predicate. Equality to {sequenceCallJsonExpectedLength} continues to the integer Output; other values fail through the false route.";
     });
 
     private static bool HasJsonBoundary(WorkflowDefinition child)

@@ -60,6 +60,21 @@ public sealed class SequenceWorkflowCallJsonArrayTopologyTests
         Assert.DoesNotContain(promoted.Nodes.Values, node => node.Type is NodeTypes.JsonToArray or NodeTypes.ArrayLength);
     }
 
+    [Fact]
+    public void Authoring_adds_the_bounded_length_predicate_and_failure_route()
+    {
+        var source = ArrayGraph();
+
+        var updated = WorkflowCallEditing.AppendSequenceWorkflowCallJsonControlDraft(source, "call", 3);
+
+        Assert.Equal(WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph, updated.SchemaVersion);
+        var analysis = SequenceWorkflowCallJsonControlTopology.Analyze(updated);
+        Assert.True(analysis.IsValid, string.Join(" | ", analysis.Issues.Select(issue => issue.Message)));
+        Assert.Empty(WorkflowValidator.Validate(updated));
+        Assert.Contains(updated.Nodes.Values, node => node.Type == NodeTypes.BooleanBranch);
+        Assert.Contains(updated.Nodes.Values, node => node.Type == NodeTypes.Terminate && node.Termination?.Outcome == WorkflowTerminationOutcomes.Failure);
+    }
+
     private static WorkflowDefinition ArrayGraph()
     {
         var child = WorkflowRevision.Create(JsonChild("array-child"), "array-test");

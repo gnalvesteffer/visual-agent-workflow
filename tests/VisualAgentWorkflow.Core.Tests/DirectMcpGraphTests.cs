@@ -27,6 +27,17 @@ public sealed class DirectMcpGraphTests
     }
 
     [Fact]
+    public void Connecting_a_string_tool_output_to_output_keeps_the_default_output_type()
+    {
+        var definition = Definition() with { Connections = Definition().Connections.Remove("output-value") };
+
+        var connected = GraphEditing.ConnectPins(definition, "tool", "out", "output", "in");
+
+        Assert.Null(connected.Nodes["output"].OutputDataType);
+        Assert.Empty(WorkflowValidator.Validate(connected));
+    }
+
+    [Fact]
     public void Direct_mcp_graph_rejects_agent_routes()
     {
         var definition = Definition() with

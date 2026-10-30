@@ -615,6 +615,17 @@ public static class GraphEditing
         return definition with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph };
     }
 
+    /// <summary>Promotes a valid schema 1.56 JSON-array graph to the bounded length-predicate contract.</summary>
+    public static WorkflowDefinition EnableSequenceWorkflowCallJsonControlGraph(WorkflowDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (definition.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph ||
+            definition.ExecutionConnections is null || !WorkflowValidator.Validate(definition).IsEmpty ||
+            !SequenceWorkflowCallJsonArrayTopology.Analyze(definition).IsValid)
+            throw new ArgumentException("Enable JSON control routing only from a valid schema 1.56 graph.", nameof(definition));
+        return definition with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph };
+    }
+
     private static (NodeDefinition Fork, ParallelForkConfiguration ForkConfiguration, string JoinId, NodeDefinition Join,
         ParallelJoinConfiguration JoinConfiguration) ConfigurableParallelRegion(WorkflowDefinition definition, string forkNodeId)
     {
@@ -800,8 +811,12 @@ public static class GraphEditing
         var data = definition.Connections.RemoveRange(definition.Connections
             .Where(edge => edge.Value.Target.NodeId == targetId && edge.Value.Target.PortId == targetPortId)
             .Select(edge => edge.Key));
+        // String is the default Output pin contract. Persisting an explicit
+        // string OutputDataType makes older explicit schemas look like they
+        // are declaring a typed JSON boundary and causes draft validation to
+        // reject an otherwise ordinary MCP-string-to-Output connection.
         var nodes = target.Type == NodeTypes.Output && sourcePort.Kind == WorkflowPortKind.Data
-            ? definition.Nodes.SetItem(targetId, target with { OutputDataType = sourcePort.DataType })
+            ? definition.Nodes.SetItem(targetId, target with { OutputDataType = sourcePort.DataType == WorkflowDataTypes.String ? null : sourcePort.DataType })
             : definition.Nodes;
         return definition with { Nodes = nodes, Connections = data.Add(connectionId, connection) };
     }

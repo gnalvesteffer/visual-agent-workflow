@@ -226,6 +226,15 @@ failed before the parent run closes. This does not yet admit data-driven
 control flow or successful no-result termination; both require a separate
 schema-qualified result contract and replay coverage. See [Decision 0057](decisions/0057-sequence-descendant-termination-collection.md).
 
+Schema 1.57 adds one bounded data-to-control bridge on top of the typed array
+slice. The fixed `ArrayLength → IntegerEquals → BooleanBranch` route returns
+the integer length on its true arm and sends the false arm to a failure
+`Terminate`; the existing descendant collector settles that failure before the
+parent closes. Promotion from 1.56 is schema-only for existing array graphs,
+and authoring is a guarded atomic edit. This is not a general expression or
+data-driven control system; arbitrary predicates, mutable containers, loops,
+and successful no-result control exits remain unsupported. See [Decision 0058](decisions/0058-sequence-workflow-call-json-control.md).
+
 Schema 1.40 adds a finite IEEE-754 `number` constant for direct-MCP graphs.
 Top-level MCP JSON Schema number properties become exact typed input pins and
 are serialized as JSON numbers. Non-finite values are rejected; integer/number

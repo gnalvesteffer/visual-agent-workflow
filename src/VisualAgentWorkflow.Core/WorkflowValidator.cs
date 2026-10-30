@@ -65,7 +65,7 @@ public static class WorkflowValidator
             // Schemas 1.53 and 1.54 reuse the mature JSON data nodes introduced by earlier schemas.
             // Keep the historical version gates intact for older graphs while admitting those
             // nodes in the new bounded WorkflowCall composition contract.
-            if (definition.SchemaVersion is WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph &&
+            if (definition.SchemaVersion is WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph &&
                 path.StartsWith("nodes.", StringComparison.Ordinal) &&
                 definition.Nodes?.TryGetValue(path["nodes.".Length..].Split('.')[0], out var gatedNode) == true &&
                 gatedNode?.Type is NodeTypes.Input or NodeTypes.Output or NodeTypes.JsonSelectString or NodeTypes.JsonProject or NodeTypes.JsonToArray or NodeTypes.ArrayLength &&
@@ -75,7 +75,7 @@ public static class WorkflowValidator
         }
 
         if (!WorkflowSchemaCatalog.IsSupported(definition.SchemaVersion))
-        Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44, 1.45, 1.46, 1.47, 1.48, 1.49, 1.50, 1.51, 1.52, 1.53, 1.54, 1.55, and 1.56.");
+        Error("schema.unsupported", "schemaVersion", "Supported schema versions are 1.0 through 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44, 1.45, 1.46, 1.47, 1.48, 1.49, 1.50, 1.51, 1.52, 1.53, 1.54, 1.55, 1.56, and 1.57.");
         if (string.IsNullOrWhiteSpace(definition.WorkflowId))
             Error("workflow.id", "workflowId", "A workflow ID is required.");
         if (definition.DisplayName is { } displayName &&
@@ -270,7 +270,7 @@ public static class WorkflowValidator
                     try { hashMatches = WorkflowJson.MatchesHash(child, call.ContentHash); }
                     catch (ArgumentException) { }
                 }
-        if (definition.SchemaVersion is not ("1.19" or "1.22" or "1.21" or "1.20" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph) || call is null || string.IsNullOrWhiteSpace(call.WorkflowId) ||
+        if (definition.SchemaVersion is not ("1.19" or "1.22" or "1.21" or "1.20" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph) || call is null || string.IsNullOrWhiteSpace(call.WorkflowId) ||
                     call.WorkflowId.Length > 256 || call.WorkflowId != call.Definition?.WorkflowId || call.RevisionId == Guid.Empty ||
                     call.Version < 1 || !ValidHash(call.ContentHash) || !hashMatches || call.Definition is { } childDefinition && !HasSupportedWorkflowCallContract(childDefinition))
                     Error("workflowCall.configuration", $"nodes.{id}.workflowCall", "Workflow call nodes require schema 1.19 and an embedded, hash-matching workflow with string or JSON input and output contracts.");
@@ -358,7 +358,7 @@ public static class WorkflowValidator
                 node.OutputDataType is not null && node.Type == NodeTypes.Output &&
                     (definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.LoopVariablesGraph
                         ? node.OutputDataType is not ("string" or "integer" or "boolean" or "json")
-                        : node.OutputDataType != "json" || definition.SchemaVersion is not ("1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph)) ||
+                        : node.OutputDataType != "json" || definition.SchemaVersion is not ("1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph)) ||
                 node.OutputDataType is not null && node.Type == NodeTypes.WorkflowValue && definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph))
                 Error("output.dataType", $"nodes.{id}.outputDataType", "Only schema 1.13 or later output nodes can declare the JSON data type.");
             if (node.Type == NodeTypes.JsonSelectString)
@@ -382,8 +382,8 @@ public static class WorkflowValidator
                 Error("json.projection.unexpected", $"nodes.{id}.jsonProjection", "Only JSON projection nodes may declare JSON field mappings.");
             if (node.Type == NodeTypes.JsonMerge && definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph))
                 Error("node.schema", $"nodes.{id}", "JSON merge nodes require schema 1.55 or later.");
-            if (node.Type is NodeTypes.JsonToArray or NodeTypes.ArrayLength && definition.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph)
-                Error("node.schema", $"nodes.{id}", "Typed JSON-array nodes require schema 1.56.");
+            if (node.Type is NodeTypes.JsonToArray or NodeTypes.ArrayLength && definition.SchemaVersion is not (WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph))
+                Error("node.schema", $"nodes.{id}", "Typed JSON-array nodes require schema 1.56 or later.");
             if (node.Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin && definition.SchemaVersion is not ("1.14" or "1.15" or "1.16" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph))
                 Error("node.schema", $"nodes.{id}", "Parallel graph nodes require schema 1.14.");
             if (node.Type == NodeTypes.ParallelRendezvous && definition.SchemaVersion is not (WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph))
@@ -482,7 +482,7 @@ public static class WorkflowValidator
                 Error("constant.unexpected", $"nodes.{id}.booleanConstant", "Only Boolean constant nodes may declare a Boolean value.");
             if (node.Type == NodeTypes.IntegerConstant)
             {
-                if (definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph or WorkflowSchemaVersions.MutableVariablesGraph) || node.IntegerConstant is null)
+                if (definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph or WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph) || node.IntegerConstant is null)
                     Error("constant.configuration", $"nodes.{id}.integerConstant", "Integer constants require schema 1.31 and an explicit signed 64-bit value.");
             }
             else if (node.IntegerConstant is not null)
@@ -494,13 +494,13 @@ public static class WorkflowValidator
             }
             else if (node.NumberConstant is not null)
                 Error("constant.unexpected", $"nodes.{id}.numberConstant", "Only number constant nodes may declare a number value.");
-            if (node.Type is NodeTypes.IntegerAdd or NodeTypes.IntegerEquals && definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph))
+            if (node.Type is NodeTypes.IntegerAdd or NodeTypes.IntegerEquals && definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph))
                 Error("node.schema", $"nodes.{id}", "Integer arithmetic nodes require schema 1.31.");
             if (node.Type == NodeTypes.StringToInteger && definition.SchemaVersion != WorkflowSchemaVersions.StringIntegerConversionGraph)
                 Error("node.schema", $"nodes.{id}", "String-to-integer conversion requires schema 1.39.");
             if (node.Type == NodeTypes.TextConcat && !WorkflowSchemaVersions.UsesExplicitGraph(definition))
                 Error("node.schema", $"nodes.{id}", "Pure text concatenation requires an explicit graph schema.");
-            if (node.Type is NodeTypes.StringEquals or NodeTypes.BooleanBranch && definition.SchemaVersion is not (WorkflowSchemaVersions.ExplicitBranchGraph or WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph))
+            if (node.Type is NodeTypes.StringEquals or NodeTypes.BooleanBranch && definition.SchemaVersion is not (WorkflowSchemaVersions.ExplicitBranchGraph or WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph))
                 Error("node.schema", $"nodes.{id}", "Pure string equality and Boolean Branch nodes require schema 1.24.");
             if (node.Type is NodeTypes.BooleanNot or NodeTypes.BooleanConstant && definition.SchemaVersion is not (WorkflowSchemaVersions.TypedBooleanGraph or WorkflowSchemaVersions.BooleanTopologyGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph))
                 Error("node.schema", $"nodes.{id}", "Boolean constants and NOT require schema 1.25 or later.");
@@ -623,7 +623,7 @@ public static class WorkflowValidator
                 ValidateMutableVariableGraph(definition, Error);
             else if (definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph)
                 ValidateLoopVariableGraph(definition, Error);
-            else if (definition.SchemaVersion is WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph)
+            else if (definition.SchemaVersion is WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph)
                 ValidateSequenceGraph(definition, Error);
             else
             if (definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph)
@@ -693,12 +693,12 @@ public static class WorkflowValidator
         foreach (var (id, node) in definition.Nodes)
         {
             if (node is null) continue;
-            if (node.Type == NodeTypes.Terminate && definition.SchemaVersion is not ("1.18" or "1.19" or "1.22" or "1.21" or "1.20" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph))
+            if (node.Type == NodeTypes.Terminate && definition.SchemaVersion is not ("1.18" or "1.19" or "1.22" or "1.21" or "1.20" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph))
                 Error("termination.schema", $"nodes.{id}", "Explicit workflow termination requires schema 1.18 or later.");
             if (node.Termination is not null && node.Type != NodeTypes.Terminate)
                 Error("termination.configuration", $"nodes.{id}.termination", "Termination outcome settings are only valid on a terminate node.");
             if (node.Termination is { } termination &&
-                (definition.SchemaVersion is not ("1.20" or "1.22" or "1.21" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph) || termination.Outcome is not (WorkflowTerminationOutcomes.Success or WorkflowTerminationOutcomes.Failure)))
+                (definition.SchemaVersion is not ("1.20" or "1.22" or "1.21" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph) || termination.Outcome is not (WorkflowTerminationOutcomes.Success or WorkflowTerminationOutcomes.Failure)))
                 Error("termination.outcome", $"nodes.{id}.termination.outcome", "Configured termination outcomes require schema 1.20 or 1.21 and must be success or failure.");
             if (definition.SchemaVersion is "1.4" or "1.5" or "1.6" or "1.7" or "1.8" or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.16" or "1.17" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18")
             {
@@ -933,12 +933,21 @@ public static class WorkflowValidator
             return;
         }
 
-        var isPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph;
+        if (definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph)
+        {
+            var controlTopology = SequenceWorkflowCallJsonControlTopology.Analyze(definition);
+            foreach (var issue in controlTopology.Issues)
+                error(issue.Code, issue.Path, issue.Message);
+            return;
+        }
+
+        var isPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph;
         var isWorkflowCallJsonComposition = definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph &&
             SequenceWorkflowCallJsonTopology.IsJsonCompositionGraph(definition);
         var isWorkflowCallJsonChainComposition = definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph;
         var isWorkflowCallJsonMergeGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph;
         var isWorkflowCallJsonArrayGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph;
+        var isWorkflowCallJsonControlGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph;
         var isAgentPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph ||
             definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph && !isWorkflowCallJsonComposition;
         var isTransformPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph;
@@ -971,7 +980,7 @@ public static class WorkflowValidator
             if (isWorkflowCallJsonMergeGraph)
                 supported.Add(NodeTypes.JsonMerge);
         }
-        if (isWorkflowCallJsonArrayGraph)
+        if (isWorkflowCallJsonArrayGraph || isWorkflowCallJsonControlGraph)
         {
             supported.Add(NodeTypes.WorkflowCall);
             supported.Add(NodeTypes.JsonSelectString);
@@ -979,6 +988,13 @@ public static class WorkflowValidator
             supported.Add(NodeTypes.JsonMerge);
             supported.Add(NodeTypes.JsonToArray);
             supported.Add(NodeTypes.ArrayLength);
+        }
+        if (isWorkflowCallJsonControlGraph)
+        {
+            supported.Add(NodeTypes.IntegerEquals);
+            supported.Add(NodeTypes.IntegerConstant);
+            supported.Add(NodeTypes.BooleanBranch);
+            supported.Add(NodeTypes.Terminate);
         }
         if (isTransformPathGraph)
         {

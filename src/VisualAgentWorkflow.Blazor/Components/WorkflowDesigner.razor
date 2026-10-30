@@ -243,6 +243,11 @@
                                 </select>
                             </label>
                             <button type="button" @onclick="InsertSequenceWorkflowCallJsonArray" disabled="@(preview is not null || busy || !CanAuthorSequenceWorkflowCallJsonArray)">Add array length</button>
+                            <label>Expected array length
+                                <input type="number" aria-label="Expected array length for predicate" @bind="sequenceCallJsonExpectedLength" min="0" max="64" disabled="@(preview is not null || busy || !CanAuthorSequenceWorkflowCallJsonControl)" />
+                            </label>
+                            <p class="vaw-help">Add a fixed equality predicate. The matching length executes Output; the false branch records a failure termination.</p>
+                            <button type="button" @onclick="InsertSequenceWorkflowCallJsonControl" disabled="@(preview is not null || busy || !CanAuthorSequenceWorkflowCallJsonControl)">Add length predicate</button>
                         </fieldset>
                     }
                     <ul class="vaw-requirements">

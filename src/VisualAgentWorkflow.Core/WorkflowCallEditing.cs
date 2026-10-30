@@ -194,6 +194,58 @@ public static class WorkflowCallEditing
         return updated;
     }
 
+    /// <summary>Adds the bounded schema-1.57 integer predicate and failure route to a direct array-length call path.</summary>
+    public static WorkflowDefinition AppendSequenceWorkflowCallJsonControlDraft(WorkflowDefinition parent, string callNodeId, long expectedLength)
+    {
+        ArgumentNullException.ThrowIfNull(parent);
+        ArgumentException.ThrowIfNullOrWhiteSpace(callNodeId);
+        if (parent.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph)
+            throw new ArgumentException("JSON control authoring requires a schema 1.56 graph.", nameof(parent));
+
+        WorkflowValidator.ThrowIfInvalid(parent);
+        var analysis = SequenceWorkflowCallJsonArrayTopology.Analyze(parent);
+        var path = analysis.Paths.SingleOrDefault(candidate => candidate.CallNodeId == callNodeId);
+        if (!analysis.IsValid || path is null)
+            throw new ArgumentException("Choose a valid bounded JSON-array WorkflowCall path.", nameof(callNodeId));
+
+        var outputId = parent.Nodes.Single(entry => entry.Value.Type == NodeTypes.Output).Key;
+        var executionEdge = parent.ExecutionConnections!.SingleOrDefault(entry =>
+            entry.Value.Source == new PortReference(callNodeId, "out") &&
+            entry.Value.Target == new PortReference(outputId, "execute"));
+        if (executionEdge.Value is null)
+            throw new ArgumentException("The JSON-array call must directly execute Output before control routing is added.", nameof(callNodeId));
+        var executionConnections = parent.ExecutionConnections!;
+
+        var equalsId = NewId("integer-equals");
+        var constantId = NewId("integer");
+        var branchId = NewId("branch");
+        var terminateId = NewId("terminate");
+        var updated = parent with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph,
+            Nodes = parent.Nodes
+                .Add(equalsId, new NodeDefinition(NodeTypes.IntegerEquals, "1.0.0"))
+                .Add(constantId, new NodeDefinition(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(expectedLength) })
+                .Add(branchId, new NodeDefinition(NodeTypes.BooleanBranch, "1.0.0"))
+                .Add(terminateId, new NodeDefinition(NodeTypes.Terminate, "1.0.0")
+                {
+                    Termination = new(WorkflowTerminationOutcomes.Failure)
+                }),
+            Connections = parent.Connections
+                .Add(NewId("workflow-call-json-control-data"), new(new(path.LengthNodeId, "out"), new(equalsId, "left"), "data"))
+                .Add(NewId("workflow-call-json-control-data"), new(new(constantId, "out"), new(equalsId, "right"), "data"))
+                .Add(NewId("workflow-call-json-control-data"), new(new(equalsId, "out"), new(branchId, "condition"), "data")),
+            ExecutionConnections = executionConnections.Remove(executionEdge.Key)
+                .Add(NewId("workflow-call-json-control-execution"), new(new(callNodeId, "out"), new(branchId, "execute"), "execution"))
+                .Add(NewId("workflow-call-json-control-execution"), new(new(branchId, "true"), new(outputId, "execute"), "execution"))
+                .Add(NewId("workflow-call-json-control-execution"), new(new(branchId, "false"), new(terminateId, "execute"), "execution"))
+        };
+        if (!SequenceWorkflowCallJsonControlTopology.Analyze(updated).IsValid)
+            throw new InvalidOperationException("The JSON-control authoring edit did not produce the bounded schema 1.57 topology.");
+        WorkflowJson.SerializeDraft(updated);
+        return updated;
+    }
+
     /// <summary>
     /// Adds a new pinned JSON child path to a clean schema-1.52 Sequence draft. The edit
     /// creates a fresh Sequence output and moves the draft to schema 1.53; it deliberately
