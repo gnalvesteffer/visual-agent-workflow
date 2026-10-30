@@ -225,6 +225,7 @@
                                 <input aria-label="JSON pointer for second composition" @bind="sequenceCallJsonPointer" maxlength="1024" disabled="@(preview is not null || busy)" />
                             </label>
                             <button type="button" @onclick="InsertSequenceWorkflowCallJsonChainComposition" disabled="@(preview is not null || busy || !CanAuthorSequenceWorkflowCallJsonChainComposition)">Add second JSON node</button>
+                            <button type="button" @onclick="InsertSequenceWorkflowCallJsonMerge" disabled="@(preview is not null || busy || !CanAuthorSequenceWorkflowCallJsonMerge)">Add bounded JSON merge</button>
                         </fieldset>
                     }
                     <ul class="vaw-requirements">

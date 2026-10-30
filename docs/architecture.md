@@ -195,6 +195,19 @@ and the explicit 1.53→1.54 migration does not invent nodes or rewrite edges. N
 fan-out, shared composition, selector successor, post-call effects, or general
 downstream topology is implied. See [Decision 0054](decisions/0054-sequence-workflow-call-json-chains.md).
 
+Schema 1.55 adds one explicit multi-consumer/dataflow proof to those forms:
+`WorkflowCall.out` may feed both `JsonProject.in` and `JsonMerge.left`, while the
+projection feeds `JsonMerge.right` and the merge feeds the JSON Output. The merge
+accepts exactly two JSON objects, shallowly unions their top-level properties in
+ordinal order, and fails on duplicate names or on the bounded 32-property,
+32-depth, and payload limits. Nested values are cloned, not recursively merged.
+The child is evaluated once per input-resolution boundary and its two recorded
+data evaluations retain separate connection identity; execution still uses the
+direct WorkflowCall-to-Output barrier. Schema 1.54 remains valid under 1.55, and
+the explicit promotion is schema-only until an author adds the merge topology.
+No arrays, scalars, effectful nodes, arbitrary fan-out, or general merge chains
+are implied. See [Decision 0055](decisions/0055-sequence-workflow-call-json-merge.md).
+
 Schema 1.40 adds a finite IEEE-754 `number` constant for direct-MCP graphs.
 Top-level MCP JSON Schema number properties become exact typed input pins and
 are serialized as JSON numbers. Non-finite values are rejected; integer/number

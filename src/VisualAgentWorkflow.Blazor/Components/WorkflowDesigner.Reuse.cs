@@ -152,6 +152,11 @@ public partial class WorkflowDesigner
         ? SequenceWorkflowCallJsonChainTopology.Analyze(current).Paths.Where(path => path.JsonNodeIds.Length == 1).ToImmutableArray()
         : [];
 
+    private bool CanAuthorSequenceWorkflowCallJsonMerge => !IdeMode && preview is null && !busy &&
+        !string.IsNullOrWhiteSpace(sequenceCallJsonNodeId) &&
+        SequenceCallJsonChainPaths.Any(path => path.CallNodeId == sequenceCallJsonNodeId &&
+            definition!.Nodes[path.JsonNodeIds[0]].Type == NodeTypes.JsonProject);
+
     private bool CanAuthorSequenceWorkflowCallJsonComposition => !IdeMode && preview is null && !busy &&
         !string.IsNullOrWhiteSpace(sequenceCallJsonNodeId) &&
         SequenceCallJsonPaths.Any(path => path.CallNodeId == sequenceCallJsonNodeId) &&
@@ -393,6 +398,16 @@ public partial class WorkflowDesigner
         if (!Current(current)) return;
         ApplyComposition(new(next, layout.Reconcile(next)));
         message = $"Added a {(sequenceCallJsonCompositionType == NodeTypes.JsonProject ? "second JSON projection" : "terminal JSON selector")} to the schema 1.54 chain. Configure its fields, then save and publish.";
+    });
+
+    private Task InsertSequenceWorkflowCallJsonMerge() => Perform(async current =>
+    {
+        if (!CanAuthorSequenceWorkflowCallJsonMerge || definition is null || layout is null)
+            return;
+        var next = WorkflowCallEditing.AppendSequenceWorkflowCallJsonMergeDraft(definition, sequenceCallJsonNodeId);
+        if (!Current(current)) return;
+        ApplyComposition(new(next, layout.Reconcile(next)));
+        message = "Added the bounded JSON object merge. The child output now feeds both the projection and merge; save and publish after reviewing the topology.";
     });
 
     private static bool HasJsonBoundary(WorkflowDefinition child)

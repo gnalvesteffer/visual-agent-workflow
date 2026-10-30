@@ -133,6 +133,7 @@ public static class NodeTypes
     public const string WorkflowValue = "core.workflow-value";
     public const string JsonSelectString = "core.json.select-string";
     public const string JsonProject = "core.json.project";
+    public const string JsonMerge = "core.json.merge";
     public const string TextTemplate = "core.text.template";
     public const string ParallelFork = "core.parallel.fork";
     public const string ParallelBranch = "core.parallel.branch";
@@ -202,6 +203,7 @@ public static class WorkflowSchemaPromotionCatalog
         new("sequence-workflow-call-agents", "1.51", "1.52", nameof(GraphEditing.EnableSequenceWorkflowCallAgentGraph), false),
         new("sequence-workflow-call-json", "1.52", "1.53", nameof(GraphEditing.EnableSequenceWorkflowCallJsonGraph), false),
         new("sequence-workflow-call-json-chains", "1.53", "1.54", nameof(GraphEditing.EnableSequenceWorkflowCallJsonChainGraph), false),
+        new("sequence-workflow-call-json-merge", "1.54", "1.55", nameof(GraphEditing.EnableSequenceWorkflowCallJsonMergeGraph), false),
         new("mutable-variables", "1.23", "1.44", nameof(GraphEditing.EnableMutableVariablesGraph), true)
     ];
 }
@@ -211,13 +213,13 @@ public static class WorkflowSchemaPromotionCatalog
 public static class WorkflowSchemaCatalog
 {
     public static ImmutableArray<WorkflowSchemaDescriptor> All { get; } =
-        [.. Enumerable.Range(0, 55).Select(number =>
+        [.. Enumerable.Range(0, 56).Select(number =>
         {
             var version = $"1.{number}";
             var explicitGraph = version is "1.23" or "1.24" or "1.25" or "1.26" or "1.27" or "1.28" or
                 "1.30" or "1.31" or "1.32" or "1.33" or "1.34" or "1.35" or "1.36" or "1.37" or
-                "1.38" or "1.39" or "1.40" or "1.41" or "1.42" or "1.43" or "1.44" or "1.45" or "1.46" or "1.47" or "1.48" or "1.49" or "1.50" or "1.51" or "1.52" or "1.53" or "1.54";
-            var directMcpPins = version is "1.37" or "1.40" or "1.41" or "1.42" or "1.43" or "1.46" or "1.47" or "1.48" or "1.49" or "1.50" or "1.51" or "1.52" or "1.53" or "1.54";
+                "1.38" or "1.39" or "1.40" or "1.41" or "1.42" or "1.43" or "1.44" or "1.45" or "1.46" or "1.47" or "1.48" or "1.49" or "1.50" or "1.51" or "1.52" or "1.53" or "1.54" or "1.55";
+            var directMcpPins = version is "1.37" or "1.40" or "1.41" or "1.42" or "1.43" or "1.46" or "1.47" or "1.48" or "1.49" or "1.50" or "1.51" or "1.52" or "1.53" or "1.54" or "1.55";
             return new WorkflowSchemaDescriptor(version, true, explicitGraph, directMcpPins);
         })];
 
@@ -276,6 +278,7 @@ public static class WorkflowSchemaVersions
     public const string SequenceWorkflowCallJsonGraph = "1.53";
     /// <summary>Bounded Sequence paths with a pinned JSON WorkflowCall followed by up to two pure JSON composition nodes.</summary>
     public const string SequenceWorkflowCallJsonChainGraph = "1.54";
+    public const string SequenceWorkflowCallJsonMergeGraph = "1.55";
 
     public static bool IsSupported(string? version) => WorkflowSchemaCatalog.IsSupported(version);
 
@@ -287,7 +290,7 @@ public static class WorkflowSchemaVersions
 
     public static bool UsesExplicitGraph(WorkflowDefinition definition) =>
         UsesExplicitGraph(definition.SchemaVersion) ||
-        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or SequenceGraph or SequencePathGraph or SequenceAgentPathGraph or SequenceTransformPathGraph or SequenceReversePathGraph or SequenceTransformChainGraph or SequenceWorkflowCallGraph or SequenceWorkflowCallTransformGraph or SequenceWorkflowCallAgentGraph or SequenceWorkflowCallJsonGraph or SequenceWorkflowCallJsonChainGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph or NumberArithmeticGraph or MutableVariablesGraph or LoopVariablesGraph && definition.ExecutionConnections is not null;
+        definition.SchemaVersion is AgentParameterBindings or AgentExecutionRoutes or IntegerGraph or ConfigurableParallelGraph or CollaborativeParallelGraph or BranchLocalParallelGraph or PhasedCollaborativeParallelGraph or DirectMcpGraph or DirectMcpPinsGraph or SequenceGraph or SequencePathGraph or SequenceAgentPathGraph or SequenceTransformPathGraph or SequenceReversePathGraph or SequenceTransformChainGraph or SequenceWorkflowCallGraph or SequenceWorkflowCallTransformGraph or SequenceWorkflowCallAgentGraph or SequenceWorkflowCallJsonGraph or SequenceWorkflowCallJsonChainGraph or SequenceWorkflowCallJsonMergeGraph or StringIntegerConversionGraph or NumberGraph or NumberPropagationGraph or NumberArithmeticGraph or MutableVariablesGraph or LoopVariablesGraph && definition.ExecutionConnections is not null;
 }
 
 /// <summary>Runtime value held by one workflow invocation's variable store.</summary>

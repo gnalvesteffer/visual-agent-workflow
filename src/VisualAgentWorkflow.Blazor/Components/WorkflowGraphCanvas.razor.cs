@@ -153,7 +153,7 @@ public partial class WorkflowGraphCanvas
     internal static string FriendlyName(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input => "Input", NodeTypes.Output => "Output", NodeTypes.Uppercase => "Uppercase", NodeTypes.Reverse => "Reverse", NodeTypes.TextTemplate => "Text template",
-        NodeTypes.JsonProject => "JSON projection", NodeTypes.JsonSelectString => "JSON selector",
+        NodeTypes.JsonProject => "JSON projection", NodeTypes.JsonSelectString => "JSON selector", NodeTypes.JsonMerge => "JSON merge",
         NodeTypes.Condition => "Condition", NodeTypes.Merge => "Merge", NodeTypes.Approval => "Approval",
         NodeTypes.ParallelFork => "Parallel fork", NodeTypes.ParallelBranch => "Parallel branch", NodeTypes.ParallelJoin => "Parallel join", NodeTypes.ParallelRendezvous => "Parallel rendezvous",
         NodeTypes.Sequence => "Sequence",
@@ -207,6 +207,7 @@ public partial class WorkflowGraphCanvas
             NodeTypes.StringConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.BooleanConstant or NodeTypes.WorkflowValue => "<path d=\"M4 4h12v12H4zM7 8h6M7 12h4\"/>",
             NodeTypes.FunctionInput or NodeTypes.FunctionOutput => "<path d=\"M3 10h14m-5-5 5 5-5 5\"/><circle cx=\"4\" cy=\"10\" r=\"2\"/>",
             NodeTypes.JsonProject or NodeTypes.JsonSelectString => "<path d=\"M7 3H5v5l-2 2 2 2v5h2m6-14h2v5l2 2-2 2v5h-2M9 7h2m-2 3h2m-2 3h2\"/>",
+            NodeTypes.JsonMerge => "<path d=\"M4 5h5m-5 7h5m0-7 6 5-6 5V5Zm0 0v7\"/>",
             _ => "<path d=\"M4 5h12M4 10h12M4 15h8\"/><circle cx=\"2.5\" cy=\"5\" r=\".5\"/><circle cx=\"2.5\" cy=\"10\" r=\".5\"/><circle cx=\"2.5\" cy=\"15\" r=\".5\"/>"
         };
         return $"<svg viewBox=\"0 0 20 20\" focusable=\"false\">{shape}</svg>";

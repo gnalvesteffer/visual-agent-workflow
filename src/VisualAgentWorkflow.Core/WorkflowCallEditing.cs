@@ -109,6 +109,50 @@ public static class WorkflowCallEditing
     }
 
     /// <summary>
+    /// Adds the bounded schema-1.55 object merge after a single JSON projection. The child
+    /// output is deliberately fanned out to both the projection and merge, while execution
+    /// remains the existing WorkflowCall-to-Output barrier.
+    /// </summary>
+    public static WorkflowDefinition AppendSequenceWorkflowCallJsonMergeDraft(WorkflowDefinition parent,
+        string callNodeId)
+    {
+        ArgumentNullException.ThrowIfNull(parent);
+        ArgumentException.ThrowIfNullOrWhiteSpace(callNodeId);
+        if (parent.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph)
+            throw new ArgumentException("JSON merge authoring requires a schema 1.54 graph.", nameof(parent));
+
+        WorkflowValidator.ThrowIfInvalid(parent);
+        var analysis = SequenceWorkflowCallJsonChainTopology.Analyze(parent);
+        var path = analysis.Paths.SingleOrDefault(candidate => candidate.CallNodeId == callNodeId);
+        if (!analysis.IsValid || path is null || path.JsonNodeIds.Length != 1 ||
+            parent.Nodes[path.JsonNodeIds[0]].Type != NodeTypes.JsonProject)
+            throw new ArgumentException("Choose a valid schema 1.54 path with one JSON projection before adding a merge.", nameof(callNodeId));
+
+        var projectionId = path.JsonNodeIds[0];
+        var outputId = parent.Nodes.Single(entry => entry.Value.Type == NodeTypes.Output).Key;
+        var dataEdge = parent.Connections.SingleOrDefault(entry =>
+            entry.Value.Source == new PortReference(projectionId, "out") &&
+            entry.Value.Target == new PortReference(outputId, "in"));
+        if (dataEdge.Value is null)
+            throw new ArgumentException("The existing JSON projection must be the only data source for Output.", nameof(callNodeId));
+
+        var mergeId = NewId("json-merge");
+        var updated = parent with
+        {
+            SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph,
+            Nodes = parent.Nodes.Add(mergeId, new NodeDefinition(NodeTypes.JsonMerge, "1.0.0")),
+            Connections = parent.Connections.Remove(dataEdge.Key)
+                .Add(NewId("workflow-call-json-merge-data"), new(new(callNodeId, "out"), new(mergeId, "left"), "data"))
+                .Add(NewId("workflow-call-json-merge-data"), new(new(projectionId, "out"), new(mergeId, "right"), "data"))
+                .Add(NewId("workflow-call-json-merge-data"), new(new(mergeId, "out"), new(outputId, "in"), "data"))
+        };
+        if (!SequenceWorkflowCallJsonMergeTopology.Analyze(updated).IsValid)
+            throw new InvalidOperationException("The JSON merge authoring edit did not produce the bounded schema 1.55 topology.");
+        WorkflowJson.SerializeDraft(updated);
+        return updated;
+    }
+
+    /// <summary>
     /// Adds a new pinned JSON child path to a clean schema-1.52 Sequence draft. The edit
     /// creates a fresh Sequence output and moves the draft to schema 1.53; it deliberately
     /// does not reinterpret an existing string call or an Agent/transform path.

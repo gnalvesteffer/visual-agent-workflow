@@ -161,6 +161,29 @@ public sealed class SequenceWorkflowCallEditingTests
         Assert.Empty(WorkflowValidator.Validate(updated));
     }
 
+    [Fact]
+    public void Adds_a_bounded_object_merge_after_a_projection_in_schema_1_55()
+    {
+        var child = WorkflowRevision.Create(JsonBaseline("json-child"), "test");
+        var direct = WorkflowCallEditing.AppendSequenceWorkflowCallJsonDraft(
+            PathGraph() with { SchemaVersion = WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph }, "sequence", new(1, child));
+        var projected = WorkflowCallEditing.AppendSequenceWorkflowCallJsonCompositionDraft(
+            direct, direct.Nodes.Single(pair => pair.Value.Type == NodeTypes.WorkflowCall).Key, NodeTypes.JsonProject, "/answer");
+        var chain = GraphEditing.EnableSequenceWorkflowCallJsonChainGraph(projected);
+        var callId = chain.Nodes.Single(pair => pair.Value.Type == NodeTypes.WorkflowCall).Key;
+
+        var merged = WorkflowCallEditing.AppendSequenceWorkflowCallJsonMergeDraft(chain, callId);
+
+        Assert.Equal(WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph, merged.SchemaVersion);
+        var mergeId = Assert.Single(merged.Nodes, pair => pair.Value.Type == NodeTypes.JsonMerge).Key;
+        var projectId = Assert.Single(merged.Nodes, pair => pair.Value.Type == NodeTypes.JsonProject).Key;
+        Assert.Contains(merged.Connections.Values, edge => edge.Source == new PortReference(callId, "out") && edge.Target == new PortReference(mergeId, "left"));
+        Assert.Contains(merged.Connections.Values, edge => edge.Source == new PortReference(callId, "out") && edge.Target == new PortReference(projectId, "in"));
+        Assert.Contains(merged.Connections.Values, edge => edge.Source == new PortReference(mergeId, "out") && edge.Target == new PortReference("output", "in"));
+        Assert.Empty(WorkflowValidator.Validate(merged));
+        Assert.True(SequenceWorkflowCallJsonMergeTopology.Analyze(merged).IsValid);
+    }
+
     private static WorkflowDefinition PathGraph()
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)

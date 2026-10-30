@@ -65,7 +65,7 @@ public static class WorkflowValidator
             // Schemas 1.53 and 1.54 reuse the mature JSON data nodes introduced by earlier schemas.
             // Keep the historical version gates intact for older graphs while admitting those
             // nodes in the new bounded WorkflowCall composition contract.
-            if (definition.SchemaVersion is WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph &&
+            if (definition.SchemaVersion is WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph &&
                 path.StartsWith("nodes.", StringComparison.Ordinal) &&
                 definition.Nodes?.TryGetValue(path["nodes.".Length..].Split('.')[0], out var gatedNode) == true &&
                 gatedNode?.Type is NodeTypes.Input or NodeTypes.Output or NodeTypes.JsonSelectString or NodeTypes.JsonProject &&
@@ -270,7 +270,7 @@ public static class WorkflowValidator
                     try { hashMatches = WorkflowJson.MatchesHash(child, call.ContentHash); }
                     catch (ArgumentException) { }
                 }
-        if (definition.SchemaVersion is not ("1.19" or "1.22" or "1.21" or "1.20" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph) || call is null || string.IsNullOrWhiteSpace(call.WorkflowId) ||
+        if (definition.SchemaVersion is not ("1.19" or "1.22" or "1.21" or "1.20" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph) || call is null || string.IsNullOrWhiteSpace(call.WorkflowId) ||
                     call.WorkflowId.Length > 256 || call.WorkflowId != call.Definition?.WorkflowId || call.RevisionId == Guid.Empty ||
                     call.Version < 1 || !ValidHash(call.ContentHash) || !hashMatches || call.Definition is { } childDefinition && !HasSupportedWorkflowCallContract(childDefinition))
                     Error("workflowCall.configuration", $"nodes.{id}.workflowCall", "Workflow call nodes require schema 1.19 and an embedded, hash-matching workflow with string or JSON input and output contracts.");
@@ -352,18 +352,18 @@ public static class WorkflowValidator
             }
             else if (node.ParameterId is not null)
                 Error("parameter.unexpected", $"nodes.{id}.parameterId", "Only workflow value nodes may reference a parameter.");
-            if (node.InputDataType is not null && node.Type != NodeTypes.VariableSet && (node.Type != NodeTypes.Input || node.InputDataType != "json" || definition.SchemaVersion is not ("1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)))
+            if (node.InputDataType is not null && node.Type != NodeTypes.VariableSet && (node.Type != NodeTypes.Input || node.InputDataType != "json" || definition.SchemaVersion is not ("1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph)))
                 Error("input.dataType", $"nodes.{id}.inputDataType", "Only schema 1.9 or later input nodes can declare the JSON data type.");
             if (node.OutputDataType is not null && node.Type is not (NodeTypes.WorkflowValue or NodeTypes.Output or NodeTypes.VariableGet) ||
                 node.OutputDataType is not null && node.Type == NodeTypes.Output &&
-                    (definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.LoopVariablesGraph
+                    (definition.SchemaVersion is WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.MutableVariablesGraph or WorkflowSchemaVersions.LoopVariablesGraph
                         ? node.OutputDataType is not ("string" or "integer" or "boolean" or "json")
-                        : node.OutputDataType != "json" || definition.SchemaVersion is not ("1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)) ||
+                        : node.OutputDataType != "json" || definition.SchemaVersion is not ("1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph)) ||
                 node.OutputDataType is not null && node.Type == NodeTypes.WorkflowValue && definition.SchemaVersion is not (WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph))
                 Error("output.dataType", $"nodes.{id}.outputDataType", "Only schema 1.13 or later output nodes can declare the JSON data type.");
             if (node.Type == NodeTypes.JsonSelectString)
             {
-                if (definition.SchemaVersion is not ("1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)) Error("node.schema", $"nodes.{id}", "JSON selection nodes require schema 1.9 or later.");
+                if (definition.SchemaVersion is not ("1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph)) Error("node.schema", $"nodes.{id}", "JSON selection nodes require schema 1.9 or later.");
                 if (node.JsonPropertySelection is not { } selection || !ValidJsonPointer(selection.Pointer))
                     Error("json.selection", $"nodes.{id}.jsonPropertySelection", "Provide a valid RFC 6901 JSON pointer with at most 16 segments and 1,024 characters.");
             }
@@ -371,7 +371,7 @@ public static class WorkflowValidator
                 Error("json.selection.unexpected", $"nodes.{id}.jsonPropertySelection", "Only JSON selection nodes can declare a JSON property pointer.");
             if (node.Type == NodeTypes.JsonProject)
             {
-                if (definition.SchemaVersion is not ("1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)) Error("node.schema", $"nodes.{id}", "JSON projection nodes require schema 1.13 or later.");
+                if (definition.SchemaVersion is not ("1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph)) Error("node.schema", $"nodes.{id}", "JSON projection nodes require schema 1.13 or later.");
                 if (!ValidJsonProjection(node.JsonProjection)) Error("json.projection", $"nodes.{id}.jsonProjection", "Map 1–16 unique JSON property names to valid bounded JSON Pointers.");
                 if (node.JsonProjection?.Fields.Any(field => field?.ValueType is not null) == true && definition.SchemaVersion is not ("1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph))
                     Error("json.projection.schema", $"nodes.{id}.jsonProjection", "Typed JSON projection fields require schema 1.15.");
@@ -380,6 +380,8 @@ public static class WorkflowValidator
             }
             else if (node.JsonProjection is not null)
                 Error("json.projection.unexpected", $"nodes.{id}.jsonProjection", "Only JSON projection nodes may declare JSON field mappings.");
+            if (node.Type == NodeTypes.JsonMerge && definition.SchemaVersion != WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph)
+                Error("node.schema", $"nodes.{id}", "JSON merge nodes require schema 1.55.");
             if (node.Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin && definition.SchemaVersion is not ("1.14" or "1.15" or "1.16" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph))
                 Error("node.schema", $"nodes.{id}", "Parallel graph nodes require schema 1.14.");
             if (node.Type == NodeTypes.ParallelRendezvous && definition.SchemaVersion is not (WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph))
@@ -619,7 +621,7 @@ public static class WorkflowValidator
                 ValidateMutableVariableGraph(definition, Error);
             else if (definition.SchemaVersion == WorkflowSchemaVersions.LoopVariablesGraph)
                 ValidateLoopVariableGraph(definition, Error);
-            else if (definition.SchemaVersion is WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph)
+            else if (definition.SchemaVersion is WorkflowSchemaVersions.SequenceGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph)
                 ValidateSequenceGraph(definition, Error);
             else
             if (definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph)
@@ -929,10 +931,11 @@ public static class WorkflowValidator
             return;
         }
 
-        var isPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph;
+        var isPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph;
         var isWorkflowCallJsonComposition = definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph &&
             SequenceWorkflowCallJsonTopology.IsJsonCompositionGraph(definition);
         var isWorkflowCallJsonChainComposition = definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph;
+        var isWorkflowCallJsonMergeGraph = definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph;
         var isAgentPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph ||
             definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph && !isWorkflowCallJsonComposition;
         var isTransformPathGraph = definition.SchemaVersion is WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph;
@@ -957,11 +960,13 @@ public static class WorkflowValidator
             supported.Add(NodeTypes.SequenceUppercase);
             supported.Add(NodeTypes.SequenceReverse);
         }
-        if ((isWorkflowCallJsonGraph && isWorkflowCallJsonComposition) || isWorkflowCallJsonChainComposition)
+        if ((isWorkflowCallJsonGraph && isWorkflowCallJsonComposition) || isWorkflowCallJsonChainComposition || isWorkflowCallJsonMergeGraph)
         {
             supported.Add(NodeTypes.WorkflowCall);
             supported.Add(NodeTypes.JsonSelectString);
             supported.Add(NodeTypes.JsonProject);
+            if (isWorkflowCallJsonMergeGraph)
+                supported.Add(NodeTypes.JsonMerge);
         }
         if (isTransformPathGraph)
         {
@@ -983,6 +988,8 @@ public static class WorkflowValidator
                                     ? "Schema 1.51 supports input, Sequence, direct MCP nodes, one pinned string WorkflowCall, one terminal deterministic text step, and output nodes; paths are linear and disjoint."
                                 : isWorkflowCallAgentGraph
                                     ? "Schema 1.52 supports input, Sequence, direct MCP nodes, one pinned string WorkflowCall, and one terminal plain-text Agent or deterministic text step; paths are linear and disjoint."
+                                : isWorkflowCallJsonMergeGraph
+                                    ? "Schema 1.55 supports input, Sequence, direct MCP nodes, one pinned JSON WorkflowCall, one projection, and one bounded object merge; paths are linear and disjoint while the data graph has one explicit fan-out/fan-in."
                                 : isWorkflowCallJsonChainComposition
                                     ? "Schema 1.54 supports input, Sequence, direct MCP nodes, one pinned JSON WorkflowCall, and up to two linear JSON composition nodes; paths are linear and disjoint."
                                 : isWorkflowCallJsonGraph
@@ -1191,18 +1198,24 @@ public static class WorkflowValidator
                     error("sequence.path.duplicate", $"nodes.{sequence}.sequence.outputs.{outputId}",
                         $"Sequence output {SequenceOutputName(outputId)} defines more than one downstream path.");
             }
-            if ((isWorkflowCallJsonGraph && isWorkflowCallJsonComposition) || isWorkflowCallJsonChainComposition)
+            if ((isWorkflowCallJsonGraph && isWorkflowCallJsonComposition) || isWorkflowCallJsonChainComposition || isWorkflowCallJsonMergeGraph)
                 foreach (var jsonNode in definition.Nodes.Where(entry => entry.Value?.Type is NodeTypes.JsonSelectString or NodeTypes.JsonProject))
                     ownedNodes.Add(jsonNode.Key);
+            if (isWorkflowCallJsonMergeGraph)
+                foreach (var mergeNode in definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.JsonMerge))
+                    ownedNodes.Add(mergeNode.Key);
             if (ownedNodes.Count != definition.Nodes.Count)
                 error("graph.unreachable", "nodes", "Every node must belong to the input, Sequence, output, or one disjoint Sequence path.");
         }
 
         var reached = new HashSet<string>(StringComparer.Ordinal);
         if (input is not null) { var pending = new Stack<string>([input]); while (pending.TryPop(out var current)) { if (!reached.Add(current)) continue; foreach (var next in adjacency.GetValueOrDefault(current) ?? []) pending.Push(next); } }
-        if ((isWorkflowCallJsonGraph && isWorkflowCallJsonComposition) || isWorkflowCallJsonChainComposition)
+        if ((isWorkflowCallJsonGraph && isWorkflowCallJsonComposition) || isWorkflowCallJsonChainComposition || isWorkflowCallJsonMergeGraph)
             foreach (var jsonNode in definition.Nodes.Where(entry => entry.Value?.Type is NodeTypes.JsonSelectString or NodeTypes.JsonProject))
                 reached.Add(jsonNode.Key);
+        if (isWorkflowCallJsonMergeGraph)
+            foreach (var mergeNode in definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.JsonMerge))
+                reached.Add(mergeNode.Key);
         if (reached.Count != definition.Nodes.Count)
             error("graph.unreachable", "nodes", "Every node must be reachable from the input entry.");
 
@@ -1210,6 +1223,12 @@ public static class WorkflowValidator
         {
             var callJsonTopology = SequenceWorkflowCallJsonTopology.Analyze(definition);
             foreach (var issue in callJsonTopology.Issues)
+                error(issue.Code, issue.Path, issue.Message);
+        }
+        else if (isWorkflowCallJsonMergeGraph)
+        {
+            var callJsonMergeTopology = SequenceWorkflowCallJsonMergeTopology.Analyze(definition);
+            foreach (var issue in callJsonMergeTopology.Issues)
                 error(issue.Code, issue.Path, issue.Message);
         }
         else if (isWorkflowCallJsonChainComposition)

@@ -108,6 +108,65 @@ public sealed class SequenceProductionRunnerTests
     }
 
     [Fact]
+    public async Task Public_schema_1_55_merges_two_consumers_of_one_json_child_output()
+    {
+        var child = WorkflowRevision.Create(JsonChild("public-sequence-json-merge-child"), "test");
+        var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
+        };
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph,
+            "public-sequence-json-merge-parent", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["sequence"] = new(NodeTypes.Sequence, "1.0.0") { Sequence = new([new("call", "Pinned child"), new("sibling", "Sibling")]) },
+                ["call"] = call,
+                ["sibling"] = new(NodeTypes.McpTool, "1.0.0", new("sibling", new string('a', 64))) { McpArgumentsJson = "{}" },
+                ["project"] = new(NodeTypes.JsonProject, "1.0.0")
+                {
+                    JsonProjection = new([new JsonProjectionField("answer_copy", "/answer")])
+                },
+                ["merge"] = new(NodeTypes.JsonMerge, "1.0.0"),
+                ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.Json }
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["call-merge"] = new(new("call", "out"), new("merge", "left"), "data"),
+                ["call-project"] = new(new("call", "out"), new("project", "in"), "data"),
+                ["project-merge"] = new(new("project", "out"), new("merge", "right"), "data"),
+                ["merge-output"] = new(new("merge", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary())
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-sequence"] = new(new("input", "then"), new("sequence", "execute"), "execution"),
+                ["sequence-call"] = new(new("sequence", "then.call"), new("call", "execute"), "execution"),
+                ["call-output"] = new(new("call", "out"), new("output", "execute"), "execution"),
+                ["sequence-sibling"] = new(new("sequence", "then.sibling"), new("sibling", "execute"), "execution"),
+                ["sibling-output"] = new(new("sibling", "then"), new("output", "execute"), "execution")
+            }.ToImmutableSortedDictionary()
+        };
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner(new SequencePathBroker((_, _) => Task.FromResult("{}"))).ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(WorkflowJson.Deserialize(WorkflowJson.Serialize(definition)), "test"),
+            "{\"base\":\"hello\",\"answer\":\"hello\"}", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed, string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
+        Assert.Equal("{\"answer\":\"hello\",\"answer_copy\":\"hello\",\"base\":\"hello\"}", result.Output);
+        Assert.True(events.Count(evt => evt.Kind == ExecutionEventKinds.SubworkflowStarted) == 1,
+            string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.ScopeId}")));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "project");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "merge");
+        // The two execution paths each resolve Output once; within each resolution the
+        // merge's two consumers reuse the same cached child value, producing two
+        // connection-correlated evaluations rather than re-running the child.
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "call"));
+    }
+
+    [Fact]
     public async Task Public_schema_1_52_passes_a_pinned_workflow_call_result_to_one_terminal_agent()
     {
         var child = WorkflowRevision.Create(

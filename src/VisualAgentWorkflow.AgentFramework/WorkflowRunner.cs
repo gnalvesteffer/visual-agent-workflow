@@ -726,6 +726,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         StringExecutor.SelectJsonText(ResolveJsonInput(nodeId, "in", evaluated, cache, active), node.JsonPropertySelection!.Pointer)),
                     NodeTypes.JsonProject when outputPort == "out" => new ExplicitGraphValue("json",
                         ParseJson(StringExecutor.ProjectJson(ResolveJsonInput(nodeId, "in", evaluated, cache, active), node.JsonProjection!))),
+                    NodeTypes.JsonMerge when outputPort == "out" => new ExplicitGraphValue("json",
+                        ParseJson(StringExecutor.MergeJson(
+                            ResolveJsonInput(nodeId, "left", evaluated, cache, active),
+                            ResolveJsonInput(nodeId, "right", evaluated, cache, active)))),
                     NodeTypes.FunctionCall when node.GraphFunction is { } function && function.Definition.Outputs.TryGetValue(outputPort, out var output) =>
                         EvaluateFunction(nodeId, outputPort, output.DataType, function, evaluated, cache, active),
                         _ => throw new InvalidOperationException("The data source is not a supported pure value node.")
@@ -1127,10 +1131,12 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             {
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Output &&
                     !internalTerminationHandoff && (received.SequenceLineage is null ||
-                        revision.Definition.SchemaVersion is WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph &&
+                        revision.Definition.SchemaVersion is WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph &&
                         (revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph
                             ? SequenceWorkflowCallJsonTopology.IsJsonCompositionGraph(revision.Definition)
-                            : SequenceWorkflowCallJsonChainTopology.IsJsonCompositionGraph(revision.Definition))))
+                            : revision.Definition.SchemaVersion == WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph
+                                ? SequenceWorkflowCallJsonChainTopology.IsJsonCompositionGraph(revision.Definition)
+                                : SequenceWorkflowCallJsonMergeTopology.Analyze(revision.Definition).IsValid)))
                 {
                     outputEvaluation = dataEvaluator!.ResolveInput(Id, "in");
                     message = outputEvaluation.Result.DataType switch
@@ -1241,7 +1247,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.SequenceUppercase => message.ToUpperInvariant(),
                     NodeTypes.SequenceReverse => string.Concat(message.EnumerateRunes().Reverse()),
                     NodeTypes.Reverse => string.Concat(message.EnumerateRunes().Reverse()),
-                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph
+                    NodeTypes.McpTool => revision.Definition.SchemaVersion is WorkflowSchemaVersions.DirectMcpGraph or WorkflowSchemaVersions.DirectMcpPinsGraph or WorkflowSchemaVersions.SequencePathGraph or WorkflowSchemaVersions.SequenceAgentPathGraph or WorkflowSchemaVersions.SequenceTransformPathGraph or WorkflowSchemaVersions.SequenceReversePathGraph or WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.NumberGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph
                         ? await InvokeDirectMcpTool(message, invocation, toolArgumentEvaluations, cancellationToken)
                         : await InvokeTool(message, invocation, cancellationToken),
                     NodeTypes.WorkflowCall => childOutcome?.Output ?? string.Empty,
@@ -1703,6 +1709,36 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (projected.Length > JsonProjectionLimits.MaximumPayloadCharacters)
                 throw new InvalidOperationException($"Projected JSON exceeds {JsonProjectionLimits.MaximumPayloadCharacters} characters.");
             return projected;
+        }
+
+        internal static string MergeJson(string leftInput, string rightInput)
+        {
+            if (leftInput.Length > JsonProjectionLimits.MaximumPayloadCharacters ||
+                rightInput.Length > JsonProjectionLimits.MaximumPayloadCharacters)
+                throw new InvalidOperationException($"JSON workflow data exceeds {JsonProjectionLimits.MaximumPayloadCharacters} characters.");
+
+            using var leftDocument = JsonDocument.Parse(leftInput, new JsonDocumentOptions { MaxDepth = 32 });
+            using var rightDocument = JsonDocument.Parse(rightInput, new JsonDocumentOptions { MaxDepth = 32 });
+            if (leftDocument.RootElement.ValueKind != JsonValueKind.Object || rightDocument.RootElement.ValueKind != JsonValueKind.Object)
+                throw new JsonProjectionContractException("JSON merge requires object inputs.");
+
+            var values = new SortedDictionary<string, JsonElement>(StringComparer.Ordinal);
+            AddMergeProperties(values, leftDocument.RootElement);
+            AddMergeProperties(values, rightDocument.RootElement);
+            if (values.Count > JsonProjectionLimits.MaximumMergeProperties)
+                throw new JsonProjectionContractException($"JSON merge output exceeds {JsonProjectionLimits.MaximumMergeProperties} properties.");
+
+            var merged = JsonSerializer.Serialize(values, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            if (merged.Length > JsonProjectionLimits.MaximumPayloadCharacters)
+                throw new InvalidOperationException($"Merged JSON exceeds {JsonProjectionLimits.MaximumPayloadCharacters} characters.");
+            return merged;
+        }
+
+        private static void AddMergeProperties(SortedDictionary<string, JsonElement> target, JsonElement source)
+        {
+            foreach (var property in source.EnumerateObject())
+                if (!target.TryAdd(property.Name, property.Value.Clone()))
+                    throw new JsonProjectionContractException($"JSON merge contains duplicate property '{property.Name}'.");
         }
 
         private static bool MatchesJsonType(JsonElement value, string expectedType) => expectedType switch
