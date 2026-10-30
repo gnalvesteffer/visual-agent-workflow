@@ -343,7 +343,9 @@ public partial class WorkflowEditor
         }
         var insertion = Insertion(context);
         var sourceType = insertion is { } source
-            ? WorkflowPorts.Outputs(Definition.Nodes[source.NodeId]).Single(port => port.Id == source.PortId).DataType
+            ? CanvasPorts(Definition.Nodes[source.NodeId])
+                .FirstOrDefault(port => port.Direction == WorkflowPortDirection.Output &&
+                    port.Kind == WorkflowPortKind.Data && port.Id == source.PortId)?.DataType
             : null;
         var canCreate = !ReadOnly && !Disabled && Definition.Nodes.Count < 256;
         var canInsert = canCreate && sourceType is not null;

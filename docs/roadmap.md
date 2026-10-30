@@ -133,11 +133,13 @@ descriptor item remains unchecked.
 
 The next bounded slice aligns the editor's selected-output and insertion
 controls with the same resolved authoring descriptor used by the graph canvas.
-This keeps configured Agent routes and other dynamic output pins consistent
-between what is rendered and what the editor offers for insertion, while
-preserving legacy schema fallback and leaving runtime/serialization authority
-unchanged. The broader descriptor item remains unchecked pending validator,
-runtime, compatibility, and evidence convergence.
+The selected-output controls already consume that projection; the insertion
+picker now does too, including its legacy-schema fallback. This keeps
+configured Agent routes and other dynamic output pins consistent between what
+is rendered and what the editor offers for insertion, while preserving legacy
+schema fallback and leaving runtime/serialization authority unchanged. The
+broader descriptor item remains unchecked pending validator, runtime,
+compatibility, and evidence convergence.
 
 ### Active parity phase: run-scoped mutable variable proof
 
