@@ -1,9 +1,11 @@
+using System.Collections.Immutable;
 using System.Text.Json;
+using VisualAgentWorkflow.Blazor;
 using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Studio;
 
-internal static class WorkflowEndpoints
+public static class WorkflowEndpoints
 {
     public static void MapWorkflowEndpoints(this WebApplication app, string routePrefix = "/api")
     {
@@ -74,7 +76,7 @@ internal static class WorkflowEndpoints
                 : request.StartPaused
                     ? await ((IPublishedWorkflowRunControl)client).StartPublishedPausedRunAsync(revisionId, request.Input)
                     : await client.StartPublishedRunAsync(revisionId, request.Input);
-            return Results.Accepted($"/api/runs/{run.Header.RunId}", run);
+            return Results.Accepted($"/api/runs/{run.Header.RunId}", new { runId = run.Header.RunId });
         });
         group.MapPost("/revisions/{revisionId:guid}/runs", async (Guid revisionId, PublishedRunRequest request, IPublishedWorkflowClient client) =>
         {
@@ -89,6 +91,233 @@ internal static class WorkflowEndpoints
                     ? await ((IPublishedWorkflowRunControl)client).StartPublishedPausedRunAsync(revisionId, request.Input)
                     : await client.StartPublishedRunAsync(revisionId, request.Input);
             return Results.Accepted($"/api/runs/{run.Header.RunId}", run);
+        });
+
+        // Create a new workflow from template or empty graph
+        group.MapPost("/workflows", async (CreateWorkflowRequest request, IWorkflowCatalog catalog) =>
+        {
+            var workflowId = request.Name ?? Guid.NewGuid().ToString();
+            var definition = WorkflowTemplates.Create("uppercase") with { WorkflowId = workflowId };
+            if (!string.IsNullOrEmpty(request.Name))
+                definition = definition with { DisplayName = request.Name };
+            var draft = await catalog.SaveDraftAsync(definition, 0);
+            return Results.Created($"/api/workflows/{workflowId}", new { workflowId, name = request.Name ?? workflowId });
+        });
+
+        // Add a node to the workflow graph
+        group.MapPost("/workflows/{workflowId}/nodes", async (string workflowId, AddNodeRequest request, IWorkflowCatalog catalog) =>
+        {
+            var draft = await catalog.GetDraftAsync(workflowId);
+            if (draft is null) return Results.NotFound();
+
+            try
+            {
+                NodeDefinition node = new(request.Type, "1.0.0");
+                
+                // For string constants, set the value from configuration
+                if (request.Type == "core.constant.string" && request.Configuration.HasValue && 
+                    request.Configuration.Value.ValueKind == JsonValueKind.Object)
+                {
+                    if (request.Configuration.Value.TryGetProperty("value", out var valueProp))
+                    {
+                        node = node with { StringConstant = new(valueProp.GetString() ?? "") };
+                    }
+                }
+                
+                var updated = GraphEditing.AddUnconnectedNode(draft.Definition, node);
+                var saved = await catalog.SaveDraftAsync(updated, draft.Generation);
+                var newId = updated.Nodes.Keys.Except(draft.Definition.Nodes.Keys, StringComparer.Ordinal).Single();
+                return Results.Created($"/api/workflows/{workflowId}/nodes/{newId}", new { nodeId = newId });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"NODE ERROR: {ex.GetType().Name}: {ex.Message}");
+                return Results.BadRequest(new { error = "Failed to add node.", details = ex.Message });
+            }
+        });
+
+        // Update a node's configuration
+        group.MapPut("/workflows/{workflowId}/nodes/{nodeId}", async (string workflowId, string nodeId, UpdateNodeRequest request, IWorkflowCatalog catalog) =>
+        {
+            var draft = await catalog.GetDraftAsync(workflowId);
+            if (draft is null) return Results.NotFound();
+
+            try
+            {
+                var updated = GraphEditing.ReplaceNode(draft.Definition, nodeId, new NodeDefinition(draft.Definition.Nodes[nodeId].Type, "1.0.0"));
+                await catalog.SaveDraftAsync(updated, draft.Generation);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"UPDATE NODE ERROR: {ex.GetType().Name}: {ex.Message}");
+                return Results.BadRequest(new { error = "Failed to update node.", details = ex.Message });
+            }
+
+            return Results.Ok();
+        });
+
+        // Remove a node from the graph
+        group.MapDelete("/workflows/{workflowId}/nodes/{nodeId}", async (string workflowId, string nodeId, IWorkflowCatalog catalog) =>
+        {
+            var draft = await catalog.GetDraftAsync(workflowId);
+            if (draft is null) return Results.NotFound();
+
+            try
+            {
+                var updated = GraphEditing.RemoveNode(draft.Definition, nodeId);
+                await catalog.SaveDraftAsync(updated, draft.Generation);
+            }
+            catch (Exception)
+            {
+                return Results.NotFound(new { error = "Node not found." });
+            }
+
+            return Results.Ok();
+        });
+
+        // Connect two nodes with an edge
+        group.MapPost("/workflows/{workflowId}/edges", async (string workflowId, AddEdgeRequest request, IWorkflowCatalog catalog) =>
+        {
+            var draft = await catalog.GetDraftAsync(workflowId);
+            if (draft is null) return Results.NotFound();
+
+            try
+            {
+                var updated = GraphEditing.ConnectPins(draft.Definition, request.SourceNode, request.SourcePort, request.TargetNode, request.TargetPort);
+                var saved = await catalog.SaveDraftAsync(updated, draft.Generation);
+                // Find the new connection ID by comparing old vs new connections
+                var oldConnectionIds = draft.Definition.Connections.Keys.ToHashSet(StringComparer.Ordinal);
+                var newConnectionIds = updated.Connections.Keys.Except(oldConnectionIds, StringComparer.Ordinal).ToList();
+                string edgeId;
+                if (newConnectionIds.Count > 0)
+                {
+                    edgeId = "data:" + newConnectionIds[0];
+                }
+                else
+                {
+                    // Must be an execution connection
+                    var oldExecIds = draft.Definition.ExecutionConnections?.Keys.ToHashSet(StringComparer.Ordinal) ?? [];
+                    var newExecIds = updated.ExecutionConnections!.Keys.Except(oldExecIds, StringComparer.Ordinal).ToList();
+                    edgeId = "execution:" + newExecIds[0];
+                }
+                return Results.Created($"/api/workflows/{workflowId}/edges/{edgeId}", new { edgeId });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"EDGE ERROR: {ex.GetType().Name}: {ex.Message}");
+                return Results.BadRequest(new { error = "Failed to connect pins.", details = ex.Message });
+            }
+        });
+
+        // Remove an edge from the graph
+        group.MapDelete("/workflows/{workflowId}/edges/{edgeId}", async (string workflowId, string edgeId, IWorkflowCatalog catalog) =>
+        {
+            var draft = await catalog.GetDraftAsync(workflowId);
+            if (draft is null) return Results.NotFound();
+
+            try
+            {
+                var updated = GraphEditing.Disconnect(draft.Definition, edgeId);
+                await catalog.SaveDraftAsync(updated, draft.Generation);
+            }
+            catch (Exception)
+            {
+                return Results.NotFound(new { error = "Edge not found." });
+            }
+
+            return Results.Ok();
+        });
+
+        // Validate workflow without publishing
+        group.MapPost("/workflows/{workflowId}/validate", async (string workflowId, IWorkflowCatalog catalog) =>
+        {
+            var draft = await catalog.GetDraftAsync(workflowId);
+            if (draft is null) return Results.NotFound();
+
+            var issues = WorkflowValidator.Validate(draft.Definition).Select(issue => new { code = issue.Code, path = issue.Path, message = issue.Message }).ToList();
+            return Results.Ok(new { valid = issues.Count == 0, issues });
+        });
+
+        // List available node families
+        group.MapGet("/nodes", () =>
+        {
+            var types = WorkflowNodeContractCatalog.All.Select(c => c.Type).OrderBy(t => t).ToList();
+            return Results.Ok(types);
+        });
+
+        // Get detailed pin contracts for a node family
+        group.MapGet("/nodes/{family}", (string family) =>
+        {
+            if (!WorkflowNodeContractCatalog.TryGet(family, out var contract))
+                return Results.NotFound(new { error = "Unknown node family." });
+
+            var sampleNode = new NodeDefinition(family, "1.0.0");
+            var ports = WorkflowPorts.Explicit(sampleNode);
+            var inputs = ports.Where(p => p.Direction == WorkflowPortDirection.Input).Select(p => new { id = p.Id, name = p.DisplayName ?? p.Id, dataType = p.DataType, required = p.Required }).ToList();
+            var outputs = ports.Where(p => p.Direction == WorkflowPortDirection.Output).Select(p => new { id = p.Id, name = p.DisplayName ?? p.Id, dataType = p.DataType }).ToList();
+            return Results.Ok(new { name = family, inputs, outputs });
+        });
+
+        // Run management endpoints
+        group.MapPost("/runs/{runId:guid}/pause", async (Guid runId, IWorkflowRunControl control) =>
+        {
+            try
+            {
+                await control.PauseRunAsync(runId);
+                return Results.Accepted($"/api/runs/{runId}");
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound(new { error = "Run not found." });
+            }
+        });
+
+        group.MapPost("/runs/{runId:guid}/resume", async (Guid runId, IWorkflowRunControl control) =>
+        {
+            try
+            {
+                await control.ResumeRunAsync(runId);
+                return Results.Accepted($"/api/runs/{runId}");
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound(new { error = "Run not found." });
+            }
+        });
+
+        group.MapPost("/runs/{runId:guid}/cancel", async (Guid runId, IWorkflowClient client) =>
+        {
+            try
+            {
+                await client.CancelRunAsync(runId);
+                return Results.Accepted($"/api/runs/{runId}");
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound(new { error = "Run not found." });
+            }
+        });
+
+        group.MapGet("/runs", async (IWorkflowClient client) =>
+        {
+            var runs = await client.ListRunsAsync();
+            var summaries = runs.Select(r => new { runId = r.Header.RunId, status = r.Status, createdAt = r.Header.CreatedAt }).ToList();
+            return Results.Ok(summaries);
+        });
+
+        group.MapGet("/runs/{runId:guid}", async (Guid runId, IWorkflowClient client) =>
+        {
+            var run = await client.GetRunAsync(runId);
+            if (run is null) return Results.NotFound(new { error = "Run not found." });
+            return Results.Ok(new { runId = run.Header.RunId, status = run.Status, eventCount = run.Events.Length });
+        });
+
+        group.MapGet("/runs/{runId:guid}/events", async (Guid runId, IWorkflowClient client) =>
+        {
+            var run = await client.GetRunAsync(runId);
+            if (run is null) return Results.NotFound(new { error = "Run not found." });
+            var events = run.Events.Select(e => new { sequence = e.Sequence, kind = e.Kind, nodeId = e.NodeId, timestamp = e.Timestamp }).ToList();
+            return Results.Ok(events);
         });
     }
 
@@ -119,4 +348,8 @@ internal static class WorkflowEndpoints
     {
         public Dictionary<string, string>? Parameters { get; init; }
     }
+    private sealed record CreateWorkflowRequest(string? Name, string? Template);
+    private sealed record AddNodeRequest(string Type, JsonElement? Configuration);
+    private sealed record UpdateNodeRequest(JsonElement Configuration);
+    private sealed record AddEdgeRequest(string SourceNode, string SourcePort, string TargetNode, string TargetPort);
 }

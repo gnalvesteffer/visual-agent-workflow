@@ -7,6 +7,30 @@ description: Use when planning verification for behavior changes, reviewing test
 
 Read [run and validate](../run-and-validate/SKILL.md). For browser work apply [webapp testing](../webapp-testing/SKILL.md) and its [local guidance](../webapp-testing/SOURCE.md). Choose domain reviews from the [catalog](../../../docs/agent-skills.md); do not run every review on every change.
 
+## API/UI parity enforcement
+
+When a product exposes both a UI and web API, every user capability in the UI must have an equivalent endpoint in the API. The API is not secondary — it enables programmatic workflow development by agents and automated tools.
+
+Enforce this with three test types:
+
+1. **API Surface Catalog Test** — maintain a catalog mapping UI capabilities to required API endpoints; verify all listed endpoints exist and respond correctly.
+2. **Round-Trip Parity Tests** — for each UI operation, perform the equivalent via API and compare results against expected outcomes (same validation errors, same state changes).
+3. **Regression Tests for New Features** — when adding new node types or graph capabilities, require corresponding API tests before merging.
+
+Example catalog test structure:
+```heml
+let endpoints = [
+    { method: "GET", path: "/api/workflows" },
+    { method: "POST", path: "/api/workflows" },
+    { method: "GET", path: "/api/nodes" },
+    // ... all required endpoints
+];
+for (ep in endpoints) {
+    let response = await http.request(ep.method, ep.path);
+    assert(response.status >= 200 && response.status < 400, `Endpoint ${ep.method} ${ep.path} failed`);
+}
+```
+
 ## Select checks from observable risks
 
 State the expected user behavior and the failure that matters. Map each changed guarantee to the lowest useful test layer: Core invariants, actual Agent Framework adapter behavior, hosting/persistence and MCP integration, API responses, or Playwright user journeys. Include relevant negative cases, compatibility, cancellation and ownership boundaries. Prefer tests that would fail if the behavior were broken over tests that repeat implementation details. Reversible documentation or cosmetic edits do not require artificial unit tests.

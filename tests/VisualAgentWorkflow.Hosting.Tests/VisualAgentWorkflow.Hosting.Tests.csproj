@@ -1,11 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><IsPackable>false</IsPackable><IsTestProject>true</IsTestProject></PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio"><PrivateAssets>all</PrivateAssets></PackageReference>
     <ProjectReference Include="../../src/VisualAgentWorkflow.Observation.Http/VisualAgentWorkflow.Observation.Http.csproj" />
     <ProjectReference Include="../../src/VisualAgentWorkflow.Hosting/VisualAgentWorkflow.Hosting.csproj" />
     <ProjectReference Include="../../src/VisualAgentWorkflow.Blazor/VisualAgentWorkflow.Blazor.csproj" />
+    <ProjectReference Include="../../src/VisualAgentWorkflow.Studio/VisualAgentWorkflow.Studio.csproj" />
   </ItemGroup>
 </Project>
