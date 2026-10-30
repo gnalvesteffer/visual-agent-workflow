@@ -144,7 +144,8 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             page.locator("[data-graph-save]").click()
             expect(page.locator(".vaw-definition-status")).to_contain_text("Draft saved")
             page.get_by_role("button", name="Refresh project files", exact=True).click()
-            workflow_file = page.locator(".vaw-global-explorer").get_by_role("button", name="Untitled workflow.workflow", exact=True)
+            workflow_id = page.locator("[data-vaw-workflow-selector]").input_value()
+            workflow_file = page.locator(f'.vaw-global-explorer button[data-workflow-id="{workflow_id}"]')
             expect(workflow_file).to_be_visible()
             expect(page.locator(".vaw-explorer-file.is-selected")).to_have_count(1)
             expect(workflow_file).to_have_attribute("aria-current", "page")
@@ -270,6 +271,13 @@ def verify(base_url: str, browser_executable: str | None) -> None:
             expect(node_events_dialog).to_be_visible()
             expect(node_events_dialog).to_contain_text("Recorded playback")
             expect(node_events_dialog.locator("tbody tr")).to_have_count(2)
+            event_table = node_events_dialog.locator("table")
+            data_header = event_table.get_by_role("columnheader", name="Data", exact=True)
+            payload_column = event_table.locator("col.vaw-node-events-data-column")
+            assert data_header.evaluate("element => getComputedStyle(element).whiteSpace") == "nowrap"
+            assert payload_column.evaluate("element => parseFloat(getComputedStyle(element).width)") >= 300
+            assert event_table.evaluate("element => element.scrollWidth >= 1300"), "Event table should preserve a readable payload column and scroll horizontally when needed"
+            assert node_events_dialog.locator(".vaw-node-events-table").evaluate("element => element.scrollLeft") == 0
             node_events_dialog.get_by_role("button", name="Close node events", exact=True).click()
             expect(node_events_dialog).not_to_be_visible()
             run_graph_nodes = page.locator(".vaw-viewer .vaw-canvas-world [data-node-id]")

@@ -251,7 +251,7 @@
 .vaw-node-events-button { display: inline-grid; place-items: center; inline-size: 2.1rem; block-size: 2rem; flex: 0 0 2.1rem; margin: 0; padding: .35rem; border: 0; border-radius: 0; color: var(--vaw-muted); background: transparent; }
 .vaw-node-events-button:hover, .vaw-node-events-button:focus-visible { color: var(--vaw-text); background: var(--vaw-control); }
 .vaw-node-events-button svg { inline-size: .9rem; block-size: .9rem; fill: none; stroke: var(--vaw-accent); stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.25; }
-.vaw-node-events-dialog { inline-size: min(60rem, calc(100vw - 2rem)); max-inline-size: calc(100vw - 2rem); max-block-size: min(80dvh, 48rem); margin: auto; padding: 0; border: 1px solid var(--vaw-border-strong); border-radius: var(--vaw-panel-radius); color: var(--vaw-text); background: var(--vaw-surface); box-shadow: 0 1.5rem 4rem rgb(0 0 0 / .35); }
+.vaw-node-events-dialog { inline-size: min(76rem, calc(100vw - 2rem)); max-inline-size: calc(100vw - 2rem); max-block-size: min(80dvh, 48rem); margin: auto; padding: 0; border: 1px solid var(--vaw-border-strong); border-radius: var(--vaw-panel-radius); color: var(--vaw-text); background: var(--vaw-surface); box-shadow: 0 1.5rem 4rem rgb(0 0 0 / .35); }
 .vaw-node-events-dialog::backdrop { background: rgb(0 0 0 / .62); }
 .vaw-node-events-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem .75rem; border-block-end: 1px solid var(--vaw-border); }
 .vaw-node-events-dialog h2 { margin: .15rem 0 .25rem; }
@@ -260,8 +260,16 @@
 .vaw-node-events-close:hover, .vaw-node-events-close:focus-visible { color: var(--vaw-text); background: var(--vaw-control); }
 .vaw-node-events-dialog > .vaw-panel-empty { margin: 1.25rem; }
 .vaw-node-events-table { max-block-size: min(62dvh, 36rem); margin: 0 1.25rem 1.25rem; overflow: auto; }
-.vaw-node-events-dialog table { min-inline-size: 48rem; }
-.vaw-node-events-dialog td pre { max-block-size: 10rem; overflow: auto; }
+.vaw-viewer .vaw-node-events-dialog table { inline-size: 91rem; min-inline-size: 91rem; table-layout: fixed; }
+.vaw-node-events-dialog th { white-space: nowrap; }
+.vaw-node-events-dialog td pre { max-block-size: 10rem; max-inline-size: 100%; margin: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.vaw-node-events-data-column { inline-size: 24rem; }
+.vaw-node-events-scope-column { inline-size: 9rem; }
+.vaw-node-events-dialog .vaw-event-identity-column { inline-size: 14rem; }
+.vaw-node-events-dialog .vaw-event-sequence-column { inline-size: 6rem; }
+.vaw-node-events-dialog .vaw-event-time-column { inline-size: 10rem; }
+.vaw-node-events-dialog .vaw-event-kind-column { inline-size: 14rem; }
+.vaw-node-events-dialog td code { display: block; max-inline-size: 100%; overflow: hidden; text-overflow: ellipsis; }
 .vaw-event-identity-column { inline-size: 10rem; }
 .vaw-run-events-pane td code, .vaw-node-events-dialog td code { color: var(--vaw-accent); font-family: var(--vaw-mono); font-size: .68rem; white-space: nowrap; }
 :where(.vaw-viewer, .vaw-designer, .vaw-workflow-editor) pre { font-family: var(--vaw-mono); font-size: 0.875rem; white-space: pre-wrap; overflow-wrap: anywhere; background-color: var(--vaw-canvas); padding: var(--vaw-space-3); }
