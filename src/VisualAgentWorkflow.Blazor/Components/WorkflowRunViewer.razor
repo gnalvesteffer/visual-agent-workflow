@@ -12,7 +12,7 @@
     {
         <header class="vaw-run-header">
             <h2>@(string.IsNullOrWhiteSpace(Snapshot.Header.Definition.DisplayName) ? Snapshot.Header.Definition.WorkflowId : Snapshot.Header.Definition.DisplayName)</h2>
-            <div><strong>@(follow ? "Live / latest" : "Recorded playback")</strong> · Latest run status: @Snapshot.Status</div>
+            <div><strong>@(follow ? "Live / latest" : "Recorded playback")</strong> · Latest run status: @Snapshot.Status@(AccumulatedCost() is { } totalCost ? $" · Estimated cost: ${totalCost:0.000000}" : null)</div>
             @if (VisibleStatus == "terminated") { <p class="vaw-help" role="status">The workflow ended successfully without returning a result.</p> }
             @if (Snapshot.Status is "failed" or "cancelled") { <p class="vaw-run-recovery" role="status">Run ended · start a new run to retry.</p> }
             <p class="vaw-help">State at recorded position: @VisibleStatus</p>
@@ -37,11 +37,13 @@
         </div>
             </ToolbarContent>
             <NodeContent Context="nodeId">
-                @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); var evaluation = DataEvaluation(nodeId); var pendingNode = PendingRootNodeId; var label = pendingNode == nodeId ? PendingApproval?.Action.ScopeId is null ? "Awaiting approval" : "Child awaiting approval" : PausedBefore(nodeId) && state is null ? "Paused before execution" : node.Type == NodeTypes.Terminate && state?.Kind == ExecutionEventKinds.NodeCompleted ? "Terminated successfully" : evaluation is not null ? "Evaluated" : StateLabel(state); var activity = ActiveActivity(nodeId); var outcome = OutcomeSummary(nodeId, state); }
-                <div class="vaw-node-status-chip" role="group" aria-label="@($"{label} status and recorded events")">
-                    <button type="button" class="vaw-node-button" aria-label="@($"{nodeId} {node.Type} {label}")" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId ? "true" : "false")">
+                @{ var node = Snapshot.Header.Definition.Nodes[nodeId]; var state = State(nodeId); var evaluation = DataEvaluation(nodeId); var pendingNode = PendingRootNodeId; var label = pendingNode == nodeId ? PendingApproval?.Action.ScopeId is null ? "Awaiting approval" : "Child awaiting approval" : PausedBefore(nodeId) && state is null ? "Paused before execution" : node.Type == NodeTypes.Terminate && state?.Kind == ExecutionEventKinds.NodeCompleted ? "Terminated successfully" : evaluation is not null ? "Evaluated" : StateLabel(state); var activity = ActiveActivity(nodeId); var outcome = OutcomeSummary(nodeId, state); var invocations = NodeInvocationCount(nodeId); var cost = 0m; if (node.Type == NodeTypes.Agent) { var agentMetrics = AgentMetrics(nodeId); if (agentMetrics is not null) cost = agentMetrics.EstimatedCost; } }
+                <div class="vaw-node-status-chip" role="group" aria-label="@($" {label} status and recorded events")">
+                    <button type="button" class="vaw-node-button" aria-label="@($" {nodeId} {node.Type} {label}")" @onclick="() => selectedNode = nodeId" aria-pressed="@(selectedNode == nodeId ? "true" : "false")">
                         <span class="vaw-node-status-label"><span class="vaw-node-status-dot" aria-hidden="true"></span>@label</span>
                     </button>
+                    @if (invocations > 1) { <span class="vaw-invocation-count-badge" title="@($"Invoked {invocations} times")">@invocations×</span> }
+                    @if (cost > 0m) { <span class="vaw-node-cost-badge" title="@($"Estimated cost: ${cost:F4}")">$@cost.ToString("F4")</span> }
                     <button type="button" class="vaw-node-events-button" aria-label="View events for @nodeId" @onclick:stopPropagation="true" @onclick="() => OpenNodeEvents(nodeId)">
                         <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5.25" /><path d="M8 5v3l2 1.5" /></svg>
                     </button>
@@ -262,6 +264,13 @@
         }
         catch (JsonException) { return evt.Data ?? ""; }
     }
+    private int NodeInvocationCount(string nodeId)
+    {
+        if (Snapshot is null) return 0;
+        var events = VisibleEvents.ToArray();
+        return events.Count(evt => evt.NodeId == nodeId && evt.Kind == ExecutionEventKinds.NodeStarted);
+    }
+
     private string? ActiveActivity(string id)
     {
         if (State(id)?.Kind != ExecutionEventKinds.NodeStarted) return null;
@@ -507,6 +516,47 @@
             allReasoningCountsReported ? reasoningTokens : null, reportedResponseCount > 0, modelTurnLimit);
     }
 
+    private decimal? AccumulatedCost()
+    {
+        if (Snapshot is null) return null;
+        var events = VisibleEvents.ToArray();
+        var totalCost = 0m;
+        var hasAnyCost = false;
+        foreach (var nodeEvent in events.Where(e => e.Kind == ExecutionEventKinds.AgentStarted))
+        {
+            if (!TryParse(nodeEvent.Data, out var startRoot) || !TryGet(startRoot, "provider", out var provider)) continue;
+            var inputRate = TryGet(provider, "InputCostPerMillionTokens", out var inputElement) &&
+                inputElement.ValueKind == JsonValueKind.Number && inputElement.TryGetDecimal(out var inputValue)
+                    ? inputValue : (decimal?)null;
+            var outputRate = TryGet(provider, "OutputCostPerMillionTokens", out var outputElement) &&
+                outputElement.ValueKind == JsonValueKind.Number && outputElement.TryGetDecimal(out var outputValue)
+                    ? outputValue : (decimal?)null;
+            var cacheReadRate = TryGet(provider, "CacheReadCostPerMillionTokens", out var cacheReadElement) &&
+                cacheReadElement.ValueKind == JsonValueKind.Number && cacheReadElement.TryGetDecimal(out var cacheReadValue)
+                    ? cacheReadValue : (decimal?)null;
+            var cacheWriteRate = TryGet(provider, "CacheWriteCostPerMillionTokens", out var cacheWriteElement) &&
+                cacheWriteElement.ValueKind == JsonValueKind.Number && cacheWriteElement.TryGetDecimal(out var cacheWriteValue)
+                    ? cacheWriteValue : (decimal?)null;
+            if (inputRate is null || outputRate is null) continue;
+            var invocation = nodeEvent.InvocationId;
+            foreach (var response in events.Where(e => e.Kind == ExecutionEventKinds.ModelResponded && e.NodeId == nodeEvent.NodeId && e.InvocationId == invocation))
+            {
+                if (!TryGetUsage(response.Data, out var usage)) continue;
+                hasAnyCost = true;
+                var input = usage.InputTokens;
+                var output = usage.OutputTokens;
+                var cacheRead = usage.CachedInputTokens ?? 0;
+                var cacheWriteTokens = usage.CacheWriteInputTokens ?? 0;
+                if (cacheRead > input || cacheWriteTokens > input - cacheRead) continue;
+                var uncachedInput = input - cacheRead - cacheWriteTokens;
+                totalCost += uncachedInput * inputRate.Value / 1_000_000m + output * outputRate.Value / 1_000_000m;
+                if (cacheRead > 0 && cacheReadRate is not null) totalCost += cacheRead * cacheReadRate.Value / 1_000_000m;
+                if (cacheWriteTokens > 0 && cacheWriteRate is not null) totalCost += cacheWriteTokens * cacheWriteRate.Value / 1_000_000m;
+            }
+        }
+        return hasAnyCost ? totalCost : null;
+    }
+
     private static string? ModelCallId(ExecutionEvent evt) =>
         TryParse(evt.Data, out var root) && TryGet(root, "modelCallId", out var callId) && callId.ValueKind == JsonValueKind.String
             ? callId.GetString() : null;
@@ -566,6 +616,8 @@
 
         if (cachedInput is null && TryGet(usage, "prompt_tokens_details", out var promptDetails))
             OptionalCountFromNested(promptDetails, out cachedInput, "cached_tokens");
+        if (cacheWrite is null && TryGet(usage, "prompt_tokens_details", out var writeDetails))
+            OptionalCountFromNested(writeDetails, out cacheWrite, "cache_write_tokens");
         if (reasoning is null && TryGet(usage, "completion_tokens_details", out var completionDetails))
             OptionalCountFromNested(completionDetails, out reasoning, "reasoning_tokens");
 
