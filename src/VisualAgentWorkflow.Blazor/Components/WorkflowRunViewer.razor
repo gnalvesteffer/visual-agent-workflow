@@ -374,6 +374,15 @@
         }
         catch (JsonException) { return false; }
     }
+
+    private static bool IsDelegatedInvocationAcrossInvocations(ExecutionEvent evt, Guid[] invocations)
+    {
+        foreach (var invocation in invocations)
+        {
+            if (IsDelegatedInvocation(evt, invocation)) return true;
+        }
+        return false;
+    }
     private static string? DelegatedProfileLabel(ExecutionEvent evt)
     {
         try
@@ -423,13 +432,19 @@
     private AgentUsageStatistics? AgentMetrics(string nodeId)
     {
         if (Snapshot?.Header.Definition.Nodes.GetValueOrDefault(nodeId)?.Type != NodeTypes.Agent) return null;
-        var invocation = RootEvents.LastOrDefault(evt => evt.NodeId == nodeId && evt.Kind == ExecutionEventKinds.NodeStarted)?.InvocationId;
-        if (invocation is null) return null;
 
+        // Collect all invocations of this node (for loop scenarios)
+        var nodeInvocations = RootEvents.Where(evt => evt.NodeId == nodeId && evt.Kind == ExecutionEventKinds.NodeStarted)
+            .Select(evt => evt.InvocationId!.Value).ToArray();
+        if (nodeInvocations.Length == 0) return null;
+
+        // Collect all agent start events across all invocations
         var agentStarts = RootEvents.Where(evt => evt.NodeId == nodeId && evt.Kind == ExecutionEventKinds.AgentStarted &&
-            (evt.InvocationId == invocation || IsDelegatedInvocation(evt, invocation))).ToArray();
+            (evt.InvocationId is { } id && nodeInvocations.Contains(id) || IsDelegatedInvocationAcrossInvocations(evt, nodeInvocations))).ToArray();
         var providers = agentStarts.Where(evt => evt.InvocationId is not null)
             .ToDictionary(evt => evt.InvocationId!.Value, ProviderUsageFromAgentStart);
+
+        // Collect model events across all invocations
         var modelEvents = RootEvents.Where(evt => evt.NodeId == nodeId &&
             evt.InvocationId is { } responseInvocation && providers.ContainsKey(responseInvocation)).ToArray();
         var responses = modelEvents.Where(evt => evt.Kind == ExecutionEventKinds.ModelResponded).ToArray();
@@ -437,7 +452,7 @@
         var responseCallIds = responses.Select(ModelCallId).Where(id => id is not null).ToHashSet(StringComparer.Ordinal);
         var requestInFlight = requests.Any(request => ModelCallId(request) is { } callId && !responseCallIds.Contains(callId));
         var compactionCount = modelEvents.Count(evt => evt.Kind == ExecutionEventKinds.AgentContextCompacted);
-        var rootProvider = providers.GetValueOrDefault(invocation.Value);
+        var rootProvider = nodeInvocations.Length > 0 ? providers.GetValueOrDefault(nodeInvocations.Last()) : null;
         var modelTurnLimit = rootProvider?.MaximumTurns;
         if (responses.Length == 0)
         {
