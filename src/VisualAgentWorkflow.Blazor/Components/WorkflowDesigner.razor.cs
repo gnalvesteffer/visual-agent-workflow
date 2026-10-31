@@ -700,11 +700,56 @@ public partial class WorkflowDesigner
         catch (OperationCanceledException) when (current.Token.IsCancellationRequested) { }
         catch (WorkflowConflictException)
         { if (Current(current)) error = "Another editor changed this workflow. Your local edits are preserved. Discard local changes and reload before continuing."; }
+        catch (VisualAgentWorkflow.Core.WorkflowAdmissionException admission)
+        { if (Current(current)) error = FormatAdmissionError(admission); }
         catch (Exception exception) when (exception is ArgumentException or System.Text.Json.JsonException)
         { if (Current(current)) error = "Invalid workflow, layout, or JSON. Check the supported workflow and graph limits."; }
         catch
         { if (Current(current)) error = "The operation failed. Local edits are preserved; reload saved state before retrying."; }
         finally { if (Current(current)) busy = false; }
+    }
+
+    private string FormatAdmissionError(VisualAgentWorkflow.Core.WorkflowAdmissionException admission)
+    {
+        var issues = admission.Report.Issues;
+        if (issues.Length == 0)
+            return "The workflow cannot start because required host dependencies are unavailable.";
+
+        var missingProviders = new List<string>();
+        var missingTools = new List<string>();
+        var otherIssues = new List<string>();
+
+        foreach (var issue in issues)
+        {
+            switch (issue.Requirement.Kind)
+            {
+                case "agent-provider":
+                    if (issue.Kind == VisualAgentWorkflow.Core.WorkflowAdmissionIssueKind.Missing)
+                        missingProviders.Add(issue.Requirement.Id);
+                    else
+                        otherIssues.Add(issue.Message);
+                    break;
+                case "mcp-tool":
+                    if (issue.Kind == VisualAgentWorkflow.Core.WorkflowAdmissionIssueKind.Missing)
+                        missingTools.Add(issue.Requirement.Id);
+                    else
+                        otherIssues.Add(issue.Message);
+                    break;
+                default:
+                    otherIssues.Add(issue.Message);
+                    break;
+            }
+        }
+
+        var parts = new List<string>();
+        if (missingProviders.Count > 0)
+            parts.Add($"Missing model connections: {string.Join(", ", missingProviders)}");
+        if (missingTools.Count > 0)
+            parts.Add($"Missing MCP tools: {string.Join(", ", missingTools)}");
+        if (otherIssues.Count > 0)
+            parts.Add(string.Join("; ", otherIssues));
+
+        return "Cannot start run — required dependencies are unavailable. " + string.Join(" ", parts);
     }
 
     public async ValueTask DisposeAsync()

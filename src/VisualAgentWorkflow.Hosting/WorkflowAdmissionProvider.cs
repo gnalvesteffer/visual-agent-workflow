@@ -31,14 +31,3 @@ public sealed class CatalogWorkflowAdmissionSnapshotProvider(
         };
     }
 }
-
-/// <summary>A validated package dependency prevented a run from being created.</summary>
-public sealed class WorkflowAdmissionException(WorkflowAdmissionReport report)
-    : InvalidOperationException("The workflow cannot start because required host dependencies are unavailable.")
-{
-    public WorkflowAdmissionReport Report { get; } = report ?? throw new ArgumentNullException(nameof(report));
-}
-
-/// <summary>The host could not produce the facts needed for a configured admission check.</summary>
-public sealed class WorkflowAdmissionUnavailableException()
-    : InvalidOperationException("The workflow cannot start because host dependency admission is unavailable.");

@@ -331,6 +331,21 @@ public static class WorkflowEndpoints
                 return Results.Conflict(new { error = "The workflow changed. Reload before saving.", conflict.ExpectedGeneration, conflict.ActualGeneration });
             }
             catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (VisualAgentWorkflow.Core.WorkflowAdmissionException admission)
+            {
+                var issues = admission.Report.Issues.Select(issue => new
+                {
+                    kind = issue.Requirement.Kind,
+                    id = issue.Requirement.Id,
+                    issueKind = issue.Kind.ToString(),
+                    message = issue.Message
+                }).ToList();
+                return Results.BadRequest(new
+                {
+                    error = "The workflow cannot start because required host dependencies are unavailable.",
+                    missingDependencies = issues
+                });
+            }
             catch (Exception error) when (error is ArgumentException or JsonException)
             {
                 context.HttpContext.RequestServices.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CatalogErrorFilter>>()
