@@ -11,7 +11,7 @@ public sealed class StudioFolderGraphFunctionConflictException(string sourcePath
     : IOException($"Project source '{sourcePath}' changed in the project folder. Reload it before saving.");
 
 /// <summary>Reads and creates immutable pure graph-function revisions in a project folder.</summary>
-public sealed class StudioFolderGraphFunctionCatalog(string projectDirectory) : IGraphFunctionCatalog
+public sealed class StudioFolderGraphFunctionCatalog(string projectDirectory) : IGraphFunctionAuthoringCatalog
 {
     private readonly string root = Path.GetFullPath(projectDirectory);
 
@@ -31,6 +31,13 @@ public sealed class StudioFolderGraphFunctionCatalog(string projectDirectory) : 
     }
 
     public IReadOnlyList<GraphFunctionCatalogEntry> List() => ListAssets().Select(function => function.Item).ToArray();
+
+    public GraphFunctionCatalogEntry SaveNewVersion(GraphFunctionDefinition definition, string folder, WorkflowLayout layout)
+    {
+        var (manifest, _) = StudioProjectSourceDirectory.Read(root);
+        var saved = SaveNewVersion(definition, folder, StudioProjectSourceArchive.ComputeManifestHash(manifest), layout);
+        return saved.Item;
+    }
 
     public StudioFolderGraphFunction SaveNewVersion(GraphFunctionDefinition definition, string folder,
         string expectedManifestHash, WorkflowLayout? layout = null, string? targetDirectory = null)

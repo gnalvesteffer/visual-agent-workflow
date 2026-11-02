@@ -5,7 +5,7 @@ using VisualAgentWorkflow.Core;
 namespace VisualAgentWorkflow.Studio;
 
 /// <summary>Local authoring catalog for immutable pure graph-function revisions; workflows embed exact snapshots.</summary>
-public sealed class StudioGraphFunctionLibrary : IGraphFunctionCatalog
+public sealed class StudioGraphFunctionLibrary : IGraphFunctionAuthoringCatalog
 {
     private readonly object gate = new();
     private readonly string path;
@@ -42,6 +42,13 @@ public sealed class StudioGraphFunctionLibrary : IGraphFunctionCatalog
                 throw new ArgumentException("This graph function version already exists. Create a new version for edits.");
             Save([.. entries, StudioGraphFunctionAsset.Create(new(configuration, folder), layout)]);
         }
+    }
+
+    public GraphFunctionCatalogEntry SaveNewVersion(GraphFunctionDefinition definition, string folder, WorkflowLayout layout)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        Add(definition, folder, layout);
+        return new(new(definition, GraphFunctionJson.ComputeHash(definition)), folder);
     }
 
     public bool Move(string functionId, int version, string folder)

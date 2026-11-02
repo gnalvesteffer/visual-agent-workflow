@@ -471,6 +471,139 @@ public partial class WorkflowEditor
             !contract.HasExecutionPins && node.Origin is null;
     }
 
+    private bool CanExtractFunctionNode(string id) => FunctionAuthoringCatalog is not null &&
+        !ReadOnly && !Disabled && Definition.Nodes.TryGetValue(id, out var node) &&
+        WorkflowNodeContractCatalog.TryGet(node.Type, out var contract) && contract.IsPure &&
+        contract.Effects == WorkflowNodeEffectFlags.None && contract.State == WorkflowNodeStateKind.Stateless &&
+        !contract.HasDynamicPins && !contract.HasExecutionPins;
+
+    private bool functionExtractionOpen;
+    private bool functionExtractionBusy;
+    private string? functionExtractionNotice;
+    private string functionExtractionName = "";
+    private string functionExtractionDescription = "";
+    private string? functionExtractionPreparationError;
+    private string? functionExtractionOperationError;
+    private GraphFunctionExtractionPlan? functionExtractionPlan;
+    private string[] functionExtractionNodeIds = [];
+    private string? functionExtractionDefinitionHash;
+    private string? functionExtractionLayoutHash;
+
+    private async Task OpenFunctionExtraction(GraphContextRequest context, string contextNodeId)
+    {
+        if (!CanExtractFunctionNode(contextNodeId)) return;
+        var selected = canvas is null ? [] : await canvas.SelectedNodeIds();
+        functionExtractionNodeIds = selected.Contains(contextNodeId, StringComparer.Ordinal) ? selected : [contextNodeId];
+        functionExtractionName = "Extracted function";
+        functionExtractionDescription = "";
+        functionExtractionOperationError = null;
+        functionExtractionPreparationError = null;
+        functionExtractionNotice = null;
+        functionExtractionPlan = null;
+        functionExtractionDefinitionHash = WorkflowJson.ComputeDraftHash(Definition);
+        functionExtractionLayoutHash = WorkflowLayoutJson.ComputeHash(EffectiveLayout, Definition);
+        functionExtractionOpen = true;
+        try
+        {
+            functionExtractionPlan = PrepareFunctionExtraction("extracted.preview", 1, "extract-preview-call");
+        }
+        catch (ArgumentException exception)
+        {
+            functionExtractionPreparationError = exception.Message;
+        }
+        await CloseMenu(context);
+    }
+
+    private GraphFunctionExtractionPlan PrepareFunctionExtraction(string functionId, int version, string callNodeId) =>
+        GraphFunctionExtraction.Prepare(Definition, EffectiveLayout, functionExtractionNodeIds, functionId,
+            version, functionExtractionName.Trim(), functionExtractionDescription.Trim(), callNodeId);
+
+    private async Task ApplyFunctionExtraction()
+    {
+        if (!functionExtractionOpen || functionExtractionBusy || functionExtractionPlan is null ||
+            FunctionAuthoringCatalog is null || string.IsNullOrWhiteSpace(functionExtractionName)) return;
+        functionExtractionBusy = true;
+        functionExtractionOperationError = null;
+        var functionSaved = false;
+        try
+        {
+            if (WorkflowJson.ComputeDraftHash(Definition) != functionExtractionDefinitionHash ||
+                WorkflowLayoutJson.ComputeHash(EffectiveLayout, Definition) != functionExtractionLayoutHash)
+                throw new InvalidOperationException("The workflow changed while extraction was open. Cancel and open the dialog again.");
+
+            var displayName = functionExtractionName.Trim();
+            if (displayName.Length > GraphFunctionLimits.MaximumDisplayNameLength)
+                throw new ArgumentException($"Function names must be {GraphFunctionLimits.MaximumDisplayNameLength} characters or fewer.");
+            if (functionExtractionDescription.Length > GraphFunctionLimits.MaximumDescriptionLength)
+                throw new ArgumentException($"Function descriptions must be {GraphFunctionLimits.MaximumDescriptionLength} characters or fewer.");
+
+            var functionId = FunctionId(displayName);
+            var existingVersions = FunctionAuthoringCatalog.List().Where(entry =>
+                entry.Function.Definition.FunctionId == functionId).Select(entry => entry.Function.Definition.Version).ToArray();
+            var version = existingVersions.Length == 0 ? 1 : checked(existingVersions.Max() + 1);
+            var callNodeId = "extract-call-" + Guid.NewGuid().ToString("N");
+            var plan = PrepareFunctionExtraction(functionId, version, callNodeId);
+            var saved = FunctionAuthoringCatalog.SaveNewVersion(plan.Function.Definition, "", plan.FunctionLayout);
+            functionSaved = true;
+            if (saved.Function.ContentHash != plan.Function.ContentHash ||
+                GraphFunctionJson.ComputeHash(saved.Function.Definition) != plan.Function.ContentHash)
+                throw new InvalidOperationException("The catalog saved a different function revision than the one prepared for this graph.");
+
+            await CommitEdit(plan.Definition, plan.Layout, plan.CallNodeId);
+            functionExtractionOpen = false;
+            functionExtractionPlan = null;
+            functionExtractionNotice = "Saved the immutable function revision and replaced the selected nodes. Save the workflow draft to persist the graph edit.";
+        }
+        catch (ArgumentException exception)
+        {
+            functionExtractionOperationError = functionSaved
+                ? $"The function revision was saved, but the workflow graph was not updated: {exception.Message}"
+                : exception.Message;
+        }
+        catch (InvalidOperationException exception)
+        {
+            functionExtractionOperationError = functionSaved
+                ? $"The function revision was saved, but the workflow graph was not updated: {exception.Message}"
+                : exception.Message;
+        }
+        catch (IOException exception)
+        {
+            functionExtractionOperationError = exception.Message;
+        }
+        catch (Exception exception)
+        {
+            functionExtractionOperationError = functionSaved
+                ? $"The function revision was saved, but the workflow graph was not updated: {exception.Message}"
+                : $"The function could not be saved: {exception.Message}";
+        }
+        finally
+        {
+            functionExtractionBusy = false;
+        }
+    }
+
+    private static string FunctionId(string displayName)
+    {
+        var slug = new string(displayName.Trim().ToLowerInvariant()
+            .Select(character => char.IsAsciiLetterOrDigit(character) ? character : '-')
+            .ToArray());
+        while (slug.Contains("--", StringComparison.Ordinal)) slug = slug.Replace("--", "-", StringComparison.Ordinal);
+        slug = slug.Trim('-');
+        if (slug.Length == 0) slug = "extracted-function";
+        if (slug.Length > GraphFunctionLimits.MaximumIdLength) slug = slug[..GraphFunctionLimits.MaximumIdLength].TrimEnd('-');
+        return slug;
+    }
+
+    private Task CancelFunctionExtraction()
+    {
+        if (functionExtractionBusy) return Task.CompletedTask;
+        functionExtractionOpen = false;
+        functionExtractionPlan = null;
+        functionExtractionPreparationError = null;
+        functionExtractionOperationError = null;
+        return Task.CompletedTask;
+    }
+
     private async Task CopyClipboardSelection(string[] ids, GraphContextRequest? context)
     {
         var id = ids.FirstOrDefault() ?? context?.NodeId;

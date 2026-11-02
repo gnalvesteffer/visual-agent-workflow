@@ -27,6 +27,12 @@ public interface IGraphFunctionCatalog
     IReadOnlyList<GraphFunctionCatalogEntry> List();
 }
 
+/// <summary>Optional authoring capability for persisting immutable graph-function revisions.</summary>
+public interface IGraphFunctionAuthoringCatalog : IGraphFunctionCatalog
+{
+    GraphFunctionCatalogEntry SaveNewVersion(GraphFunctionDefinition definition, string folder, WorkflowLayout layout);
+}
+
 public sealed record GraphFunctionEvaluation(string DataType, object Value, ImmutableArray<GraphFunctionValueEvidence> Values);
 public sealed record GraphFunctionValueEvidence(string NodeId, string PortId, string DataType, object Value);
 

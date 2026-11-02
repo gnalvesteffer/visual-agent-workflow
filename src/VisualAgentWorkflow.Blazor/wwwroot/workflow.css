@@ -411,6 +411,24 @@
 .vaw-template-preview { display: flex; flex-wrap: wrap; gap: var(--vaw-space-2); align-items: baseline; margin: 0 var(--vaw-space-5); padding: var(--vaw-space-3); border: 1px solid var(--vaw-border); border-radius: var(--vaw-control-radius); background: var(--vaw-canvas); }
 .vaw-template-preview span { color: var(--vaw-muted); }
 .vaw-template-dialog-actions { display: flex; justify-content: flex-end; gap: var(--vaw-space-2); padding: var(--vaw-space-4) var(--vaw-space-5); }
+.vaw-function-extraction-dialog { inline-size: min(48rem, calc(100vw - 2rem)); max-inline-size: calc(100vw - 2rem); max-block-size: min(88vh, 52rem); overflow: auto; margin: auto; padding: 0; color: var(--vaw-text); background: var(--vaw-surface); border: 1px solid var(--vaw-border-strong); border-radius: var(--vaw-panel-radius); box-shadow: 0 1.5rem 4rem rgb(0 0 0 / .4); }
+.vaw-function-extraction-dialog::backdrop { background: rgb(0 0 0 / .64); }
+.vaw-function-extraction-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--vaw-space-4); padding: var(--vaw-space-4) var(--vaw-space-5); border-block-end: 1px solid var(--vaw-border); }
+.vaw-function-extraction-dialog h2 { margin: 0 0 var(--vaw-space-2); font-size: 1.125rem; }
+.vaw-function-extraction-fields { display: grid; gap: var(--vaw-space-4); padding: var(--vaw-space-5); }
+.vaw-function-extraction-fields label { display: grid; gap: var(--vaw-space-2); font-weight: 600; }
+.vaw-function-extraction-fields :where(input, textarea) { inline-size: 100%; min-inline-size: 0; box-sizing: border-box; }
+.vaw-function-extraction-boundaries { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--vaw-space-4); padding: 0 var(--vaw-space-5) var(--vaw-space-4); }
+.vaw-function-extraction-boundaries h3 { margin: 0 0 var(--vaw-space-2); font-size: .9375rem; }
+.vaw-function-extraction-boundaries ul { display: grid; gap: var(--vaw-space-2); margin: 0; padding: 0; list-style: none; }
+.vaw-function-extraction-boundaries li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--vaw-space-2); padding-block: var(--vaw-space-2); border-block-end: 1px solid var(--vaw-border); }
+.vaw-function-extraction-boundaries li span { min-inline-size: 0; overflow-wrap: anywhere; }
+.vaw-function-extraction-boundaries code { color: var(--vaw-accent); font-family: var(--vaw-mono); font-size: .75rem; }
+.vaw-function-extraction-boundaries small { color: var(--vaw-muted); }
+.vaw-function-extraction-error { margin: var(--vaw-space-4) var(--vaw-space-5); }
+.vaw-function-extraction-status { margin: var(--vaw-space-3) 0; padding: var(--vaw-space-3) var(--vaw-space-4); color: var(--vaw-text); border: 1px solid var(--vaw-border); border-radius: var(--vaw-control-radius); background: var(--vaw-surface); }
+.vaw-function-extraction-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--vaw-space-2); padding: var(--vaw-space-4) var(--vaw-space-5); border-block-start: 1px solid var(--vaw-border); }
+@media (max-width: 40rem) { .vaw-function-extraction-boundaries { grid-template-columns: 1fr; } }
 @media (max-width: 48rem) { .vaw-template-bindings { grid-template-columns: 1fr; } }
 .vaw-paused-boundary { border-color: var(--vaw-warning); }
 

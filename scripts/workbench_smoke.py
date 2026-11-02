@@ -493,13 +493,65 @@ def graph_function_authoring_check(page, designer):
     expect(call.locator("[data-socket='text'][data-socket-kind='data'][data-socket-type='string']")).to_have_count(1)
     expect(call.locator("[data-socket='result'][data-socket-kind='data'][data-socket-type='string']")).to_have_count(1)
     designer.get_by_role("button", name="Save", exact=True).click()
-    expect(designer.locator(".vaw-definition-status")).to_contain_text("Draft saved", use_inner_text=False)
+    designer.get_by_text("Draft saved.", exact=True).wait_for(state="attached")
     saved = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()["draft"]["definition"]
     node_id = call.get_attribute("data-node-id")
     snapshot = saved["nodes"][node_id]["graphFunction"]
     assert snapshot["definition"]["functionId"] == "smoke.function"
     assert snapshot["definition"]["version"] == 2
     assert snapshot["contentHash"]
+
+    # Exercise selected-region extraction through the real Studio context menu.
+    new_blank(designer)
+    workflow_id = designer.locator("[data-vaw-workflow-selector]").input_value()
+    definition = page.request.get(BASE + "/api/templates/default").json()
+    definition.update({"schemaVersion": "2.0", "workflowId": workflow_id, "entryNodeId": "input"})
+    definition["nodes"] = {
+        "input": {"type": "core.input", "typeVersion": "1.0.0"},
+        "concat": {"type": "core.text.concat", "typeVersion": "1.0.0"},
+        "output": {"type": "core.output", "typeVersion": "1.0.0"}}
+    definition["connections"] = {
+        "left": {"source": {"nodeId": "input", "portId": "out"}, "target": {"nodeId": "concat", "portId": "left"}, "kind": "data"},
+        "right": {"source": {"nodeId": "input", "portId": "out"}, "target": {"nodeId": "concat", "portId": "right"}, "kind": "data"},
+        "result": {"source": {"nodeId": "concat", "portId": "out"}, "target": {"nodeId": "output", "portId": "in"}, "kind": "data"}}
+    definition["executionConnections"] = {
+        "activate": {"source": {"nodeId": "input", "portId": "then"}, "target": {"nodeId": "output", "portId": "execute"}, "kind": "execution"}}
+    settings(designer, True)
+    secondary = designer.locator("details.vaw-secondary-workflow-tools")
+    if not secondary.evaluate("e => e.open"):
+        secondary.locator(":scope > summary").click()
+    details = designer.get_by_text("Import / export definition", exact=True).locator("..")
+    if not details.evaluate("element => element.open"):
+        details.locator("summary").click()
+    designer.get_by_label("Workflow JSON", exact=True).fill(json.dumps(definition))
+    designer.get_by_role("button", name="Import JSON into draft", exact=True).click()
+    designer.get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for(state="attached")
+    settings(designer, False)
+    concat_node = designer.locator("li[data-node-id='concat']")
+    concat_node.click(button="right")
+    designer.get_by_role("button", name="Extract selected nodes to function…", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Extract to function", exact=True)
+    expect(dialog).to_be_visible()
+    expect(dialog.get_by_role("heading", name="Inputs", exact=True)).to_be_visible()
+    expect(dialog.get_by_role("heading", name="Outputs", exact=True)).to_be_visible()
+    expect(dialog).to_contain_text("input · out")
+    dialog.get_by_label("Function name", exact=True).fill("Smoke extracted")
+    dialog.get_by_role("button", name="Save and replace selection", exact=True).click()
+    expect(dialog).to_be_hidden()
+    call = designer.locator("li[data-node-type='core.function.call']")
+    expect(call).to_have_count(1)
+    expect(designer.locator("li[data-node-id='concat']")).to_have_count(0)
+    canvas = designer.locator(".vaw-graph-editor")
+    canvas.get_by_role("button", name="Undo edit", exact=True).click()
+    expect(designer.locator("li[data-node-id='concat']")).to_have_count(1)
+    canvas.get_by_role("button", name="Redo edit", exact=True).click()
+    expect(call).to_have_count(1)
+    designer.get_by_role("button", name="Save", exact=True).click()
+    designer.get_by_text("Draft saved.", exact=True).wait_for(state="attached")
+    extracted = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()["draft"]["definition"]
+    embedded = extracted["nodes"][call.get_attribute("data-node-id")]["graphFunction"]
+    assert embedded["definition"]["functionId"] == "smoke-extracted"
+    assert embedded["contentHash"]
 
 
 def check(browser, screenshots):
@@ -518,7 +570,7 @@ def check(browser, screenshots):
     added=canvas.locator("li[data-node-type='core.text.uppercase']")
     added_id=added.get_attribute("data-node-id")
     # A library click creates a standalone draft node. It does not silently alter existing routes.
-    assert canvas.locator("path[data-wire]").count() == 1
+    assert canvas.locator("path[data-kind='data']").count() == 1
     added.get_by_role("button",name=f"Move node {added_id}",exact=True).click()
     page.keyboard.press("Delete")
     expect(designer.locator("li[data-node-id]")).to_have_count(2)
@@ -536,7 +588,7 @@ def check(browser, screenshots):
     # Imported definitions are intentionally local drafts; persist this fixture
     # before exercising the run affordance, which is disabled while dirty.
     designer.get_by_role("button", name="Save", exact=True).click()
-    expect(designer.locator(".vaw-definition-status")).to_contain_text("Draft saved", use_inner_text=False)
+    designer.get_by_text("Draft saved.", exact=True).wait_for(state="attached")
     designer.get_by_role("button", name="Run workflow", exact=True).click()
     # The run dialog is mounted at the workspace level so it can sit above the
     # graph and pane stack; do not scope it to the designer region.
@@ -629,7 +681,7 @@ def check(browser, screenshots):
     expect(canvas.locator(".vaw-reroute")).to_have_count(0)
     canvas.get_by_text("Labels, comments, sections, and wire routing",exact=True).click()
     designer.get_by_role("button",name="Save",exact=True).click()
-    expect(designer.locator(".vaw-definition-status")).to_contain_text("Draft saved", use_inner_text=False)
+    designer.get_by_text("Draft saved.", exact=True).wait_for(state="attached")
     before = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()
 
     print("Context creation, drag/drop, keyboard undo and graph layout edits passed.")
@@ -665,7 +717,7 @@ def check(browser, screenshots):
     expect(canvas.get_by_role("button",name="Fullscreen graph",exact=True)).to_be_visible()
     page.locator(".vaw-studio").evaluate("element => element.style.removeProperty('inline-size')")
     assert page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json() == before
-    expect(designer.locator(".vaw-definition-status")).to_contain_text("Draft saved", use_inner_text=False)
+    designer.get_by_text("Draft saved.", exact=True).wait_for(state="attached")
 
     designer.get_by_role("button", name="Run workflow", exact=True).click()
     run_dialog = page.locator(".vaw-run-dialog")
@@ -741,7 +793,7 @@ def check(browser, screenshots):
     canvas.get_by_role("button",name="Undo edit",exact=True).click()
     expect(canvas.locator("li[data-node-id]")).to_have_count(3)
     designer.get_by_role("button", name="Save", exact=True).click()
-    expect(designer.locator(".vaw-definition-status")).to_contain_text("Draft saved", use_inner_text=False)
+    designer.get_by_text("Draft saved.", exact=True).wait_for(state="attached")
     # Permission rejection leaves an explicit error and a usable inline editor.
     canvas.evaluate("root => root.requestFullscreen = () => Promise.reject(new Error('fixture denial'))")
     canvas.get_by_role("button",name="Fullscreen graph",exact=True).click()
@@ -763,7 +815,7 @@ def check(browser, screenshots):
     graph_function_authoring_check(page, designer)
     assert not errors,errors
     page.close()
-    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring/replay, recursive JSON projection authoring, explicit typed-graph authoring/execution/replay, Boolean branch authoring, typed Boolean primitive upgrade/configuration, bounded branch topology upgrade and node authoring, pure function editor pin wiring, immutable function revisions, pinned workflow call insertion, draft save, and MCP tool detail review passed.")
+    print("Blank creation, node library/drop, context search/cancel/duplicate, output-pin creation, guarded keyboard deletion/undo, compact properties, route arrangement, native fullscreen/focus/rejection, narrow embeds, fit, recorded paths/playback, workspace filters, keyboard prompt-token insertion, deterministic text-template authoring/replay, recursive JSON projection authoring, explicit typed-graph authoring/execution/replay, Boolean branch authoring, typed Boolean primitive upgrade/configuration, bounded branch topology upgrade and node authoring, pure function editor pin wiring, immutable function revisions, pinned workflow call insertion, selected subgraph function extraction with derived boundaries and undo/redo, draft save, and MCP tool detail review passed.")
 
 
 if __name__=="__main__":

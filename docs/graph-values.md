@@ -119,6 +119,10 @@ The Studio Function library and visual function editor provide local CRUD, folde
 
 This is different from calling another workflow: reusable functions are small typed graph subroutines whose contract is inputs/outputs and declared effects. Workflow calls remain orchestration boundaries with run-level parameter mapping, audit scope, and workflow outcomes. The package model may share implementation primitives, but the Studio should make the distinction clear.
 
+### Selected workflow regions
+
+Core provides a non-mutating extraction plan for selected pure data nodes. It derives typed function inputs from external source pins, groups one source's fan-out, creates one function output per selected source pin, and prepares a `FunctionCall` replacement with function and caller layouts. Studio exposes this action from a selected node's context menu when an authoring catalog is available. The dialog shows the derived pins, saves an immutable revision, and applies the caller replacement as one editor history edit. The `FunctionCall` embeds the exact snapshot and remains valid independently of later catalog changes. The editor rejects a stale draft and reports when catalog saving succeeds but applying the caller edit fails. Browser verification of undo/redo and save/reload remains open; see [Decision 0062](decisions/0062-selected-data-subgraph-function-extraction.md).
+
 ```mermaid
 flowchart LR
     InputA[Typed input: amount] --> Function[Tax calculation v3]

@@ -73,6 +73,23 @@ public sealed class StudioGraphFunctionLibraryTests : IDisposable
             WorkflowLayoutJson.Serialize(legacy.Layout, draft));
     }
 
+    [Fact]
+    public void Authoring_catalog_saves_an_immutable_revision_and_returns_its_embedded_identity()
+    {
+        var function = CreateFunction(3, "Extracted function");
+        var draft = StudioGraphFunctionAsset.Draft(function);
+        var layout = WorkflowLayout.Create(draft);
+        var library = new StudioGraphFunctionLibrary(directory);
+
+        var saved = library.SaveNewVersion(function, "", layout);
+
+        Assert.Equal(GraphFunctionJson.ComputeHash(function), saved.Function.ContentHash);
+        Assert.Equal(function, Assert.Single(library.List()).Function.Definition);
+        Assert.Equal(WorkflowLayoutJson.Serialize(layout, draft),
+            WorkflowLayoutJson.Serialize(Assert.Single(library.ListAssets()).Layout, draft));
+        Assert.Throws<ArgumentException>(() => library.SaveNewVersion(function, "", layout));
+    }
+
     private static GraphFunctionDefinition CreateFunction(int version, string name) => new(
         "text.append-suffix", version, name, "Appends a fixed suffix to text.",
         new Dictionary<string, GraphFunctionPort> { ["text"] = new("Text", "string") }.ToImmutableSortedDictionary(StringComparer.Ordinal),

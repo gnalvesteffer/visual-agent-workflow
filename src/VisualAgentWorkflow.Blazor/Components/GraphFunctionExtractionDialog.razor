@@ -1,0 +1,55 @@
+@using VisualAgentWorkflow.Core
+
+<dialog @ref="dialog" class="vaw-function-extraction-dialog" aria-labelledby="function-extraction-title" aria-describedby="function-extraction-description" @onclose="Closed">
+    <header>
+        <div>
+            <h2 id="function-extraction-title">Extract to function</h2>
+            <p id="function-extraction-description" class="vaw-help">The selected pure data nodes will become one immutable function revision and one call in this workflow draft.</p>
+        </div>
+        <button type="button" class="vaw-dialog-close" aria-label="Close function extraction" @onclick="Cancel">×</button>
+    </header>
+    @if (PreparationError is not null)
+    {
+        <p role="alert" class="vaw-error vaw-function-extraction-error">@PreparationError</p>
+    }
+    else if (Plan is not null)
+    {
+        <div class="vaw-function-extraction-fields">
+            <label>Function name
+                <input aria-label="Function name" value="@Name" maxlength="160" @oninput="args => NameChanged.InvokeAsync(args.Value?.ToString() ?? string.Empty)" />
+            </label>
+            <label>Description
+                <textarea aria-label="Function description" rows="3" maxlength="2000" @oninput="args => DescriptionChanged.InvokeAsync(args.Value?.ToString() ?? string.Empty)">@Description</textarea>
+            </label>
+        </div>
+        <section class="vaw-function-extraction-boundaries" aria-label="Extracted function pins">
+            <div>
+                <h3>Inputs</h3>
+                <ul>
+                    @foreach (var input in Plan.Function.Definition.Inputs)
+                    {
+                        <li @key="input.Key"><span>@input.Value.DisplayName</span><code>@input.Value.DataType</code></li>
+                    }
+                </ul>
+            </div>
+            <div>
+                <h3>Outputs</h3>
+                <ul>
+                    @foreach (var output in Plan.Function.Definition.Outputs)
+                    {
+                        var fanOut = Plan.Definition.Connections.Values.Count(edge => edge.Source.NodeId == Plan.CallNodeId && edge.Source.PortId == output.Key);
+                        <li @key="output.Key"><span>@output.Value.DisplayName</span><code>@output.Value.DataType</code><small>@fanOut destinations</small></li>
+                    }
+                </ul>
+            </div>
+        </section>
+    }
+    @if (OperationError is not null)
+    {
+        <p role="alert" class="vaw-error vaw-function-extraction-error">@OperationError</p>
+    }
+    <footer class="vaw-function-extraction-actions">
+        <button type="button" @onclick="Cancel">Cancel</button>
+        <button type="button" class="vaw-primary" @onclick="Apply" disabled="@(Plan is null || string.IsNullOrWhiteSpace(Name) || OperationBusy)">@(OperationBusy ? "Saving function…" : "Save and replace selection")</button>
+    </footer>
+</dialog>

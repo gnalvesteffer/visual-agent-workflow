@@ -75,6 +75,8 @@
                 <button type="button" @onclick="() => CloseMenu(context)">Edit selected node properties</button>
                 <button type="button" disabled="@(!CanDuplicate(contextNode))" @onclick="() => Duplicate(contextNode, context)">Duplicate node</button>
                 <button type="button" disabled="@(!CanCopyClipboardNode(contextNode))" @onclick="() => CopyClipboardSelection([contextNode], context)">Copy selected pure data nodes</button>
+                @if (CanExtractFunctionNode(contextNode))
+                { <button type="button" @onclick="() => OpenFunctionExtraction(context, contextNode)">Extract selected nodes to function…</button> }
                 <button type="button" disabled="@(!CanRemove(contextNode))" @onclick="() => RemoveSelected(contextNode, context)">@(Definition.Nodes[contextNode].Type == NodeTypes.ParallelRendezvous ? "Remove collaboration region…" : Definition.Nodes[contextNode].Type == NodeTypes.Merge ? "Remove merge and split paths" : Definition.Nodes[contextNode].Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin ? "Remove parallel block…" : Definition.Nodes[contextNode].Type == NodeTypes.Loop ? "Remove loop (run body once)" : "Delete node")</button>
                 @if (Definition.Nodes[contextNode].Type == NodeTypes.Condition)
                 { <button type="button" disabled="@Disabled" @onclick="() => RequestBlockRemoval(contextNode, context)">Remove conditional block…</button> }
@@ -847,6 +849,15 @@
             PreviewReplacementCount="@(templatePreview?.RemovedConnectionIds.Length ?? 0)"
             BindingChanged="TemplateBindingChanged" Apply="ApplyTemplate" Cancel="CancelTemplate" />
     }
+    @if (functionExtractionOpen)
+    {
+        <GraphFunctionExtractionDialog Open="true" Plan="@functionExtractionPlan" Name="@functionExtractionName"
+            Description="@functionExtractionDescription" PreparationError="@functionExtractionPreparationError"
+            OperationError="@functionExtractionOperationError" OperationBusy="@functionExtractionBusy"
+            NameChanged="value => functionExtractionName = value" DescriptionChanged="value => functionExtractionDescription = value"
+            Apply="ApplyFunctionExtraction" Cancel="CancelFunctionExtraction" />
+    }
+    @if (functionExtractionNotice is not null) { <p role="status" class="vaw-function-extraction-status">@functionExtractionNotice</p> }
     @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
 </section>
 
@@ -885,6 +896,7 @@
     [Parameter] public ISkillLibrary? SkillLibrary { get; set; }
     [Parameter] public IAgentProfileLibrary? AgentProfileLibrary { get; set; }
     [Parameter] public IGraphFunctionCatalog? FunctionCatalog { get; set; }
+    [Parameter] public IGraphFunctionAuthoringCatalog? FunctionAuthoringCatalog { get; set; }
     [Parameter] public IGraphTemplateCatalog? TemplateCatalog { get; set; }
     private string newType = NodeTypes.Uppercase;
     private System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition> ParameterDefinitions =>

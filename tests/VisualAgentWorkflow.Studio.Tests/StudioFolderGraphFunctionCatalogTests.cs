@@ -60,6 +60,23 @@ public sealed class StudioFolderGraphFunctionCatalogTests : IDisposable
     }
 
     [Fact]
+    public void Authoring_catalog_uses_current_manifest_and_returns_the_exact_saved_revision()
+    {
+        WriteEmptyProject();
+        var source = new StudioFolderGraphFunctionCatalog(directory);
+        var function = CreateFunction(1);
+        var draft = StudioGraphFunctionAsset.Draft(function);
+        var layout = WorkflowLayout.Create(draft);
+
+        var saved = source.SaveNewVersion(function, "Extracted", layout);
+
+        Assert.Equal(GraphFunctionJson.ComputeHash(function), saved.Function.ContentHash);
+        Assert.Equal("Extracted", saved.Folder);
+        Assert.Equal(saved.Function.ContentHash, Assert.Single(source.List()).Function.ContentHash);
+        Assert.Throws<ArgumentException>(() => source.SaveNewVersion(function, "Extracted", layout));
+    }
+
+    [Fact]
     public void GraphFunctionAsset_ReadsLegacyEntriesAndRejectsInvalidVersionOrLayout()
     {
         var function = CreateFunction(1);
