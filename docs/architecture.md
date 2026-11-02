@@ -29,9 +29,14 @@ child revision through the nested workflow runner, with typed field pins,
 package/dependency identity, host-grant enforcement, and nested playback
 evidence. Catalog-backed Studio projects persist immutable interface and
 implementation revisions and source snapshots preserve them; folder projects
-index `.interface` and `.implementation` files under manifest 1.3. Studio asset
-editors, operation binding, graph call selection, and project dependency
-diagnostics remain unfinished. See [Decision 0063](decisions/0063-workflow-interface-contract-foundation.md)
+index `.interface` and `.implementation` files under manifest 1.3. Studio uses
+one storage-neutral authoring form with distinct catalog and folder adapters.
+Folder writes retain manifest-hash conflict checks; catalog writes serialize
+by canonical asset path within the Studio process and reload before immutable
+duplicate checks. Catalog bindings select exact published
+workflow revisions, and graph calls embed the selected implementation revision
+instead of performing mutable project-catalog lookup at runtime. Project
+dependency diagnostics remain unfinished. See [Decision 0063](decisions/0063-workflow-interface-contract-foundation.md)
 and [Decision 0064](decisions/0064-workflow-interface-asset-storage.md).
 
 The engine and designer are independently consumable libraries; Studio is their optional IDE and development composition. User-owned service hosting is a first-class product goal, with direct execution APIs and a local hosting helper already available; a production SDK and stable package distribution remain planned. See [service integration](service-integration.md).

@@ -75,8 +75,7 @@
         </details>
         @if (interfaceSource is not null)
         {
-            <ProjectWorkflowInterfaceAssets @key="openDirectory" Source="interfaceSource" ExpectedManifestHash="@sourceManifestHash"
-                Interfaces="folderInterfaces" Implementations="folderInterfaceAssets" Workflows="workflows" Saved="OnWorkflowInterfacesSaved" />
+            <ProjectWorkflowInterfaceAssets @key="openDirectory" Source="InterfaceAuthoringSource" Saved="OnWorkflowInterfacesSaved" />
         }
         <details hidden="@(!projectToolsOpen)" class="vaw-project-utility" aria-label="Local restore points">
         <summary>Restore points <span class="vaw-help">@snapshots.Count saved</span></summary>
@@ -790,13 +789,13 @@
         profileSource = loadedProfileSource;
         graphFunctionCatalog = loadedGraphFunctionCatalog;
         interfaceSource = loadedInterfaceSource;
+        workflows = loadedWorkflows;
         folderInterfaces = loadedInterfaceSource.ListInterfaces();
         folderInterfaceAssets = loadedInterfaceSource.ListImplementations();
         interfaceImplementations = folderInterfaceAssets.Select(item => item.Revision).ToArray();
         projectSkills = loadedSkillSource.List().Select(skill => skill.Item).ToArray();
         sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(loadedManifest);
         RefreshSnapshots();
-        workflows = loadedWorkflows;
         workflowNames = ToWorkflowNames(loadedWorkflows);
         RefreshFileNames();
         selectedPackageWorkflows.Clear();
@@ -1952,10 +1951,10 @@
         sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(loadedManifest);
         fileTree = StudioProjectFileTree.Build(loadedManifest.Files, loadedManifest.Directories);
         projectSkills = skillSource!.List().Select(skill => skill.Item).ToArray();
+        workflows = source!.List().ToList();
         folderInterfaces = interfaceSource?.ListInterfaces() ?? [];
         folderInterfaceAssets = interfaceSource?.ListImplementations() ?? [];
         interfaceImplementations = folderInterfaceAssets.Select(item => item.Revision).ToArray();
-        workflows = source!.List().ToList();
         RefreshFileNames();
         RefreshDependencyAudit();
     }
@@ -1965,6 +1964,11 @@
         RefreshProjectSource();
         return InvokeAsync(StateHasChanged);
     }
+
+    private IWorkflowInterfaceAuthoringSource? InterfaceAuthoringSource => interfaceSource is null || openDirectory is null
+        ? null
+        : new StudioFolderWorkflowInterfaceAuthoringSource(openDirectory, sourceManifestHash,
+            folderInterfaces, folderInterfaceAssets, workflows);
 
     private void RefreshFileNames()
     {

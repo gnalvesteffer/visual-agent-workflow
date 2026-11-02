@@ -54,7 +54,7 @@
                 }
                 <button type="button" class="vaw-secondary" @onclick="AddOperation" disabled="@(operations.Count >= WorkflowInterfaceJson.MaximumOperations)">Add operation</button>
             </div>
-            <button type="button" class="vaw-primary" @onclick="SaveInterface" disabled="@busy">Save immutable interface revision</button>
+            <button type="button" class="vaw-primary" @onclick="SaveInterface" disabled="@(busy || ReadOnly)">Save immutable interface revision</button>
         </div>
 
         <div class="vaw-provider-form-section">
@@ -76,25 +76,22 @@
                     <label @key="operationId">@operation.DisplayName · @operationId
                         <select aria-label="Workflow for operation @operationId" value="@workflowBindings.GetValueOrDefault(operationId, string.Empty)" @onchange="args => BindWorkflow(operationId, args)">
                             <option value="">Choose a saved workflow</option>
-                            @foreach (var workflow in Workflows)
-                            { <option value="@workflow.WorkflowId">@workflow.DisplayName · @workflow.RelativePath</option> }
+                            @foreach (var workflow in Source.Workflows)
+                            { <option value="@workflow.SelectionId">@workflow.DisplayName · @workflow.Detail</option> }
                         </select>
                     </label>
                 }
             }
             @if (!string.IsNullOrWhiteSpace(error)) { <p role="alert" class="vaw-error">@error</p> }
-            <button type="button" class="vaw-primary" @onclick="SaveImplementation" disabled="@(busy || !CanSaveImplementation)">Validate and save implementation revision</button>
+            <button type="button" class="vaw-primary" @onclick="SaveImplementation" disabled="@(busy || ReadOnly || !CanSaveImplementation)">Validate and save implementation revision</button>
             <p class="vaw-help">Every callable operation needs named input and output fields. Bind each operation to a saved workflow with a JSON input and output; a later workflow edit does not alter an existing implementation.</p>
         </div>
     </section>
 </details>
 
 @code {
-    [Parameter, EditorRequired] public StudioFolderWorkflowInterfaceSource Source { get; set; } = null!;
-    [Parameter, EditorRequired] public string ExpectedManifestHash { get; set; } = "";
-    [Parameter] public IReadOnlyList<StudioFolderWorkflowInterface> Interfaces { get; set; } = [];
-    [Parameter] public IReadOnlyList<StudioFolderWorkflowInterfaceImplementation> Implementations { get; set; } = [];
-    [Parameter] public IReadOnlyList<StudioFolderWorkflow> Workflows { get; set; } = [];
+    [Parameter, EditorRequired] public IWorkflowInterfaceAuthoringSource Source { get; set; } = null!;
+    [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public EventCallback Saved { get; set; }
 
     private static readonly string[] FieldTypes = [WorkflowDataTypes.String, WorkflowDataTypes.Boolean,
@@ -118,6 +115,8 @@
     private readonly Dictionary<string, string> workflowBindings = new(StringComparer.Ordinal);
     private bool busy;
     private string? error;
+    private IReadOnlyList<WorkflowInterfaceAuthoringAsset> Interfaces => Source?.Interfaces ?? [];
+    private IReadOnlyList<WorkflowInterfaceImplementationAuthoringAsset> Implementations => Source?.Implementations ?? [];
     private WorkflowInterfaceRevision? SelectedImplementationInterface =>
         Guid.TryParse(implementationInterfaceKey, out var id) ? Interfaces.SingleOrDefault(item => item.Revision.RevisionId == id)?.Revision : null;
     private bool CanSaveImplementation => SelectedImplementationInterface is { } contract &&
@@ -167,8 +166,8 @@
             var definition = new WorkflowInterfaceDefinition(interfaceId, interfaceName, interfaceDescription, declared)
             { SchemaVersion = interfaceSchemaVersion };
             var revision = WorkflowInterfaceRevision.Create(definition, interfaceVersion);
-            var saved = Source.SaveInterfaceRevision(revision, ExpectedManifestHash);
-            selectedInterfaceKey = saved.Revision.RevisionId.ToString();
+            var saved = Source.SaveInterfaceRevision(revision);
+            selectedInterfaceKey = saved.RevisionId.ToString();
             implementationInterfaceKey = selectedInterfaceKey;
             await Saved.InvokeAsync();
         }
@@ -188,15 +187,15 @@
             var bindings = contract.Definition.Operations.ToImmutableSortedDictionary(pair => pair.Key, pair =>
             {
                 var workflowId = workflowBindings.GetValueOrDefault(pair.Key);
-                var workflow = Workflows.SingleOrDefault(item => item.WorkflowId == workflowId)
+                var workflow = Source.Workflows.SingleOrDefault(item => item.SelectionId == workflowId)
                     ?? throw new ArgumentException($"Choose a saved workflow for operation '{pair.Key}'.");
-                return WorkflowInterfaceWorkflowPin.From(workflow.Definition);
+                return workflow.Pin;
             }, StringComparer.Ordinal);
             var nextVersion = Implementations.Where(item => item.Revision.Definition.ImplementationId == implementationId)
                 .Select(item => item.Revision.Version).DefaultIfEmpty(0).Max() + 1;
             var revision = WorkflowInterfaceImplementationRevision.Create(
                 new WorkflowInterfaceImplementation(implementationId, contract, bindings), nextVersion);
-            Source.SaveImplementationRevision(revision, ExpectedManifestHash);
+            Source.SaveImplementationRevision(revision);
             await Saved.InvokeAsync();
         }
         catch (Exception exception) when (exception is ArgumentException or IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException)

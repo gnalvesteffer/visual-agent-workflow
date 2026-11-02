@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Collections.Concurrent;
 using VisualAgentWorkflow.Core;
 
 namespace VisualAgentWorkflow.Studio;
@@ -7,7 +8,8 @@ namespace VisualAgentWorkflow.Studio;
 /// <summary>Project-local immutable workflow interface and implementation revisions.</summary>
 public sealed class StudioWorkflowInterfaceLibrary
 {
-    private readonly object gate = new();
+    private static readonly ConcurrentDictionary<string, object> Gates = new(StringComparer.Ordinal);
+    private readonly object gate;
     private readonly string path;
     private List<WorkflowInterfaceRevision> interfaces;
     private List<WorkflowInterfaceImplementationRevision> implementations;
@@ -16,7 +18,13 @@ public sealed class StudioWorkflowInterfaceLibrary
     {
         Directory.CreateDirectory(directory);
         path = Path.Combine(directory, "workflow-interfaces.json");
+        gate = Gates.GetOrAdd(Path.GetFullPath(path), static _ => new object());
         (interfaces, implementations) = File.Exists(path) ? Load(File.ReadAllText(path)) : ([], []);
+        ValidateContents();
+    }
+
+    private void ValidateContents()
+    {
         if (interfaces.Any(revision => revision is null || !IsValid(revision)) ||
             implementations.Any(revision => revision is null || !IsValid(revision)) ||
             interfaces.GroupBy(revision => (revision.Definition.InterfaceId, revision.Version)).Any(group => group.Count() > 1) ||
@@ -29,14 +37,22 @@ public sealed class StudioWorkflowInterfaceLibrary
 
     public IReadOnlyList<WorkflowInterfaceRevision> ListInterfaceRevisions()
     {
-        lock (gate) return interfaces.OrderBy(revision => revision.Definition.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(revision => revision.Version).ToArray();
+        lock (gate)
+        {
+            Refresh();
+            return interfaces.OrderBy(revision => revision.Definition.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(revision => revision.Version).ToArray();
+        }
     }
 
     public IReadOnlyList<WorkflowInterfaceImplementationRevision> ListImplementationRevisions()
     {
-        lock (gate) return implementations.OrderBy(revision => revision.Definition.ImplementationId, StringComparer.Ordinal)
-            .ThenBy(revision => revision.Version).ToArray();
+        lock (gate)
+        {
+            Refresh();
+            return implementations.OrderBy(revision => revision.Definition.ImplementationId, StringComparer.Ordinal)
+                .ThenBy(revision => revision.Version).ToArray();
+        }
     }
 
     public void Add(WorkflowInterfaceRevision revision)
@@ -45,6 +61,7 @@ public sealed class StudioWorkflowInterfaceLibrary
         revision.Validate();
         lock (gate)
         {
+            Refresh();
             if (interfaces.Any(existing => existing.Definition.InterfaceId == revision.Definition.InterfaceId && existing.Version == revision.Version))
                 throw new ArgumentException("This workflow interface version already exists.", nameof(revision));
             if (interfaces.Any(existing => existing.RevisionId == revision.RevisionId) ||
@@ -60,6 +77,7 @@ public sealed class StudioWorkflowInterfaceLibrary
         revision.Validate();
         lock (gate)
         {
+            Refresh();
             if (implementations.Any(existing => existing.Definition.ImplementationId == revision.Definition.ImplementationId && existing.Version == revision.Version))
                 throw new ArgumentException("This workflow interface implementation version already exists.", nameof(revision));
             if (implementations.Any(existing => existing.RevisionId == revision.RevisionId) ||
@@ -79,6 +97,19 @@ public sealed class StudioWorkflowInterfaceLibrary
         File.Move(temporary, path, true);
         interfaces = updatedInterfaces;
         implementations = updatedImplementations;
+    }
+
+    private void Refresh()
+    {
+        if (!File.Exists(path))
+        {
+            interfaces = [];
+            implementations = [];
+            return;
+        }
+
+        (interfaces, implementations) = Load(File.ReadAllText(path));
+        ValidateContents();
     }
 
     private static (List<WorkflowInterfaceRevision>, List<WorkflowInterfaceImplementationRevision>) Load(string json)

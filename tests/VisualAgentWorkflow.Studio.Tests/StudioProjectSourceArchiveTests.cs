@@ -141,6 +141,40 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
     }
 
     [Fact]
+    public void CatalogInterfaceAuthoring_BindsTheSelectedPublishedWorkflowRevision()
+    {
+        var library = new StudioWorkflowInterfaceLibrary(Path.Combine(directory, "catalog-interface-authoring"));
+        var operation = new WorkflowInterfaceOperation("Lookup", WorkflowDataTypes.Json, WorkflowDataTypes.Json)
+        {
+            Inputs = [new("query", "Query", WorkflowDataTypes.String)],
+            Outputs = [new("result", "Result", WorkflowDataTypes.String)]
+        };
+        var contract = WorkflowInterfaceRevision.Create(new WorkflowInterfaceDefinition("catalog.lookup", "Catalog lookup", "Lookup.",
+            ImmutableSortedDictionary<string, WorkflowInterfaceOperation>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("lookup", operation)) { SchemaVersion = WorkflowInterfaceJson.FieldContractSchemaVersion });
+        library.Add(contract);
+
+        var definition = JsonBoundaryWorkflow("catalog-lookup-child");
+        var published = new PublishedWorkflowRevision(7, WorkflowRevision.Create(definition, "catalog-authoring-test"));
+        var source = new StudioCatalogWorkflowInterfaceAuthoringSource(library, [published]);
+        var secondLibraryView = new StudioWorkflowInterfaceLibrary(Path.Combine(directory, "catalog-interface-authoring"));
+        var choice = Assert.Single(source.Workflows);
+        var implementation = WorkflowInterfaceImplementationRevision.Create(new WorkflowInterfaceImplementation(
+            "catalog.lookup.impl", contract,
+            ImmutableSortedDictionary<string, WorkflowInterfaceWorkflowPin>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("lookup", choice.Pin)));
+
+        source.SaveImplementationRevision(implementation);
+
+        var saved = Assert.Single(library.ListImplementationRevisions());
+        Assert.Equal(published.Revision.RevisionId, saved.Definition.Operations["lookup"].RevisionId);
+        Assert.Equal(published.Revision.ContentHash, saved.Definition.Operations["lookup"].ContentHash);
+        Assert.Equal(7, saved.Definition.Operations["lookup"].Version);
+        Assert.Single(secondLibraryView.ListImplementationRevisions());
+        Assert.Throws<ArgumentException>(() => secondLibraryView.Add(implementation));
+    }
+
+    [Fact]
     public void WorkflowSource_RoundTripsDisconnectedDraftsWithoutMakingThemExecutable()
     {
         var valid = WorkflowTemplates.Create("uppercase-reverse");
@@ -721,6 +755,20 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
         }
         return output.ToArray();
     }
+
+    private static WorkflowDefinition JsonBoundaryWorkflow(string workflowId) => new(
+        WorkflowSchemaVersions.CurrentAuthoringSchema, workflowId, "input",
+        new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0") { InputDataType = WorkflowDataTypes.Json },
+            ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.Json }
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+        ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("result", new(new("input", "out"), new("output", "in"), "data")))
+    {
+        ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("complete", new(new("input", "then"), new("output", "execute"), "execution"))
+    };
 
     private static GraphFunctionDefinition AppendSuffixFunction() => new(
         "text.append-suffix", 1, "Append suffix", "Appends a fixed suffix to text.",

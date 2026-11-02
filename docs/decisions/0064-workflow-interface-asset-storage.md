@@ -1,6 +1,6 @@
 # Decision 0064: Workflow interface asset storage
 
-**Status:** Accepted; immutable storage, folder-project authoring, and exact graph-call selection implemented (2026-11-02). Catalog-project asset editing and broader dependency diagnostics remain deferred.
+**Status:** Accepted; immutable storage, folder and catalog authoring, and exact graph-call selection implemented (2026-11-02). Broader dependency diagnostics remain deferred.
 
 ## Decision
 
@@ -45,8 +45,10 @@ replace the pinned execution authority.
 - The graph inspector selects an implementation revision and operation and
   embeds that exact revision in the node. It does not retain a mutable catalog
   reference.
-- Catalog projects persist and transport these assets, but their asset
-  authoring UI and complete dependency diagnostics are not yet available.
+- Catalog projects author assets through the same storage-neutral form with a
+  catalog-specific adapter. Implementation bindings select exact published
+  workflow revisions; archived projects do not expose authoring controls.
+- Complete dependency diagnostics are not yet available.
 
 ## Compatibility
 
@@ -59,9 +61,7 @@ a pinned revision.
 
 ## Follow-up
 
-1. Add catalog-project interface and implementation editors with conformance
-   diagnostics.
-2. Audit project dependencies, source archive round trips, package closure,
+1. Audit project dependencies, source archive round trips, package closure,
    host admission, and passive playback after project assets are unavailable.
 
 See [Decision 0063](0063-workflow-interface-contract-foundation.md),

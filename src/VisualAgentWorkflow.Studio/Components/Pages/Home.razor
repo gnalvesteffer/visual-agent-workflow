@@ -8,9 +8,14 @@
 
 <PageTitle>Visual Agent Workflow</PageTitle>
 <main class="vaw-main-ide-route">
+    @if (interfaceAuthoringSource is not null && !ProjectWorkspace.IsReadOnly)
+    {
+        <ProjectWorkflowInterfaceAssets @key="ProjectWorkspace.CurrentProjectId" Source="interfaceAuthoringSource"
+            Saved="OnWorkflowInterfacesSaved" />
+    }
     <WorkflowErrorBoundary>
         <ChildContent>
-            <WorkflowStudio @key="(ProjectWorkspace.CurrentProjectId, WorkflowId)" ProjectId="@ProjectWorkspace.CurrentProjectId" InitialWorkflowId="@WorkflowId" IdeMode="true" DraftSaved="RefreshProjectExplorer" WorkflowSelected="SelectWorkflow" Client="ProjectWorkspace.Client" Catalog="ProjectWorkspace.Catalog" ToolCatalog="Tools" AgentCatalog="Agents" SkillLibrary="ProjectWorkspace.Skills" AgentProfileLibrary="ProjectWorkspace.AgentProfiles" FunctionCatalog="ProjectWorkspace.Functions" TemplateCatalog="ProjectWorkspace.Templates" InterfaceImplementations="@ProjectWorkspace.Interfaces.ListImplementationRevisions()" />
+            <WorkflowStudio @key="(ProjectWorkspace.CurrentProjectId, WorkflowId)" ProjectId="@ProjectWorkspace.CurrentProjectId" InitialWorkflowId="@WorkflowId" IdeMode="true" DraftSaved="RefreshProjectExplorer" WorkflowSelected="SelectWorkflow" Client="ProjectWorkspace.Client" Catalog="ProjectWorkspace.Catalog" ToolCatalog="Tools" AgentCatalog="Agents" SkillLibrary="ProjectWorkspace.Skills" AgentProfileLibrary="ProjectWorkspace.AgentProfiles" FunctionCatalog="ProjectWorkspace.Functions" TemplateCatalog="ProjectWorkspace.Templates" InterfaceImplementations="@InterfaceImplementations" />
         </ChildContent>
         <ErrorContent>
             <section class="vaw-viewer" role="alert">
@@ -30,10 +35,29 @@
     [CascadingParameter(Name = "WorkflowSelected")] public Func<string, Task>? WorkflowSelection { get; set; }
     private Task SelectWorkflow(string id) => WorkflowSelection?.Invoke(id) ?? Task.CompletedTask;
 
-    protected override void OnParametersSet()
+    private StudioCatalogWorkflowInterfaceAuthoringSource? interfaceAuthoringSource;
+    private IReadOnlyList<WorkflowInterfaceImplementationRevision> InterfaceImplementations =>
+        interfaceAuthoringSource?.Implementations.Select(item => item.Revision).ToArray() ?? [];
+
+    protected override async Task OnParametersSetAsync()
     {
-        try { ProjectWorkspace.Select(ProjectId); }
+        try
+        {
+            ProjectWorkspace.Select(ProjectId);
+            await RefreshWorkflowInterfaces();
+        }
         catch (KeyNotFoundException) { Navigation.NavigateTo("/projects", forceLoad: true); }
+    }
+
+    private async Task OnWorkflowInterfacesSaved() => await RefreshWorkflowInterfaces();
+
+    private async Task RefreshWorkflowInterfaces()
+    {
+        var drafts = await ProjectWorkspace.Catalog.ListDraftsAsync();
+        var published = new List<PublishedWorkflowRevision>();
+        foreach (var draft in drafts)
+            published.AddRange(await ProjectWorkspace.Catalog.ListRevisionsAsync(draft.Definition.WorkflowId));
+        interfaceAuthoringSource = new StudioCatalogWorkflowInterfaceAuthoringSource(ProjectWorkspace.Interfaces, published);
     }
 
     private void Reload() => Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
