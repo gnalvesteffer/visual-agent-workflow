@@ -33,10 +33,10 @@ public sealed record StringCondition(string Operator, string Operand)
 }
 
 /// <summary>
-/// Shared fallback shape definitions for configuration-derived pins. The descriptor
-/// resolver consumes this catalog directly; the legacy projections use it only as
-/// their compatibility view. This keeps shape definitions from drifting without
-/// making descriptors authoritative for schema or runtime behavior.
+/// Shape fallback for configuration-derived pins that do not have a registered
+/// fixed descriptor. The resolver consumes these projections to produce the
+/// effective descriptor without making authoring metadata authoritative for schema
+/// admission or runtime behavior.
 /// </summary>
 internal static class WorkflowPortShapeCatalog
 {
@@ -44,25 +44,12 @@ internal static class WorkflowPortShapeCatalog
     {
         NodeTypes.FunctionOutput => [new("in", node.InputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.Output => [new("in", node.OutputDataType ?? WorkflowDataTypes.String)],
-        NodeTypes.TextConcat => [new("left", WorkflowDataTypes.String), new("right", WorkflowDataTypes.String)],
-        NodeTypes.JsonMerge => [new("left", WorkflowDataTypes.Json), new("right", WorkflowDataTypes.Json)],
-        NodeTypes.JsonToArray => [new("in", WorkflowDataTypes.Json)],
-        NodeTypes.ArrayLength => [new("in", WorkflowDataTypes.JsonArray)],
-        NodeTypes.StringEquals => [new("left", WorkflowDataTypes.String), new("right", WorkflowDataTypes.String)],
-        NodeTypes.IntegerAdd or NodeTypes.IntegerEquals => [new("left", WorkflowDataTypes.Integer), new("right", WorkflowDataTypes.Integer)],
-        NodeTypes.NumberAdd => [new("left", WorkflowDataTypes.Number), new("right", WorkflowDataTypes.Number)],
-        NodeTypes.BooleanBranch => [new("condition", WorkflowDataTypes.Boolean)],
-        NodeTypes.BooleanNot => [new("value", WorkflowDataTypes.Boolean)],
-        NodeTypes.StringToInteger => [new("in", WorkflowDataTypes.String)],
-        NodeTypes.IntegerToString => [new("in", WorkflowDataTypes.Integer)],
         NodeTypes.VariableSet => [new("value", node.InputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.McpTool when node.McpInputPorts is { IsDefault: false } ports => [.. ports.Where(port => port is not null).Select(port => new WorkflowPort(port.Id, port.DataType))],
         NodeTypes.McpTool => [new("in", WorkflowDataTypes.String)],
-        NodeTypes.Agent or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse or NodeTypes.Loop or NodeTypes.LoopBody => [new("in", WorkflowDataTypes.String)],
+        NodeTypes.Agent => [new("in", WorkflowDataTypes.String)],
         NodeTypes.WorkflowCall => InputsForWorkflowCall(node),
         NodeTypes.WorkflowInterfaceCall => InterfaceCallInputs(node),
-        NodeTypes.JsonSelectString or NodeTypes.JsonProject => [new("in", WorkflowDataTypes.Json)],
-        NodeTypes.TextTemplate => [new("in", WorkflowDataTypes.String)],
         NodeTypes.FunctionCall => FunctionCallDataInputs(node),
         _ => []
     };
@@ -71,36 +58,20 @@ internal static class WorkflowPortShapeCatalog
     {
         NodeTypes.FunctionInput => [new("out", node.OutputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.Input => [new("out", node.InputDataType ?? WorkflowDataTypes.String)],
-        NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.TextTemplate or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse or NodeTypes.LoopBody => [new("out", WorkflowDataTypes.String)],
-        NodeTypes.Condition => [new("true", WorkflowDataTypes.String), new("false", WorkflowDataTypes.String)],
-        NodeTypes.JsonSelectString => [new("out", WorkflowDataTypes.String)],
-        NodeTypes.JsonProject => [new("out", WorkflowDataTypes.Json)],
         NodeTypes.WorkflowCall => OutputsForWorkflowCall(node),
         NodeTypes.WorkflowInterfaceCall => InterfaceCallOutputs(node),
-        NodeTypes.JsonMerge => [new("out", WorkflowDataTypes.Json)],
-        NodeTypes.JsonToArray => [new("out", WorkflowDataTypes.JsonArray)],
-        NodeTypes.ArrayLength => [new("out", WorkflowDataTypes.Integer)],
-        NodeTypes.IntegerConstant or NodeTypes.IntegerAdd => [new("out", WorkflowDataTypes.Integer)],
-        NodeTypes.NumberConstant => [new("out", WorkflowDataTypes.Number)],
-        NodeTypes.NumberAdd => [new("out", WorkflowDataTypes.Number)],
-        NodeTypes.StringToInteger => [new("out", WorkflowDataTypes.Integer)],
-        NodeTypes.IntegerToString => [new("out", WorkflowDataTypes.String)],
         NodeTypes.WorkflowValue => [new("out", node.OutputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.VariableGet => [new("out", node.OutputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.Agent => [new("out", node.Agent?.RequireStructuredResult == true ? WorkflowDataTypes.Json : WorkflowDataTypes.String)],
-        NodeTypes.Loop => [new("body", WorkflowDataTypes.String), new("done", WorkflowDataTypes.String)],
         NodeTypes.McpTool => [new("out", WorkflowDataTypes.String)],
         NodeTypes.ParallelJoin => [new("out", WorkflowDataTypes.Json)],
-        NodeTypes.StringEquals or NodeTypes.IntegerEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", WorkflowDataTypes.Boolean)],
         NodeTypes.FunctionCall => FunctionCallDataOutputs(node),
         _ => []
     };
 
     public static ImmutableArray<string> ExplicitExecutionInputs(NodeDefinition node) => node.Type switch
     {
-        NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval => ["execute"],
-        NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse => ["execute"],
-        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Sequence or NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.Loop or NodeTypes.LoopBody => ["execute"],
+        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall or NodeTypes.Output or NodeTypes.ParallelFork or NodeTypes.Sequence or NodeTypes.VariableGet or NodeTypes.VariableSet => ["execute"],
         NodeTypes.ParallelJoin when node.ParallelJoin is { BranchIds.IsDefault: false } join => [.. join.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
         NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
         _ => []
@@ -108,23 +79,17 @@ internal static class WorkflowPortShapeCatalog
 
     public static ImmutableArray<string> ExplicitExecutionOutputs(NodeDefinition node) => node.Type switch
     {
-        NodeTypes.Condition => ["true", "false"],
-        NodeTypes.Merge or NodeTypes.Approval => ["then"],
-        NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse => ["then"],
         NodeTypes.Input => ["then"],
         NodeTypes.Agent when node.Agent?.Routes is { IsDefaultOrEmpty: false } routes => [.. routes.Where(route => route is not null).Select(route => AgentExecutionRouteLimits.PinId(route.Id))],
         NodeTypes.Agent => ["out"],
         NodeTypes.McpTool => ["then"],
         NodeTypes.WorkflowCall => ["out"],
         NodeTypes.WorkflowInterfaceCall => ["then"],
-        NodeTypes.BooleanBranch => ["true", "false"],
         NodeTypes.ParallelFork when node.ParallelFork is { Branches.IsDefault: false } fork => [.. fork.Branches.Where(branch => branch is not null).Select(branch => ParallelBranchLimits.PinId(branch.Id))],
         NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
-        NodeTypes.ParallelBranch => ["then"],
         NodeTypes.ParallelJoin => ["then"],
         NodeTypes.Sequence when node.Sequence is { Outputs.IsDefault: false } sequence => [.. sequence.Outputs.Where(output => output is not null).Select(output => SequenceOutputLimits.PinId(output.Id))],
-        NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.LoopBody => ["then"],
-        NodeTypes.Loop => ["body", "done"],
+        NodeTypes.VariableGet or NodeTypes.VariableSet => ["then"],
         _ => []
     };
 
@@ -210,17 +175,13 @@ public static class WorkflowPorts
             : node.Type switch
     {
         NodeTypes.Input => [],
-        NodeTypes.JsonSelectString or NodeTypes.JsonProject or NodeTypes.JsonToArray => [new("in", WorkflowDataTypes.Json)],
-        NodeTypes.ArrayLength => [new("in", WorkflowDataTypes.JsonArray)],
-        NodeTypes.JsonMerge => [new("left", WorkflowDataTypes.Json), new("right", WorkflowDataTypes.Json)],
-        NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Loop or NodeTypes.LoopBody => [new("in", WorkflowDataTypes.String)],
+        NodeTypes.ParallelFork => [new("in", WorkflowDataTypes.String)],
         NodeTypes.VariableSet => [new("value", node.InputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.ParallelJoin when node.ParallelJoin is not null => [],
         NodeTypes.ParallelJoin => [new("branch_1", WorkflowDataTypes.String), new("branch_2", WorkflowDataTypes.String)],
         NodeTypes.Output => [new("in", node.OutputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.WorkflowCall => [new("in", WorkflowCallInputType(node))],
         NodeTypes.FunctionCall => FunctionCallDataInputs(node),
-        NodeTypes.Terminate => [new("in", WorkflowDataTypes.String)],
         _ => [new("in", WorkflowDataTypes.String)]
     };
     public static ImmutableArray<WorkflowPort> Outputs(NodeDefinition node) =>
@@ -232,15 +193,10 @@ public static class WorkflowPorts
         NodeTypes.WorkflowCall => [new("out", WorkflowCallOutputType(node))],
         NodeTypes.FunctionCall => FunctionCallDataOutputs(node),
         NodeTypes.Agent when node.Agent?.RequireStructuredResult == true => [new("out", WorkflowDataTypes.Json)],
-        NodeTypes.Condition => [new("true", WorkflowDataTypes.String), new("false", WorkflowDataTypes.String)],
-        NodeTypes.Input when node.InputDataType == WorkflowDataTypes.Json => [new("out", WorkflowDataTypes.Json)],
-        NodeTypes.JsonProject or NodeTypes.JsonMerge => [new("out", WorkflowDataTypes.Json)],
-        NodeTypes.JsonToArray => [new("out", WorkflowDataTypes.JsonArray)],
-        NodeTypes.ArrayLength => [new("out", WorkflowDataTypes.Integer)],
         NodeTypes.ParallelFork when node.ParallelFork is not null => [],
+        NodeTypes.Input when node.InputDataType == WorkflowDataTypes.Json => [new("out", WorkflowDataTypes.Json)],
         NodeTypes.ParallelFork => [new("branch_1", WorkflowDataTypes.String), new("branch_2", WorkflowDataTypes.String)],
         NodeTypes.ParallelJoin => [new("out", WorkflowDataTypes.Json)],
-        NodeTypes.Loop => [new("body", WorkflowDataTypes.String), new("done", WorkflowDataTypes.String)],
         _ => [new("out", WorkflowDataTypes.String)]
     };
 

@@ -54,7 +54,11 @@ Core's canonical node-family catalog includes advisory effect-boundary and
 editor-neutral authoring metadata alongside activation, state, limits, and
 evidence metadata. These flags are not serialized workflow data and do not
 grant host capabilities, select runtime behavior, or replace schema-specific
-validation. Configuration-derived pins remain owned by the descriptor resolver.
+validation. Fixed pins for registered core families are defined once by the
+static descriptor registry and projected consistently by graph editing and
+validation; configuration-derived pins remain owned by the descriptor resolver.
+The descriptor registry does not replace runtime dispatch, host admission, or
+historical playback contracts.
 See [node effect and authoring metadata](decisions/0022-node-effect-and-authoring-metadata.md).
 
 The Core-only graph-template proof seam builds on the pure graph-function

@@ -376,13 +376,10 @@ public static class WorkflowNodeDescriptorConformance
         if (!allowDynamic && descriptor.Ports.IsDefaultOrEmpty)
             Error("ports", "A static descriptor must declare at least one port.");
 
-        var ids = new HashSet<string>(StringComparer.Ordinal);
-        var resolvedIds = new HashSet<(WorkflowPortDirection Direction, WorkflowPortKind Kind, string Id)>();
+        var ids = new HashSet<(WorkflowPortDirection Direction, WorkflowPortKind Kind, string Id)>();
         foreach (var port in descriptor.Ports)
         {
-            var unique = allowDynamic
-                ? resolvedIds.Add((port.Direction, port.Kind, port.Id))
-                : ids.Add(port.Id);
+            var unique = ids.Add((port.Direction, port.Kind, port.Id));
             if (string.IsNullOrWhiteSpace(port.Id) || !unique)
                 Error("port-id", $"Port IDs must be nonempty and unique (duplicate '{port.Id}').");
             if (!Enum.IsDefined(port.Direction) || !Enum.IsDefined(port.Kind))
@@ -443,6 +440,16 @@ public static class WorkflowNodeDescriptorRegistry
         Descriptor(NodeTypes.JsonMerge, "json-merge", [Input("left", WorkflowDataTypes.Json), Input("right", WorkflowDataTypes.Json), Output(WorkflowDataTypes.Json)], "1.55"),
         Descriptor(NodeTypes.JsonToArray, "json-to-array", [Input("in", WorkflowDataTypes.Json), Output(WorkflowDataTypes.JsonArray)], "1.56"),
         Descriptor(NodeTypes.ArrayLength, "array-length", [Input("in", WorkflowDataTypes.JsonArray), Output(WorkflowDataTypes.Integer)], "1.56"),
+        Descriptor(NodeTypes.JsonSelectString, "json-select-string", [Input("in", WorkflowDataTypes.Json), Output(WorkflowDataTypes.String)], "1.53"),
+        Descriptor(NodeTypes.JsonProject, "json-project", [Input("in", WorkflowDataTypes.Json), Output(WorkflowDataTypes.Json)], "1.53"),
+        Descriptor(NodeTypes.TextTemplate, "text-template", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String)], "1.0"),
+        Descriptor(NodeTypes.Condition, "condition", [Input("in", WorkflowDataTypes.String), Output("true", WorkflowDataTypes.String), Output("false", WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("true"), ExecutionOutput("false")], "1.0"),
+        Descriptor(NodeTypes.Merge, "merge", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("then")], "1.0"),
+        Descriptor(NodeTypes.Terminate, "terminate", [Input("in", WorkflowDataTypes.String), ExecutionInput("execute")], "1.0"),
+        Descriptor(NodeTypes.Approval, "approval", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("then")], "1.0"),
+        Descriptor(NodeTypes.Loop, "loop", [OptionalInput("in", WorkflowDataTypes.String), Output("body", WorkflowDataTypes.String), Output("done", WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("body"), ExecutionOutput("done")], "1.0"),
+        Descriptor(NodeTypes.LoopBody, "loop-body", [OptionalInput("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("then")], "1.45"),
+        Descriptor(NodeTypes.ParallelBranch, "parallel-branch", [Input("in", WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("then")], "1.0"),
         Descriptor(NodeTypes.BooleanBranch, "boolean-branch", [
             Input("condition", WorkflowDataTypes.Boolean),
             ExecutionInput("execute"),
@@ -482,8 +489,17 @@ public static class WorkflowNodeDescriptorRegistry
             Cardinality = WorkflowPortCardinality.ExactlyOne
         };
 
+    private static WorkflowPortDescriptor OptionalInput(string id, string dataType) =>
+        new(id, WorkflowPortDirection.Input, WorkflowPortKind.Data, dataType)
+        {
+            Cardinality = WorkflowPortCardinality.AtMostOne
+        };
+
     private static WorkflowPortDescriptor Output(string dataType) =>
-        new("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, dataType)
+        Output("out", dataType);
+
+    private static WorkflowPortDescriptor Output(string id, string dataType) =>
+        new(id, WorkflowPortDirection.Output, WorkflowPortKind.Data, dataType)
         {
             Cardinality = WorkflowPortCardinality.Many
         };
