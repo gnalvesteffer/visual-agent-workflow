@@ -79,6 +79,7 @@ public static class WorkflowJson
              "workflowCall.configuration" or "workflowInterfaceCall.configuration" or "graphFunction.configuration" or "data.cycle" or
              "approval.target" or "approval.configuration" or "condition.configuration" or
              "json.selection" or "json.projection" or "text.template" or "variables.missing") ||
+            definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph && issue.Code == "connection.port" && IsBoundaryTypeMismatchDraftable(definition, issue) ||
             IsDraftableIssue(issue) || (definition.SchemaVersion is WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph) &&
         definition.Nodes.Values.Any(node => node.Type == NodeTypes.WorkflowCall) &&
         (issue.Code == "execution.node.unsupported" || issue.Code.StartsWith("workflowCall.", StringComparison.Ordinal) ||
@@ -93,6 +94,18 @@ public static class WorkflowJson
         issue.Code.StartsWith("parallel.fork.", StringComparison.Ordinal) ||
         issue.Code.StartsWith("parallel.anchor.", StringComparison.Ordinal) ||
         issue.Code.StartsWith("parallel.collaboration.", StringComparison.Ordinal);
+
+    private static bool IsBoundaryTypeMismatchDraftable(WorkflowDefinition definition, ValidationIssue issue)
+    {
+        const string prefix = "connections.";
+        if (!issue.Path.StartsWith(prefix, StringComparison.Ordinal)) return false;
+        var connectionId = issue.Path[prefix.Length..];
+        if (!definition.Connections.TryGetValue(connectionId, out var edge)) return false;
+        return definition.Nodes.TryGetValue(edge.Source.NodeId, out var source) &&
+                source?.Type is NodeTypes.Input or NodeTypes.Output ||
+            definition.Nodes.TryGetValue(edge.Target.NodeId, out var target) &&
+                target?.Type is NodeTypes.Input or NodeTypes.Output;
+    }
 
     private static string SerializeNormalized(WorkflowDefinition definition)
     {

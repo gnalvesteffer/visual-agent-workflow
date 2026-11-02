@@ -1,6 +1,6 @@
 # Decision 0066: Unified typed array values
 
-**Status:** First immutable typed-array slice implemented in schema 2.0; later placements remain deferred
+**Status:** Immutable typed-array composition and workflow input/output boundaries implemented in schema 2.0; parameters and pure functions remain deferred
 **Date:** 2026-11-02  
 **Scope:** Blueprint parity workstream; current authoring schema 2.0
 
@@ -49,13 +49,13 @@ The initial compositional graph vocabulary is:
   the existing `array<json>` behavior.
 
 These nodes compose in ordinary schema-2.0 explicit graphs with existing pure
-scalar nodes and compatible downstream data inputs. This first proof does not
-make typed arrays workflow entry/output values, parameters, graph-function
+scalar nodes and compatible downstream data inputs. Decision 0067 separately
+extends the same bounded types across workflow input/output boundaries using
+JSON text on the existing string API. Typed parameters and graph-function
 ports, variables, workflow-interface fields, MCP arguments, Sequence paths,
-loop-carried state, parallel shared state, or checkpoint state. Those
-placements need their own contract and verification; the graph editor must not
-advertise them as supported until then. The existing `JsonToArray` path
-continues to produce `array<json>`.
+loop-carried state, parallel shared state, and checkpoint state remain
+unsupported. Each needs its own contract and verification. The existing
+`JsonToArray` path continues to produce `array<json>`.
 
 The implementation reuses the 64-item collection bound and adds one explicit
 encoded-value bound no larger than the current JSON graph payload limit. Type identity is exact: `array<T>` connects only to the same

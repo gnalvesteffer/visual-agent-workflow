@@ -23,6 +23,9 @@ public static class WorkflowDataTypes
     public static bool IsArrayElementType(string? type) =>
         type == Json || ArrayElementTypes.Contains(type ?? string.Empty);
 
+    public static bool IsPrimitiveArrayType(string? type) =>
+        TryGetArrayElementType(type, out var elementType) && elementType != Json;
+
     public static bool TryGetArrayElementType(string? type, out string elementType)
     {
         elementType = string.Empty;

@@ -72,6 +72,8 @@ Documentation changes follow [documentation-maintenance](../.agents/skills/docum
 - [Selected data subgraph function extraction](decisions/0062-selected-data-subgraph-function-extraction.md) — defines the validated Core plan and Studio immutable-save/caller-replacement flow; browser undo/reload verification remains open.
 - [Workflow interface contract foundation](decisions/0063-workflow-interface-contract-foundation.md) — defines versioned operation signatures, typed named fields, and exact implementation snapshots used by the bounded runtime call.
 - [Workflow interface asset storage](decisions/0064-workflow-interface-asset-storage.md) — defines project ownership, immutable revisions, manifest format 1.3, and the authoring/runtime authority boundary; Studio editors and call binding remain future work.
+- [Unified typed array values](decisions/0066-unified-typed-array-values.md) — defines bounded immutable homogeneous primitive arrays in schema 2.0 pure dataflow.
+- [Typed array workflow boundaries](decisions/0067-typed-array-workflow-boundaries.md) — extends those exact array types through workflow Input and Output using JSON text on the existing run API.
 - [Authoring-only graph clipboard](decisions/0038-authoring-only-graph-clipboard.md) — bounds the first pure-data clipboard fragment contract separately from templates and runtime packages.
 - [Static pin descriptor registry hardening](decisions/0024-static-pin-descriptor-registry-hardening.md) — validates the bounded non-serialized static pin descriptor subset and its drift boundary.
 - [Advisory host-admission report](decisions/0025-advisory-host-admission-report.md) — compares validated package dependencies with a host snapshot without granting authority or bypassing runtime checks.

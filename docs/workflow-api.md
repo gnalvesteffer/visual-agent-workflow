@@ -24,6 +24,13 @@ The optional `parameters` map is available for schema-1.6 definitions. It contai
 
 Existing `/api/runs`, `/api/runs/{id}`, `/api/runs/{id}/events?after=N`, and cancellation endpoints continue to provide local run execution and observation. `POST /api/runs` accepts an ad-hoc definition and creates an ephemeral revision identity, whereas the published routes pin a catalog revision.
 
+For a schema-2.0 definition whose Input node declares `array<T>`, the existing
+`input` string contains one JSON array (for example `{"input":"[\"a\",\"b\"]"}`).
+If its Output node declares the same typed array, the existing string result is
+compact JSON text. The API shape is unchanged; the workflow definition carries
+the exact element type and validates the array bounds. See [typed array
+workflow boundaries](decisions/0067-typed-array-workflow-boundaries.md).
+
 `GET /api/tool-bindings` discovers descriptors for host-registered, approved read-only MCP bindings. It returns logical IDs, display names, server/tool identities, and contract fingerprints; it does not reveal connection factories or credentials. Selecting/importing a descriptor never grants access. The development host registers only `demo.uppercase` and `demo.reverse`. Schema 1.1 MCP nodes pin a `tool` object with `bindingId` and `contractHash` and keep string `in`/`out` ports. Runtime policy denial or contract drift fails the run and is recorded in its events.
 
 `GET /api/agent-providers` lists host model connection IDs, display names, model identities, and whether each is deterministic. Agent nodes use an `agent` object with `providerId`, `instructions`, and `tools` (an explicit array of binding/hash requirements). `providerId` is a stable host-owned connection ID; model and endpoint changes are made by the host and do not require editing workflow definitions. The development connection is `demo.scripted`. An empty tool array grants nothing and causes no MCP discovery by that agent. Agent runs use the same ad-hoc or published execution routes. Model request/response evidence and tool events are available through recorded run snapshots/cursors, not a separate execution API.

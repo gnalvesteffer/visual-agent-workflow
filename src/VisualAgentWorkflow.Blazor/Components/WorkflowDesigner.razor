@@ -421,7 +421,8 @@
             {
             <section class="vaw-bottom-panel" aria-label="Run controls" hidden="@(bottomTab != "run")">
                 <div class="vaw-version-run">
-                    <label>@(IdeMode ? "Workflow input" : "Published run input") <textarea @bind="runInput" maxlength="16384" rows="2"></textarea></label>
+                    <label>@(IdeMode ? "Workflow input" : "Published run input") <textarea @bind="runInput" placeholder="@RunInputPlaceholder" maxlength="16384" rows="2"></textarea></label>
+                    @if (RunInputGuidance is { } inputGuidance) { <p class="vaw-help">@inputGuidance</p> }
                     @foreach (var (parameterId, parameter) in SelectedRunParameters)
                     {
                         <label @key="parameterId">@parameter.DisplayName · @parameterId
@@ -515,8 +516,9 @@
         <h2 id="run-dialog-title">Run @WorkflowDisplayName(definition)</h2>
         <p id="run-dialog-description">Enter test input for this saved workflow. The input and parameter values are recorded with the run.</p>
         <label>Workflow input
-            <textarea @bind="runInput" maxlength="16384" rows="5" autofocus disabled="@busy"></textarea>
+            <textarea @bind="runInput" placeholder="@RunInputPlaceholder" maxlength="16384" rows="5" autofocus disabled="@busy"></textarea>
         </label>
+        @if (RunInputGuidance is { } inputGuidance) { <p class="vaw-help">@inputGuidance</p> }
         @foreach (var (parameterId, parameter) in SelectedRunParameters)
         {
             <label @key="parameterId">@parameter.DisplayName · @parameterId

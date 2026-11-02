@@ -282,11 +282,18 @@ length, and Array get nodes. Element types are part of the pin identity and
 connections require exact matches. Literals are non-null homogeneous primitive
 arrays, limited to 64 elements and 16 KiB of encoded JSON. Pure data evaluation
 remains lazy; evidence records the literal, count, or selected scalar value,
-and out-of-range selection fails against Array get. The typed collection may
-flow through pure graph dataflow to scalar inputs and workflow output, but the
-collection itself is not an entry/output, parameter, function/interface port,
-variable, MCP argument, execution-region, or checkpoint value. Historical
-`array<json>` nodes retain their existing semantics. See [Decision 0066](decisions/0066-unified-typed-array-values.md).
+and out-of-range selection fails against Array get. Schema 2.0 Input and Output
+nodes may declare these same primitive array types. The existing runner string
+input carries one JSON array; Output returns compact JSON text. Input parsing
+reuses the array item and encoded-size bounds, records typed evaluated input,
+and attributes malformed or mismatched values to the Input node. Output
+evaluation records the typed array and serializes it through the unchanged
+string return API. Package round-trip preserves the declared type and the
+definition hash includes it. Arrays remain unavailable as parameters,
+function/interface ports, variables, MCP arguments, execution-region, or
+checkpoint values. Historical `array<json>` nodes retain their existing
+semantics. See [Decision 0066](decisions/0066-unified-typed-array-values.md)
+and [Decision 0067](decisions/0067-typed-array-workflow-boundaries.md).
 
 The production Sequence builder also has a proof-only descendant-termination
 boundary: a `Terminate` signal preserves the Sequence output lineage into the

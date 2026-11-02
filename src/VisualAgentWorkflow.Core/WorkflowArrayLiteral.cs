@@ -12,20 +12,31 @@ public static class WorkflowArrayLiteral
         out JsonElement values,
         out string error)
     {
-        values = default;
-        error = "Array literal configuration is missing.";
-        if (configuration is null || configuration.ValuesJson is null ||
-            !WorkflowDataTypes.IsArrayElementType(configuration.ElementType) ||
-            configuration.ElementType == WorkflowDataTypes.Json)
+        if (configuration is null)
         {
-            error = "Array literals require a supported primitive element type.";
+            values = default;
+            error = "Array literal configuration is missing.";
             return false;
         }
 
-        var valuesJson = configuration.ValuesJson;
+        return TryParseValue(configuration.ElementType, configuration.ValuesJson, out values, out error);
+    }
+
+    public static bool TryParseValue(string elementType, string? valuesJson,
+        out JsonElement values, out string error)
+    {
+        values = default;
+        error = "A typed array requires a supported primitive element type.";
+        if (valuesJson is null || !WorkflowDataTypes.IsArrayElementType(elementType) ||
+            elementType == WorkflowDataTypes.Json)
+        {
+            if (valuesJson is null) error = "A typed array JSON value is required.";
+            return false;
+        }
+
         if (Encoding.UTF8.GetByteCount(valuesJson) > MaximumPayloadBytes)
         {
-            error = $"Array literal exceeds {MaximumPayloadBytes} UTF-8 bytes.";
+            error = $"Typed array exceeds {MaximumPayloadBytes} UTF-8 bytes.";
             return false;
         }
 
@@ -36,7 +47,7 @@ public static class WorkflowArrayLiteral
         }
         catch (JsonException)
         {
-            error = "Array literal must be valid JSON containing only scalar values.";
+            error = "Typed array value must be valid JSON containing only scalar values.";
             return false;
         }
 
@@ -45,21 +56,21 @@ public static class WorkflowArrayLiteral
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Array)
             {
-                error = "Array literal must have a JSON array root.";
+                error = "Typed array value must have a JSON array root.";
                 return false;
             }
 
             if (root.GetArrayLength() > WorkflowJsonArrayLimits.MaximumItems)
             {
-                error = $"Array literal exceeds {WorkflowJsonArrayLimits.MaximumItems} items.";
+                error = $"Typed array exceeds {WorkflowJsonArrayLimits.MaximumItems} items.";
                 return false;
             }
 
             foreach (var item in root.EnumerateArray())
             {
-                if (!Matches(configuration.ElementType, item))
+                if (!Matches(elementType, item))
                 {
-                    error = $"Every array item must be a non-null {configuration.ElementType} value.";
+                    error = $"Every typed array item must be a non-null {elementType} value.";
                     return false;
                 }
             }

@@ -99,13 +99,14 @@ creation, wiring, save, and deterministic execution with no promotion controls.
 
 ### Next parity workstream: first-class collections
 
-**Status: Active; the first immutable typed-array slice is shipped.**
+**Status: Active; typed arrays are composable and cross workflow input/output boundaries.**
 The capability audit and three-role adversarial review identify containers as a
 foundational Blueprint language gap. Existing `array<json>` support is useful
 but remains limited to exact graph shapes. [Decision 0066](decisions/0066-unified-typed-array-values.md)
 sets the staged contract: current schema 2.0, homogeneous bounded primitive
-arrays in ordinary pure-data composition, then separately proven placements.
-Maps/sets, typed collection parameters/functions/interfaces/MCP arguments,
+arrays in ordinary pure-data composition and typed workflow input/output
+boundaries, then separately proven placements. Maps/sets, typed collection
+parameters/functions/interfaces/MCP arguments,
 mutable collection variables, iteration, and checkpoint state remain future
 work. No feature-specific schema gates, promotion controls, or preview modes
 will be introduced.
@@ -115,8 +116,12 @@ will be introduced.
   exact type identity, item and payload bounds, scalar output, node-attributed
   index failures, recorded evaluation evidence, invalid-draft persistence, and
   unchanged historical JSON-array behavior. See [Decision 0066](decisions/0066-unified-typed-array-values.md).
-- [ ] Extend typed arrays through workflow inputs/outputs, parameters, and pure
-  graph functions with package/hash/replay proofs for each placement.
+- [x] Extend typed arrays through workflow input/output boundaries as JSON text
+  on the existing string run API, with exact type validation, shared bounds,
+  package/hash/runtime/evidence proofs, and Studio guidance. See
+  [Decision 0067](decisions/0067-typed-array-workflow-boundaries.md).
+- [ ] Extend typed arrays through parameters and pure graph functions with
+  independent package/hash/replay proofs for each placement.
 - [ ] Define bounded sequential array iteration with explicit ordering,
   cancellation, per-element failure/evidence, and work limits.
 - [ ] Revisit records, maps, and sets after stable field identity and portable

@@ -22,13 +22,19 @@ fails at Array get. The literal and operations can compose with other pure
 nodes through exact typed data pins, and their evaluations are recorded for
 passive playback.
 
-These typed arrays are pure dataflow values, not workflow entry/output values.
-The current slice does not allow them in parameters, graph functions, workflow
-interfaces, variables, MCP arguments, Sequence or parallel regions, loop state,
-or checkpoints. Existing `JsonToArray` still produces heterogeneous
-`array<json>` values, including JSON null, with its existing bounds and behavior.
-That JSON array type is distinct from every `array<T>` primitive type.
-See [Decision 0066](decisions/0066-unified-typed-array-values.md).
+Schema 2.0 Input and Output nodes may declare these exact primitive array
+types. A caller supplies one JSON array through the existing string input field
+and receives the workflow result as JSON text. The workflow validates the
+declared element type and the same 64-item/16 KiB bounds as array literals;
+empty arrays are valid. The typed input/output evaluations are recorded for
+passive playback, and package round trips preserve the types. Arrays are not
+yet allowed in parameters, graph functions, workflow interfaces, variables,
+MCP arguments, Sequence or parallel regions, loop state, or checkpoints.
+Existing `JsonToArray` still produces heterogeneous `array<json>` values,
+including JSON null, with its existing bounds and behavior. That JSON array
+type is distinct from every `array<T>` primitive type. See [Decision
+0066](decisions/0066-unified-typed-array-values.md) and [Decision
+0067](decisions/0067-typed-array-workflow-boundaries.md).
 
 Schema 1.44 adds linear run-scoped scalar variables with explicit typed Get/Set
 nodes and passive evidence playback. Extend this slice to loop, concurrency,

@@ -107,7 +107,11 @@
                         {
                             <label>Input value type <select aria-label="Workflow input value type" value="@(node.InputDataType ?? "string")" @onchange="args => SetTerminalType(id, args)" disabled="@Disabled">
                                 <option value="string">Text</option><option value="json">JSON</option>
+                                @foreach (var elementType in ArrayElementTypes.Where(type => type != WorkflowDataTypes.Json))
+                                { <option value="@WorkflowDataTypes.ArrayOf(elementType)">@elementType array</option> }
                             </select></label>
+                            @if (WorkflowDataTypes.IsPrimitiveArrayType(node.InputDataType))
+                            { <p class="vaw-help">Run input is JSON text for a homogeneous, non-null @ArrayElementTypeLabel(node.InputDataType) array. Limit: 64 items and 16 KiB.</p> }
                         }
                     }
                     else if (node.Type == NodeTypes.Input && !ReadOnly)
@@ -122,7 +126,11 @@
                     {
                         <label>Output value type <select aria-label="Workflow output value type" value="@(node.OutputDataType ?? "string")" @onchange="args => SetTerminalType(id, args)" disabled="@Disabled">
                             <option value="string">Text</option><option value="json">JSON</option>
+                            @foreach (var elementType in ArrayElementTypes.Where(type => type != WorkflowDataTypes.Json))
+                            { <option value="@WorkflowDataTypes.ArrayOf(elementType)">@elementType array</option> }
                         </select></label>
+                        @if (WorkflowDataTypes.IsPrimitiveArrayType(node.OutputDataType))
+                        { <p class="vaw-help">Returns a JSON array value with exact @ArrayElementTypeLabel(node.OutputDataType) element typing; limited to 64 items and 16 KiB.</p> }
                     }
                     else if (node.Type == NodeTypes.JsonSelectString)
                     {
@@ -1284,7 +1292,8 @@
     private Task SetTerminalType(string id, ChangeEventArgs args) => Edit(() =>
     {
         var type = args.Value?.ToString();
-        if (type is not ("string" or "json")) throw new ArgumentException("Choose Text or JSON.");
+        if (type is not ("string" or "json") && !WorkflowDataTypes.IsPrimitiveArrayType(type))
+            throw new ArgumentException("Choose Text, JSON, or a supported primitive array type.");
         var node = Definition.Nodes[id];
         return GraphEditing.ReplaceNode(Definition, id, node.Type == NodeTypes.Input
             ? node with { InputDataType = type == "string" ? null : type }
@@ -1553,6 +1562,9 @@
 
     private static readonly string[] ArrayElementTypes =
         [WorkflowDataTypes.String, WorkflowDataTypes.Boolean, WorkflowDataTypes.Integer, WorkflowDataTypes.Number, WorkflowDataTypes.Json];
+
+    private static string ArrayElementTypeLabel(string? arrayType) =>
+        WorkflowDataTypes.TryGetArrayElementType(arrayType, out var elementType) ? elementType : "primitive";
 
     private Task ChangeArrayLiteralType(string id, ChangeEventArgs args) => Edit(() =>
     {

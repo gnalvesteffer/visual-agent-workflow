@@ -284,6 +284,38 @@ public partial class WorkflowDesigner
     private static string WorkflowDisplayName(WorkflowDefinition workflow) =>
         string.IsNullOrWhiteSpace(workflow.DisplayName) ? workflow.WorkflowId : workflow.DisplayName;
 
+    private string? RunInputDataType
+    {
+        get
+        {
+            var runDefinition = IdeMode
+                ? definition
+                : selectedRevisionId is { } revisionId
+                    ? versions.FirstOrDefault(version => version.Revision.RevisionId == revisionId)?.Revision.Definition
+                    : null;
+            return runDefinition is not null && runDefinition.Nodes.TryGetValue(runDefinition.EntryNodeId, out var entry)
+                ? entry.InputDataType
+                : null;
+        }
+    }
+
+    private string? RunInputGuidance => WorkflowDataTypes.TryGetArrayElementType(RunInputDataType, out var elementType) &&
+        elementType != WorkflowDataTypes.Json
+            ? $"Enter JSON text for a homogeneous, non-null array of {elementType} values (up to 64 items and 16 KiB)."
+            : null;
+
+    private string RunInputPlaceholder => WorkflowDataTypes.TryGetArrayElementType(RunInputDataType, out var elementType) &&
+        elementType != WorkflowDataTypes.Json
+            ? elementType switch
+            {
+                WorkflowDataTypes.String => "[\"first\",\"second\"]",
+                WorkflowDataTypes.Boolean => "[true,false]",
+                WorkflowDataTypes.Integer => "[1,2,3]",
+                WorkflowDataTypes.Number => "[1.5,2.5]",
+                _ => "[]"
+            }
+            : "";
+
     private bool WorkflowMatchesFilter(WorkflowDefinition workflow) =>
         WorkflowDisplayName(workflow).Contains(workflowFilter, StringComparison.OrdinalIgnoreCase) ||
         workflow.WorkflowId.Contains(workflowFilter, StringComparison.OrdinalIgnoreCase);

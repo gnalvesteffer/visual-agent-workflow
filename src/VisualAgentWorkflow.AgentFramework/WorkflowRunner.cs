@@ -711,6 +711,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 {
                     result = node.Type switch
                     {
+                    NodeTypes.Input when outputPort == "out" && definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+                        WorkflowDataTypes.TryGetArrayElementType(node.InputDataType, out var inputElementType) && inputElementType != WorkflowDataTypes.Json =>
+                        new ExplicitGraphValue(WorkflowDataTypes.ArrayOf(inputElementType), ParseTypedArrayInput(nodeId, inputElementType)),
                     NodeTypes.Input when outputPort == "out" && definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph && node.InputDataType == WorkflowDataTypes.Json =>
                         new ExplicitGraphValue(WorkflowDataTypes.Json, ParseJson(input)),
                     NodeTypes.Input when outputPort == "out" => new ExplicitGraphValue("string", input),
@@ -1013,6 +1016,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             return document.RootElement.Clone();
         }
 
+        private JsonElement ParseTypedArrayInput(string nodeId, string elementType)
+        {
+            if (!WorkflowArrayLiteral.TryParseValue(elementType, input, out var value, out var error))
+                throw new GraphDataEvaluationException(nodeId, error, new InvalidOperationException(error));
+            return value;
+        }
+
         private bool ResolveBooleanInput(string nodeId, string inputPort,
             ImmutableArray<EvaluatedDataValue>.Builder evaluated,
             Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
@@ -1245,6 +1255,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         "integer" when outputEvaluation.Result.Value is long integerValue => integerValue.ToString(CultureInfo.InvariantCulture),
                         "boolean" when outputEvaluation.Result.Value is bool booleanValue => booleanValue ? "true" : "false",
                         "json" when outputEvaluation.Result.Value is JsonElement jsonValue => jsonValue.GetRawText(),
+                        _ when WorkflowDataTypes.IsPrimitiveArrayType(outputEvaluation.Result.DataType) &&
+                            outputEvaluation.Result.Value is JsonElement { ValueKind: JsonValueKind.Array } arrayValue => arrayValue.GetRawText(),
                         _ => throw new InvalidOperationException("An Output node requires a string, Boolean, integer, finite number, or bounded JSON value.")
                     };
                 }

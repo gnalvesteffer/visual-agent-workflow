@@ -202,6 +202,7 @@ public static class WorkflowPorts
         NodeTypes.Agent when node.Agent?.RequireStructuredResult == true => [new("out", WorkflowDataTypes.Json)],
         NodeTypes.ParallelFork when node.ParallelFork is not null => [],
         NodeTypes.Input when node.InputDataType == WorkflowDataTypes.Json => [new("out", WorkflowDataTypes.Json)],
+        NodeTypes.Input when WorkflowDataTypes.IsPrimitiveArrayType(node.InputDataType) => [new("out", node.InputDataType!)],
         NodeTypes.ParallelFork => [new("branch_1", WorkflowDataTypes.String), new("branch_2", WorkflowDataTypes.String)],
         NodeTypes.ParallelJoin => [new("out", WorkflowDataTypes.Json)],
         _ => [new("out", WorkflowDataTypes.String)]
