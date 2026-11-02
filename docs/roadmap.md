@@ -63,10 +63,13 @@ the historical promotion chain.
   transforms as lazy data nodes. A schema-1.45 explicitly wired bounded
   loop-variable execution proof now confirms that loop topology, output, and
   recorded iteration events survive normalization without changing the source
-  definition. Implicit schema-1.17 loop activation remains intentionally
-  rejected pending its own verified translation. Per-family historical
-  control-flow migration and persisted normalization provenance remain future
-  compatibility work.
+  definition. A legacy schema-1.17 runtime trace now qualifies repeated pure
+  data transforms, predicate-false exit values, and max-iteration exit values;
+  it does not yet prove those data-loop semantics in schema 2.0. Implicit
+  schema-1.17 loop activation remains rejected pending a unified loop-carried
+  value contract and verified translation. Per-family historical control-flow
+  migration and persisted normalization provenance remain future compatibility
+  work.
 - [x] Preserve 2.0 through package, reuse, graph-function, clipboard, and
   nested-workflow editing paths while preserving pinned dependency snapshots.
 - [x] Add Core, runtime, Hosting, Studio, package, and browser regressions for

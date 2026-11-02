@@ -98,6 +98,39 @@ public sealed class BoundedLoopExecutionTests
     }
 
     [Fact]
+    public async Task LegacyDataLoopReevaluatesBodyTransformsOnEveryIteration()
+    {
+        var graph = Graph();
+        var anchorId = graph.Nodes.Single(pair => pair.Value.Type == NodeTypes.LoopBody).Key;
+        graph = GraphEditing.InsertNodeAfter(graph, anchorId, "out", new(NodeTypes.Reverse, "1.0.0"));
+        var firstReverseId = graph.Nodes.Single(pair => pair.Value.Type == NodeTypes.Reverse).Key;
+        graph = GraphEditing.InsertNodeAfter(graph, firstReverseId, "out", new(NodeTypes.Reverse, "1.0.0"));
+        var secondReverseId = graph.Nodes.Single(pair => pair.Value.Type == NodeTypes.Reverse && pair.Key != firstReverseId).Key;
+        var reverseIds = new[] { firstReverseId, secondReverseId };
+        var loopId = graph.Nodes.Single(pair => pair.Value.Type == NodeTypes.Loop).Key;
+        var events = new List<ExecutionEvent>();
+
+        var output = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(graph, "legacy-loop-transform"), "continue",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("continue", output);
+        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted));
+        Assert.Equal(3, events.Count(evt => evt.NodeId == reverseIds[0] && evt.Kind == ExecutionEventKinds.NodeStarted));
+        Assert.Equal(3, events.Count(evt => evt.NodeId == reverseIds[1] && evt.Kind == ExecutionEventKinds.NodeStarted));
+        Assert.Equal(new[] { "eunitnoc", "eunitnoc", "eunitnoc" }, events
+            .Where(evt => evt.NodeId == reverseIds[0] && evt.Kind == ExecutionEventKinds.NodeCompleted)
+            .Select(evt => evt.Data));
+        Assert.Equal(new[] { "continue", "continue", "continue" }, events
+            .Where(evt => evt.NodeId == reverseIds[1] && evt.Kind == ExecutionEventKinds.NodeCompleted)
+            .Select(evt => evt.Data));
+        var stop = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopStopped);
+        Assert.Equal("maximum-iterations", JsonDocument.Parse(stop.Data!).RootElement.GetProperty("reason").GetString());
+        Assert.Equal("continue", events.Last(evt => evt.NodeId == loopId && evt.Kind == ExecutionEventKinds.NodeStarted).Data);
+    }
+
+    [Fact]
     public async Task UnifiedSchemaNormalizationPreservesExplicitLegacyLoopExecutionEvidence()
     {
         var legacy = ExplicitLoopGraph();

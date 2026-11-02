@@ -27,6 +27,14 @@ that already explicit loop topology can be carried into schema 2.0; it does not
 qualify other historical control-flow families or establish persisted
 normalization provenance.
 
+The legacy schema-1.17 runtime has a focused semantics trace for pure data
+transforms in a loop body. Two reverse nodes run again on each iteration; the
+test records their per-pass values and confirms that the maximum-iteration exit
+returns the current loop value. A separate test covers a transform changing
+the predicate to false and confirms the transformed value is returned. These
+observations are evidence for the legacy runtime only: they do not establish
+that schema 2.0 can represent or replay the same loop-carried data path.
+
 Schema 2.0 does not remove host-owned security or correctness boundaries:
 typed pin compatibility, graph boundedness, MCP grants, approvals, provider
 contracts, credentials, token/time limits, and failure/cancellation semantics
