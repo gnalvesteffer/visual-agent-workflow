@@ -83,6 +83,41 @@ public sealed class UnifiedGraphExecutionTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentRouteProposed);
     }
 
+    [Fact]
+    public async Task Normalized_implicit_agent_chain_preserves_agent_input_and_workflow_output()
+    {
+        var source = new WorkflowDefinition("1.21", "legacy-agent-chain", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["upper"] = new(NodeTypes.Uppercase, "1.0.0"),
+                ["agent"] = new(NodeTypes.Agent, "1.0.0", Agent: new("fixture", null, "Add a marker.", [])),
+                ["reverse"] = new(NodeTypes.Reverse, "1.0.0"),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-upper"] = new(new("input", "out"), new("upper", "in"), "data"),
+                ["upper-agent"] = new(new("upper", "out"), new("agent", "in"), "data"),
+                ["agent-reverse"] = new(new("agent", "out"), new("reverse", "in"), "data"),
+                ["reverse-output"] = new(new("reverse", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary());
+        var agent = new MarkingAgent();
+
+        var historical = await new WorkflowRunner(agents: agent).ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(source, "test"), "hello", null, _ => ValueTask.CompletedTask);
+        var normalized = WorkflowSchemaNormalization.NormalizeForEditing(source);
+        var current = await new WorkflowRunner(agents: agent).ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(normalized, "test"), "hello", null, _ => ValueTask.CompletedTask);
+
+        Assert.Equal("HELLO", agent.Inputs[0]);
+        Assert.Equal(agent.Inputs[0], agent.Inputs[1]);
+        Assert.Equal(historical.Output, current.Output);
+        Assert.Equal("!OLLEH", current.Output);
+        Assert.False(historical.Failed);
+        Assert.False(current.Failed);
+    }
+
     [Theory]
     [InlineData(false, 3, "continue!!!", "maximum-iterations")]
     [InlineData(true, 2, "stop", "predicate-false")]
@@ -153,6 +188,19 @@ public sealed class UnifiedGraphExecutionTests
         {
             await invocation.ProposeAgentRoute!("return");
             return input + ":answer";
+        }
+    }
+
+    private sealed class MarkingAgent : IAgentNodeExecutor
+    {
+        public List<string> Inputs { get; } = [];
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>([]);
+        public Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            Inputs.Add(input);
+            return Task.FromResult(input + "!");
         }
     }
 

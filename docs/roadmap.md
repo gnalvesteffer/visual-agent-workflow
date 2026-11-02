@@ -57,11 +57,11 @@ the historical promotion chain.
   and their handlers. Property edits and reuse preserve the current schema.
 - [ ] Add deterministic explicit normalization from legacy 1.x definitions to
   2.0 with source/target hash, revision, schema, normalizer version, and
-  diagnostics provenance. The implemented `NormalizeForEditing` covers
-  explicit graphs and verified implicit linear text graphs, preserves source
-  identities and pinned snapshots, and reports unsupported translations.
-  Full historical implicit-control translation and persisted normalization
-  provenance remain future compatibility work.
+  diagnostics provenance. `NormalizeForEditing` currently covers explicit
+  graphs and verified implicit linear text graphs, including unrouted Agents;
+  it preserves source identities and pinned snapshots and leaves pure text
+  transforms as lazy data nodes. Per-family historical control-flow migration
+  and persisted normalization provenance remain future compatibility work.
 - [x] Preserve 2.0 through package, reuse, graph-function, clipboard, and
   nested-workflow editing paths while preserving pinned dependency snapshots.
 - [x] Add Core, runtime, Hosting, Studio, package, and browser regressions for

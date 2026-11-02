@@ -13,8 +13,11 @@ Historical 1.x definitions retain their serialized bytes, hashes, revisions,
 and runtime semantics. Loading a legacy definition does not rewrite stored
 source or published revisions. `WorkflowSchemaNormalization.NormalizeForEditing`
 creates a separate current draft, preserving graph identities and embedded
-snapshots. It accepts explicit graphs and verified implicit linear text graphs;
-unsupported translations return diagnostics. Saving remains an authored edit.
+snapshots. It accepts explicit graphs and verified implicit linear text graphs,
+including unrouted Agent nodes. For these implicit graphs, original data edges
+are retained and explicit execution edges connect Input, Agents, and Output;
+pure text transforms remain lazy data nodes. Unsupported control-flow
+translations return diagnostics. Saving remains an authored edit.
 
 Schema 2.0 does not remove host-owned security or correctness boundaries:
 typed pin compatibility, graph boundedness, MCP grants, approvals, provider

@@ -114,6 +114,40 @@ public class WorkflowSchemaNormalizationTests
     }
 
     [Fact]
+    public void ImplicitLinearAgentGraphAddsExecutionEdgesAroundLazyTextNodes()
+    {
+        var source = new WorkflowDefinition("1.21", "legacy-agent", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["upper"] = new(NodeTypes.Uppercase, "1.0.0"),
+                ["agent"] = new(NodeTypes.Agent, "1.0.0", Agent: new("fixture", null, "Add a marker.", [])),
+                ["reverse"] = new(NodeTypes.Reverse, "1.0.0"),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-upper"] = new(new("input", "out"), new("upper", "in"), "data"),
+                ["upper-agent"] = new(new("upper", "out"), new("agent", "in"), "data"),
+                ["agent-reverse"] = new(new("agent", "out"), new("reverse", "in"), "data"),
+                ["reverse-output"] = new(new("reverse", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary());
+
+        var original = WorkflowJson.Serialize(source);
+        var normalized = WorkflowSchemaNormalization.NormalizeForEditing(source);
+
+        Assert.Equal("2.0", normalized.SchemaVersion);
+        Assert.Equal(source.Connections, normalized.Connections);
+        Assert.Equal(original, WorkflowJson.Serialize(source));
+        Assert.Equal(new[]
+        {
+            new ConnectionDefinition(new("input", "then"), new("agent", "execute"), "execution"),
+            new ConnectionDefinition(new("agent", "out"), new("output", "execute"), "execution")
+        }, normalized.ExecutionConnections!.Values);
+        Assert.Empty(WorkflowValidator.Validate(normalized));
+    }
+
+    [Fact]
     public void ExplicitConversionPreservesAllWiresAndHistoricalHelperBehavior()
     {
         var source = GraphEditing.EnableExplicitGraph(Blank());

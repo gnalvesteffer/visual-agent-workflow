@@ -104,9 +104,12 @@ or preview buttons. Add **String constant** and **Concatenate text**, edit
 the constant in its properties, and connect both string sources to the
 concatenation inputs. Connect its output to Output's data input. The separate
 Input-to-Output execution wire activates the result; data wires supply values.
-Legacy sources and published revisions keep their original identity. Eligible
-legacy drafts normalize when an author edits them; saving persists the new
-draft. Unsupported legacy translations report a diagnostic.
+Legacy sources and published revisions keep their original identity. Explicit
+legacy graphs and verified implicit linear text graphs, including graphs with
+unrouted Agent nodes, normalize to a separate editable draft; pure text
+transforms remain lazy data nodes while Input, Agent, and Output receive an
+explicit execution path. Saving persists the new draft. Unsupported legacy
+control-flow translations report a diagnostic.
 
 #### Add a direct MCP tool node
 
