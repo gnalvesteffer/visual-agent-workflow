@@ -204,6 +204,27 @@ public static class WorkflowInterfaceJson
         return NormalizeDefinition(definition);
     }
 
+    public static string Serialize(WorkflowInterfaceRevision revision)
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+        revision.Validate();
+        return JsonSerializer.Serialize(revision with { Definition = NormalizeDefinition(revision.Definition) }, Options)
+            .Replace("\r\n", "\n", StringComparison.Ordinal);
+    }
+
+    public static WorkflowInterfaceRevision DeserializeRevision(string json)
+    {
+        ArgumentNullException.ThrowIfNull(json);
+        if (System.Text.Encoding.UTF8.GetByteCount(json) > 262_144)
+            throw new ArgumentException("Workflow interface exceeds the 256 KiB import limit.", nameof(json));
+        using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 32 });
+        JsonDocumentSafety.RejectDuplicateProperties(document.RootElement);
+        var revision = JsonSerializer.Deserialize<WorkflowInterfaceRevision>(json, Options)
+            ?? throw new JsonException("A workflow interface revision is required.");
+        revision.Validate();
+        return revision with { Definition = NormalizeDefinition(revision.Definition) };
+    }
+
     public static string ComputeHash(WorkflowInterfaceDefinition definition) =>
         WorkflowJson.ComputeTextHash(Serialize(definition));
 

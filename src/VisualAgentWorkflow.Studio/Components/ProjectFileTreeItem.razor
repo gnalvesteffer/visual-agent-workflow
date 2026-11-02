@@ -127,6 +127,8 @@ else if (Node.File is { } readOnlyFile)
         "skill" => "skill",
         "agent-profile" => "agent",
         "graph-function" => "function",
+        "workflow-interface" => "function",
+        "workflow-interface-implementation" => "workflow",
         "documentation" => "documentation",
         "mcp" => "mcp",
         _ => "file"
@@ -141,6 +143,8 @@ else if (Node.File is { } readOnlyFile)
         "skill" => "Skill files are editable as new immutable revisions.",
         "agent-profile" => "Agent profile revisions are editable as new immutable source versions.",
         "graph-function" => "Graph function revisions are editable as new immutable source versions.",
+        "workflow-interface" => "Workflow interface revisions are immutable; Studio editing will be available in a later increment.",
+        "workflow-interface-implementation" => "Workflow interface implementation revisions are immutable; Studio editing will be available in a later increment.",
         _ => "This project asset is visible but not editable in folder mode yet."
     };
 
@@ -149,6 +153,8 @@ else if (Node.File is { } readOnlyFile)
         "skill" => "Skill",
         "agent-profile" => "Agent preset",
         "graph-function" => "Graph function",
+        "workflow-interface" => "Workflow interface",
+        "workflow-interface-implementation" => "Workflow interface implementation",
         _ => "Project asset"
     };
 }

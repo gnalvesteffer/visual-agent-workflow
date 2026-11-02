@@ -55,6 +55,17 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
             Nodes = WorkflowLayout.Create(functionDraft).Nodes.SetItem("output", new(new GraphPoint(1_100, 540), "Return", "Archive layout"))
         };
         workspace.Functions.Add(function, "Text/Formatting", functionLayout);
+        var interfaceDefinition = new WorkflowInterfaceDefinition("sample.interface", "Sample interface", "Source archive fixture.",
+            ImmutableSortedDictionary<string, WorkflowInterfaceOperation>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("lookup", new("Lookup", WorkflowDataTypes.String, WorkflowDataTypes.String)));
+        var interfaceRevision = WorkflowInterfaceRevision.Create(interfaceDefinition);
+        var implementationRevision = WorkflowInterfaceImplementationRevision.Create(
+            new WorkflowInterfaceImplementation("sample.implementation", interfaceRevision,
+                ImmutableSortedDictionary<string, WorkflowInterfaceWorkflowPin>.Empty.WithComparers(StringComparer.Ordinal)
+                    .Add("lookup", WorkflowInterfaceWorkflowPin.From(new PublishedWorkflowRevision(1,
+                        WorkflowRevision.Create(definition, "source-archive-test"))))));
+        workspace.Interfaces.Add(interfaceRevision);
+        workspace.Interfaces.Add(implementationRevision);
 
         var first = await StudioProjectSourceArchive.CreateAsync(workspace);
         var second = await StudioProjectSourceArchive.CreateAsync(workspace);
@@ -66,6 +77,8 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
         Assert.Contains(manifest.Files, file => file.Kind == "skill" && file.Id == "source-check");
         Assert.Contains(manifest.Files, file => file.Kind == "agent-profile" && file.Id == "review-agent");
         Assert.Contains(manifest.Files, file => file.Kind == "graph-function" && file.Id == "text.append-suffix");
+        Assert.Contains(manifest.Files, file => file.Kind == "workflow-interface" && file.Id == "sample.interface");
+        Assert.Contains(manifest.Files, file => file.Kind == "workflow-interface-implementation" && file.Id == "sample.implementation");
         var workflowFile = Assert.Single(manifest.Files.Where(file => file.Kind == "workflow"));
         var workflow = StudioProjectSourceArchive.DeserializeWorkflowSource(files[workflowFile.Path]);
         Assert.Equal(definition.WorkflowId, workflow.Definition.WorkflowId);
@@ -75,6 +88,56 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
         Assert.Equal(WorkflowLayoutJson.Serialize(functionLayout, functionDraft),
             WorkflowLayoutJson.Serialize(functionAsset.Layout, functionDraft));
         Assert.DoesNotContain("runs/", string.Join('\n', files.Keys));
+    }
+
+    [Fact]
+    public void WorkflowInterfaceRevisionJson_RoundTripsAndRejectsManifestIdentityMismatch()
+    {
+        var revision = WorkflowInterfaceRevision.Create(new WorkflowInterfaceDefinition("source.interface", "Source", "Test source.",
+            ImmutableSortedDictionary<string, WorkflowInterfaceOperation>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("lookup", new("Lookup", WorkflowDataTypes.String, WorkflowDataTypes.String))));
+        var restored = WorkflowInterfaceJson.DeserializeRevision(WorkflowInterfaceJson.Serialize(revision));
+        var bytes = Encoding.UTF8.GetBytes(WorkflowInterfaceJson.Serialize(restored));
+        var path = StudioProjectSourceArchive.VersionedAssetPath("interfaces", revision.Definition.InterfaceId,
+            revision.Version.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            StudioProjectSourceArchive.ComputeContentHash(bytes));
+        var manifest = new StudioProjectManifest(StudioProjectSourceArchive.FormatVersion, "test-project", "Test project",
+            [new StudioProjectFile("workflow-interface", "wrong.id", "1", path, StudioProjectSourceArchive.ComputeContentHash(bytes))],
+            StudioProjectSourceArchive.DirectoriesForPaths([path]));
+
+        Assert.Equal(WorkflowInterfaceJson.Serialize(revision), WorkflowInterfaceJson.Serialize(restored));
+        Assert.Throws<InvalidDataException>(() => StudioProjectSourceArchive.CreateArchive(manifest, new Dictionary<string, byte[]> { [path] = bytes }));
+    }
+
+    [Fact]
+    public void FolderWorkflowInterfaceSource_SavesImmutableContractAndBoundImplementation()
+    {
+        var folder = Path.Combine(directory, "interface-source");
+        var initial = new StudioProjectManifest("1.0", "interface-project", "Interface project", []);
+        StudioProjectSourceDirectory.Write(folder, initial, new Dictionary<string, byte[]>());
+        var source = new StudioFolderWorkflowInterfaceSource(folder);
+        var contract = WorkflowInterfaceRevision.Create(new WorkflowInterfaceDefinition("project.lookup", "Lookup", "Project contract.",
+            ImmutableSortedDictionary<string, WorkflowInterfaceOperation>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("lookup", new("Lookup", WorkflowDataTypes.String, WorkflowDataTypes.String))));
+        var savedContract = source.SaveInterfaceRevision(contract,
+            StudioProjectSourceArchive.ComputeManifestHash(StudioProjectSourceDirectory.Read(folder).Manifest));
+        var child = WorkflowTemplates.Create("uppercase-reverse") with { WorkflowId = "lookup-child" };
+        var implementation = WorkflowInterfaceImplementationRevision.Create(new WorkflowInterfaceImplementation(
+            "project.lookup.impl", contract,
+            ImmutableSortedDictionary<string, WorkflowInterfaceWorkflowPin>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("lookup", WorkflowInterfaceWorkflowPin.From(new PublishedWorkflowRevision(1,
+                    WorkflowRevision.Create(child, "folder-interface-test"))))));
+        var savedImplementation = source.SaveImplementationRevision(implementation,
+            StudioProjectSourceArchive.ComputeManifestHash(StudioProjectSourceDirectory.Read(folder).Manifest));
+        var snapshot = StudioProjectSourceDirectory.Read(folder);
+
+        Assert.EndsWith(".interface", savedContract.RelativePath);
+        Assert.EndsWith(".implementation", savedImplementation.RelativePath);
+        Assert.Equal(StudioProjectSourceArchive.FormatVersion, snapshot.Manifest.FormatVersion);
+        Assert.Single(source.ListInterfaces());
+        Assert.Single(source.ListImplementations());
+        Assert.Throws<ArgumentException>(() => source.SaveInterfaceRevision(contract,
+            StudioProjectSourceArchive.ComputeManifestHash(snapshot.Manifest)));
     }
 
     [Fact]
@@ -184,6 +247,8 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
         Assert.EndsWith(".skill", StudioProjectSourceArchive.SkillAssetPath("search", "1.0.0", hash));
         Assert.EndsWith(".agent", StudioProjectSourceArchive.VersionedAssetPath("agents", "triage", "1.0.0", hash));
         Assert.EndsWith(".function", StudioProjectSourceArchive.VersionedAssetPath("functions", "normalize", "1.0.0", hash));
+        Assert.EndsWith(".interface", StudioProjectSourceArchive.VersionedAssetPath("interfaces", "normalize", "1", hash));
+        Assert.EndsWith(".implementation", StudioProjectSourceArchive.VersionedAssetPath("implementations", "normalize", "1", hash));
     }
 
     [Fact]
@@ -209,6 +274,16 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
             Nodes = WorkflowLayout.Create(functionDraft).Nodes.SetItem("output", new(new GraphPoint(1_000, 400), "Return", "Imported layout"))
         };
         sourceWorkspace.Functions.Add(function, "Text/Formatting", functionLayout);
+        var interfaceRevision = WorkflowInterfaceRevision.Create(new WorkflowInterfaceDefinition("archive.interface", "Archive interface", "Test source snapshot.",
+            ImmutableSortedDictionary<string, WorkflowInterfaceOperation>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("lookup", new("Lookup", WorkflowDataTypes.String, WorkflowDataTypes.String))));
+        var implementationRevision = WorkflowInterfaceImplementationRevision.Create(
+            new WorkflowInterfaceImplementation("archive.implementation", interfaceRevision,
+                ImmutableSortedDictionary<string, WorkflowInterfaceWorkflowPin>.Empty.WithComparers(StringComparer.Ordinal)
+                    .Add("lookup", WorkflowInterfaceWorkflowPin.From(new PublishedWorkflowRevision(1,
+                        WorkflowRevision.Create(definition, "source-archive-test"))))));
+        sourceWorkspace.Interfaces.Add(interfaceRevision);
+        sourceWorkspace.Interfaces.Add(implementationRevision);
         var archive = await StudioProjectSourceArchive.CreateAsync(sourceWorkspace);
 
         var targetData = Path.Combine(directory, "target");
@@ -225,6 +300,8 @@ public sealed class StudioProjectSourceArchiveTests : IDisposable
         Assert.Contains(targetWorkspace.Skills.List(), item => item.Skill.Id == "source-check" && item.Folder == "Research");
         Assert.Contains(targetWorkspace.AgentProfiles.List(), item => item.Profile.Id == "review-agent" && item.Folder == "Agents");
         Assert.Contains(targetWorkspace.Functions.List(), item => item.Function.Definition.FunctionId == "text.append-suffix");
+        Assert.Equal(interfaceRevision.ContentHash, targetWorkspace.Interfaces.ListInterfaceRevisions().Single().ContentHash);
+        Assert.Equal(implementationRevision.ContentHash, targetWorkspace.Interfaces.ListImplementationRevisions().Single().ContentHash);
         var importedFunction = Assert.Single(targetWorkspace.Functions.ListAssets());
         Assert.Equal(WorkflowLayoutJson.Serialize(functionLayout, functionDraft),
             WorkflowLayoutJson.Serialize(importedFunction.Layout, functionDraft));

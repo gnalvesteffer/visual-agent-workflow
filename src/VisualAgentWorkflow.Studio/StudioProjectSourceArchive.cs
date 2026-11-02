@@ -16,9 +16,10 @@ public sealed record StudioWorkflowSource(string FormatVersion, WorkflowDefiniti
 public static class StudioProjectSourceArchive
 {
     public const string ManifestFileName = "vaw.project.json";
-    public const string FormatVersion = "1.2";
+    public const string FormatVersion = "1.3";
     public const string FolderFormatVersion = "1.1";
     public const string LegacyFormatVersion = "1.0";
+    public const string DocumentationFormatVersion = "1.2";
     public const string WorkflowSourceFormatVersion = "1.0";
     public const int MaximumFiles = 2_000;
     public const int MaximumFileBytes = 3 * 1024 * 1024;
@@ -65,6 +66,18 @@ public static class StudioProjectSourceArchive
             Add(sourceFiles, assetEntries, "graph-function", item.Function.Definition.FunctionId, version,
                 AssetPath("functions", item.Function.Definition.FunctionId, version), SerializeGraphFunctionAsset(item, asset.Layout));
         }
+        foreach (var revision in workspace.Interfaces.ListInterfaceRevisions())
+            Add(sourceFiles, assetEntries, "workflow-interface", revision.Definition.InterfaceId,
+                revision.Version.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                VersionedAssetPath("interfaces", revision.Definition.InterfaceId,
+                    revision.Version.ToString(System.Globalization.CultureInfo.InvariantCulture), revision.ContentHash),
+                WorkflowInterfaceJson.Serialize(revision));
+        foreach (var revision in workspace.Interfaces.ListImplementationRevisions())
+            Add(sourceFiles, assetEntries, "workflow-interface-implementation", revision.Definition.ImplementationId,
+                revision.Version.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                VersionedAssetPath("implementations", revision.Definition.ImplementationId,
+                    revision.Version.ToString(System.Globalization.CultureInfo.InvariantCulture), revision.ContentHash),
+                WorkflowInterfaceJson.Serialize(revision));
 
         var manifest = new StudioProjectManifest(FormatVersion, workspace.CurrentProjectId, workspace.CurrentProjectName,
             assetEntries.OrderBy(file => file.Path, StringComparer.Ordinal).ToImmutableArray(),
@@ -137,6 +150,8 @@ public static class StudioProjectSourceArchive
         var skills = new List<SkillLibraryItem>();
         var profiles = new List<AgentProfileLibraryItem>();
         var functions = new List<StudioGraphFunctionAsset>();
+        var interfaces = new List<WorkflowInterfaceRevision>();
+        var implementations = new List<WorkflowInterfaceImplementationRevision>();
         foreach (var file in manifest.Files)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -147,9 +162,10 @@ public static class StudioProjectSourceArchive
                 case "skill": skills.Add(JsonSerializer.Deserialize<SkillLibraryItem>(content, JsonOptions)!); break;
                 case "agent-profile": profiles.Add(JsonSerializer.Deserialize<AgentProfileLibraryItem>(content, JsonOptions)!); break;
                 case "graph-function": functions.Add(DeserializeGraphFunctionSourceAsset(content)); break;
+                case "workflow-interface": interfaces.Add(WorkflowInterfaceJson.DeserializeRevision(System.Text.Encoding.UTF8.GetString(content))); break;
+                case "workflow-interface-implementation": implementations.Add(WorkflowInterfaceJson.DeserializeImplementationRevision(System.Text.Encoding.UTF8.GetString(content))); break;
             }
         }
-
         var project = store.Create(manifest.ProjectName);
         var previousProjectId = workspace.CurrentProjectId;
         try
@@ -176,6 +192,16 @@ public static class StudioProjectSourceArchive
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 workspace.Functions.Add(item.Item.Function.Definition, item.Item.Folder, item.Layout);
+            }
+            foreach (var revision in interfaces)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                workspace.Interfaces.Add(revision);
+            }
+            foreach (var revision in implementations)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                workspace.Interfaces.Add(revision);
             }
             return project;
         }
@@ -292,12 +318,19 @@ public static class StudioProjectSourceArchive
 
     public static string VersionedAssetPath(string directory, string id, string version, string contentHash)
     {
-        if (directory is not ("agents" or "functions"))
+        if (directory is not ("agents" or "functions" or "interfaces" or "implementations"))
             throw new ArgumentException("A supported project asset directory is required.", nameof(directory));
         if (contentHash is null || contentHash.Length != 64 || !contentHash.All(Uri.IsHexDigit))
             throw new ArgumentException("A SHA-256 content hash is required.", nameof(contentHash));
         var basePath = AssetPath(directory, id, version);
-        var extension = directory switch { "agents" => ".agent", "functions" => ".function", _ => throw new ArgumentException("A supported project asset directory is required.", nameof(directory)) };
+        var extension = directory switch
+        {
+            "agents" => ".agent",
+            "functions" => ".function",
+            "interfaces" => ".interface",
+            "implementations" => ".implementation",
+            _ => throw new ArgumentException("A supported project asset directory is required.", nameof(directory))
+        };
         return basePath[..basePath.LastIndexOf('.')] + "-" + contentHash.ToLowerInvariant() + extension;
     }
 
@@ -390,7 +423,7 @@ public static class StudioProjectSourceArchive
 
     private static void ValidateManifest(StudioProjectManifest manifest)
     {
-        if (manifest.FormatVersion is not (FormatVersion or FolderFormatVersion or LegacyFormatVersion) || !ValidProjectId(manifest.ProjectId) ||
+        if (manifest.FormatVersion is not (FormatVersion or DocumentationFormatVersion or FolderFormatVersion or LegacyFormatVersion) || !ValidProjectId(manifest.ProjectId) ||
             string.IsNullOrWhiteSpace(manifest.ProjectName) || manifest.ProjectName.Length > 80 ||
             manifest.ProjectName.Any(char.IsControl) || manifest.Files.IsDefault || manifest.Files.Length > MaximumFiles)
             throw new InvalidDataException("Project manifest is invalid or uses an unsupported format version.");
@@ -419,7 +452,7 @@ public static class StudioProjectSourceArchive
         {
             if (file is null || !ValidAssetId(file.Id) || string.IsNullOrWhiteSpace(file.Version) || file.Version.Length > 64 ||
                 file.Version.Any(char.IsControl) || file.Sha256 is null || file.Sha256.Length != 64 || !file.Sha256.All(Uri.IsHexDigit) ||
-                file.Kind is not ("workflow" or "skill" or "agent-profile" or "graph-function" or "documentation"))
+                file.Kind is not ("workflow" or "skill" or "agent-profile" or "graph-function" or "workflow-interface" or "workflow-interface-implementation" or "documentation"))
                 throw new InvalidDataException("Project manifest contains an invalid asset reference.");
             ValidatePath(file.Path);
             var expectedExtension = file.Kind switch
@@ -428,6 +461,8 @@ public static class StudioProjectSourceArchive
                 "skill" => ".skill",
                 "agent-profile" => ".agent",
                 "graph-function" => ".function",
+                "workflow-interface" => ".interface",
+                "workflow-interface-implementation" => ".implementation",
                 _ => ".md"
             };
             var legacyPrefix = file.Kind switch
@@ -436,10 +471,15 @@ public static class StudioProjectSourceArchive
                 "skill" => "skills/",
                 "agent-profile" => "agents/",
                 "graph-function" => "functions/",
+                "workflow-interface" => "interfaces/",
+                "workflow-interface-implementation" => "implementations/",
                 _ => "docs/"
             };
             var actualExtension = Path.GetExtension(file.Path);
-            if (file.Kind == "documentation" && manifest.FormatVersion != FormatVersion)
+            if ((file.Kind is "workflow-interface" or "workflow-interface-implementation") &&
+                manifest.FormatVersion != FormatVersion)
+                throw new InvalidDataException("Workflow interface assets require project manifest format 1.3 or newer.");
+            if (file.Kind == "documentation" && manifest.FormatVersion is not (FormatVersion or DocumentationFormatVersion))
                 throw new InvalidDataException("Markdown documentation requires project manifest format 1.2 or newer.");
             if ((!string.Equals(manifest.FormatVersion, LegacyFormatVersion, StringComparison.Ordinal) &&
                  !string.Equals(actualExtension, expectedExtension, StringComparison.OrdinalIgnoreCase) &&
@@ -484,6 +524,17 @@ public static class StudioProjectSourceArchive
                 { throw new InvalidDataException($"Project documentation '{file.Path}' must be UTF-8 text.", exception); }
             }
         }
+        var interfaceRevisions = manifest.Files.Where(file => file.Kind == "workflow-interface")
+            .Select(file => WorkflowInterfaceJson.DeserializeRevision(System.Text.Encoding.UTF8.GetString(files[file.Path])))
+            .ToDictionary(revision => (revision.Definition.InterfaceId, revision.RevisionId));
+        foreach (var file in manifest.Files.Where(file => file.Kind == "workflow-interface-implementation"))
+        {
+            var implementation = WorkflowInterfaceJson.DeserializeImplementationRevision(System.Text.Encoding.UTF8.GetString(files[file.Path]));
+            var contract = implementation.Definition.Interface;
+            if (!interfaceRevisions.TryGetValue((contract.Definition.InterfaceId, contract.RevisionId), out var indexed) ||
+                indexed.ContentHash != contract.ContentHash)
+                throw new InvalidDataException($"Project workflow interface implementation '{file.Path}' references an interface revision that is not indexed.");
+        }
     }
 
     private static void ValidateLibraryAsset(StudioProjectFile file, byte[] content)
@@ -519,6 +570,22 @@ public static class StudioProjectSourceArchive
                     !ValidFolder(item.Folder) || !GraphFunctionJson.Validate(function.Definition, allowNumber: true, allowNumberAdd: true).IsEmpty ||
                     function.ContentHash != GraphFunctionJson.ComputeHash(function.Definition))
                     throw new InvalidDataException($"Project graph function '{file.Path}' is invalid or does not match its manifest entry.");
+                break;
+            }
+            case "workflow-interface":
+            {
+                var revision = WorkflowInterfaceJson.DeserializeRevision(System.Text.Encoding.UTF8.GetString(content));
+                if (revision.Definition.InterfaceId != file.Id ||
+                    revision.Version.ToString(System.Globalization.CultureInfo.InvariantCulture) != file.Version)
+                    throw new InvalidDataException($"Project workflow interface '{file.Path}' does not match its manifest entry.");
+                break;
+            }
+            case "workflow-interface-implementation":
+            {
+                var revision = WorkflowInterfaceJson.DeserializeImplementationRevision(System.Text.Encoding.UTF8.GetString(content));
+                if (revision.Definition.ImplementationId != file.Id ||
+                    revision.Version.ToString(System.Globalization.CultureInfo.InvariantCulture) != file.Version)
+                    throw new InvalidDataException($"Project workflow interface implementation '{file.Path}' does not match its manifest entry.");
                 break;
             }
         }
@@ -582,7 +649,7 @@ public static class StudioProjectSourceArchive
         ArgumentNullException.ThrowIfNull(directory);
         if (string.IsNullOrWhiteSpace(fileName) || fileName.Any(character => !char.IsAsciiLetterOrDigit(character) && character is not '-' and not '_' and not '.'))
             throw new ArgumentException("Project asset file names may contain letters, numbers, dots, hyphens, and underscores.", nameof(fileName));
-        if (extension is not (".workflow" or ".skill" or ".agent" or ".function" or ".md"))
+        if (extension is not (".workflow" or ".skill" or ".agent" or ".function" or ".interface" or ".implementation" or ".md"))
             throw new ArgumentException("A supported project asset extension is required.", nameof(extension));
         if (contentHash.Length != 64 || !contentHash.All(Uri.IsHexDigit))
             throw new ArgumentException("A SHA-256 content hash is required.", nameof(contentHash));

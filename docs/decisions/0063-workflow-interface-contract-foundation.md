@@ -1,6 +1,6 @@
 # Decision 0063: Workflow interface contract foundation
 
-**Status:** Accepted; bounded Core interface-call runtime support added (2026-11-02). Studio asset authoring and storage remain deferred.
+**Status:** Accepted; bounded Core interface-call runtime support and project-owned revision storage added (2026-11-02). Studio authoring and call binding remain deferred.
 
 ## Decision
 
@@ -45,11 +45,14 @@ and passive playback. Package requirements, run dependency closure, host
 admission, descriptor auditing, and the run inspector include interface and
 child revision identities.
 
-Studio does not yet provide interface assets, an interface/implementation
-catalog, or controls to create and select this node. Definitions that already
-contain a complete pinned configuration can be validated and executed, but
-workflow interfaces are not authorable end to end in Studio. The call does not
-grant child workflows model or MCP access.
+Studio project storage now persists immutable interface and implementation
+revisions. Catalog-backed projects export/import them in source snapshots;
+folder projects index `.interface` and `.implementation` revision files in
+manifest format 1.3. The folder Explorer currently displays these assets as
+read-only. Typed asset editors, implementation binding controls, dependency
+diagnostics, and graph-editor call selection are not yet available, so
+interfaces are still not authorable end to end in Studio. The call does not
+grant child workflows model or MCP access. See [Decision 0064](0064-workflow-interface-asset-storage.md).
 
 ## Rationale
 
@@ -85,8 +88,8 @@ semantics.
 
 ## Deferred gates
 
-Before calling interfaces shipped, add immutable asset storage and source
-ownership plus Studio authoring for interfaces, implementations, operation
-selection, and pin configuration. Add distinct playback events only if the
-existing nested-workflow evidence proves insufficient. Never resolve an
-implementation through a mutable catalog at run time.
+Before calling interfaces shipped, add Studio authoring for interfaces,
+implementations, operation selection, and pin configuration, then complete
+dependency diagnostics and browser verification. Add distinct playback events
+only if the existing nested-workflow evidence proves insufficient. Never
+resolve an implementation through a mutable catalog at run time.
