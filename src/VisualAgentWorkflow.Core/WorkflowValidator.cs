@@ -758,6 +758,15 @@ public static class WorkflowValidator
     private static void ValidateUnifiedGraph(WorkflowDefinition definition, Action<string, string, string> error)
     {
         if (definition.Nodes.Values.Any(node => node is null)) return;
+        if (definition.Nodes.Values.Any(node => node?.Type is NodeTypes.JsonToArray or NodeTypes.ArrayLength) &&
+            !definition.Nodes.Values.Any(node => node?.Type is NodeTypes.Sequence or NodeTypes.WorkflowCall))
+        {
+            ValidateExplicitBranchGraph(definition, error, allowBooleanTopology: true,
+                allowGraphFunctions: true, allowAgentNodes: true, allowFiniteNumbers: true);
+            foreach (var issue in UnifiedJsonArrayInputTopology.Analyze(definition).Issues)
+                error(issue.Code, issue.Path, issue.Message);
+            return;
+        }
         // Current graphs share typed-pin validation. Specialized control regions
         // retain their bounded contracts, selected from the authored topology.
         if (definition.Nodes.Values.Any(node => node?.Type == NodeTypes.Sequence))

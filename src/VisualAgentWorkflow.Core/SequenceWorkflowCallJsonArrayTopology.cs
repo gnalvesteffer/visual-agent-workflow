@@ -26,7 +26,7 @@ public sealed record SequenceWorkflowCallJsonArrayTopologyAnalysis(
 /// </summary>
 public static class SequenceWorkflowCallJsonArrayTopology
 {
-    public const int MaximumArrayItems = 64;
+    public const int MaximumArrayItems = WorkflowJsonArrayLimits.MaximumItems;
 
     public static SequenceWorkflowCallJsonArrayTopologyAnalysis Analyze(WorkflowDefinition definition)
     {

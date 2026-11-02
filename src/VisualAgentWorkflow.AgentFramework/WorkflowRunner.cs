@@ -932,12 +932,27 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             HashSet<(string NodeId, string PortId)> active)
         {
             var input = ResolveJsonInput(nodeId, "in", evaluated, cache, active);
-            using var document = JsonDocument.Parse(input, new JsonDocumentOptions { MaxDepth = 32 });
-            if (document.RootElement.ValueKind != JsonValueKind.Array)
-                throw new InvalidOperationException("JSON-to-array requires an array root value.");
-            if (document.RootElement.GetArrayLength() > SequenceWorkflowCallJsonArrayTopology.MaximumArrayItems)
-                throw new InvalidOperationException($"JSON array exceeds {SequenceWorkflowCallJsonArrayTopology.MaximumArrayItems} items.");
-            return new ExplicitGraphValue(WorkflowDataTypes.JsonArray, document.RootElement.Clone());
+            JsonDocument document;
+            try
+            {
+                document = JsonDocument.Parse(input, new JsonDocumentOptions { MaxDepth = WorkflowJsonArrayLimits.MaximumDepth });
+            }
+            catch (JsonException exception)
+            {
+                throw new GraphDataEvaluationException(nodeId,
+                    $"JSON-to-array requires valid JSON with maximum depth {WorkflowJsonArrayLimits.MaximumDepth}.", exception);
+            }
+            using (document)
+            {
+                if (document.RootElement.ValueKind != JsonValueKind.Array)
+                    throw new GraphDataEvaluationException(nodeId, "JSON-to-array requires an array root value.",
+                        new InvalidOperationException("The JSON root value is not an array."));
+                if (document.RootElement.GetArrayLength() > WorkflowJsonArrayLimits.MaximumItems)
+                    throw new GraphDataEvaluationException(nodeId,
+                        $"JSON array exceeds {WorkflowJsonArrayLimits.MaximumItems} items.",
+                        new InvalidOperationException("The JSON array item limit was exceeded."));
+                return new ExplicitGraphValue(WorkflowDataTypes.JsonArray, document.RootElement.Clone());
+            }
         }
 
         private JsonElement ResolveJsonArrayInput(string nodeId, string inputPort,
