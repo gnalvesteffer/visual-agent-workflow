@@ -121,6 +121,9 @@ public static class WorkflowJson
     public static string ComputeDraftHash(WorkflowDefinition definition) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(SerializeDraft(definition))));
 
+    public static string ComputeTextHash(string value) =>
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+
     /// <summary>Checks content identity independently of current validation rules, including archived run evidence.</summary>
     public static bool MatchesHash(WorkflowDefinition definition, string? hash)
     {

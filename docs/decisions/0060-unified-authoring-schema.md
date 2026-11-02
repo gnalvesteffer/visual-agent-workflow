@@ -27,6 +27,18 @@ that already explicit loop topology can be carried into schema 2.0; it does not
 qualify other historical control-flow families or establish persisted
 normalization provenance.
 
+Normalization now returns a deterministic result with a stable normalizer
+version, source and initial-target schema/hash, optional exact source revision,
+and structured diagnostics. The provenance retains both bounded definition
+snapshots, so the source remains recoverable even when no published source
+revision exists. Successful conversions are saved atomically with
+the current draft and layout; unsupported conversions return diagnostics and
+leave the legacy draft unchanged. SQLite schema 6 stores the immutable
+conversion record and an integrity hash. Later draft edits preserve the record
+as evidence of the initial conversion, while restoring another revision clears
+it. This evidence is separate from executable migration provenance and does
+not rewrite historical source or publication history.
+
 Legacy schema-1.17 through 1.22 data-carried loops with a linear body of pure
 uppercase/reverse transforms now normalize to schema 2.0. Normalization retains
 node and data-connection identities, adds four explicit activation wires, and

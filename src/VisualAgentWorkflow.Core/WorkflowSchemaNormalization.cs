@@ -5,6 +5,36 @@ namespace VisualAgentWorkflow.Core;
 /// <summary>Explicit, source-preserving conversion to the current editor contract.</summary>
 public static class WorkflowSchemaNormalization
 {
+    public const string NormalizerVersion = "unified-graph-2.0.1";
+
+    /// <summary>Performs normalization and returns stable provenance or structured diagnostics.</summary>
+    public static WorkflowNormalizationResult NormalizeForEditingWithProvenance(
+        WorkflowDefinition definition, Guid? sourceRevisionId = null)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        try
+        {
+            var target = NormalizeForEditing(definition);
+            if (ReferenceEquals(target, definition))
+                return new(target, null);
+
+            var sourceHash = WorkflowJson.ComputeDraftHash(definition);
+            var targetHash = WorkflowJson.ComputeHash(target);
+            var identity = WorkflowNormalizationProvenance.ComputeIdentity(sourceHash, definition.SchemaVersion,
+                targetHash, target.SchemaVersion, NormalizerVersion);
+            return new(target, new WorkflowNormalizationProvenance(identity, sourceRevisionId, sourceHash,
+                definition.SchemaVersion, targetHash, target.SchemaVersion, NormalizerVersion, [], definition, target));
+        }
+        catch (ArgumentException exception)
+        {
+            var message = exception.Message;
+            var separator = message.IndexOf(':');
+            var code = separator > 0 && message[..separator].StartsWith("normalization.", StringComparison.Ordinal)
+                ? message[..separator] : "normalization.failed";
+            return new(null, null, [new WorkflowNormalizationDiagnostic(code, "definition", message)]);
+        }
+    }
+
     /// <summary>
     /// Preserves existing graph identities and embedded revision snapshots. Implicit linear
     /// string graphs receive deterministic execution wires; ambiguous control flows are rejected.
@@ -82,4 +112,38 @@ public static class WorkflowSchemaNormalization
             ExecutionConnections = execution
         };
     }
+}
+
+public sealed record WorkflowNormalizationDiagnostic(string Code, string Path, string Message);
+
+/// <summary>Immutable evidence for the exact source-to-initial-target authoring conversion.</summary>
+public sealed record WorkflowNormalizationProvenance(string ConversionId, Guid? SourceRevisionId,
+    string SourceContentHash, string SourceSchema, string TargetContentHash, string TargetSchema,
+    string NormalizerVersion, ImmutableArray<WorkflowNormalizationDiagnostic> Diagnostics,
+    WorkflowDefinition SourceDefinition, WorkflowDefinition InitialTargetDefinition)
+{
+    public static string ComputeIdentity(string sourceHash, string sourceSchema, string targetHash,
+        string targetSchema, string normalizerVersion) => WorkflowJson.ComputeTextHash(
+            $"{sourceHash}\n{sourceSchema}\n{targetHash}\n{targetSchema}\n{normalizerVersion}");
+
+    public void Validate()
+    {
+        if (string.IsNullOrWhiteSpace(ConversionId) || string.IsNullOrWhiteSpace(SourceContentHash) ||
+            string.IsNullOrWhiteSpace(TargetContentHash) || string.IsNullOrWhiteSpace(SourceSchema) ||
+            string.IsNullOrWhiteSpace(TargetSchema) || string.IsNullOrWhiteSpace(NormalizerVersion) ||
+            Diagnostics.IsDefault || SourceDefinition is null || InitialTargetDefinition is null ||
+            SourceDefinition.SchemaVersion != SourceSchema || InitialTargetDefinition.SchemaVersion != TargetSchema ||
+            WorkflowJson.ComputeDraftHash(SourceDefinition) != SourceContentHash ||
+            WorkflowJson.ComputeHash(InitialTargetDefinition) != TargetContentHash ||
+            TargetSchema != WorkflowSchemaVersions.UnifiedWorkflowGraph ||
+            ConversionId != ComputeIdentity(SourceContentHash, SourceSchema, TargetContentHash, TargetSchema, NormalizerVersion))
+            throw new InvalidDataException("Workflow normalization provenance is incomplete or inconsistent.");
+    }
+}
+
+public sealed record WorkflowNormalizationResult(WorkflowDefinition? Definition,
+    WorkflowNormalizationProvenance? Provenance,
+    ImmutableArray<WorkflowNormalizationDiagnostic> Diagnostics = default)
+{
+    public bool Succeeded => Definition is not null;
 }

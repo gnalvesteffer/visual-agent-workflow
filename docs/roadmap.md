@@ -55,9 +55,16 @@ the historical promotion chain.
 - [x] Expose implemented node families and insertion actions in the Studio
   for 2.0 without promotion gates; remove graph-promotion and preview controls
   and their handlers. Property edits and reuse preserve the current schema.
-- [ ] Add deterministic explicit normalization from legacy 1.x definitions to
+- [x] Add deterministic explicit normalization from legacy 1.x definitions to
   2.0 with source/target hash, revision, schema, normalizer version, and
-  diagnostics provenance. `NormalizeForEditing` currently covers explicit
+  diagnostics provenance. `NormalizeForEditingWithProvenance` returns a
+  deterministic result envelope; Studio automatically saves successful
+  conversions with SQLite drafts, and unsupported conversions remain
+  inspectable with structured diagnostics. The original source revision is
+  preserved, provenance remains anchored to the initial normalized target
+  across later edits, and restoring a revision clears draft conversion
+  provenance. The record retains the exact source and initial target snapshots;
+  SQLite schema 6 integrity-checks it. `NormalizeForEditing` covers explicit
   graphs and verified implicit linear text graphs, including unrouted Agents;
   it preserves source identities and pinned snapshots and leaves pure text
   transforms as lazy data nodes. A schema-1.45 explicitly wired bounded

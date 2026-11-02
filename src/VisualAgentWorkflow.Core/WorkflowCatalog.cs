@@ -1,6 +1,10 @@
 namespace VisualAgentWorkflow.Core;
 
-public sealed record WorkflowDraft(WorkflowDefinition Definition, long Generation, Guid? HeadRevisionId, Guid? ActiveRevisionId);
+public sealed record WorkflowDraft(WorkflowDefinition Definition, long Generation, Guid? HeadRevisionId, Guid? ActiveRevisionId)
+{
+    /// <summary>Immutable provenance for the initial normalization that produced this draft, if any.</summary>
+    public WorkflowNormalizationProvenance? NormalizationProvenance { get; init; }
+}
 public sealed record PublishedWorkflowRevision(int Version, WorkflowRevision Revision);
 public sealed record WorkflowAuditEntry(long Sequence, string WorkflowId, string Actor, DateTimeOffset Timestamp,
     string Kind, long Generation, Guid? RevisionId, string ContentHash);
@@ -30,6 +34,13 @@ public interface IWorkflowDraftPromotionCatalog
 {
     Task<PublishedWorkflowRevision> PublishPromotedDraftAsync(WorkflowDraftPromotionResult promotion,
         long expectedGeneration);
+}
+
+/// <summary>Optional atomic draft persistence for legacy schema normalization.</summary>
+public interface IWorkflowNormalizationCatalog
+{
+    Task<WorkflowDesign> SaveNormalizedDesignAsync(WorkflowDefinition definition, WorkflowLayout layout,
+        WorkflowNormalizationProvenance provenance, long expectedGeneration);
 }
 
 public interface IPublishedWorkflowClient : IWorkflowClient

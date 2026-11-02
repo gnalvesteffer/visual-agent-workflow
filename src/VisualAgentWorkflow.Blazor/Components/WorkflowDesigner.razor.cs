@@ -309,14 +309,36 @@ public partial class WorkflowDesigner
         SetDesign(draft.Definition, design?.Layout ?? WorkflowLayout.Create(draft.Definition));
         generation = draft.Generation; activeRevisionId = draft.ActiveRevisionId;
         savedHash = DesignHash;
-        try
+        if (draft.Definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph)
         {
-            var editable = WorkflowSchemaNormalization.NormalizeForEditing(draft.Definition);
-            if (!ReferenceEquals(editable, draft.Definition)) SetDesign(editable, layout!.Reconcile(editable));
-        }
-        catch (ArgumentException exception)
-        {
-            message = $"This legacy draft retains its original schema because it cannot be normalized safely: {exception.Message}";
+            Guid? sourceRevisionId = null;
+            if (draft.HeadRevisionId is { } headRevisionId)
+            {
+                var sourceRevision = await current.Catalog.GetRevisionAsync(headRevisionId).WaitAsync(current.Token);
+                if (sourceRevision is { } publishedSource && IsExactNormalizationSource(draft.Definition, publishedSource.Revision))
+                    sourceRevisionId = headRevisionId;
+            }
+            var result = WorkflowSchemaNormalization.NormalizeForEditingWithProvenance(draft.Definition, sourceRevisionId);
+            if (result.Succeeded && result.Definition is { } editable)
+            {
+                SetDesign(editable, layout!.Reconcile(editable));
+                if (result.Provenance is { } provenance && current.Catalog is IWorkflowNormalizationCatalog normalizationCatalog)
+                {
+                    var normalized = await normalizationCatalog.SaveNormalizedDesignAsync(editable, layout!, provenance,
+                        draft.Generation).WaitAsync(current.Token);
+                    if (!Current(current)) return;
+                    draft = normalized.Draft;
+                    generation = draft.Generation;
+                    SetDesign(draft.Definition, normalized.Layout);
+                    savedHash = DesignHash;
+                    metadata = await ReadMetadata(current, draft.Definition.WorkflowId);
+                }
+            }
+            else
+            {
+                var reason = string.Join("; ", result.Diagnostics.Select(item => $"{item.Code} ({item.Path}): {item.Message}"));
+                message = $"This legacy draft retains its original schema because it cannot be normalized safely: {reason}";
+            }
         }
         ApplyMetadata(metadata);
         if (resetHistory)
@@ -324,6 +346,17 @@ public partial class WorkflowDesigner
             preview = null; undo.Clear(); redo.Clear(); jsonText = "";
             selectedRevisionId = draft.ActiveRevisionId ?? draft.HeadRevisionId;
         }
+    }
+
+    private static bool IsExactNormalizationSource(WorkflowDefinition definition, WorkflowRevision revision)
+    {
+        try
+        {
+            return revision.Definition.WorkflowId == definition.WorkflowId &&
+                revision.Definition.SchemaVersion == definition.SchemaVersion &&
+                revision.ContentHash == WorkflowJson.ComputeDraftHash(definition);
+        }
+        catch (ArgumentException) { return false; }
     }
 
     private sealed record Metadata(IReadOnlyList<WorkflowDraft> Workflows,

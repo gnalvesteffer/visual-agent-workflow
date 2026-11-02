@@ -114,6 +114,41 @@ public class WorkflowSchemaNormalizationTests
     }
 
     [Fact]
+    public void NormalizationResultHasDeterministicSourceAndTargetProvenance()
+    {
+        var legacy = WorkflowEditing.InsertAfter(Blank(), "input", NodeTypes.Uppercase);
+
+        var first = WorkflowSchemaNormalization.NormalizeForEditingWithProvenance(legacy);
+        var second = WorkflowSchemaNormalization.NormalizeForEditingWithProvenance(legacy);
+
+        Assert.True(first.Succeeded);
+        Assert.NotNull(first.Provenance);
+        Assert.Equal(first.Provenance.ConversionId, second.Provenance!.ConversionId);
+        Assert.Equal(WorkflowJson.ComputeDraftHash(legacy), first.Provenance.SourceContentHash);
+        Assert.Equal(WorkflowJson.ComputeHash(first.Definition!), first.Provenance.TargetContentHash);
+        Assert.Equal("1.0", first.Provenance.SourceSchema);
+        Assert.Equal("2.0", first.Provenance.TargetSchema);
+        Assert.Equal(legacy, first.Provenance.SourceDefinition);
+        Assert.Equal(first.Definition, first.Provenance.InitialTargetDefinition);
+        Assert.Empty(first.Provenance.Diagnostics);
+        first.Provenance.Validate();
+    }
+
+    [Fact]
+    public void FailedNormalizationReturnsDiagnosticsWithoutPartialTarget()
+    {
+        var legacy = Blank() with { Nodes = Blank().Nodes.Add("parallel", new(NodeTypes.ParallelFork, "1.0.0")) };
+
+        var result = WorkflowSchemaNormalization.NormalizeForEditingWithProvenance(legacy);
+
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Definition);
+        Assert.Null(result.Provenance);
+        Assert.NotEmpty(result.Diagnostics);
+        Assert.StartsWith("normalization.", result.Diagnostics[0].Code);
+    }
+
+    [Fact]
     public void ImplicitLinearAgentGraphAddsExecutionEdgesAroundLazyTextNodes()
     {
         var source = new WorkflowDefinition("1.21", "legacy-agent", "input",

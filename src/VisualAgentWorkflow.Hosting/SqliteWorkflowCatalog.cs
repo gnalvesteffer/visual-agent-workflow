@@ -7,7 +7,7 @@ namespace VisualAgentWorkflow.Hosting;
 
 /// <summary>Transactional local definition store. The development host supplies a placeholder actor.</summary>
 public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog, IWorkflowMigrationCatalog,
-    IWorkflowDraftPromotionCatalog, IWorkflowCatalogFileOperations
+    IWorkflowDraftPromotionCatalog, IWorkflowNormalizationCatalog, IWorkflowCatalogFileOperations
 {
     private readonly string connectionString;
     private readonly string actor;
@@ -25,11 +25,12 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog, IWorkflowMig
         using var connection = Open();
         using var transaction = connection.BeginTransaction(deferred: false);
         var schemaVersion = Convert.ToInt32(Scalar(connection, transaction, "PRAGMA user_version;"), CultureInfo.InvariantCulture);
-        if (schemaVersion is not (0 or 1 or 2 or 3 or 4 or 5)) throw new InvalidDataException("Unsupported workflow database schema.");
+        if (schemaVersion is not (0 or 1 or 2 or 3 or 4 or 5 or 6)) throw new InvalidDataException("Unsupported workflow database schema.");
         Execute(connection, transaction, """
             CREATE TABLE IF NOT EXISTS workflows (
                 workflow_id TEXT PRIMARY KEY, draft_json TEXT NOT NULL, generation INTEGER NOT NULL,
-                head_revision TEXT NULL, active_revision TEXT NULL);
+                head_revision TEXT NULL, active_revision TEXT NULL,
+                normalization_provenance_json TEXT NULL, normalization_provenance_hash TEXT NULL);
             CREATE TABLE IF NOT EXISTS revisions (
                 revision_id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL REFERENCES workflows(workflow_id),
                 version INTEGER NOT NULL, parent_revision TEXT NULL REFERENCES revisions(revision_id),
@@ -68,6 +69,14 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog, IWorkflowMig
                 Execute(connection, transaction, "ALTER TABLE revisions ADD COLUMN draft_promotion_provenance_hash TEXT NULL;");
             Execute(connection, transaction, "PRAGMA user_version = 5;");
         }
+        if (schemaVersion < 6)
+        {
+            if (!HasColumn(connection, transaction, "workflows", "normalization_provenance_json"))
+                Execute(connection, transaction, "ALTER TABLE workflows ADD COLUMN normalization_provenance_json TEXT NULL;");
+            if (!HasColumn(connection, transaction, "workflows", "normalization_provenance_hash"))
+                Execute(connection, transaction, "ALTER TABLE workflows ADD COLUMN normalization_provenance_hash TEXT NULL;");
+            Execute(connection, transaction, "PRAGMA user_version = 6;");
+        }
         transaction.Commit();
     }
 
@@ -80,7 +89,7 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog, IWorkflowMig
     public Task<IReadOnlyList<WorkflowDraft>> ListDraftsAsync()
     {
         using var connection = Open();
-        using var command = Command(connection, null, "SELECT draft_json,generation,head_revision,active_revision FROM workflows WHERE archived_at IS NULL ORDER BY workflow_id;");
+        using var command = Command(connection, null, "SELECT draft_json,generation,head_revision,active_revision,normalization_provenance_json,normalization_provenance_hash FROM workflows WHERE archived_at IS NULL ORDER BY workflow_id;");
         using var reader = command.ExecuteReader();
         var drafts = new List<WorkflowDraft>();
         while (reader.Read()) drafts.Add(ReadDraft(reader));
@@ -90,7 +99,7 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog, IWorkflowMig
     public Task<IReadOnlyList<WorkflowDraft>> ListArchivedDraftsAsync()
     {
         using var connection = Open();
-        using var command = Command(connection, null, "SELECT draft_json,generation,head_revision,active_revision FROM workflows WHERE archived_at IS NOT NULL ORDER BY workflow_id;");
+        using var command = Command(connection, null, "SELECT draft_json,generation,head_revision,active_revision,normalization_provenance_json,normalization_provenance_hash FROM workflows WHERE archived_at IS NOT NULL ORDER BY workflow_id;");
         using var reader = command.ExecuteReader();
         var drafts = new List<WorkflowDraft>();
         while (reader.Read()) drafts.Add(ReadDraft(reader));
@@ -128,10 +137,22 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog, IWorkflowMig
     public Task<WorkflowDraft> SaveDraftAsync(WorkflowDefinition definition, long expectedGeneration) =>
         Task.FromResult(SaveDesign(definition, null, expectedGeneration).Draft);
 
+    public Task<WorkflowDesign> SaveNormalizedDesignAsync(WorkflowDefinition definition, WorkflowLayout layout,
+        WorkflowNormalizationProvenance provenance, long expectedGeneration)
+    {
+        ArgumentNullException.ThrowIfNull(provenance);
+        provenance.Validate();
+        if (provenance.TargetContentHash != WorkflowJson.ComputeHash(definition) ||
+            provenance.TargetSchema != definition.SchemaVersion)
+            throw new ArgumentException("Normalization evidence does not describe this exact target definition.", nameof(provenance));
+        return Task.FromResult(SaveDesign(definition, layout, expectedGeneration, provenance));
+    }
+
     public Task<WorkflowDesign> SaveDesignAsync(WorkflowDefinition definition, WorkflowLayout layout, long expectedGeneration) =>
         Task.FromResult(SaveDesign(definition, layout, expectedGeneration));
 
-    private WorkflowDesign SaveDesign(WorkflowDefinition definition, WorkflowLayout? layout, long expectedGeneration)
+    private WorkflowDesign SaveDesign(WorkflowDefinition definition, WorkflowLayout? layout, long expectedGeneration,
+        WorkflowNormalizationProvenance? normalizationProvenance = null)
     {
         var json = WorkflowJson.SerializeDraft(definition);
         using var connection = Open();
@@ -140,18 +161,38 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog, IWorkflowMig
         CheckGeneration(definition.WorkflowId, expectedGeneration, previous?.Generation ?? 0);
         if (previous is not null && IsArchived(connection, transaction, definition.WorkflowId))
             throw new InvalidOperationException("Workflow is in Deleted workflows. Restore it before editing.");
+        if (normalizationProvenance is not null)
+        {
+            if (previous?.NormalizationProvenance is { } existing && existing != normalizationProvenance)
+                throw new InvalidOperationException("A draft's initial normalization provenance is immutable.");
+            if (normalizationProvenance.SourceRevisionId is { } sourceRevisionId)
+            {
+                var source = GetRevision(connection, transaction, sourceRevisionId)?.Revision;
+                if (source is null || source.Definition.WorkflowId != definition.WorkflowId ||
+                    source.ContentHash != normalizationProvenance.SourceContentHash ||
+                    source.Definition.SchemaVersion != normalizationProvenance.SourceSchema)
+                    throw new ArgumentException("Normalization source revision does not match the recorded source definition.", nameof(normalizationProvenance));
+            }
+        }
         // Legacy definition-only saves preserve surviving presentation identities.
         var explicitLayout = layout is not null;
         layout ??= previous is null ? WorkflowLayout.Create(definition) :
             ReadLayout(connection, transaction, "workflow_layouts", "workflow_id", definition.WorkflowId, previous.Definition).Reconcile(definition);
         var layoutJson = WorkflowLayoutJson.Serialize(layout, definition);
+        normalizationProvenance ??= previous?.NormalizationProvenance;
+        if (normalizationProvenance is not null) normalizationProvenance.Validate();
+        var normalizationJson = normalizationProvenance is null ? null : SerializeNormalizationProvenance(normalizationProvenance);
+        var normalizationHash = normalizationJson is null ? null : WorkflowJson.ComputeTextHash(normalizationJson);
         var generation = checked(expectedGeneration + 1);
         Execute(connection, transaction, """
-            INSERT INTO workflows(workflow_id,draft_json,generation) VALUES($id,$json,$generation)
-            ON CONFLICT(workflow_id) DO UPDATE SET draft_json=$json,generation=$generation;
+            INSERT INTO workflows(workflow_id,draft_json,generation,normalization_provenance_json,normalization_provenance_hash)
+            VALUES($id,$json,$generation,$normalization,$normalization_hash)
+            ON CONFLICT(workflow_id) DO UPDATE SET draft_json=$json,generation=$generation,
+                normalization_provenance_json=$normalization,normalization_provenance_hash=$normalization_hash;
             INSERT INTO workflow_layouts(workflow_id,layout_json) VALUES($id,$layout)
             ON CONFLICT(workflow_id) DO UPDATE SET layout_json=$layout;
-            """, ("$id", definition.WorkflowId), ("$json", json), ("$layout", layoutJson), ("$generation", generation));
+            """, ("$id", definition.WorkflowId), ("$json", json), ("$layout", layoutJson), ("$generation", generation),
+            ("$normalization", normalizationJson), ("$normalization_hash", normalizationHash));
         Audit(connection, transaction, definition.WorkflowId, "draft.saved", generation, null, WorkflowJson.ComputeDraftHash(definition));
         if (explicitLayout) Audit(connection, transaction, definition.WorkflowId, "layout.saved", generation, null, WorkflowLayoutJson.ComputeHash(layout, definition));
         var draft = GetDraft(connection, transaction, definition.WorkflowId)!;
@@ -321,7 +362,7 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog, IWorkflowMig
         var revision = GetRevision(connection, transaction, revisionId)?.Revision ?? throw new KeyNotFoundException("Revision not found.");
         if (revision.Definition.WorkflowId != workflowId) throw new ArgumentException("Revision belongs to another workflow.");
         var sql = restore
-            ? "UPDATE workflows SET draft_json=$value,generation=generation+1 WHERE workflow_id=$id;"
+            ? "UPDATE workflows SET draft_json=$value,generation=generation+1,normalization_provenance_json=NULL,normalization_provenance_hash=NULL WHERE workflow_id=$id;"
             : "UPDATE workflows SET active_revision=$value,generation=generation+1 WHERE workflow_id=$id;";
         Execute(connection, transaction, sql, ("$value", restore ? WorkflowJson.Serialize(revision.Definition) : revisionId.ToString()), ("$id", workflowId));
         if (restore)
@@ -382,13 +423,31 @@ public sealed class SqliteWorkflowCatalog : IWorkflowDesignCatalog, IWorkflowMig
     private static WorkflowDraft? GetDraft(SqliteConnection connection, SqliteTransaction? transaction, string id)
     {
         using var command = Command(connection, transaction,
-            "SELECT draft_json,generation,head_revision,active_revision FROM workflows WHERE workflow_id=$id;", ("$id", id));
+            "SELECT draft_json,generation,head_revision,active_revision,normalization_provenance_json,normalization_provenance_hash FROM workflows WHERE workflow_id=$id;", ("$id", id));
         using var reader = command.ExecuteReader();
         return reader.Read() ? ReadDraft(reader) : null;
     }
 
-    private static WorkflowDraft ReadDraft(SqliteDataReader reader) => new(WorkflowJson.DeserializeDraft(reader.GetString(0)),
-        reader.GetInt64(1), NullableGuid(reader, 2), NullableGuid(reader, 3));
+    private static WorkflowDraft ReadDraft(SqliteDataReader reader)
+    {
+        var definition = WorkflowJson.DeserializeDraft(reader.GetString(0));
+        WorkflowNormalizationProvenance? provenance = null;
+        if (!reader.IsDBNull(4))
+        {
+            var json = reader.GetString(4);
+            var hash = reader.IsDBNull(5) ? null : reader.GetString(5);
+            if (hash != WorkflowJson.ComputeTextHash(json))
+                throw new InvalidDataException("Stored workflow normalization provenance failed its integrity check.");
+            provenance = JsonSerializer.Deserialize<WorkflowNormalizationProvenance>(json)
+                ?? throw new InvalidDataException("Stored workflow normalization provenance is empty.");
+            provenance.Validate();
+        }
+        return new WorkflowDraft(definition, reader.GetInt64(1), NullableGuid(reader, 2), NullableGuid(reader, 3))
+            { NormalizationProvenance = provenance };
+    }
+
+    private static string SerializeNormalizationProvenance(WorkflowNormalizationProvenance provenance) =>
+        JsonSerializer.Serialize(provenance);
 
     private static PublishedWorkflowRevision? GetRevision(SqliteConnection connection, SqliteTransaction? transaction, Guid id)
     {

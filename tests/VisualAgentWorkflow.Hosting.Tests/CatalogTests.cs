@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Collections.Immutable;
 using VisualAgentWorkflow.Blazor;
 using VisualAgentWorkflow.Core;
 using Xunit;
@@ -9,6 +10,42 @@ public sealed class CatalogTests : IDisposable
 {
     private readonly string directory = Path.Combine(Path.GetTempPath(), "vaw-catalog-" + Guid.NewGuid());
     private SqliteWorkflowCatalog Open() => new(Path.Combine(directory, "workflows.db"), "test-actor");
+
+    [Fact]
+    public async Task NormalizationProvenanceSurvivesEditsAndReopenWithoutChangingSourceRevisionHistory()
+    {
+        var legacy = new WorkflowDefinition("1.0", "normalized", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["direct"] = new(new("input", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary());
+        var catalog = Open();
+        var sourceDraft = await catalog.SaveDraftAsync(legacy, 0);
+        var sourceRevision = await catalog.PublishAsync("normalized", sourceDraft.Generation);
+        sourceDraft = (await catalog.GetDraftAsync("normalized"))!;
+        var result = WorkflowSchemaNormalization.NormalizeForEditingWithProvenance(legacy,
+            sourceRevision.Revision.RevisionId);
+        var target = Assert.IsType<WorkflowDefinition>(result.Definition);
+        var provenance = Assert.IsType<WorkflowNormalizationProvenance>(result.Provenance);
+
+        var normalized = await catalog.SaveNormalizedDesignAsync(target, WorkflowLayout.Create(target), provenance,
+            sourceDraft.Generation);
+        var editedDefinition = target with { DisplayName = "Edited after conversion" };
+        var edited = await catalog.SaveDesignAsync(editedDefinition, normalized.Layout, normalized.Draft.Generation);
+        var reopened = (await Open().GetDraftAsync("normalized"))!;
+
+        Assert.Equal(provenance.ConversionId, reopened.NormalizationProvenance!.ConversionId);
+        Assert.Equal(editedDefinition.DisplayName, reopened.Definition.DisplayName);
+        Assert.Equal(provenance.TargetContentHash, reopened.NormalizationProvenance!.TargetContentHash);
+        var preservedSource = (await Open().GetRevisionAsync(sourceRevision.Revision.RevisionId))!.Revision;
+        Assert.Equal(WorkflowJson.ComputeHash(legacy), preservedSource.ContentHash);
+        Assert.Equal(sourceRevision.Revision.RevisionId, reopened.NormalizationProvenance!.SourceRevisionId);
+    }
 
     [Fact]
     public async Task PublishRestoreAndActivatePreserveImmutableHistoryAcrossReopen()
