@@ -11,6 +11,13 @@ static parallel and collaboration plans derive their branch and phase shape
 from persisted configuration. MCP grants, exact approvals, provider contracts,
 resource limits, and immutable run identity remain host/runtime checks.
 
+The unified schema supports activation-only loops, explicit variable-based
+loops, and the legacy loop-carried string topology. Normalization of schema
+1.17–1.22 preserves the latter's data feedback edge and adds explicit
+activation edges only for a linear body of pure uppercase/reverse transforms.
+Runtime input selection is iteration-aware; effectful historical loop bodies
+are not silently converted.
+
 Historical 1.x validators and execution paths remain for stored revisions.
 Editor normalization creates a separate current draft and preserves the
 source; package and reuse operations preserve current schema identity and

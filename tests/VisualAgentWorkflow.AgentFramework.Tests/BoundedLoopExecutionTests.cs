@@ -63,12 +63,18 @@ public sealed class BoundedLoopExecutionTests
         var anchorId = graph.Nodes.Single(pair => pair.Value.Type == NodeTypes.LoopBody).Key;
         graph = GraphEditing.InsertNodeAfter(graph, anchorId, "out", new(NodeTypes.Uppercase, "1.0.0"));
         var bodyId = graph.Nodes.Single(pair => pair.Value.Type == NodeTypes.Uppercase).Key;
+        var normalized = WorkflowSchemaNormalization.NormalizeForEditing(graph);
         var events = new List<ExecutionEvent>();
+        var normalizedEvents = new List<ExecutionEvent>();
 
         var output = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "fixture"), "continue",
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
+        var normalizedOutput = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(normalized, "normalized-predicate-loop"), "continue",
+            evt => { normalizedEvents.Add(evt); return ValueTask.CompletedTask; });
 
         Assert.Equal("CONTINUE", output);
+        Assert.Equal(output, normalizedOutput);
         Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
         Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted));
         var stopped = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopStopped);
@@ -76,6 +82,10 @@ public sealed class BoundedLoopExecutionTests
         Assert.Equal(1, events.Count(evt => evt.NodeId == bodyId && evt.Kind == ExecutionEventKinds.NodeStarted));
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Transfer && evt.NodeId == graph.Nodes.Single(pair => pair.Value.Type == NodeTypes.Loop).Key);
         Assert.Equal(ExecutionEventKinds.Completed, events[^1].Kind);
+        Assert.Equal(events.Where(evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped)
+            .Select(evt => (evt.Kind, evt.Data)), normalizedEvents
+            .Where(evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped)
+            .Select(evt => (evt.Kind, evt.Data)));
     }
 
     [Fact]
@@ -108,13 +118,19 @@ public sealed class BoundedLoopExecutionTests
         var secondReverseId = graph.Nodes.Single(pair => pair.Value.Type == NodeTypes.Reverse && pair.Key != firstReverseId).Key;
         var reverseIds = new[] { firstReverseId, secondReverseId };
         var loopId = graph.Nodes.Single(pair => pair.Value.Type == NodeTypes.Loop).Key;
+        var normalized = WorkflowSchemaNormalization.NormalizeForEditing(graph);
         var events = new List<ExecutionEvent>();
+        var normalizedEvents = new List<ExecutionEvent>();
 
         var output = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(),
             WorkflowRevision.Create(graph, "legacy-loop-transform"), "continue",
             evt => { events.Add(evt); return ValueTask.CompletedTask; });
+        var normalizedOutput = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(normalized, "normalized-loop-transform"), "continue",
+            evt => { normalizedEvents.Add(evt); return ValueTask.CompletedTask; });
 
         Assert.Equal("continue", output);
+        Assert.Equal(output, normalizedOutput);
         Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
         Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted));
         Assert.Equal(3, events.Count(evt => evt.NodeId == reverseIds[0] && evt.Kind == ExecutionEventKinds.NodeStarted));
@@ -128,6 +144,20 @@ public sealed class BoundedLoopExecutionTests
         var stop = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopStopped);
         Assert.Equal("maximum-iterations", JsonDocument.Parse(stop.Data!).RootElement.GetProperty("reason").GetString());
         Assert.Equal("continue", events.Last(evt => evt.NodeId == loopId && evt.Kind == ExecutionEventKinds.NodeStarted).Data);
+        Assert.Equal(events.Where(evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped)
+            .Select(evt => (evt.Kind, evt.Data)), normalizedEvents
+            .Where(evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.LoopStopped)
+            .Select(evt => (evt.Kind, evt.Data)));
+        foreach (var (nodeId, expectedValues) in new[]
+        {
+            (reverseIds[0], new[] { "eunitnoc", "eunitnoc", "eunitnoc" }),
+            (reverseIds[1], new[] { "continue", "continue", "continue" })
+        })
+        {
+            var recordedValues = normalizedEvents.Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == nodeId)
+                .Select(evt => JsonDocument.Parse(evt.Data!).RootElement.GetProperty("value").GetString());
+            Assert.Equal(expectedValues, recordedValues);
+        }
     }
 
     [Fact]

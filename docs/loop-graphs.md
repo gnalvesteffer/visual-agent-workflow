@@ -1,6 +1,6 @@
 # Bounded loop graphs
 
-Schema 1.17 supports one explicit loop region in a workflow. The loop is a control node with ordinary string pins, a declarative continue predicate, and a hard per-node maximum of 1–16 iterations. It executes inside the Agent Framework workflow; the Studio is only the editor and observer.
+Schema 1.17 supports one explicit loop region in a workflow. The loop is a control node with ordinary string pins, a declarative continue predicate, and a hard per-node maximum of 1–16 iterations. It executes inside the Agent Framework workflow; the Studio is only the editor and observer. Schema 2.0 supports activation-only loops, variable loops with explicit VariableGet/Set state, and the legacy loop-carried data shape. Normalization retains that data shape only for pure string-transform bodies, adding explicit activation wires while preserving the original data feedback edge.
 
 ```mermaid
 flowchart LR
@@ -19,6 +19,8 @@ The initial value enters the loop once. The loop tests the current string using 
 In the Studio, select a connected output on a plain string workflow and add **Bounded loop** from the **Flow** node library. Configure **Continue while**, its match text, and **Maximum iterations** in the loop properties. The inserted **Loop body** anchor marks where the body begins; insert normal text operations, workflow values, agent nodes, and direct MCP tool nodes after it. The final body node returns to the loop input automatically. The **done** output continues along the original downstream path.
 
 The current implementation admits one loop per workflow, one linear body, and no other control nodes in a workflow containing a loop. JSON paths, conditionals, approvals, parallel blocks, nested loops, implicit loop exits, and early termination are not supported inside this loop milestone. Every loop path and downstream route must validate before publication or execution. Draft editing is allowed while incomplete, but runtime and publication fail closed until all issues are fixed.
+
+Legacy schema 1.17–1.22 data-carried loops normalize only when their body is a linear chain of pure `Uppercase` and `Reverse` nodes. The loop input has distinct initial and feedback data connections; the runtime selects the initial edge on iteration zero and reevaluates the feedback chain on every later arrival. The `LoopBody.out`, `Loop.body`, and `Loop.done` values are captured as runtime data outputs, so downstream evaluation observes the exact current value. Legacy Agent/MCP bodies and other effectful or control-flow loop bodies are not migrated by this conversion.
 
 Removing the loop removes its structural anchor and connects the original input through the body exactly once to the original downstream route. This preserves the body work as ordinary workflow nodes instead of deleting it.
 

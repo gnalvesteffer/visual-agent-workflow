@@ -362,6 +362,8 @@ The initial text reaches the body only when the predicate matches. Each complete
 
 Only one loop is supported per workflow in this version, with a single linear body and no other control nodes or JSON paths. To remove it, select the loop and choose **Remove loop and run body once**; its body steps remain on the path exactly once. See [bounded loop semantics and limits](loop-graphs.md).
 
+When a legacy schema 1.17–1.22 workflow is opened for editing, a loop whose body is a linear chain of pure uppercase/reverse transforms is normalized into the current schema while retaining its data feedback connections. This migration does not cover legacy loops containing agents, MCP tools, nested control flow, or other effectful nodes.
+
 ## Run two paths in parallel
 
 Select a connected string path and choose **Parallel block** from the node library. Studio adds a visible **Parallel fork**, two named **Parallel branch** anchors, and a **Parallel join**. Both branches receive the same string and execute concurrently. Add text transforms, agent nodes, or MCP tools after either branch anchor; keep branch 1 connected to join input `branch_1` and branch 2 to `branch_2`. The join waits for both and emits a JSON object containing both results. Studio inserts a JSON selector to preserve an existing downstream string path, or changes the terminal Output to JSON when the block ends the workflow. Select the whole object with an empty JSON Pointer or choose `/branch_1` or `/branch_2` to continue as text.

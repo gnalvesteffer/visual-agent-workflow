@@ -148,6 +148,30 @@ public class WorkflowSchemaNormalizationTests
     }
 
     [Fact]
+    public void LegacyPureDataLoopNormalizesToUnifiedActivationAndPreservesTheFeedbackWire()
+    {
+        var source = GraphEditing.InsertBoundedLoopAfter(Blank(), "input", "out");
+        var anchorId = source.Nodes.Single(pair => pair.Value.Type == NodeTypes.LoopBody).Key;
+        source = GraphEditing.InsertNodeAfter(source, anchorId, "out", new(NodeTypes.Reverse, "1.0.0"));
+        var firstReverseId = source.Nodes.Single(pair => pair.Value.Type == NodeTypes.Reverse).Key;
+        source = GraphEditing.InsertNodeAfter(source, firstReverseId, "out", new(NodeTypes.Reverse, "1.0.0"));
+        var sourceJson = WorkflowJson.Serialize(source);
+
+        var normalized = WorkflowSchemaNormalization.NormalizeForEditing(source);
+
+        Assert.Equal("2.0", normalized.SchemaVersion);
+        Assert.Equal(source.Nodes.Keys, normalized.Nodes.Keys);
+        Assert.Equal(source.Connections, normalized.Connections);
+        Assert.Equal(sourceJson, WorkflowJson.Serialize(source));
+        Assert.Equal(4, normalized.ExecutionConnections!.Count);
+        Assert.Contains(normalized.ExecutionConnections.Values, edge => edge.Source == new PortReference("input", "then") &&
+            edge.Target.NodeId == normalized.Nodes.Single(pair => pair.Value.Type == NodeTypes.Loop).Key);
+        Assert.Equal(WorkflowJson.Serialize(normalized),
+            WorkflowJson.Serialize(WorkflowSchemaNormalization.NormalizeForEditing(source)));
+        Assert.Empty(WorkflowValidator.Validate(normalized));
+    }
+
+    [Fact]
     public void ExplicitConversionPreservesAllWiresAndHistoricalHelperBehavior()
     {
         var source = GraphEditing.EnableExplicitGraph(Blank());

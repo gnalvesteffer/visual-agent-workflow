@@ -829,6 +829,16 @@ public static class WorkflowValidator
 
     private static void ValidateUnifiedLoopGraph(WorkflowDefinition definition, Action<string, string, string> error)
     {
+        var dataLoopId = definition.Nodes.FirstOrDefault(pair => pair.Value?.Type == NodeTypes.Loop).Key;
+        if (definition.Variables is not { Count: > 0 } &&
+            definition.Nodes.Values.All(node => node?.Type is not (NodeTypes.VariableGet or NodeTypes.VariableSet)) &&
+            dataLoopId is not null &&
+            definition.Connections.Values.Any(edge => edge?.Target == new PortReference(dataLoopId, "in")))
+        {
+            ValidateUnifiedDataLoopGraph(definition, error);
+            return;
+        }
+
         var loops = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.Loop).ToArray();
         var anchors = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.LoopBody).ToArray();
         if (loops.Length != 1 || anchors.Length != 1 || definition.ExecutionConnections is not { } execution)
@@ -907,6 +917,71 @@ public static class WorkflowValidator
         }
         ValidateExplicitBranchGraph(definition with { ExecutionConnections = execution.Remove(returnId) }, CheckAcyclicRemainder,
             allowBooleanTopology: true, allowGraphFunctions: true, allowAgentNodes: true, allowFiniteNumbers: true);
+    }
+
+    private static void ValidateUnifiedDataLoopGraph(WorkflowDefinition definition, Action<string, string, string> error)
+    {
+        var topology = LoopDataTopologyAnalyzer.Analyze(definition);
+        if (topology is null)
+        {
+            error("loop.data-topology", "connections", "A data-carried loop requires one bounded body path with one initial input and one return value.");
+            return;
+        }
+
+        var allowedNodes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            NodeTypes.Input, NodeTypes.Output, NodeTypes.Loop, NodeTypes.LoopBody,
+            NodeTypes.Uppercase, NodeTypes.Reverse
+        };
+        foreach (var (id, node) in definition.Nodes)
+            if (node is null || !allowedNodes.Contains(node.Type))
+                error("loop.data-node", $"nodes.{id}", "Data-carried loops currently support only Input, Output, one Loop, one LoopBody, and pure uppercase/reverse transforms.");
+
+        var inputs = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Input).ToArray();
+        var outputs = definition.Nodes.Where(pair => pair.Value?.Type == NodeTypes.Output).ToArray();
+        if (inputs.Length != 1 || outputs.Length != 1 || inputs[0].Key != definition.EntryNodeId)
+        {
+            error("workflow.terminals", "nodes", "A data-carried loop requires one Input entry and one Output node.");
+            return;
+        }
+
+        var loopIncoming = definition.Connections.Values.Count(edge => edge?.Target == new PortReference(topology.LoopNodeId, "in"));
+        if (loopIncoming != 2)
+            error("loop.input", $"nodes.{topology.LoopNodeId}.in", "The loop requires one initial value and one body-return value.");
+
+        var expectedExecution = new HashSet<(PortReference Source, PortReference Target)>
+        {
+            (new(inputs[0].Key, "then"), new(topology.LoopNodeId, "execute")),
+            (new(topology.LoopNodeId, "body"), new(topology.BodyAnchorNodeId, "execute")),
+            (new(topology.BodyAnchorNodeId, "then"), new(topology.LoopNodeId, "execute")),
+            (new(topology.LoopNodeId, "done"), new(outputs[0].Key, "execute"))
+        };
+        var execution = definition.ExecutionConnections;
+        if (execution is null || execution.Count != expectedExecution.Count ||
+            !execution.Values.Where(edge => edge is not null)
+                .Select(edge => (edge.Source, edge.Target)).ToHashSet().SetEquals(expectedExecution))
+        {
+            error("loop.execution-topology", "executionConnections", "A data-carried loop requires explicit Input-to-Loop, Loop-to-Body, Body-to-Loop, and Loop-to-Output execution wires.");
+            return;
+        }
+
+        var loopBackConnectionId = ValidateLoopRegion(definition,
+            new Dictionary<string, int>(StringComparer.Ordinal) { [topology.LoopNodeId] = loopIncoming }, error);
+        if (loopBackConnectionId != topology.BodyReturnConnectionId) return;
+
+        var bodyReturnExecution = execution.Single(edge => edge.Value.Source == new PortReference(topology.BodyAnchorNodeId, "then"));
+        var returnPinPath = $"nodes.{bodyReturnExecution.Value.Source.NodeId}.outputs.{bodyReturnExecution.Value.Source.PortId}";
+        void CheckLoopRemainder(string code, string path, string message)
+        {
+            if (code == "graph.degree" && path == returnPinPath) return;
+            error(code, path, message);
+        }
+
+        ValidateExplicitBranchGraph(definition with
+        {
+            ExecutionConnections = execution.Remove(bodyReturnExecution.Key)
+        }, CheckLoopRemainder, allowBooleanTopology: true, allowGraphFunctions: true,
+            allowAgentNodes: true, allowFiniteNumbers: true, loopDataReturnConnectionId: loopBackConnectionId);
     }
 
     private static void ValidateUnifiedSequenceGraph(WorkflowDefinition definition, Action<string, string, string> error)
@@ -1829,7 +1904,7 @@ public static class WorkflowValidator
     private static void ValidateExplicitBranchGraph(WorkflowDefinition definition, Action<string, string, string> error,
         bool allowBooleanTopology = false, bool allowGraphFunctions = false, bool allowAgentNodes = false,
         bool allowConfigurableParallel = false, bool allowCollaborativeParallel = false, bool allowSimpleDataGraph = false,
-        bool allowFiniteNumbers = false)
+        bool allowFiniteNumbers = false, string? loopDataReturnConnectionId = null)
     {
         var unified = definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph;
         if (definition.ExecutionConnections is null)
@@ -1971,7 +2046,8 @@ public static class WorkflowValidator
         {
             if (node is null) continue;
             foreach (var port in WorkflowPorts.Explicit(node).Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data))
-                if (!(unified && node.Type == NodeTypes.Output && definition.Nodes.Values.Any(candidate => candidate?.Type == NodeTypes.Sequence) &&
+                if (!(loopDataReturnConnectionId is not null && node.Type == NodeTypes.Loop && port.Id == "in") &&
+                    !(unified && node.Type == NodeTypes.Output && definition.Nodes.Values.Any(candidate => candidate?.Type == NodeTypes.Sequence) &&
                         !definition.Connections.Values.Any(edge => edge?.Target == new PortReference(id, port.Id))) &&
                     !(unified && node.Type == NodeTypes.McpTool && node.McpInputPorts is null && node.McpArgumentsJson is not null) &&
                     (port.Required && port.Cardinality == WorkflowPortCardinality.ExactlyOne && dataIncoming.GetValueOrDefault((id, port.Id)) != 1 ||
@@ -2058,7 +2134,11 @@ public static class WorkflowValidator
         if (HasCycle(executionAdjacency, executableIds))
             error("graph.cycle", "executionConnections", "Explicit execution routes must be acyclic.");
 
-        var dataOrder = WorkflowGraph.TopologicalOrder(definition);
+        var dataGraph = loopDataReturnConnectionId is null ? definition : definition with
+        {
+            Connections = definition.Connections.Remove(loopDataReturnConnectionId)
+        };
+        var dataOrder = WorkflowGraph.TopologicalOrder(dataGraph);
         if (dataOrder.Length != definition.Nodes.Count)
             error("graph.cycle", "connections", "Pure data dependencies must be acyclic.");
         var reachedData = new HashSet<string>(StringComparer.Ordinal);
@@ -2650,7 +2730,7 @@ public static class WorkflowValidator
             error("loop.count", "nodes", "A workflow may contain one bounded loop and its single loop-body anchor.");
             return null;
         }
-        if (definition.SchemaVersion is not ("1.17" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)) error("loop.schema", "nodes", "Bounded loops require schema 1.17 or later.");
+        if (definition.SchemaVersion is not ("1.17" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.UnifiedWorkflowGraph)) error("loop.schema", "nodes", "Bounded loops require schema 1.17 or later.");
 
         var unsupportedControls = definition.Nodes.Where(entry => entry.Value?.Type is NodeTypes.Condition or NodeTypes.Merge or
             NodeTypes.Approval or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.Terminate).Select(entry => entry.Key).ToArray();

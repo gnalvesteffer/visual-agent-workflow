@@ -27,13 +27,17 @@ that already explicit loop topology can be carried into schema 2.0; it does not
 qualify other historical control-flow families or establish persisted
 normalization provenance.
 
-The legacy schema-1.17 runtime has a focused semantics trace for pure data
-transforms in a loop body. Two reverse nodes run again on each iteration; the
-test records their per-pass values and confirms that the maximum-iteration exit
-returns the current loop value. A separate test covers a transform changing
-the predicate to false and confirms the transformed value is returned. These
-observations are evidence for the legacy runtime only: they do not establish
-that schema 2.0 can represent or replay the same loop-carried data path.
+Legacy schema-1.17 through 1.22 data-carried loops with a linear body of pure
+uppercase/reverse transforms now normalize to schema 2.0. Normalization retains
+node and data-connection identities, adds four explicit activation wires, and
+leaves the source untouched. In this topology, the Loop input has one initial
+data edge and one body-return edge; execution iteration selects which edge is
+evaluated, and LoopBody/Loop outputs expose the current runtime value. Tests
+compare legacy and normalized output, iteration evidence, predicate-false and
+maximum-iteration exits, and repeated per-pass transform evaluation. This does
+not qualify effectful legacy loop bodies, nested/control-flow loops, or arbitrary
+data cycles for migration. Schema-1.45 variable loops retain their separate
+explicit VariableGet/Set topology.
 
 Schema 2.0 does not remove host-owned security or correctness boundaries:
 typed pin compatibility, graph boundedness, MCP grants, approvals, provider

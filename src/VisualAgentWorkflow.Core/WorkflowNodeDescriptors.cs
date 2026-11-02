@@ -608,8 +608,9 @@ public static class WorkflowNodeDescriptorResolver
             {
                 Description = effectiveNode.Type == NodeTypes.McpTool && discoveredMcpInputDescriptions is not null &&
                     discoveredMcpInputDescriptions.TryGetValue(port.Id, out var description) ? description : null,
-                Required = effectiveNode.Type != NodeTypes.Agent && (effectiveNode.Type != NodeTypes.McpTool || mcpInputs is not { } || mcpPort?.Required == true),
-                Cardinality = effectiveNode.Type == NodeTypes.McpTool
+                Required = effectiveNode.Type is not (NodeTypes.Agent or NodeTypes.Loop or NodeTypes.LoopBody) &&
+                    (effectiveNode.Type != NodeTypes.McpTool || mcpInputs is not { } || mcpPort?.Required == true),
+                Cardinality = effectiveNode.Type is NodeTypes.McpTool or NodeTypes.Loop or NodeTypes.LoopBody
                     ? WorkflowPortCardinality.AtMostOne
                     : WorkflowPortCardinality.ExactlyOne,
                 SupportsStaticValue = effectiveNode.Type == NodeTypes.McpTool

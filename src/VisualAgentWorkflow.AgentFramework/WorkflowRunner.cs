@@ -669,10 +669,17 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         public DataInputEvaluation ResolveInput(string nodeId, string inputPort)
         {
             var edge = definition.Connections.Single(connection => connection.Value.Target.NodeId == nodeId && connection.Value.Target.PortId == inputPort);
+            return ResolveInputConnection(edge.Key);
+        }
+
+        public DataInputEvaluation ResolveInputConnection(string connectionId)
+        {
+            if (!definition.Connections.TryGetValue(connectionId, out var edge) || edge is null)
+                throw new InvalidOperationException("The requested data connection is unavailable.");
             var evaluated = ImmutableArray.CreateBuilder<EvaluatedDataValue>();
             var cache = new Dictionary<(string NodeId, string PortId), ExplicitGraphValue>();
             var active = new HashSet<(string NodeId, string PortId)>();
-            var value = ResolveOutput(edge.Value.Source.NodeId, edge.Value.Source.PortId, edge.Key, evaluated, cache, active);
+            var value = ResolveOutput(edge.Source.NodeId, edge.Source.PortId, connectionId, evaluated, cache, active);
             return new(value, evaluated.ToImmutable());
         }
 
@@ -1211,6 +1218,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     branchEvaluation = dataEvaluator!.ResolveBranchCondition(Id);
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.VariableSet)
                     variableSetEvaluation = dataEvaluator!.ResolveInput(Id, "value");
+                if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph && node.Type == NodeTypes.Loop &&
+                    LoopDataTopologyAnalyzer.Analyze(revision.Definition) is { } dataLoop)
+                {
+                    var connectionId = received.LoopIteration == 0
+                        ? dataLoop.InitialInputConnectionId
+                        : dataLoop.BodyReturnConnectionId;
+                    outputEvaluation = dataEvaluator!.ResolveInputConnection(connectionId);
+                    message = outputEvaluation.Result.Value as string ??
+                        throw new InvalidOperationException("A data-carried loop requires a string value.");
+                }
                 foreach (var value in (outputEvaluation?.Evaluations ?? []).Concat(branchEvaluation?.Evaluations ?? []).Concat(variableSetEvaluation?.Evaluations ?? []))
                     await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
                         value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value));
@@ -1370,6 +1387,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 }
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.McpTool)
                     dataEvaluator?.SetRuntimeOutput(Id, "out", "string", result);
+                if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph && node.Type == NodeTypes.LoopBody)
+                    dataEvaluator?.SetRuntimeOutput(Id, "out", "string", result);
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.WorkflowCall &&
                     childOutcome?.HasOutput == true && WorkflowPorts.Outputs(node).SingleOrDefault()?.DataType == WorkflowDataTypes.Json)
                 {
@@ -1465,6 +1484,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         await Emit(ExecutionEventKinds.LoopStopped, Id, invocation, null,
                             JsonSerializer.Serialize(new { reason, iterations = received.LoopIteration, maximumIterations = loop.MaximumIterations }));
                     }
+                    if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+                        LoopDataTopologyAnalyzer.Analyze(revision.Definition) is not null)
+                        dataEvaluator?.SetRuntimeOutput(Id, port, "string", result);
                 }
                 if (!internalTerminationHandoff)
                     await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null,
