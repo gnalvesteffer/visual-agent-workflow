@@ -271,6 +271,7 @@ public partial class WorkflowEditor
             ContractEntry(NodeTypes.NumberAdd, canAdd),
             ContractEntry(NodeTypes.JsonToArray, canAdd, "Refine a JSON array root into a bounded immutable array value."),
             ContractEntry(NodeTypes.ArrayLength, canAdd, "Count the items in a bounded immutable JSON array."),
+            ContractEntry(NodeTypes.ArrayGet, canAdd, "Select one JSON value by its zero-based index."),
             ContractEntry(NodeTypes.Sequence, canAdd, "Fan out ordered execution pins; each output must be connected exactly once."),
             ContractEntry(NodeTypes.SequenceUppercase, canAdd),
             ContractEntry(NodeTypes.SequenceReverse, canAdd),

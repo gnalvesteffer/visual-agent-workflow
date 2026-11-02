@@ -748,6 +748,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.JsonToArray when outputPort == "out" => ConvertJsonToArray(nodeId, evaluated, cache, active),
                     NodeTypes.ArrayLength when outputPort == "out" => new ExplicitGraphValue(WorkflowDataTypes.Integer,
                         (long)ResolveJsonArrayInput(nodeId, "in", evaluated, cache, active).GetArrayLength()),
+                    NodeTypes.ArrayGet when outputPort == "item" => GetJsonArrayItem(nodeId, evaluated, cache, active),
                     NodeTypes.FunctionCall when node.GraphFunction is { } function && function.Definition.Outputs.TryGetValue(outputPort, out var output) =>
                         EvaluateFunction(nodeId, outputPort, output.DataType, function, evaluated, cache, active),
                         _ => throw new InvalidOperationException("The data source is not a supported pure value node.")
@@ -972,6 +973,20 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (value.DataType != WorkflowDataTypes.JsonArray || value.Value is not JsonElement json || json.ValueKind != JsonValueKind.Array)
                 throw new InvalidOperationException("The pure data input requires a bounded JSON array.");
             return json;
+        }
+
+        private ExplicitGraphValue GetJsonArrayItem(string nodeId,
+            ImmutableArray<EvaluatedDataValue>.Builder evaluated,
+            Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
+            HashSet<(string NodeId, string PortId)> active)
+        {
+            var array = ResolveJsonArrayInput(nodeId, "array", evaluated, cache, active);
+            var index = ResolveIntegerInput(nodeId, "index", evaluated, cache, active);
+            if (index < 0 || index >= array.GetArrayLength())
+                throw new GraphDataEvaluationException(nodeId,
+                    $"Array index {index} is outside an array containing {array.GetArrayLength()} items.",
+                    new ArgumentOutOfRangeException("index", index, "Array indices are zero-based and must identify an existing item."));
+            return new ExplicitGraphValue(WorkflowDataTypes.Json, array[(int)index].Clone());
         }
 
         private static JsonElement ParseJson(string value)

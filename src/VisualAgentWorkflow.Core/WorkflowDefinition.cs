@@ -138,6 +138,7 @@ public static class NodeTypes
     public const string JsonMerge = "core.json.merge";
     public const string JsonToArray = "core.json.to-array";
     public const string ArrayLength = "core.array.length";
+    public const string ArrayGet = "core.array.get";
     public const string TextTemplate = "core.text.template";
     public const string ParallelFork = "core.parallel.fork";
     public const string ParallelBranch = "core.parallel.branch";

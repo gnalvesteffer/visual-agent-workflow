@@ -267,10 +267,14 @@ Schema 2.0 adds a separate direct-input use of the same bounded array value:
 `Input(JSON) → JsonToArray → ArrayLength → Output(Integer)`. It counts arrays
 provided by the caller without requiring a child workflow. The graph uses one
 lazy Output evaluation boundary, records the existing data-evaluation events,
-and retains the 64-item and depth-32 limits. Other array placements remain
-unavailable until their execution ordering, evidence, and recovery boundaries
-are proven. Historical 1.x definitions keep the 1.56 topology contract. See
-[Decision 0061](decisions/0061-unified-json-array-input-chain.md).
+and retains the 64-item and depth-32 limits. Schema 2.0 also supports one exact
+element-selection topology using a signed zero-based integer constant; it
+returns the chosen JSON value unchanged and fails with node attribution for
+negative or out-of-range indexes. Other array placements remain unavailable
+until their execution ordering, evidence, and recovery boundaries are proven.
+Historical 1.x definitions keep their original topology contract. See
+[Decision 0061](decisions/0061-unified-json-array-input-chain.md) and
+[Decision 0065](decisions/0065-unified-json-array-get.md).
 
 The production Sequence builder also has a proof-only descendant-termination
 boundary: a `Terminate` signal preserves the Sequence output lineage into the

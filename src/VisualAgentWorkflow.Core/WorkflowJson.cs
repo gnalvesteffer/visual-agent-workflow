@@ -66,6 +66,8 @@ public static class WorkflowJson
 
     private static bool IsDraftableIssue(WorkflowDefinition definition, ValidationIssue issue) =>
         definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+        issue.Code.StartsWith("unified.json-array.", StringComparison.Ordinal) && issue.Code != "unified.json-array.schema" ||
+        definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
         (issue.Code.StartsWith("sequence.", StringComparison.Ordinal) ||
          issue.Code.StartsWith("loop.", StringComparison.Ordinal) ||
          issue.Code is "variable.reference" or "parameter.reference" or "sequence.configuration" or

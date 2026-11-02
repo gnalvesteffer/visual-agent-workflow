@@ -11,8 +11,8 @@ public sealed record UnifiedJsonArrayInputTopologyAnalysis(
 }
 
 /// <summary>
-/// Defines the first unified-schema use of the bounded JSON-array refinement:
-/// caller JSON input flows through array refinement and length to integer output.
+/// Defines the bounded unified-schema uses of JSON-array refinement. Each use is
+/// an exact data topology so the initial contract does not imply general array composition.
 /// </summary>
 public static class UnifiedJsonArrayInputTopology
 {
@@ -32,26 +32,45 @@ public static class UnifiedJsonArrayInputTopology
         var outputs = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.Output).ToArray();
         var arrays = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.JsonToArray).ToArray();
         var lengths = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.ArrayLength).ToArray();
+        var gets = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.ArrayGet).ToArray();
+        var indices = definition.Nodes.Where(entry => entry.Value?.Type == NodeTypes.IntegerConstant).ToArray();
 
-        if (inputs.Length != 1 || outputs.Length != 1 || arrays.Length != 1 || lengths.Length != 1 || definition.Nodes.Count != 4)
-            Issue("unified.json-array.nodes", "nodes", "This unified JSON-array slice requires exactly one Input, JSON to array, Array length, and Output node.");
-        if (inputs.Length != 1 || outputs.Length != 1 || arrays.Length != 1 || lengths.Length != 1 || definition.Nodes.Count != 4)
+        var lengthShape = lengths.Length == 1 && gets.Length == 0 && indices.Length == 0 && definition.Nodes.Count == 4;
+        var getShape = gets.Length == 1 && lengths.Length == 0 && indices.Length == 1 && definition.Nodes.Count == 5;
+        if (inputs.Length != 1 || outputs.Length != 1 || arrays.Length != 1 || (!lengthShape && !getShape))
+            Issue("unified.json-array.nodes", "nodes", "This unified JSON-array slice requires either Input, JSON to array, Array length, Output; or Input, JSON to array, Integer constant, Array get, Output.");
+        if (inputs.Length != 1 || outputs.Length != 1 || arrays.Length != 1 || (!lengthShape && !getShape))
             return new(issues.ToImmutable());
 
         var input = inputs[0].Key;
         var output = outputs[0].Key;
         var array = arrays[0].Key;
-        var length = lengths[0].Key;
         if (definition.EntryNodeId != input || definition.Nodes[input].InputDataType != WorkflowDataTypes.Json)
             Issue("unified.json-array.input", $"nodes.{input}", "The graph entry must be a JSON Input node.");
-        if (definition.Nodes[output].OutputDataType != WorkflowDataTypes.Integer)
-            Issue("unified.json-array.output", $"nodes.{output}", "Array length must connect to an integer Output node.");
-
         RequireSingleDataEdge(definition, input, "out", array, "in", Issue);
-        RequireSingleDataEdge(definition, array, "out", length, "in", Issue);
-        RequireSingleDataEdge(definition, length, "out", output, "in", Issue);
-        if (definition.Connections.Count != 3)
-            Issue("unified.json-array.data-shape", "connections", "The bounded JSON-array slice permits only the Input → JSON to array → Array length → Output data chain.");
+
+        if (lengthShape)
+        {
+            var length = lengths[0].Key;
+            if (definition.Nodes[output].OutputDataType != WorkflowDataTypes.Integer)
+                Issue("unified.json-array.output", $"nodes.{output}", "Array length must connect to an integer Output node.");
+            RequireSingleDataEdge(definition, array, "out", length, "in", Issue);
+            RequireSingleDataEdge(definition, length, "out", output, "in", Issue);
+            if (definition.Connections.Count != 3)
+                Issue("unified.json-array.data-shape", "connections", "Array length permits only Input → JSON to array → Array length → Output.");
+        }
+        else
+        {
+            var get = gets[0].Key;
+            var index = indices[0].Key;
+            if (definition.Nodes[output].OutputDataType != WorkflowDataTypes.Json)
+                Issue("unified.json-array.output", $"nodes.{output}", "Array get must connect to a JSON Output node.");
+            RequireSingleDataEdge(definition, array, "out", get, "array", Issue);
+            RequireSingleDataEdge(definition, index, "out", get, "index", Issue);
+            RequireSingleDataEdge(definition, get, "item", output, "in", Issue);
+            if (definition.Connections.Count != 4)
+                Issue("unified.json-array.data-shape", "connections", "Array get permits only Input → JSON to array, Integer constant → Array get.index, Array get.item → Output.");
+        }
 
         var execution = definition.ExecutionConnections?.Values.Where(edge => edge is not null).ToArray() ?? [];
         if (execution.Length != 1 || execution[0].Source != new PortReference(input, "then") ||

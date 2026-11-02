@@ -321,7 +321,7 @@ public static class WorkflowGraph
     public static bool HasControlNodes(WorkflowDefinition definition) => HasRouting(definition) || definition.Nodes.Values.Any(n => n?.Type == NodeTypes.Approval);
 
     public static bool HasTypedJson(WorkflowDefinition definition) => definition.Nodes.Values.Any(node =>
-        node?.Type is NodeTypes.JsonSelectString or NodeTypes.JsonProject or NodeTypes.JsonMerge or NodeTypes.JsonToArray or NodeTypes.ArrayLength || node?.InputDataType == WorkflowDataTypes.Json || node?.OutputDataType == WorkflowDataTypes.Json || node?.InputDataType == WorkflowDataTypes.JsonArray || node?.OutputDataType == WorkflowDataTypes.JsonArray);
+        node?.Type is NodeTypes.JsonSelectString or NodeTypes.JsonProject or NodeTypes.JsonMerge or NodeTypes.JsonToArray or NodeTypes.ArrayLength or NodeTypes.ArrayGet || node?.InputDataType == WorkflowDataTypes.Json || node?.OutputDataType == WorkflowDataTypes.Json || node?.InputDataType == WorkflowDataTypes.JsonArray || node?.OutputDataType == WorkflowDataTypes.JsonArray);
 
     /// <summary>Deterministic presentation/analysis order, never a runtime scheduler.</summary>
     public static ImmutableArray<string> OrderedNodes(WorkflowDefinition definition)

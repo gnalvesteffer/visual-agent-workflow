@@ -153,7 +153,7 @@ public partial class WorkflowGraphCanvas
     internal static string FriendlyName(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input => "Input", NodeTypes.Output => "Output", NodeTypes.Uppercase => "Uppercase", NodeTypes.Reverse => "Reverse", NodeTypes.TextTemplate => "Text template",
-        NodeTypes.JsonProject => "JSON projection", NodeTypes.JsonSelectString => "JSON selector", NodeTypes.JsonMerge => "JSON merge", NodeTypes.JsonToArray => "JSON to array", NodeTypes.ArrayLength => "Array length",
+        NodeTypes.JsonProject => "JSON projection", NodeTypes.JsonSelectString => "JSON selector", NodeTypes.JsonMerge => "JSON merge", NodeTypes.JsonToArray => "JSON to array", NodeTypes.ArrayLength => "Array length", NodeTypes.ArrayGet => "Array get",
         NodeTypes.Condition => "Condition", NodeTypes.Merge => "Merge", NodeTypes.Approval => "Approval",
         NodeTypes.ParallelFork => "Parallel fork", NodeTypes.ParallelBranch => "Parallel branch", NodeTypes.ParallelJoin => "Parallel join", NodeTypes.ParallelRendezvous => "Parallel rendezvous",
         NodeTypes.Sequence => "Sequence",
@@ -193,7 +193,7 @@ public partial class WorkflowGraphCanvas
         node.Type == NodeTypes.Loop ? "Bounded loop" : node.Type == NodeTypes.LoopBody ? "Loop body" : node.Type == NodeTypes.Terminate ? "Successful exit · no result" :
         node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall ? "Pinned workflow call" : node.Type == NodeTypes.FunctionCall ? "Pure function" :
         node.Type is NodeTypes.FunctionInput or NodeTypes.FunctionOutput ? "Function boundary" :
-        node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals ? "Pure value" :
+        node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals or NodeTypes.ArrayGet ? "Pure value" :
         node.Type == NodeTypes.BooleanBranch ? "Boolean routing" : node.Type is NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.WorkflowValue ? "Pure value" :
         node.Type is NodeTypes.VariableGet or NodeTypes.VariableSet ? "Run-scoped state" :
         node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform";
@@ -219,6 +219,7 @@ public partial class WorkflowGraphCanvas
             NodeTypes.JsonMerge => "<path d=\"M4 5h5m-5 7h5m0-7 6 5-6 5V5Zm0 0v7\"/>",
             NodeTypes.JsonToArray => "<path d=\"M4 4h12v12H4z\"/><path d=\"M7 8h6m-6 4h6\"/>",
             NodeTypes.ArrayLength => "<path d=\"M4 4h12v12H4z\"/><path d=\"M7 13V7m0 0-2 2m2-2 2 2m2 4h3\"/>",
+            NodeTypes.ArrayGet => "<path d=\"M4 4h12v12H4z\"/><path d=\"M7 8h6m-6 4h3m3 0 2 2m0-2-2 2\"/>",
             _ => "<path d=\"M4 5h12M4 10h12M4 15h8\"/><circle cx=\"2.5\" cy=\"5\" r=\".5\"/><circle cx=\"2.5\" cy=\"10\" r=\".5\"/><circle cx=\"2.5\" cy=\"15\" r=\".5\"/>"
         };
         return $"<svg viewBox=\"0 0 20 20\" focusable=\"false\">{shape}</svg>";

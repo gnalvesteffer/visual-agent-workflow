@@ -421,6 +421,8 @@ public static class WorkflowValidator
                 Error("node.schema", $"nodes.{id}", "JSON merge nodes require schema 1.55 or later.");
             if (node.Type is NodeTypes.JsonToArray or NodeTypes.ArrayLength && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph))
                 Error("node.schema", $"nodes.{id}", "Typed JSON-array nodes require schema 1.56 or later.");
+            if (node.Type == NodeTypes.ArrayGet && definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                Error("node.schema", $"nodes.{id}", "Array get is available in unified schema 2.0.");
             if (node.Type is NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or "1.14" or "1.15" or "1.16" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph))
                 Error("node.schema", $"nodes.{id}", "Parallel graph nodes require schema 1.14.");
             if (node.Type == NodeTypes.ParallelRendezvous && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph))
@@ -791,7 +793,7 @@ public static class WorkflowValidator
     private static void ValidateUnifiedGraph(WorkflowDefinition definition, Action<string, string, string> error)
     {
         if (definition.Nodes.Values.Any(node => node is null)) return;
-        if (definition.Nodes.Values.Any(node => node?.Type is NodeTypes.JsonToArray or NodeTypes.ArrayLength) &&
+        if (definition.Nodes.Values.Any(node => node?.Type is NodeTypes.JsonToArray or NodeTypes.ArrayLength or NodeTypes.ArrayGet) &&
             !definition.Nodes.Values.Any(node => node?.Type is NodeTypes.Sequence or NodeTypes.WorkflowCall))
         {
             ValidateExplicitBranchGraph(definition, error, allowBooleanTopology: true,

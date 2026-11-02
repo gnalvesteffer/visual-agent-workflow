@@ -267,6 +267,7 @@ public sealed class WorkflowNodeContractTests
             [NodeTypes.JsonMerge] = ("json-merge", [("left", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Json), ("right", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Json), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Json)]),
             [NodeTypes.JsonToArray] = ("json-to-array", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Json), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.JsonArray)]),
             [NodeTypes.ArrayLength] = ("array-length", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.JsonArray), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Integer)]),
+            [NodeTypes.ArrayGet] = ("array-get", [("array", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.JsonArray), ("index", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Integer), ("item", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Json)]),
             [NodeTypes.JsonSelectString] = ("json-select-string", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Json), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String)]),
             [NodeTypes.JsonProject] = ("json-project", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Json), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Json)]),
             [NodeTypes.TextTemplate] = ("text-template", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String)]),
@@ -493,7 +494,7 @@ public sealed class WorkflowNodeContractTests
             .Select((contract, index) => new KeyValuePair<string, NodeDefinition>(
                 $"node-{index}", new NodeDefinition(contract.Type, contract.TypeVersion)))
             .ToImmutableSortedDictionary(StringComparer.Ordinal);
-        var definition = new WorkflowDefinition(WorkflowSchemaVersions.IntegerStringConversionGraph, "descriptor-audit", "node-0", nodes,
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.CurrentAuthoringSchema, "descriptor-audit", "node-0", nodes,
             ImmutableSortedDictionary<string, ConnectionDefinition>.Empty);
         var before = definition;
 

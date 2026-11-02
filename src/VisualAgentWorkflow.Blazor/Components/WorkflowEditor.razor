@@ -629,6 +629,10 @@
                         }
                         <p>A successful end is recorded as <strong>Terminated</strong>; a failure end is recorded as a failed run with no result.</p>
                     }
+                    else if (node.Type == NodeTypes.ArrayGet)
+                    {
+                        <p>Selects one JSON value from a bounded array using a zero-based index. Negative or out-of-range indices fail when the Output evaluates this data path.</p>
+                    }
                     else if (terminal || ReadOnly)
                     {
                         <p>@node.Type</p>
@@ -1418,7 +1422,7 @@
             return new(NodeTypes.JsonSelectString, "1.0.0") { JsonPropertySelection = existing?.JsonPropertySelection ?? new("/name") };
         if (value == NodeTypes.JsonProject)
             return new(NodeTypes.JsonProject, "1.0.0") { JsonProjection = existing?.JsonProjection ?? new([new("name", "/name")]) };
-        if (value is NodeTypes.JsonToArray or NodeTypes.ArrayLength)
+        if (value is NodeTypes.JsonToArray or NodeTypes.ArrayLength or NodeTypes.ArrayGet)
             return new(value, "1.0.0");
         if (value == NodeTypes.TextTemplate)
             return new(NodeTypes.TextTemplate, "1.0.0") { TextTemplate = existing?.TextTemplate ?? new([new("input", "")]) };

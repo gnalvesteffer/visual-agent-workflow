@@ -79,12 +79,17 @@ the historical promotion chain.
   provenance remain future compatibility work.
 - [x] Preserve 2.0 through package, reuse, graph-function, clipboard, and
   nested-workflow editing paths while preserving pinned dependency snapshots.
+- [x] Extend bounded `array<json>` in current schema 2.0 with an exact
+  zero-based `ArrayGet` topology, typed JSON evidence, node-attributed bounds
+  failures, and unchanged historical playback/checkpoint contracts. See
+  [Decision 0065](decisions/0065-unified-json-array-get.md).
 - [x] Add Core, runtime, Hosting, Studio, package, and browser regressions for
   mixed current-feature graphs, legacy hash/playback stability, normalization,
   and host security boundaries.
 
 The consolidation includes typed MCP arguments combined with agents and scalar
-operations, both explicit integer conversions, JSON entry/projection/arrays,
+operations, both explicit integer conversions, JSON entry/projection and bounded
+array count/selection,
 bounded loop processing, ordered Sequence paths, static parallel branches and
 one/two-phase collaboration. Checkpoint recovery admits the same proven
 deterministic scalar-variable and loop-variable shapes under 2.0, preserving

@@ -11,7 +11,7 @@ public static class WorkflowExecutionShape
         if (Has(NodeTypes.WorkflowCall))
         {
             if (Has(NodeTypes.BooleanBranch)) return WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph;
-            if (Has(NodeTypes.JsonToArray) || Has(NodeTypes.ArrayLength)) return WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph;
+            if (Has(NodeTypes.JsonToArray) || Has(NodeTypes.ArrayLength) || Has(NodeTypes.ArrayGet)) return WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph;
             if (Has(NodeTypes.JsonMerge)) return WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph;
             if (definition.Nodes.Values.Any(node => node?.WorkflowCall?.Definition?.Nodes?.Values.Any(child =>
                     child?.Type == NodeTypes.Output && child.OutputDataType == WorkflowDataTypes.Json) == true))

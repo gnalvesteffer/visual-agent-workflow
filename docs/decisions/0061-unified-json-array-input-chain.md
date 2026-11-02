@@ -4,7 +4,7 @@
 
 ## Decision
 
-Schema 2.0 supports the existing bounded `array<json>` value in one direct
+Schema 2.0 first supported the existing bounded `array<json>` value in one direct
 caller-input path:
 
 `Input(JSON) → JsonToArray → ArrayLength → Output(Integer)`
@@ -23,7 +23,8 @@ Historical 1.x definitions continue through their existing validators,
 execution-shape selection, runtime behavior, and playback. This decision does
 not admit the array nodes in Sequence regions, graph functions, arbitrary
 effectful graphs, or checkpoint recovery. Those placements need their own
-ordering, value-boundary, evidence, and recovery proofs.
+ordering, value-boundary, evidence, and recovery proofs. The additional exact
+`ArrayGet` topology is specified by [Decision 0065](0065-unified-json-array-get.md).
 
 ## Rationale
 

@@ -440,6 +440,7 @@ public static class WorkflowNodeDescriptorRegistry
         Descriptor(NodeTypes.JsonMerge, "json-merge", [Input("left", WorkflowDataTypes.Json), Input("right", WorkflowDataTypes.Json), Output(WorkflowDataTypes.Json)], "1.55"),
         Descriptor(NodeTypes.JsonToArray, "json-to-array", [Input("in", WorkflowDataTypes.Json), Output(WorkflowDataTypes.JsonArray)], "1.56"),
         Descriptor(NodeTypes.ArrayLength, "array-length", [Input("in", WorkflowDataTypes.JsonArray), Output(WorkflowDataTypes.Integer)], "1.56"),
+        Descriptor(NodeTypes.ArrayGet, "array-get", [Input("array", WorkflowDataTypes.JsonArray), Input("index", WorkflowDataTypes.Integer), Output("item", WorkflowDataTypes.Json)], "2.0"),
         Descriptor(NodeTypes.JsonSelectString, "json-select-string", [Input("in", WorkflowDataTypes.Json), Output(WorkflowDataTypes.String)], "1.53"),
         Descriptor(NodeTypes.JsonProject, "json-project", [Input("in", WorkflowDataTypes.Json), Output(WorkflowDataTypes.Json)], "1.53"),
         Descriptor(NodeTypes.TextTemplate, "text-template", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String)], "1.0"),

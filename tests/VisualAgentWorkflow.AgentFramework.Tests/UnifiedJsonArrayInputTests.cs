@@ -68,6 +68,45 @@ public sealed class UnifiedJsonArrayInputTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "output");
     }
 
+    [Theory]
+    [InlineData("[\"first\",{\"ok\":true},null]", 0, "\"first\"")]
+    [InlineData("[\"first\",{\"ok\":true},null]", 1, "{\"ok\":true}")]
+    [InlineData("[\"first\",{\"ok\":true},null]", 2, "null")]
+    public async Task Unified_array_get_returns_json_value_and_records_typed_evidence(string input, long index, string expected)
+    {
+        var graph = ArrayGetGraph(index);
+        WorkflowValidator.ThrowIfInvalid(graph);
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(WorkflowJson.Deserialize(WorkflowJson.Serialize(graph)), "test"), input, null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.False(result.Failed, string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
+        Assert.Equal(expected, result.Output);
+        var item = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "get");
+        using var evidence = JsonDocument.Parse(item.Data!);
+        Assert.Equal(WorkflowDataTypes.Json, evidence.RootElement.GetProperty("dataType").GetString());
+        Assert.Equal(expected, evidence.RootElement.GetProperty("value").GetRawText());
+    }
+
+    [Theory]
+    [InlineData("[]", 0)]
+    [InlineData("[1]", -1)]
+    [InlineData("[1]", 1)]
+    [InlineData("[1]", 99)]
+    public async Task Unified_array_get_fails_for_negative_or_out_of_range_indices(string input, long index)
+    {
+        var events = new List<ExecutionEvent>();
+
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(ArrayGetGraph(index), "test"), input, null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; }));
+
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "get");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "output");
+    }
+
     private static WorkflowDefinition ArrayInputGraph()
     {
         var nodes = new Dictionary<string, NodeDefinition>
@@ -88,6 +127,33 @@ public sealed class UnifiedJsonArrayInputTests
             ["input-output"] = new(new("input", "then"), new("output", "execute"), "execution")
         }.ToImmutableSortedDictionary(StringComparer.Ordinal);
         return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, "unified-json-array-input", "input", nodes, data)
+        {
+            ExecutionConnections = execution
+        };
+    }
+
+    private static WorkflowDefinition ArrayGetGraph(long index)
+    {
+        var nodes = new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0") { InputDataType = WorkflowDataTypes.Json },
+            ["to-array"] = new(NodeTypes.JsonToArray, "1.0.0"),
+            ["index"] = new(NodeTypes.IntegerConstant, "1.0.0") { IntegerConstant = new(index) },
+            ["get"] = new(NodeTypes.ArrayGet, "1.0.0"),
+            ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.Json }
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+        var data = new Dictionary<string, ConnectionDefinition>
+        {
+            ["input-array"] = new(new("input", "out"), new("to-array", "in"), "data"),
+            ["array-get"] = new(new("to-array", "out"), new("get", "array"), "data"),
+            ["index-get"] = new(new("index", "out"), new("get", "index"), "data"),
+            ["get-output"] = new(new("get", "item"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+        var execution = new Dictionary<string, ConnectionDefinition>
+        {
+            ["input-output"] = new(new("input", "then"), new("output", "execute"), "execution")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+        return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, "unified-json-array-get", "input", nodes, data)
         {
             ExecutionConnections = execution
         };
