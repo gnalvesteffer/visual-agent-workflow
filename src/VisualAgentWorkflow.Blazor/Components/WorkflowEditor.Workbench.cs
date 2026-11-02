@@ -68,7 +68,9 @@ public partial class WorkflowEditor
         if (context is { SourceNodeId: { } sourceNodeId, SourcePortId: { } sourcePortId } &&
             Definition.Nodes.TryGetValue(sourceNodeId, out var sourceNode))
         {
-            var sourcePort = CanvasPorts(sourceNode).FirstOrDefault(port => port.Direction == WorkflowPortDirection.Output && port.Id == sourcePortId);
+            var sourcePort = CanvasPorts(sourceNode).FirstOrDefault(port => port.Direction == WorkflowPortDirection.Output &&
+                port.Id == sourcePortId && (context.SourcePortKind is null ||
+                    string.Equals(port.Kind.ToString(), context.SourcePortKind, StringComparison.OrdinalIgnoreCase)));
             var sourceType = sourcePort?.DataType ?? (sourcePort?.Kind == WorkflowPortKind.Execution ? "execution" : "unknown");
             return $"Create from {NodeLabel(sourceNodeId)} · {sourcePortId}. Showing nodes with a compatible {sourceType} input.";
         }
@@ -139,8 +141,9 @@ public partial class WorkflowEditor
             context.SourcePortId is not { } sourcePortId || !Definition.Nodes.TryGetValue(sourceNodeId, out var sourceNode))
             return entries;
 
-        if (context.ConnectionId is { } connectionId && context.TargetNodeId is { } targetNodeId &&
-            context.TargetPortId is { } targetPortId && Definition.Nodes.ContainsKey(targetNodeId))
+        if (TryGetDataConnectionId(context.ConnectionId, out var connectionId) &&
+            context.TargetNodeId is { } targetNodeId && context.TargetPortId is { } targetPortId &&
+            Definition.Nodes.ContainsKey(targetNodeId))
         {
             return entries.Where(entry =>
             {
@@ -156,7 +159,9 @@ public partial class WorkflowEditor
             }).ToArray();
         }
 
-        var sourcePort = CanvasPorts(sourceNode).FirstOrDefault(port => port.Direction == WorkflowPortDirection.Output && port.Id == sourcePortId);
+        var sourcePort = CanvasPorts(sourceNode).FirstOrDefault(port => port.Direction == WorkflowPortDirection.Output &&
+            port.Id == sourcePortId && (context.SourcePortKind is null ||
+                string.Equals(port.Kind.ToString(), context.SourcePortKind, StringComparison.OrdinalIgnoreCase)));
         if (sourcePort is null) return entries;
 
         return entries.Where(entry =>
@@ -216,6 +221,20 @@ public partial class WorkflowEditor
     private IReadOnlyList<WorkflowNodeLibraryEntry> LibraryEntries(GraphContextRequest? context = null)
     {
         return FilterBySourcePin(UnifiedLibraryEntries(), context);
+    }
+
+    private static bool TryGetDataConnectionId(string? canvasConnectionId, out string connectionId)
+    {
+        const string prefix = "data:";
+        if (canvasConnectionId is not null && canvasConnectionId.StartsWith(prefix, StringComparison.Ordinal) &&
+            canvasConnectionId.Length > prefix.Length)
+        {
+            connectionId = canvasConnectionId[prefix.Length..];
+            return true;
+        }
+
+        connectionId = string.Empty;
+        return false;
     }
 
     private IReadOnlyList<WorkflowNodeLibraryEntry> UnifiedLibraryEntries()
@@ -303,7 +322,7 @@ public partial class WorkflowEditor
         if (!LibraryEntries(context).Any(e => e.Key == key && e.Enabled)) return;
         var insertion = Insertion(context);
         await CloseMenu(context);
-        if (context?.ConnectionId is { } connectionId && context.TargetNodeId is not null &&
+        if (TryGetDataConnectionId(context?.ConnectionId, out var connectionId) && context?.TargetNodeId is not null &&
             WorkflowSchemaVersions.UsesExplicitGraph(Definition))
         {
             try

@@ -406,12 +406,13 @@ public partial class WorkflowGraphCanvas
 
     [JSInvokable]
     public async Task OpenContextMenu(string? nodeId, string? connectionId, int segment, double x, double y, double clientX, double clientY,
-        string? sourceNodeId = null, string? sourcePortId = null, string? targetPortId = null)
+        string? sourceNodeId = null, string? sourcePortId = null, string? targetPortId = null, string? sourcePortKind = null)
     {
         if (disposed || Disabled || !EnableContextMenu || ContextMenu is null || !double.IsFinite(x) || !double.IsFinite(y)) return;
         nodeId = nodeId is not null && Definition.Nodes.ContainsKey(nodeId) ? nodeId : null;
         sourceNodeId = sourceNodeId is not null && Definition.Nodes.ContainsKey(sourceNodeId) ? sourceNodeId : null;
         sourcePortId = sourceNodeId is null || string.IsNullOrWhiteSpace(sourcePortId) ? null : sourcePortId;
+        sourcePortKind = sourcePortId is null || string.IsNullOrWhiteSpace(sourcePortKind) ? null : sourcePortKind;
         targetPortId = nodeId is null || string.IsNullOrWhiteSpace(targetPortId) ? null : targetPortId;
         connectionId = FindConnection(connectionId) is not null ? connectionId : null;
         var targetNodeId = nodeId;
@@ -425,14 +426,22 @@ public partial class WorkflowGraphCanvas
             {
                 sourceNodeId = connection.Definition.Source.NodeId;
                 sourcePortId = connection.Definition.Source.PortId;
+                sourcePortKind = WorkflowPortKind.Data.ToString().ToLowerInvariant();
                 targetNodeId = connection.Definition.Target.NodeId;
                 targetPortId = connection.Definition.Target.PortId;
             }
             await SelectWire(connectionId);
         }
-        else if (nodeId is not null) await SelectNode(nodeId);
+        else if (nodeId is not null)
+        {
+            var selectedNodeIds = browserSession is null
+                ? []
+                : await browserSession.InvokeAsync<string[]>("selection");
+            if (!selectedNodeIds.Contains(nodeId, StringComparer.Ordinal))
+                await SelectNode(nodeId);
+        }
         contextMenu = new(Guid.NewGuid().ToString("N"), nodeId, connectionId, segment, Snap(x, y), clientX, clientY,
-            sourceNodeId, sourcePortId, targetNodeId, targetPortId);
+            sourceNodeId, sourcePortId, targetNodeId, targetPortId, sourcePortKind);
         await InvokeAsync(StateHasChanged);
     }
 

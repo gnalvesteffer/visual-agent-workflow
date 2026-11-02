@@ -13,5 +13,5 @@ public sealed record WorkflowNodeLibraryEntry(string Key, string Label, string C
 }
 public sealed record GraphContextRequest(string Id, string? NodeId, string? ConnectionId, int Segment,
     GraphPoint Position, double ClientX, double ClientY, string? SourceNodeId = null, string? SourcePortId = null,
-    string? TargetNodeId = null, string? TargetPortId = null);
+    string? TargetNodeId = null, string? TargetPortId = null, string? SourcePortKind = null);
 public sealed record GraphNodeCreateRequest(string Key, GraphContextRequest Context);

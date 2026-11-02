@@ -285,40 +285,45 @@ public static class WorkflowEndpoints
             }
         });
 
-        group.MapPost("/runs/{runId:guid}/cancel", async (Guid runId, IWorkflowClient client) =>
+        // Program owns the richer unscoped /api/runs endpoints. These summaries
+        // remain only for project-scoped routes, where they do not collide.
+        if (!string.Equals(routePrefix, "/api", StringComparison.Ordinal))
         {
-            try
+            group.MapPost("/runs/{runId:guid}/cancel", async (Guid runId, IWorkflowClient client) =>
             {
-                await client.CancelRunAsync(runId);
-                return Results.Accepted($"/api/runs/{runId}");
-            }
-            catch (KeyNotFoundException)
+                try
+                {
+                    await client.CancelRunAsync(runId);
+                    return Results.Accepted($"/api/runs/{runId}");
+                }
+                catch (KeyNotFoundException)
+                {
+                    return Results.NotFound(new { error = "Run not found." });
+                }
+            });
+
+            group.MapGet("/runs", async (IWorkflowClient client) =>
             {
-                return Results.NotFound(new { error = "Run not found." });
-            }
-        });
+                var runs = await client.ListRunsAsync();
+                var summaries = runs.Select(r => new { runId = r.Header.RunId, status = r.Status, createdAt = r.Header.CreatedAt }).ToList();
+                return Results.Ok(summaries);
+            });
 
-        group.MapGet("/runs", async (IWorkflowClient client) =>
-        {
-            var runs = await client.ListRunsAsync();
-            var summaries = runs.Select(r => new { runId = r.Header.RunId, status = r.Status, createdAt = r.Header.CreatedAt }).ToList();
-            return Results.Ok(summaries);
-        });
+            group.MapGet("/runs/{runId:guid}", async (Guid runId, IWorkflowClient client) =>
+            {
+                var run = await client.GetRunAsync(runId);
+                if (run is null) return Results.NotFound(new { error = "Run not found." });
+                return Results.Ok(new { runId = run.Header.RunId, status = run.Status, eventCount = run.Events.Length });
+            });
 
-        group.MapGet("/runs/{runId:guid}", async (Guid runId, IWorkflowClient client) =>
-        {
-            var run = await client.GetRunAsync(runId);
-            if (run is null) return Results.NotFound(new { error = "Run not found." });
-            return Results.Ok(new { runId = run.Header.RunId, status = run.Status, eventCount = run.Events.Length });
-        });
-
-        group.MapGet("/runs/{runId:guid}/events", async (Guid runId, IWorkflowClient client) =>
-        {
-            var run = await client.GetRunAsync(runId);
-            if (run is null) return Results.NotFound(new { error = "Run not found." });
-            var events = run.Events.Select(e => new { sequence = e.Sequence, kind = e.Kind, nodeId = e.NodeId, timestamp = e.Timestamp }).ToList();
-            return Results.Ok(events);
-        });
+            group.MapGet("/runs/{runId:guid}/events", async (Guid runId, IWorkflowClient client) =>
+            {
+                var run = await client.GetRunAsync(runId);
+                if (run is null) return Results.NotFound(new { error = "Run not found." });
+                var events = run.Events.Select(e => new { sequence = e.Sequence, kind = e.Kind, nodeId = e.NodeId, timestamp = e.Timestamp }).ToList();
+                return Results.Ok(events);
+            });
+        }
     }
 
     private sealed class CatalogErrorFilter : IEndpointFilter

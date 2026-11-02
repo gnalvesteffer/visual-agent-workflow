@@ -50,8 +50,8 @@ def create_workflow(page):
     page.get_by_role('menu', name='Project actions', exact=True).get_by_role('menuitem', name='New workflow', exact=True).click()
 
 
-def new_workflow_fixture(designer):
-    """Import the explicit three-node fixture used by legacy configuration tests.
+def new_workflow_fixture(designer, *, schema_version="1.0"):
+    """Import the explicit three-node fixture, optionally using a historical schema.
 
     Creation itself is tested from the blank canvas in workbench_smoke.py.
     """
@@ -64,12 +64,15 @@ def new_workflow_fixture(designer):
     create_workflow(designer.page)
     designer.get_by_text(re.compile("^New workflow created")).wait_for(state="attached")
     definition = {
-        "schemaVersion":"1.0", "workflowId":"fixture", "entryNodeId":"input",
+        "schemaVersion":schema_version, "workflowId":"fixture", "entryNodeId":"input",
         "nodes":{name:{"type":kind,"typeVersion":"1.0.0"} for name,kind in
                  (("input","core.input"),("step-1","core.text.uppercase"),("output","core.output"))},
         "connections":{
             "link-1":{"source":{"nodeId":"input","portId":"out"},"target":{"nodeId":"step-1","portId":"in"},"kind":"data"},
             "link-output":{"source":{"nodeId":"step-1","portId":"out"},"target":{"nodeId":"output","portId":"in"},"kind":"data"}}}
+    if schema_version == "2.0":
+        definition["executionConnections"] = {
+            "activate-output":{"source":{"nodeId":"input","portId":"then"},"target":{"nodeId":"output","portId":"execute"},"kind":"execution"}}
     secondary = designer.locator("details.vaw-secondary-workflow-tools")
     if secondary.count() and not secondary.evaluate("element => element.open"):
         secondary.locator(":scope > summary").click()

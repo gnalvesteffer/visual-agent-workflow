@@ -25,6 +25,32 @@ public sealed class PureNodeInsertionTests
     }
 
     [Fact]
+    public void InsertPureNodeBetween_supports_string_transform_on_unified_schema()
+    {
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.CurrentAuthoringSchema, "unified-reverse", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("upper", new(NodeTypes.Uppercase, "1.0.0"))
+                .Add("output", new(NodeTypes.Output, "1.0.0")),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("source", new(new("input", "out"), new("upper", "in"), "data"))
+                .Add("result", new(new("upper", "out"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("activate", new(new("input", "then"), new("output", "execute"), "execution"))
+        };
+
+        var inserted = GraphEditing.InsertPureNodeBetween(definition, "result", new(NodeTypes.Reverse, "1.0.0"));
+
+        var reverse = Assert.Single(inserted.Nodes, pair => pair.Value.Type == NodeTypes.Reverse).Key;
+        Assert.Equal(new PortReference("upper", "out"), inserted.Connections["result"].Source);
+        Assert.Equal(new PortReference(reverse, "in"), inserted.Connections["result"].Target);
+        Assert.Contains(inserted.Connections.Values, edge => edge.Source == new PortReference(reverse, "out") &&
+            edge.Target == new PortReference("output", "in"));
+        Assert.Empty(WorkflowValidator.Validate(inserted));
+    }
+
+    [Fact]
     public void InsertPureNodeBetween_rejects_execution_and_impure_or_non_unary_nodes_without_mutation()
     {
         var definition = ConversionWorkflow();

@@ -60,11 +60,21 @@ def new_blank(designer):
 
 def prompt_template_check(page, designer):
     new_blank(designer)
+    workflow_id = designer.locator("[data-vaw-workflow-selector]").input_value()
     definition = page.request.get(BASE + "/api/templates/default").json()
-    definition["schemaVersion"] = "1.7"
+    definition.update({"schemaVersion": "2.0", "workflowId": workflow_id, "entryNodeId": "input"})
     definition["parameters"] = {"customer": {"displayName": "Customer", "defaultValue": "Ada"}}
-    definition["nodes"]["step-1"] = {"type": "core.agent", "typeVersion": "1.0.0", "agent": {
-        "providerId": "demo.scripted", "instructions": "Answer briefly.", "tools": []}}
+    definition["nodes"] = {
+        "input": {"type": "core.input", "typeVersion": "1.0.0"},
+        "step-1": {"type": "core.agent", "typeVersion": "1.0.0", "agent": {
+            "providerId": "demo.scripted", "instructions": "Answer briefly.", "tools": []}},
+        "output": {"type": "core.output", "typeVersion": "1.0.0"}}
+    definition["connections"] = {
+        "input-agent": {"source": {"nodeId": "input", "portId": "out"}, "target": {"nodeId": "step-1", "portId": "in"}, "kind": "data"},
+        "agent-output": {"source": {"nodeId": "step-1", "portId": "out"}, "target": {"nodeId": "output", "portId": "in"}, "kind": "data"}}
+    definition["executionConnections"] = {
+        "activate-agent": {"source": {"nodeId": "input", "portId": "then"}, "target": {"nodeId": "step-1", "portId": "execute"}, "kind": "execution"},
+        "agent-output": {"source": {"nodeId": "step-1", "portId": "out"}, "target": {"nodeId": "output", "portId": "execute"}, "kind": "execution"}}
     settings(designer, True)
     secondary = designer.locator("details.vaw-secondary-workflow-tools")
     if not secondary.evaluate("e => e.open"):
@@ -141,17 +151,22 @@ def text_template_node_check(page, designer):
         data={"definition": saved["draft"]["definition"], "input": "What is 1+1?", "parameters": {"customer": "Grace"}})
     assert response.ok, response.text()
     run_id = response.json()["header"]["runId"]
-    page.wait_for_function("""async id => (await (await fetch('/api/runs/'+id)).json()).status==='completed'""", arg=run_id)
-    run = page.request.get(BASE + f"/api/runs/{run_id}").json()
-    assert any(event["nodeId"] == template_id and event["kind"] == "node.completed" and
-               event.get("data") == "Customer Grace asks: What is 1+1?" for event in run["events"])
+    page.wait_for_function("""async id => {
+        const response = await fetch('/api/runs/'+id, {cache: 'no-store'});
+        if (!response.ok) throw new Error(`Run inspection returned HTTP ${response.status}: ${await response.text()}`);
+        const run = await response.json();
+        return run.status === 'completed';
+    }""", arg=run_id)
+    run = page.evaluate("""async id => await (await fetch('/api/runs/'+id, {cache: 'no-store'})).json()""", run_id)
+    assert any(event["nodeId"] == template_id and event["kind"] == "data.evaluated" and
+               json.loads(event["data"])["value"] == "Customer Grace asks: What is 1+1?" for event in run["events"]), run["events"]
 
 
 def typed_json_projection_check(page, designer):
     new_blank(designer)
     workflow_id = designer.locator("[data-vaw-workflow-selector]").input_value()
     definition = page.request.get(BASE + "/api/templates/default").json()
-    definition.update({"schemaVersion": "1.13", "workflowId": workflow_id, "entryNodeId": "input"})
+    definition.update({"schemaVersion": "2.0", "workflowId": workflow_id, "entryNodeId": "input"})
     definition["nodes"] = {
         "input": {"type": "core.input", "typeVersion": "1.0.0", "inputDataType": "json"},
         "project": {"type": "core.json.project", "typeVersion": "1.0.0", "jsonProjection": {
@@ -188,7 +203,7 @@ def typed_json_projection_check(page, designer):
     designer.get_by_role("button", name="Save", exact=True).click()
     designer.get_by_text("Draft saved.", exact=True).wait_for(state="attached")
     saved = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()["draft"]["definition"]
-    assert saved["schemaVersion"] == "1.16"
+    assert saved["schemaVersion"] == "2.0"
     assert saved["nodes"]["project"]["jsonProjection"]["fields"] == [
         {"name": "customer", "pointer": "/customer", "valueSchema": {
             "type": "object", "properties": [{"name": "displayName", "pointer": "/fullName", "schema": {"type": "string"}}]}},
@@ -196,19 +211,18 @@ def typed_json_projection_check(page, designer):
             "type": "object", "properties": [{"name": "itemId", "pointer": "/id", "schema": {"type": "integer"}}]}}}]
 
 
-def explicit_graph_preview_check(page, designer):
-    """Exercise opt-in explicit pin authoring, draft save, execution and read-only playback."""
+def unified_graph_authoring_check(page, designer):
+    """Exercise typed graph authoring, execution and read-only playback on current schema."""
     new_blank(designer)
     workflow_id = designer.locator("[data-vaw-workflow-selector]").input_value()
     show_library(designer)
-    designer.get_by_role("button", name="Start typed graph preview", exact=True).click()
     designer.get_by_role("button", name="Save", exact=True).click()
     designer.get_by_text("Draft saved.", exact=True).wait_for(state="attached")
     saved = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()["draft"]["definition"]
-    assert saved["schemaVersion"] == "1.23"
+    assert saved["schemaVersion"] == "2.0"
 
     definition = page.request.get(BASE + "/api/templates/default").json()
-    definition.update({"schemaVersion": "1.23", "workflowId": workflow_id, "entryNodeId": "input"})
+    definition.update({"schemaVersion": "2.0", "workflowId": workflow_id, "entryNodeId": "input"})
     definition["nodes"] = {
         "input": {"type": "core.input", "typeVersion": "1.0.0"},
         "constant": {"type": "core.constant.string", "typeVersion": "1.0.0", "stringConstant": {"value": "!"}},
@@ -248,12 +262,12 @@ def explicit_graph_preview_check(page, designer):
     page.mouse.up()
     creation_menu = canvas.get_by_role("dialog", name="Graph actions", exact=True)
     expect(creation_menu).to_be_visible()
-    expect(creation_menu.locator(".vaw-insertion-hint")).to_contain_text("compatible string input")
-    expect(creation_menu.get_by_role("button", name="Add Concatenate text", exact=True)).to_be_visible()
-    # Schema 1.23 intentionally exposes only the first explicit text nodes;
-    # later typed graph upgrades add comparison and branching contracts.
+    expect(creation_menu.locator(".vaw-insertion-hint")).to_contain_text("compatible pure node")
+    expect(creation_menu.get_by_role("button", name="Add Reverse text", exact=True)).to_be_visible()
+    expect(creation_menu.get_by_role("button", name="Add Text template", exact=True)).to_be_visible()
+    expect(creation_menu.get_by_role("button", name="Add Concatenate text", exact=True)).to_have_count(0)
     expect(creation_menu.get_by_role("button", name="Add Compare strings", exact=True)).to_have_count(0)
-    expect(creation_menu.get_by_role("button", name="Add String constant", exact=True)).to_be_visible()
+    expect(creation_menu.get_by_role("button", name="Add String constant", exact=True)).to_have_count(0)
     page.keyboard.press("Escape")
     expect(creation_menu).to_have_count(0)
     designer.get_by_label("Node to organize", exact=True).select_option("constant")
@@ -296,99 +310,21 @@ def explicit_graph_preview_check(page, designer):
 
     workbench(designer)
     new_blank(designer)
-    branch_workflow_id = designer.locator("[data-vaw-workflow-selector]").input_value()
-    show_library(designer)
-    designer.get_by_role("button", name="Start typed graph preview", exact=True).click()
-    designer.get_by_role("button", name="Save", exact=True).click()
-    designer.get_by_text("Draft saved.", exact=True).wait_for(state="attached")
-    designer.get_by_role("button", name="Enable Boolean Branch preview", exact=True).click()
-    library = designer.locator(".vaw-node-library")
-    library.get_by_role("button", name="Add Compare strings", exact=True).click()
-    library.get_by_role("button", name="Add Boolean branch", exact=True).click()
-    library.get_by_role("button", name="Add Terminate", exact=True).click()
-    branch = designer.locator("li[data-node-type='core.branch.boolean']")
-    expect(branch).to_have_count(1)
-    expect(branch.locator("[data-socket='condition'][data-socket-kind='data'][data-socket-type='boolean']")).to_have_count(1)
-    expect(branch.locator("[data-socket='true'][data-socket-kind='execution']")).to_have_count(1)
-    expect(branch.locator("[data-socket='false'][data-socket-kind='execution']")).to_have_count(1)
-    # Invalid-by-construction edits remain saveable; issues are reported in the
-    # non-blocking Problems tray rather than as an intrusive editing alert.
-    problems = designer.get_by_role("region", name="Workflow runs, output and problems", exact=True)
-    expect(problems.get_by_role("button", name=re.compile(r"Problems \d+"))).to_be_visible()
-    designer.get_by_role("button", name="Save", exact=True).click()
-    designer.get_by_text("Draft saved.", exact=True).wait_for(state="attached")
-    saved_branch = page.request.get(BASE + f"/api/workflows/{branch_workflow_id}/design").json()["draft"]["definition"]
-    assert saved_branch["schemaVersion"] == "1.24"
-    assert {node["type"] for node in saved_branch["nodes"].values()} >= {
-        "core.text.equals", "core.branch.boolean", "core.terminate"}
-
-    # The guarded schema upgrade is shown only for a valid proof graph. Import a
-    # complete 1.24 graph so the smoke verifies that workflow path, not a bypass.
-    branch_definition = page.request.get(BASE + "/api/templates/default").json()
-    branch_definition.update({"schemaVersion": "1.24", "workflowId": branch_workflow_id, "entryNodeId": "input"})
-    branch_definition["nodes"] = {
+    workflow_id = designer.locator("[data-vaw-workflow-selector]").input_value()
+    definition = page.request.get(BASE + "/api/templates/default").json()
+    definition.update({"schemaVersion": "2.0", "workflowId": workflow_id, "entryNodeId": "input"})
+    definition["nodes"] = {
         "input": {"type": "core.input", "typeVersion": "1.0.0"},
-        "expected": {"type": "core.constant.string", "typeVersion": "1.0.0", "stringConstant": {"value": "yes"}},
-        "equals": {"type": "core.text.equals", "typeVersion": "1.0.0"},
-        "branch": {"type": "core.branch.boolean", "typeVersion": "1.0.0"},
-        "output": {"type": "core.output", "typeVersion": "1.0.0"},
-        "terminate": {"type": "core.terminate", "typeVersion": "1.0.0", "termination": {"outcome": "failure"}}}
-    branch_definition["connections"] = {
-        "input-left": {"source": {"nodeId": "input", "portId": "out"}, "target": {"nodeId": "equals", "portId": "left"}, "kind": "data"},
-        "expected-right": {"source": {"nodeId": "expected", "portId": "out"}, "target": {"nodeId": "equals", "portId": "right"}, "kind": "data"},
-        "comparison": {"source": {"nodeId": "equals", "portId": "out"}, "target": {"nodeId": "branch", "portId": "condition"}, "kind": "data"},
-        "output-value": {"source": {"nodeId": "input", "portId": "out"}, "target": {"nodeId": "output", "portId": "in"}, "kind": "data"}}
-    branch_definition["executionConnections"] = {
-        "activate-branch": {"source": {"nodeId": "input", "portId": "then"}, "target": {"nodeId": "branch", "portId": "execute"}, "kind": "execution"},
-        "true-route": {"source": {"nodeId": "branch", "portId": "true"}, "target": {"nodeId": "output", "portId": "execute"}, "kind": "execution"},
-        "false-route": {"source": {"nodeId": "branch", "portId": "false"}, "target": {"nodeId": "terminate", "portId": "execute"}, "kind": "execution"}}
-    settings(designer, True)
-    secondary = designer.locator("details.vaw-secondary-workflow-tools")
-    if not secondary.evaluate("e => e.open"):
-        secondary.locator(":scope > summary").click()
-    details = designer.get_by_text("Import / export definition", exact=True).locator("..")
-    if not details.evaluate("element => element.open"):
-        details.locator("summary").click()
-    designer.get_by_label("Workflow JSON", exact=True).fill(json.dumps(branch_definition))
-    designer.get_by_role("button", name="Import JSON into draft", exact=True).click()
-    designer.get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for(state="attached")
-    settings(designer, False)
-
-    show_library(designer)
-    designer.get_by_role("button", name="Enable Boolean primitives", exact=True).click()
-    library.get_by_role("button", name="Add Boolean constant", exact=True).click()
-    library.get_by_role("button", name="Add Boolean NOT", exact=True).click()
-    boolean_constant = designer.locator("li[data-node-type='core.constant.boolean']")
-    boolean_not = designer.locator("li[data-node-type='core.boolean.not']")
-    expect(boolean_constant).to_have_count(1)
-    expect(boolean_constant.locator("[data-socket='out'][data-socket-kind='data'][data-socket-type='boolean']")).to_have_count(1)
-    expect(boolean_not.locator("[data-socket='value'][data-socket-kind='data'][data-socket-type='boolean']")).to_have_count(1)
-    expect(boolean_not.locator("[data-socket='out'][data-socket-kind='data'][data-socket-type='boolean']")).to_have_count(1)
-    constant_id = boolean_constant.get_attribute("data-node-id")
-    boolean_constant.get_by_role("button", name=f"Move node {constant_id}").click()
-    designer.get_by_label(f"Boolean constant value for {constant_id}", exact=True).select_option("true")
-    designer.get_by_role("button", name="Save", exact=True).click()
-    designer.get_by_text("Draft saved.", exact=True).wait_for(state="attached")
-    saved_boolean = page.request.get(BASE + f"/api/workflows/{branch_workflow_id}/design").json()["draft"]["definition"]
-    assert saved_boolean["schemaVersion"] == "1.25"
-    assert saved_boolean["nodes"][constant_id]["booleanConstant"]["value"] is True
-    assert {node["type"] for node in saved_boolean["nodes"].values()} >= {
-        "core.constant.boolean", "core.boolean.not", "core.branch.boolean"}
-
-    topology_definition = page.request.get(BASE + "/api/templates/default").json()
-    topology_definition.update({"schemaVersion": "1.25", "workflowId": branch_workflow_id, "entryNodeId": "input"})
-    topology_definition["nodes"] = {
-        "input": {"type": "core.input", "typeVersion": "1.0.0"},
-        "constant": {"type": "core.constant.boolean", "typeVersion": "1.0.0", "booleanConstant": {"value": True}},
+        "constant": {"type": "core.constant.boolean", "typeVersion": "1.0.0", "booleanConstant": {"value": False}},
         "not": {"type": "core.boolean.not", "typeVersion": "1.0.0"},
         "branch": {"type": "core.branch.boolean", "typeVersion": "1.0.0"},
         "output": {"type": "core.output", "typeVersion": "1.0.0"},
         "terminate": {"type": "core.terminate", "typeVersion": "1.0.0", "termination": {"outcome": "failure"}}}
-    topology_definition["connections"] = {
+    definition["connections"] = {
         "constant-not": {"source": {"nodeId": "constant", "portId": "out"}, "target": {"nodeId": "not", "portId": "value"}, "kind": "data"},
         "not-branch": {"source": {"nodeId": "not", "portId": "out"}, "target": {"nodeId": "branch", "portId": "condition"}, "kind": "data"},
         "output-value": {"source": {"nodeId": "input", "portId": "out"}, "target": {"nodeId": "output", "portId": "in"}, "kind": "data"}}
-    topology_definition["executionConnections"] = {
+    definition["executionConnections"] = {
         "activate-branch": {"source": {"nodeId": "input", "portId": "then"}, "target": {"nodeId": "branch", "portId": "execute"}, "kind": "execution"},
         "true-route": {"source": {"nodeId": "branch", "portId": "true"}, "target": {"nodeId": "output", "portId": "execute"}, "kind": "execution"},
         "false-route": {"source": {"nodeId": "branch", "portId": "false"}, "target": {"nodeId": "terminate", "portId": "execute"}, "kind": "execution"}}
@@ -399,20 +335,48 @@ def explicit_graph_preview_check(page, designer):
     details = designer.get_by_text("Import / export definition", exact=True).locator("..")
     if not details.evaluate("element => element.open"):
         details.locator("summary").click()
-    designer.get_by_label("Workflow JSON", exact=True).fill(json.dumps(topology_definition))
+    designer.get_by_label("Workflow JSON", exact=True).fill(json.dumps(definition))
     designer.get_by_role("button", name="Import JSON into draft", exact=True).click()
     designer.get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for(state="attached")
     settings(designer, False)
-    show_library(designer)
-    designer.get_by_role("button", name="Enable branch topologies", exact=True).click()
-    library.get_by_role("button", name="Add Boolean branch", exact=True).click()
-    library.get_by_role("button", name="Add Terminate", exact=True).click()
+    branch = designer.locator("li[data-node-id='branch']")
+    expect(branch.locator("[data-socket='condition'][data-socket-kind='data'][data-socket-type='boolean']")).to_have_count(1)
+    expect(branch.locator("[data-socket='true'][data-socket-kind='execution']")).to_have_count(1)
+    expect(branch.locator("[data-socket='false'][data-socket-kind='execution']")).to_have_count(1)
     designer.get_by_role("button", name="Save", exact=True).click()
     designer.get_by_text("Draft saved.", exact=True).wait_for(state="attached")
-    saved_topology = page.request.get(BASE + f"/api/workflows/{branch_workflow_id}/design").json()["draft"]["definition"]
-    assert saved_topology["schemaVersion"] == "1.26"
-    assert sum(node["type"] == "core.branch.boolean" for node in saved_topology["nodes"].values()) == 2
-    assert sum(node["type"] == "core.terminate" for node in saved_topology["nodes"].values()) == 2
+    saved = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()["draft"]["definition"]
+    assert saved["schemaVersion"] == "2.0"
+    assert saved["nodes"]["not"]["type"] == "core.boolean.not"
+    assert saved["nodes"]["branch"]["type"] == "core.branch.boolean"
+
+    success = page.request.post(BASE + "/api/runs", data={"definition": saved, "input": "unified"})
+    assert success.ok, success.text()
+    success_id = success.json()["header"]["runId"]
+    success_run = page.evaluate("""async id => {
+        for (let attempt = 0; attempt < 100; attempt++) {
+            const run = await (await fetch('/api/runs/'+id)).json();
+            if (run.status === 'completed' || run.status === 'failed') return run;
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        return await (await fetch('/api/runs/'+id)).json();
+    }""", success_id)
+    assert success_run["status"] == "completed", success_run["status"]
+    assert any(event["nodeId"] == "output" and event["kind"] == "node.completed" for event in success_run["events"])
+
+    definition["nodes"]["constant"]["booleanConstant"]["value"] = True
+    failure = page.request.post(BASE + "/api/runs", data={"definition": definition, "input": "unified"})
+    assert failure.ok, failure.text()
+    failure_id = failure.json()["header"]["runId"]
+    failure_run = page.evaluate("""async id => {
+        for (let attempt = 0; attempt < 100; attempt++) {
+            const run = await (await fetch('/api/runs/'+id)).json();
+            if (run.status === 'completed' || run.status === 'failed') return run;
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        return await (await fetch('/api/runs/'+id)).json();
+    }""", failure_id)
+    assert failure_run["status"] == "failed", failure_run["status"]
 
 
 def graph_function_authoring_check(page, designer):
@@ -459,7 +423,7 @@ def graph_function_authoring_check(page, designer):
     new_blank(designer)
     workflow_id = designer.locator("[data-vaw-workflow-selector]").input_value()
     definition = page.request.get(BASE + "/api/templates/default").json()
-    definition.update({"schemaVersion": "1.26", "workflowId": workflow_id, "entryNodeId": "input"})
+    definition.update({"schemaVersion": "2.0", "workflowId": workflow_id, "entryNodeId": "input"})
     definition["nodes"] = {
         "input": {"type": "core.input", "typeVersion": "1.0.0"},
         "constant": {"type": "core.constant.boolean", "typeVersion": "1.0.0", "booleanConstant": {"value": True}},
@@ -485,7 +449,6 @@ def graph_function_authoring_check(page, designer):
     designer.get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for(state="attached")
     settings(designer, False)
     show_library(designer)
-    designer.get_by_role("button", name="Enable pure graph functions", exact=True).click()
     library = designer.locator(".vaw-node-library")
     library.get_by_role("button", name="Add Function · Append suffix v2").click()
     call = designer.locator("li[data-node-type='core.function.call']")
@@ -508,10 +471,11 @@ def graph_function_authoring_check(page, designer):
     definition.update({"schemaVersion": "2.0", "workflowId": workflow_id, "entryNodeId": "input"})
     definition["nodes"] = {
         "input": {"type": "core.input", "typeVersion": "1.0.0"},
+        "prefix": {"type": "core.constant.string", "typeVersion": "1.0.0", "stringConstant": {"value": "Prefix: "}},
         "concat": {"type": "core.text.concat", "typeVersion": "1.0.0"},
         "output": {"type": "core.output", "typeVersion": "1.0.0"}}
     definition["connections"] = {
-        "left": {"source": {"nodeId": "input", "portId": "out"}, "target": {"nodeId": "concat", "portId": "left"}, "kind": "data"},
+        "prefix": {"source": {"nodeId": "prefix", "portId": "out"}, "target": {"nodeId": "concat", "portId": "left"}, "kind": "data"},
         "right": {"source": {"nodeId": "input", "portId": "out"}, "target": {"nodeId": "concat", "portId": "right"}, "kind": "data"},
         "result": {"source": {"nodeId": "concat", "portId": "out"}, "target": {"nodeId": "output", "portId": "in"}, "kind": "data"}}
     definition["executionConnections"] = {
@@ -527,7 +491,23 @@ def graph_function_authoring_check(page, designer):
     designer.get_by_role("button", name="Import JSON into draft", exact=True).click()
     designer.get_by_text("Definition imported locally. Save and publish explicitly.", exact=True).wait_for(state="attached")
     settings(designer, False)
+    prefix_node = designer.locator("li[data-node-id='prefix']")
+    prefix_node.click(modifiers=["Shift"])
+    expect(prefix_node).to_have_class(re.compile("vaw-node-multi-selected"))
     concat_node = designer.locator("li[data-node-id='concat']")
+    concat_node.click(modifiers=["Shift"])
+    expect(concat_node).to_have_class(re.compile("vaw-node-multi-selected"))
+    output_node = designer.locator("li[data-node-id='output']")
+    output_node.click(modifiers=["Shift"])
+    expect(output_node).to_have_class(re.compile("vaw-node-multi-selected"))
+    concat_node.click(button="right")
+    designer.get_by_role("button", name="Extract selected nodes to function…", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Extract to function", exact=True)
+    expect(dialog.get_by_role("alert")).to_be_visible()
+    expect(dialog.get_by_role("button", name="Save and replace selection", exact=True)).to_be_disabled()
+    dialog.get_by_role("button", name="Cancel", exact=True).click()
+    output_node.click(modifiers=["Shift"])
+    expect(output_node).not_to_have_class(re.compile("vaw-node-multi-selected"))
     concat_node.click(button="right")
     designer.get_by_role("button", name="Extract selected nodes to function…", exact=True).click()
     dialog = page.get_by_role("dialog", name="Extract to function", exact=True)
@@ -540,14 +520,20 @@ def graph_function_authoring_check(page, designer):
     expect(dialog).to_be_hidden()
     call = designer.locator("li[data-node-type='core.function.call']")
     expect(call).to_have_count(1)
-    expect(designer.locator("li[data-node-id='concat']")).to_have_count(0)
+    expect(designer.locator("li[data-node-id='prefix'], li[data-node-id='concat']")).to_have_count(0)
     canvas = designer.locator(".vaw-graph-editor")
     canvas.get_by_role("button", name="Undo edit", exact=True).click()
     expect(designer.locator("li[data-node-id='concat']")).to_have_count(1)
     canvas.get_by_role("button", name="Redo edit", exact=True).click()
     expect(call).to_have_count(1)
+    expect(designer.locator("li[data-node-id='prefix'], li[data-node-id='concat']")).to_have_count(0)
     designer.get_by_role("button", name="Save", exact=True).click()
     designer.get_by_text("Draft saved.", exact=True).wait_for(state="attached")
+    page.goto(BASE + f"/projects/default?workflow={workflow_id}", wait_until="networkidle")
+    designer = page.get_by_role("region", name="Workflow designer", exact=True)
+    expect(designer.locator("[data-vaw-workflow-selector]")).to_have_value(workflow_id)
+    call = designer.locator("li[data-node-type='core.function.call']")
+    expect(call).to_have_count(1)
     extracted = page.request.get(BASE + f"/api/workflows/{workflow_id}/design").json()["draft"]["definition"]
     embedded = extracted["nodes"][call.get_attribute("data-node-id")]["graphFunction"]
     assert embedded["definition"]["functionId"] == "smoke-extracted"
@@ -576,7 +562,7 @@ def check(browser, screenshots):
     expect(designer.locator("li[data-node-id]")).to_have_count(2)
     print("Blank workflow creation and standalone node deletion passed.")
     # The remaining workbench checks use an explicitly connected fixture.
-    new_workflow_fixture(designer)
+    new_workflow_fixture(designer, schema_version="2.0")
     canvas = designer.locator(".vaw-graph-editor")
     show_library(designer)
     workflow_map = canvas.get_by_role("navigation", name="Workflow map", exact=True)
@@ -643,7 +629,7 @@ def check(browser, screenshots):
     expect(canvas.locator("li[data-node-id]")).to_have_count(3)
     # An output-pin gesture opens creation for that exact existing path.
     canvas.get_by_role("button",name="Fit graph",exact=True).click()
-    pin=canvas.locator(f"li[data-node-id='{step}'] .vaw-output-ports [data-socket]")
+    pin=canvas.locator(f"li[data-node-id='{step}'] .vaw-output-ports [data-socket='out']")
     pin.scroll_into_view_if_needed(); box=pin.bounding_box();bounds=viewport.bounding_box()
     page.mouse.move(box["x"]+box["width"]/2,box["y"]+box["height"]/2)
     page.mouse.down();page.mouse.move(bounds["x"]+bounds["width"]*.5,bounds["y"]+bounds["height"]-24,steps=8);page.mouse.up()
@@ -653,15 +639,11 @@ def check(browser, screenshots):
         page.screenshot(path=str(screenshots / "contextual-creation.png"))
     menu.locator('[data-node-key="core.text.reverse"]').click()
     expect(canvas.locator("li[data-node-id]")).to_have_count(4)
-    reverse_id=canvas.locator("li[data-node-type='core.text.reverse']").get_attribute("data-node-id")
-    canvas.get_by_role("button",name=f"Move node {reverse_id}",exact=True).click()
-    assert canvas.get_attribute("data-context-menu") == "true"
-    canvas.evaluate("element => { window.__vawDeleteKeys=[]; element.addEventListener('keydown', event => window.__vawDeleteKeys.push({key:event.key,target:event.target.closest('[data-drag-node]')?.dataset.dragNode}), true); }")
-    page.keyboard.press("Delete")
-    page.wait_for_timeout(300)
-    assert page.evaluate("window.__vawDeleteKeys") == [{"key":"Delete","target":reverse_id}], f"Delete did not reach the focused node: {page.evaluate('window.__vawDeleteKeys')}"
-    assert canvas.get_attribute("data-ready") == "true", canvas.locator("[data-canvas-error]").inner_text()
+    # This insertion splits the original data edge; undo it to restore the
+    # valid three-node graph before testing execution later in the smoke.
+    canvas.get_by_role("button", name="Undo edit", exact=True).click()
     expect(canvas.locator("li[data-node-id]")).to_have_count(3)
+    expect(designer.get_by_role("button", name="Run workflow", exact=True)).to_be_enabled()
     canvas.get_by_role("button",name=f"Move node {step}",exact=True).click()
     label = canvas.get_by_label("Node label",exact=True)
     label.fill("Normalize message")
@@ -721,7 +703,7 @@ def check(browser, screenshots):
 
     designer.get_by_role("button", name="Run workflow", exact=True).click()
     run_dialog = page.locator(".vaw-run-dialog")
-    run_dialog.get_by_label("Workflow input", exact=True).fill("Agent workflow")
+    run_dialog.locator("textarea").first.fill("Agent workflow")
     run_dialog.get_by_role("button", name="Run workflow", exact=True).click()
     viewer=page.get_by_role("region",name="Workflow run viewer",exact=True)
     # Starting a run transitions directly to the run inspector; the smoke must
@@ -777,17 +759,22 @@ def check(browser, screenshots):
     expect(canvas.locator("li[data-node-id]")).to_have_count(4)
     canvas.get_by_role("button",name="Fit graph",exact=True).click()
     branch=canvas.locator("li[data-node-type='core.condition']").get_attribute("data-node-id")
-    false_pin=canvas.locator(f"li[data-node-id='{branch}'] [data-socket='false']")
+    false_pin=canvas.locator(f"li[data-node-id='{branch}'] [data-socket='false'][data-socket-kind='execution']")
     false_pin.scroll_into_view_if_needed();box=false_pin.bounding_box();bounds=viewport.bounding_box()
     page.mouse.move(box["x"]+box["width"]/2,box["y"]+box["height"]/2)
     page.mouse.down();page.mouse.move(bounds["x"]+80,bounds["y"]+bounds["height"]-30,steps=8);page.mouse.up()
     expect(menu).to_be_visible()
-    menu.locator('[data-node-key="core.text.reverse"]').click()
+    # An execution output cannot accept a pure data operator. Keep the exact-pin
+    # picker type-safe, then add the standalone pure node through the library.
+    expect(menu).to_contain_text("compatible execution input")
+    expect(menu.locator('[data-node-key="core.text.reverse"]')).to_have_count(0)
+    page.keyboard.press("Escape")
+    library.locator('[data-node-key="core.text.reverse"]').click()
     expect(canvas.locator("li[data-node-id]")).to_have_count(5)
     assert canvas.locator(f"path[data-source='{branch}'][data-source-port='false']").count() == 0
     expect(designer.get_by_role("alert",name="Workflow validation issues")).to_have_count(0)
     designer.get_by_role("region", name="Workflow runs, output and problems", exact=True).get_by_role("button", name="Problems", exact=False).click()
-    expect(designer.get_by_role("region", name="Workflow issues", exact=True)).to_contain_text("Every node must be reachable")
+    expect(designer.get_by_role("region", name="Workflow issues", exact=True)).to_contain_text("Every executable node must be reachable")
     canvas.get_by_role("button",name="Undo edit",exact=True).click()
     expect(canvas.locator("li[data-node-id]")).to_have_count(4)
     canvas.get_by_role("button",name="Undo edit",exact=True).click()
@@ -810,7 +797,7 @@ def check(browser, screenshots):
     print("Deterministic text-template execution passed.")
     typed_json_projection_check(page, designer)
     print("Recursive typed JSON projection authoring passed.")
-    explicit_graph_preview_check(page, designer)
+    unified_graph_authoring_check(page, designer)
     print("Explicit pin authoring and execution passed.")
     graph_function_authoring_check(page, designer)
     assert not errors,errors

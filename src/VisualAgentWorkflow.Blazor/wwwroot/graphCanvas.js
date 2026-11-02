@@ -58,7 +58,7 @@ export function attach(root, callback) {
             const rect=state.viewport.getBoundingClientRect();
             const x=rect.left+rect.width/2,y=rect.top+rect.height/2,point=local(state,{clientX:x,clientY:y});
             state.contextTrigger=event.target;
-            invoke(state,'OpenContextMenu',null,null,0,clamp(point.x),clamp(point.y),Math.max(8,Math.min(x,innerWidth-320)),Math.max(8,Math.min(y,innerHeight-440)),null,null,null);
+            invoke(state,'OpenContextMenu',null,null,0,clamp(point.x),clamp(point.y),Math.max(8,Math.min(x,innerWidth-320)),Math.max(8,Math.min(y,innerHeight-440)),null,null,null,null);
             return;
         }
         if (!typing && event.key === 'Home' && event.target === state.viewport) { event.preventDefault(); root.querySelector('[data-graph-fit]')?.click(); return; }
@@ -110,7 +110,7 @@ export function attach(root, callback) {
         const point = local(state,event);
         state.contextTrigger = node?.querySelector('[data-drag-node]') || state.viewport;
         invoke(state,'OpenContextMenu',node?.dataset.nodeId || null,wire?.dataset.wire || null,Number(wire?.dataset.segment || 0),
-            clamp(point.x),clamp(point.y),Math.max(8,Math.min(event.clientX,innerWidth-320)),Math.max(8,Math.min(event.clientY,innerHeight-440)),null,null,null);
+            clamp(point.x),clamp(point.y),Math.max(8,Math.min(event.clientX,innerWidth-320)),Math.max(8,Math.min(event.clientY,innerHeight-440)),null,null,null,null);
     };
     state.dragStart = event => {
         const entry = event.target.closest('[data-node-key]');
@@ -557,13 +557,13 @@ function pointerEnd(state, event, cancelled) {
             else if (input) {
                 const targetNode=input.closest('[data-node-id]')?.dataset.nodeId;
                 invoke(state,'OpenContextMenu',targetNode,null,0,clamp(local(state,event).x),clamp(local(state,event).y),
-                    Math.max(8,Math.min(event.clientX,innerWidth-320)),Math.max(8,Math.min(event.clientY,innerHeight-440)),drag.id,drag.port,input.dataset.socket);
+                    Math.max(8,Math.min(event.clientX,innerWidth-320)),Math.max(8,Math.min(event.clientY,innerHeight-440)),drag.id,drag.port,input.dataset.socket,drag.socketKind);
             } else if (target?.closest('li[data-node-id]')) state.root.querySelector('[data-pin-hint]').hidden=false;
             else if (state.root.dataset.contextMenu === 'true') {
                 const edge=state.paths.find(path=>path.dataset.source===drag.id&&path.dataset.sourcePort===drag.port);
                 const point=local(state,event);
                 invoke(state,'OpenContextMenu',null,edge?.dataset.wire || null,0,clamp(point.x),clamp(point.y),
-                    Math.max(8,Math.min(event.clientX,innerWidth-320)),Math.max(8,Math.min(event.clientY,innerHeight-440)),drag.id,drag.port,null);
+                    Math.max(8,Math.min(event.clientX,innerWidth-320)),Math.max(8,Math.min(event.clientY,innerHeight-440)),drag.id,drag.port,null,drag.socketKind);
             }
         }
         schedule(state); return;

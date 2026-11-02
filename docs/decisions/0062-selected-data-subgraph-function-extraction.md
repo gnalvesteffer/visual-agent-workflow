@@ -1,6 +1,6 @@
 # Decision 0062: Selected data subgraph function extraction
 
-**Status:** Accepted; Core plan and Studio extraction flow implemented (2026-11-02)
+**Status:** Accepted; Core plan and Studio extraction flow implemented and browser-verified (2026-11-02)
 
 ## Decision
 
@@ -30,11 +30,12 @@ section when the whole selection belongs to it.
 
 The Studio exposes this through a selected-node context action. It prepares and
 validates before mutation, saves one immutable catalog revision, then applies
-the prepared definition/layout as one undoable edit. The call snapshot remains
+the prepared definition/layout as one undoable edit. Opening a selected node's
+context menu preserves the canvas multi-selection. The call snapshot remains
 authoritative. If caller application fails after the function revision is
 saved, the dialog reports that partial outcome and leaves the valid revision in
-the catalog. The flow is implemented; browser verification of multi-selection,
-undo/redo, and save/reload remains outstanding.
+the catalog. Browser verification covers valid and invalid selections,
+undo/redo, and save/reload.
 
 ## Rationale
 
@@ -59,6 +60,7 @@ a truthful and useful asset.
 - Studio tests cover immutable catalog save/conflict behavior. The editor
   checks definition and layout hashes before saving, reports a catalog revision
   that survives a later caller-application failure, and applies one graph edit.
-- Browser verification should cover selected-node extraction, stale/invalid
-  selection, one-step definition-and-layout undo/redo, and save/reload with the
-  embedded snapshot.
+- Browser verification covers selected-node extraction, invalid selection
+  rejection, one-step definition-and-layout undo/redo, and save/reload with the
+  embedded snapshot. The same browser flow checks that right-clicking an
+  already-selected node does not collapse the selection.
