@@ -109,6 +109,8 @@ public static class WorkflowAdmission
             {
                 case "node":
                 case "workflow-revision":
+                case "workflow-interface":
+                case "workflow-interface-implementation":
                 case "graph-function":
                 case "skill":
                 case "agent-profile":

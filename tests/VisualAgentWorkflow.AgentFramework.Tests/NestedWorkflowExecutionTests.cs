@@ -187,4 +187,76 @@ public sealed class NestedWorkflowExecutionTests
         Assert.True(WorkflowCallEvidence.TryReconstructPlayback(events, out var playback));
         Assert.Single(playback!.Calls);
     }
+
+    [Fact]
+    public async Task WorkflowInterfaceCallUsesTypedPinsAndInvokesItsPinnedChildOnce()
+    {
+        var childDefinition = Baseline("interface-child", "1.19") with
+        {
+            Nodes = Baseline("interface-child", "1.19").Nodes
+                .SetItem("input", Baseline("interface-child", "1.19").Nodes["input"] with { InputDataType = WorkflowDataTypes.Json })
+                .SetItem("output", Baseline("interface-child", "1.19").Nodes["output"] with { OutputDataType = WorkflowDataTypes.Json })
+        };
+        var childRevision = WorkflowRevision.Create(childDefinition, "test");
+        var operation = new WorkflowInterfaceOperation("Lookup", WorkflowDataTypes.Json, WorkflowDataTypes.Json)
+        {
+            Inputs = [new("query", "Query", WorkflowDataTypes.String), new("includeArchived", "Include archived", WorkflowDataTypes.Boolean)],
+            Outputs = [new("query", "Query", WorkflowDataTypes.String), new("includeArchived", "Include archived", WorkflowDataTypes.Boolean)]
+        };
+        var contract = WorkflowInterfaceRevision.Create(new WorkflowInterfaceDefinition("lookup.api", "Lookup", "Lookup operation.",
+            ImmutableSortedDictionary<string, WorkflowInterfaceOperation>.Empty.Add("lookup", operation))
+        { SchemaVersion = WorkflowInterfaceJson.FieldContractSchemaVersion });
+        var pin = WorkflowInterfaceWorkflowPin.From(new PublishedWorkflowRevision(1, childRevision));
+        var implementation = WorkflowInterfaceImplementationRevision.Create(new WorkflowInterfaceImplementation("lookup.impl", contract,
+            ImmutableSortedDictionary<string, WorkflowInterfaceWorkflowPin>.Empty.Add("lookup", pin)));
+        var call = new NodeDefinition(NodeTypes.WorkflowInterfaceCall, "1.0.0")
+        {
+            WorkflowInterfaceCall = new(implementation, "lookup")
+        };
+        var nodes = new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["include"] = new(NodeTypes.BooleanConstant, "1.0.0") { BooleanConstant = new(true) },
+            ["call"] = call,
+            ["output"] = new(NodeTypes.Output, "1.0.0")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+        var data = new Dictionary<string, ConnectionDefinition>
+        {
+            ["query"] = new(new("input", "out"), new("call", "query"), "data"),
+            ["include"] = new(new("include", "out"), new("call", "includeArchived"), "data"),
+            ["result"] = new(new("call", "query"), new("output", "in"), "data")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+        var execution = new Dictionary<string, ConnectionDefinition>
+        {
+            ["start"] = new(new("input", "then"), new("call", "execute"), "execution"),
+            ["finish"] = new(new("call", "then"), new("output", "execute"), "execution")
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, "interface-parent", "input", nodes, data)
+        { ExecutionConnections = execution };
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        var packageRequirements = WorkflowPackageJson.Create(definition, WorkflowLayout.Create(definition)).Requirements;
+        Assert.Contains(packageRequirements, requirement => requirement.Kind == "workflow-interface" && requirement.Id == "lookup.api");
+        Assert.Contains(packageRequirements, requirement => requirement.Kind == "workflow-interface-implementation" && requirement.Id == "lookup.impl");
+        Assert.Contains(WorkflowRunDependencyClosure.Create(definition).Dependencies,
+            dependency => dependency.Kind == "workflow-interface-implementation" && dependency.Id == "lookup.impl");
+        Assert.Equal(new[] { "includeArchived", "query" }, WorkflowPorts.ExplicitDataInputs(call).Select(port => port.Id).Order(StringComparer.Ordinal));
+        Assert.DoesNotContain(WorkflowDefinitionDescriptorAudit.Audit(definition), issue => issue.Path == "nodes.call.descriptor");
+        var revision = WorkflowRevision.Create(definition, "test");
+        var events = new List<ExecutionEvent>();
+
+        var output = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), revision, "find records",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("find records", output);
+        var evidence = events.Where(evt => evt.Kind == ExecutionEventKinds.SubworkflowEvidence &&
+            WorkflowCallLifecycleEvidence.TryRead(evt.Data, out var lifecycle) && lifecycle?.Lifecycle == ExecutionEventKinds.SubworkflowStarted).ToArray();
+        Assert.Single(evidence);
+        Assert.True(WorkflowCallLifecycleEvidence.TryRead(evidence[0].Data, out var started));
+        Assert.Equal(childRevision.RevisionId, started!.ChildRevisionId);
+        var childInput = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId == "input" && evt.ScopeId == "call");
+        using var packed = JsonDocument.Parse(childInput.Data!);
+        Assert.Equal("find records", packed.RootElement.GetProperty("query").GetString());
+        Assert.True(packed.RootElement.GetProperty("includeArchived").GetBoolean());
+    }
 }

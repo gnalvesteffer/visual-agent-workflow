@@ -28,16 +28,30 @@ public static class WorkflowValidator
     {
         foreach (var (nodeId, node) in definition.Nodes)
         {
-            var call = node?.WorkflowCall;
-            if (call is null) continue;
-            if (call.Definition?.Nodes is not { } childNodes) continue;
+            var child = node?.WorkflowCall?.Definition;
+            var childWorkflowId = node?.WorkflowCall?.WorkflowId;
             var callPath = $"{path}nodes.{nodeId}.workflowCall";
+            if (node?.WorkflowInterfaceCall is { } interfaceCall)
+            {
+                callPath = $"{path}nodes.{nodeId}.workflowInterfaceCall";
+                try
+                {
+                    var resolved = WorkflowInterfaceResolver.ResolveOperation(interfaceCall.Implementation, interfaceCall.OperationId);
+                    child = resolved.Workflow.Definition;
+                    childWorkflowId = resolved.Workflow.WorkflowId;
+                }
+                catch (ArgumentException)
+                {
+                    continue;
+                }
+            }
+            if (child?.Nodes is not { } childNodes || childWorkflowId is null) continue;
             if (depth >= WorkflowCallLimits.MaximumDepth)
             {
                 issues.Add(new("workflowCall.depth", callPath, $"Nested workflow calls are limited to {WorkflowCallLimits.MaximumDepth - 1} levels."));
                 continue;
             }
-            if (ancestry.Contains(call.WorkflowId))
+            if (ancestry.Contains(childWorkflowId))
             {
                 issues.Add(new("workflowCall.cycle", callPath + ".workflowId", "A workflow cannot call itself through a nested prefab."));
                 continue;
@@ -48,11 +62,11 @@ public static class WorkflowValidator
                 issues.Add(new("workflowCall.size", callPath, $"Expanded workflows are limited to {WorkflowCallLimits.MaximumExpandedNodes} total nodes."));
                 return;
             }
-            ancestry.Add(call.WorkflowId);
+            ancestry.Add(childWorkflowId);
             var childPath = callPath + ".definition.";
-            issues.AddRange(ValidateDefinition(call.Definition).Select(issue => issue with { Path = childPath + issue.Path }));
-            ValidateNested(call.Definition, depth + 1, childPath, ancestry, ref expandedNodes, issues);
-            ancestry.Remove(call.WorkflowId);
+            issues.AddRange(ValidateDefinition(child).Select(issue => issue with { Path = childPath + issue.Path }));
+            ValidateNested(child, depth + 1, childPath, ancestry, ref expandedNodes, issues);
+            ancestry.Remove(childWorkflowId);
         }
     }
 
@@ -303,6 +317,25 @@ public static class WorkflowValidator
             }
             else if (node.WorkflowCall is not null)
                 Error("workflowCall.unexpected", $"nodes.{id}.workflowCall", "Only workflow call nodes may declare a nested workflow revision.");
+            if (node.Type == NodeTypes.WorkflowInterfaceCall)
+            {
+                var config = node.WorkflowInterfaceCall;
+                try
+                {
+                    if (definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph || config is null)
+                        throw new ArgumentException("Interface calls require schema 2.0 and a pinned implementation operation.");
+                    var operation = WorkflowInterfaceResolver.ResolveOperation(config.Implementation, config.OperationId);
+                    if (operation.Signature.Inputs is not { IsDefaultOrEmpty: false } ||
+                        operation.Signature.Outputs is not { IsDefaultOrEmpty: false })
+                        throw new ArgumentException("Interface calls require schema 1.1 operations with at least one named input and output field.");
+                }
+                catch (ArgumentException exception)
+                {
+                    Error("workflowInterfaceCall.configuration", $"nodes.{id}.workflowInterfaceCall", exception.Message);
+                }
+            }
+            else if (node.WorkflowInterfaceCall is not null)
+                Error("workflowInterfaceCall.unexpected", $"nodes.{id}.workflowInterfaceCall", "Only workflow interface call nodes may declare an interface operation.");
             if (node.Type == NodeTypes.FunctionCall)
             {
                 var function = node.GraphFunction;
@@ -771,7 +804,8 @@ public static class WorkflowValidator
         // retain their bounded contracts, selected from the authored topology.
         if (definition.Nodes.Values.Any(node => node?.Type == NodeTypes.Sequence))
         {
-            if (definition.Nodes.Values.Any(node => node?.Type == NodeTypes.WorkflowCall))
+            if (definition.Nodes.Values.Any(node => node?.Type == NodeTypes.WorkflowCall) &&
+                !definition.Nodes.Values.Any(node => node?.Type == NodeTypes.WorkflowInterfaceCall))
                 ValidateSequenceGraph(definition with { SchemaVersion = WorkflowExecutionShape.SequenceContract(definition) }, error);
             else
                 ValidateUnifiedSequenceGraph(definition, error);
@@ -786,6 +820,7 @@ public static class WorkflowValidator
             allowBooleanTopology: true,
             allowGraphFunctions: true,
             allowAgentNodes: true,
+            allowWorkflowInterfaceCall: true,
             allowConfigurableParallel: definition.Nodes.Values.Any(node => node?.Type == NodeTypes.ParallelFork),
             allowCollaborativeParallel: definition.Nodes.Values.Any(node => node?.Type == NodeTypes.ParallelRendezvous),
             allowFiniteNumbers: true);
@@ -878,7 +913,7 @@ public static class WorkflowValidator
         {
             if (!definition.Nodes.TryGetValue(current, out var node) || node?.Type is not
                 (NodeTypes.LoopBody or NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.Agent or
-                 NodeTypes.McpTool or NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse or NodeTypes.WorkflowCall))
+                 NodeTypes.McpTool or NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse or NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall))
             {
                 error("loop.body.node", $"nodes.{current}", "A bounded loop body requires a linear path of processing nodes.");
                 break;
@@ -1020,7 +1055,7 @@ public static class WorkflowValidator
             {
                 if (visited.Count > SequencePathTopologyAnalyzer.MaximumPathNodes || !owned.Add(current) ||
                     !definition.Nodes.TryGetValue(current, out var node) || node.Type is not
-                        (NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse))
+                        (NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse or NodeTypes.WorkflowInterfaceCall))
                 {
                     error("sequence.path.node", $"nodes.{current}", "Each Sequence output requires a bounded, disjoint linear processing path ending at Output.");
                     break;
@@ -1903,6 +1938,7 @@ public static class WorkflowValidator
 
     private static void ValidateExplicitBranchGraph(WorkflowDefinition definition, Action<string, string, string> error,
         bool allowBooleanTopology = false, bool allowGraphFunctions = false, bool allowAgentNodes = false,
+        bool allowWorkflowInterfaceCall = false,
         bool allowConfigurableParallel = false, bool allowCollaborativeParallel = false, bool allowSimpleDataGraph = false,
         bool allowFiniteNumbers = false, string? loopDataReturnConnectionId = null)
     {
@@ -1927,6 +1963,7 @@ public static class WorkflowValidator
         }
         if (allowGraphFunctions) supportedTypes.Add(NodeTypes.FunctionCall);
         if (allowAgentNodes) supportedTypes.Add(NodeTypes.Agent);
+        if (allowWorkflowInterfaceCall) supportedTypes.Add(NodeTypes.WorkflowInterfaceCall);
         if (allowConfigurableParallel)
         {
             supportedTypes.Add(NodeTypes.ParallelFork);

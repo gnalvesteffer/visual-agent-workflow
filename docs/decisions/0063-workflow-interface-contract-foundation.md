@@ -1,6 +1,6 @@
 # Decision 0063: Workflow interface contract foundation
 
-**Status:** Accepted; Core codec and pinned-child composition proofs added (2026-11-02). Interface runtime, authoring, and storage remain deferred.
+**Status:** Accepted; bounded Core interface-call runtime support added (2026-11-02). Studio asset authoring and storage remain deferred.
 
 ## Decision
 
@@ -36,10 +36,20 @@ optional fields, or implicit conversions are supported.
 
 The contract contains no prompts, tools, credentials, grants, endpoints, or
 authority. A hash and a pinned revision establish content identity only; they
-do not authorize execution. The Core types still do not add an asset catalog,
-Studio authoring surface, package dependency closure, interface-call node,
-runtime dispatch, playback events, or host admission. Interfaces therefore
-remain unavailable to workflow authors and runners.
+do not authorize execution. Schema 2.0 now has a `WorkflowInterfaceCall` node
+that resolves one operation from an embedded implementation revision, exposes
+typed data pins for every named field, packs incoming values into bounded JSON,
+executes the pinned child workflow once, and projects its JSON output onto the
+named result pins. Nested lifecycle events reuse pinned workflow-call evidence
+and passive playback. Package requirements, run dependency closure, host
+admission, descriptor auditing, and the run inspector include interface and
+child revision identities.
+
+Studio does not yet provide interface assets, an interface/implementation
+catalog, or controls to create and select this node. Definitions that already
+contain a complete pinned configuration can be validated and executed, but
+workflow interfaces are not authorable end to end in Studio. The call does not
+grant child workflows model or MCP access.
 
 ## Rationale
 
@@ -64,19 +74,19 @@ semantics.
 - Schema 1.1 fields round-trip canonically; packing and projection reject
   missing/extra fields, duplicate JSON properties, and wrong JSON types, while
   preserving explicit `null` for arbitrary JSON fields.
-- An Agent Framework regression resolves an exact implementation pin, packs
-  three differently typed fields, executes the embedded JSON workflow once,
-  projects three outputs from its result, and reconstructs the nested-call
-  evidence through passive playback.
+- Core validates schema-2.0 interface-call pins from the exact operation
+  signature, and package/dependency manifests include interface,
+  implementation, and child revision identities.
+- An Agent Framework regression connects typed pins to an interface call,
+  executes the exact embedded JSON workflow once, reads multiple projected
+  output fields, and reconstructs nested-call evidence through passive
+  playback.
 - Host permissions remain outside both portable definitions.
 
 ## Deferred gates
 
-Before calling interfaces shipped, separately prove immutable asset storage
-and source ownership, package dependency closure, authoring/editing UX, a
-version-pinned call representation, runtime dispatch and evidence, host
-admission and cancellation, and interface-specific passive playback. The
-composition test exercises the existing pinned WorkflowCall and playback
-contracts directly; there is still no interface runtime dispatcher or
-interface-specific evidence format. Do not resolve implementations through a
-mutable catalog at runtime.
+Before calling interfaces shipped, add immutable asset storage and source
+ownership plus Studio authoring for interfaces, implementations, operation
+selection, and pin configuration. Add distinct playback events only if the
+existing nested-workflow evidence proves insufficient. Never resolve an
+implementation through a mutable catalog at run time.

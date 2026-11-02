@@ -219,6 +219,26 @@
                             <p class="vaw-help">This call is a lazy data node, not an execution step. The exact function graph is embedded in this workflow revision. Studio does not yet provide a separate function library/editor.</p>
                         </fieldset>
                     }
+                    else if (node.Type == NodeTypes.WorkflowInterfaceCall)
+                    {
+                        <p>This node invokes one operation from a pinned workflow interface implementation. The implementation embeds the exact child workflow revision; incoming data pins are packed as typed JSON fields and the child JSON result is projected onto the output pins. Child model and MCP actions still use host grants.</p>
+                        @if (node.WorkflowInterfaceCall is { } interfaceCall)
+                        {
+                            @if (TryResolveInterfaceOperation(interfaceCall) is { } operation)
+                            {
+                                <dl><dt>Interface</dt><dd>@operation.Interface.Definition.DisplayName</dd><dt>Operation</dt><dd>@operation.Signature.DisplayName · <code>@operation.OperationId</code></dd><dt>Implementation</dt><dd>@operation.ImplementationId v@operation.ImplementationVersion</dd><dt>Workflow</dt><dd>@operation.Workflow.WorkflowId v@operation.Workflow.Version</dd><dt>Revision</dt><dd><code>@operation.Workflow.RevisionId</code></dd></dl>
+                                <h5>Inputs</h5>
+                                <ul>@foreach (var field in operation.Signature.Inputs ?? []) { <li>@field.DisplayName · <code>@field.FieldId</code> · @field.DataType</li> }</ul>
+                                <h5>Outputs</h5>
+                                <ul>@foreach (var field in operation.Signature.Outputs ?? []) { <li>@field.DisplayName · <code>@field.FieldId</code> · @field.DataType</li> }</ul>
+                            }
+                            else { <p class="vaw-error">The pinned interface operation cannot be resolved.</p> }
+                        }
+                        else
+                        {
+                            <p class="vaw-help">Choose an interface implementation and operation in the serialized workflow definition. Studio authoring for workflow interfaces is not available yet.</p>
+                        }
+                    }
                     else if (node.Type == NodeTypes.WorkflowCall)
                     {
                         <p>This node executes the embedded workflow revision. Its input and output pins inherit the child workflow’s declared string or JSON types. The workflow ID, revision, version, and content hash are pinned in this node. Its tools, model providers, and skills remain subject to the host’s configured catalogs and grants.</p>
@@ -1096,6 +1116,11 @@
         child.Nodes is { } nodes && nodes.Values.FirstOrDefault(candidate => candidate?.Type == NodeTypes.Output) is { } output
             ? WorkflowPorts.Inputs(output).SingleOrDefault()?.DataType ?? "unavailable"
             : "unavailable";
+    private static WorkflowInterfaceResolvedOperation? TryResolveInterfaceOperation(WorkflowInterfaceCallConfiguration configuration)
+    {
+        try { return WorkflowInterfaceResolver.ResolveOperation(configuration.Implementation, configuration.OperationId); }
+        catch (ArgumentException) { return null; }
+    }
     private Task MapChildParameter(string nodeId, string childParameterId, ChangeEventArgs args) => Edit(() =>
     {
         var node = Definition.Nodes[nodeId];

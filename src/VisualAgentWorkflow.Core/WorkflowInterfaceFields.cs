@@ -9,6 +9,34 @@ public static class WorkflowInterfaceFields
 {
     public const int MaximumBoundaryJsonBytes = 1_048_576;
 
+    /// <summary>Encodes a value already resolved from a matching graph pin.</summary>
+    public static JsonElement ToJsonElement(string dataType, object value)
+    {
+        ArgumentNullException.ThrowIfNull(dataType);
+        ArgumentNullException.ThrowIfNull(value);
+        var element = value is JsonElement json ? json.Clone() : JsonSerializer.SerializeToElement(value);
+        var field = new WorkflowInterfaceDataField("value", "Value", dataType);
+        ValidateValue(field, element, "input");
+        JsonDocumentSafety.RejectDuplicateProperties(element);
+        return element;
+    }
+
+    /// <summary>Decodes a validated JSON property to the runtime value used by its graph pin.</summary>
+    public static object ToWorkflowValue(string dataType, JsonElement value)
+    {
+        var field = new WorkflowInterfaceDataField("value", "Value", dataType);
+        ValidateValue(field, value, "output");
+        return dataType switch
+        {
+            WorkflowDataTypes.String => value.GetString()!,
+            WorkflowDataTypes.Boolean => value.GetBoolean(),
+            WorkflowDataTypes.Integer => value.GetInt64(),
+            WorkflowDataTypes.Number => value.GetDouble(),
+            WorkflowDataTypes.Json or WorkflowDataTypes.JsonArray => value.Clone(),
+            _ => throw new ArgumentException($"Unsupported interface field type '{dataType}'.", nameof(dataType))
+        };
+    }
+
     /// <summary>Packages each required input exactly once, using field ID order for stable JSON.</summary>
     public static string PackInputs(WorkflowInterfaceOperation operation,
         IReadOnlyDictionary<string, JsonElement> values)

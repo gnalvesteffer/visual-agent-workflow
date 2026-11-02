@@ -83,6 +83,8 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public WorkflowCallConfiguration? WorkflowCall { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WorkflowInterfaceCallConfiguration? WorkflowInterfaceCall { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public GraphFunctionConfiguration? GraphFunction { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? FunctionPortId { get; init; }
@@ -146,6 +148,7 @@ public static class NodeTypes
     public const string LoopBody = "core.loop.body";
     public const string Terminate = "core.terminate";
     public const string WorkflowCall = "core.workflow-call";
+    public const string WorkflowInterfaceCall = "core.workflow-interface-call";
     public const string StringConstant = "core.constant.string";
     public const string TextConcat = "core.text.concat";
     public const string StringEquals = "core.text.equals";
@@ -439,6 +442,11 @@ public sealed record WorkflowCallConfiguration(string WorkflowId, Guid RevisionI
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ImmutableArray<WorkflowCallParameterMapping>? ParameterMappings { get; init; }
 }
+
+/// <summary>A statically selected operation in an exact immutable interface implementation revision.</summary>
+public sealed record WorkflowInterfaceCallConfiguration(
+    WorkflowInterfaceImplementationRevision Implementation,
+    string OperationId);
 
 /// <summary>Maps one parent-owned workflow parameter to a child parameter; values are resolved per run.</summary>
 public sealed record WorkflowCallParameterMapping(string ChildParameterId, string ParentParameterId);

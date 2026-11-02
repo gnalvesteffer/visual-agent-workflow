@@ -69,7 +69,7 @@ public static class WorkflowJson
         (issue.Code.StartsWith("sequence.", StringComparison.Ordinal) ||
          issue.Code.StartsWith("loop.", StringComparison.Ordinal) ||
          issue.Code is "variable.reference" or "parameter.reference" or "sequence.configuration" or
-             "workflowCall.configuration" or "graphFunction.configuration" or "data.cycle" or
+             "workflowCall.configuration" or "workflowInterfaceCall.configuration" or "graphFunction.configuration" or "data.cycle" or
              "approval.target" or "approval.configuration" or "condition.configuration" or
              "json.selection" or "json.projection" or "text.template" or "variables.missing") ||
             IsDraftableIssue(issue) || (definition.SchemaVersion is WorkflowSchemaVersions.SequenceTransformChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallGraph or WorkflowSchemaVersions.SequenceWorkflowCallTransformGraph or WorkflowSchemaVersions.SequenceWorkflowCallAgentGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonChainGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph) &&

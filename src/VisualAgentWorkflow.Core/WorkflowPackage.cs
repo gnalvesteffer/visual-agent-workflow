@@ -98,6 +98,17 @@ public static class WorkflowPackageJson
                 requirements.Add(new("workflow-revision", identity.WorkflowId, identity.Version.ToString(System.Globalization.CultureInfo.InvariantCulture), identity.ContentHash));
                 foreach (var requirement in Requirements(workflowCall.Definition)) requirements.Add(requirement);
             }
+            if (node.WorkflowInterfaceCall is { } interfaceCall)
+            {
+                var operation = WorkflowInterfaceResolver.ResolveOperation(interfaceCall.Implementation, interfaceCall.OperationId);
+                requirements.Add(new("workflow-interface", operation.Interface.Definition.InterfaceId,
+                    operation.Interface.Version.ToString(System.Globalization.CultureInfo.InvariantCulture), operation.Interface.ContentHash));
+                requirements.Add(new("workflow-interface-implementation", operation.ImplementationId,
+                    operation.ImplementationVersion.ToString(System.Globalization.CultureInfo.InvariantCulture), operation.ImplementationContentHash));
+                requirements.Add(new("workflow-revision", operation.Workflow.WorkflowId,
+                    operation.Workflow.Version.ToString(System.Globalization.CultureInfo.InvariantCulture), operation.Workflow.ContentHash));
+                foreach (var requirement in Requirements(operation.Workflow.Definition)) requirements.Add(requirement);
+            }
             if (node.GraphFunction is { } graphFunction)
                 requirements.Add(new("graph-function", graphFunction.Definition.FunctionId,
                     graphFunction.Definition.Version.ToString(System.Globalization.CultureInfo.InvariantCulture), graphFunction.ContentHash));

@@ -82,6 +82,17 @@ public sealed record WorkflowRunDependencyClosure(string FormatVersion,
                     Add("workflow", call.WorkflowId, call.Version.ToString(System.Globalization.CultureInfo.InvariantCulture), call.ContentHash);
                     if (call.Definition is { } child) VisitWorkflow(child);
                 }
+                if (node.WorkflowInterfaceCall is { } interfaceCall)
+                {
+                    var operation = WorkflowInterfaceResolver.ResolveOperation(interfaceCall.Implementation, interfaceCall.OperationId);
+                    Add("workflow-interface", operation.Interface.Definition.InterfaceId,
+                        operation.Interface.Version.ToString(System.Globalization.CultureInfo.InvariantCulture), operation.Interface.ContentHash);
+                    Add("workflow-interface-implementation", operation.ImplementationId,
+                        operation.ImplementationVersion.ToString(System.Globalization.CultureInfo.InvariantCulture), operation.ImplementationContentHash);
+                    Add("workflow", operation.Workflow.WorkflowId,
+                        operation.Workflow.Version.ToString(System.Globalization.CultureInfo.InvariantCulture), operation.Workflow.ContentHash);
+                    VisitWorkflow(operation.Workflow.Definition);
+                }
                 if (node.Agent is { } agent)
                 {
                     foreach (var skill in agent.Skills ?? []) Add("skill", skill.Id, skill.Version, skill.ContentHash);

@@ -165,7 +165,7 @@
                 {
                     @VariablePlaybackMarkup(node.VariableId, variablePlayback, true)
                 }
-                @if (Snapshot.Header.Definition.Nodes[inspected].Type == NodeTypes.WorkflowCall)
+                @if (Snapshot.Header.Definition.Nodes[inspected].Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall)
                 {
                     <details><summary>Nested workflow events (@childEvents.Length)</summary>
                         <ul>@foreach (var childEvent in childEvents) { <li><code>@childEvent.ScopeId</code> · @childEvent.Kind · @childEvent.NodeId @if (childEvent.Data is { Length: > 0 } data) { <pre>@data</pre> }</li> }</ul>
@@ -274,7 +274,7 @@
     private string? ActiveActivity(string id)
     {
         if (State(id)?.Kind != ExecutionEventKinds.NodeStarted) return null;
-        if (Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type == NodeTypes.WorkflowCall)
+        if (Snapshot?.Header.Definition.Nodes.GetValueOrDefault(id)?.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall)
         {
             var child = VisibleEvents.LastOrDefault(evt => evt.ScopeId == id || evt.ScopeId?.StartsWith(id + "/", StringComparison.Ordinal) == true);
             if (child is not null)

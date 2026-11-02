@@ -23,13 +23,12 @@ Editor normalization creates a separate current draft and preserves the
 source; package and reuse operations preserve current schema identity and
 pinned dependencies. See [Decision 0060](decisions/0060-unified-authoring-schema.md).
 
-Workflow interfaces currently live only in Core as versioned portable
-contracts. Schema 1.0 declares one typed payload per operation direction;
-schema 1.1 adds required named typed fields encoded at JSON Input/Output
-boundaries. A bounded codec validates and packs/projects these values. Exact
-workflow pins and hashes are checked statically, but there is no catalog,
-workflow call node, runtime dispatch, evidence integration, host admission, or
-playback for interfaces yet. See [Decision 0063](decisions/0063-workflow-interface-contract-foundation.md).
+Workflow interfaces have portable versioned contracts and bounded named-field
+codecs in Core. Schema 2.0 interface-call nodes execute one exact embedded
+child revision through the nested workflow runner, with typed field pins,
+package/dependency identity, host-grant enforcement, and nested playback
+evidence. Studio has no interface asset catalog or call authoring UI yet. See
+[Decision 0063](decisions/0063-workflow-interface-contract-foundation.md).
 
 The engine and designer are independently consumable libraries; Studio is their optional IDE and development composition. User-owned service hosting is a first-class product goal, with direct execution APIs and a local hosting helper already available; a production SDK and stable package distribution remain planned. See [service integration](service-integration.md).
 

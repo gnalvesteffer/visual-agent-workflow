@@ -60,6 +60,7 @@ internal static class WorkflowPortShapeCatalog
         NodeTypes.McpTool => [new("in", WorkflowDataTypes.String)],
         NodeTypes.Agent or NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse or NodeTypes.Loop or NodeTypes.LoopBody => [new("in", WorkflowDataTypes.String)],
         NodeTypes.WorkflowCall => InputsForWorkflowCall(node),
+        NodeTypes.WorkflowInterfaceCall => InterfaceCallInputs(node),
         NodeTypes.JsonSelectString or NodeTypes.JsonProject => [new("in", WorkflowDataTypes.Json)],
         NodeTypes.TextTemplate => [new("in", WorkflowDataTypes.String)],
         NodeTypes.FunctionCall => FunctionCallDataInputs(node),
@@ -75,6 +76,7 @@ internal static class WorkflowPortShapeCatalog
         NodeTypes.JsonSelectString => [new("out", WorkflowDataTypes.String)],
         NodeTypes.JsonProject => [new("out", WorkflowDataTypes.Json)],
         NodeTypes.WorkflowCall => OutputsForWorkflowCall(node),
+        NodeTypes.WorkflowInterfaceCall => InterfaceCallOutputs(node),
         NodeTypes.JsonMerge => [new("out", WorkflowDataTypes.Json)],
         NodeTypes.JsonToArray => [new("out", WorkflowDataTypes.JsonArray)],
         NodeTypes.ArrayLength => [new("out", WorkflowDataTypes.Integer)],
@@ -98,7 +100,7 @@ internal static class WorkflowPortShapeCatalog
     {
         NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval => ["execute"],
         NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse => ["execute"],
-        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.WorkflowCall or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Sequence or NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.Loop or NodeTypes.LoopBody => ["execute"],
+        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall or NodeTypes.Output or NodeTypes.BooleanBranch or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Sequence or NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.Loop or NodeTypes.LoopBody => ["execute"],
         NodeTypes.ParallelJoin when node.ParallelJoin is { BranchIds.IsDefault: false } join => [.. join.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
         NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
         _ => []
@@ -114,6 +116,7 @@ internal static class WorkflowPortShapeCatalog
         NodeTypes.Agent => ["out"],
         NodeTypes.McpTool => ["then"],
         NodeTypes.WorkflowCall => ["out"],
+        NodeTypes.WorkflowInterfaceCall => ["then"],
         NodeTypes.BooleanBranch => ["true", "false"],
         NodeTypes.ParallelFork when node.ParallelFork is { Branches.IsDefault: false } fork => [.. fork.Branches.Where(branch => branch is not null).Select(branch => ParallelBranchLimits.PinId(branch.Id))],
         NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
@@ -137,6 +140,23 @@ internal static class WorkflowPortShapeCatalog
 
     private static ImmutableArray<WorkflowPort> OutputsForWorkflowCall(NodeDefinition node) =>
         [new("out", node.WorkflowCall?.Definition?.Nodes?.Values.FirstOrDefault(candidate => candidate?.Type == NodeTypes.Output)?.OutputDataType ?? WorkflowDataTypes.String)];
+
+    private static ImmutableArray<WorkflowPort> InterfaceCallInputs(NodeDefinition node) =>
+        TryGetInterfaceSignature(node, out var signature) && signature.Inputs is { IsDefault: false } inputs
+            ? [.. inputs.Where(field => field is not null).Select(field => new WorkflowPort(field.FieldId, field.DataType))]
+            : [];
+
+    private static ImmutableArray<WorkflowPort> InterfaceCallOutputs(NodeDefinition node) =>
+        TryGetInterfaceSignature(node, out var signature) && signature.Outputs is { IsDefault: false } outputs
+            ? [.. outputs.Where(field => field is not null).Select(field => new WorkflowPort(field.FieldId, field.DataType))]
+            : [];
+
+    private static bool TryGetInterfaceSignature(NodeDefinition node, out WorkflowInterfaceOperation signature)
+    {
+        signature = null!;
+        return node.WorkflowInterfaceCall is { } configuration &&
+            WorkflowInterfaceResolver.TryGetOperationSignature(configuration, out signature);
+    }
 
     private static ImmutableArray<WorkflowPort> FunctionCallDataOutputs(NodeDefinition node) =>
         node.GraphFunction?.Definition?.Outputs is { } outputs

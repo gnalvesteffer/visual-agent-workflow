@@ -122,6 +122,19 @@ public static class WorkflowDefinitionDescriptorAudit
                 AuditDefinition(child, nodePath + ".workflowCall.definition.", ancestry, issues);
                 ancestry.Remove(child.WorkflowId);
             }
+            if (node.WorkflowInterfaceCall is { } interfaceCall)
+            {
+                try
+                {
+                    var interfaceWorkflow = WorkflowInterfaceResolver.ResolveOperation(interfaceCall.Implementation, interfaceCall.OperationId).Workflow;
+                    if (ancestry.Add(interfaceWorkflow.WorkflowId))
+                    {
+                        AuditDefinition(interfaceWorkflow.Definition, nodePath + ".workflowInterfaceCall.definition.", ancestry, issues);
+                        ancestry.Remove(interfaceWorkflow.WorkflowId);
+                    }
+                }
+                catch (ArgumentException) { }
+            }
         }
     }
 
@@ -601,10 +614,16 @@ public static class WorkflowNodeDescriptorResolver
 
         foreach (var port in WorkflowPortShapeCatalog.ExplicitDataInputs(effectiveNode))
         {
+            var interfaceField = effectiveNode.Type == NodeTypes.WorkflowInterfaceCall &&
+                effectiveNode.WorkflowInterfaceCall is { } interfaceConfiguration &&
+                WorkflowInterfaceResolver.TryGetOperationSignature(interfaceConfiguration, out var interfaceSignature)
+                ? interfaceSignature.Inputs?.FirstOrDefault(field => field is not null && field.FieldId == port.Id)
+                : null;
             var mcpPort = effectiveNode.Type == NodeTypes.McpTool
                 ? mcpInputs?.FirstOrDefault(candidate => candidate is not null && candidate.Id == port.Id)
                 : null;
-            ports.Add(new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType)
+            ports.Add(new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Input, WorkflowPortKind.Data, port.DataType,
+                DisplayName: interfaceField?.DisplayName)
             {
                 Description = effectiveNode.Type == NodeTypes.McpTool && discoveredMcpInputDescriptions is not null &&
                     discoveredMcpInputDescriptions.TryGetValue(port.Id, out var description) ? description : null,
@@ -618,10 +637,18 @@ public static class WorkflowNodeDescriptorResolver
         }
 
         foreach (var port in WorkflowPortShapeCatalog.ExplicitDataOutputs(effectiveNode))
-            ports.Add(new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType)
+        {
+            var interfaceField = effectiveNode.Type == NodeTypes.WorkflowInterfaceCall &&
+                effectiveNode.WorkflowInterfaceCall is { } interfaceConfiguration &&
+                WorkflowInterfaceResolver.TryGetOperationSignature(interfaceConfiguration, out var interfaceSignature)
+                ? interfaceSignature.Outputs?.FirstOrDefault(field => field is not null && field.FieldId == port.Id)
+                : null;
+            ports.Add(new WorkflowPortDescriptor(port.Id, WorkflowPortDirection.Output, WorkflowPortKind.Data, port.DataType,
+                DisplayName: interfaceField?.DisplayName)
             {
                 Cardinality = WorkflowPortCardinality.Many
             });
+        }
 
         foreach (var port in WorkflowPortShapeCatalog.ExplicitExecutionInputs(effectiveNode))
             ports.Add(new WorkflowPortDescriptor(port, WorkflowPortDirection.Input, WorkflowPortKind.Execution)
@@ -661,6 +688,7 @@ public static class WorkflowNodeDescriptorResolver
 
     private static string ConfigurationKind(string nodeType) => nodeType switch
     {
+        NodeTypes.WorkflowInterfaceCall => "workflow-interface-call",
         NodeTypes.McpTool => "mcp-tool",
         NodeTypes.Agent => "agent",
         NodeTypes.VariableGet => "variable-get",

@@ -127,6 +127,28 @@ public sealed record WorkflowInterfaceConformanceIssue(string Code, string Path,
 /// <summary>Resolves statically pinned interface operations without consulting an asset catalog.</summary>
 public static class WorkflowInterfaceResolver
 {
+    /// <summary>
+    /// Reads the declared signature for pin projection without validating the embedded
+    /// snapshot. Authoring and rendering can request this frequently; executable
+    /// validation and runtime must use <see cref="ResolveOperation"/> instead.
+    /// </summary>
+    public static bool TryGetOperationSignature(WorkflowInterfaceCallConfiguration configuration,
+        out WorkflowInterfaceOperation signature)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        signature = null!;
+        if (string.IsNullOrWhiteSpace(configuration.OperationId)) return false;
+        try
+        {
+            return configuration.Implementation.Definition.Interface.Definition.Operations.TryGetValue(
+                    configuration.OperationId, out signature!) && signature is not null;
+        }
+        catch (NullReferenceException)
+        {
+            return false;
+        }
+    }
+
     public static WorkflowInterfaceResolvedOperation ResolveOperation(
         WorkflowInterfaceImplementationRevision implementationRevision, string operationId)
     {

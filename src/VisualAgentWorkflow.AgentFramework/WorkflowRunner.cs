@@ -276,7 +276,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             builder.AddFanInBarrierEdge(branchSources, (ExecutorBinding)executors[join.Key]);
         }
         var outputId = definition.Nodes.Single(n => n.Value.Type == NodeTypes.Output).Key;
-        foreach (var terminator in definition.Nodes.Where(n => n.Value.Type is NodeTypes.Terminate or NodeTypes.WorkflowCall))
+        foreach (var terminator in definition.Nodes.Where(n => n.Value.Type is NodeTypes.Terminate or NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall))
             builder.AddEdge<GraphMessage>(executors[terminator.Key], executors[outputId], message =>
                 message?.SourceNode == terminator.Key && message.SourcePort == "terminated" && message.TerminationSignal);
         builder.WithOutputFrom(executors[outputId]);
@@ -1108,7 +1108,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (received.SourceNode is not null && received.TerminationSignal)
             {
                 if (node.Type != NodeTypes.Output || !revision.Definition.Nodes.TryGetValue(received.SourceNode, out var sourceNode) ||
-                    sourceNode.Type is not (NodeTypes.Terminate or NodeTypes.WorkflowCall))
+                    sourceNode.Type is not (NodeTypes.Terminate or NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall))
                     throw new InvalidOperationException("Invalid internal workflow termination signal.");
             }
             else if (received.SourceNode is not null)
@@ -1248,13 +1248,38 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
                             value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value));
                 }
+                var isInterfaceCall = node.Type == NodeTypes.WorkflowInterfaceCall;
+                WorkflowInterfaceResolvedOperation? interfaceOperation = null;
+                var interfaceInputValues = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+                if (isInterfaceCall)
+                {
+                    interfaceOperation = WorkflowInterfaceResolver.ResolveOperation(
+                        node.WorkflowInterfaceCall!.Implementation, node.WorkflowInterfaceCall.OperationId);
+                    foreach (var field in interfaceOperation.Signature.Inputs ?? [])
+                    {
+                        var evaluation = dataEvaluator!.ResolveInput(Id, field.FieldId);
+                        interfaceInputValues.Add(field.FieldId,
+                            WorkflowInterfaceFields.ToJsonElement(field.DataType, evaluation.Result.Value));
+                        foreach (var value in evaluation.Evaluations)
+                            await Emit(ExecutionEventKinds.DataEvaluated, value.NodeId, invocation,
+                                value.ConnectionId is null ? null : $"data:{value.ConnectionId}", SerializeDataEvidence(Id, value));
+                    }
+                    message = WorkflowInterfaceFields.PackInputs(interfaceOperation.Signature, interfaceInputValues);
+                }
                 WorkflowExecutionResult? childOutcome = null;
-                if (node.Type == NodeTypes.WorkflowCall)
+                if (node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall)
                 {
                     callSettlement?.TryStart();
                     try
                     {
-                        childOutcome = await ExecuteWorkflowCall(message, cancellationToken, callScopeCancellation);
+                        WorkflowCallConfiguration? childCall = node.WorkflowCall;
+                        if (interfaceOperation is { } resolvedOperation)
+                        {
+                            var child = resolvedOperation.Workflow;
+                            childCall = new WorkflowCallConfiguration(child.WorkflowId, child.RevisionId,
+                                child.Version, child.ContentHash, child.Definition);
+                        }
+                        childOutcome = await ExecuteWorkflowCall(childCall!, message, cancellationToken, callScopeCancellation);
                         callSettlement?.TrySettleChild(childOutcome.OutcomeUnknown
                             ? SequenceWorkflowCallSettlementState.Unknown
                             : childOutcome.Failed
@@ -1321,7 +1346,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     }));
                 }
                 var resultAvailable = received.HasValue;
-                if (node.Type == NodeTypes.WorkflowCall)
+                if (node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall)
                     resultAvailable = childOutcome?.HasOutput == true;
                 var result = node.Type switch
                 {
@@ -1344,6 +1369,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         ? await InvokeDirectMcpTool(message, invocation, toolArgumentEvaluations, received.Approval is not null, cancellationToken)
                         : await InvokeTool(message, invocation, cancellationToken),
                     NodeTypes.WorkflowCall => childOutcome?.Output ?? string.Empty,
+                    NodeTypes.WorkflowInterfaceCall => childOutcome?.Output ?? string.Empty,
                     NodeTypes.Agent => agents is null ? throw new InvalidOperationException("No agent executor is configured.") :
                         await agents.ExecuteAsync(new NodeInvocationContext(runId, revision, Id, invocation,
                             (kind, data) => Emit(kind, Id, invocation, null, AddSequenceLineage(data)))
@@ -1395,6 +1421,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     using var childJson = JsonDocument.Parse(result, new JsonDocumentOptions { MaxDepth = 32 });
                     dataEvaluator?.SetRuntimeOutput(Id, "out", WorkflowDataTypes.Json, childJson.RootElement.Clone());
                 }
+                if (isInterfaceCall && childOutcome?.HasOutput == true)
+                {
+                    var projected = WorkflowInterfaceFields.ProjectOutputs(interfaceOperation!.Signature, result);
+                    foreach (var field in interfaceOperation.Signature.Outputs ?? [])
+                        dataEvaluator!.SetRuntimeOutput(Id, field.FieldId, field.DataType,
+                            WorkflowInterfaceFields.ToWorkflowValue(field.DataType, projected[field.FieldId]));
+                }
                 if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
                     node.Type is NodeTypes.Condition or NodeTypes.Merge or NodeTypes.Approval or NodeTypes.WorkflowCall or
                         NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse or NodeTypes.TextTemplate &&
@@ -1437,6 +1470,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 var port = agentRouteId is null ? "out" : AgentExecutionRouteLimits.PinId(agentRouteId);
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Input) port = "then";
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.McpTool) port = "then";
+                if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph && node.Type == NodeTypes.WorkflowInterfaceCall) port = "then";
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type is NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse) port = "then";
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type is NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.LoopBody) port = "then";
                 if (UsesConfigurableParallelGraph && node.Type == NodeTypes.ParallelBranch) port = "then";
@@ -1492,9 +1526,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null,
                         routeSelection is not null ? JsonSerializer.Serialize(new { routeId = agentRouteId, port }) :
                         node.Type == NodeTypes.Loop ? JsonSerializer.Serialize(new { port, iteration = received.LoopIteration, maximumIterations = node.Loop!.MaximumIterations }) :
-                        node.Type == NodeTypes.WorkflowCall && childOutcome!.Cancelled ? "Nested workflow was cancelled by its own scope." :
-                        node.Type == NodeTypes.WorkflowCall && childOutcome!.Failed ? "Nested workflow ended at a failure termination." :
-                        node.Type == NodeTypes.WorkflowCall && childOutcome!.Terminated ? "Nested workflow terminated successfully." :
+                        node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall && childOutcome!.Cancelled ? "Nested workflow was cancelled by its own scope." :
+                        node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall && childOutcome!.Failed ? "Nested workflow ended at a failure termination." :
+                        node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall && childOutcome!.Terminated ? "Nested workflow terminated successfully." :
                         node.Type == NodeTypes.Terminate && node.Termination?.Outcome == WorkflowTerminationOutcomes.Failure ? "Workflow ended at a failure termination." :
                         node.Type == NodeTypes.Terminate || received.TerminationSignal ? "Workflow terminated without returning a value." : result);
                 if (node.Type == NodeTypes.ParallelFork)
@@ -1519,6 +1553,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 }
                 var outputType = node.Type == NodeTypes.Terminate ? "string" : node.Type == NodeTypes.Output ? received.DataType :
                     node.Type == NodeTypes.WorkflowCall ? WorkflowPorts.Outputs(node).Single().DataType :
+                    node.Type == NodeTypes.WorkflowInterfaceCall ? WorkflowDataTypes.Json :
                     node.Type == NodeTypes.Agent && node.Agent?.RequireStructuredResult == true ? "json" :
                     WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) ? "string" : WorkflowPorts.Outputs(node).Single(output => output.Id == port).DataType;
                 var failureSignal = node.Termination?.Outcome == WorkflowTerminationOutcomes.Failure ||
@@ -1593,10 +1628,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             (collaborationRuntime!.IsPhased ? grant.Role == role : grant.Phase == role)
                 ? grant.Channels : null;
 
-        private async Task<WorkflowExecutionResult> ExecuteWorkflowCall(string input, CancellationToken cancellationToken,
+        private async Task<WorkflowExecutionResult> ExecuteWorkflowCall(WorkflowCallConfiguration call, string input, CancellationToken cancellationToken,
             Func<string, CancellationTokenSource?>? callScopeCancellation = null)
         {
-            var call = node.WorkflowCall ?? throw new InvalidOperationException("The nested workflow revision is unavailable.");
             var child = WorkflowRevision.Rehydrate(call.RevisionId, call.Definition, "embedded-workflow-prefab", null,
                 DateTimeOffset.UnixEpoch, call.ContentHash);
             var childScope = scopeId is null ? Id : $"{scopeId}/{Id}";

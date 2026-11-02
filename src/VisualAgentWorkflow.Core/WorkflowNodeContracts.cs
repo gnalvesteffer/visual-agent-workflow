@@ -69,7 +69,8 @@ public enum WorkflowDynamicPinIdentityKind
     McpArgumentId,
     ParallelBranchId,
     SequenceOutputId,
-    GraphFunctionPortId
+    GraphFunctionPortId,
+    InterfaceFieldId
 }
 
 public sealed record WorkflowNodeLimit(string Id, int Maximum, string Description);
@@ -153,7 +154,7 @@ public static class WorkflowNodeContractConformance
             Issue("metadata.capability-effect", contract, "Host-authorized capability nodes must declare an external-capability effect.");
         if (contract.Type == NodeTypes.Approval && !contract.Effects.HasFlag(WorkflowNodeEffectFlags.HostInteraction))
             Issue("metadata.approval-effect", contract, "Approval nodes must declare a host-interaction effect.");
-        if (contract.Type == NodeTypes.WorkflowCall && !contract.Effects.HasFlag(WorkflowNodeEffectFlags.ChildWorkflow))
+        if (contract.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall && !contract.Effects.HasFlag(WorkflowNodeEffectFlags.ChildWorkflow))
             Issue("metadata.child-effect", contract, "Workflow-call nodes must declare a child-workflow effect.");
 
         ValidateLifecycle(contract, Issue);
@@ -207,6 +208,7 @@ public static class WorkflowNodeContractConformance
                 Expect("metadata.capability-evidence", contract.Evidence, WorkflowNodeEvidenceKind.CapabilityInvocation, "capability-invocation evidence");
                 break;
             case NodeTypes.WorkflowCall:
+            case NodeTypes.WorkflowInterfaceCall:
                 Expect("metadata.child-activation", contract.Activation, WorkflowNodeActivationKind.ChildWorkflow, "child-workflow activation");
                 Expect("metadata.child-state", contract.State, WorkflowNodeStateKind.RunScoped, "run-scoped state");
                 Expect("metadata.child-failure", contract.Failure, WorkflowNodeFailureKind.PropagatesChildOutcome, "child-outcome failure disposition");
@@ -275,6 +277,7 @@ public static class WorkflowNodeContractCatalog
         Contract(NodeTypes.Agent, "Agent", "Capabilities", "Invokes a host-authorized model agent.", true, true, effects: WorkflowNodeEffectFlags.RunScopedState | WorkflowNodeEffectFlags.ExternalCapability, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.AgentRouteId, requiresHostCapability: true, limits: [new("route-count", AgentExecutionRouteLimits.MaximumRoutes, "Maximum authored execution routes."), new("output-tokens", AgentOutputTokenLimits.Maximum, "Maximum configured response tokens."), new("total-tokens", AgentTotalTokenLimits.Maximum, "Maximum provider-reported total tokens."), new("function-tools", AgentGraphFunctionToolLimits.MaximumAssignedFunctions, "Maximum assigned pure graph-function tools.")], state: WorkflowNodeStateKind.HostOwned, evidence: WorkflowNodeEvidenceKind.CapabilityInvocation),
         Contract(NodeTypes.McpTool, "MCP tool", "Capabilities", "Invokes one host-authorized MCP tool.", true, true, effects: WorkflowNodeEffectFlags.RunScopedState | WorkflowNodeEffectFlags.ExternalCapability, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.McpArgumentId, requiresHostCapability: true, limits: [new("arguments-json-characters", 65_536, "Maximum static argument JSON characters.")], state: WorkflowNodeStateKind.HostOwned, evidence: WorkflowNodeEvidenceKind.CapabilityInvocation),
         Contract(NodeTypes.WorkflowCall, "Workflow call", "Composition", "Calls an exact pinned child workflow revision.", true, true, effects: WorkflowNodeEffectFlags.RunScopedState | WorkflowNodeEffectFlags.ChildWorkflow, limits: [new("nested-depth", WorkflowCallLimits.MaximumDepth, "Maximum nested workflow-call depth."), new("expanded-nodes", WorkflowCallLimits.MaximumExpandedNodes, "Maximum expanded nodes across a call tree.")], activation: WorkflowNodeActivationKind.ChildWorkflow, state: WorkflowNodeStateKind.RunScoped, failure: WorkflowNodeFailureKind.PropagatesChildOutcome, evidence: WorkflowNodeEvidenceKind.ChildWorkflow),
+        Contract(NodeTypes.WorkflowInterfaceCall, "Interface call", "Composition", "Invokes one statically selected typed operation on an immutable workflow interface implementation.", true, true, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.InterfaceFieldId, effects: WorkflowNodeEffectFlags.RunScopedState | WorkflowNodeEffectFlags.ChildWorkflow, limits: [new("nested-depth", WorkflowCallLimits.MaximumDepth, "Maximum nested workflow-call depth."), new("expanded-nodes", WorkflowCallLimits.MaximumExpandedNodes, "Maximum expanded nodes across a call tree.")], activation: WorkflowNodeActivationKind.ChildWorkflow, state: WorkflowNodeStateKind.RunScoped, failure: WorkflowNodeFailureKind.PropagatesChildOutcome, evidence: WorkflowNodeEvidenceKind.ChildWorkflow),
         Contract(NodeTypes.FunctionInput, "Function input", "Functions", "Declares a pure graph-function input.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.FunctionOutput, "Function output", "Functions", "Declares a pure graph-function output.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.FunctionCall, "Function call", "Functions", "Evaluates an exact pure graph-function revision.", false, true, pure: true, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.GraphFunctionPortId, limits: [new("body-nodes", GraphFunctionLimits.MaximumNodes, "Maximum nodes in the pinned pure function body."), new("node-visits", GraphFunctionLimits.MaximumRunNodeVisits, "Maximum evaluated function-node visits per run.")], activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
