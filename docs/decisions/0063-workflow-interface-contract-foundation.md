@@ -94,8 +94,10 @@ semantics.
 
 ## Deferred gates
 
-Remaining follow-up: complete invalid-source audit reporting, package closure,
-and cross-project packaging. The project audit is advisory and never changes
+Remaining follow-up: complete invalid-source audit reporting, cross-project
+packaging, and broader playback coverage. Core package and project-release
+round-trip tests prove the interface/implementation/child requirement closure
+and self-contained snapshots. The project audit is advisory and never changes
 embedded calls or run admission. The
 folder-project authoring and exact-revision graph selection smoke is
 `scripts/workflow_interface_authoring_smoke.py`. Add distinct playback events

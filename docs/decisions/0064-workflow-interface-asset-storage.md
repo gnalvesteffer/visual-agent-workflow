@@ -61,8 +61,10 @@ a pinned revision.
 
 ## Follow-up
 
-1. Complete audit failure and invalid-source reporting, package closure,
-   host admission, and passive playback after project assets are unavailable.
+1. Complete audit failure and invalid-source reporting, cross-project package
+   portability, host admission, and passive playback after project assets are
+   unavailable. Package requirement closure is covered by the Core release
+   round-trip regression.
 
 See [Decision 0063](0063-workflow-interface-contract-foundation.md),
 [project folders and workspaces](../project-workspaces.md), and the
