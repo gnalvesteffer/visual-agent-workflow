@@ -1,6 +1,6 @@
 # Decision 0063: Workflow interface contract foundation
 
-**Status:** Accepted; Core field-contract codec proof added (2026-11-02). Runtime, authoring, and storage remain deferred.
+**Status:** Accepted; Core codec and pinned-child composition proofs added (2026-11-02). Interface runtime, authoring, and storage remain deferred.
 
 ## Decision
 
@@ -64,6 +64,10 @@ semantics.
 - Schema 1.1 fields round-trip canonically; packing and projection reject
   missing/extra fields, duplicate JSON properties, and wrong JSON types, while
   preserving explicit `null` for arbitrary JSON fields.
+- An Agent Framework regression resolves an exact implementation pin, packs
+  three differently typed fields, executes the embedded JSON workflow once,
+  projects three outputs from its result, and reconstructs the nested-call
+  evidence through passive playback.
 - Host permissions remain outside both portable definitions.
 
 ## Deferred gates
@@ -71,7 +75,8 @@ semantics.
 Before calling interfaces shipped, separately prove immutable asset storage
 and source ownership, package dependency closure, authoring/editing UX, a
 version-pinned call representation, runtime dispatch and evidence, host
-admission and cancellation, and passive playback. This Core field codec does
-not yet prove that one child runs once, that multiple outputs project from one
-captured result, or that playback avoids dispatch. Do not resolve
-implementations through a mutable catalog at runtime.
+admission and cancellation, and interface-specific passive playback. The
+composition test exercises the existing pinned WorkflowCall and playback
+contracts directly; there is still no interface runtime dispatcher or
+interface-specific evidence format. Do not resolve implementations through a
+mutable catalog at runtime.

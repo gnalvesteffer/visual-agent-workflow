@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using VisualAgentWorkflow.Core;
 using Xunit;
 
@@ -114,5 +115,76 @@ public sealed class NestedWorkflowExecutionTests
             "{ \"answer\": 42 }", _ => ValueTask.CompletedTask);
 
         Assert.Equal("{\"answer\":42}", output);
+    }
+
+    [Fact]
+    public async Task InterfaceFieldAdapterRunsExactPinnedJsonWorkflowOnceAndProjectsMultipleOutputs()
+    {
+        var operation = new WorkflowInterfaceOperation("Lookup", WorkflowDataTypes.Json, WorkflowDataTypes.Json)
+        {
+            Inputs =
+            [
+                new("query", "Query", WorkflowDataTypes.Json),
+                new("includeArchived", "Include archived", WorkflowDataTypes.Boolean),
+                new("limit", "Limit", WorkflowDataTypes.Integer)
+            ],
+            Outputs =
+            [
+                new("query", "Query", WorkflowDataTypes.Json),
+                new("includeArchived", "Include archived", WorkflowDataTypes.Boolean),
+                new("limit", "Limit", WorkflowDataTypes.Integer)
+            ]
+        };
+        var interfaceDefinition = new WorkflowInterfaceDefinition("lookup.api", "Lookup", "Lookup operation.",
+            ImmutableSortedDictionary<string, WorkflowInterfaceOperation>.Empty.Add("lookup", operation))
+        { SchemaVersion = WorkflowInterfaceJson.FieldContractSchemaVersion };
+        var interfaceRevision = WorkflowInterfaceRevision.Create(interfaceDefinition);
+        var childDefinition = Baseline("lookup-child", "1.19") with
+        {
+            Nodes = Baseline("lookup-child", "1.19").Nodes
+                .SetItem("input", Baseline("lookup-child", "1.19").Nodes["input"] with { InputDataType = WorkflowDataTypes.Json })
+                .SetItem("output", Baseline("lookup-child", "1.19").Nodes["output"] with { OutputDataType = WorkflowDataTypes.Json })
+        };
+        var childRevision = WorkflowRevision.Create(childDefinition, "proof");
+        var childPin = WorkflowInterfaceWorkflowPin.From(new PublishedWorkflowRevision(1, childRevision));
+        var implementation = WorkflowInterfaceImplementationRevision.Create(
+            new WorkflowInterfaceImplementation("lookup.impl", interfaceRevision,
+                ImmutableSortedDictionary<string, WorkflowInterfaceWorkflowPin>.Empty.Add("lookup", childPin)));
+        var resolved = WorkflowInterfaceResolver.ResolveOperation(implementation, "lookup");
+        var inputs = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+        {
+            ["query"] = JsonDocument.Parse("null").RootElement.Clone(),
+            ["includeArchived"] = JsonDocument.Parse("false").RootElement.Clone(),
+            ["limit"] = JsonDocument.Parse("7").RootElement.Clone()
+        };
+        var packedInput = WorkflowInterfaceFields.PackInputs(resolved.Signature, inputs);
+        var call = new NodeDefinition(NodeTypes.WorkflowCall, "1.0.0")
+        {
+            WorkflowCall = new(resolved.Workflow.WorkflowId, resolved.Workflow.RevisionId,
+                resolved.Workflow.Version, resolved.Workflow.ContentHash, resolved.Workflow.Definition)
+        };
+        var parent = GraphEditing.InsertNodeAfter(Baseline("lookup-parent", "1.19") with
+        {
+            Nodes = Baseline("lookup-parent", "1.19").Nodes
+                .SetItem("input", Baseline("lookup-parent", "1.19").Nodes["input"] with { InputDataType = WorkflowDataTypes.Json })
+                .SetItem("output", Baseline("lookup-parent", "1.19").Nodes["output"] with { OutputDataType = WorkflowDataTypes.Json })
+        }, "input", "out", call);
+        var parentRevision = WorkflowRevision.Create(parent, "proof");
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), parentRevision, packedInput,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+        var outputs = WorkflowInterfaceFields.ProjectOutputs(resolved.Signature, result);
+        var childStarts = events.Where(evt => evt.Kind == ExecutionEventKinds.SubworkflowEvidence &&
+            WorkflowCallLifecycleEvidence.TryRead(evt.Data, out var evidence) && evidence?.Lifecycle == ExecutionEventKinds.SubworkflowStarted).ToArray();
+
+        Assert.Single(childStarts);
+        Assert.True(WorkflowCallLifecycleEvidence.TryRead(childStarts[0].Data, out var childStarted));
+        Assert.Equal(resolved.Workflow.RevisionId, childStarted!.ChildRevisionId);
+        Assert.Equal(JsonValueKind.Null, outputs["query"].ValueKind);
+        Assert.Equal("7", outputs["limit"].GetRawText());
+        Assert.Equal(JsonValueKind.False, outputs["includeArchived"].ValueKind);
+        Assert.True(WorkflowCallEvidence.TryReconstructPlayback(events, out var playback));
+        Assert.Single(playback!.Calls);
     }
 }

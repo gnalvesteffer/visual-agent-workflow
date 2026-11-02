@@ -8,8 +8,12 @@ Workflow interface schema 1.1 extends the Core-only interface proof with
 required named input/output fields and strict bounded JSON packing/projection.
 It rejects absent, duplicate, extra, and incorrectly typed fields while
 preserving explicit JSON null values. Schema 1.0 serialization remains
-unchanged. This is still a contract codec proof; there is no interface catalog,
-call node, runtime execution, host admission, or playback. See [Decision 0063](decisions/0063-workflow-interface-contract-foundation.md).
+unchanged. An Agent Framework regression composes it with one exact pinned
+JSON child call, verifies the child runs once and multiple typed outputs are
+projected, then reconstructs nested-call evidence passively. This is a
+cross-layer proof, not interface runtime dispatch; there is no interface
+catalog, call node, host admission, or interface-specific playback. See
+[Decision 0063](decisions/0063-workflow-interface-contract-foundation.md).
 
 ## Unified schema 2.0 authoring
 
