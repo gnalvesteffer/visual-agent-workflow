@@ -12,11 +12,16 @@ and content hash, independent of workflow schema 2.0.
 
 An implementation revision binds every declared operation to an exact
 immutable workflow revision snapshot and records its own revision identity,
-version, and content hash. Multiple operations may bind to the same workflow
-revision. Conformance checks validate interface and workflow hashes, reject
-missing or undeclared operation bindings, and check boundary types. The
-current workflow boundary supports one payload input and one result output;
-multi-pin operation signatures are not implied by this contract.
+version, and content hash. Conformance checks validate interface and workflow
+hashes, reject missing or undeclared operation bindings, and check boundary
+types. The current workflow boundary supports one payload input and one result
+output; multi-pin operation signatures are not implied by this contract.
+
+Core statically resolves an operation ID from an exact implementation revision
+to its declared signature and exact workflow pin. The proof scenario uses a
+string-to-string `lookup` operation and a JSON-to-JSON `search` operation,
+each mapped to a different immutable workflow revision. An unknown operation
+fails resolution; no runtime call node consumes this selection yet.
 
 The contract contains no prompts, tools, credentials, grants, endpoints, or
 authority. A hash and a pinned revision establish content identity only; they
@@ -40,8 +45,9 @@ semantics.
 
 - Canonical interface and implementation revision JSON round-trip with stable
   hashes and strict schema/duplicate-property validation.
-- Conformance accepts multiple operation IDs mapped to exact workflow pins,
-  including repeated use of one exact workflow revision.
+- Conformance accepts multiple operation IDs with different payload types,
+  each mapped to its own exact workflow revision; explicit resolution returns
+  exactly the requested operation's pin and rejects an unknown operation.
 - Missing and extra bindings, mismatched boundary types, and altered content
   hashes are rejected with deterministic diagnostics.
 - Host permissions remain outside both portable definitions.

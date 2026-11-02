@@ -99,7 +99,38 @@ public sealed record WorkflowInterfaceImplementationRevision(Guid RevisionId, in
     }
 }
 
+/// <summary>A statically selected operation and the exact workflow revision that implements it.</summary>
+public sealed record WorkflowInterfaceResolvedOperation(
+    WorkflowInterfaceRevision Interface,
+    string ImplementationId,
+    Guid ImplementationRevisionId,
+    int ImplementationVersion,
+    string ImplementationContentHash,
+    string OperationId,
+    WorkflowInterfaceOperation Signature,
+    WorkflowInterfaceWorkflowPin Workflow);
+
 public sealed record WorkflowInterfaceConformanceIssue(string Code, string Path, string Message);
+
+/// <summary>Resolves statically pinned interface operations without consulting an asset catalog.</summary>
+public static class WorkflowInterfaceResolver
+{
+    public static WorkflowInterfaceResolvedOperation ResolveOperation(
+        WorkflowInterfaceImplementationRevision implementationRevision, string operationId)
+    {
+        ArgumentNullException.ThrowIfNull(implementationRevision);
+        implementationRevision.Validate();
+        if (string.IsNullOrWhiteSpace(operationId) ||
+            !implementationRevision.Definition.Interface.Definition.Operations.TryGetValue(operationId, out var signature))
+            throw new ArgumentException("The requested operation is not declared by this interface revision.", nameof(operationId));
+        if (!implementationRevision.Definition.Operations.TryGetValue(operationId, out var workflow))
+            throw new ArgumentException("The requested operation has no implementation in this revision.", nameof(operationId));
+
+        return new(implementationRevision.Definition.Interface, implementationRevision.Definition.ImplementationId,
+            implementationRevision.RevisionId, implementationRevision.Version, implementationRevision.ContentHash,
+            operationId, signature, workflow);
+    }
+}
 
 /// <summary>Canonical JSON, hashing, and structural conformance for workflow interface assets.</summary>
 public static class WorkflowInterfaceJson
