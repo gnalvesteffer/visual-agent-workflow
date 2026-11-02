@@ -226,7 +226,7 @@
                         {
                             @if (TryResolveInterfaceOperation(interfaceCall) is { } operation)
                             {
-                                <dl><dt>Interface</dt><dd>@operation.Interface.Definition.DisplayName</dd><dt>Operation</dt><dd>@operation.Signature.DisplayName · <code>@operation.OperationId</code></dd><dt>Implementation</dt><dd>@operation.ImplementationId v@operation.ImplementationVersion</dd><dt>Workflow</dt><dd>@operation.Workflow.WorkflowId v@operation.Workflow.Version</dd><dt>Revision</dt><dd><code>@operation.Workflow.RevisionId</code></dd></dl>
+                                <dl><dt>Interface</dt><dd>@operation.Interface.Definition.DisplayName</dd><dt>Operation</dt><dd>@operation.Signature.DisplayName · <code>@operation.OperationId</code></dd><dt>Implementation</dt><dd>@operation.ImplementationId v@(operation.ImplementationVersion)</dd><dt>Workflow</dt><dd>@operation.Workflow.WorkflowId v@(operation.Workflow.Version)</dd><dt>Revision</dt><dd><code>@operation.Workflow.RevisionId</code></dd></dl>
                                 <h5>Inputs</h5>
                                 <ul>@foreach (var field in operation.Signature.Inputs ?? []) { <li>@field.DisplayName · <code>@field.FieldId</code> · @field.DataType</li> }</ul>
                                 <h5>Outputs</h5>
@@ -236,7 +236,29 @@
                         }
                         else
                         {
-                            <p class="vaw-help">Choose an interface implementation and operation in the serialized workflow definition. Studio authoring for workflow interfaces is not available yet.</p>
+                            <fieldset disabled="@(ReadOnly || Disabled || CallableInterfaceImplementations.IsEmpty)">
+                                <legend>Workflow interface operation</legend>
+                                @if (CallableInterfaceImplementations.IsEmpty)
+                                {
+                                    <p class="vaw-help">No callable implementation revisions are available. Interface calls require at least one named input and output field per operation.</p>
+                                }
+                                else
+                                {
+                                    <label>Implementation and operation
+                                        <select aria-label="Pinned workflow interface operation for @id" value="@SelectedInterfaceOperation(node)" @onchange="args => SetInterfaceOperation(id, args)">
+                                            <option value="">Choose an operation</option>
+                                            @foreach (var implementation in CallableInterfaceImplementations)
+                                            {
+                                                foreach (var (operationId, signature) in implementation.Definition.Interface.Definition.Operations)
+                                                {
+                                                    <option value="@InterfaceOperationKey(implementation, operationId)">@implementation.Definition.Interface.Definition.DisplayName · @signature.DisplayName · @implementation.Definition.ImplementationId v@(implementation.Version)</option>
+                                                }
+                                            }
+                                        </select>
+                                    </label>
+                                    <p class="vaw-help">Selecting an operation embeds this exact immutable implementation revision in the node. Later asset edits do not change this call.</p>
+                                }
+                            </fieldset>
                         }
                     }
                     else if (node.Type == NodeTypes.WorkflowCall)
@@ -820,12 +842,12 @@
                                         var replacesRevision = (agent.GraphFunctionTools ?? []).Any(snapshot => snapshot.Definition.FunctionId == function.Definition.FunctionId && snapshot.ContentHash != function.ContentHash);
                                         <label @key="function.ContentHash"><input type="checkbox" aria-label="Expose graph function @function.Definition.DisplayName to @id" checked="@assigned"
                                             @onchange="args => AssignGraphFunction(id, function, args)" disabled="@(Disabled || !assigned && !replacesRevision && (agent.GraphFunctionTools?.Length ?? 0) >= AgentGraphFunctionToolLimits.MaximumAssignedFunctions)" />
-                                            @function.Definition.DisplayName · v@function.Definition.Version @(string.IsNullOrEmpty(item.Folder) ? "" : "· " + item.Folder)</label>
+                                            @function.Definition.DisplayName · v@(function.Definition.Version) @(string.IsNullOrEmpty(item.Folder) ? "" : "· " + item.Folder)</label>
                                     }
                                     @foreach (var snapshot in agent.GraphFunctionTools ?? [])
                                     {
                                         @if (!(FunctionCatalog?.List() ?? []).Any(item => item.Function.ContentHash == snapshot.ContentHash))
-                                        { <p>Embedded function: @snapshot.Definition.DisplayName · v@snapshot.Definition.Version · @snapshot.ContentHash[..8] <button type="button" @onclick="() => RemoveGraphFunction(id, snapshot.ContentHash)" disabled="@Disabled">Remove embedded function</button></p> }
+                                        { <p>Embedded function: @snapshot.Definition.DisplayName · v@(snapshot.Definition.Version) · @snapshot.ContentHash[..8] <button type="button" @onclick="() => RemoveGraphFunction(id, snapshot.ContentHash)" disabled="@Disabled">Remove embedded function</button></p> }
                                     }
                                     @if (FunctionCatalog is not null) { <a href="/projects/@ProjectId/functions">Manage function library</a> }
                                     <p class="vaw-help">At most @AgentGraphFunctionToolLimits.MaximumAssignedFunctions function revisions and @AgentGraphFunctionToolLimits.MaximumCallsPerInvocation calls per agent invocation. Aggregate inputs and outputs are bounded to @AgentGraphFunctionToolLimits.MaximumInputCharacters characters each.</p>
@@ -918,6 +940,7 @@
     [Parameter] public IGraphFunctionCatalog? FunctionCatalog { get; set; }
     [Parameter] public IGraphFunctionAuthoringCatalog? FunctionAuthoringCatalog { get; set; }
     [Parameter] public IGraphTemplateCatalog? TemplateCatalog { get; set; }
+    [Parameter] public IReadOnlyList<WorkflowInterfaceImplementationRevision> InterfaceImplementations { get; set; } = [];
     private string newType = NodeTypes.Uppercase;
     private System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition> ParameterDefinitions =>
         Definition.Parameters ?? System.Collections.Immutable.ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty;
@@ -1121,6 +1144,31 @@
         try { return WorkflowInterfaceResolver.ResolveOperation(configuration.Implementation, configuration.OperationId); }
         catch (ArgumentException) { return null; }
     }
+    private static string InterfaceOperationKey(WorkflowInterfaceImplementationRevision implementation, string operationId) =>
+        $"{implementation.RevisionId:N}|{operationId}";
+    private System.Collections.Immutable.ImmutableArray<WorkflowInterfaceImplementationRevision> CallableInterfaceImplementations =>
+        [.. InterfaceImplementations.Where(implementation => implementation.Definition.Interface.Definition.Operations.Values.All(operation =>
+            operation.Inputs is { IsDefaultOrEmpty: false } && operation.Outputs is { IsDefaultOrEmpty: false }))];
+    private static string SelectedInterfaceOperation(NodeDefinition node) => node.WorkflowInterfaceCall is { } call
+        ? InterfaceOperationKey(call.Implementation, call.OperationId)
+        : "";
+    private Task SetInterfaceOperation(string nodeId, ChangeEventArgs args) => Edit(() =>
+    {
+        var selected = args.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(selected)) return Definition;
+        var separator = selected.IndexOf('|');
+        if (separator <= 0 || !Guid.TryParseExact(selected[..separator], "N", out var revisionId))
+            throw new ArgumentException("Choose a valid pinned interface operation.");
+        var operationId = selected[(separator + 1)..];
+        var implementation = InterfaceImplementations.SingleOrDefault(revision => revision.RevisionId == revisionId)
+            ?? throw new ArgumentException("The selected interface implementation is no longer available. Refresh project assets and try again.");
+        _ = WorkflowInterfaceResolver.ResolveOperation(implementation, operationId);
+        var node = Definition.Nodes[nodeId];
+        return GraphEditing.ReplaceNode(Definition, nodeId, node with
+        {
+            WorkflowInterfaceCall = new WorkflowInterfaceCallConfiguration(implementation, operationId)
+        });
+    }, preserveSelection: nodeId);
     private Task MapChildParameter(string nodeId, string childParameterId, ChangeEventArgs args) => Edit(() =>
     {
         var node = Definition.Nodes[nodeId];
@@ -1339,6 +1387,8 @@
     }
     private NodeDefinition FromSelection(string value, NodeDefinition? existing = null)
     {
+        if (value == NodeTypes.WorkflowInterfaceCall)
+            return new(NodeTypes.WorkflowInterfaceCall, "1.0.0");
         if (value == NodeTypes.Loop)
             return new(value, "1.0.0") { Loop = existing?.Loop ?? new(new("contains", "yes"), 3) };
         if (value == NodeTypes.Condition)

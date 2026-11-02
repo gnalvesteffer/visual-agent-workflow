@@ -60,6 +60,57 @@ public sealed class WorkflowInterfaceTests
     }
 
     [Fact]
+    public void FolderWorkflowPin_CapturesAValidatedImmutableDefinitionSnapshot()
+    {
+        var source = Workflow("folder-operation", WorkflowDataTypes.Json, WorkflowDataTypes.Json);
+
+        var pin = WorkflowInterfaceWorkflowPin.From(source);
+        var expectedHash = WorkflowJson.ComputeHash(source);
+
+        Assert.Equal(source.WorkflowId, pin.WorkflowId);
+        Assert.Equal(expectedHash, pin.ContentHash);
+        Assert.NotEqual(Guid.Empty, pin.RevisionId);
+        Assert.Equal(1, pin.Version);
+        Assert.Equal(expectedHash, WorkflowJson.ComputeHash(pin.Definition));
+        pin.Validate();
+        Assert.Throws<ArgumentException>(() => WorkflowInterfaceWorkflowPin.From(source with { Nodes = source.Nodes.Remove(source.EntryNodeId) }));
+    }
+
+    [Fact]
+    public void GraphEditing_CanConfigureAnInterfaceCallAsAProcessingNode()
+    {
+        var workflow = Workflow("interface-caller", WorkflowDataTypes.String, WorkflowDataTypes.String);
+        var contract = Interface() with
+        {
+            SchemaVersion = WorkflowInterfaceJson.FieldContractSchemaVersion,
+            Operations = ImmutableSortedDictionary<string, WorkflowInterfaceOperation>.Empty.Add("lookup",
+                new("Lookup", WorkflowDataTypes.Json, WorkflowDataTypes.Json)
+                {
+                    Inputs = [new("query", "Query", WorkflowDataTypes.String)],
+                    Outputs = [new("query", "Query", WorkflowDataTypes.String)]
+                })
+        };
+        var implementation = WorkflowInterfaceImplementationRevision.Create(
+            new WorkflowInterfaceImplementation("sample.impl", WorkflowInterfaceRevision.Create(contract),
+                ImmutableSortedDictionary<string, WorkflowInterfaceWorkflowPin>.Empty.Add("lookup",
+                    WorkflowInterfaceWorkflowPin.From(Workflow("interface-child", WorkflowDataTypes.Json, WorkflowDataTypes.Json)))),
+            version: 1);
+        workflow = workflow with { Nodes = workflow.Nodes.Add("step", new(NodeTypes.WorkflowInterfaceCall, "1.0.0")) };
+
+        var interfaceNode = new NodeDefinition(NodeTypes.WorkflowInterfaceCall, "1.0.0")
+        {
+            WorkflowInterfaceCall = new(implementation, "lookup")
+        };
+        Assert.Equal("query", Assert.Single(WorkflowPorts.ExplicitDataInputs(interfaceNode)).Id);
+        Assert.Equal("query", Assert.Single(WorkflowPorts.ExplicitDataOutputs(interfaceNode)).Id);
+        var configured = GraphEditing.ReplaceNode(workflow, "step", interfaceNode);
+
+        Assert.Equal(NodeTypes.WorkflowInterfaceCall, configured.Nodes["step"].Type);
+        Assert.DoesNotContain(WorkflowValidator.Validate(configured), issue => issue.Code == "workflowInterfaceCall.configuration");
+        Assert.Contains(WorkflowValidator.Validate(configured), issue => issue.Code == "graph.unreachable");
+    }
+
+    [Fact]
     public void Conformance_ReportsMissingUnexpectedAndIncompatibleOperationBindings()
     {
         var lookupPin = WorkflowInterfaceWorkflowPin.From(new PublishedWorkflowRevision(1,

@@ -1,6 +1,6 @@
 # Decision 0064: Workflow interface asset storage
 
-**Status:** Accepted; project revision storage and source archive support implemented (2026-11-02). Studio asset editing and interface-call binding remain deferred.
+**Status:** Accepted; immutable storage, folder-project authoring, and exact graph-call selection implemented (2026-11-02). Catalog-project asset editing and broader dependency diagnostics remain deferred.
 
 ## Decision
 
@@ -39,9 +39,14 @@ replace the pinned execution authority.
   under the folder project's optimistic manifest hash.
 - Manifest validation checks extensions, asset IDs, versions, revision
   integrity, and matching manifest identities.
-- Folder Explorer currently displays these files as read-only. There is not yet
-  a typed editor, operation-to-workflow binding UI, dependency audit, or
-  interface-call selection control in the graph editor.
+- Folder projects provide typed operation/field authoring and bind each
+  operation to a valid saved workflow snapshot. Implementation conformance is
+  checked before a new immutable revision is written.
+- The graph inspector selects an implementation revision and operation and
+  embeds that exact revision in the node. It does not retain a mutable catalog
+  reference.
+- Catalog projects persist and transport these assets, but their asset
+  authoring UI and complete dependency diagnostics are not yet available.
 
 ## Compatibility
 
@@ -54,12 +59,9 @@ a pinned revision.
 
 ## Follow-up
 
-1. Add interface and implementation editors with conformance diagnostics.
-2. Bind implementation operations to exact workflow snapshots and support
-   explicit revision creation.
-3. Add the graph-editor picker that embeds an exact implementation revision
-   and operation in the call node, retaining stable field IDs and typed pins.
-4. Audit project dependencies, source archive round trips, package closure,
+1. Add catalog-project interface and implementation editors with conformance
+   diagnostics.
+2. Audit project dependencies, source archive round trips, package closure,
    host admission, and passive playback after project assets are unavailable.
 
 See [Decision 0063](0063-workflow-interface-contract-foundation.md),

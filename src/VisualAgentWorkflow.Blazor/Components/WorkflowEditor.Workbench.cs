@@ -250,6 +250,7 @@ public partial class WorkflowEditor
             ContractEntry(NodeTypes.JsonProject, canAdd),
             ContractEntry(NodeTypes.JsonMerge, canAdd),
             ContractEntry(NodeTypes.Approval, canAdd),
+            ContractEntry(NodeTypes.WorkflowInterfaceCall, canAdd, "Call one typed operation from a pinned workflow interface implementation."),
             ContractEntry(NodeTypes.Condition, canAdd),
             ContractEntry(NodeTypes.Merge, canAdd),
             ContractEntry(NodeTypes.Loop, canAdd),

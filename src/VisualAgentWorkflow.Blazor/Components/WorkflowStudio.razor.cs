@@ -13,6 +13,7 @@ public partial class WorkflowStudio
     [Parameter] public IAgentProfileLibrary? AgentProfileLibrary { get; set; }
     [Parameter] public IGraphFunctionCatalog? FunctionCatalog { get; set; }
     [Parameter] public IGraphTemplateCatalog? TemplateCatalog { get; set; }
+    [Parameter] public IReadOnlyList<WorkflowInterfaceImplementationRevision> InterfaceImplementations { get; set; } = [];
     [Parameter] public string ProjectId { get; set; } = "default";
     [Parameter] public bool IdeMode { get; set; }
     [Parameter] public string? InitialWorkflowId { get; set; }

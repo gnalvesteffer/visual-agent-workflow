@@ -32,6 +32,10 @@
             </aside>
         }
         @if (error is not null) { <p role="alert" class="vaw-error">@error</p> }
+        @if (folderNormalizationProvenance is not null)
+        { <p class="vaw-help" role="status">This legacy workflow was normalized into the unified graph draft for editing. Save the draft to write the current format; the indexed source remains unchanged until then.</p> }
+        @if (folderNormalizationDiagnostic is not null)
+        { <p class="vaw-editor-choice-warning" role="status">This legacy workflow could not be converted automatically: @folderNormalizationDiagnostic. Its saved source is preserved.</p> }
         @if (message is not null) { <p role="status" class="vaw-folder-feedback">@message</p> }
         @if (openedWorkflow is null && mcpChoicesLoading) { <p class="vaw-editor-choice-status" role="status" aria-live="polite">Loading MCP tool choices…</p> }
         @if (openedWorkflow is null && providerChoicesLoading) { <p class="vaw-editor-choice-status" role="status" aria-live="polite">Loading model connections…</p> }
@@ -69,6 +73,11 @@
             }
         </section>
         </details>
+        @if (interfaceSource is not null)
+        {
+            <ProjectWorkflowInterfaceAssets @key="openDirectory" Source="interfaceSource" ExpectedManifestHash="@sourceManifestHash"
+                Interfaces="folderInterfaces" Implementations="folderInterfaceAssets" Workflows="workflows" Saved="OnWorkflowInterfacesSaved" />
+        }
         <details hidden="@(!projectToolsOpen)" class="vaw-project-utility" aria-label="Local restore points">
         <summary>Restore points <span class="vaw-help">@snapshots.Count saved</span></summary>
         <section class="vaw-settings-section vaw-project-snapshots" aria-label="Local restore points">
@@ -376,7 +385,7 @@
                     }
                     <WorkflowEditor IdeMode="true" ShowWorkflowSettings="false" @key="definition.WorkflowId" ProjectId="@ProjectId" Definition="definition" DefinitionChanged="DefinitionChanged" HideNodeLibrary="true"
                         Layout="layout" LayoutChanged="LayoutChanged" Bindings="bindings" Providers="providers" SkillLibrary="skillSource"
-                        AgentProfileLibrary="profileSource" FunctionCatalog="graphFunctionCatalog" FunctionAuthoringCatalog="graphFunctionCatalog">
+                        AgentProfileLibrary="profileSource" FunctionCatalog="graphFunctionCatalog" FunctionAuthoringCatalog="graphFunctionCatalog" InterfaceImplementations="interfaceImplementations">
                     </WorkflowEditor>
                     }
                     <section class="vaw-bottom-tray" aria-label="Workflow runs, output and problems">
@@ -489,6 +498,12 @@
     private StudioFolderSkillSource? skillSource;
     private StudioFolderAgentProfileSource? profileSource;
     private StudioFolderGraphFunctionCatalog? graphFunctionCatalog;
+    private StudioFolderWorkflowInterfaceSource? interfaceSource;
+    private IReadOnlyList<StudioFolderWorkflowInterface> folderInterfaces = [];
+    private IReadOnlyList<StudioFolderWorkflowInterfaceImplementation> folderInterfaceAssets = [];
+    private IReadOnlyList<WorkflowInterfaceImplementationRevision> interfaceImplementations = [];
+    private WorkflowNormalizationProvenance? folderNormalizationProvenance;
+    private string? folderNormalizationDiagnostic;
     private List<StudioFolderWorkflow> workflows = [];
     private readonly HashSet<string> selectedPackageWorkflows = new(StringComparer.Ordinal);
     private IReadOnlyDictionary<string, string> workflowNames = new Dictionary<string, string>();
@@ -764,6 +779,7 @@
         var loadedSkillSource = new StudioFolderSkillSource(canonicalDirectory);
         var loadedProfileSource = new StudioFolderAgentProfileSource(canonicalDirectory);
         var loadedGraphFunctionCatalog = new StudioFolderGraphFunctionCatalog(canonicalDirectory);
+        var loadedInterfaceSource = new StudioFolderWorkflowInterfaceSource(canonicalDirectory);
         var loadedWorkflows = loadedSource.List().ToList();
         openDirectory = canonicalDirectory;
         manifest = loadedManifest;
@@ -773,6 +789,10 @@
         skillSource = loadedSkillSource;
         profileSource = loadedProfileSource;
         graphFunctionCatalog = loadedGraphFunctionCatalog;
+        interfaceSource = loadedInterfaceSource;
+        folderInterfaces = loadedInterfaceSource.ListInterfaces();
+        folderInterfaceAssets = loadedInterfaceSource.ListImplementations();
+        interfaceImplementations = folderInterfaceAssets.Select(item => item.Revision).ToArray();
         projectSkills = loadedSkillSource.List().Select(skill => skill.Item).ToArray();
         sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(loadedManifest);
         RefreshSnapshots();
@@ -1715,6 +1735,8 @@
             openedWorkflow = saved;
             definition = saved.Definition;
             layout = saved.Layout;
+            folderNormalizationProvenance = null;
+            folderNormalizationDiagnostic = null;
             workflows = source.List().ToList();
             workflowNames = ToWorkflowNames(workflows);
             var refreshedProject = StudioProjectSourceDirectory.Read(openDirectory!);
@@ -1930,8 +1952,18 @@
         sourceManifestHash = StudioProjectSourceArchive.ComputeManifestHash(loadedManifest);
         fileTree = StudioProjectFileTree.Build(loadedManifest.Files, loadedManifest.Directories);
         projectSkills = skillSource!.List().Select(skill => skill.Item).ToArray();
+        folderInterfaces = interfaceSource?.ListInterfaces() ?? [];
+        folderInterfaceAssets = interfaceSource?.ListImplementations() ?? [];
+        interfaceImplementations = folderInterfaceAssets.Select(item => item.Revision).ToArray();
+        workflows = source!.List().ToList();
         RefreshFileNames();
         RefreshDependencyAudit();
+    }
+
+    private Task OnWorkflowInterfacesSaved()
+    {
+        RefreshProjectSource();
+        return InvokeAsync(StateHasChanged);
     }
 
     private void RefreshFileNames()
@@ -1943,6 +1975,11 @@
             foreach (var item in profileSource.List()) names[item.RelativePath] = $"{item.Item.Profile.Name}.agent";
         if (graphFunctionCatalog is not null)
             foreach (var item in graphFunctionCatalog.ListAssets()) names[item.RelativePath] = $"{item.Item.Function.Definition.DisplayName}.function";
+        if (interfaceSource is not null)
+        {
+            foreach (var item in interfaceSource.ListInterfaces()) names[item.RelativePath] = $"{item.Revision.Definition.DisplayName}.interface";
+            foreach (var item in interfaceSource.ListImplementations()) names[item.RelativePath] = $"{item.Revision.Definition.ImplementationId} v{item.Revision.Version}.implementation";
+        }
         fileNames = names;
     }
 
@@ -2009,15 +2046,32 @@
         profileFormDirty = false;
         graphFunctionDirty = false;
         profileBeingEdited = null;
+        folderNormalizationProvenance = null;
+        folderNormalizationDiagnostic = null;
         definition = workflow?.Definition;
         layout = workflow?.Layout;
+        if (workflow is not null && workflow.Definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph)
+        {
+            var normalization = WorkflowSchemaNormalization.NormalizeForEditingWithProvenance(workflow.Definition);
+            if (normalization.Succeeded)
+            {
+                definition = normalization.Definition;
+                folderNormalizationProvenance = normalization.Provenance;
+                if (folderNormalizationProvenance is not null)
+                    layout = workflow.Layout.Reconcile(definition!);
+            }
+            else
+            {
+                folderNormalizationDiagnostic = string.Join("; ", normalization.Diagnostics.Select(item => item.Message));
+            }
+        }
         RefreshDependencyAudit();
         if (workflow is not null && manifest?.Files.SingleOrDefault(file => file.Path == workflow.RelativePath) is { } file)
             AddEditorTab(file);
         runInput = "";
         runParameters = workflow?.Definition.Parameters?.ToDictionary(parameter => parameter.Key,
             parameter => parameter.Value.DefaultValue, StringComparer.Ordinal) ?? new(StringComparer.Ordinal);
-        dirty = false;
+        dirty = folderNormalizationProvenance is not null;
     }
 
     private void RefreshDependencyAudit()

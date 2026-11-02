@@ -67,6 +67,17 @@ public sealed record WorkflowInterfaceWorkflowPin(string WorkflowId, Guid Revisi
             published.Version, published.Revision.ContentHash, published.Revision.Definition);
     }
 
+    /// <summary>Captures the exact validated workflow definition selected from a project source.</summary>
+    public static WorkflowInterfaceWorkflowPin From(WorkflowDefinition definition, int version = 1)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (version < 1) throw new ArgumentOutOfRangeException(nameof(version));
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var snapshot = WorkflowJson.Deserialize(WorkflowJson.Serialize(definition));
+        var revision = WorkflowRevision.Create(snapshot, "studio-interface-authoring");
+        return new(snapshot.WorkflowId, revision.RevisionId, version, revision.ContentHash, snapshot);
+    }
+
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(WorkflowId) || RevisionId == Guid.Empty || Version < 1 ||

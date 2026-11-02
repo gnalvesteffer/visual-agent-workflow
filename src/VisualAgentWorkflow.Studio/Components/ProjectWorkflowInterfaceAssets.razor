@@ -1,0 +1,206 @@
+@using System.Collections.Immutable
+@using VisualAgentWorkflow.Core
+
+<details class="vaw-project-utility" aria-label="Workflow interface assets">
+    <summary>Workflow interfaces <span class="vaw-help">@Interfaces.Count contracts · @Implementations.Count implementations</span></summary>
+    <section class="vaw-settings-section" aria-label="Author workflow interfaces">
+        <div class="vaw-settings-section-heading">
+            <div><h2>Workflow interfaces</h2><p>Define typed operation boundaries, then bind every operation to an exact saved workflow snapshot. Calls embed the selected implementation revision.</p></div>
+        </div>
+        <div class="vaw-provider-form">
+            <h3>Interface contract</h3>
+            <label>Existing contract
+                <select aria-label="Existing workflow interface" value="@selectedInterfaceKey" @onchange="SelectInterface">
+                    <option value="">Create a new contract</option>
+                    @foreach (var item in Interfaces)
+                    { <option value="@item.Revision.RevisionId">@item.Revision.Definition.DisplayName · @item.Revision.Definition.InterfaceId v@(item.Revision.Version)</option> }
+                </select>
+            </label>
+            <div class="vaw-provider-form-grid">
+                <label>Stable interface ID <input @bind="interfaceId" maxlength="128" placeholder="research.lookup" /></label>
+                <label>Display name <input @bind="interfaceName" maxlength="160" /></label>
+                <label>Next revision <input type="number" min="1" @bind="interfaceVersion" /></label>
+                <label>Operation boundary
+                    <select aria-label="Operation boundary shape" @bind="interfaceSchemaVersion">
+                        <option value="1.0">Single string value</option>
+                        <option value="1.1">Named typed JSON fields</option>
+                    </select>
+                </label>
+                <label class="vaw-provider-form-wide">Description <textarea rows="2" maxlength="2000" @bind="interfaceDescription"></textarea></label>
+            </div>
+            <div class="vaw-interface-operations">
+                @foreach (var operation in operations)
+                {
+                    <fieldset @key="operation.Key" class="vaw-interface-operation">
+                        <legend>Operation</legend>
+                        <div class="vaw-provider-form-grid">
+                            <label>Operation ID <input @bind="operation.Id" maxlength="128" /></label>
+                            <label>Name <input @bind="operation.Name" maxlength="160" /></label>
+                        </div>
+                        @if (interfaceSchemaVersion == WorkflowInterfaceJson.FieldContractSchemaVersion)
+                        {
+                        <div class="vaw-interface-fields">
+                            @foreach (var field in operation.Inputs)
+                            { <div @key="field.Key"><strong>Input</strong><label>Field ID <input @bind="field.Id" maxlength="128" /></label><label>Name <input @bind="field.Name" maxlength="160" /></label><label>Type <select @bind="field.Type">@foreach (var type in FieldTypes) { <option value="@type">@type</option> }</select></label><button type="button" class="vaw-danger-quiet" @onclick="() => RemoveField(operation, true, field)">Remove</button></div> }
+                            <button type="button" class="vaw-secondary" @onclick="() => AddField(operation, true)">Add input field</button>
+                            @foreach (var field in operation.Outputs)
+                            { <div @key="field.Key"><strong>Output</strong><label>Field ID <input @bind="field.Id" maxlength="128" /></label><label>Name <input @bind="field.Name" maxlength="160" /></label><label>Type <select @bind="field.Type">@foreach (var type in FieldTypes) { <option value="@type">@type</option> }</select></label><button type="button" class="vaw-danger-quiet" @onclick="() => RemoveField(operation, false, field)">Remove</button></div> }
+                            <button type="button" class="vaw-secondary" @onclick="() => AddField(operation, false)">Add output field</button>
+                        </div>
+                        }
+                        else { <p class="vaw-help">This operation accepts and returns one string value.</p> }
+                        @if (operations.Count > 1) { <button type="button" class="vaw-danger-quiet" @onclick="() => operations.Remove(operation)">Remove operation</button> }
+                    </fieldset>
+                }
+                <button type="button" class="vaw-secondary" @onclick="AddOperation" disabled="@(operations.Count >= WorkflowInterfaceJson.MaximumOperations)">Add operation</button>
+            </div>
+            <button type="button" class="vaw-primary" @onclick="SaveInterface" disabled="@busy">Save immutable interface revision</button>
+        </div>
+
+        <div class="vaw-provider-form-section">
+            <h3>Implementation</h3>
+            <div class="vaw-provider-form-grid">
+                <label>Interface revision
+                    <select aria-label="Interface revision for implementation" @bind="implementationInterfaceKey">
+                        <option value="">Choose an interface</option>
+                        @foreach (var item in Interfaces)
+                        { <option value="@item.Revision.RevisionId">@item.Revision.Definition.DisplayName · v@(item.Revision.Version)</option> }
+                    </select>
+                </label>
+                <label>Implementation ID <input @bind="implementationId" maxlength="128" placeholder="local.research" /></label>
+            </div>
+            @if (SelectedImplementationInterface is { } contract)
+            {
+                @foreach (var (operationId, operation) in contract.Definition.Operations)
+                {
+                    <label @key="operationId">@operation.DisplayName · @operationId
+                        <select aria-label="Workflow for operation @operationId" value="@workflowBindings.GetValueOrDefault(operationId, string.Empty)" @onchange="args => BindWorkflow(operationId, args)">
+                            <option value="">Choose a saved workflow</option>
+                            @foreach (var workflow in Workflows)
+                            { <option value="@workflow.WorkflowId">@workflow.DisplayName · @workflow.RelativePath</option> }
+                        </select>
+                    </label>
+                }
+            }
+            @if (!string.IsNullOrWhiteSpace(error)) { <p role="alert" class="vaw-error">@error</p> }
+            <button type="button" class="vaw-primary" @onclick="SaveImplementation" disabled="@(busy || !CanSaveImplementation)">Validate and save implementation revision</button>
+            <p class="vaw-help">Every callable operation needs named input and output fields. Bind each operation to a saved workflow with a JSON input and output; a later workflow edit does not alter an existing implementation.</p>
+        </div>
+    </section>
+</details>
+
+@code {
+    [Parameter, EditorRequired] public StudioFolderWorkflowInterfaceSource Source { get; set; } = null!;
+    [Parameter, EditorRequired] public string ExpectedManifestHash { get; set; } = "";
+    [Parameter] public IReadOnlyList<StudioFolderWorkflowInterface> Interfaces { get; set; } = [];
+    [Parameter] public IReadOnlyList<StudioFolderWorkflowInterfaceImplementation> Implementations { get; set; } = [];
+    [Parameter] public IReadOnlyList<StudioFolderWorkflow> Workflows { get; set; } = [];
+    [Parameter] public EventCallback Saved { get; set; }
+
+    private static readonly string[] FieldTypes = [WorkflowDataTypes.String, WorkflowDataTypes.Boolean,
+        WorkflowDataTypes.Integer, WorkflowDataTypes.Number, WorkflowDataTypes.Json, WorkflowDataTypes.JsonArray];
+    private sealed class FieldDraft { public Guid Key { get; } = Guid.NewGuid(); public string Id { get; set; } = "value"; public string Name { get; set; } = "Value"; public string Type { get; set; } = WorkflowDataTypes.String; }
+    private sealed class OperationDraft
+    {
+        public Guid Key { get; } = Guid.NewGuid(); public string Id { get; set; } = "execute"; public string Name { get; set; } = "Execute";
+        public List<FieldDraft> Inputs { get; } = [new() { Id = "input", Name = "Input" }];
+        public List<FieldDraft> Outputs { get; } = [new() { Id = "result", Name = "Result" }];
+    }
+    private readonly List<OperationDraft> operations = [new()];
+    private string interfaceId = "workflow.interface";
+    private string interfaceName = "Workflow interface";
+    private string interfaceDescription = "";
+    private int interfaceVersion = 1;
+    private string interfaceSchemaVersion = WorkflowInterfaceJson.FieldContractSchemaVersion;
+    private string selectedInterfaceKey = "";
+    private string implementationInterfaceKey = "";
+    private string implementationId = "workflow.implementation";
+    private readonly Dictionary<string, string> workflowBindings = new(StringComparer.Ordinal);
+    private bool busy;
+    private string? error;
+    private WorkflowInterfaceRevision? SelectedImplementationInterface =>
+        Guid.TryParse(implementationInterfaceKey, out var id) ? Interfaces.SingleOrDefault(item => item.Revision.RevisionId == id)?.Revision : null;
+    private bool CanSaveImplementation => SelectedImplementationInterface is { } contract &&
+        contract.Definition.Operations.Values.All(operation =>
+            operation.Inputs is { IsDefaultOrEmpty: false } && operation.Outputs is { IsDefaultOrEmpty: false });
+
+    private void SelectInterface(ChangeEventArgs args)
+    {
+        selectedInterfaceKey = args.Value?.ToString() ?? "";
+        if (!Guid.TryParse(selectedInterfaceKey, out var id))
+        {
+            interfaceId = "workflow.interface"; interfaceName = "Workflow interface"; interfaceDescription = ""; interfaceVersion = 1; interfaceSchemaVersion = WorkflowInterfaceJson.FieldContractSchemaVersion;
+            operations.Clear(); operations.Add(new()); return;
+        }
+        var revision = Interfaces.Single(item => item.Revision.RevisionId == id).Revision;
+        interfaceId = revision.Definition.InterfaceId; interfaceName = revision.Definition.DisplayName;
+        interfaceDescription = revision.Definition.Description; interfaceVersion = Interfaces.Where(item => item.Revision.Definition.InterfaceId == interfaceId).Max(item => item.Revision.Version) + 1;
+        interfaceSchemaVersion = revision.Definition.SchemaVersion;
+        operations.Clear();
+        foreach (var (operationId, operation) in revision.Definition.Operations)
+        {
+            var draft = new OperationDraft { Id = operationId, Name = operation.DisplayName };
+            draft.Inputs.Clear(); draft.Outputs.Clear();
+            foreach (var field in operation.Inputs ?? []) draft.Inputs.Add(new() { Id = field.FieldId, Name = field.DisplayName, Type = field.DataType });
+            foreach (var field in operation.Outputs ?? []) draft.Outputs.Add(new() { Id = field.FieldId, Name = field.DisplayName, Type = field.DataType });
+            operations.Add(draft);
+        }
+    }
+    private void AddOperation() => operations.Add(new() { Id = $"operation{operations.Count + 1}", Name = $"Operation {operations.Count + 1}" });
+    private static void AddField(OperationDraft operation, bool input) => (input ? operation.Inputs : operation.Outputs).Add(new() { Id = $"field{(input ? operation.Inputs : operation.Outputs).Count + 1}", Name = $"Field {(input ? operation.Inputs : operation.Outputs).Count + 1}" });
+    private static void RemoveField(OperationDraft operation, bool input, FieldDraft field) { var fields = input ? operation.Inputs : operation.Outputs; if (fields.Count > 1) fields.Remove(field); }
+    private void BindWorkflow(string operationId, ChangeEventArgs args) => workflowBindings[operationId] = args.Value?.ToString() ?? "";
+
+    private async Task SaveInterface()
+    {
+        try
+        {
+            busy = true; error = null;
+            var declared = operations.ToImmutableSortedDictionary(operation => operation.Id,
+                operation => interfaceSchemaVersion == WorkflowInterfaceJson.AssetSchemaVersion
+                    ? new WorkflowInterfaceOperation(operation.Name, WorkflowDataTypes.String, WorkflowDataTypes.String)
+                    : new WorkflowInterfaceOperation(operation.Name, WorkflowDataTypes.Json, WorkflowDataTypes.Json)
+                    {
+                        Inputs = operation.Inputs.Select(field => new WorkflowInterfaceDataField(field.Id, field.Name, field.Type)).ToImmutableArray(),
+                        Outputs = operation.Outputs.Select(field => new WorkflowInterfaceDataField(field.Id, field.Name, field.Type)).ToImmutableArray()
+                    }, StringComparer.Ordinal);
+            var definition = new WorkflowInterfaceDefinition(interfaceId, interfaceName, interfaceDescription, declared)
+            { SchemaVersion = interfaceSchemaVersion };
+            var revision = WorkflowInterfaceRevision.Create(definition, interfaceVersion);
+            var saved = Source.SaveInterfaceRevision(revision, ExpectedManifestHash);
+            selectedInterfaceKey = saved.Revision.RevisionId.ToString();
+            implementationInterfaceKey = selectedInterfaceKey;
+            await Saved.InvokeAsync();
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        { error = exception.Message; }
+        finally { busy = false; }
+    }
+
+    private async Task SaveImplementation()
+    {
+        try
+        {
+            busy = true; error = null;
+            var contract = SelectedImplementationInterface ?? throw new ArgumentException("Choose an interface revision first.");
+            if (!CanSaveImplementation)
+                throw new ArgumentException("Every callable operation needs at least one named input and output field. Edit the contract to add those fields.");
+            var bindings = contract.Definition.Operations.ToImmutableSortedDictionary(pair => pair.Key, pair =>
+            {
+                var workflowId = workflowBindings.GetValueOrDefault(pair.Key);
+                var workflow = Workflows.SingleOrDefault(item => item.WorkflowId == workflowId)
+                    ?? throw new ArgumentException($"Choose a saved workflow for operation '{pair.Key}'.");
+                return WorkflowInterfaceWorkflowPin.From(workflow.Definition);
+            }, StringComparer.Ordinal);
+            var nextVersion = Implementations.Where(item => item.Revision.Definition.ImplementationId == implementationId)
+                .Select(item => item.Revision.Version).DefaultIfEmpty(0).Max() + 1;
+            var revision = WorkflowInterfaceImplementationRevision.Create(
+                new WorkflowInterfaceImplementation(implementationId, contract, bindings), nextVersion);
+            Source.SaveImplementationRevision(revision, ExpectedManifestHash);
+            await Saved.InvokeAsync();
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        { error = exception.Message; }
+        finally { busy = false; }
+    }
+}

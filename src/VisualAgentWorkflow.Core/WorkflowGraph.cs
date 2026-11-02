@@ -142,13 +142,17 @@ internal static class WorkflowPortShapeCatalog
         [new("out", node.WorkflowCall?.Definition?.Nodes?.Values.FirstOrDefault(candidate => candidate?.Type == NodeTypes.Output)?.OutputDataType ?? WorkflowDataTypes.String)];
 
     private static ImmutableArray<WorkflowPort> InterfaceCallInputs(NodeDefinition node) =>
-        TryGetInterfaceSignature(node, out var signature) && signature.Inputs is { IsDefault: false } inputs
-            ? [.. inputs.Where(field => field is not null).Select(field => new WorkflowPort(field.FieldId, field.DataType))]
+        TryGetInterfaceSignature(node, out var signature)
+            ? signature.Inputs is { IsDefault: false } inputs
+                ? [.. inputs.Where(field => field is not null).Select(field => new WorkflowPort(field.FieldId, field.DataType))]
+                : [new("in", signature.InputDataType)]
             : [];
 
     private static ImmutableArray<WorkflowPort> InterfaceCallOutputs(NodeDefinition node) =>
-        TryGetInterfaceSignature(node, out var signature) && signature.Outputs is { IsDefault: false } outputs
-            ? [.. outputs.Where(field => field is not null).Select(field => new WorkflowPort(field.FieldId, field.DataType))]
+        TryGetInterfaceSignature(node, out var signature)
+            ? signature.Outputs is { IsDefault: false } outputs
+                ? [.. outputs.Where(field => field is not null).Select(field => new WorkflowPort(field.FieldId, field.DataType))]
+                : [new("out", signature.OutputDataType)]
             : [];
 
     private static bool TryGetInterfaceSignature(NodeDefinition node, out WorkflowInterfaceOperation signature)

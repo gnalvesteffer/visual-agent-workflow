@@ -1,6 +1,6 @@
 # Decision 0063: Workflow interface contract foundation
 
-**Status:** Accepted; bounded Core interface-call runtime support and project-owned revision storage added (2026-11-02). Studio authoring and call binding remain deferred.
+**Status:** Accepted; bounded Core interface-call runtime support, project-owned revision storage, folder-project authoring, and graph call binding added (2026-11-02). Catalog-project authoring and complete dependency diagnostics remain deferred.
 
 ## Decision
 
@@ -21,10 +21,10 @@ types. The current workflow boundary supports one payload input and one result
 output; multi-pin operation signatures are not implied by this contract.
 
 Core statically resolves an operation ID from an exact implementation revision
-to its declared signature and exact workflow pin. The proof scenario uses a
-string-to-string `lookup` operation and a JSON-to-JSON `search` operation,
-each mapped to a different immutable workflow revision. An unknown operation
-fails resolution; no runtime call node consumes this selection yet.
+to its declared signature and exact workflow pin. Runtime calls require schema
+1.1 named fields and JSON-to-JSON child workflow boundaries. The historical
+schema-1.0 single-string contract remains readable as an asset but cannot be
+bound to a callable implementation. An unknown operation fails resolution.
 
 For schema 1.1, Core's `WorkflowInterfaceFields` adapter packs every required
 input field into a deterministically ordered JSON object and projects a child
@@ -48,11 +48,14 @@ child revision identities.
 Studio project storage now persists immutable interface and implementation
 revisions. Catalog-backed projects export/import them in source snapshots;
 folder projects index `.interface` and `.implementation` revision files in
-manifest format 1.3. The folder Explorer currently displays these assets as
-read-only. Typed asset editors, implementation binding controls, dependency
-diagnostics, and graph-editor call selection are not yet available, so
-interfaces are still not authorable end to end in Studio. The call does not
-grant child workflows model or MCP access. See [Decision 0064](0064-workflow-interface-asset-storage.md).
+manifest format 1.3. Folder projects provide typed contract and implementation
+editors, validate operation bindings against saved workflow snapshots, and
+allow the graph editor to embed an exact implementation revision and operation
+in a call node. Supported older workflow schemas normalize into the current
+draft when opened for editing; unsupported structures remain preserved with a
+diagnostic. Catalog-project authoring, complete project dependency diagnostics,
+and cross-project package closure remain deferred. The call does not grant
+child workflows model or MCP access. See [Decision 0064](0064-workflow-interface-asset-storage.md).
 
 ## Rationale
 
@@ -88,8 +91,9 @@ semantics.
 
 ## Deferred gates
 
-Before calling interfaces shipped, add Studio authoring for interfaces,
-implementations, operation selection, and pin configuration, then complete
-dependency diagnostics and browser verification. Add distinct playback events
+Remaining follow-up: add catalog-project authoring, complete dependency
+diagnostics and package closure, and verify missing/stale asset recovery. The
+folder-project authoring and exact-revision graph selection smoke is
+`scripts/workflow_interface_authoring_smoke.py`. Add distinct playback events
 only if the existing nested-workflow evidence proves insufficient. Never
 resolve an implementation through a mutable catalog at run time.
