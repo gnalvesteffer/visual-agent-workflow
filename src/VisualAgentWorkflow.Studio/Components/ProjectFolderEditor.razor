@@ -75,7 +75,7 @@
         </details>
         @if (interfaceSource is not null)
         {
-            <ProjectWorkflowInterfaceAssets @key="openDirectory" Source="InterfaceAuthoringSource" Saved="OnWorkflowInterfacesSaved" />
+            <ProjectWorkflowInterfaceAssets @key="openDirectory" Source="InterfaceAuthoringSource" Saved="OnWorkflowInterfacesSaved" OpenWorkflow="OpenWorkflow" />
         }
         <details hidden="@(!projectToolsOpen)" class="vaw-project-utility" aria-label="Local restore points">
         <summary>Restore points <span class="vaw-help">@snapshots.Count saved</span></summary>

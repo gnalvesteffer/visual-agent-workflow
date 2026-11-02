@@ -1,6 +1,6 @@
 # Decision 0063: Workflow interface contract foundation
 
-**Status:** Accepted; bounded Core interface-call runtime support, project-owned revision storage, folder-project authoring, and graph call binding added (2026-11-02). Catalog-project authoring and complete dependency diagnostics remain deferred.
+**Status:** Accepted; bounded Core interface-call runtime support, project-owned revision storage, catalog/folder authoring, graph call binding, and advisory source audit added (2026-11-02). Package closure and cross-project packaging remain deferred.
 
 ## Decision
 
@@ -53,8 +53,11 @@ editors, validate operation bindings against saved workflow snapshots, and
 allow the graph editor to embed an exact implementation revision and operation
 in a call node. Supported older workflow schemas normalize into the current
 draft when opened for editing; unsupported structures remain preserved with a
-diagnostic. Catalog-project authoring, complete project dependency diagnostics,
-and cross-project package closure remain deferred. The call does not grant
+diagnostic. The Workflow interfaces panel provides an advisory source audit for
+missing, same-version drifted, and ambiguous interface or implementation
+assets. It is separate from graph validation and run admission; incomplete
+enumeration is reported as an incomplete audit, not as missing assets. Package
+closure and cross-project packaging remain deferred. The call does not grant
 child workflows model or MCP access. See [Decision 0064](0064-workflow-interface-asset-storage.md).
 
 ## Rationale
@@ -91,8 +94,9 @@ semantics.
 
 ## Deferred gates
 
-Remaining follow-up: add catalog-project authoring, complete dependency
-diagnostics and package closure, and verify missing/stale asset recovery. The
+Remaining follow-up: complete invalid-source audit reporting, package closure,
+and cross-project packaging. The project audit is advisory and never changes
+embedded calls or run admission. The
 folder-project authoring and exact-revision graph selection smoke is
 `scripts/workflow_interface_authoring_smoke.py`. Add distinct playback events
 only if the existing nested-workflow evidence proves insufficient. Never

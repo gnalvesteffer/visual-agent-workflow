@@ -1,6 +1,6 @@
 # Decision 0064: Workflow interface asset storage
 
-**Status:** Accepted; immutable storage, folder and catalog authoring, and exact graph-call selection implemented (2026-11-02). Broader dependency diagnostics remain deferred.
+**Status:** Accepted; immutable storage, folder and catalog authoring, exact graph-call selection, and an advisory project source audit implemented (2026-11-02). Package closure and cross-project packaging remain deferred.
 
 ## Decision
 
@@ -48,7 +48,7 @@ replace the pinned execution authority.
 - Catalog projects author assets through the same storage-neutral form with a
   catalog-specific adapter. Implementation bindings select exact published
   workflow revisions; archived projects do not expose authoring controls.
-- Complete dependency diagnostics are not yet available.
+- Studio provides an explicit project-level audit of interface and implementation sources across saved workflows and bounded nested calls. It distinguishes missing revisions, same-version drift, and ambiguous same-version assets. A newer revision alone is not stale. Findings link to the owning workflow and remain advisory: no embedded snapshot is changed, and validation/run admission is unaffected. Audit enumeration/load failures must be presented as incomplete rather than as missing assets.
 
 ## Compatibility
 
@@ -61,7 +61,7 @@ a pinned revision.
 
 ## Follow-up
 
-1. Audit project dependencies, source archive round trips, package closure,
+1. Complete audit failure and invalid-source reporting, package closure,
    host admission, and passive playback after project assets are unavailable.
 
 See [Decision 0063](0063-workflow-interface-contract-foundation.md),

@@ -477,6 +477,11 @@
 .vaw-provider-form-note { margin: 0; color: var(--vaw-color-muted); font-size: .8125rem; line-height: 1.55; }
 .vaw-provider-form-actions { padding-block-start: .15rem; }
 .vaw-provider-form-section > .vaw-error { margin-block: 0 1.25rem; }
+.vaw-interface-audit-results { display: grid; gap: .75rem; margin: 1rem 0 0; padding: 0; list-style: none; }
+.vaw-interface-audit-results li { padding: .75rem 0; border-top: 1px solid var(--vaw-border, #555); }
+.vaw-interface-audit-results p { margin: .35rem 0; }
+.vaw-interface-audit-results code { overflow-wrap: anywhere; }
+.vaw-interface-audit-results button { margin-top: .35rem; }
 .vaw-mcp-excluded-tools { margin: 0; border: 1px solid var(--vaw-color-control-border); border-radius: .35rem; padding: 1rem; background: var(--vaw-color-surface); }
 .vaw-mcp-excluded-tools h3 { margin: 0 0 .35rem; font-size: .95rem; }
 .vaw-mcp-excluded-tools > p { margin: 0 0 .75rem; color: var(--vaw-color-muted); font-size: .82rem; line-height: 1.5; }

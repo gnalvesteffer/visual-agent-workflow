@@ -6,6 +6,7 @@ public sealed record WorkflowInterfaceAuthoringAsset(WorkflowInterfaceRevision R
 public sealed record WorkflowInterfaceImplementationAuthoringAsset(WorkflowInterfaceImplementationRevision Revision, string Detail);
 public sealed record WorkflowInterfaceWorkflowChoice(string SelectionId, string DisplayName, string Detail,
     WorkflowInterfaceWorkflowPin Pin);
+public sealed record WorkflowInterfaceAuditWorkflow(string WorkflowId, string DisplayName, WorkflowDefinition Definition);
 
 /// <summary>Storage-neutral inputs and immutable save operations for the shared interface authoring form.</summary>
 public interface IWorkflowInterfaceAuthoringSource
@@ -13,6 +14,7 @@ public interface IWorkflowInterfaceAuthoringSource
     IReadOnlyList<WorkflowInterfaceAuthoringAsset> Interfaces { get; }
     IReadOnlyList<WorkflowInterfaceImplementationAuthoringAsset> Implementations { get; }
     IReadOnlyList<WorkflowInterfaceWorkflowChoice> Workflows { get; }
+    IReadOnlyList<WorkflowInterfaceAuditWorkflow> AuditWorkflows { get; }
     WorkflowInterfaceRevision SaveInterfaceRevision(WorkflowInterfaceRevision revision);
     WorkflowInterfaceImplementationRevision SaveImplementationRevision(WorkflowInterfaceImplementationRevision revision);
 }
@@ -26,6 +28,7 @@ public sealed class StudioFolderWorkflowInterfaceAuthoringSource : IWorkflowInte
     public IReadOnlyList<WorkflowInterfaceAuthoringAsset> Interfaces { get; private set; } = [];
     public IReadOnlyList<WorkflowInterfaceImplementationAuthoringAsset> Implementations { get; private set; } = [];
     public IReadOnlyList<WorkflowInterfaceWorkflowChoice> Workflows { get; }
+    public IReadOnlyList<WorkflowInterfaceAuditWorkflow> AuditWorkflows { get; }
 
     public StudioFolderWorkflowInterfaceAuthoringSource(string directory, string expectedManifestHash,
         IEnumerable<StudioFolderWorkflowInterface> interfaces,
@@ -36,6 +39,8 @@ public sealed class StudioFolderWorkflowInterfaceAuthoringSource : IWorkflowInte
         source = new StudioFolderWorkflowInterfaceSource(directory);
         this.expectedManifestHash = expectedManifestHash;
         RefreshAssets(interfaces, implementations);
+        AuditWorkflows = workflows.Select(item => new WorkflowInterfaceAuditWorkflow(item.WorkflowId,
+            item.DisplayName, item.Definition)).ToArray();
         Workflows = workflows.Select(item => new WorkflowInterfaceWorkflowChoice(item.WorkflowId, item.DisplayName,
             item.RelativePath, WorkflowInterfaceWorkflowPin.From(item.Definition))).ToArray();
     }
@@ -76,15 +81,19 @@ public sealed class StudioCatalogWorkflowInterfaceAuthoringSource : IWorkflowInt
     public IReadOnlyList<WorkflowInterfaceAuthoringAsset> Interfaces { get; private set; } = [];
     public IReadOnlyList<WorkflowInterfaceImplementationAuthoringAsset> Implementations { get; private set; } = [];
     public IReadOnlyList<WorkflowInterfaceWorkflowChoice> Workflows { get; }
+    public IReadOnlyList<WorkflowInterfaceAuditWorkflow> AuditWorkflows { get; }
 
     public StudioCatalogWorkflowInterfaceAuthoringSource(StudioWorkflowInterfaceLibrary library,
-        IEnumerable<PublishedWorkflowRevision> workflows)
+        IEnumerable<PublishedWorkflowRevision> workflows,
+        IEnumerable<WorkflowInterfaceAuditWorkflow>? auditWorkflows = null)
     {
         this.library = library;
         RefreshAssets();
         Workflows = workflows.Select(item => new WorkflowInterfaceWorkflowChoice(item.Revision.RevisionId.ToString(),
             item.Revision.Definition.DisplayName ?? item.Revision.Definition.WorkflowId,
             $"Published revision {item.Version} · {item.Revision.RevisionId:N}", WorkflowInterfaceWorkflowPin.From(item))).ToArray();
+        AuditWorkflows = (auditWorkflows ?? Workflows.Select(item => new WorkflowInterfaceAuditWorkflow(
+            item.Pin.WorkflowId, item.DisplayName, item.Pin.Definition))).ToArray();
     }
 
     public WorkflowInterfaceRevision SaveInterfaceRevision(WorkflowInterfaceRevision revision)

@@ -11,7 +11,7 @@
     @if (interfaceAuthoringSource is not null && !ProjectWorkspace.IsReadOnly)
     {
         <ProjectWorkflowInterfaceAssets @key="ProjectWorkspace.CurrentProjectId" Source="interfaceAuthoringSource"
-            Saved="OnWorkflowInterfacesSaved" />
+            Saved="OnWorkflowInterfacesSaved" OpenWorkflow="SelectWorkflow" />
     }
     <WorkflowErrorBoundary>
         <ChildContent>
@@ -57,7 +57,9 @@
         var published = new List<PublishedWorkflowRevision>();
         foreach (var draft in drafts)
             published.AddRange(await ProjectWorkspace.Catalog.ListRevisionsAsync(draft.Definition.WorkflowId));
-        interfaceAuthoringSource = new StudioCatalogWorkflowInterfaceAuthoringSource(ProjectWorkspace.Interfaces, published);
+        interfaceAuthoringSource = new StudioCatalogWorkflowInterfaceAuthoringSource(ProjectWorkspace.Interfaces, published,
+            drafts.Select(item => new WorkflowInterfaceAuditWorkflow(item.Definition.WorkflowId,
+                item.Definition.DisplayName ?? item.Definition.WorkflowId, item.Definition)));
     }
 
     private void Reload() => Navigation.NavigateTo(Navigation.Uri, forceLoad: true);

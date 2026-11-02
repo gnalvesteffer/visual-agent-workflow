@@ -86,6 +86,30 @@
             <button type="button" class="vaw-primary" @onclick="SaveImplementation" disabled="@(busy || ReadOnly || !CanSaveImplementation)">Validate and save implementation revision</button>
             <p class="vaw-help">Every callable operation needs named input and output fields. Bind each operation to a saved workflow with a JSON input and output; a later workflow edit does not alter an existing implementation.</p>
         </div>
+        <div class="vaw-provider-form-section" aria-label="Workflow interface dependency audit">
+            <h3>Project dependency audit</h3>
+            <p class="vaw-help">Check saved workflows and nested interface calls against the interface assets currently available in this project. Findings are advisory; calls continue to use their embedded revisions.</p>
+            <button type="button" class="vaw-secondary" @onclick="AuditDependencies">Audit project dependencies</button>
+            @if (auditIssues is not null)
+            {
+                @if (auditIssues.Count == 0) { <p role="status">No interface dependency drift or missing sources found.</p> }
+                else
+                {
+                    <ul class="vaw-interface-audit-results" aria-label="Interface dependency audit results">
+                        @foreach (var issue in auditIssues)
+                        {
+                            <li class="vaw-interface-audit-@issue.Kind.ToString().ToLowerInvariant()">
+                                <strong>@issue.Kind · @issue.AssetKind @issue.AssetId v@issue.Version</strong>
+                                <p>@issue.Message</p>
+                                <p><code>@issue.NestedPath</code></p>
+                                @if (!string.IsNullOrEmpty(issue.WorkflowId))
+                                { <button type="button" class="vaw-secondary" @onclick="() => OpenWorkflow.InvokeAsync(issue.WorkflowId)">Open @issue.WorkflowName · node @issue.NodeId</button> }
+                            </li>
+                        }
+                    </ul>
+                }
+            }
+        </div>
     </section>
 </details>
 
@@ -93,6 +117,7 @@
     [Parameter, EditorRequired] public IWorkflowInterfaceAuthoringSource Source { get; set; } = null!;
     [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public EventCallback Saved { get; set; }
+    [Parameter] public EventCallback<string> OpenWorkflow { get; set; }
 
     private static readonly string[] FieldTypes = [WorkflowDataTypes.String, WorkflowDataTypes.Boolean,
         WorkflowDataTypes.Integer, WorkflowDataTypes.Number, WorkflowDataTypes.Json, WorkflowDataTypes.JsonArray];
@@ -115,6 +140,7 @@
     private readonly Dictionary<string, string> workflowBindings = new(StringComparer.Ordinal);
     private bool busy;
     private string? error;
+    private IReadOnlyList<StudioWorkflowInterfaceDependencyIssue>? auditIssues;
     private IReadOnlyList<WorkflowInterfaceAuthoringAsset> Interfaces => Source?.Interfaces ?? [];
     private IReadOnlyList<WorkflowInterfaceImplementationAuthoringAsset> Implementations => Source?.Implementations ?? [];
     private WorkflowInterfaceRevision? SelectedImplementationInterface =>
@@ -149,6 +175,21 @@
     private static void AddField(OperationDraft operation, bool input) => (input ? operation.Inputs : operation.Outputs).Add(new() { Id = $"field{(input ? operation.Inputs : operation.Outputs).Count + 1}", Name = $"Field {(input ? operation.Inputs : operation.Outputs).Count + 1}" });
     private static void RemoveField(OperationDraft operation, bool input, FieldDraft field) { var fields = input ? operation.Inputs : operation.Outputs; if (fields.Count > 1) fields.Remove(field); }
     private void BindWorkflow(string operationId, ChangeEventArgs args) => workflowBindings[operationId] = args.Value?.ToString() ?? "";
+
+    private void AuditDependencies()
+    {
+        try
+        {
+            auditIssues = StudioWorkflowInterfaceDependencyAudit.Assess(
+                Source.AuditWorkflows.Select(item => (item.WorkflowId, item.DisplayName, item.Definition)),
+                Interfaces.Select(item => item.Revision), Implementations.Select(item => item.Revision));
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidDataException or IOException or System.Text.Json.JsonException or InvalidOperationException)
+        {
+            auditIssues = [new(StudioWorkflowInterfaceDependencyIssueKind.AuditIncomplete, "", "", "", "",
+                "project", "", 0, $"The project dependency audit could not complete: {exception.Message}")];
+        }
+    }
 
     private async Task SaveInterface()
     {
