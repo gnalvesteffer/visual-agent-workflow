@@ -267,6 +267,14 @@ public sealed class WorkflowNodeContractTests
             [NodeTypes.JsonMerge] = ("json-merge", [("left", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Json), ("right", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Json), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Json)]),
             [NodeTypes.JsonToArray] = ("json-to-array", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Json), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.JsonArray)]),
             [NodeTypes.ArrayLength] = ("array-length", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.JsonArray), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Integer)]),
+            [NodeTypes.JsonSelectString] = ("json-select-string", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Json), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String)]),
+            [NodeTypes.JsonProject] = ("json-project", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Json), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.Json)]),
+            [NodeTypes.TextTemplate] = ("text-template", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String)]),
+            [NodeTypes.Condition] = ("condition", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("true", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String), ("false", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String), ("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution, null), ("true", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null), ("false", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null)]),
+            [NodeTypes.Merge] = ("merge", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String), ("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution, null), ("then", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null)]),
+            [NodeTypes.Approval] = ("approval", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String), ("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution, null), ("then", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null)]),
+            [NodeTypes.Loop] = ("loop", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("body", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String), ("done", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String), ("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution, null), ("body", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null), ("done", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null)]),
+            [NodeTypes.LoopBody] = ("loop-body", [("in", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.String), ("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String), ("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution, null), ("then", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null)]),
             [NodeTypes.BooleanBranch] = ("boolean-branch", [("condition", WorkflowPortDirection.Input, WorkflowPortKind.Data, WorkflowDataTypes.Boolean), ("execute", WorkflowPortDirection.Input, WorkflowPortKind.Execution, null), ("true", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null), ("false", WorkflowPortDirection.Output, WorkflowPortKind.Execution, null)])
         };
 
@@ -294,6 +302,7 @@ public sealed class WorkflowNodeContractTests
             Ports =
             [
                 new("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, "not-a-type"),
+                new("out", WorkflowPortDirection.Output, WorkflowPortKind.Data, WorkflowDataTypes.String),
                 new("out", WorkflowPortDirection.Output, WorkflowPortKind.Execution, WorkflowDataTypes.String)
             ]
         };
@@ -403,6 +412,61 @@ public sealed class WorkflowNodeContractTests
     {
         Assert.Empty(WorkflowNodeDescriptorAudit.AuditCatalog());
         Assert.Empty(WorkflowNodeDescriptorAudit.AuditNodeFamilies());
+    }
+
+    [Fact]
+    public void Fixed_core_node_families_use_registered_descriptors_for_all_pin_projections()
+    {
+        var fixedFamilies = new[]
+        {
+            NodeTypes.JsonSelectString, NodeTypes.JsonProject, NodeTypes.TextTemplate,
+            NodeTypes.Condition, NodeTypes.Merge, NodeTypes.Approval, NodeTypes.Loop,
+            NodeTypes.LoopBody
+        };
+
+        foreach (var nodeType in fixedFamilies)
+        {
+            var contract = WorkflowNodeContractCatalog.Get(nodeType);
+            var node = new NodeDefinition(nodeType, contract.TypeVersion);
+
+            Assert.True(WorkflowNodeDescriptorRegistry.TryGetForNode(node, out var descriptor), nodeType);
+            Assert.Equal(descriptor.Ports, WorkflowPorts.Explicit(node));
+            Assert.Equal(descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Data)
+                .Select(port => new WorkflowPort(port.Id, port.DataType!)), WorkflowPorts.ExplicitDataInputs(node));
+            Assert.Equal(descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Data)
+                .Select(port => new WorkflowPort(port.Id, port.DataType!)), WorkflowPorts.ExplicitDataOutputs(node));
+            Assert.Equal(descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Execution)
+                .Select(port => port.Id), WorkflowPorts.ExplicitExecutionInputs(node));
+            Assert.Equal(descriptor.Ports.Where(port => port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Execution)
+                .Select(port => port.Id), WorkflowPorts.ExplicitExecutionOutputs(node));
+        }
+
+        Assert.Empty(WorkflowNodeDescriptorConformance.ValidateRegistry());
+    }
+
+    [Fact]
+    public void Terminate_and_parallel_branch_keep_schema_specific_data_pin_shapes()
+    {
+        var terminate = new NodeDefinition(NodeTypes.Terminate, WorkflowNodeContractCatalog.Get(NodeTypes.Terminate).TypeVersion);
+        var parallelBranch = new NodeDefinition(NodeTypes.ParallelBranch, WorkflowNodeContractCatalog.Get(NodeTypes.ParallelBranch).TypeVersion);
+
+        Assert.Empty(WorkflowPorts.ExplicitDataInputs(terminate));
+        Assert.Equal(new WorkflowPort("in", WorkflowDataTypes.String), Assert.Single(WorkflowPorts.Inputs(terminate)));
+        Assert.Empty(WorkflowPorts.ExplicitDataInputs(parallelBranch));
+        Assert.Equal(new WorkflowPort("in", WorkflowDataTypes.String), Assert.Single(WorkflowPorts.Inputs(parallelBranch)));
+    }
+
+    [Fact]
+    public void Condition_descriptor_keeps_same_named_data_and_execution_routes_distinct()
+    {
+        var node = new NodeDefinition(NodeTypes.Condition, WorkflowNodeContractCatalog.Get(NodeTypes.Condition).TypeVersion);
+
+        Assert.True(WorkflowNodeDescriptorRegistry.TryGetForNode(node, out var descriptor));
+        Assert.Empty(WorkflowNodeDescriptorConformance.Validate(descriptor));
+        Assert.Contains(descriptor.Ports, port => port.Id == "true" && port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Data);
+        Assert.Contains(descriptor.Ports, port => port.Id == "true" && port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Execution);
+        Assert.Contains(descriptor.Ports, port => port.Id == "false" && port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Data);
+        Assert.Contains(descriptor.Ports, port => port.Id == "false" && port.Direction == WorkflowPortDirection.Output && port.Kind == WorkflowPortKind.Execution);
     }
 
     [Fact]

@@ -71,7 +71,7 @@ internal static class WorkflowPortShapeCatalog
 
     public static ImmutableArray<string> ExplicitExecutionInputs(NodeDefinition node) => node.Type switch
     {
-        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall or NodeTypes.Output or NodeTypes.ParallelFork or NodeTypes.Sequence or NodeTypes.VariableGet or NodeTypes.VariableSet => ["execute"],
+        NodeTypes.Agent or NodeTypes.McpTool or NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall or NodeTypes.Output or NodeTypes.Terminate or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.Sequence or NodeTypes.VariableGet or NodeTypes.VariableSet => ["execute"],
         NodeTypes.ParallelJoin when node.ParallelJoin is { BranchIds.IsDefault: false } join => [.. join.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
         NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
         _ => []
@@ -85,6 +85,7 @@ internal static class WorkflowPortShapeCatalog
         NodeTypes.McpTool => ["then"],
         NodeTypes.WorkflowCall => ["out"],
         NodeTypes.WorkflowInterfaceCall => ["then"],
+        NodeTypes.ParallelBranch => ["then"],
         NodeTypes.ParallelFork when node.ParallelFork is { Branches.IsDefault: false } fork => [.. fork.Branches.Where(branch => branch is not null).Select(branch => ParallelBranchLimits.PinId(branch.Id))],
         NodeTypes.ParallelRendezvous when node.ParallelRendezvous is { BranchIds.IsDefaultOrEmpty: false } rendezvous => [.. rendezvous.BranchIds.Where(branchId => branchId is not null).Select(ParallelBranchLimits.PinId)],
         NodeTypes.ParallelJoin => ["then"],
@@ -175,13 +176,14 @@ public static class WorkflowPorts
             : node.Type switch
     {
         NodeTypes.Input => [],
-        NodeTypes.ParallelFork => [new("in", WorkflowDataTypes.String)],
+        NodeTypes.ParallelFork or NodeTypes.ParallelBranch => [new("in", WorkflowDataTypes.String)],
         NodeTypes.VariableSet => [new("value", node.InputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.ParallelJoin when node.ParallelJoin is not null => [],
         NodeTypes.ParallelJoin => [new("branch_1", WorkflowDataTypes.String), new("branch_2", WorkflowDataTypes.String)],
         NodeTypes.Output => [new("in", node.OutputDataType ?? WorkflowDataTypes.String)],
         NodeTypes.WorkflowCall => [new("in", WorkflowCallInputType(node))],
         NodeTypes.FunctionCall => FunctionCallDataInputs(node),
+        NodeTypes.Terminate => [new("in", WorkflowDataTypes.String)],
         _ => [new("in", WorkflowDataTypes.String)]
     };
     public static ImmutableArray<WorkflowPort> Outputs(NodeDefinition node) =>

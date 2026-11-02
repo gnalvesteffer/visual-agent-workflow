@@ -2,6 +2,20 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Static fixed-node pin descriptor convergence
+
+The registered static descriptor is now the single pin definition for fixed
+pure-value nodes, JSON selection/projection, text templates, conditions, merges,
+approvals, loops, and loop bodies. Duplicate fallback pin shapes were removed
+from Core's projections. Pin identity is scoped by direction and kind, so data
+and execution outputs may share labels such as `true` and `false`. `Terminate`
+and `ParallelBranch` remain on schema-specific projection paths because their
+historical and explicit graph pin shapes differ. Descriptors remain
+non-serialized metadata and do not replace validation, runtime, grant, or
+historical playback authorities. The Core suite passes 551/551, including exact
+registry facts, shared-label pins, and legacy/current projection regressions.
+See the [Blueprint capability matrix](blueprint-capability-matrix.md).
+
 ## Workflow interface named fields
 
 Workflow interface schema 1.1 extends the Core-only interface proof with
