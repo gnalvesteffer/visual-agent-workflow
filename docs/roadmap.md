@@ -97,6 +97,35 @@ the host loop opt-in and exact frame/revision integrity; effectful or broader
 loop bodies remain outside crash recovery. Browser verification covers node
 creation, wiring, save, and deterministic execution with no promotion controls.
 
+### Next parity workstream: first-class collections
+
+**Status: Active; immutable typed arrays are the next implementation slice.**
+The capability audit and three-role adversarial review identify containers as a
+foundational Blueprint language gap. Existing `array<json>` support is useful
+but remains limited to exact graph shapes. [Decision 0066](decisions/0066-unified-typed-array-values.md)
+sets the staged contract: current schema 2.0, homogeneous bounded primitive
+arrays, ordinary pure-data composition, then separately proven placements.
+Maps/sets, typed collection parameters/functions/interfaces/MCP arguments,
+mutable collection variables, iteration, and checkpoint state remain future
+work. No feature-specific schema gates, promotion controls, or preview modes
+will be introduced.
+
+- [ ] Add the schema-2.0 immutable typed-array contract and compose literal,
+  length, and indexed-read nodes with existing pure scalar dataflow. Verify
+  type identity, bounds, evidence, playback, invalid-draft saving, and
+  unchanged historical JSON-array behavior. See [Decision 0066](decisions/0066-unified-typed-array-values.md).
+- [ ] Extend typed arrays through workflow inputs/outputs, parameters, and pure
+  graph functions with package/hash/replay proofs for each placement.
+- [ ] Define bounded sequential array iteration with explicit ordering,
+  cancellation, per-element failure/evidence, and work limits.
+- [ ] Revisit records, maps, and sets after stable field identity and portable
+  key/equality/order rules are demonstrated.
+- [ ] Extend mutable collection variables only after snapshot, loop, parallel
+  isolation/merge, checkpoint recovery, and cancellation contracts pass review.
+- [ ] Re-audit event entry points, latent/scheduled work, reusable templates,
+  and Blueprint-style debugging against the complete parity criteria; keep the
+  full Blueprint parity goal open until every matrix gap is evidenced.
+
 ### Audit outcome (2026-10-27)
 
 The repository already has this phase; no second Blueprint-parity phase is needed. The audit confirms that the right unit of progress is a bounded vertical slice: a node or authoring affordance is only considered aligned when its portable definition, pin contract, independent validation, backend behavior, compatibility policy, editor behavior, and recorded evidence agree. The current implementation has started that work with a canonical Core node-family catalog and semantic metadata, but it is not yet a complete descriptor registry.
