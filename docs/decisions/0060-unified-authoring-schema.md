@@ -19,6 +19,14 @@ are retained and explicit execution edges connect Input, Agents, and Output;
 pure text transforms remain lazy data nodes. Unsupported control-flow
 translations return diagnostics. Saving remains an authored edit.
 
+The schema-1.45 explicitly wired bounded loop-variable graph is additionally
+qualified through the unified schema: normalization preserves node, data, and
+execution-connection identities, leaves the legacy definition unchanged, and
+produces the same output and recorded loop events when executed. This proves
+that already explicit loop topology can be carried into schema 2.0; it does not
+qualify other historical control-flow families or establish persisted
+normalization provenance.
+
 Schema 2.0 does not remove host-owned security or correctness boundaries:
 typed pin compatibility, graph boundedness, MCP grants, approvals, provider
 contracts, credentials, token/time limits, and failure/cancellation semantics

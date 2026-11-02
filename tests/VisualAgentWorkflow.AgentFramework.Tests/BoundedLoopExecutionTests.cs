@@ -7,6 +7,40 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 
 public sealed class BoundedLoopExecutionTests
 {
+    private static WorkflowDefinition ExplicitLoopGraph()
+    {
+        var nodes = new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["loop"] = new(NodeTypes.Loop, "1.0.0") { Loop = new(new("contains", "continue"), 3) },
+            ["body"] = new(NodeTypes.LoopBody, "1.0.0"),
+            ["set"] = new(NodeTypes.VariableSet, "1.0.0") { VariableId = "message", InputDataType = WorkflowDataTypes.String },
+            ["get"] = new(NodeTypes.VariableGet, "1.0.0") { VariableId = "message", OutputDataType = WorkflowDataTypes.String },
+            ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.String }
+        };
+        var data = new Dictionary<string, ConnectionDefinition>
+        {
+            ["set-value"] = new(new("input", "out"), new("set", "value"), "data"),
+            ["output-value"] = new(new("get", "out"), new("output", "in"), "data")
+        };
+        var execution = new Dictionary<string, ConnectionDefinition>
+        {
+            ["input-loop"] = new(new("input", "then"), new("loop", "execute"), "execution"),
+            ["loop-body"] = new(new("loop", "body"), new("body", "execute"), "execution"),
+            ["body-set"] = new(new("body", "then"), new("set", "execute"), "execution"),
+            ["set-get"] = new(new("set", "then"), new("get", "execute"), "execution"),
+            ["get-loop"] = new(new("get", "then"), new("loop", "execute"), "execution"),
+            ["loop-output"] = new(new("loop", "done"), new("output", "execute"), "execution")
+        };
+        return new WorkflowDefinition(WorkflowSchemaVersions.LoopVariablesGraph, "loop-variable-candidate", "input",
+            nodes.ToImmutableSortedDictionary(), data.ToImmutableSortedDictionary())
+        {
+            Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
+                .Add("message", new("Message", "default")),
+            ExecutionConnections = execution.ToImmutableSortedDictionary()
+        };
+    }
+
     private static WorkflowDefinition Graph()
     {
         var baseline = new WorkflowDefinition("1.0", "bounded-loop-runtime", "input",
@@ -61,5 +95,33 @@ public sealed class BoundedLoopExecutionTests
         Assert.Equal(3, stopData.GetProperty("iterations").GetInt32());
         Assert.Equal(3, events.Count(evt => evt.NodeId == graph.Nodes.Single(pair => pair.Value.Type == NodeTypes.LoopBody).Key && evt.Kind == ExecutionEventKinds.NodeCompleted));
         Assert.Equal(ExecutionEventKinds.Completed, events[^1].Kind);
+    }
+
+    [Fact]
+    public async Task UnifiedSchemaNormalizationPreservesExplicitLegacyLoopExecutionEvidence()
+    {
+        var legacy = ExplicitLoopGraph();
+        var sourceJson = WorkflowJson.Serialize(legacy);
+        var normalized = WorkflowSchemaNormalization.NormalizeForEditing(legacy);
+        var legacyEvents = new List<ExecutionEvent>();
+        var normalizedEvents = new List<ExecutionEvent>();
+
+        var legacyOutput = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(legacy, "legacy-loop"), "continue",
+            evt => { legacyEvents.Add(evt); return ValueTask.CompletedTask; });
+        var normalizedOutput = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(normalized, "normalized-loop"), "continue",
+            evt => { normalizedEvents.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("2.0", normalized.SchemaVersion);
+        Assert.Equal(legacy.Nodes.Keys, normalized.Nodes.Keys);
+        Assert.Equal(legacy.Connections.Keys, normalized.Connections.Keys);
+        Assert.Equal(legacy.Connections, normalized.Connections);
+        Assert.Equal(legacy.ExecutionConnections!.Keys, normalized.ExecutionConnections!.Keys);
+        Assert.Equal(legacy.ExecutionConnections, normalized.ExecutionConnections);
+        Assert.Equal(sourceJson, WorkflowJson.Serialize(legacy));
+        Assert.Equal(legacyOutput, normalizedOutput);
+        Assert.Equal(legacyEvents.Select(evt => (evt.Kind, evt.NodeId, evt.Data)),
+            normalizedEvents.Select(evt => (evt.Kind, evt.NodeId, evt.Data)));
     }
 }

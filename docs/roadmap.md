@@ -60,8 +60,13 @@ the historical promotion chain.
   diagnostics provenance. `NormalizeForEditing` currently covers explicit
   graphs and verified implicit linear text graphs, including unrouted Agents;
   it preserves source identities and pinned snapshots and leaves pure text
-  transforms as lazy data nodes. Per-family historical control-flow migration
-  and persisted normalization provenance remain future compatibility work.
+  transforms as lazy data nodes. A schema-1.45 explicitly wired bounded
+  loop-variable execution proof now confirms that loop topology, output, and
+  recorded iteration events survive normalization without changing the source
+  definition. Implicit schema-1.17 loop activation remains intentionally
+  rejected pending its own verified translation. Per-family historical
+  control-flow migration and persisted normalization provenance remain future
+  compatibility work.
 - [x] Preserve 2.0 through package, reuse, graph-function, clipboard, and
   nested-workflow editing paths while preserving pinned dependency snapshots.
 - [x] Add Core, runtime, Hosting, Studio, package, and browser regressions for
