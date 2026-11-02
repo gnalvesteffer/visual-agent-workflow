@@ -1,14 +1,17 @@
 # Decision 0063: Workflow interface contract foundation
 
-**Status:** Accepted for a Core proof slice; authoring and execution remain deferred (2026-11-02)
+**Status:** Accepted; Core field-contract codec proof added (2026-11-02). Runtime, authoring, and storage remain deferred.
 
 ## Decision
 
 Add a framework-independent, versioned interface asset contract in Core. An
 interface has a stable ID, a display name and description, and 1–32 named
-operations. Each operation declares one typed workflow-boundary input and
-output. The interface asset has its own `schemaVersion`, canonical JSON form,
-and content hash, independent of workflow schema 2.0.
+operations. Schema 1.0 operations declare one typed workflow-boundary input
+and output. Schema 1.1 operations retain JSON workflow boundaries and declare
+1–16 required named fields for each direction. Each field has a stable ID,
+display name, and workflow data type. The interface asset has its own
+`schemaVersion`, canonical JSON form, and content hash, independent of
+workflow schema 2.0.
 
 An implementation revision binds every declared operation to an exact
 immutable workflow revision snapshot and records its own revision identity,
@@ -23,12 +26,20 @@ string-to-string `lookup` operation and a JSON-to-JSON `search` operation,
 each mapped to a different immutable workflow revision. An unknown operation
 fails resolution; no runtime call node consumes this selection yet.
 
+For schema 1.1, Core's `WorkflowInterfaceFields` adapter packs every required
+input field into a deterministically ordered JSON object and projects a child
+JSON object into declared output values. It rejects missing, duplicate, or
+undeclared properties and mismatched JSON types. A field typed `json` accepts
+any JSON value, including explicit JSON `null`; absent properties remain an
+error. Adapters are bounded to 1 MiB and JSON depth 32. No coercion, defaults,
+optional fields, or implicit conversions are supported.
+
 The contract contains no prompts, tools, credentials, grants, endpoints, or
 authority. A hash and a pinned revision establish content identity only; they
-do not authorize execution. The Core types do not add an asset catalog, Studio
-authoring surface, package dependency closure, interface-call node, runtime
-dispatch, playback events, or host admission. Interfaces therefore remain
-unavailable to workflow authors and runners in this increment.
+do not authorize execution. The Core types still do not add an asset catalog,
+Studio authoring surface, package dependency closure, interface-call node,
+runtime dispatch, playback events, or host admission. Interfaces therefore
+remain unavailable to workflow authors and runners.
 
 ## Rationale
 
@@ -50,6 +61,9 @@ semantics.
   exactly the requested operation's pin and rejects an unknown operation.
 - Missing and extra bindings, mismatched boundary types, and altered content
   hashes are rejected with deterministic diagnostics.
+- Schema 1.1 fields round-trip canonically; packing and projection reject
+  missing/extra fields, duplicate JSON properties, and wrong JSON types, while
+  preserving explicit `null` for arbitrary JSON fields.
 - Host permissions remain outside both portable definitions.
 
 ## Deferred gates
@@ -57,6 +71,7 @@ semantics.
 Before calling interfaces shipped, separately prove immutable asset storage
 and source ownership, package dependency closure, authoring/editing UX, a
 version-pinned call representation, runtime dispatch and evidence, host
-admission and cancellation, and passive playback. Revisit whether operation
-boundaries need named multi-pin inputs/outputs before publishing an authoring
-contract. Do not resolve implementations through a mutable catalog at runtime.
+admission and cancellation, and passive playback. This Core field codec does
+not yet prove that one child runs once, that multiple outputs project from one
+captured result, or that playback avoids dispatch. Do not resolve
+implementations through a mutable catalog at runtime.

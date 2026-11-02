@@ -15,6 +15,8 @@ public sealed class WorkflowInterfaceTests
         var restored = WorkflowInterfaceJson.Deserialize(serialized);
 
         Assert.Contains("\"schemaVersion\": \"1.0\"", serialized);
+        Assert.DoesNotContain("\"inputs\"", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"outputs\"", serialized, StringComparison.Ordinal);
         Assert.Equal(serialized, WorkflowInterfaceJson.Serialize(restored));
         Assert.Equal(definition.Operations.Count, restored.Operations.Count);
         Assert.Equal(definition.Operations["lookup"], restored.Operations["lookup"]);
@@ -103,10 +105,98 @@ public sealed class WorkflowInterfaceTests
         Assert.Throws<JsonException>(() => WorkflowInterfaceJson.Deserialize(duplicate));
     }
 
+    [Fact]
+    public void NamedFieldContract_PacksTypedInputsAndProjectsOutputsIncludingExplicitJsonNull()
+    {
+        var operation = FieldOperation();
+        var input = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+        {
+            ["count"] = JsonDocument.Parse("4").RootElement.Clone(),
+            ["enabled"] = JsonDocument.Parse("true").RootElement.Clone(),
+            ["query"] = JsonDocument.Parse("null").RootElement.Clone()
+        };
+
+        var packed = WorkflowInterfaceFields.PackInputs(operation, input);
+        var projected = WorkflowInterfaceFields.ProjectOutputs(operation,
+            "{\"found\":true,\"result\":null}");
+
+        Assert.Equal("{\"count\":4,\"enabled\":true,\"query\":null}", packed);
+        Assert.Equal(JsonValueKind.True, projected["found"].ValueKind);
+        Assert.Equal(JsonValueKind.Null, projected["result"].ValueKind);
+    }
+
+    [Fact]
+    public void NamedFieldContract_RejectsMissingExtraDuplicateAndWronglyTypedFields()
+    {
+        var operation = FieldOperation();
+        var complete = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+        {
+            ["count"] = JsonDocument.Parse("4").RootElement.Clone(),
+            ["enabled"] = JsonDocument.Parse("true").RootElement.Clone(),
+            ["query"] = JsonDocument.Parse("\"topic\"").RootElement.Clone()
+        };
+
+        var missing = complete.Where(pair => pair.Key != "count").ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        var extra = complete.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        extra.Add("unknown", JsonDocument.Parse("1").RootElement.Clone());
+        var wrongType = complete.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        wrongType["count"] = JsonDocument.Parse("4.5").RootElement.Clone();
+
+        Assert.Throws<ArgumentException>(() => WorkflowInterfaceFields.PackInputs(operation, missing));
+        Assert.Throws<ArgumentException>(() => WorkflowInterfaceFields.PackInputs(operation, extra));
+        Assert.Throws<ArgumentException>(() => WorkflowInterfaceFields.PackInputs(operation, wrongType));
+        Assert.Throws<JsonException>(() => WorkflowInterfaceFields.ProjectOutputs(operation,
+            "{\"found\":true,\"found\":false,\"result\":null}"));
+        Assert.Throws<ArgumentException>(() => WorkflowInterfaceFields.ProjectOutputs(operation,
+            "{\"found\":true}"));
+        Assert.Throws<ArgumentException>(() => WorkflowInterfaceFields.ProjectOutputs(operation,
+            "{\"found\":true,\"result\":null,\"extra\":0}"));
+        Assert.Throws<ArgumentException>(() => WorkflowInterfaceFields.ProjectOutputs(operation,
+            "{\"found\":\"yes\",\"result\":null}"));
+    }
+
+    [Fact]
+    public void FieldContractSchema_RoundTripsAndRejectsDuplicateFieldIds()
+    {
+        var definition = Interface() with
+        {
+            SchemaVersion = WorkflowInterfaceJson.FieldContractSchemaVersion,
+            Operations = ImmutableSortedDictionary<string, WorkflowInterfaceOperation>.Empty
+                .Add("lookup", FieldOperation())
+        };
+        var roundTrip = WorkflowInterfaceJson.Deserialize(WorkflowInterfaceJson.Serialize(definition));
+        Assert.Equal(WorkflowInterfaceJson.Serialize(definition), WorkflowInterfaceJson.Serialize(roundTrip));
+        Assert.Equal(WorkflowInterfaceJson.ComputeHash(definition), WorkflowInterfaceJson.ComputeHash(roundTrip));
+
+        var duplicateIds = definition with
+        {
+            Operations = definition.Operations.SetItem("lookup", FieldOperation() with
+            {
+                Inputs = [new("same", "First", WorkflowDataTypes.String), new("same", "Second", WorkflowDataTypes.String)]
+            })
+        };
+        Assert.Throws<ArgumentException>(() => WorkflowInterfaceJson.Serialize(duplicateIds));
+    }
+
     private static WorkflowInterfaceDefinition Interface() => new("sample.api", "Sample API", "Static workflow contract.",
         ImmutableSortedDictionary<string, WorkflowInterfaceOperation>.Empty
             .Add("lookup", new("Lookup", WorkflowDataTypes.String, WorkflowDataTypes.String))
             .Add("search", new("Search", WorkflowDataTypes.Json, WorkflowDataTypes.Json)));
+
+    private static WorkflowInterfaceOperation FieldOperation() => new("Search", WorkflowDataTypes.Json, WorkflowDataTypes.Json)
+    {
+        Inputs =
+        [
+            new("query", "Query", WorkflowDataTypes.Json),
+            new("enabled", "Enabled", WorkflowDataTypes.Boolean),
+            new("count", "Count", WorkflowDataTypes.Integer)
+        ],
+        Outputs =
+        [
+            new("result", "Result", WorkflowDataTypes.Json),
+            new("found", "Found", WorkflowDataTypes.Boolean)
+        ]
+    };
 
     private static WorkflowDefinition Workflow(string workflowId, string inputType, string outputType)
     {

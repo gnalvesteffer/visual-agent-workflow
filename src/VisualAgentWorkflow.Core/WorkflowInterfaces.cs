@@ -16,7 +16,19 @@ public sealed record WorkflowInterfaceDefinition(
 }
 
 /// <summary>A named workflow operation with the single value input/output boundaries supported today.</summary>
-public sealed record WorkflowInterfaceOperation(string DisplayName, string InputDataType, string OutputDataType);
+public sealed record WorkflowInterfaceOperation(string DisplayName, string InputDataType, string OutputDataType)
+{
+    /// <summary>Named required fields for interface schema 1.1. Absent on schema 1.0 operations.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableArray<WorkflowInterfaceDataField>? Inputs { get; init; }
+
+    /// <summary>Named required fields for interface schema 1.1. Absent on schema 1.0 operations.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableArray<WorkflowInterfaceDataField>? Outputs { get; init; }
+}
+
+/// <summary>A named, required typed field in a schema-1.1 workflow interface operation.</summary>
+public sealed record WorkflowInterfaceDataField(string FieldId, string DisplayName, string DataType);
 
 /// <summary>An immutable, independently versioned interface contract revision.</summary>
 public sealed record WorkflowInterfaceRevision(Guid RevisionId, int Version,
@@ -136,7 +148,9 @@ public static class WorkflowInterfaceResolver
 public static class WorkflowInterfaceJson
 {
     public const string AssetSchemaVersion = "1.0";
+    public const string FieldContractSchemaVersion = "1.1";
     public const int MaximumOperations = 32;
+    public const int MaximumFieldsPerDirection = 16;
     public const int MaximumIdLength = 128;
     public const int MaximumDisplayNameLength = 160;
     public const int MaximumDescriptionLength = 2_000;
@@ -317,7 +331,8 @@ public static class WorkflowInterfaceJson
     public static void ThrowIfInvalid(WorkflowInterfaceDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (!string.Equals(definition.SchemaVersion, AssetSchemaVersion, StringComparison.Ordinal))
+        if (!string.Equals(definition.SchemaVersion, AssetSchemaVersion, StringComparison.Ordinal) &&
+            !string.Equals(definition.SchemaVersion, FieldContractSchemaVersion, StringComparison.Ordinal))
             throw new ArgumentException($"Unsupported workflow interface schema '{definition.SchemaVersion}'.", nameof(definition));
         if (!IsValidId(definition.InterfaceId))
             throw new ArgumentException("Interface IDs must be stable ASCII identifiers up to 128 characters.", nameof(definition));
@@ -337,6 +352,35 @@ public static class WorkflowInterfaceJson
                 throw new ArgumentException($"Operation '{id}' input must use a workflow-supported string or JSON boundary.", nameof(definition));
             if (!WorkflowDataTypeCatalog.IsSupported(operation.OutputDataType))
                 throw new ArgumentException($"Operation '{id}' output uses an unsupported workflow data type.", nameof(definition));
+
+            if (definition.SchemaVersion == FieldContractSchemaVersion)
+            {
+                if (operation.InputDataType != WorkflowDataTypes.Json || operation.OutputDataType != WorkflowDataTypes.Json)
+                    throw new ArgumentException($"Operation '{id}' schema 1.1 boundaries must use JSON objects.", nameof(definition));
+                ValidateFields(id, "inputs", operation.Inputs);
+                ValidateFields(id, "outputs", operation.Outputs);
+            }
+            else if (operation.Inputs is not null || operation.Outputs is not null)
+            {
+                throw new ArgumentException($"Operation '{id}' field contracts require interface schema 1.1.", nameof(definition));
+            }
+        }
+    }
+
+    private static void ValidateFields(string operationId, string direction,
+        ImmutableArray<WorkflowInterfaceDataField>? fields)
+    {
+        if (fields is not { } declared || declared.Length is < 1 or > MaximumFieldsPerDirection)
+            throw new ArgumentException($"Operation '{operationId}' requires 1–{MaximumFieldsPerDirection} {direction} fields.");
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var field in declared)
+        {
+            if (field is null || !IsValidId(field.FieldId) || !ids.Add(field.FieldId))
+                throw new ArgumentException($"Operation '{operationId}' {direction} field IDs must be unique stable ASCII identifiers.");
+            if (string.IsNullOrWhiteSpace(field.DisplayName) || field.DisplayName.Length > MaximumDisplayNameLength)
+                throw new ArgumentException($"Operation '{operationId}' {direction} field names must contain 1–{MaximumDisplayNameLength} characters.");
+            if (!WorkflowDataTypeCatalog.IsSupported(field.DataType))
+                throw new ArgumentException($"Operation '{operationId}' {direction} field '{field.FieldId}' uses an unsupported data type.");
         }
     }
 

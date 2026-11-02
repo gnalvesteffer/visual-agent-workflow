@@ -23,6 +23,14 @@ Editor normalization creates a separate current draft and preserves the
 source; package and reuse operations preserve current schema identity and
 pinned dependencies. See [Decision 0060](decisions/0060-unified-authoring-schema.md).
 
+Workflow interfaces currently live only in Core as versioned portable
+contracts. Schema 1.0 declares one typed payload per operation direction;
+schema 1.1 adds required named typed fields encoded at JSON Input/Output
+boundaries. A bounded codec validates and packs/projects these values. Exact
+workflow pins and hashes are checked statically, but there is no catalog,
+workflow call node, runtime dispatch, evidence integration, host admission, or
+playback for interfaces yet. See [Decision 0063](decisions/0063-workflow-interface-contract-foundation.md).
+
 The engine and designer are independently consumable libraries; Studio is their optional IDE and development composition. User-owned service hosting is a first-class product goal, with direct execution APIs and a local hosting helper already available; a production SDK and stable package distribution remain planned. See [service integration](service-integration.md).
 
 The Studio is a .NET 10 Interactive Server development host that composes embeddable Blazor components, local project-scoped authoring catalogs, a background run queue, Microsoft Agent Framework adapters, and a node-scoped MCP broker. Execution belongs to the backend. A browser edits definitions and observes recorded evidence; closing it does not cancel a run. Studio project workspaces are single-operator; Git is the intended source-control mechanism, with no simultaneous editing or in-app Git client. Current SQLite/JSON project catalogs are transitional; the target is ordinary portable folders with ignored `.vaw/` local metadata and immutable run/package snapshots kept outside canonical source.

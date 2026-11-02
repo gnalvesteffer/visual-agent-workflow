@@ -331,7 +331,7 @@ Playback shows **State at recorded position** separately from the latest status.
 
 Inserted steps have fresh identities and retain their copied annotations, MCP tool contracts, and stable model connection IDs. They show which source/version they came from. Later source publications do not rewrite existing copies, and edits to a copy do not change the source. A pinned call instead keeps the complete child definition in its node and runs it under the parent run’s audit identity. Playback shows child events under that call node without re-executing them. Host authorization still applies to child nodes; a parent does not automatically inherit child tools or vice versa.
 
-Workflow interfaces are not yet available in Studio. Core currently contains a contract proof only; there is no interface library, authoring control, call node, or runtime dispatch. See [Decision 0063](decisions/0063-workflow-interface-contract-foundation.md) for the reviewed limits and remaining gates.
+Workflow interfaces are not yet available in Studio. Core contains versioned single-payload and named-field contract proofs plus a bounded JSON codec; there is no interface library, authoring control, call node, or runtime dispatch. See [Decision 0063](decisions/0063-workflow-interface-contract-foundation.md) for the reviewed limits and remaining gates.
 
 ## Share and recover local work
 
