@@ -49,7 +49,7 @@ public sealed class UnifiedJsonArrayInputTopologyTests
         var serialized = WorkflowJson.SerializeDraft(draft);
 
         Assert.Equal(serialized, WorkflowJson.SerializeDraft(WorkflowJson.DeserializeDraft(serialized)));
-        Assert.Contains(WorkflowValidator.Validate(draft), issue => issue.Code == "unified.json-array.nodes");
+        Assert.Contains(WorkflowValidator.Validate(draft), issue => issue.Code == "data.degree");
     }
 
     [Theory]
@@ -63,7 +63,7 @@ public sealed class UnifiedJsonArrayInputTopologyTests
                 ArrayInputGraph().Nodes["output"] with { OutputDataType = outputType })
         };
 
-        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "unified.json-array.output");
+        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "connection.port");
     }
 
     [Fact]
@@ -79,7 +79,7 @@ public sealed class UnifiedJsonArrayInputTopologyTests
         };
 
         Assert.Contains(WorkflowValidator.Validate(definition), issue =>
-            issue.Code is "unified.json-array.nodes" or "unified.json-array.data-shape");
+            issue.Code is "connection.port" or "data.unused" or "graph.unreachable");
     }
 
     [Fact]

@@ -746,9 +746,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                             ResolveJsonInput(nodeId, "left", evaluated, cache, active),
                             ResolveJsonInput(nodeId, "right", evaluated, cache, active)))),
                     NodeTypes.JsonToArray when outputPort == "out" => ConvertJsonToArray(nodeId, evaluated, cache, active),
+                    NodeTypes.ArrayLiteral when outputPort == "out" => CreateArrayLiteral(nodeId),
                     NodeTypes.ArrayLength when outputPort == "out" => new ExplicitGraphValue(WorkflowDataTypes.Integer,
-                        (long)ResolveJsonArrayInput(nodeId, "in", evaluated, cache, active).GetArrayLength()),
-                    NodeTypes.ArrayGet when outputPort == "item" => GetJsonArrayItem(nodeId, evaluated, cache, active),
+                        (long)ResolveArrayInput(nodeId, "in", node.ArrayElementType ?? WorkflowDataTypes.Json, evaluated, cache, active).GetArrayLength()),
+                    NodeTypes.ArrayGet when outputPort == "item" => GetArrayItem(nodeId, node.ArrayElementType ?? WorkflowDataTypes.Json, evaluated, cache, active),
                     NodeTypes.FunctionCall when node.GraphFunction is { } function && function.Definition.Outputs.TryGetValue(outputPort, out var output) =>
                         EvaluateFunction(nodeId, outputPort, output.DataType, function, evaluated, cache, active),
                         _ => throw new InvalidOperationException("The data source is not a supported pure value node.")
@@ -963,30 +964,47 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             }
         }
 
-        private JsonElement ResolveJsonArrayInput(string nodeId, string inputPort,
+        private ExplicitGraphValue CreateArrayLiteral(string nodeId)
+        {
+            var configuration = definition.Nodes[nodeId].ArrayLiteral;
+            if (!WorkflowArrayLiteral.TryParse(configuration, out var values, out var error))
+                throw new GraphDataEvaluationException(nodeId, error, new InvalidOperationException(error));
+            return new ExplicitGraphValue(WorkflowDataTypes.ArrayOf(configuration!.ElementType), values);
+        }
+
+        private JsonElement ResolveArrayInput(string nodeId, string inputPort, string elementType,
             ImmutableArray<EvaluatedDataValue>.Builder evaluated,
             Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
             HashSet<(string NodeId, string PortId)> active)
         {
             var edge = definition.Connections.Single(connection => connection.Value.Target.NodeId == nodeId && connection.Value.Target.PortId == inputPort);
             var value = ResolveOutput(edge.Value.Source.NodeId, edge.Value.Source.PortId, edge.Key, evaluated, cache, active);
-            if (value.DataType != WorkflowDataTypes.JsonArray || value.Value is not JsonElement json || json.ValueKind != JsonValueKind.Array)
-                throw new InvalidOperationException("The pure data input requires a bounded JSON array.");
+            if (value.DataType != WorkflowDataTypes.ArrayOf(elementType) || value.Value is not JsonElement json || json.ValueKind != JsonValueKind.Array)
+                throw new InvalidOperationException($"The pure data input requires a bounded array of {elementType} values.");
             return json;
         }
 
-        private ExplicitGraphValue GetJsonArrayItem(string nodeId,
+        private ExplicitGraphValue GetArrayItem(string nodeId, string elementType,
             ImmutableArray<EvaluatedDataValue>.Builder evaluated,
             Dictionary<(string NodeId, string PortId), ExplicitGraphValue> cache,
             HashSet<(string NodeId, string PortId)> active)
         {
-            var array = ResolveJsonArrayInput(nodeId, "array", evaluated, cache, active);
+            var array = ResolveArrayInput(nodeId, "array", elementType, evaluated, cache, active);
             var index = ResolveIntegerInput(nodeId, "index", evaluated, cache, active);
             if (index < 0 || index >= array.GetArrayLength())
                 throw new GraphDataEvaluationException(nodeId,
                     $"Array index {index} is outside an array containing {array.GetArrayLength()} items.",
                     new ArgumentOutOfRangeException("index", index, "Array indices are zero-based and must identify an existing item."));
-            return new ExplicitGraphValue(WorkflowDataTypes.Json, array[(int)index].Clone());
+            var item = array[(int)index];
+            object value = elementType switch
+            {
+                WorkflowDataTypes.String => item.GetString()!,
+                WorkflowDataTypes.Boolean => item.GetBoolean(),
+                WorkflowDataTypes.Integer => item.GetInt64(),
+                WorkflowDataTypes.Number => item.GetDouble(),
+                _ => item.Clone()
+            };
+            return new ExplicitGraphValue(elementType, value);
         }
 
         private static JsonElement ParseJson(string value)
@@ -1223,10 +1241,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     message = outputEvaluation.Result.DataType switch
                     {
                         "string" when outputEvaluation.Result.Value is string outputValue => outputValue,
+                        "number" when outputEvaluation.Result.Value is double numberValue && double.IsFinite(numberValue) => numberValue.ToString("R", CultureInfo.InvariantCulture),
                         "integer" when outputEvaluation.Result.Value is long integerValue => integerValue.ToString(CultureInfo.InvariantCulture),
                         "boolean" when outputEvaluation.Result.Value is bool booleanValue => booleanValue ? "true" : "false",
                         "json" when outputEvaluation.Result.Value is JsonElement jsonValue => jsonValue.GetRawText(),
-                        _ => throw new InvalidOperationException("An Output node requires a string, integer, Boolean, or bounded JSON value.")
+                        _ => throw new InvalidOperationException("An Output node requires a string, Boolean, integer, finite number, or bounded JSON value.")
                     };
                 }
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.BooleanBranch)

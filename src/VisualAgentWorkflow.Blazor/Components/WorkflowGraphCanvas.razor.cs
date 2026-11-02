@@ -153,7 +153,7 @@ public partial class WorkflowGraphCanvas
     internal static string FriendlyName(NodeDefinition node) => node.Type switch
     {
         NodeTypes.Input => "Input", NodeTypes.Output => "Output", NodeTypes.Uppercase => "Uppercase", NodeTypes.Reverse => "Reverse", NodeTypes.TextTemplate => "Text template",
-        NodeTypes.JsonProject => "JSON projection", NodeTypes.JsonSelectString => "JSON selector", NodeTypes.JsonMerge => "JSON merge", NodeTypes.JsonToArray => "JSON to array", NodeTypes.ArrayLength => "Array length", NodeTypes.ArrayGet => "Array get",
+        NodeTypes.JsonProject => "JSON projection", NodeTypes.JsonSelectString => "JSON selector", NodeTypes.JsonMerge => "JSON merge", NodeTypes.JsonToArray => "JSON to array", NodeTypes.ArrayLiteral => "Array literal", NodeTypes.ArrayLength => "Array length", NodeTypes.ArrayGet => "Array get",
         NodeTypes.Condition => "Condition", NodeTypes.Merge => "Merge", NodeTypes.Approval => "Approval",
         NodeTypes.ParallelFork => "Parallel fork", NodeTypes.ParallelBranch => "Parallel branch", NodeTypes.ParallelJoin => "Parallel join", NodeTypes.ParallelRendezvous => "Parallel rendezvous",
         NodeTypes.Sequence => "Sequence",
@@ -193,7 +193,7 @@ public partial class WorkflowGraphCanvas
         node.Type == NodeTypes.Loop ? "Bounded loop" : node.Type == NodeTypes.LoopBody ? "Loop body" : node.Type == NodeTypes.Terminate ? "Successful exit · no result" :
         node.Type is NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall ? "Pinned workflow call" : node.Type == NodeTypes.FunctionCall ? "Pure function" :
         node.Type is NodeTypes.FunctionInput or NodeTypes.FunctionOutput ? "Function boundary" :
-        node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals or NodeTypes.ArrayGet ? "Pure value" :
+        node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals or NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet ? "Pure value" :
         node.Type == NodeTypes.BooleanBranch ? "Boolean routing" : node.Type is NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.WorkflowValue ? "Pure value" :
         node.Type is NodeTypes.VariableGet or NodeTypes.VariableSet ? "Run-scoped state" :
         node.Agent is not null ? "Agent" : node.Tool is not null ? "MCP tool" : "Transform";
@@ -213,7 +213,7 @@ public partial class WorkflowGraphCanvas
             NodeTypes.Sequence => "<path d=\"M3 5h4m-4 5h8m-8 5h12\"/><path d=\"m7 3 2 2-2 2m4 3 2 2-2 2m4 3 2 2-2 2\"/>",
             NodeTypes.Loop or NodeTypes.LoopBody => "<path d=\"M16 7h3V4m-1 3a8 8 0 0 0-14 2m0 6H1v3m1-3a8 8 0 0 0 14-2\"/>",
             NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall or NodeTypes.FunctionCall => "<rect x=\"3\" y=\"3\" width=\"14\" height=\"14\" rx=\"2\"/><path d=\"M7 7h6m-6 3h6m-6 3h4\"/>",
-            NodeTypes.StringConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.BooleanConstant or NodeTypes.WorkflowValue => "<path d=\"M4 4h12v12H4zM7 8h6M7 12h4\"/>",
+            NodeTypes.StringConstant or NodeTypes.IntegerConstant or NodeTypes.NumberConstant or NodeTypes.BooleanConstant or NodeTypes.WorkflowValue or NodeTypes.ArrayLiteral => "<path d=\"M4 4h12v12H4zM7 8h6M7 12h4\"/>",
             NodeTypes.FunctionInput or NodeTypes.FunctionOutput => "<path d=\"M3 10h14m-5-5 5 5-5 5\"/><circle cx=\"4\" cy=\"10\" r=\"2\"/>",
             NodeTypes.JsonProject or NodeTypes.JsonSelectString => "<path d=\"M7 3H5v5l-2 2 2 2v5h2m6-14h2v5l2 2-2 2v5h-2M9 7h2m-2 3h2m-2 3h2\"/>",
             NodeTypes.JsonMerge => "<path d=\"M4 5h5m-5 7h5m0-7 6 5-6 5V5Zm0 0v7\"/>",

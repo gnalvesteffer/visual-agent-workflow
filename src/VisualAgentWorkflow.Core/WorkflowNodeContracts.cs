@@ -70,7 +70,8 @@ public enum WorkflowDynamicPinIdentityKind
     ParallelBranchId,
     SequenceOutputId,
     GraphFunctionPortId,
-    InterfaceFieldId
+    InterfaceFieldId,
+    TypedArrayElementType
 }
 
 public sealed record WorkflowNodeLimit(string Id, int Maximum, string Description);
@@ -247,6 +248,7 @@ public static class WorkflowNodeContractCatalog
         Contract(NodeTypes.BooleanConstant, "Boolean constant", "Values", "Provides a literal Boolean value.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.IntegerConstant, "Integer constant", "Values", "Provides a literal integer value.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.NumberConstant, "Number constant", "Values", "Provides a finite IEEE-754 double value.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
+        Contract(NodeTypes.ArrayLiteral, "Array literal", "Containers", "Provides a bounded immutable homogeneous array value.", false, true, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.TypedArrayElementType, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.NumberAdd, "Add numbers", "Values", "Adds two finite IEEE-754 double values.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.StringToInteger, "String to integer", "Values", "Converts strict ASCII decimal text to a signed 64-bit integer.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.IntegerToString, "Integer to string", "Values", "Formats a signed 64-bit integer as invariant decimal text.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
@@ -259,8 +261,8 @@ public static class WorkflowNodeContractCatalog
         Contract(NodeTypes.JsonProject, "Project JSON fields", "JSON", "Projects bounded typed JSON fields.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.JsonMerge, "Merge JSON objects", "JSON", "Combines two bounded JSON objects without implicit key precedence.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.JsonToArray, "JSON to array", "Containers", "Refines a root JSON array into a bounded immutable array value.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
-        Contract(NodeTypes.ArrayLength, "Array length", "Containers", "Returns the number of items in a bounded immutable JSON array.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
-        Contract(NodeTypes.ArrayGet, "Array get", "Containers", "Returns one JSON value from a bounded immutable array at a zero-based index.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
+        Contract(NodeTypes.ArrayLength, "Array length", "Containers", "Returns the number of items in a bounded immutable array.", false, true, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.TypedArrayElementType, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
+        Contract(NodeTypes.ArrayGet, "Array get", "Containers", "Returns a typed array value at a zero-based index.", false, true, hasDynamicPins: true, dynamicPinIdentity: WorkflowDynamicPinIdentityKind.TypedArrayElementType, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.TextTemplate, "Text template", "Text", "Builds text from structured literal and value parts.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.WorkflowValue, "Workflow parameter", "Values", "Reads an immutable workflow parameter.", false, true, pure: true, activation: WorkflowNodeActivationKind.DataEvaluation, evidence: WorkflowNodeEvidenceKind.DataEvaluation),
         Contract(NodeTypes.Condition, "String condition", "Flow", "Routes a string through a bounded predicate.", true, true, effects: WorkflowNodeEffectFlags.RunScopedState, failure: WorkflowNodeFailureKind.Routes, evidence: WorkflowNodeEvidenceKind.RouteDecision),

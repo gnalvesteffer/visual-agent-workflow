@@ -51,6 +51,8 @@ internal static class WorkflowPortShapeCatalog
         NodeTypes.WorkflowCall => InputsForWorkflowCall(node),
         NodeTypes.WorkflowInterfaceCall => InterfaceCallInputs(node),
         NodeTypes.FunctionCall => FunctionCallDataInputs(node),
+        NodeTypes.ArrayLength => [new("in", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.Json))],
+        NodeTypes.ArrayGet => [new("array", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.Json)), new("index", WorkflowDataTypes.Integer)],
         _ => []
     };
 
@@ -66,6 +68,9 @@ internal static class WorkflowPortShapeCatalog
         NodeTypes.McpTool => [new("out", WorkflowDataTypes.String)],
         NodeTypes.ParallelJoin => [new("out", WorkflowDataTypes.Json)],
         NodeTypes.FunctionCall => FunctionCallDataOutputs(node),
+        NodeTypes.ArrayLiteral => [new("out", WorkflowDataTypes.ArrayOf(node.ArrayLiteral?.ElementType ?? WorkflowDataTypes.String))],
+        NodeTypes.ArrayLength => [new("out", WorkflowDataTypes.Integer)],
+        NodeTypes.ArrayGet => [new("item", node.ArrayElementType ?? WorkflowDataTypes.Json)],
         _ => []
     };
 

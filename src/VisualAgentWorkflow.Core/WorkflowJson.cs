@@ -66,6 +66,11 @@ public static class WorkflowJson
 
     private static bool IsDraftableIssue(WorkflowDefinition definition, ValidationIssue issue) =>
         definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+        (issue.Code is "array.literal" or "array.element-type" ||
+         issue.Code == "node.descriptor" && issue.Path.StartsWith("nodes.", StringComparison.Ordinal) &&
+         definition.Nodes.TryGetValue(issue.Path["nodes.".Length..].Split('.')[0], out var arrayNode) &&
+         arrayNode?.Type is NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet) ||
+        definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
         issue.Code.StartsWith("unified.json-array.", StringComparison.Ordinal) && issue.Code != "unified.json-array.schema" ||
         definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
         (issue.Code.StartsWith("sequence.", StringComparison.Ordinal) ||

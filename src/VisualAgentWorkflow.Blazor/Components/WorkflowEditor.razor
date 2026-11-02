@@ -631,7 +631,46 @@
                     }
                     else if (node.Type == NodeTypes.ArrayGet)
                     {
-                        <p>Selects one JSON value from a bounded array using a zero-based index. Negative or out-of-range indices fail when the Output evaluates this data path.</p>
+                        @if (!ReadOnly)
+                        {
+                            <label>Array element type
+                                <select aria-label="Array element type for @id" value="@(node.ArrayElementType ?? WorkflowDataTypes.Json)" @onchange="args => ChangeArrayElementType(id, args)" disabled="@Disabled">
+                                    @foreach (var type in ArrayElementTypes) { <option value="@type">@type</option> }
+                                    @if (node.ArrayElementType is null) { <option value="json">json (legacy)</option> }
+                                </select>
+                            </label>
+                        }
+                        <p>Selects one value from a bounded array using a zero-based index. Negative or out-of-range indices fail at this node.</p>
+                    }
+                    else if (node.Type == NodeTypes.ArrayLength)
+                    {
+                        @if (!ReadOnly)
+                        {
+                            <label>Array element type
+                                <select aria-label="Array element type for @id" value="@(node.ArrayElementType ?? WorkflowDataTypes.Json)" @onchange="args => ChangeArrayElementType(id, args)" disabled="@Disabled">
+                                    @foreach (var type in ArrayElementTypes) { <option value="@type">@type</option> }
+                                    @if (node.ArrayElementType is null) { <option value="json">json (legacy)</option> }
+                                </select>
+                            </label>
+                        }
+                        <p>Counts a bounded immutable array without changing it.</p>
+                    }
+                    else if (node.Type == NodeTypes.ArrayLiteral)
+                    {
+                        var literal = node.ArrayLiteral ?? new ArrayLiteralConfiguration(WorkflowDataTypes.String, "[]");
+                        @if (!ReadOnly)
+                        {
+                            <label>Array element type
+                                <select aria-label="Array element type for @id" value="@literal.ElementType" @onchange="args => ChangeArrayLiteralType(id, args)" disabled="@Disabled">
+                                    @foreach (var type in ArrayElementTypes.Where(type => type != WorkflowDataTypes.Json)) { <option value="@type">@type</option> }
+                                </select>
+                            </label>
+                            <label>Values (JSON array)
+                                <textarea aria-label="Array literal values for @id" rows="5" value="@literal.ValuesJson" @onchange="args => ChangeArrayLiteralValues(id, args)" disabled="@Disabled"></textarea>
+                            </label>
+                        }
+                        else { <pre>@literal.ValuesJson</pre> }
+                        <p>Immutable, ordered, homogeneous, non-null primitive values; limited to 64 items and 16 KiB.</p>
                     }
                     else if (terminal || ReadOnly)
                     {
@@ -978,6 +1017,10 @@
         NodeTypes.Reverse => "Reverse text",
         NodeTypes.JsonSelectString => $"JSON pointer · {node.JsonPropertySelection?.Pointer}",
         NodeTypes.JsonProject => $"JSON object · {string.Join(", ", node.JsonProjection?.Fields.Select(field => $"{field.Name}: {field.ValueSchema?.Type ?? field.ValueType ?? "any"}") ?? [])}",
+        NodeTypes.JsonToArray => "JSON array · array<json>",
+        NodeTypes.ArrayLiteral => $"Array literal · array<{node.ArrayLiteral?.ElementType ?? WorkflowDataTypes.String}>",
+        NodeTypes.ArrayLength => $"Count array<{node.ArrayElementType ?? WorkflowDataTypes.Json}>",
+        NodeTypes.ArrayGet => $"Read array<{node.ArrayElementType ?? WorkflowDataTypes.Json}>",
         NodeTypes.TextTemplate => $"Template · {PromptTemplateCodec.Format(node.TextTemplate)}",
         NodeTypes.StringConstant => node.StringConstant?.Value ?? "Empty text constant",
         NodeTypes.TextConcat => "Join left + right",
@@ -1422,8 +1465,11 @@
             return new(NodeTypes.JsonSelectString, "1.0.0") { JsonPropertySelection = existing?.JsonPropertySelection ?? new("/name") };
         if (value == NodeTypes.JsonProject)
             return new(NodeTypes.JsonProject, "1.0.0") { JsonProjection = existing?.JsonProjection ?? new([new("name", "/name")]) };
-        if (value is NodeTypes.JsonToArray or NodeTypes.ArrayLength or NodeTypes.ArrayGet)
-            return new(value, "1.0.0");
+        if (value == NodeTypes.ArrayLiteral)
+            return new(value, "1.0.0") { ArrayLiteral = existing?.ArrayLiteral ?? new(WorkflowDataTypes.String, "[]") };
+        if (value is NodeTypes.ArrayLength or NodeTypes.ArrayGet)
+            return new(value, "1.0.0") { ArrayElementType = existing?.ArrayElementType ?? WorkflowDataTypes.String };
+        if (value == NodeTypes.JsonToArray) return new(value, "1.0.0");
         if (value == NodeTypes.TextTemplate)
             return new(NodeTypes.TextTemplate, "1.0.0") { TextTemplate = existing?.TextTemplate ?? new([new("input", "")]) };
         if (value == NodeTypes.WorkflowValue)
@@ -1503,6 +1549,33 @@
                 System.Globalization.CultureInfo.InvariantCulture, out var value) || !double.IsFinite(value))
             throw new ArgumentException("Enter a finite number.");
         return GraphEditing.ReplaceNode(Definition, id, Definition.Nodes[id] with { NumberConstant = new(value) });
+    });
+
+    private static readonly string[] ArrayElementTypes =
+        [WorkflowDataTypes.String, WorkflowDataTypes.Boolean, WorkflowDataTypes.Integer, WorkflowDataTypes.Number, WorkflowDataTypes.Json];
+
+    private Task ChangeArrayLiteralType(string id, ChangeEventArgs args) => Edit(() =>
+    {
+        var current = Definition.Nodes[id].ArrayLiteral ?? new ArrayLiteralConfiguration(WorkflowDataTypes.String, "[]");
+        var type = args.Value?.ToString() ?? WorkflowDataTypes.String;
+        if (type is not (WorkflowDataTypes.String or WorkflowDataTypes.Boolean or WorkflowDataTypes.Integer or WorkflowDataTypes.Number))
+            throw new ArgumentException("Choose string, boolean, integer, or number array elements.");
+        return GraphEditing.ReplaceNode(Definition, id, Definition.Nodes[id] with
+        { ArrayLiteral = current with { ElementType = type } });
+    });
+
+    private Task ChangeArrayLiteralValues(string id, ChangeEventArgs args) => Edit(() =>
+    {
+        var current = Definition.Nodes[id].ArrayLiteral ?? new ArrayLiteralConfiguration(WorkflowDataTypes.String, "[]");
+        return GraphEditing.ReplaceNode(Definition, id, Definition.Nodes[id] with
+        { ArrayLiteral = current with { ValuesJson = args.Value?.ToString() ?? "" } });
+    });
+
+    private Task ChangeArrayElementType(string id, ChangeEventArgs args) => Edit(() =>
+    {
+        var type = args.Value?.ToString() ?? WorkflowDataTypes.Json;
+        if (!ArrayElementTypes.Contains(type)) throw new ArgumentException("Choose a supported array element type.");
+        return GraphEditing.ReplaceNode(Definition, id, Definition.Nodes[id] with { ArrayElementType = type });
     });
 
     private Task McpArguments(string id, string? value) => Edit(() => GraphEditing.ReplaceNode(Definition, id,

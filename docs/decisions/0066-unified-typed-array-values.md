@@ -1,6 +1,6 @@
 # Decision 0066: Unified typed array values
 
-**Status:** Accepted direction; implementation in progress  
+**Status:** First immutable typed-array slice implemented in schema 2.0; later placements remain deferred
 **Date:** 2026-11-02  
 **Scope:** Blueprint parity workstream; current authoring schema 2.0
 
@@ -57,9 +57,8 @@ placements need their own contract and verification; the graph editor must not
 advertise them as supported until then. The existing `JsonToArray` path
 continues to produce `array<json>`.
 
-The first implementation will reuse the 64-item collection bound and add one
-explicit encoded-value bound no larger than the current JSON graph payload
-limit. Type identity is exact: `array<T>` connects only to the same
+The implementation reuses the 64-item collection bound and adds one explicit
+encoded-value bound no larger than the current JSON graph payload limit. Type identity is exact: `array<T>` connects only to the same
 `array<T>`. Array order is semantic. Once equality or membership nodes exist,
 array equality is structural and order-sensitive; strings compare ordinally,
 Booleans and integers by value, and finite numbers by numeric value. This slice
@@ -88,7 +87,7 @@ historical schema-1.x adapters and execution-shape selection are unchanged.
 Definitions are never silently rewritten on load. Any required old-graph
 normalization remains explicit, deterministic, and provenance-preserving.
 
-## Verification before marking this slice shipped
+## Verification for the first shipped slice
 
 - Core tests cover type parsing/identity, exact compatibility, valid empty and
   populated literals, wrong element types, nulls, non-finite numbers, item and
@@ -96,9 +95,10 @@ normalization remains explicit, deterministic, and provenance-preserving.
 - Core graph validation admits ordinary schema-2.0 compositions and rejects
   incompatible array types and unsupported placements without blocking draft
   saving.
-- Runtime tests cover typed values through literal → length/get → scalar
-  composition → output/Agent input, index boundaries, node-attributed failures,
-  data-evaluation evidence, and passive playback.
+- Runtime tests cover all four primitive types through literal → get → scalar
+  output and literal → length/get → scalar composition, plus index failures,
+  node attribution, and data-evaluation evidence. The shared playback path reads
+  these recorded events without evaluating nodes again.
 - Checkpoint admission continues to reject unsupported array-bearing shapes.
 - Historical 1.x fixtures and the existing JSON-array sequences preserve hashes,
   behavior, and playback.

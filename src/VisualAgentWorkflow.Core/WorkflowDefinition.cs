@@ -77,6 +77,10 @@ public sealed record NodeDefinition(string Type, string TypeVersion,
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public NumberConstantConfiguration? NumberConstant { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ArrayLiteralConfiguration? ArrayLiteral { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ArrayElementType { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public PromptTemplate? TextTemplate { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public LoopConfiguration? Loop { get; init; }
@@ -139,6 +143,7 @@ public static class NodeTypes
     public const string JsonToArray = "core.json.to-array";
     public const string ArrayLength = "core.array.length";
     public const string ArrayGet = "core.array.get";
+    public const string ArrayLiteral = "core.array.literal";
     public const string TextTemplate = "core.text.template";
     public const string ParallelFork = "core.parallel.fork";
     public const string ParallelBranch = "core.parallel.branch";
@@ -370,6 +375,7 @@ public sealed record StringConstantConfiguration(string Value);
 public sealed record BooleanConstantConfiguration(bool Value);
 public sealed record IntegerConstantConfiguration(long Value);
 public sealed record NumberConstantConfiguration(double Value);
+public sealed record ArrayLiteralConfiguration(string ElementType, string ValuesJson);
 
 public sealed record ParallelForkConfiguration(ImmutableArray<ParallelBranchDescriptor> Branches);
 public sealed record ParallelBranchDescriptor(string Id, string Label, string AnchorNodeId);

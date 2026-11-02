@@ -404,7 +404,7 @@ public static class WorkflowInterfaceJson
                 throw new ArgumentException($"Operation '{id}' must have a name of 1–160 characters.", nameof(definition));
             if (operation.InputDataType is not (WorkflowDataTypes.String or WorkflowDataTypes.Json))
                 throw new ArgumentException($"Operation '{id}' input must use a workflow-supported string or JSON boundary.", nameof(definition));
-            if (!WorkflowDataTypeCatalog.IsSupported(operation.OutputDataType))
+            if (operation.OutputDataType is not (WorkflowDataTypes.String or WorkflowDataTypes.Json))
                 throw new ArgumentException($"Operation '{id}' output uses an unsupported workflow data type.", nameof(definition));
 
             if (definition.SchemaVersion == FieldContractSchemaVersion)
@@ -433,7 +433,7 @@ public static class WorkflowInterfaceJson
                 throw new ArgumentException($"Operation '{operationId}' {direction} field IDs must be unique stable ASCII identifiers.");
             if (string.IsNullOrWhiteSpace(field.DisplayName) || field.DisplayName.Length > MaximumDisplayNameLength)
                 throw new ArgumentException($"Operation '{operationId}' {direction} field names must contain 1–{MaximumDisplayNameLength} characters.");
-            if (!WorkflowDataTypeCatalog.IsSupported(field.DataType))
+            if (field.DataType is not (WorkflowDataTypes.String or WorkflowDataTypes.Boolean or WorkflowDataTypes.Integer or WorkflowDataTypes.Number or WorkflowDataTypes.Json))
                 throw new ArgumentException($"Operation '{operationId}' {direction} field '{field.FieldId}' uses an unsupported data type.");
         }
     }

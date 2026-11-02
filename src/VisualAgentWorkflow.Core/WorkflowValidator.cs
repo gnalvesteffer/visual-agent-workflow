@@ -270,7 +270,7 @@ public static class WorkflowValidator
             if (node.McpInputPorts is not null &&
                 (!WorkflowSchemaVersions.UsesDirectMcpPins(definition.SchemaVersion) || node.Type != NodeTypes.McpTool ||
                  node.McpInputPorts.Value.Any(port => port is null || string.IsNullOrWhiteSpace(port.Id) || string.IsNullOrWhiteSpace(port.Name) ||
-                     port.Id.Length > 256 || port.Name.Length > 256 || !WorkflowDataTypeCatalog.IsSupported(port.DataType) ||
+                     port.Id.Length > 256 || port.Name.Length > 256 || !WorkflowDataTypeCatalog.IsSupported(port.DataType) || WorkflowDataTypes.TryGetArrayElementType(port.DataType, out _) ||
                      !port.Id.StartsWith("arg.", StringComparison.Ordinal))))
                 Error("mcp.input-ports", $"nodes.{id}.mcpInputPorts", "Schema 1.37 MCP input pins must be unique, bounded arg.* ports with supported graph data types.");
             if (node.McpInputPorts is { } inputPorts && inputPorts.Select(port => port.Id).Distinct(StringComparer.Ordinal).Count() != inputPorts.Length)
@@ -398,6 +398,9 @@ public static class WorkflowValidator
                         : node.OutputDataType != "json" || definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonArrayGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph)) ||
                 node.OutputDataType is not null && node.Type == NodeTypes.WorkflowValue && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph))
                 Error("output.dataType", $"nodes.{id}.outputDataType", "Only schema 1.13 or later output nodes can declare the JSON data type.");
+            if (node.Type == NodeTypes.Output && node.OutputDataType is { } outputType &&
+                WorkflowDataTypes.TryGetArrayElementType(outputType, out _))
+                Error("output.dataType", $"nodes.{id}.outputDataType", "Workflow outputs cannot expose collection values in the current graph contract.");
             if (node.Type == NodeTypes.JsonSelectString)
             {
                 if (definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or "1.9" or "1.10" or "1.11" or "1.12" or "1.13" or "1.14" or "1.15" or "1.19" or "1.22" or "1.21" or "1.20" or "1.18" or "1.17" or "1.16" or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonMergeGraph)) Error("node.schema", $"nodes.{id}", "JSON selection nodes require schema 1.9 or later.");
@@ -535,6 +538,22 @@ public static class WorkflowValidator
             }
             else if (node.NumberConstant is not null)
                 Error("constant.unexpected", $"nodes.{id}.numberConstant", "Only number constant nodes may declare a number value.");
+            if (node.Type == NodeTypes.ArrayLiteral)
+            {
+                if (definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                    Error("node.schema", $"nodes.{id}", "Typed array literals require unified schema 2.0.");
+                if (!WorkflowArrayLiteral.TryParse(node.ArrayLiteral, out _, out var arrayError))
+                    Error("array.literal", $"nodes.{id}.arrayLiteral", arrayError);
+            }
+            else if (node.ArrayLiteral is not null)
+                Error("array.literal.unexpected", $"nodes.{id}.arrayLiteral", "Only Array literal nodes may declare literal values.");
+            if (node.ArrayElementType is not null &&
+                (node.Type is not (NodeTypes.ArrayLength or NodeTypes.ArrayGet) ||
+                 definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph ||
+                 !WorkflowDataTypes.IsArrayElementType(node.ArrayElementType)))
+                Error("array.element-type", $"nodes.{id}.arrayElementType", "Typed array operations require a supported element type in unified schema 2.0; legacy JSON array nodes omit this field.");
+            if (node.Type is not (NodeTypes.ArrayLength or NodeTypes.ArrayGet) && node.ArrayElementType is not null)
+                Error("array.element-type.unexpected", $"nodes.{id}.arrayElementType", "Only array operations may declare an array element type.");
             if (node.Type is NodeTypes.IntegerAdd or NodeTypes.IntegerEquals && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.StringIntegerConversionGraph or WorkflowSchemaVersions.IntegerStringConversionGraph or WorkflowSchemaVersions.SequenceWorkflowCallJsonControlGraph))
                 Error("node.schema", $"nodes.{id}", "Integer arithmetic nodes require schema 1.31.");
             if (node.Type == NodeTypes.StringToInteger && definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.StringIntegerConversionGraph))
@@ -793,14 +812,14 @@ public static class WorkflowValidator
     private static void ValidateUnifiedGraph(WorkflowDefinition definition, Action<string, string, string> error)
     {
         if (definition.Nodes.Values.Any(node => node is null)) return;
-        if (definition.Nodes.Values.Any(node => node?.Type is NodeTypes.JsonToArray or NodeTypes.ArrayLength or NodeTypes.ArrayGet) &&
-            !definition.Nodes.Values.Any(node => node?.Type is NodeTypes.Sequence or NodeTypes.WorkflowCall))
+        var hasTypedArrays = definition.Nodes.Values.Any(node => node is not null &&
+            (node.Type == NodeTypes.ArrayLiteral || node.ArrayElementType is not null));
+        if (hasTypedArrays && definition.Nodes.Values.Any(node => node?.Type is
+                NodeTypes.Sequence or NodeTypes.Loop or NodeTypes.LoopBody or NodeTypes.WorkflowCall or
+                NodeTypes.WorkflowInterfaceCall or NodeTypes.ParallelFork or NodeTypes.ParallelBranch or
+                NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous or NodeTypes.VariableGet or NodeTypes.VariableSet))
         {
-            ValidateExplicitBranchGraph(definition, error, allowBooleanTopology: true,
-                allowGraphFunctions: true, allowAgentNodes: true, allowFiniteNumbers: true);
-            foreach (var issue in UnifiedJsonArrayInputTopology.Analyze(definition).Issues)
-                error(issue.Code, issue.Path, issue.Message);
-            return;
+            error("array.placement", "nodes", "Typed arrays in this schema 2.0 slice support ordinary graph dataflow only; execution regions, calls, variables, and checkpoint state remain scalar-only.");
         }
         // Current graphs share typed-pin validation. Specialized control regions
         // retain their bounded contracts, selected from the authored topology.
@@ -2131,7 +2150,7 @@ public static class WorkflowValidator
                     error("graph.degree", $"nodes.{id}.outputs.{port.Id}", "Every execution output pin must connect exactly once.");
             if (unified && node.Type == NodeTypes.McpTool)
                 ValidateUnifiedMcpInputs(definition, id, node, dataIncoming, error);
-            if (node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals or NodeTypes.NumberConstant or NodeTypes.WorkflowValue or NodeTypes.FunctionCall &&
+            if (node.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals or NodeTypes.NumberConstant or NodeTypes.WorkflowValue or NodeTypes.FunctionCall or NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.JsonToArray &&
                 WorkflowPorts.ExplicitDataOutputs(node).Length > 0 && !definition.Connections.Values.Any(edge => edge.Source.NodeId == id))
                 error("data.unused", $"nodes.{id}", "Every pure data node must contribute to a Branch condition or Output value.");
             if (node.Type == NodeTypes.Terminate && node.Termination is { Outcome: not (WorkflowTerminationOutcomes.Success or WorkflowTerminationOutcomes.Failure) })
@@ -2188,7 +2207,7 @@ public static class WorkflowValidator
             foreach (var dependency in dataDependencies.GetValueOrDefault(current) ?? []) pendingData.Push(dependency);
         }
         foreach (var (id, node) in definition.Nodes)
-            if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals or NodeTypes.NumberConstant or NodeTypes.StringToInteger or NodeTypes.WorkflowValue or NodeTypes.FunctionCall && !reachedData.Contains(id))
+            if (node?.Type is NodeTypes.StringConstant or NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals or NodeTypes.NumberConstant or NodeTypes.StringToInteger or NodeTypes.WorkflowValue or NodeTypes.FunctionCall or NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet or NodeTypes.JsonToArray && !reachedData.Contains(id))
                 error("graph.unreachable", $"nodes.{id}", "Every pure data node must contribute to a Branch condition or Output value.");
     }
 

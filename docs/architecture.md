@@ -276,6 +276,18 @@ Historical 1.x definitions keep their original topology contract. See
 [Decision 0061](decisions/0061-unified-json-array-input-chain.md) and
 [Decision 0065](decisions/0065-unified-json-array-get.md).
 
+Schema 2.0 also admits typed immutable `array<string>`, `array<boolean>`,
+`array<integer>`, and `array<number>` values through Array literal, Array
+length, and Array get nodes. Element types are part of the pin identity and
+connections require exact matches. Literals are non-null homogeneous primitive
+arrays, limited to 64 elements and 16 KiB of encoded JSON. Pure data evaluation
+remains lazy; evidence records the literal, count, or selected scalar value,
+and out-of-range selection fails against Array get. The typed collection may
+flow through pure graph dataflow to scalar inputs and workflow output, but the
+collection itself is not an entry/output, parameter, function/interface port,
+variable, MCP argument, execution-region, or checkpoint value. Historical
+`array<json>` nodes retain their existing semantics. See [Decision 0066](decisions/0066-unified-typed-array-values.md).
+
 The production Sequence builder also has a proof-only descendant-termination
 boundary: a `Terminate` signal preserves the Sequence output lineage into the
 collector, where a failure termination settles exactly that activation as

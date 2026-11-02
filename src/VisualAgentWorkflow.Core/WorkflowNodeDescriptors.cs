@@ -439,8 +439,6 @@ public static class WorkflowNodeDescriptorRegistry
         Descriptor(NodeTypes.BooleanNot, "boolean-not", [Input("value", WorkflowDataTypes.Boolean), Output(WorkflowDataTypes.Boolean)], "1.25"),
         Descriptor(NodeTypes.JsonMerge, "json-merge", [Input("left", WorkflowDataTypes.Json), Input("right", WorkflowDataTypes.Json), Output(WorkflowDataTypes.Json)], "1.55"),
         Descriptor(NodeTypes.JsonToArray, "json-to-array", [Input("in", WorkflowDataTypes.Json), Output(WorkflowDataTypes.JsonArray)], "1.56"),
-        Descriptor(NodeTypes.ArrayLength, "array-length", [Input("in", WorkflowDataTypes.JsonArray), Output(WorkflowDataTypes.Integer)], "1.56"),
-        Descriptor(NodeTypes.ArrayGet, "array-get", [Input("array", WorkflowDataTypes.JsonArray), Input("index", WorkflowDataTypes.Integer), Output("item", WorkflowDataTypes.Json)], "2.0"),
         Descriptor(NodeTypes.JsonSelectString, "json-select-string", [Input("in", WorkflowDataTypes.Json), Output(WorkflowDataTypes.String)], "1.53"),
         Descriptor(NodeTypes.JsonProject, "json-project", [Input("in", WorkflowDataTypes.Json), Output(WorkflowDataTypes.Json)], "1.53"),
         Descriptor(NodeTypes.TextTemplate, "text-template", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String)], "1.0"),
@@ -611,6 +609,16 @@ public static class WorkflowNodeDescriptorResolver
         IReadOnlyDictionary<string, string>? discoveredMcpInputDescriptions,
         out WorkflowNodeDescriptor descriptor)
     {
+        if ((node.Type is NodeTypes.ArrayLength or NodeTypes.ArrayGet) &&
+            !WorkflowDataTypes.IsArrayElementType(node.ArrayElementType ?? WorkflowDataTypes.Json) ||
+            node.Type == NodeTypes.ArrayLiteral && node.ArrayLiteral is not null && (
+                !WorkflowDataTypes.IsArrayElementType(node.ArrayLiteral.ElementType) ||
+                node.ArrayLiteral.ElementType == WorkflowDataTypes.Json))
+        {
+            descriptor = null!;
+            return false;
+        }
+
         if (!WorkflowNodeContractCatalog.TryGet(node.Type, out var contract) ||
             !string.Equals(node.TypeVersion, contract.TypeVersion, StringComparison.Ordinal))
         {
@@ -708,6 +716,7 @@ public static class WorkflowNodeDescriptorResolver
         NodeTypes.Agent => "agent",
         NodeTypes.VariableGet => "variable-get",
         NodeTypes.VariableSet => "variable-set",
+        NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet => "array",
         NodeTypes.FunctionCall => "graph-function-call",
         NodeTypes.ParallelFork or NodeTypes.ParallelBranch or NodeTypes.ParallelJoin or NodeTypes.ParallelRendezvous => "parallel",
         NodeTypes.Sequence => "sequence",
