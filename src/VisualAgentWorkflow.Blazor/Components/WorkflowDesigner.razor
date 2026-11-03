@@ -433,6 +433,8 @@
                             { <select value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)"><option value="true">True</option><option value="false">False</option></select> }
                             else if (parameter.Type is "integer" or "number")
                             { <input type="number" step="@(parameter.Type == "integer" ? "1" : "any")" value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)" /> }
+                            else if (WorkflowDataTypes.TryGetArrayElementType(parameter.Type, out var runArrayElementType) && runArrayElementType != WorkflowDataTypes.Json)
+                            { <textarea value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)" maxlength="16384" rows="4" aria-label="JSON array value for @parameter.DisplayName"></textarea><span class="vaw-help">JSON array of @runArrayElementType; maximum 64 items and 16 KiB UTF-8.</span> }
                             else
                             { <textarea value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)" maxlength="16384" rows="2"></textarea> }
                         </label>
@@ -529,6 +531,8 @@
                 { <select value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)" disabled="@busy"><option value="true">True</option><option value="false">False</option></select> }
                 else if (parameter.Type is "integer" or "number")
                 { <input type="number" step="@(parameter.Type == "integer" ? "1" : "any")" value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)" disabled="@busy" /> }
+                else if (WorkflowDataTypes.TryGetArrayElementType(parameter.Type, out var runArrayElementType) && runArrayElementType != WorkflowDataTypes.Json)
+                { <textarea value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)" maxlength="16384" rows="4" aria-label="JSON array value for @parameter.DisplayName" disabled="@busy"></textarea><span class="vaw-help">JSON array of @runArrayElementType; maximum 64 items and 16 KiB UTF-8.</span> }
                 else
                 { <textarea value="@RunParameterValue(parameterId, parameter)" @onchange="args => SetRunParameter(parameterId, args)" maxlength="16384" rows="2" disabled="@busy"></textarea> }
             </label>

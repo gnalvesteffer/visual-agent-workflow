@@ -162,6 +162,93 @@ public sealed class WorkflowParameterTests
         Assert.Throws<ArgumentException>(() => WorkflowParameters.Resolve(definition, new Dictionary<string, string> { ["amount"] = "1e999" }));
     }
 
+    [Theory]
+    [InlineData("array<string>", "[ \"a\", \"b\" ]", "[\"a\",\"b\"]")]
+    [InlineData("array<boolean>", "[true, false]", "[true,false]")]
+    [InlineData("array<integer>", "[1, -2]", "[1,-2]")]
+    [InlineData("array<number>", "[1.0, -0, 2e1]", "[1,0,20]")]
+    public void CurrentSchemaArrayParametersValidateAndResolveToCanonicalJson(string type, string authored, string canonical)
+    {
+        var definition = Definition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Nodes = Definition().Nodes
+                .SetItem("value", Definition().Nodes["value"] with { OutputDataType = type })
+                .SetItem("output", Definition().Nodes["output"] with { OutputDataType = type }),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("greeting", new WorkflowParameterDefinition("Values", authored) { Type = type }),
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+        };
+
+        Assert.DoesNotContain(WorkflowValidator.Validate(definition), issue => issue.Code.StartsWith("parameter.", StringComparison.Ordinal));
+        Assert.Equal(authored, definition.Parameters["greeting"].DefaultValue);
+        Assert.Equal(canonical, WorkflowParameters.Resolve(definition, null)!["greeting"]);
+        Assert.Equal(type, WorkflowParameterGraphTypes.DataType(definition.Parameters["greeting"], true, true));
+    }
+
+    [Theory]
+    [InlineData("array<string>", "[null]")]
+    [InlineData("array<boolean>", "[1]")]
+    [InlineData("array<integer>", "[1.5]")]
+    [InlineData("array<number>", "[1e999]")]
+    [InlineData("array<string>", "[[\"nested\"]]")]
+    [InlineData("array<string>", "not-json")]
+    public void ArrayParameterRejectsInvalidOverridesBeforeResolution(string type, string invalid)
+    {
+        var definition = Definition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("greeting", new WorkflowParameterDefinition("Values", "[]") { Type = type })
+        };
+
+        Assert.Throws<ArgumentException>(() => WorkflowParameters.Resolve(definition,
+            new Dictionary<string, string> { ["greeting"] = invalid }));
+    }
+
+    [Fact]
+    public void ArrayParametersAreCurrentSchemaOnlyAndRespectUtf8ByteAndItemBounds()
+    {
+        var definition = Definition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("greeting", new WorkflowParameterDefinition("Values", "[]") { Type = "array<string>" })
+        };
+        var oldSchema = definition with { SchemaVersion = "1.58" };
+        var oversizedUtf8 = "[\"" + string.Concat(Enumerable.Repeat("🌍", 4_100)) + "\"]";
+        var maximumPayload = "[\"" + new string('x', WorkflowArrayLiteral.MaximumPayloadBytes - 4) + "\"]";
+        var maximumItems = "[" + string.Join(',', Enumerable.Repeat("\"x\"", WorkflowJsonArrayLimits.MaximumItems)) + "]";
+
+        Assert.Contains(WorkflowValidator.Validate(oldSchema), issue => issue.Code == "parameter.definition");
+        Assert.Equal(maximumPayload, WorkflowParameters.Resolve(definition,
+            new Dictionary<string, string> { ["greeting"] = maximumPayload })!["greeting"]);
+        Assert.Equal(maximumItems, WorkflowParameters.Resolve(definition,
+            new Dictionary<string, string> { ["greeting"] = maximumItems })!["greeting"]);
+        Assert.Throws<ArgumentException>(() => WorkflowParameters.Resolve(definition,
+            new Dictionary<string, string> { ["greeting"] = "[" + string.Join(',', Enumerable.Repeat("\"x\"", 65)) + "]" }));
+        Assert.Throws<ArgumentException>(() => WorkflowParameters.Resolve(definition,
+            new Dictionary<string, string> { ["greeting"] = oversizedUtf8 }));
+    }
+
+    [Fact]
+    public void CanonicalArrayParameterTextIsSharedByPromptsAndExactCallTypeCompatibility()
+    {
+        var parameter = new WorkflowParameterDefinition("Values", "[0]") { Type = "array<string>" };
+        var definition = Definition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty.Add("values", parameter)
+        };
+        var resolved = WorkflowParameters.Resolve(definition,
+            new Dictionary<string, string> { ["values"] = "[ \"first\", \"second\" ]" })!;
+        var prompt = PromptRendering.Render(new([new("parameter", "values")]), "", resolved);
+
+        Assert.Equal("[\"first\",\"second\"]", prompt);
+        Assert.True(WorkflowParameters.AreCompatible(parameter, parameter with { DefaultValue = "[]" }));
+        Assert.False(WorkflowParameters.AreCompatible(parameter, parameter with { Type = "array<boolean>" }));
+    }
+
     [Fact]
     public void LegacyDefinitionDoesNotGainOptionalParameterJson()
     {

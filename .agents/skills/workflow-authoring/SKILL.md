@@ -21,6 +21,12 @@ Turn the user's request into a reviewable graph contract. Do not answer with a h
 - Assign tools and skills to the intended Agent node or profile explicitly. A visible tool in a catalog is not permission to invoke it.
 - Do not put credentials, endpoints, grants, approvals, or host policy into portable workflow data.
 - Treat caller input as data. Never silently replace it with a workflow-specific prompt. If guidance is needed, use an input-node description/comment or an explicit template node.
+
+## MCP tool reliability pitfalls
+
+- Install MCP server dependencies locally rather than relying on `npx` to download packages at runtime — npx downloads are slow and frequently timeout, causing "Could not load MCP tools" errors in the workflow designer. Run `npm install <package>` in the MCP server directory and update the startup script to use the local installation.
+- Verify MCP server paths match the installed package layout — check `package.json`'s `bin` field for the correct entry point path (e.g., `build/index.js` vs `dist/index.js`).
+- Test MCP servers via stdin before relying on them in workflows: `echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | timeout 15 <server-command>` should return a tools list quickly.
 - Keep drafts saveable while they are incomplete, but surface every validation issue and do not claim the workflow can run until publish/run validation passes.
 
 ## Verify and report

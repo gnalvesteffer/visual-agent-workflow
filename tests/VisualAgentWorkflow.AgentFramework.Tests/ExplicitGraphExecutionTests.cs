@@ -8,6 +8,45 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 
 public sealed class ExplicitGraphExecutionTests
 {
+    [Fact]
+    public async Task PrimitiveArrayParameterIsCanonicalTypedGraphValueAndRecordedAsTypedEvidence()
+    {
+        const string arrayType = "array<number>";
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "typed-array-parameter", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("value", new(NodeTypes.WorkflowValue, "1.0.0")
+                { ParameterId = "values", OutputDataType = arrayType })
+                .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = arrayType }),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("value-output", new(new("value", "out"), new("output", "in"), "data")))
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("values", new WorkflowParameterDefinition("Values", "[0]") { Type = arrayType }),
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("activate", new(new("input", "then"), new("output", "execute"), "execution"))
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var packageJson = WorkflowPackageJson.Serialize(definition, WorkflowLayout.Create(definition));
+        var packageRoundTrip = WorkflowPackageJson.Deserialize(packageJson).Definition;
+        Assert.Equal(WorkflowJson.ComputeHash(definition), WorkflowJson.ComputeHash(packageRoundTrip));
+        Assert.Equal("[0]", packageRoundTrip.Parameters!["values"].DefaultValue);
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteWithParametersAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "test"), "unused",
+            new Dictionary<string, string> { ["values"] = "[ 1.0, -0, 2e1 ]" },
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("[1,0,20]", result);
+        var valueEvent = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "value");
+        using var evidence = JsonDocument.Parse(valueEvent.Data!);
+        Assert.Equal(arrayType, evidence.RootElement.GetProperty("dataType").GetString());
+        Assert.Equal(JsonValueKind.Array, evidence.RootElement.GetProperty("value").ValueKind);
+        Assert.Equal("data:value-output", valueEvent.ConnectionId);
+    }
+
     [Theory]
     [InlineData("yes", "true", "yes", false)]
     [InlineData("no", "false", null, true)]
@@ -267,6 +306,57 @@ public sealed class ExplicitGraphExecutionTests
         Assert.Equal("hello", evidence.RootElement.GetProperty("function").GetProperty("inputs").GetProperty("text").GetString());
         Assert.Contains(evidence.RootElement.GetProperty("function").GetProperty("evaluatedValues").EnumerateArray(),
             value => value.GetProperty("nodeId").GetString() == "concat" && value.GetProperty("value").GetString() == "hello!");
+    }
+
+    [Fact]
+    public async Task Unified_workflow_calls_embedded_array_function_and_records_typed_evidence()
+    {
+        var function = ArrayIdentityFunction();
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, "array-function-call", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0") { InputDataType = "array<integer>" },
+                ["constant"] = new(NodeTypes.BooleanConstant, "1.0.0") { BooleanConstant = new(true) },
+                ["branch"] = new(NodeTypes.BooleanBranch, "1.0.0"),
+                ["call"] = new(NodeTypes.FunctionCall, "1.0.0")
+                {
+                    GraphFunction = new(function, GraphFunctionJson.ComputeHash(function))
+                },
+                ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = "array<integer>" },
+                ["terminate"] = new(NodeTypes.Terminate, "1.0.0") { Termination = new(WorkflowTerminationOutcomes.Failure) }
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["condition"] = new(new("constant", "out"), new("branch", "condition"), "data"),
+                ["argument"] = new(new("input", "out"), new("call", "items"), "data"),
+                ["result"] = new(new("call", "result"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal))
+        {
+            ExecutionConnections = new Dictionary<string, ConnectionDefinition>
+            {
+                ["activate"] = new(new("input", "then"), new("branch", "execute"), "execution"),
+                ["success"] = new(new("branch", "true"), new("output", "execute"), "execution"),
+                ["failure"] = new(new("branch", "false"), new("terminate", "execute"), "execution")
+            }.ToImmutableSortedDictionary(StringComparer.Ordinal)
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        Assert.Contains(WorkflowValidator.Validate(definition with { SchemaVersion = WorkflowSchemaVersions.PureGraphFunctions }),
+            issue => issue.Code == "function.port.type");
+        var package = WorkflowPackageJson.Create(definition, WorkflowLayout.Create(definition));
+        Assert.Contains(package.Requirements, requirement => requirement.Kind == "graph-function" &&
+            requirement.Id == function.FunctionId && requirement.ContractHash == GraphFunctionJson.ComputeHash(function));
+        var events = new List<ExecutionEvent>();
+
+        var result = await new WorkflowRunner().ExecuteWithOutcomeAsync(Guid.NewGuid(),
+            WorkflowRevision.Create(definition, "typed-array-function"), "[1,2,3]", null,
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal("[1,2,3]", result.Output);
+        using var evidence = JsonDocument.Parse(Assert.Single(events,
+            evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "call").Data!);
+        Assert.Equal("array<integer>", evidence.RootElement.GetProperty("dataType").GetString());
+        Assert.Equal("[1,2,3]", evidence.RootElement.GetProperty("value").GetRawText());
+        Assert.Equal("[1,2,3]", evidence.RootElement.GetProperty("function").GetProperty("inputs").GetProperty("items").GetRawText());
     }
 
     [Fact]
@@ -555,4 +645,16 @@ public sealed class ExplicitGraphExecutionTests
             }.ToImmutableSortedDictionary(StringComparer.Ordinal)
         };
     }
+
+    private static GraphFunctionDefinition ArrayIdentityFunction() => new(
+        "array.identity", 1, "Array identity", "Returns an integer array.",
+        ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("items", new("Items", "array<integer>")),
+        ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("result", new("Result", "array<integer>")),
+        ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input", new(NodeTypes.FunctionInput, "1.0.0") { FunctionPortId = "items", OutputDataType = "array<integer>" })
+            .Add("output", new(NodeTypes.FunctionOutput, "1.0.0") { FunctionPortId = "result", InputDataType = "array<integer>" }),
+        ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("result", new(new("input", "out"), new("output", "in"), "data")));
 }

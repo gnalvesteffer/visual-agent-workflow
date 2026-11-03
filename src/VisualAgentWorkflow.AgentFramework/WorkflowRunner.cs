@@ -662,6 +662,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         private int functionNodeVisits;
         private readonly ConcurrentDictionary<(string NodeId, string PortId), GraphFunctionAudit> functionAudits = new();
         private readonly ConcurrentDictionary<(string NodeId, string PortId), ExplicitGraphValue> runtimeValues = new();
+        private readonly ConcurrentDictionary<string, GraphFunctionEvaluationBudget> functionValueBudgets = new(StringComparer.Ordinal);
 
         public void SetRuntimeOutput(string nodeId, string portId, string dataType, object value) =>
             runtimeValues[(nodeId, portId)] = new(dataType, value);
@@ -763,6 +764,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     throw new GraphDataEvaluationException(nodeId,
                         "Integer addition exceeded the signed 64-bit range.", exception);
                 }
+                catch (GraphFunctionEvaluationException exception)
+                {
+                    throw new GraphDataEvaluationException(exception.NodeId, exception.Message, exception);
+                }
                 if (result.DataType == "string" && ((string)result.Value).Length > 16_384)
                     throw new InvalidOperationException("Pure data output exceeds 16,384 characters.");
                 cache.Add(key, result);
@@ -785,9 +790,12 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             var function = configuration.Definition;
             var inputs = function.Inputs.ToDictionary(pair => pair.Key,
                 pair => ResolveFunctionInput(nodeId, pair.Key, pair.Value.DataType, evaluated, cache, active), StringComparer.Ordinal);
-            var result = GraphFunctionJson.Evaluate(function, inputs, outputPort, () => Interlocked.Increment(ref functionNodeVisits));
+            var budget = functionValueBudgets.GetOrAdd(nodeId, static _ => new GraphFunctionEvaluationBudget());
+            var result = GraphFunctionJson.Evaluate(function, inputs, outputPort,
+                () => Interlocked.Increment(ref functionNodeVisits), budget);
             if (result.DataType != outputType)
                 throw new InvalidOperationException("The graph function returned a value with an incompatible output type.");
+            budget.RecordOutput(result.DataType, result.Value);
             functionAudits[(nodeId, outputPort)] = new(function.FunctionId, function.Version, configuration.ContentHash,
                 outputPort, inputs.ToDictionary(pair => pair.Key, pair => pair.Value.Value, StringComparer.Ordinal), result.Values);
             return new(result.DataType, result.Value);
@@ -825,7 +833,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph && definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph && definition.SchemaVersion != WorkflowSchemaVersions.NumberPropagationGraph && definition.SchemaVersion != WorkflowSchemaVersions.NumberArithmeticGraph)
                 return new("string", value);
             var allowNumber = definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph;
-            var dataType = WorkflowParameterGraphTypes.DataType(parameter, allowNumber);
+            var allowPrimitiveArray = definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph;
+            var dataType = WorkflowParameterGraphTypes.DataType(parameter, allowNumber, allowPrimitiveArray);
             if (dataType is null || node.OutputDataType is { } expectedType && expectedType != dataType)
                 throw new InvalidOperationException("The workflow parameter has an unsupported graph data type.");
             object parsed = dataType switch
@@ -834,6 +843,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 "number" when WorkflowParameters.TryParseFiniteNumber(value, out var number) => number,
                 "boolean" when bool.TryParse(value, out var boolean) => boolean,
                 "string" => value,
+                _ when allowPrimitiveArray && WorkflowDataTypes.TryGetArrayElementType(dataType, out var elementType) &&
+                    WorkflowArrayLiteral.TryParseValue(elementType, value, out var arrayValue, out _) => arrayValue,
                 _ => throw new InvalidOperationException("The workflow parameter value is invalid.")
             };
             return new(dataType, parsed);
@@ -1520,7 +1531,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type is NodeTypes.SequenceUppercase or NodeTypes.SequenceReverse) port = "then";
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type is NodeTypes.VariableGet or NodeTypes.VariableSet or NodeTypes.LoopBody) port = "then";
                 if (UsesConfigurableParallelGraph && node.Type == NodeTypes.ParallelBranch) port = "then";
-                if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph && node.Type is NodeTypes.Merge or NodeTypes.Approval) port = "then";
+                if (revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
+                    node.Type is (NodeTypes.Merge or NodeTypes.Approval)) port = "then";
                 if (node.Type == NodeTypes.BooleanBranch)
                 {
                     var condition = branchEvaluation!.Result;

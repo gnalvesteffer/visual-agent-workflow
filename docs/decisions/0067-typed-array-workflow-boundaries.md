@@ -1,6 +1,6 @@
 # Decision 0067: Typed array workflow boundaries
 
-**Status:** Implemented in schema 2.0  
+**Status:** Implemented in schema 2.0; parameters are implemented separately by [Decision 0068](0068-typed-array-workflow-parameters.md)
 **Date:** 2026-11-02  
 **Scope:** Bounded `array<T>` values at workflow Input and Output nodes
 
@@ -43,7 +43,7 @@ changes. Runtime data-evaluation evidence records the typed parsed input and
 typed output evaluation; playback consumes those events without reparsing or
 reevaluating the graph.
 
-This increment does not add arrays to workflow parameters, graph functions,
+This increment did not add arrays to workflow parameters, graph functions,
 workflow interfaces, variables, direct MCP arguments, Sequence paths, loop or
 parallel state, or checkpoints. Those placements remain separate roadmap
 items with independent validation, package/hash, runtime, evidence, and

@@ -47,6 +47,12 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         {
             "string" => (object)new { type = "string", maxLength = GraphFunctionLimits.MaximumStringLength, description = pair.Value.DisplayName },
             "boolean" => new { type = "boolean", description = pair.Value.DisplayName },
+            "integer" => new { type = "integer", format = "int64", minimum = long.MinValue, maximum = long.MaxValue, description = pair.Value.DisplayName },
+            "number" => new { type = "number", description = pair.Value.DisplayName },
+            "array<string>" => ArraySchema("string", pair.Value.DisplayName),
+            "array<boolean>" => ArraySchema("boolean", pair.Value.DisplayName),
+            "array<integer>" => ArraySchema("integer", pair.Value.DisplayName),
+            "array<number>" => ArraySchema("number", pair.Value.DisplayName),
             _ => throw new InvalidOperationException("The graph function declares an unsupported tool input type.")
         }, StringComparer.Ordinal);
         return JsonDocument.Parse(JsonSerializer.Serialize(new
@@ -56,6 +62,14 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
             required = function.Inputs.Keys,
             additionalProperties = false
         }));
+
+        static object ArraySchema(string elementType, string description) => new
+        {
+            type = "array",
+            items = elementType == "string" ? (object)new { type = elementType, maxLength = GraphFunctionLimits.MaximumStringLength } : new { type = elementType },
+            maxItems = WorkflowJsonArrayLimits.MaximumItems,
+            description = $"{description}; at most {WorkflowJsonArrayLimits.MaximumItems} items and {WorkflowArrayLiteral.MaximumPayloadBytes} UTF-8 bytes of JSON."
+        };
     }
 
     private static object GraphFunctionArgument(AIFunctionArguments arguments, string portId, string dataType)
@@ -63,16 +77,36 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
         if (!arguments.TryGetValue(portId, out var value))
             throw new InvalidOperationException($"Graph function input '{portId}' is required.");
         if (value is JsonElement jsonValue)
-            value = dataType == "string" && jsonValue.ValueKind == JsonValueKind.String ? jsonValue.GetString() :
-                dataType == "boolean" && jsonValue.ValueKind is JsonValueKind.True or JsonValueKind.False ? jsonValue.GetBoolean() : value;
+        {
+            if (dataType == "string" && jsonValue.ValueKind == JsonValueKind.String) value = jsonValue.GetString();
+            else if (dataType == "boolean" && jsonValue.ValueKind is JsonValueKind.True or JsonValueKind.False) value = jsonValue.GetBoolean();
+            else if (dataType == "integer" && jsonValue.ValueKind == JsonValueKind.Number && jsonValue.TryGetInt64(out var integer)) value = integer;
+            else if (dataType == "number" && jsonValue.ValueKind == JsonValueKind.Number && jsonValue.TryGetDouble(out var number) && double.IsFinite(number)) value = number;
+            else if (WorkflowDataTypes.TryGetArrayElementType(dataType, out var elementType) && elementType != WorkflowDataTypes.Json &&
+                     jsonValue.ValueKind == JsonValueKind.Array &&
+                     WorkflowArrayLiteral.TryNormalizeValue(elementType, jsonValue.GetRawText(), out var normalized, out _))
+                value = ParseArray(normalized);
+        }
         return dataType switch
         {
             "string" when value is string text && text.Length <= GraphFunctionLimits.MaximumStringLength => text,
             "boolean" when value is bool boolean => boolean,
+            "integer" when value is long => value,
+            "number" when value is double finite && double.IsFinite(finite) => finite,
+            "array<string>" or "array<boolean>" or "array<integer>" or "array<number>" when value is JsonElement { ValueKind: JsonValueKind.Array } => value,
             "string" => throw new InvalidOperationException($"Graph function input '{portId}' must be a string of at most {GraphFunctionLimits.MaximumStringLength} characters."),
             "boolean" => throw new InvalidOperationException($"Graph function input '{portId}' must be a Boolean."),
+            "integer" => throw new InvalidOperationException($"Graph function input '{portId}' must be a signed 64-bit integer."),
+            "number" => throw new InvalidOperationException($"Graph function input '{portId}' must be a finite number."),
+            "array<string>" or "array<boolean>" or "array<integer>" or "array<number>" => throw new InvalidOperationException($"Graph function input '{portId}' must be a valid bounded {dataType} value."),
             _ => throw new InvalidOperationException("The graph function declares an unsupported tool input type.")
         };
+
+        static JsonElement ParseArray(string json)
+        {
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.Clone();
+        }
     }
 
     private static JsonDocument StructuredResultSchema() => JsonDocument.Parse("""
@@ -262,6 +296,7 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                                 pair => new GraphFunctionEvaluation(graphFunction.Inputs[pair.Key].DataType, pair.Value, []), StringComparer.Ordinal);
                             var outputs = new SortedDictionary<string, object>(StringComparer.Ordinal);
                             var evaluated = new List<GraphFunctionValueEvidence>();
+                            var valueBudget = new GraphFunctionEvaluationBudget();
                             foreach (var (outputId, _) in graphFunction.Outputs)
                             {
                                 var result = GraphFunctionJson.Evaluate(graphFunction, functionInputs, outputId, () =>
@@ -270,8 +305,9 @@ public sealed class AgentNodeExecutor(IEnumerable<AgentProviderRegistration> pro
                                     if (visit > AgentGraphFunctionToolLimits.MaximumEvaluatedNodesPerInvocation)
                                         throw new InvalidOperationException($"The agent reached its {AgentGraphFunctionToolLimits.MaximumEvaluatedNodesPerInvocation}-node graph-function evaluation limit.");
                                     return visit;
-                                });
+                                }, valueBudget);
                                 outputs.Add(outputId, result.Value);
+                                valueBudget.RecordOutput(result.DataType, result.Value);
                                 evaluated.AddRange(result.Values);
                             }
                             var resultJson = JsonSerializer.Serialize(new { outputs });

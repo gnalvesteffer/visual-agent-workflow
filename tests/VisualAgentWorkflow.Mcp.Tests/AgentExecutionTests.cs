@@ -1343,6 +1343,53 @@ public class AgentExecutionTests
     }
 
     [Fact]
+    public async Task Unified_agent_graph_function_tool_exposes_and_validates_typed_array_arguments()
+    {
+        var registration = DeterministicDemoChatClient.Registration();
+        var function = ArrayIdentityFunction();
+        var snapshot = new GraphFunctionConfiguration(function, GraphFunctionJson.ComputeHash(function));
+        var definition = AgentGraphFunctionWorkflow(registration.Descriptor.ProviderId, snapshot,
+            WorkflowSchemaVersions.UnifiedWorkflowGraph);
+        var events = new List<ExecutionEvent>();
+        var calls = 0;
+        var withArrayCall = registration with
+        {
+            Create = () => new CallbackClient((_, options, _) =>
+            {
+                calls++;
+                if (calls == 1)
+                {
+                    return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                        [new FunctionCallContent("array-call", "graph_function_0",
+                            new Dictionary<string, object?> { ["items"] = ParseArray("[1,2,3]") })]))
+                    { FinishReason = ChatFinishReason.ToolCalls });
+                }
+                return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "Done"))
+                { FinishReason = ChatFinishReason.Stop });
+            })
+        };
+        var broker = BrokerTests.CreateBroker([], new ExplicitToolAuthorizationPolicy([]));
+
+        await new WorkflowRunner(broker, new AgentNodeExecutor([withArrayCall], broker))
+            .ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(definition, "array-tool"), "Return a summary.", evt =>
+            {
+                events.Add(evt);
+                return ValueTask.CompletedTask;
+            });
+
+        using var completion = JsonDocument.Parse(Assert.Single(events,
+            evt => evt.Kind == ExecutionEventKinds.AgentGraphFunctionCompleted).Data!);
+        using var requested = JsonDocument.Parse(events.First(
+            evt => evt.Kind == ExecutionEventKinds.ModelRequested).Data!);
+        var schema = requested.RootElement.GetProperty("toolDeclarations")[0].GetProperty("inputSchema").GetRawText();
+        Assert.Contains("array", schema);
+        Assert.Contains("maxItems", schema);
+        Assert.Equal("[1,2,3]", completion.RootElement.GetProperty("outputs").GetProperty("result").GetRawText());
+        Assert.Equal("[1,2,3]", completion.RootElement.GetProperty("inputs").GetProperty("items").GetRawText());
+        Assert.Equal(snapshot.ContentHash, completion.RootElement.GetProperty("contentHash").GetString());
+    }
+
+    [Fact]
     public async Task AgentDoesNotDiscoverFunctionsThatAreNotPinnedToItsConfiguration()
     {
         var registration = DeterministicDemoChatClient.Registration();
@@ -1470,13 +1517,13 @@ public class AgentExecutionTests
     }
 
     private static WorkflowDefinition AgentGraphFunctionWorkflow(string providerId,
-        GraphFunctionConfiguration? functionTool)
+        GraphFunctionConfiguration? functionTool, string schemaVersion = WorkflowSchemaVersions.AgentGraphFunctionTools)
     {
         var agent = new AgentConfiguration(providerId, null, "Use the assigned graph function, then return a short confirmation.", [])
         {
             GraphFunctionTools = functionTool is null ? null : [functionTool]
         };
-        return new WorkflowDefinition(WorkflowSchemaVersions.AgentGraphFunctionTools, "agent-graph-function", "input",
+        return new WorkflowDefinition(schemaVersion, "agent-graph-function", "input",
             new Dictionary<string, NodeDefinition>
             {
                 ["input"] = new(NodeTypes.Input, "1.0.0"),
@@ -1519,6 +1566,24 @@ public class AgentExecutionTests
             ["suffix"] = new(new("suffix", "out"), new("concat", "right"), "data"),
             ["result"] = new(new("concat", "out"), new("output", "in"), "data")
         }.ToImmutableSortedDictionary(StringComparer.Ordinal));
+
+    private static GraphFunctionDefinition ArrayIdentityFunction() => new(
+        "array.identity", 1, "Array identity", "Returns a typed integer array.",
+        ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("items", new("Items", "array<integer>")),
+        ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("result", new("Result", "array<integer>")),
+        ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input", new(NodeTypes.FunctionInput, "1.0.0") { FunctionPortId = "items", OutputDataType = "array<integer>" })
+            .Add("output", new(NodeTypes.FunctionOutput, "1.0.0") { FunctionPortId = "result", InputDataType = "array<integer>" }),
+        ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("result", new(new("input", "out"), new("output", "in"), "data")));
+
+    private static JsonElement ParseArray(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
+    }
 
     private sealed class CallbackClient(Func<IEnumerable<ChatMessage>, ChatOptions?, CancellationToken, Task<ChatResponse>> callback) : IChatClient
     {

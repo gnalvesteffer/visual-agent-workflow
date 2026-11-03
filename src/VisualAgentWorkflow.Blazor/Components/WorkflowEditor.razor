@@ -572,7 +572,7 @@
                     }
                     else if (node.Type == NodeTypes.WorkflowValue)
                     {
-                        var parameterChoices = ParameterDefinitions.Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) || WorkflowParameterGraphTypes.DataType(pair.Value, Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) is not null).ToDictionary(pair => pair.Key, pair => pair.Value);
+                        var parameterChoices = ParameterDefinitions.Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) || WorkflowParameterGraphTypes.DataType(pair.Value, Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph, Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) is not null).ToDictionary(pair => pair.Key, pair => pair.Value);
                         @if (!ReadOnly && parameterChoices.Count > 0)
                         {
                             <label>Workflow parameter
@@ -582,7 +582,7 @@
                             </label>
                         }
                         else if (node.ParameterId is { } parameterId && parameterChoices.TryGetValue(parameterId, out var parameter))
-                        { <p>@parameter.DisplayName · @parameterId · @(WorkflowParameterGraphTypes.DataType(parameter, Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) ?? "string")</p><p class="vaw-help">Passes the declared parameter value and type onward, replacing the incoming value.</p> }
+                        { <p>@parameter.DisplayName · @parameterId · @(WorkflowParameterGraphTypes.DataType(parameter, Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph, Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) ?? "string")</p><p class="vaw-help">Passes the declared parameter value and type onward, replacing the incoming value.</p> }
                     }
                     else if (node.Type is NodeTypes.VariableGet or NodeTypes.VariableSet)
                     {
@@ -1484,10 +1484,10 @@
         if (value == NodeTypes.WorkflowValue)
         {
             var parameterId = ParameterDefinitions
-                .Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) || WorkflowParameterGraphTypes.DataType(pair.Value, Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) is not null)
+                .Where(pair => Definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) || WorkflowParameterGraphTypes.DataType(pair.Value, Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph, Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph) is not null)
                 .Select(pair => pair.Key).FirstOrDefault();
             var outputType = (Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph) && parameterId is not null
-                ? WorkflowParameterGraphTypes.DataType(ParameterDefinitions[parameterId], Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph)
+                ? WorkflowParameterGraphTypes.DataType(ParameterDefinitions[parameterId], Definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph, Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
                 : null;
             return new(NodeTypes.WorkflowValue, "1.0.0") { ParameterId = parameterId, OutputDataType = outputType };
         }
@@ -1752,7 +1752,8 @@
     {
         if (!WorkflowSchemaVersions.UsesExplicitGraph(Definition) || Definition.SchemaVersion is not (WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.PureGraphFunctions or WorkflowSchemaVersions.AgentGraphFunctionTools or WorkflowSchemaVersions.AgentParameterBindings or WorkflowSchemaVersions.AgentExecutionRoutes))
             throw new ArgumentException("Function tools require an explicit workflow graph.");
-        if (GraphFunctionJson.ComputeHash(function.Definition) != function.ContentHash || !GraphFunctionJson.Validate(function.Definition, allowNumberAdd: IsUnifiedGraph).IsEmpty)
+        if (GraphFunctionJson.ComputeHash(function.Definition) != function.ContentHash ||
+            !GraphFunctionJson.Validate(function.Definition, allowNumber: true, allowNumberAdd: IsUnifiedGraph, allowPrimitiveArrays: IsUnifiedGraph).IsEmpty)
             throw new ArgumentException("The selected function revision is invalid or its content hash changed.");
         var node = Definition.Nodes[id];
         var agent = node.Agent ?? throw new ArgumentException("Select an agent node first.");

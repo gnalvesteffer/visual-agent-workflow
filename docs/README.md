@@ -16,7 +16,7 @@ Start with the [user guide](user-guide.md) to create, organize, publish, run, an
 | [Blueprint contract inventory](blueprint-contract-inventory.md) | Stable identity, portability, host authority, evidence, and compatibility boundaries for Blueprint-inspired constructs |
 | [Exact-action approvals](approvals.md) | Exact MCP action review, nested call-path binding, attribution, controls and process ownership |
 | [Conditional graphs](conditional-graphs.md) | Schema 1.4 predicates, typed string ports, exclusive merges, authoring and actual-path evidence |
-| [Parallel graphs](parallel-graphs.md) | Schema 1.14–1.35 parallel regions, JSON joins, collaboration, branch-local routing, concurrency and failure limits |
+| [Parallel graphs](parallel-graphs.md) | Historical schema 1.14–1.35 and current schema 2.0 parallel regions, JSON joins, collaboration, branch-local routing, concurrency and failure limits |
 | [Parallel agent collaboration](parallel-agent-collaboration.md) | Schema-1.33 contract for one branch-scoped rendezvous, snapshots, execution, audit, playback, and authoring |
 | [Two-phase parallel Agent collaboration](parallel-agent-collaboration-phases.md) | Schema-1.35 data layout, ordered barriers, phase/role grants, bounds, and compatibility contract |
 | [Branch-local parallel routing](parallel-branch-routing.md) | Schema 1.34 Boolean routes inside static 1.32 fork branches, validation, evidence, and explicit 1.33 collaboration deferral |
@@ -74,6 +74,10 @@ Documentation changes follow [documentation-maintenance](../.agents/skills/docum
 - [Workflow interface asset storage](decisions/0064-workflow-interface-asset-storage.md) — defines project ownership, immutable revisions, manifest format 1.3, and the authoring/runtime authority boundary; Studio editors and call binding remain future work.
 - [Unified typed array values](decisions/0066-unified-typed-array-values.md) — defines bounded immutable homogeneous primitive arrays in schema 2.0 pure dataflow.
 - [Typed array workflow boundaries](decisions/0067-typed-array-workflow-boundaries.md) — extends those exact array types through workflow Input and Output using JSON text on the existing run API.
+- [Typed array workflow parameters](decisions/0068-typed-array-workflow-parameters.md) — adds bounded JSON-text defaults and overrides with exact typed getter pins in schema 2.0.
+- [Typed arrays in pure graph functions](decisions/0069-typed-arrays-in-pure-graph-functions.md) — adds exact primitive-array ports, pure array operators, and bounded call evidence in schema 2.0.
+- [Bounded array iteration contract](decisions/0070-bounded-array-iteration-contract.md) — records the design-review findings and prerequisites before a sequential iterator can be implemented safely.
+- [Direct MCP calls in current parallel branches](decisions/0071-direct-mcp-parallel-branches.md) — permits direct MCP nodes in unified-schema static branches, with host grants and all-or-nothing joins; historical schemas and branch-local approval remain unchanged or unsupported.
 - [Authoring-only graph clipboard](decisions/0038-authoring-only-graph-clipboard.md) — bounds the first pure-data clipboard fragment contract separately from templates and runtime packages.
 - [Static pin descriptor registry hardening](decisions/0024-static-pin-descriptor-registry-hardening.md) — validates the bounded non-serialized static pin descriptor subset and its drift boundary.
 - [Advisory host-admission report](decisions/0025-advisory-host-admission-report.md) — compares validated package dependencies with a host snapshot without granting authority or bypassing runtime checks.

@@ -93,7 +93,7 @@ public sealed class StudioGraphFunctionLibrary : IGraphFunctionAuthoringCatalog
     private static bool IsIntact(StudioGraphFunctionAsset asset)
     {
         if (asset.FormatVersion != StudioGraphFunctionAsset.CurrentFormatVersion || asset.Item?.Function is not { } configuration || asset.Layout is null ||
-            !GraphFunctionJson.Validate(configuration.Definition, allowNumber: true, allowNumberAdd: true).IsEmpty ||
+            !GraphFunctionJson.Validate(configuration.Definition, allowNumber: true, allowNumberAdd: true, allowPrimitiveArrays: true).IsEmpty ||
             configuration.ContentHash != GraphFunctionJson.ComputeHash(configuration.Definition)) return false;
         try
         {
@@ -142,7 +142,7 @@ public sealed class StudioGraphFunctionLibrary : IGraphFunctionAuthoringCatalog
     internal static void Validate(GraphFunctionDefinition function, string folder)
     {
         ArgumentNullException.ThrowIfNull(function);
-        var issues = GraphFunctionJson.Validate(function, allowNumber: true, allowNumberAdd: true);
+        var issues = GraphFunctionJson.Validate(function, allowNumber: true, allowNumberAdd: true, allowPrimitiveArrays: true);
         if (!issues.IsEmpty) throw new ArgumentException(string.Join(" ", issues.Select(issue => issue.Message)));
         ValidateFolder(folder);
     }

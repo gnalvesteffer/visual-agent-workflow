@@ -36,6 +36,38 @@ public interface IGraphFunctionAuthoringCatalog : IGraphFunctionCatalog
 public sealed record GraphFunctionEvaluation(string DataType, object Value, ImmutableArray<GraphFunctionValueEvidence> Values);
 public sealed record GraphFunctionValueEvidence(string NodeId, string PortId, string DataType, object Value);
 
+/// <summary>Bounds array values retained across one logical graph-function invocation.</summary>
+public sealed class GraphFunctionEvaluationBudget
+{
+    public const int MaximumAggregateArrayBytes = 65_536;
+    private long retainedArrayBytes;
+
+    /// <summary>Number of canonical array bytes retained so far.</summary>
+    public long RetainedArrayBytes => Interlocked.Read(ref retainedArrayBytes);
+
+    /// <summary>Charges an array result retained outside the evaluator, such as an output or tool event.</summary>
+    public void RecordOutput(string dataType, object value) => Record(dataType, value);
+
+    internal void Record(string dataType, object value)
+    {
+        if (!WorkflowDataTypes.TryGetArrayElementType(dataType, out var elementType) || elementType == WorkflowDataTypes.Json)
+            return;
+
+        if (value is not JsonElement json || json.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException($"Graph function array value must be a valid {dataType} value.");
+        if (!WorkflowArrayLiteral.TryNormalizeValue(elementType, json.GetRawText(), out var normalized, out var error))
+            throw new InvalidOperationException($"Graph function array value must be a valid {dataType} value: {error}");
+
+        var byteCount = Encoding.UTF8.GetByteCount(normalized);
+        var total = Interlocked.Add(ref retainedArrayBytes, byteCount);
+        if (total > MaximumAggregateArrayBytes)
+        {
+            Interlocked.Add(ref retainedArrayBytes, -byteCount);
+            throw new InvalidOperationException($"Graph function array values and evidence exceed the {MaximumAggregateArrayBytes}-byte aggregate limit.");
+        }
+    }
+}
+
 public static class GraphFunctionLimits
 {
     public const int MaximumNodes = 64;
@@ -82,6 +114,10 @@ public static class GraphFunctionJson
     }
 
     public static ImmutableArray<ValidationIssue> Validate(GraphFunctionDefinition? function, bool allowNumber = true, bool allowNumberAdd = false)
+        => Validate(function, allowNumber, allowNumberAdd, allowPrimitiveArrays: false);
+
+    public static ImmutableArray<ValidationIssue> Validate(GraphFunctionDefinition? function, bool allowNumber,
+        bool allowNumberAdd, bool allowPrimitiveArrays)
     {
         var issues = ImmutableArray.CreateBuilder<ValidationIssue>();
         void Error(string code, string path, string message) => issues.Add(new(code, path, message));
@@ -112,8 +148,8 @@ public static class GraphFunctionJson
         if (function.Nodes.Count is < 1 or > GraphFunctionLimits.MaximumNodes || function.Connections.Count > GraphFunctionLimits.MaximumConnections)
             Error("function.limit", "graphFunction.definition.nodes", "Function bodies allow 1–64 nodes and at most 128 data connections.");
 
-        ValidatePorts(function.Inputs, "inputs", Error, allowNumber);
-        ValidatePorts(function.Outputs, "outputs", Error, allowNumber);
+        ValidatePorts(function.Inputs, "inputs", Error, allowNumber, allowPrimitiveArrays);
+        ValidatePorts(function.Outputs, "outputs", Error, allowNumber, allowPrimitiveArrays);
         foreach (var (id, node) in function.Nodes)
         {
             if (node is null)
@@ -125,9 +161,10 @@ public static class GraphFunctionJson
             var supportedNode = currentNode.Type is (NodeTypes.FunctionInput or NodeTypes.FunctionOutput or NodeTypes.StringConstant or
                 NodeTypes.TextConcat or NodeTypes.StringEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot or NodeTypes.IntegerConstant or NodeTypes.IntegerAdd or NodeTypes.IntegerEquals);
             supportedNode |= allowNumber && (currentNode.Type == NodeTypes.NumberConstant || allowNumberAdd && currentNode.Type == NodeTypes.NumberAdd);
+            supportedNode |= allowPrimitiveArrays && currentNode.Type is (NodeTypes.ArrayLiteral or NodeTypes.ArrayLength or NodeTypes.ArrayGet);
             if (!supportedNode)
             {
-                Error("function.node.unsupported", $"graphFunction.definition.nodes.{id}", "Function bodies support only function boundaries and deterministic string, Boolean, integer, and finite number value nodes.");
+                Error("function.node.unsupported", $"graphFunction.definition.nodes.{id}", "Function bodies support only function boundaries and deterministic string, Boolean, integer, finite number, and enabled bounded-array value nodes.");
                 continue;
             }
 
@@ -157,6 +194,18 @@ public static class GraphFunctionJson
                 Error("function.constant", $"graphFunction.definition.nodes.{id}.integerConstant", "Integer constants must have an explicit signed 64-bit value.");
             if (currentNode.Type == NodeTypes.NumberConstant && (currentNode.NumberConstant is not { Value: var number } || !double.IsFinite(number)))
                 Error("function.constant", $"graphFunction.definition.nodes.{id}.numberConstant", "Number constants must have an explicit finite IEEE-754 double value.");
+            if (currentNode.Type == NodeTypes.ArrayLiteral)
+            {
+                if (!allowPrimitiveArrays)
+                    Error("function.array.literal", $"graphFunction.definition.nodes.{id}.arrayLiteral", "Typed array nodes require the unified schema 2.0 graph.");
+                else if (currentNode.ArrayLiteral is not { } arrayLiteral ||
+                         !WorkflowDataTypes.IsPrimitiveArrayType(WorkflowDataTypes.ArrayOf(arrayLiteral.ElementType)) ||
+                         !WorkflowArrayLiteral.TryParse(arrayLiteral, out _, out var arrayError))
+                    Error("function.array.literal", $"graphFunction.definition.nodes.{id}.arrayLiteral", "Array literals require a supported bounded primitive element type and valid values.");
+            }
+            if (currentNode.Type is NodeTypes.ArrayLength or NodeTypes.ArrayGet &&
+                (!allowPrimitiveArrays || !WorkflowDataTypes.IsPrimitiveArrayType(WorkflowDataTypes.ArrayOf(currentNode.ArrayElementType ?? ""))))
+                Error("function.array.type", $"graphFunction.definition.nodes.{id}.arrayElementType", "Function array operations require a supported primitive array element type in schema 2.0.");
         }
 
         foreach (var (id, port) in function.Inputs)
@@ -211,12 +260,35 @@ public static class GraphFunctionJson
     public static GraphFunctionEvaluation Evaluate(GraphFunctionDefinition function,
         IReadOnlyDictionary<string, GraphFunctionEvaluation> inputs, string outputId,
         Func<int> recordNodeVisit)
+        => Evaluate(function, inputs, outputId, recordNodeVisit, new GraphFunctionEvaluationBudget());
+
+    public static GraphFunctionEvaluation Evaluate(GraphFunctionDefinition function,
+        IReadOnlyDictionary<string, GraphFunctionEvaluation> inputs, string outputId,
+        Func<int> recordNodeVisit, GraphFunctionEvaluationBudget budget)
     {
         ArgumentNullException.ThrowIfNull(function);
         ArgumentNullException.ThrowIfNull(inputs);
         ArgumentNullException.ThrowIfNull(recordNodeVisit);
+        ArgumentNullException.ThrowIfNull(budget);
         if (!function.Outputs.TryGetValue(outputId, out var outputContract))
             throw new InvalidOperationException("The requested function output is not declared.");
+
+        var normalizedInputs = new Dictionary<string, GraphFunctionEvaluation>(StringComparer.Ordinal);
+        foreach (var (inputId, inputContract) in function.Inputs)
+        {
+            if (!inputs.TryGetValue(inputId, out var input) || input.DataType != inputContract.DataType)
+                throw new InvalidOperationException($"Graph function input '{inputId}' requires a value of type {inputContract.DataType}.");
+            if (WorkflowDataTypes.TryGetArrayElementType(inputContract.DataType, out var elementType) && elementType != WorkflowDataTypes.Json)
+            {
+                budget.Record(input.DataType, input.Value);
+                if (input.Value is not JsonElement json || !TryNormalizeArray(elementType, json.GetRawText(), out var normalized))
+                    throw new InvalidOperationException($"Graph function input '{inputId}' is not a valid {inputContract.DataType} value.");
+                input = input with { Value = normalized };
+            }
+            normalizedInputs.Add(inputId, input);
+        }
+        if (inputs.Keys.Any(key => !function.Inputs.ContainsKey(key)))
+            throw new InvalidOperationException("The graph function received an undeclared input.");
 
         var cache = new Dictionary<(string NodeId, string PortId), GraphFunctionEvaluation>();
         var active = new HashSet<(string NodeId, string PortId)>();
@@ -233,6 +305,7 @@ public static class GraphFunctionJson
             var key = (nodeId, portId);
             if (cache.TryGetValue(key, out var cached))
             {
+                if (cached.DataType.StartsWith("array<", StringComparison.Ordinal)) budget.Record(cached.DataType, cached.Value);
                 values.Add(new(nodeId, portId, cached.DataType, cached.Value));
                 return cached;
             }
@@ -246,7 +319,7 @@ public static class GraphFunctionJson
                     throw new InvalidOperationException("The run exceeded its 1,024 graph-function node visit limit.");
                 var result = node.Type switch
                 {
-                    NodeTypes.FunctionInput when portId == "out" && node.FunctionPortId is { } inputId && inputs.TryGetValue(inputId, out var inputValue) => inputValue,
+                    NodeTypes.FunctionInput when portId == "out" && node.FunctionPortId is { } inputId && normalizedInputs.TryGetValue(inputId, out var inputValue) => inputValue,
                     NodeTypes.StringConstant when portId == "out" => new GraphFunctionEvaluation("string", node.StringConstant!.Value, []),
                     NodeTypes.TextConcat when portId == "out" => new GraphFunctionEvaluation("string", Concatenate(nodeId), []),
                     NodeTypes.StringEquals when portId == "out" => new GraphFunctionEvaluation("boolean",
@@ -258,12 +331,17 @@ public static class GraphFunctionJson
                     NodeTypes.IntegerEquals when portId == "out" => new GraphFunctionEvaluation("boolean", IntegersEqual(nodeId), []),
                     NodeTypes.BooleanConstant when portId == "out" => new GraphFunctionEvaluation("boolean", node.BooleanConstant!.Value, []),
                     NodeTypes.BooleanNot when portId == "out" => new GraphFunctionEvaluation("boolean", !(ResolveInput(nodeId, "value", "boolean").Value as bool? ?? throw new InvalidOperationException("Boolean NOT requires a Boolean input.")), []),
+                    NodeTypes.ArrayLiteral when portId == "out" => EvaluateArrayLiteral(node),
+                    NodeTypes.ArrayLength when portId == "out" => new GraphFunctionEvaluation("integer",
+                        (long)ResolveArrayInput(nodeId, "in", node.ArrayElementType!).GetArrayLength(), []),
+                    NodeTypes.ArrayGet when portId == "item" => EvaluateArrayGet(nodeId, node.ArrayElementType!),
                     _ => throw new InvalidOperationException("The function data source is not a supported pure value node.")
                 };
                 if (result.DataType == "string" && result.Value is string text && text.Length > GraphFunctionLimits.MaximumStringLength)
                     throw new InvalidOperationException("Function string output exceeds 16,384 characters.");
                 if (result.DataType == "number" && (result.Value is not double finiteNumber || !double.IsFinite(finiteNumber)))
                     throw new InvalidOperationException("Function number values must be finite IEEE-754 doubles.");
+                if (result.DataType.StartsWith("array<", StringComparison.Ordinal)) budget.Record(result.DataType, result.Value);
                 cache.Add(key, result);
                 values.Add(new(nodeId, portId, result.DataType, result.Value));
                 return result;
@@ -280,6 +358,45 @@ public static class GraphFunctionJson
             var value = Resolve(inputEdge.Value.Source.NodeId, inputEdge.Value.Source.PortId);
             if (value.DataType != requiredType) throw new InvalidOperationException($"The function input requires a {requiredType} value.");
             return value;
+        }
+
+        JsonElement ResolveArrayInput(string nodeId, string portId, string elementType)
+        {
+            var value = ResolveInput(nodeId, portId, WorkflowDataTypes.ArrayOf(elementType));
+            if (value.Value is not JsonElement json || json.ValueKind != JsonValueKind.Array)
+                throw new InvalidOperationException($"Function array input '{portId}' must be a bounded {elementType} array.");
+            return json;
+        }
+
+        GraphFunctionEvaluation EvaluateArrayLiteral(NodeDefinition node)
+        {
+            var configuration = node.ArrayLiteral ?? throw new InvalidOperationException("Function array literal configuration is missing.");
+            if (!WorkflowArrayLiteral.TryParse(configuration, out var values, out var error))
+                throw new InvalidOperationException(error);
+            if (!TryNormalizeArray(configuration.ElementType, values.GetRawText(), out var normalized))
+                throw new InvalidOperationException("Function array literal could not be normalized.");
+            return new(WorkflowDataTypes.ArrayOf(configuration.ElementType), normalized, []);
+        }
+
+        GraphFunctionEvaluation EvaluateArrayGet(string nodeId, string elementType)
+        {
+            var array = ResolveArrayInput(nodeId, "array", elementType);
+            var index = ResolveInput(nodeId, "index", WorkflowDataTypes.Integer).Value;
+            if (index is not long arrayIndex)
+                throw new InvalidOperationException("Array Get requires a signed 64-bit integer index.");
+            if (arrayIndex < 0 || arrayIndex >= array.GetArrayLength())
+                throw new GraphFunctionEvaluationException(nodeId,
+                    $"Array index {arrayIndex} is outside an array containing {array.GetArrayLength()} items.");
+            var item = array[(int)arrayIndex];
+            object value = elementType switch
+            {
+                WorkflowDataTypes.String => item.GetString()!,
+                WorkflowDataTypes.Boolean => item.GetBoolean(),
+                WorkflowDataTypes.Integer => item.GetInt64(),
+                WorkflowDataTypes.Number => item.GetDouble(),
+                _ => throw new InvalidOperationException("Array Get requires a supported primitive element type.")
+            };
+            return new(elementType, value, []);
         }
 
         string Concatenate(string nodeId)
@@ -323,7 +440,7 @@ public static class GraphFunctionJson
     }
 
     private static void ValidatePorts(ImmutableSortedDictionary<string, GraphFunctionPort> ports, string kind,
-        Action<string, string, string> error, bool allowNumber)
+        Action<string, string, string> error, bool allowNumber, bool allowPrimitiveArrays)
     {
         foreach (var (id, port) in ports)
         {
@@ -332,8 +449,9 @@ public static class GraphFunctionJson
                 error("function.port.id", $"graphFunction.definition.{kind}.{id}", "Function port IDs must use letters, digits, '_' or '-' and fit within 128 characters.");
             if (port is null || string.IsNullOrWhiteSpace(port.DisplayName) || port.DisplayName.Length > GraphFunctionLimits.MaximumDisplayNameLength)
                 error("function.port.name", $"graphFunction.definition.{kind}.{id}.displayName", "Function port names must contain 1–160 characters.");
-            if (port is not null && (port.DataType is not ("string" or "boolean" or "integer") && !(allowNumber && port.DataType == "number")))
-                error("function.port.type", $"graphFunction.definition.{kind}.{id}.dataType", "This version supports only string, Boolean, signed 64-bit integer, and finite number function ports.");
+            var primitiveArray = port is not null && WorkflowDataTypes.IsPrimitiveArrayType(port.DataType);
+            if (port is not null && (port.DataType is not ("string" or "boolean" or "integer") && !(allowNumber && port.DataType == "number") && !(allowPrimitiveArrays && primitiveArray)))
+                error("function.port.type", $"graphFunction.definition.{kind}.{id}.dataType", "This function contract supports string, Boolean, signed 64-bit integer, finite number, and—when enabled—bounded primitive-array ports.");
         }
     }
 
@@ -353,6 +471,9 @@ public static class GraphFunctionJson
         NodeTypes.TextConcat or NodeTypes.StringEquals => [new("left", "string"), new("right", "string")],
         NodeTypes.IntegerAdd or NodeTypes.IntegerEquals => [new("left", "integer"), new("right", "integer")],
         NodeTypes.NumberAdd => [new("left", "number"), new("right", "number")],
+        NodeTypes.ArrayLength => [new("in", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.Json))],
+        NodeTypes.ArrayGet => [new("array", WorkflowDataTypes.ArrayOf(node.ArrayElementType ?? WorkflowDataTypes.Json)), new("index", WorkflowDataTypes.Integer)],
+        NodeTypes.ArrayLiteral => [],
         NodeTypes.NumberConstant => [],
         NodeTypes.BooleanNot => [new("value", "boolean")],
         _ => []
@@ -364,6 +485,9 @@ public static class GraphFunctionJson
         NodeTypes.StringConstant or NodeTypes.TextConcat => [new("out", "string")],
         NodeTypes.IntegerConstant or NodeTypes.IntegerAdd => [new("out", "integer")],
         NodeTypes.NumberConstant or NodeTypes.NumberAdd => [new("out", "number")],
+        NodeTypes.ArrayLiteral when node.ArrayLiteral is { } literal => [new("out", WorkflowDataTypes.ArrayOf(literal.ElementType))],
+        NodeTypes.ArrayLength => [new("out", WorkflowDataTypes.Integer)],
+        NodeTypes.ArrayGet => [new("item", node.ArrayElementType ?? WorkflowDataTypes.Json)],
         NodeTypes.StringEquals or NodeTypes.IntegerEquals or NodeTypes.BooleanConstant or NodeTypes.BooleanNot => [new("out", "boolean")],
         _ => []
     };
@@ -377,12 +501,14 @@ public static class GraphFunctionJson
             node.GraphFunction is not null;
         return hasCommonConfiguration || node.Type switch
         {
-            NodeTypes.FunctionInput => node.StringConstant is not null || node.BooleanConstant is not null || node.IntegerConstant is not null || node.NumberConstant is not null || node.InputDataType is not null,
-            NodeTypes.FunctionOutput => node.StringConstant is not null || node.BooleanConstant is not null || node.IntegerConstant is not null || node.NumberConstant is not null || node.OutputDataType is not null,
+            NodeTypes.FunctionInput => node.StringConstant is not null || node.BooleanConstant is not null || node.IntegerConstant is not null || node.NumberConstant is not null || node.InputDataType is not null || node.ArrayLiteral is not null || node.ArrayElementType is not null,
+            NodeTypes.FunctionOutput => node.StringConstant is not null || node.BooleanConstant is not null || node.IntegerConstant is not null || node.NumberConstant is not null || node.OutputDataType is not null || node.ArrayLiteral is not null || node.ArrayElementType is not null,
             NodeTypes.StringConstant => node.FunctionPortId is not null || node.BooleanConstant is not null || node.IntegerConstant is not null || node.NumberConstant is not null || node.InputDataType is not null || node.OutputDataType is not null,
             NodeTypes.BooleanConstant => node.FunctionPortId is not null || node.StringConstant is not null || node.IntegerConstant is not null || node.NumberConstant is not null || node.InputDataType is not null || node.OutputDataType is not null,
             NodeTypes.IntegerConstant => node.FunctionPortId is not null || node.StringConstant is not null || node.BooleanConstant is not null || node.NumberConstant is not null || node.InputDataType is not null || node.OutputDataType is not null,
             NodeTypes.NumberConstant => node.FunctionPortId is not null || node.StringConstant is not null || node.BooleanConstant is not null || node.IntegerConstant is not null || node.InputDataType is not null || node.OutputDataType is not null,
+            NodeTypes.ArrayLiteral => node.FunctionPortId is not null || node.StringConstant is not null || node.BooleanConstant is not null || node.IntegerConstant is not null || node.NumberConstant is not null || node.InputDataType is not null || node.OutputDataType is not null || node.ArrayElementType is not null,
+            NodeTypes.ArrayLength or NodeTypes.ArrayGet => node.FunctionPortId is not null || node.StringConstant is not null || node.BooleanConstant is not null || node.IntegerConstant is not null || node.NumberConstant is not null || node.InputDataType is not null || node.OutputDataType is not null || node.ArrayLiteral is not null,
             _ => node.FunctionPortId is not null || node.StringConstant is not null || node.BooleanConstant is not null || node.IntegerConstant is not null || node.NumberConstant is not null || node.InputDataType is not null || node.OutputDataType is not null
         };
     }
@@ -403,4 +529,18 @@ public static class GraphFunctionJson
             return hasCycle;
         }
     }
+
+    private static bool TryNormalizeArray(string elementType, string json, out JsonElement normalized)
+    {
+        normalized = default;
+        if (!WorkflowArrayLiteral.TryNormalizeValue(elementType, json, out var canonical, out _)) return false;
+        using var document = JsonDocument.Parse(canonical);
+        normalized = document.RootElement.Clone();
+        return true;
+    }
+}
+
+public sealed class GraphFunctionEvaluationException(string nodeId, string message) : InvalidOperationException(message)
+{
+    public string NodeId { get; } = nodeId;
 }

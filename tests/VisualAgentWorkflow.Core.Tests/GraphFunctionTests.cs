@@ -205,6 +205,121 @@ public sealed class GraphFunctionTests
             }, "result", () => 1));
     }
 
+    [Fact]
+    public void Primitive_array_function_ports_literals_length_and_get_are_typed_and_bounded()
+    {
+        var function = ArrayGetFunction();
+        Assert.Empty(GraphFunctionJson.Validate(function, allowNumber: true, allowNumberAdd: true, allowPrimitiveArrays: true));
+        Assert.Contains(GraphFunctionJson.Validate(function), issue => issue.Code == "function.node.unsupported");
+
+        var result = GraphFunctionJson.Evaluate(function,
+            new Dictionary<string, GraphFunctionEvaluation> { ["index"] = new("integer", 1L, []) },
+            "item", () => 1);
+
+        Assert.Equal("string", result.DataType);
+        Assert.Equal("second", result.Value);
+        Assert.Contains(result.Values, value => value.NodeId == "items" && value.DataType == "array<string>");
+        var length = GraphFunctionJson.Evaluate(function, new Dictionary<string, GraphFunctionEvaluation>
+            { ["index"] = new("integer", 0L, []) }, "count", () => 1);
+        Assert.Equal("integer", length.DataType);
+        Assert.Equal(2L, length.Value);
+        Assert.Contains(GraphFunctionJson.Validate(function with
+        {
+            Outputs = function.Outputs.SetItem("item", new("Item", "array<json>"))
+        }, allowNumber: true, allowNumberAdd: true, allowPrimitiveArrays: true), issue => issue.Code == "function.port.type");
+        var rangeFailure = Assert.Throws<GraphFunctionEvaluationException>(() => GraphFunctionJson.Evaluate(function,
+            new Dictionary<string, GraphFunctionEvaluation> { ["index"] = new("integer", 2L, []) },
+            "item", () => 1));
+        Assert.Equal("get", rangeFailure.NodeId);
+    }
+
+    [Fact]
+    public void Primitive_array_function_values_are_validated_and_aggregate_evidence_is_bounded()
+    {
+        var function = ArrayIdentityFunction();
+        var invalidInput = new Dictionary<string, GraphFunctionEvaluation>
+        {
+            ["items"] = new("array<integer>", ParseArray("[1,\"2\"]"), [])
+        };
+        Assert.Throws<InvalidOperationException>(() => GraphFunctionJson.Evaluate(function, invalidInput, "result", () => 1));
+        var oversizedInput = new Dictionary<string, GraphFunctionEvaluation>
+        {
+            ["items"] = new("array<integer>", ParseArray("[" + string.Join(',', Enumerable.Repeat("1", WorkflowJsonArrayLimits.MaximumItems + 1)) + "]"), [])
+        };
+        Assert.Throws<InvalidOperationException>(() => GraphFunctionJson.Evaluate(function, oversizedInput, "result", () => 1));
+
+        var budget = new GraphFunctionEvaluationBudget();
+        var largeValue = ParseArray("[\"" + new string('x', 8_000) + "\"]");
+        for (var index = 0; index < 8; index++) budget.RecordOutput("array<string>", largeValue);
+        Assert.True(budget.RetainedArrayBytes > 0);
+        Assert.Throws<InvalidOperationException>(() => budget.RecordOutput("array<string>", largeValue));
+    }
+
+    [Fact]
+    public void Pure_function_ports_accept_each_supported_primitive_array_type()
+    {
+        foreach (var type in new[] { "array<string>", "array<boolean>", "array<integer>", "array<number>" })
+        {
+            var function = ArrayIdentityFunction(type);
+            Assert.Empty(GraphFunctionJson.Validate(function, allowNumber: true, allowNumberAdd: true, allowPrimitiveArrays: true));
+            var value = type switch
+            {
+                "array<string>" => "[\"value\"]",
+                "array<boolean>" => "[true]",
+                "array<integer>" => "[1]",
+                _ => "[1.25]"
+            };
+            var result = GraphFunctionJson.Evaluate(function,
+                new Dictionary<string, GraphFunctionEvaluation> { ["items"] = new(type, ParseArray(value), []) },
+                "result", () => 1);
+            Assert.Equal(type, result.DataType);
+        }
+
+        var emptyArray = GraphFunctionJson.Evaluate(ArrayIdentityFunction("array<number>"),
+            new Dictionary<string, GraphFunctionEvaluation> { ["items"] = new("array<number>", ParseArray("[]"), []) },
+            "result", () => 1);
+        Assert.Equal("[]", ((System.Text.Json.JsonElement)emptyArray.Value).GetRawText());
+    }
+
+    private static GraphFunctionDefinition ArrayGetFunction() => new(
+        "array.get-second", 1, "Array get", "Returns a selected array item.",
+        ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("index", new("Index", "integer")),
+        ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("item", new("Item", "string"))
+            .Add("count", new("Count", "integer")),
+        ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("index", new(NodeTypes.FunctionInput, "1.0.0") { FunctionPortId = "index", OutputDataType = "integer" })
+            .Add("items", new(NodeTypes.ArrayLiteral, "1.0.0") { ArrayLiteral = new("string", "[\"first\",\"second\"]") })
+            .Add("length", new(NodeTypes.ArrayLength, "1.0.0") { ArrayElementType = "string" })
+            .Add("get", new(NodeTypes.ArrayGet, "1.0.0") { ArrayElementType = "string" })
+            .Add("output", new(NodeTypes.FunctionOutput, "1.0.0") { FunctionPortId = "item", InputDataType = "string" })
+            .Add("count-output", new(NodeTypes.FunctionOutput, "1.0.0") { FunctionPortId = "count", InputDataType = "integer" }),
+        ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("array", new(new("items", "out"), new("get", "array"), "data"))
+            .Add("length-array", new(new("items", "out"), new("length", "in"), "data"))
+            .Add("index", new(new("index", "out"), new("get", "index"), "data"))
+            .Add("result", new(new("get", "item"), new("output", "in"), "data"))
+            .Add("count", new(new("length", "out"), new("count-output", "in"), "data")));
+
+    private static GraphFunctionDefinition ArrayIdentityFunction(string type = "array<integer>") => new(
+        "array.identity", 1, "Array identity", "Returns the supplied array.",
+        ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("items", new("Items", type)),
+        ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("result", new("Result", type)),
+        ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input", new(NodeTypes.FunctionInput, "1.0.0") { FunctionPortId = "items", OutputDataType = type })
+            .Add("output", new(NodeTypes.FunctionOutput, "1.0.0") { FunctionPortId = "result", InputDataType = type }),
+        ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("result", new(new("input", "out"), new("output", "in"), "data")));
+
+    private static System.Text.Json.JsonElement ParseArray(string json)
+    {
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        return document.RootElement.Clone();
+    }
+
     private static GraphFunctionDefinition IncrementIntegerFunction() => new(
         "integer.increment", 1, "Increment integer", "Adds one to a signed 64-bit integer.",
         ImmutableSortedDictionary<string, GraphFunctionPort>.Empty.WithComparers(StringComparer.Ordinal)

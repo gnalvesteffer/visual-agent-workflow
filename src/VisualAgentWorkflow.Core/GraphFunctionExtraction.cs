@@ -73,7 +73,7 @@ public static class GraphFunctionExtraction
             throw new ArgumentException("The selected region exceeds the graph function input or output limit.", nameof(selectedNodeIds));
 
         var function = CreateFunction(source, selected, incoming, outgoing, functionId, version, displayName, description);
-        var functionIssues = GraphFunctionJson.Validate(function, allowNumber: true, allowNumberAdd: true);
+        var functionIssues = GraphFunctionJson.Validate(function, allowNumber: true, allowNumberAdd: true, allowPrimitiveArrays: true);
         if (!functionIssues.IsEmpty)
             throw new ArgumentException("The selected region cannot be represented as a graph function: " +
                 string.Join("; ", functionIssues.Select(issue => issue.Message)), nameof(selectedNodeIds));

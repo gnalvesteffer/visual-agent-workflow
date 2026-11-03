@@ -41,27 +41,37 @@ public static class WorkflowParameters
             if (value is null || value.Length > 16_384)
                 throw new ArgumentException($"Parameter '{id}' must be a string up to 16,384 characters.", nameof(overrides));
             var allowsFiniteNumbers = definition.SchemaVersion is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph;
-            if (!IsValidValue(parameter, value, allowsFiniteNumbers))
+            var allowsPrimitiveArrays = definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph;
+            if (!IsValidValue(parameter, value, allowsFiniteNumbers, allowsPrimitiveArrays))
                 throw new ArgumentException($"Value for workflow parameter '{id}' does not match its {parameter.Type ?? "string"} type.", nameof(overrides));
-            resolved.Add(id, NormalizeValue(parameter, value, allowsFiniteNumbers));
+            resolved.Add(id, NormalizeValue(parameter, value, allowsFiniteNumbers, allowsPrimitiveArrays));
         }
         var values = resolved.ToImmutable();
         ValidateAgentLimits(definition, values);
         return values;
     }
 
-    public static bool IsValidValue(WorkflowParameterDefinition parameter, string value) => (parameter.Type ?? "string") switch
-    {
-        "string" => value.Length <= 16_384,
-        "integer" => long.TryParse(value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out _),
-        "number" => decimal.TryParse(value, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out _),
-        "boolean" => value is "true" or "false",
-        "choice" => parameter.Choices is { } choices && choices.Contains(value, StringComparer.Ordinal),
-        _ => false
-    };
+    public static bool IsValidValue(WorkflowParameterDefinition parameter, string value) => IsValidValue(parameter, value, false, false);
 
     public static bool IsValidValue(WorkflowParameterDefinition parameter, string value, bool allowFiniteNumber) =>
-        (parameter.Type ?? "string") == "number" && allowFiniteNumber ? TryParseFiniteNumber(value, out _) : IsValidValue(parameter, value);
+        IsValidValue(parameter, value, allowFiniteNumber, false);
+
+    public static bool IsValidValue(WorkflowParameterDefinition parameter, string value, bool allowFiniteNumber, bool allowPrimitiveArray)
+    {
+        var type = parameter.Type ?? "string";
+        if (allowPrimitiveArray && WorkflowDataTypes.TryGetArrayElementType(type, out var elementType) && elementType != WorkflowDataTypes.Json)
+            return WorkflowArrayLiteral.TryParseValue(elementType, value, out _, out _);
+        return type switch
+        {
+            "string" => value.Length <= 16_384,
+            "integer" => long.TryParse(value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out _),
+            "number" when allowFiniteNumber => TryParseFiniteNumber(value, out _),
+            "number" => decimal.TryParse(value, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out _),
+            "boolean" => value is "true" or "false",
+            "choice" => parameter.Choices is { } choices && choices.Contains(value, StringComparer.Ordinal),
+            _ => false
+        };
+    }
 
     public static string NormalizeValue(WorkflowParameterDefinition parameter, string value) => (parameter.Type ?? "string") switch
     {
@@ -74,6 +84,14 @@ public static class WorkflowParameters
         (parameter.Type ?? "string") == "number" && allowFiniteNumber && TryParseFiniteNumber(value, out var number)
             ? number.ToString("R", CultureInfo.InvariantCulture)
             : NormalizeValue(parameter, value);
+
+    public static string NormalizeValue(WorkflowParameterDefinition parameter, string value, bool allowFiniteNumber, bool allowPrimitiveArray)
+    {
+        if (allowPrimitiveArray && WorkflowDataTypes.TryGetArrayElementType(parameter.Type, out var elementType) && elementType != WorkflowDataTypes.Json &&
+            WorkflowArrayLiteral.TryNormalizeValue(elementType, value, out var normalized, out _))
+            return normalized;
+        return NormalizeValue(parameter, value, allowFiniteNumber);
+    }
 
     public static bool TryParseFiniteNumber(string value, out double number)
     {
@@ -127,12 +145,20 @@ public static class WorkflowParameters
 
 public static class WorkflowParameterGraphTypes
 {
-    public static string? DataType(WorkflowParameterDefinition parameter, bool allowNumber = false) => (parameter.Type ?? "string") switch
+    public static string? DataType(WorkflowParameterDefinition parameter, bool allowNumber = false) => DataType(parameter, allowNumber, false);
+
+    public static string? DataType(WorkflowParameterDefinition parameter, bool allowNumber, bool allowPrimitiveArray)
     {
-        "string" or "choice" => "string",
-        "boolean" => "boolean",
-        "integer" => "integer",
-        "number" when allowNumber => "number",
-        _ => null
-    };
+        var type = parameter.Type ?? "string";
+        if (allowPrimitiveArray && WorkflowDataTypes.TryGetArrayElementType(type, out var elementType) && elementType != WorkflowDataTypes.Json)
+            return type;
+        return type switch
+        {
+            "string" or "choice" => "string",
+            "boolean" => "boolean",
+            "integer" => "integer",
+            "number" when allowNumber => "number",
+            _ => null
+        };
+    }
 }

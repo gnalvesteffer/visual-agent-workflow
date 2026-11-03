@@ -54,7 +54,7 @@ public static class WorkflowParameterEditing
         var promotesToNumbers = definition.SchemaVersion == WorkflowSchemaVersions.IntegerGraph && parameters[parameterId].Type == "number";
         var schema = promotesToNumbers ? WorkflowSchemaVersions.NumberPropagationGraph : Schema(definition);
         var outputType = schema is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.IntegerGraph or WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.BranchLocalParallelGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph
-            ? WorkflowParameterGraphTypes.DataType(parameters[parameterId], schema is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph)
+            ? WorkflowParameterGraphTypes.DataType(parameters[parameterId], schema is WorkflowSchemaVersions.UnifiedWorkflowGraph or WorkflowSchemaVersions.NumberPropagationGraph or WorkflowSchemaVersions.NumberArithmeticGraph, schema == WorkflowSchemaVersions.UnifiedWorkflowGraph)
             : null;
         return Checked(definition with
         {

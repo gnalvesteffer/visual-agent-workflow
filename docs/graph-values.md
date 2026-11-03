@@ -27,14 +27,22 @@ types. A caller supplies one JSON array through the existing string input field
 and receives the workflow result as JSON text. The workflow validates the
 declared element type and the same 64-item/16 KiB bounds as array literals;
 empty arrays are valid. The typed input/output evaluations are recorded for
-passive playback, and package round trips preserve the types. Arrays are not
-yet allowed in parameters, graph functions, workflow interfaces, variables,
-MCP arguments, Sequence or parallel regions, loop state, or checkpoints.
+passive playback, and package round trips preserve the types. Schema 2.0 pure
+graph functions accept these four array port types and may use Array literal,
+Array length, and Array get. Direct function calls and assigned Agent
+graph-function tools validate inputs against the exact declared type. Each
+function call shares a 65,536-byte aggregate bound across array inputs, retained
+evaluation evidence, and outputs. Playback reads the recorded events without
+reevaluating functions or consulting the catalog. Arrays remain unavailable in
+variables, direct MCP arguments, Sequence or parallel regions, loop state, and
+checkpoints.
 Existing `JsonToArray` still produces heterogeneous `array<json>` values,
 including JSON null, with its existing bounds and behavior. That JSON array
 type is distinct from every `array<T>` primitive type. See [Decision
-0066](decisions/0066-unified-typed-array-values.md) and [Decision
-0067](decisions/0067-typed-array-workflow-boundaries.md).
+0066](decisions/0066-unified-typed-array-values.md), [Decision
+0067](decisions/0067-typed-array-workflow-boundaries.md), [Decision
+0068](decisions/0068-typed-array-workflow-parameters.md), and [Decision
+0069](decisions/0069-typed-arrays-in-pure-graph-functions.md).
 
 Schema 1.44 adds linear run-scoped scalar variables with explicit typed Get/Set
 nodes and passive evidence playback. Extend this slice to loop, concurrency,

@@ -30,7 +30,7 @@
     </section>
 
     <section id="create-functions" class="vaw-settings-section" aria-label="Function graph editor">
-        <div class="vaw-settings-section-heading"><div><h2>@(editingExisting ? "Create a new revision" : "Create a function")</h2><p>Connect typed data pins. Function bodies allow string, Boolean, and integer constants and operators; control flow and effects are not supported.</p></div></div>
+        <div class="vaw-settings-section-heading"><div><h2>@(editingExisting ? "Create a new revision" : "Create a function")</h2><p>Connect typed data pins. Pure functions support scalar operations and bounded primitive arrays; control flow and effects are not supported.</p></div></div>
         <div class="vaw-function-editor">
             <div class="vaw-function-metadata">
                 <label>Function ID <input required maxlength="128" @bind="functionId" /></label>
@@ -46,16 +46,16 @@
                     <section aria-label="Function inputs"><h3>Inputs</h3>
                         @foreach (var (portId, port) in inputPorts)
                         {
-                            <div class="vaw-function-port" @key="portId"><label>@portId name <input value="@port.DisplayName" maxlength="160" @onchange="args => RenamePort(true, portId, args)" /></label><label>Type <select value="@port.DataType" @onchange="args => UpdatePortType(true, portId, args)"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="number">Number</option></select></label><button type="button" class="vaw-danger-quiet" aria-label="Remove input @port.DisplayName" @onclick="() => RemovePort(true, portId)">Remove</button></div>
+                            <div class="vaw-function-port" @key="portId"><label>@portId name <input value="@port.DisplayName" maxlength="160" @onchange="args => RenamePort(true, portId, args)" /></label><label>Type <select value="@port.DataType" @onchange="args => UpdatePortType(true, portId, args)"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="number">Number</option><option value="array&lt;string&gt;">String array</option><option value="array&lt;boolean&gt;">Boolean array</option><option value="array&lt;integer&gt;">Integer array</option><option value="array&lt;number&gt;">Number array</option></select></label><button type="button" class="vaw-danger-quiet" aria-label="Remove input @port.DisplayName" @onclick="() => RemovePort(true, portId)">Remove</button></div>
                         }
-                        <div class="vaw-function-add-port"><label>Input ID <input maxlength="128" @bind="newInputId" /></label><label>Name <input maxlength="160" @bind="newInputName" /></label><label>Type <select @bind="newInputType"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="number">Number</option></select></label><button type="button" class="vaw-secondary" @onclick="() => AddPort(true)">Add input</button></div>
+                        <div class="vaw-function-add-port"><label>Input ID <input maxlength="128" @bind="newInputId" /></label><label>Name <input maxlength="160" @bind="newInputName" /></label><label>Type <select @bind="newInputType"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="number">Number</option><option value="array&lt;string&gt;">String array</option><option value="array&lt;boolean&gt;">Boolean array</option><option value="array&lt;integer&gt;">Integer array</option><option value="array&lt;number&gt;">Number array</option></select></label><button type="button" class="vaw-secondary" @onclick="() => AddPort(true)">Add input</button></div>
                     </section>
                     <section aria-label="Function outputs"><h3>Outputs</h3>
                         @foreach (var (portId, port) in outputPorts)
                         {
-                            <div class="vaw-function-port" @key="portId"><label>@portId name <input value="@port.DisplayName" maxlength="160" @onchange="args => RenamePort(false, portId, args)" /></label><label>Type <select value="@port.DataType" @onchange="args => UpdatePortType(false, portId, args)"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="number">Number</option></select></label><button type="button" class="vaw-danger-quiet" aria-label="Remove output @port.DisplayName" @onclick="() => RemovePort(false, portId)">Remove</button></div>
+                            <div class="vaw-function-port" @key="portId"><label>@portId name <input value="@port.DisplayName" maxlength="160" @onchange="args => RenamePort(false, portId, args)" /></label><label>Type <select value="@port.DataType" @onchange="args => UpdatePortType(false, portId, args)"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="number">Number</option><option value="array&lt;string&gt;">String array</option><option value="array&lt;boolean&gt;">Boolean array</option><option value="array&lt;integer&gt;">Integer array</option><option value="array&lt;number&gt;">Number array</option></select></label><button type="button" class="vaw-danger-quiet" aria-label="Remove output @port.DisplayName" @onclick="() => RemovePort(false, portId)">Remove</button></div>
                         }
-                        <div class="vaw-function-add-port"><label>Output ID <input maxlength="128" @bind="newOutputId" /></label><label>Name <input maxlength="160" @bind="newOutputName" /></label><label>Type <select @bind="newOutputType"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="number">Number</option></select></label><button type="button" class="vaw-secondary" @onclick="() => AddPort(false)">Add output</button></div>
+                        <div class="vaw-function-add-port"><label>Output ID <input maxlength="128" @bind="newOutputId" /></label><label>Name <input maxlength="160" @bind="newOutputName" /></label><label>Type <select @bind="newOutputType"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="number">Number</option><option value="array&lt;string&gt;">String array</option><option value="array&lt;boolean&gt;">Boolean array</option><option value="array&lt;integer&gt;">Integer array</option><option value="array&lt;number&gt;">Number array</option></select></label><button type="button" class="vaw-secondary" @onclick="() => AddPort(false)">Add output</button></div>
                     </section>
                 </div>
             </details>
@@ -75,12 +75,16 @@
                     <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.NumberConstant)">Number constant</button>
                     <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.NumberAdd)">Add numbers</button>
                     <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.IntegerEquals)">Compare integers</button>
+            <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.ArrayLiteral)">Array literal</button>
+            <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.ArrayLength)">Array length</button>
+            <button type="button" class="vaw-secondary" @onclick="() => AddValueNode(NodeTypes.ArrayGet)">Array get</button>
                 </NodeLibrary>
                 <NodeContent Context="nodeId">
                     @if (editor.Nodes.TryGetValue(nodeId, out var node) && node.Type == NodeTypes.StringConstant) { <span>@(node.StringConstant?.Value ?? "")</span> }
                     else if (node?.Type == NodeTypes.BooleanConstant) { <span>@(node.BooleanConstant?.Value == true ? "True" : "False")</span> }
                     else if (node?.Type == NodeTypes.IntegerConstant) { <span>@node.IntegerConstant?.Value</span> }
                     else if (node?.Type == NodeTypes.NumberConstant) { <span>@node.NumberConstant?.Value</span> }
+            else if (node?.Type == NodeTypes.ArrayLiteral) { <span>@node.ArrayLiteral?.ValuesJson</span> }
                     else if (node?.Type == NodeTypes.FunctionInput) { <span>Interface input · @node.OutputDataType</span> }
                     else if (node?.Type == NodeTypes.FunctionOutput) { <span>Interface output · @node.InputDataType</span> }
                     else if (node is not null) { <span>@NodeDescription(node)</span> }
@@ -94,7 +98,11 @@
                     { <label>Constant value <input type="text" inputmode="numeric" pattern="-?[0-9]+" value="@node.IntegerConstant?.Value" @onchange="args => SetIntegerConstant(nodeId, args)" /></label> }
                     else if (node?.Type == NodeTypes.NumberConstant)
                     { <label>Constant value <input type="number" step="any" value="@node.NumberConstant?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)" @onchange="args => SetNumberConstant(nodeId, args)" /></label> }
-                    else if (node?.Type is NodeTypes.FunctionInput or NodeTypes.FunctionOutput)
+                    else if (node?.Type == NodeTypes.ArrayLiteral)
+            { <label>Element type <select value="@node.ArrayLiteral?.ElementType" @onchange="args => SetArrayLiteralType(nodeId, args)"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="number">Number</option></select></label><label>Array values (JSON) <textarea rows="4" value="@node.ArrayLiteral?.ValuesJson" @onchange="args => SetArrayLiteral(nodeId, args)" /></label><p class="vaw-help">Use a JSON array of up to 64 primitive values and 16,384 UTF-8 bytes.</p> }
+            else if (node?.Type is NodeTypes.ArrayLength or NodeTypes.ArrayGet)
+            { <label>Element type <select value="@node.ArrayElementType" @onchange="args => SetArrayElementType(nodeId, args)"><option value="string">String</option><option value="boolean">Boolean</option><option value="integer">Integer</option><option value="number">Number</option></select></label>@if (node.Type == NodeTypes.ArrayGet) { <p class="vaw-help">The index is signed 64-bit and starts at zero.</p> } }
+            else if (node?.Type is NodeTypes.FunctionInput or NodeTypes.FunctionOutput)
                     { <p class="vaw-help">This boundary is part of the function's declared interface. Change its name or type above.</p> }
                     else { <p class="vaw-help">This node is deterministic and has no additional settings.</p> }
                     <button type="button" class="vaw-danger-quiet" @onclick="() => RemoveNode(nodeId)">Remove node</button>
@@ -135,7 +143,7 @@
     private string? error;
     private string? message;
     private bool editingExisting;
-    private ImmutableArray<ValidationIssue> functionIssues => GraphFunctionJson.Validate(BuildFunction(), allowNumber: true, allowNumberAdd: true);
+    private ImmutableArray<ValidationIssue> functionIssues => GraphFunctionJson.Validate(BuildFunction(), allowNumber: true, allowNumberAdd: true, allowPrimitiveArrays: true);
 
     protected override void OnInitialized() => NewFunction();
 
@@ -204,6 +212,8 @@
             NodeTypes.BooleanConstant => new NodeDefinition(type, "1.0.0") { BooleanConstant = new(false) },
             NodeTypes.IntegerConstant => new NodeDefinition(type, "1.0.0") { IntegerConstant = new(0) },
             NodeTypes.NumberConstant => new NodeDefinition(type, "1.0.0") { NumberConstant = new(0d) },
+            NodeTypes.ArrayLiteral => new NodeDefinition(type, "1.0.0") { ArrayLiteral = new("string", "[]") },
+            NodeTypes.ArrayLength or NodeTypes.ArrayGet => new NodeDefinition(type, "1.0.0") { ArrayElementType = "string" },
             _ => new NodeDefinition(type, "1.0.0")
         };
         var previousNodeIds = editor.Nodes.Keys.ToHashSet(StringComparer.Ordinal);
@@ -256,7 +266,7 @@
     private Task UpdatePortType(bool isInput, string portId, ChangeEventArgs args)
     {
         var type = args.Value?.ToString() ?? "string";
-        if (type is not ("string" or "boolean" or "integer")) return Task.CompletedTask;
+        if (type is not ("string" or "boolean" or "integer" or "number" or "array<string>" or "array<boolean>" or "array<integer>" or "array<number>")) return Task.CompletedTask;
         var ports = isInput ? inputPorts : outputPorts;
         if (!ports.TryGetValue(portId, out var port)) return Task.CompletedTask;
         if (isInput) inputPorts = ports.SetItem(portId, port with { DataType = type });
@@ -354,6 +364,26 @@
         error = null; return Task.CompletedTask;
     }
 
+    private Task SetArrayLiteral(string id, ChangeEventArgs args)
+    {
+        if (editor.Nodes[id].ArrayLiteral is { } literal)
+            editor = editor with { Nodes = editor.Nodes.SetItem(id, editor.Nodes[id] with { ArrayLiteral = literal with { ValuesJson = args.Value?.ToString() ?? "" } }) };
+        return Task.CompletedTask;
+    }
+
+    private Task SetArrayLiteralType(string id, ChangeEventArgs args)
+    {
+        if (editor.Nodes[id].ArrayLiteral is { } literal)
+            editor = editor with { Nodes = editor.Nodes.SetItem(id, editor.Nodes[id] with { ArrayLiteral = literal with { ElementType = args.Value?.ToString() ?? "string" } }) };
+        return Task.CompletedTask;
+    }
+
+    private Task SetArrayElementType(string id, ChangeEventArgs args)
+    {
+        editor = editor with { Nodes = editor.Nodes.SetItem(id, editor.Nodes[id] with { ArrayElementType = args.Value?.ToString() ?? "string" }) };
+        return Task.CompletedTask;
+    }
+
     private string NodeDescription(NodeDefinition node) => node.Type switch
     {
         NodeTypes.TextConcat => "Join left + right",
@@ -362,6 +392,9 @@
         NodeTypes.IntegerAdd => "Checked integer addition",
         NodeTypes.NumberAdd => "Finite number addition",
         NodeTypes.IntegerEquals => "Integer equality",
+        NodeTypes.ArrayLiteral => $"Array · {node.ArrayLiteral?.ElementType ?? "string"}",
+        NodeTypes.ArrayLength => "Array item count",
+        NodeTypes.ArrayGet => "Read array item by index",
         _ => "Pure function node"
     };
 

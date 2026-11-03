@@ -46,6 +46,48 @@ public sealed class ConfigurableParallelGraphTests
     }
 
     [Fact]
+    public void UnifiedGraphAllowsDirectMcpCallsInsideStaticParallelBranches()
+    {
+        var definition = UnifiedMcpBranchDefinition();
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+    }
+
+    [Fact]
+    public void UnifiedParallelGraphKeepsApprovalNodesOutsideParallelBranches()
+    {
+        var definition = UnifiedMcpBranchDefinition();
+        var nodes = definition.Nodes;
+        var execution = definition.ExecutionConnections!;
+        var data = definition.Connections;
+        foreach (var branch in new[] { "research", "review" })
+        {
+            var toolId = $"tool-{branch}";
+            var approvalId = $"approval-{branch}";
+            nodes = nodes.Add(approvalId, new(NodeTypes.Approval, "1.0.0")
+                { Approval = new($"Approve {branch}") });
+            data = data.Add($"input-{approvalId}", new(new("input", "out"), new(approvalId, "in"), "data"));
+            execution = execution
+                .SetItem($"{branch}-tool", Execution($"{branch}", "then", approvalId, "execute"))
+                .Add($"{approvalId}-tool", Execution(approvalId, "then", toolId, "execute"));
+        }
+        var withApprovals = definition with { Nodes = nodes, Connections = data, ExecutionConnections = execution };
+
+        Assert.Contains(WorkflowValidator.Validate(withApprovals), issue => issue.Code == "parallel.branch.node");
+    }
+
+    [Fact]
+    public void HistoricalParallelSchemaDoesNotAcquireUnifiedMcpBranchBehavior()
+    {
+        var definition = UnifiedMcpBranchDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.ConfigurableParallelGraph
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(definition), issue => issue.Code == "parallel.branch.node");
+    }
+
+    [Fact]
     public void Schema134WorkflowPackageRoundTripsWithoutChangingDefinitionHashOrLayout()
     {
         var definition = BranchLocalDefinitionFromIntegerGraph();
@@ -340,6 +382,30 @@ public sealed class ConfigurableParallelGraphTests
         {
             ExecutionConnections = execution
         };
+    }
+
+    private static WorkflowDefinition UnifiedMcpBranchDefinition()
+    {
+        var definition = Definition(2) with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
+        var nodes = definition.Nodes;
+        var connections = definition.Connections;
+        var execution = definition.ExecutionConnections!;
+        foreach (var branch in new[] { "research", "review" })
+        {
+            var agentId = $"agent-{branch}";
+            var toolId = $"tool-{branch}";
+            nodes = nodes.Remove(agentId).Add(toolId, new(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest("test.tool", new string('a', 64)))
+            {
+                McpArgumentsJson = $"{{\"query\":\"{branch}\"}}"
+            });
+            execution = execution.Remove($"{branch}-agent").Remove($"agent-{branch}-join")
+                .Add($"{branch}-tool", Execution(branch, "then", toolId, "execute"))
+                .Add($"{toolId}-join", Execution(toolId, "then", "join", ParallelBranchLimits.PinId(branch)));
+            connections = connections.Add($"input-{toolId}",
+                new(new("input", "out"), new(toolId, "in"), "data"));
+        }
+        return definition with { Nodes = nodes, Connections = connections, ExecutionConnections = execution };
     }
 
     private static WorkflowDefinition BranchLocalDefinition()

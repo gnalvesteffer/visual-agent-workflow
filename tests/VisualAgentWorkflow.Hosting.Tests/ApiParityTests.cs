@@ -158,8 +158,9 @@ public sealed class ApiParityTests : IDisposable
         response = await PostJson($"runs/{runId}/resume", new { });
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
 
-        // POST /api/runs/{id}/cancel - cancel run
-        response = await PostJson($"runs/{runId}/cancel", new { });
+        // Root run listing/management belongs to the host's richer API. The
+        // project-scoped Studio endpoint keeps its bounded management route.
+        response = await PostJson($"projects/test/runs/{runId}/cancel", new { });
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
     }
 
@@ -168,17 +169,17 @@ public sealed class ApiParityTests : IDisposable
     {
         await StartApp();
 
-        // GET /api/runs - list runs (needs implementation)
-        var response = await http!.GetAsync("runs");
+        // Studio exposes run summaries through project-scoped routes.
+        var response = await http!.GetAsync("projects/test/runs");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         // GET /api/runs/{id} - get run snapshot (needs implementation)
         var fakeRunId = Guid.NewGuid().ToString();
-        response = await http.GetAsync($"runs/{fakeRunId}");
+        response = await http.GetAsync($"projects/test/runs/{fakeRunId}");
         Assert.True(response.StatusCode is HttpStatusCode.OK or HttpStatusCode.NotFound);
 
         // GET /api/runs/{id}/events - get run events (needs implementation)
-        response = await http.GetAsync($"runs/{fakeRunId}/events");
+        response = await http.GetAsync($"projects/test/runs/{fakeRunId}/events");
         Assert.True(response.StatusCode is HttpStatusCode.OK or HttpStatusCode.NotFound);
     }
 
@@ -213,6 +214,7 @@ public sealed class ApiParityTests : IDisposable
             });
         });
         app.MapWorkflowEndpoints("/api");
+        app.MapWorkflowEndpoints("/api/projects/{projectId}");
         await app.StartAsync();
 
         http = new HttpClient { BaseAddress = new Uri(app.Urls.Single() + "/api/") };

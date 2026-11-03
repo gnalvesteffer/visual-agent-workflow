@@ -1,6 +1,6 @@
 # Decision 0066: Unified typed array values
 
-**Status:** Immutable typed-array composition and workflow input/output boundaries implemented in schema 2.0; parameters and pure functions remain deferred
+**Status:** Immutable typed-array composition, workflow input/output boundaries, and parameters implemented in schema 2.0; pure functions and other placements remain deferred
 **Date:** 2026-11-02  
 **Scope:** Blueprint parity workstream; current authoring schema 2.0
 

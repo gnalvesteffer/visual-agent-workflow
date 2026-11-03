@@ -1,16 +1,20 @@
         <details class="vaw-parameter-editor">
             <summary>Workflow parameters <span class="vaw-help">@ParameterDefinitions.Count configurable values</span></summary>
-            <p class="vaw-help">Define non-secret string, integer, number, boolean, or choice inputs. Workflow value nodes pass the validated value through the graph.</p>
+            <p class="vaw-help">Define non-secret text, scalar, choice, or schema-2.0 primitive-array inputs. Workflow value nodes pass the validated value through the graph.</p>
             @foreach (var (parameterId, parameter) in ParameterDefinitions)
             {
                 <fieldset @key="parameterId" disabled="@Disabled">
                     <legend>@parameter.DisplayName · @parameterId</legend>
                     <label>Display name <input value="@parameter.DisplayName" maxlength="128" @onchange="args => UpdateParameter(parameterId, args, true)" /></label>
-                    <label>Default value <textarea value="@parameter.DefaultValue" maxlength="16384" rows="2" @onchange="args => UpdateParameter(parameterId, args, false)"></textarea></label>
+                    <label>Default value <textarea value="@parameter.DefaultValue" maxlength="16384" rows="@(WorkflowDataTypes.TryGetArrayElementType(parameter.Type, out _) ? 4 : 2)" @onchange="args => UpdateParameter(parameterId, args, false)"></textarea></label>
                     <label>Description <textarea value="@parameter.Description" maxlength="512" rows="2" placeholder="Explain what this value controls" @onchange="args => UpdateParameterDescription(parameterId, args)"></textarea></label>
                     <label>Type <select value="@(parameter.Type ?? "string")" @onchange="args => ChangeParameterType(parameterId, args)">
                         <option value="string">Text</option><option value="integer">Integer</option><option value="number">Number</option><option value="boolean">True / false</option><option value="choice">Choice</option>
+                        @if (Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph)
+                        { <option value="array<string>">Text array</option><option value="array<boolean>">Boolean array</option><option value="array<integer>">Integer array</option><option value="array<number>">Number array</option> }
                     </select></label>
+                    @if (WorkflowDataTypes.TryGetArrayElementType(parameter.Type, out var arrayElementType) && arrayElementType != WorkflowDataTypes.Json)
+                    { <p class="vaw-help">Enter a JSON array of @arrayElementType values. Maximum 64 items and 16 KiB UTF-8. Values are normalized to compact JSON when a run starts.</p> }
                     @if (parameter.Type == "choice")
                     { <label>Allowed choices <input value="@string.Join(",", parameter.Choices ?? [])" @onchange="args => ChangeChoices(parameterId, args)" placeholder="default,low,medium,high" /></label> }
             <button type="button" @onclick="() => Edit(() => WorkflowParameterEditing.Remove(Definition, parameterId))" disabled="@(Disabled || ParameterIsReferenced(parameterId))">Remove parameter</button>
@@ -54,7 +58,7 @@
     {
         var type = args.Value?.ToString() ?? "string";
         return Edit(() => WorkflowParameterEditing.SetType(Definition, id, type,
-            type == "boolean" ? "false" : ParameterDefinitions[id].DefaultValue,
+            type == "boolean" ? "false" : WorkflowDataTypes.TryGetArrayElementType(type, out _) ? "[]" : ParameterDefinitions[id].DefaultValue,
             type == "choice" ? [ParameterDefinitions[id].DefaultValue] : null));
     }
     private Task ChangeChoices(string id, ChangeEventArgs args)

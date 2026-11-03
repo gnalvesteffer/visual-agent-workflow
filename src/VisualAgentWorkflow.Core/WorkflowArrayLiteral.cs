@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Globalization;
 
 namespace VisualAgentWorkflow.Core;
 
@@ -79,6 +80,46 @@ public static class WorkflowArrayLiteral
             error = string.Empty;
             return true;
         }
+    }
+
+    public static bool TryNormalizeValue(string elementType, string? valuesJson,
+        out string normalizedJson, out string error)
+    {
+        normalizedJson = string.Empty;
+        if (!TryParseValue(elementType, valuesJson, out var values, out error)) return false;
+
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartArray();
+            foreach (var item in values.EnumerateArray())
+            {
+                switch (elementType)
+                {
+                    case WorkflowDataTypes.String:
+                        writer.WriteStringValue(item.GetString());
+                        break;
+                    case WorkflowDataTypes.Boolean:
+                        writer.WriteBooleanValue(item.GetBoolean());
+                        break;
+                    case WorkflowDataTypes.Integer:
+                        writer.WriteNumberValue(item.GetInt64());
+                        break;
+                    case WorkflowDataTypes.Number:
+                        var number = item.GetDouble();
+                        writer.WriteRawValue(number == 0d ? "0" : number.ToString("R", CultureInfo.InvariantCulture));
+                        break;
+                    default:
+                        error = "A typed array requires a supported primitive element type.";
+                        return false;
+                }
+            }
+            writer.WriteEndArray();
+        }
+
+        normalizedJson = Encoding.UTF8.GetString(stream.ToArray());
+        error = string.Empty;
+        return true;
     }
 
     private static bool Matches(string elementType, JsonElement value) => elementType switch

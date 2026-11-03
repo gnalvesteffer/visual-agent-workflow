@@ -99,7 +99,7 @@ creation, wiring, save, and deterministic execution with no promotion controls.
 
 ### Next parity workstream: first-class collections
 
-**Status: Active; typed arrays are composable and cross workflow input/output boundaries.**
+**Status: Active; typed arrays compose through workflow boundaries, parameters, and pure graph functions.**
 The capability audit and three-role adversarial review identify containers as a
 foundational Blueprint language gap. Existing `array<json>` support is useful
 but remains limited to exact graph shapes. [Decision 0066](decisions/0066-unified-typed-array-values.md)
@@ -120,10 +120,63 @@ will be introduced.
   on the existing string run API, with exact type validation, shared bounds,
   package/hash/runtime/evidence proofs, and Studio guidance. See
   [Decision 0067](decisions/0067-typed-array-workflow-boundaries.md).
-- [ ] Extend typed arrays through parameters and pure graph functions with
-  independent package/hash/replay proofs for each placement.
-- [ ] Define bounded sequential array iteration with explicit ordering,
-  cancellation, per-element failure/evidence, and work limits.
+- [x] Extend typed arrays through workflow parameters, exact typed getter pins,
+  caller overrides, child-call mappings, and canonical prompt/template text;
+  preserve authored defaults and existing string-map APIs. See
+  [Decision 0068](decisions/0068-typed-array-workflow-parameters.md).
+- [x] Extend typed arrays through pure graph functions, including direct calls
+  and Agent graph-function tools, exact package/hash behavior, runtime input
+  validation, and bounded aggregate call evidence recorded in ordinary run events.
+  See [Decision 0069](decisions/0069-typed-arrays-in-pure-graph-functions.md).
+- [x] Revalidate the current typed-array and direct parallel-MCP implementation
+  against the owning suites on 2026-11-02: Core 590/590 and Agent Framework
+  252/252 passed. The prior MCP suite result is 98 passed with 2 opt-in tests
+  skipped; it was not rerun for this increment.
+- [ ] Prove the runtime architecture for Blueprint-style typed array iteration
+  against the pinned Agent Framework 1.26.0 package. Compare a VAW structured
+  activation runtime with a fresh Agent Framework subworkflow per item using
+  the same representative graph: typed item/index, empty arrays, conditions,
+  parallel joins, nested iteration, nearest-loop `Break`, cancellation,
+  per-item failure evidence, activation-scoped values and variables, event
+  identity, and shared dispatch/evidence accounting. Do not introduce a public
+  iterator node or narrow body allowlist before this proof. The selected runtime
+  must compose with all existing body capabilities, keep Agent Framework behind
+  the agent adapter, preserve the separate predicate-based string Loop, and
+  exclude checkpoint recovery until frame restoration is proven. The eventual
+  Studio array editor uses one JSON text field validated by the declared type.
+  See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  - [x] Candidate subworkflow proof: fresh per-item AF 1.26.0 workflow bindings
+    preserve exclusive routing and parallel barrier state across sequential
+    items. Synthetic nested test workflows exercise a test loop's break
+    handling. A separate proof runs the production VAW Input → Variable Set/Get
+    → Uppercase → Agent → direct MCP → Output body through a fresh
+    `WorkflowRunner` per item, with fake providers and a scoped event bridge.
+    Each per-item index is bound as an integer workflow parameter and read
+    through a typed Workflow Value node, proving the item/index pair reaches
+    the Agent and MCP nodes through current contracts; this is not an iterator
+    index pin or activation-frame proof.
+    A separate body proof runs a real two-branch configurable Agent fork/join
+    for each item and persists the joined outputs and join events through both
+    file and SQLite stores. Current schema 2.0 also admits direct MCP nodes in
+    these static regions; Core and Agent Framework proofs cover concurrent
+    calls, file/SQLite persistence, denial, failure, and cancellation without
+    publishing a partial join. Branch-local approvals remain unsupported
+    because guarded-tool routing is not yet implemented end-to-end.
+    The failure proof preserves the failed Agent's node/invocation evidence
+    while stopping subsequent items. Scoped events and one root terminal
+    outcome persist through both file and SQLite run stores. Synchronized
+    cancellation during a blocked Agent records the matching evidence and prevents
+    later items. Empty input completes without activating the body. The current
+    Agent Framework suite passes (252/252). These tests do
+    not establish authored For Each/Break graph semantics, process-loss
+    recovery, cancellation dispatch/publication races, typed iterator item/index
+    pins, retained-runner cache isolation, budget accounting, or scheduler
+    parity.
+    See `ArrayIterationSubworkflowProofTests` and
+    `ArrayIterationVawBodyProofTests`.
+  - [ ] Candidate structured scheduler and full shared proof matrix remain open.
+- [ ] Implement the selected scheduler and full typed iterator contract only
+  after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable
   key/equality/order rules are demonstrated.
 - [ ] Extend mutable collection variables only after snapshot, loop, parallel
@@ -731,7 +784,7 @@ Schema 1.6 adds workflow-owned typed parameters with stable IDs, labels, default
 
 ### Complete: direct MCP graph nodes
 
-Schema 1.36 adds direct MCP tool nodes for deterministic workflows, and schema 1.37 adds typed top-level argument pins. A valid linear typed graph can enable the schema, add host-discovered bindings from the node library, connect one pin per supported tool property, configure static fallbacks, and connect each node's text output and execution route without an Agent. The normal broker still enforces node grants, pinned contracts, bounded arguments and audit evidence. Nested argument pins, automatic schema migration, and direct tools inside branches, parallel regions, loops, workflow calls, or approval graphs remain out of scope; existing 1.36 schemas are unchanged.
+Schema 1.36 adds direct MCP tool nodes for deterministic workflows, and schema 1.37 adds typed top-level argument pins. A valid linear typed graph can enable the schema, add host-discovered bindings from the node library, connect one pin per supported tool property, configure static fallbacks, and connect each node's text output and execution route without an Agent. The normal broker still enforces node grants, pinned contracts, bounded arguments and audit evidence. Nested argument pins and automatic schema migration remain out of scope for these historical schemas, which retain their linear topology and hashes. Current schema 2.0 separately supports direct MCP steps in static parallel branches; direct MCP in loops, workflow calls, and approval subgraphs remains unsupported.
 
 ### Complete: MCP, skill, and agent authoring foundation
 
@@ -759,7 +812,7 @@ Schema 1.10 adds a bounded output-token limit to each agent and an explicit reas
 
 ### Complete: configurable parallel graph authoring and execution
 
-The existing fixed two-branch blocks remain unchanged in older schemas. Schema 1.32 adds a static fork/anchor/join region with 2–8 branch descriptors and stable branch IDs; the completed join is a bounded runtime JSON producer for downstream data consumers. Studio can create the region from a valid schema 1.31 graph, select its initial branch count, add branches up to eight, reorder branches, rename captions without changing IDs, remove empty branches, and remove/undo the complete region. Removal refuses populated branches until their Agent nodes are removed, preserving authored work. Authors can add Agent nodes to a branch and wire them to its matching join pin. The core validator rejects mismatched branch IDs, disconnected anchors, bypasses, overlapping branch paths, cross-join routes and unsupported branch structures. Runtime arrivals correlate by run, fork invocation and branch ID. Failure emits no partial value. The runner executes eight branches concurrently without losing shared evaluator updates. Existing schemas retain their serialization and execution paths. Branch-local conditions, loops, nested regions, and standalone MCP nodes remain unsupported. Shared-channel agent phases and repeated barriers remain separate until their scheduling, timeout, retry, budget and partial-failure policies are defined. See [parallel graph behavior](parallel-graphs.md).
+The existing fixed two-branch blocks remain unchanged in older schemas. Schema 1.32 adds a static fork/anchor/join region with 2–8 branch descriptors and stable branch IDs; the completed join is a bounded runtime JSON producer for downstream data consumers. Studio can create the region from a valid schema 1.31 graph, select its initial branch count, add branches up to eight, reorder branches, rename captions without changing IDs, remove empty branches, and remove/undo the complete region. Removal refuses populated branches until their Agent nodes are removed, preserving authored work. Authors can add Agent nodes to a branch and wire them to its matching join pin. The core validator rejects mismatched branch IDs, disconnected anchors, bypasses, overlapping branch paths, cross-join routes and unsupported branch structures. Runtime arrivals correlate by run, fork invocation and branch ID. Failure emits no partial value. The runner executes eight branches concurrently without losing shared evaluator updates. Existing schemas retain their serialization and execution paths. Current schema 2.0 supports direct MCP branch steps with node-scoped grants and all-or-nothing joins; branch-local approvals, loops, and nested regions remain unsupported. Shared-channel agent phases and repeated barriers remain separate until their scheduling, timeout, retry, budget and partial-failure policies are defined. See [parallel graph behavior](parallel-graphs.md).
 
 ### Complete: branch-local Boolean routing in static parallel regions
 

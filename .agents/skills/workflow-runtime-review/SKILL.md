@@ -24,6 +24,8 @@ Runs bind to immutable revisions and dependency identities. Definition edits and
 
 Use deterministic executors, a controlled MCP fixture, and explicit synchronization/fault injection instead of timing-dependent sleeps. Select cases relevant to the change. Verify durable storage and restart behavior with integration tests; in-memory mocks alone cannot establish recovery.
 
+In unified schema 2.0, a static parallel branch may contain a direct MCP node. Branch topology does not grant access: each tool call still passes through its node-scoped broker policy and retains its invocation/audit identity. Denial, failure, or cancellation must suppress the aggregate join result; a completed sibling side effect cannot be rolled back. Keep historical schema admission unchanged and do not infer branch-local approval support from direct-tool support.
+
 Do not promise universal exactly-once external effects. Separate browser independence from crash recovery and checkpoint recovery from historical playback. Apply [audit-playback-review](../audit-playback-review/SKILL.md) when changing event instrumentation.
 
 ## Verified local pause boundary
