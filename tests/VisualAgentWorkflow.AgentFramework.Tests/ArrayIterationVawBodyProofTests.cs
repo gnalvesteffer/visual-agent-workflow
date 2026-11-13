@@ -2968,7 +2968,8 @@ public sealed class ArrayIterationVawBodyProofTests
                 reservationRequestKind: ExecutionEventKinds.ToolAuthorized,
                 reservationOutcomeKind: ExecutionEventKinds.ToolCompleted);
             var tools = new ParallelMcpBroker(
-                releaseAfterReservationRejected: holdDispatchUntilReservationRejected ? recorder.ReservationRejected : null);
+                releaseAfterReservationRejected: holdDispatchUntilReservationRejected ? recorder.ReservationRejected : null,
+                waitForBothAuthorizations: !holdDispatchUntilReservationRejected);
             string? output = null;
 
             if (candidate == "structured")
@@ -3090,6 +3091,104 @@ public sealed class ArrayIterationVawBodyProofTests
                     output = result.Output;
                 }
                 catch (Exception) when (recorder.ReservationRejected.IsCompleted) { }
+            }
+            else if (candidate == "fresh-subworkflow")
+            {
+                await RecordRootAsync(ExecutionEventKinds.Started);
+                var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder,
+                    new EchoAgentExecutor(), tools);
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                var failed = false;
+                await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+                await foreach (var evt in run.WatchStreamAsync())
+                {
+                    if (evt is WorkflowOutputEvent { Data: string value }) output = value;
+                    if (evt is WorkflowErrorEvent) failed = true;
+                }
+                await RecordRootAsync(failed || output is null ? ExecutionEventKinds.Failed : ExecutionEventKinds.Completed);
+            }
+            else
+            {
+                var result = await ExecuteHybridBudgetLoopAsync(store, revision, recorder,
+                    new EchoAgentExecutor(), tools, input);
+                output = result.Output;
+            }
+
+            var events = recorder.Snapshot();
+            AssertPersistedSequence(store, events, output is null ? "failed" : "completed");
+            Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
+            return new(output, events, recorder.MaximumPendingOutcomeReservationsObserved,
+                recorder.PendingOutcomeReservations, recorder.ReservationRejected.IsCompleted);
+
+            ValueTask RecordRootAsync(string kind) => recorder.RecordResequencedAsync(new ExecutionEvent(
+                store.RunId, store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow, kind));
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IteratorCandidates_SettleProductionMcpTimeoutReservations(bool sqlite)
+    {
+        const string input = "[\"one\"]";
+        var registrations = CreateDemoMcpRegistrations();
+        var discoveryBroker = new McpToolBroker(registrations, new DemoToolPolicy());
+        var slowBinding = Assert.Single(await discoveryBroker.ListBindingsAsync(), binding => binding.BindingId == "demo.slow");
+        var definition = ParallelMcpDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var configuredTool = new ToolBindingRequest(slowBinding.BindingId, slowBinding.ContractHash)
+        {
+            DescriptionHash = slowBinding.DescriptionHash
+        };
+        var nodes = definition.Nodes;
+        foreach (var nodeId in new[] { "tool-research", "tool-review" })
+            nodes = nodes.SetItem(nodeId, nodes[nodeId] with
+            {
+                Tool = configuredTool,
+                McpArgumentsJson = "{}"
+            });
+        var revision = WorkflowRevision.Create(definition with { Nodes = nodes },
+            "array-iteration-production-mcp-timeout-candidate-proof");
+
+        foreach (var candidate in new[] { "structured", "fresh-subworkflow", "hybrid" })
+        {
+            var timedOut = await ExecuteCandidateAsync(candidate);
+            Assert.Null(timedOut.Output);
+            Assert.Equal(2, timedOut.Events.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
+            Assert.InRange(timedOut.Events.Count(evt => evt.Kind == ExecutionEventKinds.ToolUncertain), 1, 2);
+            Assert.DoesNotContain(timedOut.Events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+            Assert.DoesNotContain(timedOut.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+            Assert.Contains(timedOut.Events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+            Assert.Equal(0, timedOut.PendingReservations);
+            Assert.Equal(2, timedOut.MaximumPendingReservations);
+        }
+
+        async Task<CandidateProductionMcpReservationResult> ExecuteCandidateAsync(string candidate)
+        {
+            using var store = new ProofRunStore(revision, input, sqlite);
+            var recorder = new ReservedEvidenceProofRecorder(store, maximumEvents: 512,
+                maximumBytes: 4_000_000, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
+                maximumOutcomeBytes: 32_000, maximumConcurrentOutcomeReservations: 2,
+                reservationRequestKind: ExecutionEventKinds.ToolAuthorized,
+                reservationOutcomeKind: ExecutionEventKinds.ToolCompleted,
+                additionalReservationOutcomeKind: ExecutionEventKinds.ToolUncertain);
+            var tools = CreateSynchronizedDemoMcpBroker(registrations, expectedConnections: 2,
+                timeout: TimeSpan.FromSeconds(4));
+            string? output = null;
+
+            if (candidate == "structured")
+            {
+                try
+                {
+                    var result = await new WorkflowRunner(tools)
+                        .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                            recorder.RecordResequencedAsync);
+                    output = result.Output;
+                }
+                catch (Exception) { }
             }
             else if (candidate == "fresh-subworkflow")
             {
@@ -4202,7 +4301,7 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     private static McpToolBroker CreateSynchronizedDemoMcpBroker(
-        IReadOnlyList<McpToolRegistration> registrations, int expectedConnections)
+        IReadOnlyList<McpToolRegistration> registrations, int expectedConnections, TimeSpan? timeout = null)
     {
         var allConnectionsReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var connectionCount = 0;
@@ -4229,7 +4328,7 @@ public sealed class ArrayIterationVawBodyProofTests
                 }
             };
         }).ToArray();
-        return new McpToolBroker(synchronized, new DemoToolPolicy(), TimeSpan.FromSeconds(20));
+        return new McpToolBroker(synchronized, new DemoToolPolicy(), timeout ?? TimeSpan.FromSeconds(20));
     }
 
     private sealed class EchoToolScope(ConcurrentQueue<string> queries, Func<string, string>? respond) : INodeToolScope
@@ -4250,10 +4349,12 @@ public sealed class ArrayIterationVawBodyProofTests
 
     private sealed class ParallelMcpBroker(string? denyNode = null, string? failNode = null,
         bool holdUntilCancelled = false, string? resultPayload = null,
-        Task? releaseAfterReservationRejected = null) : INodeToolBroker
+        Task? releaseAfterReservationRejected = null, bool waitForBothAuthorizations = false) : INodeToolBroker
     {
         private readonly ConcurrentQueue<ParallelToolCall> calls = new();
         private readonly TaskCompletionSource branchesStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource bothAuthorizationsRecorded = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int authorizationCount;
         private int activeCalls;
         private int maximumConcurrentCalls;
         private int dispatchedCalls;
@@ -4266,11 +4367,13 @@ public sealed class ArrayIterationVawBodyProofTests
             Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
         public INodeToolScope OpenScope(NodeInvocationContext invocation) =>
             new Scope(this, invocation.NodeId, invocation.InvocationId, invocation.Record,
-                denyNode, failNode, holdUntilCancelled, resultPayload, releaseAfterReservationRejected);
+                denyNode, failNode, holdUntilCancelled, resultPayload, releaseAfterReservationRejected,
+                waitForBothAuthorizations);
 
         private sealed class Scope(ParallelMcpBroker owner, string nodeId, Guid invocationId,
             Func<string, string?, ValueTask> record, string? denyNode, string? failNode,
-            bool holdUntilCancelled, string? resultPayload, Task? releaseAfterReservationRejected) : INodeToolScope
+            bool holdUntilCancelled, string? resultPayload, Task? releaseAfterReservationRejected,
+            bool waitForBothAuthorizations) : INodeToolScope
         {
             public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default) =>
                 Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
@@ -4293,6 +4396,10 @@ public sealed class ArrayIterationVawBodyProofTests
                         throw new ToolAccessDeniedException();
                     }
                     await record(ExecutionEventKinds.ToolAuthorized, query);
+                    if (waitForBothAuthorizations && Interlocked.Increment(ref owner.authorizationCount) == 2)
+                        owner.bothAuthorizationsRecorded.TrySetResult();
+                    if (waitForBothAuthorizations)
+                        await owner.bothAuthorizationsRecorded.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
                     Interlocked.Increment(ref owner.dispatchedCalls);
                     if (releaseAfterReservationRejected is not null)
                         await releaseAfterReservationRejected;

@@ -95,8 +95,9 @@ budget ownership remain open.
 `IteratorCandidates_ReserveConcurrentMcpOutcomesBeforeDispatch` now compares
 the same reservation boundary for a parallel direct-MCP body across structured,
 fresh-subworkflow, and hybrid candidates. The deterministic broker synchronizes
-both branches before authorization and holds the admitted call until a competing
-reservation is rejected. At capacity two, both calls dispatch, complete, and
+both branches before authorization and holds successful calls until both
+authorization events are recorded, making the reservation peak deterministic.
+At capacity two, both calls dispatch, complete, and
 reach the join; at capacity one, only one call passes authorization/dispatch,
 the other is rejected before dispatch, its admitted sibling settles, the join is
 suppressed, and the run fails with a contiguous persisted prefix. File and
@@ -117,6 +118,19 @@ Framework suite passes (344/344). The broker connections and tool server are
 real, but the evidence budget remains a test-only recorder; this selects no
 production scheduler or budget owner. Delegated reservations, concurrent byte
 caps, aggregate work bounds, and full outcome-failure matrix remain open.
+
+`IteratorCandidates_SettleProductionMcpTimeoutReservations` compares the
+post-dispatch timeout path for the same parallel direct-MCP body through the
+structured, fresh-subworkflow, and hybrid candidates. The production broker's
+four-second deadline expires while the real demo tool is still running. Both
+file and SQLite stores retain authorization and uncertain-outcome evidence,
+the join does not complete, the root run fails, and both outcome reservations
+settle (2/2 stores for each candidate). The test uses the real stdio fixture
+and production `McpToolBroker`; it does not prove custom `INodeToolBroker`
+implementations honor equivalent timeout or settlement behavior, nor select
+production iterator scheduling or aggregate limits. The owning Agent Framework
+suite passes 346/346 after adding this case and making the controlled concurrent
+reservation comparison deterministic.
 
 `HybridFrameCoordinator_ExecutesUnifiedSequenceBodyPerActivation` exercises a
 current unified-schema body containing a two-output Sequence whose paths each

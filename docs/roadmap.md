@@ -221,6 +221,14 @@ will be introduced.
       root terminal outcome. The Agent Framework suite passes 334/334. This
       proves compatibility in the candidate harness, not production iterator
       integration.
+    - [x] Compare production MCP timeout settlement across structured,
+      fresh-subworkflow, and hybrid candidates using the real stdio `demo.slow`
+      tool and both file and SQLite stores. Post-dispatch timeouts retain
+      `tool.uncertain`, suppress the join, fail the root run, and settle both
+      outcome reservations (6/6 candidate-store cases); see
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+      The Agent Framework suite passes 346/346. Custom `INodeToolBroker`
+      implementations remain unproven.
     - [ ] Add authored typed array item/index pins and a real Break node, then
       continue the hybrid comparison for aggregate work/model-turn/tool limits,
       concurrent and delegated reservations, other join/cancellation races,
@@ -477,11 +485,11 @@ will be introduced.
       failure events or model correction feedback by default, and preserved
       fatal/recoverable/uncertain and cancellation dispositions. Tests inspect
       both persisted evidence and model feedback.
-    - [ ] Complete timeout-specific settlement and prove the failure envelope
-      for custom broker implementations before selecting production aggregate
-      evidence caps. The review and remaining limits are recorded in
-      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md); the
-      current reservation recorder remains test-only.
+    - [ ] Prove failure-envelope and timeout-settlement behavior for custom
+      broker implementations before selecting production aggregate evidence
+      caps. Production `McpToolBroker` timeout settlement is covered in the
+      three-candidate proof; the reservation recorder remains test-only. See
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable
