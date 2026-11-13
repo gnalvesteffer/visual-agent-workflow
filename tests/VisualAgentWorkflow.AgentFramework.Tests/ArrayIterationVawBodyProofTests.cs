@@ -638,6 +638,8 @@ public sealed class ArrayIterationVawBodyProofTests
         var subworkflowRecorder = new ProofRecorder(subworkflowStore);
         using var structuredCancellation = new CancellationTokenSource();
         var structuredAgents = new OneBranchCompletedThenBlockedAgentExecutor();
+        IReadOnlyList<ExecutionEvent>? structuredEventsAtPause = null;
+        var structuredLeftHandlerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var structuredTask = new WorkflowRunner(agents: structuredAgents)
             .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
                 async evt =>
@@ -645,10 +647,16 @@ public sealed class ArrayIterationVawBodyProofTests
                     structuredRecorder.Append(evt);
                     if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-right")
                     {
+                        structuredEventsAtPause = structuredRecorder.Snapshot();
                         structuredAgents.RightCompleted.TrySetResult();
                         await structuredAgents.ReleaseRight.Task;
                     }
-                }, structuredCancellation.Token);
+                }, structuredCancellation.Token,
+                afterNodeStarted: (nodeId, _) =>
+                {
+                    if (nodeId == "agent-left") structuredLeftHandlerEntered.TrySetResult();
+                    return ValueTask.CompletedTask;
+                });
         var structuredFirstSignal = await Task.WhenAny(structuredAgents.RightCompleted.Task, structuredTask)
             .WaitAsync(TimeSpan.FromSeconds(5));
         if (structuredFirstSignal == structuredTask) await structuredTask;
@@ -658,14 +666,21 @@ public sealed class ArrayIterationVawBodyProofTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => structuredTask);
 
         var subworkflowAgents = new OneBranchCompletedThenBlockedAgentExecutor();
+        IReadOnlyList<ExecutionEvent>? subworkflowEventsAtPause = null;
+        var subworkflowLeftHandlerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var iterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision, subworkflowRecorder,
             subworkflowAgents, new EchoToolBroker(), observeEvent: async evt =>
             {
                 if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-right")
                 {
+                    subworkflowEventsAtPause = subworkflowRecorder.Snapshot();
                     subworkflowAgents.RightCompleted.TrySetResult();
                     await subworkflowAgents.ReleaseRight.Task;
                 }
+            }, afterNodeStarted: (nodeId, _) =>
+            {
+                if (nodeId == "agent-left") subworkflowLeftHandlerEntered.TrySetResult();
+                return ValueTask.CompletedTask;
             });
         var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
         await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input))
@@ -675,6 +690,8 @@ public sealed class ArrayIterationVawBodyProofTests
                 await foreach (var _ in run.WatchStreamAsync()) { }
             });
             await subworkflowAgents.RightCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            AssertCandidateAdmissionAtPause(structuredEventsAtPause!, structuredLeftHandlerEntered, "structured");
+            AssertCandidateAdmissionAtPause(subworkflowEventsAtPause!, subworkflowLeftHandlerEntered, "fresh-subworkflow");
             var cancellation = run.CancelRunAsync();
             subworkflowAgents.ReleaseRight.TrySetResult();
             await cancellation;
@@ -688,6 +705,24 @@ public sealed class ArrayIterationVawBodyProofTests
         AssertPersistedSequence(subworkflowStore, subworkflowEvents, "cancelled");
         AssertCancelledJoinPrefix(structuredEvents, "structured");
         AssertCancelledJoinPrefix(subworkflowEvents, "fresh-subworkflow");
+
+        static void AssertCandidateAdmissionAtPause(IReadOnlyList<ExecutionEvent> events,
+            TaskCompletionSource leftHandlerEntered, string candidate)
+        {
+            const string scopeId = "array-loop/0";
+            var trace = string.Join(" | ", events.Where(evt => evt.ScopeId == scopeId &&
+                evt.NodeId is "anchor-left" or "agent-left" or "agent-right")
+                .Select(evt => $"{evt.Sequence}:{evt.Kind}:{evt.NodeId}"));
+            var expectedSiblingAdmission = candidate == "fresh-subworkflow";
+            var leftTargetDeliveredAtPause = events.Any(evt =>
+                evt.Kind == ExecutionEventKinds.ExecutionActivated && evt.NodeId == "anchor-left" &&
+                evt.ScopeId == scopeId);
+            Assert.True(expectedSiblingAdmission == leftTargetDeliveredAtPause, trace);
+            var leftStartedAtPause = events.Any(evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == "agent-left" && evt.ScopeId == scopeId);
+            Assert.True(expectedSiblingAdmission == leftStartedAtPause, trace);
+            Assert.True(expectedSiblingAdmission == leftHandlerEntered.Task.IsCompleted, trace);
+        }
 
         static void AssertCancelledJoinPrefix(IReadOnlyList<ExecutionEvent> events, string candidate)
         {

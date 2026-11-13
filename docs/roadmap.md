@@ -333,12 +333,14 @@ will be introduced.
       pass in file and SQLite variants; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Compare cancellation at the persisted node-completion callback after
       one parallel Agent finishes and before its output resumes graph routing.
-      The structured candidate cancels before admitting the second branch;
-      Agent Framework has already started that sibling and records its
-      cancellation. Both stores preserve the completed branch, cancellation,
-      suppressed join, and no next item (2/2). This exposes a candidate
-      lifecycle mismatch; it does not select a scheduler or establish atomic
-      publication. The Agent Framework suite passes 336/336.
+      At the paused callback, the structured candidate has not delivered the
+      left target or entered its handler; the Agent Framework candidate has
+      delivered the target and entered the handler. Both stores preserve the
+      completed branch, cancellation, suppressed join, and no next item (2/2).
+      This measures candidate scheduling at this harness boundary; it does not
+      select a scheduler or establish a production cancellation contract or
+      atomic publication. The focused test passes (2/2). Broader delivery,
+      admission, cancellation, and publication races remain open.
     - [ ] Compare candidate budgets at atomic dispatch/evidence boundaries and
       prove exhaustion behavior. Store reopen/process loss, nested frames,
       typed iterator pins, Sequence, collaboration, and crash recovery also

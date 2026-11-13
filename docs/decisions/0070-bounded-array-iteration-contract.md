@@ -436,13 +436,17 @@ measured intermediate event-timing difference; final workflow outcomes agree.
 `StructuredAndFreshSubworkflowCandidates_CancelAfterOneJoinBranchCompletes`
 holds each candidate at the persisted right-Agent completion callback, then
 cancels before that callback returns control to graph routing. The structured
-candidate has not admitted the left branch; the Agent Framework candidate has
-already started it and records its cancellation. In both file and SQLite
-stores, the right branch completion and root cancellation persist, the join
-does not complete, and the next item does not start (2/2). This is a controlled
-cancellation-boundary mismatch, not evidence that either scheduler has the
-correct general contract; it does not demonstrate atomic publication or select
-the architecture.
+candidate has neither delivered the left target nor entered its handler; the
+Agent Framework candidate has delivered that target and entered its handler.
+The test snapshots both the persisted event prefix and an explicit
+post-`node.started` handler-entry signal while the completion callback is still
+paused, then cancels. In both file and SQLite stores, the right branch
+completion and root cancellation persist, the join does not complete, and the
+next item does not start (2/2). This is a measured candidate scheduling
+difference at a harness-controlled pause point. It does not establish a
+general production cancellation contract, queued-work semantics, atomic
+publication, or select the architecture. Broader dispatch, admission, and
+cancellation races remain open.
 
 A fresh three-role review adjudicated **REVISE**: keep the architecture and
 lifecycle contract open. Queue-then-run is a reasonable proof candidate
