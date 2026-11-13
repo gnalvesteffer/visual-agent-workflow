@@ -3089,6 +3089,137 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_DelegatedFunctionCallAppendFailurePreventsChildDispatch(bool sqlite)
+    {
+        const string providerId = "proof.iterator-delegate-call-evidence";
+        const string parentInstructions = "Parent instructions.";
+        const string researcherInstructions = "Research instructions.";
+        const string reviewerInstructions = "Review instructions.";
+        const string task = "Review this proposal.";
+        var profiles = new[]
+        {
+            AgentProfile.Create("researcher", "1", "Researcher", "Find relevant facts.", providerId,
+                researcherInstructions, []),
+            AgentProfile.Create("reviewer", "1", "Reviewer", "Check the answer.", providerId,
+                reviewerInstructions, [])
+        };
+        var agent = new AgentConfiguration(providerId, null, parentInstructions, [])
+        {
+            Delegates = [.. profiles.Select(profile => new AgentProfileReference(profile.Id, profile.Version,
+                profile.ContentHash!))]
+        };
+        var body = BodyDefinition(includeVariableStore: true, includeIndexParameter: true);
+        var definition = body with
+        {
+            Nodes = body.Nodes.SetItem("agent", body.Nodes["agent"] with
+            {
+                Agent = agent
+            }),
+            AgentProfiles = profiles.ToImmutableSortedDictionary(profile => profile.Id + "@" + profile.Version,
+                profile => profile, StringComparer.Ordinal)
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "array-iteration-candidate-delegated-call-append-failure-proof");
+        const string input = "[\"first\",\"second\"]";
+        (string Kind, string? NodeId, string? ScopeId)[]? expectedPrefix = null;
+
+        foreach (var candidate in new[] { "structured", "fresh-subworkflow", "hybrid" })
+        {
+            Guid? parentInvocationId = null;
+            var rejectedAppendCount = 0;
+            Func<ExecutionEvent, bool> rejectAppend = evt =>
+            {
+                if (parentInvocationId is null && evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent")
+                    parentInvocationId = evt.InvocationId;
+                return evt.Kind == ExecutionEventKinds.ModelResponded && evt.InvocationId == parentInvocationId &&
+                    evt.Data?.Contains("team_0", StringComparison.Ordinal) == true &&
+                    Interlocked.CompareExchange(ref rejectedAppendCount, 1, 0) == 0;
+            };
+            using var store = new ProofRunStore(revision, input, sqlite, rejectedAppendPredicate: rejectAppend);
+            var recorder = new ReservedEvidenceProofRecorder(store,
+                maximumEvents: 512, maximumBytes: 4_000_000, reservedFailureEvents: 8,
+                reservedFailureBytes: 64_000, maximumOutcomeBytes: 64_000,
+                maximumConcurrentOutcomeReservations: 8);
+            var model = new ParallelDelegateEvidenceModel(parentInstructions, researcherInstructions,
+                reviewerInstructions, task, delegateOutputCharacters: 64);
+            var provider = new AgentProviderDescriptor(providerId, "Proof delegate model", "proof-chat-v1", true);
+            var agents = new AgentNodeExecutor(
+                [new AgentProviderRegistration(provider, () => new ParallelDelegateEvidenceChatClient(model))],
+                new EchoToolBroker());
+            var tools = new EchoToolBroker();
+            string? output = null;
+
+            if (candidate == "structured")
+            {
+                try
+                {
+                    var result = await new WorkflowRunner(tools, agents)
+                        .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                            recorder.RecordResequencedAsync);
+                    output = result.Output;
+                }
+                catch (IOException)
+                {
+                    // The model returned a delegated call, but its response event was rejected.
+                }
+            }
+            else if (candidate == "fresh-subworkflow")
+            {
+                await recorder.RecordResequencedAsync(new ExecutionEvent(store.RunId,
+                    store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow,
+                    ExecutionEventKinds.Started));
+                var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder, agents, tools);
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                var failed = false;
+                await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+                await foreach (var evt in run.WatchStreamAsync())
+                {
+                    if (evt is WorkflowOutputEvent { Data: string value }) output = value;
+                    if (evt is WorkflowErrorEvent) failed = true;
+                }
+
+                await recorder.RecordResequencedAsync(new ExecutionEvent(store.RunId,
+                    store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow,
+                    failed ? ExecutionEventKinds.Failed : ExecutionEventKinds.Completed));
+            }
+            else
+            {
+                var result = await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, tools, input);
+                output = result.Output;
+            }
+
+            var events = recorder.Snapshot();
+            var prefix = events.Select(evt => (evt.Kind, evt.NodeId,
+                ScopeId: evt.ScopeId?.Replace("outer-loop/0/", string.Empty, StringComparison.Ordinal))).ToArray();
+            expectedPrefix ??= prefix;
+            Assert.Equal(expectedPrefix, prefix);
+            Assert.Null(output);
+            Assert.Equal(1, rejectedAppendCount);
+            Assert.Single(model.Prompts);
+            Assert.Equal(0, model.MaximumConcurrentDelegateCalls);
+            Assert.Empty(tools.Queries);
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded);
+            Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.AgentTeamStarted or
+                ExecutionEventKinds.AgentTeamCompleted or ExecutionEventKinds.AgentTeamFailed);
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed &&
+                evt.InvocationId == parentInvocationId);
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+            Assert.Equal(1, recorder.PendingOutcomeReservations);
+            AssertPersistedSequence(store, events, "failed");
+
+            var reopened = store.ReopenStore().Get(store.RunId)!;
+            Assert.Equal("failed", reopened.Status);
+            Assert.Equal(events, reopened.Events);
+            Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_McpOutcomeAppendFailureStopsLaterActivations(bool sqlite)
     {
         const string input = "[\"first\",\"second\"]";

@@ -919,6 +919,18 @@ does not close the full data/function-call failure matrix or establish
 process-loss recovery or production budget ownership. The focused tests pass
 2/2 and the full Agent Framework suite passes 366/366.
 
+`IteratorCandidates_DelegatedFunctionCallAppendFailurePreventsChildDispatch`
+rejects persistence of the parent Agent's `model.responded` event containing
+the delegated team function call. Across structured, fresh-subworkflow, and
+hybrid candidates with file and SQLite stores (6/6 cases), the children never
+start, the parent outcome reservation remains unsettled, the active iteration
+and run fail, and each reopened store preserves its contiguous prefix. The
+candidate event-kind/node/scope shapes also match after normalizing the
+hybrid's outer activation prefix. The focused test passes 2/2. This compares
+the pre-child-dispatch boundary; it does not cover later function-call
+evidence failures or crash recovery. The full Agent Framework suite passes
+368/368.
+
 The public iterator contract must be Blueprint-style and composable with all
 existing graph capabilities. The proposed pins are an execution input, typed
 `array<T>` input, `Loop Body` execution output, typed `Array Element` data

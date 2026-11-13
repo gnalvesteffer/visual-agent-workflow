@@ -469,6 +469,15 @@ will be introduced.
       point; broader graph/function-call evidence failures, process-loss
       recovery, and production budget ownership remain open. See [Decision
       0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Compare delegated function-call response append failure across the
+      three candidates and both stores. Rejecting the parent model response
+      containing the team call prevents child dispatch, keeps its outcome
+      reservation unsettled, and preserves the contiguous failed prefix after
+      reopening. Candidate event shapes match after normalizing the hybrid's
+      outer activation prefix (6/6 cases; focused tests 2/2; full Agent
+      Framework suite 368/368). Later function-call evidence failures and
+      crash recovery remain open. See [Decision 0070](
+      decisions/0070-bounded-array-iteration-contract.md).
     - [ ] Complete process-loss/interrupted-execution recovery and the
       remaining evidence matrix. Store reopening does not recover or resume
       execution; candidate reservations are not production budget ownership.
