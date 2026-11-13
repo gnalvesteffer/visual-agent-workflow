@@ -931,6 +931,17 @@ the pre-child-dispatch boundary; it does not cover later function-call
 evidence failures or crash recovery. The full Agent Framework suite passes
 368/368.
 
+`IteratorCandidates_DelegatedChildOutcomeAppendFailureStopsLaterActivations`
+rejects a delegated child's `model.responded` append after the child provider
+returns. The reviewer is held until the researcher outcome boundary, making
+the sibling cancellation deterministic. Across all three candidates and both
+stores (6/6 cases), the team and root fail, no later item starts, the rejected
+response remains absent and its reservation stays unsettled. Normalized
+event-kind/node/scope sequences match across candidates, and each reopened
+store retains its exact event prefix. This covers one post-dispatch delegated
+outcome failure, not process-loss recovery or production budget ownership. The
+focused tests pass 2/2 and the full Agent Framework suite passes 370/370.
+
 The public iterator contract must be Blueprint-style and composable with all
 existing graph capabilities. The proposed pins are an execution input, typed
 `array<T>` input, `Loop Body` execution output, typed `Array Element` data

@@ -478,6 +478,15 @@ will be introduced.
       Framework suite 368/368). Later function-call evidence failures and
       crash recovery remain open. See [Decision 0070](
       decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Compare delegated child response append failure after provider
+      dispatch. A controlled sibling remains active until the researcher
+      response is rejected, so all candidates record team/root failure, retain
+      the unsettled outcome reservation, and stop before the next item.
+      Normalized event shapes match and both stores reopen to the exact prefix
+      (6/6 cases; focused tests 2/2; full Agent Framework suite 370/370).
+      Broader crash recovery and production budget ownership remain open. See
+      [Decision 0070](
+      decisions/0070-bounded-array-iteration-contract.md).
     - [ ] Complete process-loss/interrupted-execution recovery and the
       remaining evidence matrix. Store reopening does not recover or resume
       execution; candidate reservations are not production budget ownership.
