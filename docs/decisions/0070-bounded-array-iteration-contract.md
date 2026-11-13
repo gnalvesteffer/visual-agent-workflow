@@ -100,9 +100,12 @@ reservations, both model requests and responses persist and the join completes;
 with one, the second request is rejected before provider dispatch, only one
 provider call occurs, the join is suppressed, and failure evidence closes the
 run. File and SQLite cases pass for each candidate (2/2 per store). This is a
-test-only model-reservation comparison; production MCP broker concurrency,
-byte-cap exhaustion under concurrency, aggregate work limits, and production
-budget ownership remain open.
+test-only model-reservation comparison. The same candidate/store matrix now
+calibrates a byte ceiling from the baseline prefix through the competing
+request. It rejects the second request before provider dispatch, allows the
+admitted response to settle, persists failure evidence, and suppresses the
+join (6/6 candidate-store cases). Production MCP broker concurrency, aggregate
+work limits, and production budget ownership remain open.
 
 `IteratorCandidates_ReserveConcurrentMcpOutcomesBeforeDispatch` now compares
 the same reservation boundary for a parallel direct-MCP body across structured,

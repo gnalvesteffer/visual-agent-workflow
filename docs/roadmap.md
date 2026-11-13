@@ -406,10 +406,14 @@ will be introduced.
       sibling is canceled with its unresolved outcome reservation retained,
       and the run fails with a contiguous persisted prefix (6/6
       candidate-store cases).
-    - [ ] Complete remaining budget proof for direct sibling-model byte caps,
-      delegated tools, aggregate work limits, and broader external-outcome
-      boundaries. These harness reservations are not production budget
-      ownership.
+    - [x] Compare concurrent sibling-model outcome-byte reservations across
+      the same candidates and stores. A prefix-calibrated cap rejects the
+      second parallel request before provider dispatch; the admitted call
+      settles, failure evidence persists, and the join is suppressed (6/6
+      candidate-store cases).
+    - [ ] Complete remaining budget proof for delegated tools, aggregate work
+      limits, and broader external-outcome boundaries. These harness
+      reservations are not production budget ownership.
       Store reopen/process loss, nested frames, typed iterator pins, Sequence,
       collaboration, and crash recovery also remain open.
     - [x] Measure representative maximum-shaped `model.responded`,

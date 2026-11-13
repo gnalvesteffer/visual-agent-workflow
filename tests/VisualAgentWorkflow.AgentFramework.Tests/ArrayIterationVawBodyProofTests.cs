@@ -2857,14 +2857,39 @@ public sealed class ArrayIterationVawBodyProofTests
             Assert.DoesNotContain(limited.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
                 evt.NodeId == "join");
             Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+
+            var requests = baseline.Events.Where(evt => evt.Kind == ExecutionEventKinds.ModelRequested)
+                .OrderBy(evt => evt.Sequence).ToArray();
+            var secondRequest = requests[1];
+            var prefixBytes = baseline.Events.Where(evt => evt.Sequence < secondRequest.Sequence).Sum(EventBytes);
+            const long maximumOutcomeBytes = 32_000;
+            const long reservedFailureBytes = 64_000;
+            const long byteAdmissionMargin = 4_096;
+            var maximumBytes = checked(prefixBytes + EventBytes(secondRequest) + (2 * maximumOutcomeBytes) +
+                reservedFailureBytes - byteAdmissionMargin);
+            var byteLimited = await ExecuteCandidateAsync(candidate, maximumConcurrentReservations: 2,
+                maximumBytes);
+            Assert.Null(byteLimited.Output);
+            Assert.True(byteLimited.ReservationRejected);
+            Assert.Equal(1, byteLimited.ProviderCalls);
+            Assert.Equal(1, byteLimited.MaximumConcurrentModelCalls);
+            Assert.Equal(1, byteLimited.MaximumPendingReservations);
+            Assert.Single(byteLimited.Events, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
+            Assert.Single(byteLimited.Events, evt => evt.Kind == ExecutionEventKinds.ModelResponded);
+            Assert.DoesNotContain(byteLimited.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "join");
+            Assert.Contains(byteLimited.Events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+            Assert.Equal(0, byteLimited.PendingReservations);
+            Assert.True(byteLimited.PersistedEventBytes <= maximumBytes);
+            Assert.Equal(byteLimited.Events.Sum(EventBytes), byteLimited.PersistedEventBytes);
         }
 
         async Task<CandidateReservationResult> ExecuteCandidateAsync(string candidate,
-            int maximumConcurrentReservations)
+            int maximumConcurrentReservations, long maximumBytes = 4_000_000)
         {
             using var store = new ProofRunStore(revision, input, sqlite);
             var recorder = new ReservedEvidenceProofRecorder(store, maximumEvents: 512,
-                maximumBytes: 4_000_000, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
+                maximumBytes, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
                 maximumOutcomeBytes: 32_000,
                 maximumConcurrentOutcomeReservations: maximumConcurrentReservations);
             var model = new ConcurrentPromptModel(expectedConcurrentCalls: 2,
@@ -2911,7 +2936,8 @@ public sealed class ArrayIterationVawBodyProofTests
             AssertPersistedSequence(store, events, output is null ? "failed" : "completed");
             Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
             return new(output, events, model.Calls.Length, model.MaximumConcurrentCalls,
-                recorder.MaximumPendingOutcomeReservationsObserved, recorder.ReservationRejected.IsCompleted);
+                recorder.MaximumPendingOutcomeReservationsObserved, recorder.PendingOutcomeReservations,
+                recorder.PersistedEventBytes, recorder.ReservationRejected.IsCompleted);
 
             ValueTask RecordRootAsync(string kind) => recorder.RecordResequencedAsync(new ExecutionEvent(
                 store.RunId, store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow, kind));
@@ -3493,7 +3519,8 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     private sealed record CandidateReservationResult(string? Output, ExecutionEvent[] Events, int ProviderCalls,
-        int MaximumConcurrentModelCalls, int MaximumPendingReservations, bool ReservationRejected);
+        int MaximumConcurrentModelCalls, int MaximumPendingReservations, int PendingReservations,
+        long PersistedEventBytes, bool ReservationRejected);
 
     private sealed record CandidateMcpReservationResult(string? Output, ExecutionEvent[] Events, int DispatchedCalls,
         int MaximumConcurrentCalls, int MaximumPendingReservations, bool ReservationRejected);
