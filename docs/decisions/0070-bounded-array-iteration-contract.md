@@ -65,6 +65,15 @@ production-owned budget context, aggregate work/model-turn/tool limits,
 concurrent reservations, delegated work, or all evidence shapes; those remain
 open and the candidate comparison remains unresolved.
 
+`HybridFrameCoordinator_ExecutesUnifiedSequenceBodyPerActivation` exercises a
+current unified-schema body containing a two-output Sequence whose paths each
+invoke a direct MCP node. It executes the body for two nested activation
+frames, verifies both MCP calls and Sequence output dispatch/completion evidence
+per item, and persists the correctly scoped ledger through file and SQLite
+stores (2/2). This closes one Sequence-composition case in the hybrid harness;
+it does not compare all candidates, exercise collaboration compatibility, or
+establish behavior in a selected production iterator runtime.
+
 ## Status
 
 Architecture proof required; no iterator behavior is shipped.

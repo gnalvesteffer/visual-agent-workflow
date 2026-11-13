@@ -2528,6 +2528,91 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(limitedEvents.Sum(EventBytes), limitedRecorder.PersistedEventBytes);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HybridFrameCoordinator_ExecutesUnifiedSequenceBodyPerActivation(bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(SequenceBodyDefinition(),
+            "array-iteration-hybrid-sequence-body-proof");
+        const string input = "[\"hello\",\"world\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore);
+        var tools = new EchoToolBroker();
+        var parentFrame = new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null,
+            "outer-loop", 3, "outer", ImmutableSortedDictionary<string, string>.Empty);
+        var items = JsonSerializer.Deserialize<string[]>(input)!;
+        var outputs = new List<string>(items.Length);
+
+        for (var index = 0; index < items.Length; index++)
+        {
+            var frame = parentFrame.Enter("array-loop", index, items[index],
+                ImmutableSortedDictionary<string, string>.Empty);
+            recorder.Append(ExecutionEventKinds.LoopIterationStarted, "array-loop", frame.Id, frame.ScopeId);
+            ValueTask Record(ExecutionEvent evt)
+            {
+                if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                    ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                    return ValueTask.CompletedTask;
+                recorder.Append(evt with { ScopeId = frame.ScopeId });
+                return ValueTask.CompletedTask;
+            }
+
+            var result = await new WorkflowRunner(tools).ExecuteWithOutcomeAsync(runStore.RunId,
+                revision, items[index], null, Record);
+            Assert.False(result.Failed);
+            Assert.NotNull(result.Output);
+            outputs.Add(result.Output!);
+            recorder.Append(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id, frame.ScopeId);
+        }
+        recorder.CompleteRoot();
+
+        Assert.Equal(["echo:sequence", "echo:sequence"], outputs);
+        Assert.Equal(["sequence", "sequence", "sequence", "sequence"], tools.Queries);
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "completed");
+        for (var index = 0; index < items.Length; index++)
+        {
+            var scopeId = $"outer-loop/3/array-loop/{index}";
+            var scoped = events.Where(evt => evt.ScopeId == scopeId).ToArray();
+            Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched));
+            Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
+            Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId is "inventory-tool" or "architecture-tool"));
+            Assert.Contains(scoped, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.NodeId == "array-loop");
+        }
+    }
+
+    private static WorkflowDefinition SequenceBodyDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("sequence", new(NodeTypes.Sequence, "1.0.0")
+            {
+                Sequence = new([new("inventory", "Inventory"), new("architecture", "Architecture")])
+            })
+            .Add("inventory-tool", new(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest("proof.inventory", new string('a', 64)))
+            { McpArgumentsJson = "{\"query\":\"sequence\"}" })
+            .Add("architecture-tool", new(NodeTypes.McpTool, "1.0.0",
+                new ToolBindingRequest("proof.architecture", new string('b', 64)))
+            { McpArgumentsJson = "{\"query\":\"sequence\"}" })
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-sequence", Edge("input", "then", "sequence", "execute"))
+            .Add("sequence-inventory", Edge("sequence", "then.inventory", "inventory-tool", "execute"))
+            .Add("inventory-output", Edge("inventory-tool", "then", "output", "execute"))
+            .Add("sequence-architecture", Edge("sequence", "then.architecture", "architecture-tool", "execute"))
+            .Add("architecture-output", Edge("architecture-tool", "then", "output", "execute"));
+        return new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-sequence-body", "input", nodes,
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty)
+        {
+            ExecutionConnections = execution
+        };
+    }
+
     private static async Task<HybridBudgetLoopResult> ExecuteHybridBudgetLoopAsync(ProofRunStore runStore,
         WorkflowRevision revision, ReservedEvidenceProofRecorder recorder, IAgentNodeExecutor agents,
         INodeToolBroker tools, string input)

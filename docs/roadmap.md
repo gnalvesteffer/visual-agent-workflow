@@ -207,11 +207,18 @@ will be introduced.
       concurrent/delegated reservations, or a complete evidence-shape bound.
       The Agent Framework suite passes 328/328. See
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Exercise a current-schema two-path Sequence body in repeated hybrid
+      activations. Both MCP paths dispatch and complete per item, return the
+      expected result, and retain activation-scoped Sequence evidence in file
+      and SQLite stores (2/2); the Agent Framework suite passes 330/330. This
+      verifies Sequence composition in the candidate harness, not Sequence
+      behavior in a selected iterator runtime.
     - [ ] Add authored typed array item/index pins and a real Break node, then
       continue the hybrid comparison for aggregate work/model-turn/tool limits,
-      concurrent and delegated reservations, other join/cancellation races,
-      and complete evidence bounds. Keep production architecture unselected
-      until the shared lifecycle and budget owner is proven.
+      concurrent and delegated reservations, collaboration compatibility,
+      other join/cancellation races, and complete evidence bounds. Keep
+      production architecture unselected until the shared lifecycle and budget
+      owner is proven.
     - [x] Add a non-production candidate-1 contract fixture proving nested frame
       identity, activation-scoped runtime values and variables, nearest-loop
       lookup, one-shot concurrent fork release, and cancellation before the
