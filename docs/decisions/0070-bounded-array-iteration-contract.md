@@ -61,10 +61,11 @@ uses a private sentinel from the tool fixture as a stand-in for a future Break
 node. It verifies the hybrid coordinator targets the current nearest frame,
 stops the inner iteration, preserves the enclosing iteration, and persists
 scoped production Agent/MCP evidence through both stores (2/2). This does not
-prove an authored Break node or schema contract. The shared evidence-reservation
-proof below is a separate seventh hybrid theory; aggregate work limits,
-concurrency, delegation, broader join/cancellation races, and full evidence
-bounds remain unproven. The hybrid comparison does not select the architecture.
+prove an authored Break node or schema contract. At this point in the proof,
+aggregate work limits, concurrency, delegation, broader join/cancellation
+races, and full evidence bounds remain unproven. Later entries document the
+subsequent serial work-counter and reservation comparisons; the hybrid
+comparison still does not select the architecture.
 
 `HybridFrameCoordinator_SharesEvidenceBudgetAcrossFreshNestedBodies` adds a
 test-only shared evidence-reservation slice for two serial fresh production
@@ -853,6 +854,19 @@ execution resumption. It closes only serial work-counter exhaustion and store
 reopen readability in the candidate recorder. It does not establish concurrent
 atomic quotas, a production-owned budget context, numeric product limits, or
 broader external outcome boundaries; no architecture or cap is selected.
+
+`IteratorCandidates_ModelOutcomeAppendFailureStopsLaterActivations` injects a
+store rejection for `model.responded` while running the same Agent/MCP body
+through all three candidates and both stores. The provider is invoked once,
+the request evidence remains but the response append fails, correlated
+Agent/node/root failure evidence closes the run, the MCP node and following
+item are not started, and the outcome reservation remains pending. Each
+candidate/store history is reopened through a fresh store instance and retains
+the same contiguous failed prefix (6/6 cases). The focused test passes 2/2, and
+the full Agent Framework suite passes 356/356. This covers a production model
+adapter with injected outcome-append rejection; tool-outcome and root-terminal
+append failures remain to be compared across candidates. It does not authorize
+retrying the provider request or establish recovery of the failed activation.
 
 The public iterator contract must be Blueprint-style and composable with all
 existing graph capabilities. The proposed pins are an execution input, typed

@@ -2,6 +2,18 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Typed-array iterator model outcome append failure
+
+The structured, fresh-subworkflow, and hybrid candidates now share a
+cross-store proof for `model.responded` append failure. The model runs once,
+response evidence is rejected, the request reservation remains unsettled, and
+scoped Agent/node failure plus root failure stop the MCP node and next item.
+All six candidate/store traces survive reopening through a fresh file or
+SQLite store instance. The focused test passes 2/2; the full Agent Framework
+suite passes 356/356. This does not retry the provider request or resume a
+failed activation; MCP outcome and terminal-append candidate comparisons remain
+open. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Typed-array iterator candidate aggregate work caps
 
 The structured, fresh-subworkflow, and hybrid proof candidates now share

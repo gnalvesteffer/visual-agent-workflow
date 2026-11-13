@@ -203,8 +203,10 @@ will be introduced.
       lifecycle and body evidence across two fresh Agent/MCP activations; the
       second model request is rejected before provider dispatch while reserved
       failure evidence persists through file and SQLite stores (2/2). This
-      does not establish production budget ownership, aggregate work limits,
+      does not establish production budget ownership, work-counter limits,
       concurrent/delegated reservations, or a complete evidence-shape bound.
+      Later candidate comparisons below add serial work counters and delegated
+      reservations; concurrent work quotas and production ownership remain open.
       The Agent Framework suite passes 328/328. See
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Exercise a current-schema two-path Sequence body in repeated hybrid
@@ -360,9 +362,9 @@ will be introduced.
       Each cap is calibrated from its two-item baseline; the second model
       request is rejected before provider dispatch, its Agent fails, the
       second tool is not called, and both stores retain a contiguous failed
-      prefix with reserved failure evidence (2/2 file/SQLite cases). This is
-      test-only evidence and does not compare aggregate work limits or
-      production budget ownership.
+      prefix with reserved failure evidence (2/2 file/SQLite cases). This
+      event/byte proof does not itself meter work counters, and neither proof
+      establishes production budget ownership.
     - [x] Compare concurrent model outcome reservations across all three proof
       candidates. At capacity two, both requests/responses complete and the
       join runs; at capacity one, only one provider call occurs, the second
@@ -374,9 +376,11 @@ will be introduced.
       capacity one, the competing authorization is rejected before simulated
       dispatch, the admitted call settles, and the join is suppressed. File
       and SQLite cases pass (2/2); the full Agent Framework suite passes
-      (342/342). This does not yet exercise concurrent reservations through
-      delegated tools, byte caps under concurrency, aggregate work limits, or
-      production budget ownership; see Decision 0070.
+      (342/342). At this stage it did not exercise concurrent reservations
+      through delegated tools or byte caps under concurrency. Later entries
+      below cover those reservations and serial work counters; production
+      budget ownership and concurrent work quotas remain open. See Decision
+      0070.
     - [x] Exercise production `McpToolBroker` concurrent authorization with
       two synchronized stdio `demo.slow` nodes against both stores. Baseline
       admits two pending outcomes and completes the join; a one-reservation
@@ -428,15 +432,19 @@ will be introduced.
       Each baseline and limited trace is also read through a new FileRunJournal
       or SqliteWorkflowRunStore instance; exact event order and terminal state
       survive reopening in all 24 candidate/store executions.
-    - [ ] Complete process-loss and interrupted-execution recovery, broader
-      external-outcome boundaries, and the remaining evidence matrix. Reopening
-      a persisted snapshot does not recover or resume execution; test-harness
-      reservations and work caps are not production budget ownership.
-    - [ ] Complete remaining budget proof for aggregate work limits and
-      broader external-outcome boundaries. These harness reservations are not
-      production budget ownership.
-      Store reopen/process loss, nested frames, typed iterator pins, Sequence,
-      collaboration, and crash recovery also remain open.
+    - [x] Compare model-outcome append failure across the structured,
+      fresh-subworkflow, and hybrid candidates in file and SQLite stores. The
+      provider runs once, rejected `model.responded` evidence leaves its
+      reservation pending, the failed activation is attributed, and neither
+      its MCP node nor the next item runs. All six candidate/store cases pass;
+      each persisted failure prefix also survives a new store instance. The
+      full Agent Framework suite passes (356/356); see
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [ ] Compare tool-outcome and root-terminal append failures across all
+      candidates, then complete process-loss/interrupted-execution recovery
+      and the remaining evidence matrix. Store reopening does not recover or
+      resume execution; candidate reservations are not production budget
+      ownership.
     - [x] Measure representative maximum-shaped `model.responded`,
       `tool.completed`, and `data.evaluated` event envelopes through the actual
       file snapshot and SQLite event-row serializers. The measured envelope
