@@ -487,6 +487,14 @@ will be introduced.
       Broader crash recovery and production budget ownership remain open. See
       [Decision 0070](
       decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Compare caller cancellation after confirmed MCP dispatch. All three
+      candidates record `tool.uncertain` before `node.cancelled` and the
+      cancelled root, do not complete the item or start another, and settle
+      the reservation only after uncertainty evidence persists. Both stores
+      reopen to the exact prefix (6/6 cases; focused tests 2/2; full Agent
+      Framework suite 372/372). Production broker publication races and crash
+      recovery remain open. See [Decision
+      0070](decisions/0070-bounded-array-iteration-contract.md).
     - [ ] Complete process-loss/interrupted-execution recovery and the
       remaining evidence matrix. Store reopening does not recover or resume
       execution; candidate reservations are not production budget ownership.

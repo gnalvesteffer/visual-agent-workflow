@@ -942,6 +942,16 @@ store retains its exact event prefix. This covers one post-dispatch delegated
 outcome failure, not process-loss recovery or production budget ownership. The
 focused tests pass 2/2 and the full Agent Framework suite passes 370/370.
 
+`IteratorCandidates_CancelAfterMcpDispatchRecordsUncertainOutcome` cancels the
+caller only after a proof broker confirms MCP dispatch. Across the three
+candidates and both stores (6/6 cases), the tool outcome is recorded as
+uncertain before the node and run are cancelled, no iteration completes or
+later item starts, and the reservation settles only after the uncertain event
+is accepted. Reopened stores retain the exact event prefix. This covers
+post-dispatch caller cancellation in the proof broker; production broker
+publication races and process-loss recovery remain open. The focused tests
+pass 2/2 and the full Agent Framework suite passes 372/372.
+
 The public iterator contract must be Blueprint-style and composable with all
 existing graph capabilities. The proposed pins are an execution input, typed
 `array<T>` input, `Loop Body` execution output, typed `Array Element` data

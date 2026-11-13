@@ -4485,6 +4485,117 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_CancelAfterMcpDispatchRecordsUncertainOutcome(bool sqlite)
+    {
+        const string input = "[\"first\",\"second\"]";
+        const string bindingId = "proof.cancel-after-dispatch";
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-cancel-after-mcp-dispatch", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("tool", new(NodeTypes.McpTool, "1.0.0",
+                    new ToolBindingRequest(bindingId, new string('d', 64))) { McpArgumentsJson = "{}" })
+                .Add("output", new(NodeTypes.Output, "1.0.0")),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-tool", new(new("input", "out"), new("tool", "in"), "data"))
+                .Add("tool-output", new(new("tool", "out"), new("output", "in"), "data")))
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-tool", Edge("input", "then", "tool", "execute"))
+                .Add("tool-output", Edge("tool", "then", "output", "execute"))
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "array-iteration-cancel-after-mcp-dispatch-proof");
+
+        foreach (var candidate in new[] { "structured", "fresh-subworkflow", "hybrid" })
+        {
+            using var store = new ProofRunStore(revision, input, sqlite);
+            var recorder = new ReservedEvidenceProofRecorder(store,
+                maximumEvents: 512, maximumBytes: 4_000_000, reservedFailureEvents: 8,
+                reservedFailureBytes: 64_000, maximumOutcomeBytes: 32_000,
+                reservationRequestKind: ExecutionEventKinds.ToolAuthorized,
+                reservationOutcomeKind: ExecutionEventKinds.ToolCompleted,
+                additionalReservationOutcomeKind: ExecutionEventKinds.ToolUncertain);
+            var broker = new CancelAfterDispatchToolBroker(bindingId);
+
+            if (candidate == "structured")
+            {
+                using var cancellation = new CancellationTokenSource();
+                var execution = new WorkflowRunner(broker)
+                    .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                        recorder.RecordResequencedAsync, cancellation.Token);
+                await broker.DispatchStarted.WaitAsync(TimeSpan.FromSeconds(5));
+                cancellation.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await execution);
+            }
+            else if (candidate == "fresh-subworkflow")
+            {
+                await recorder.RecordResequencedAsync(new ExecutionEvent(store.RunId,
+                    store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow,
+                    ExecutionEventKinds.Started));
+                var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder,
+                    new EchoAgentExecutor(), broker);
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+                try
+                {
+                    var watch = ObserveAsync();
+                    await broker.DispatchStarted.WaitAsync(TimeSpan.FromSeconds(5));
+                    await run.CancelRunAsync();
+                    await watch;
+                }
+                finally
+                {
+                    await run.DisposeAsync();
+                }
+
+                await recorder.RecordResequencedAsync(new ExecutionEvent(store.RunId,
+                    store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow,
+                    ExecutionEventKinds.Cancelled));
+
+                async Task ObserveAsync()
+                {
+                    await foreach (var _ in run.WatchStreamAsync()) { }
+                }
+            }
+            else
+            {
+                using var cancellation = new CancellationTokenSource();
+                var execution = ExecuteHybridBudgetLoopAsync(store, revision, recorder,
+                    new EchoAgentExecutor(), broker, input, cancellationToken: cancellation.Token);
+                await broker.DispatchStarted.WaitAsync(TimeSpan.FromSeconds(5));
+                cancellation.Cancel();
+                var result = await execution;
+                Assert.True(result.Cancelled);
+            }
+
+            var events = recorder.Snapshot();
+            Assert.Equal(1, broker.DispatchAttempts);
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+            var uncertain = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain);
+            var nodeCancelled = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+                evt.NodeId == "tool");
+            Assert.True(uncertain.Sequence < nodeCancelled.Sequence);
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.ScopeId is null);
+            Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.Failed or ExecutionEventKinds.Completed);
+            Assert.Equal(0, recorder.PendingOutcomeReservations);
+            AssertPersistedSequence(store, events, "cancelled");
+
+            var reopened = store.ReopenStore().Get(store.RunId)!;
+            Assert.Equal("cancelled", reopened.Status);
+            Assert.Equal(events, reopened.Events);
+            Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_CustomBrokerExceptionKeepsOutcomeUnknownAndFailureSafe(bool sqlite)
     {
         const string input = "[\"first\",\"second\"]";
@@ -4769,7 +4880,8 @@ public sealed class ArrayIterationVawBodyProofTests
 
     private static async Task<HybridBudgetLoopResult> ExecuteHybridBudgetLoopAsync(ProofRunStore runStore,
         WorkflowRevision revision, ReservedEvidenceProofRecorder recorder, IAgentNodeExecutor agents,
-        INodeToolBroker tools, string input, bool recordCompletionAppendFailureAsRunFailure = false)
+        INodeToolBroker tools, string input, bool recordCompletionAppendFailureAsRunFailure = false,
+        CancellationToken cancellationToken = default)
     {
         var runId = runStore.RunId;
         var revisionId = runStore.Store.Get(runId)!.Header.RevisionId;
@@ -4796,11 +4908,12 @@ public sealed class ArrayIterationVawBodyProofTests
 
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 await recorder.RecordResequencedAsync(new ExecutionEvent(runId, revisionId, 0,
                     DateTimeOffset.UtcNow, ExecutionEventKinds.LoopIterationStarted, "array-loop", frame.Id)
                 { ScopeId = frame.ScopeId });
                 var result = await new WorkflowRunner(tools, agents).ExecuteWithOutcomeAsync(runId,
-                    revision, items[index], parameters, Record);
+                    revision, items[index], parameters, Record, cancellationToken);
                 if (result.Failed || result.Output is null)
                 {
                     var error = recorder.Snapshot().LastOrDefault(evt => evt.Kind == ExecutionEventKinds.AgentFailed)?.Data
@@ -4816,6 +4929,11 @@ public sealed class ArrayIterationVawBodyProofTests
             }
             catch (Exception exception)
             {
+                if (exception is OperationCanceledException && cancellationToken.IsCancellationRequested)
+                {
+                    await RecordRootTerminalAsync(ExecutionEventKinds.Cancelled);
+                    return new(null, exception.ToString(), Cancelled: true);
+                }
                 await RecordRootTerminalAsync(ExecutionEventKinds.Failed);
                 return new(null, exception.ToString());
             }
@@ -4836,7 +4954,7 @@ public sealed class ArrayIterationVawBodyProofTests
             new ExecutionEvent(runId, revisionId, 0, DateTimeOffset.UtcNow, kind));
     }
 
-    private sealed record HybridBudgetLoopResult(string? Output, string? Error);
+    private sealed record HybridBudgetLoopResult(string? Output, string? Error, bool Cancelled = false);
 
     private sealed class ActivationScopedCollaborationAgentExecutor(int branchCount) : IAgentNodeExecutor
     {
@@ -5765,6 +5883,72 @@ public sealed class ArrayIterationVawBodyProofTests
             return output;
         }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class CancelAfterDispatchToolBroker(string bindingId) : INodeToolBroker
+    {
+        private readonly string expectedBindingId = bindingId;
+        private readonly TaskCompletionSource dispatchStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int dispatchAttempts;
+
+        public Task DispatchStarted => dispatchStarted.Task;
+        public int DispatchAttempts => Volatile.Read(ref dispatchAttempts);
+
+        public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new Scope(this, invocation);
+
+        private sealed class Scope(CancelAfterDispatchToolBroker owner, NodeInvocationContext invocation)
+            : INodeToolScope
+        {
+            public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(
+                CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+            public Task<string> InvokeAsync(string requestedBindingId, string input,
+                CancellationToken cancellationToken = default) =>
+                Task.FromException<string>(new NotSupportedException("The proof expects structured tool arguments."));
+
+            public async Task<string> InvokeJsonAsync(string requestedBindingId, JsonElement arguments,
+                CancellationToken cancellationToken = default)
+            {
+                if (requestedBindingId != owner.expectedBindingId)
+                    throw new InvalidOperationException("The workflow requested an unexpected custom tool.");
+
+                var toolCallId = Guid.NewGuid();
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolRequested,
+                    JsonSerializer.Serialize(new { toolCallId, bindingId = requestedBindingId }));
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolAuthorized,
+                    JsonSerializer.Serialize(new { toolCallId, bindingId = requestedBindingId, input = arguments }));
+
+                Interlocked.Increment(ref owner.dispatchAttempts);
+                owner.dispatchStarted.TrySetResult();
+                try
+                {
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                    throw new InvalidOperationException("The proof tool unexpectedly completed before cancellation.");
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    const string reason = "The tool was cancelled after dispatch; its outcome is unknown.";
+                    await invocation.RecordEventAsync(ExecutionEventKinds.ToolUncertain,
+                        JsonSerializer.Serialize(new
+                        {
+                            toolCallId,
+                            bindingId = requestedBindingId,
+                            failureCode = "tool.outcome_unknown",
+                            disposition = ToolInvocationFailureDisposition.OutcomeUnknown.ToString(),
+                            reason
+                        }));
+                    throw;
+                }
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
     }
 
     private sealed class ConcurrentUnknownOutcomeToolBroker(string bindingId, int expectedAuthorizations) : INodeToolBroker
