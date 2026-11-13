@@ -3149,6 +3149,159 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_ReserveConcurrentDelegatedModelOutcomesAndBytesBeforeDispatch(bool sqlite)
+    {
+        const string input = "[\"proposal\"]";
+        const string providerId = "proof.iterator-delegated-model";
+        const string parentInstructions = "Review the proposal with the team.";
+        const string researcherInstructions = "Find supporting evidence.";
+        const string reviewerInstructions = "Review the evidence.";
+        const string task = "Review the proposal.";
+        var profiles = new[]
+        {
+            AgentProfile.Create("researcher", "1", "Researcher", "Find relevant facts.", providerId,
+                researcherInstructions, []),
+            AgentProfile.Create("reviewer", "1", "Reviewer", "Check the answer.", providerId,
+                reviewerInstructions, [])
+        };
+        var configuredAgent = new AgentConfiguration(providerId, null, parentInstructions, [])
+        {
+            Delegates = [.. profiles.Select(profile => new AgentProfileReference(profile.Id, profile.Version,
+                profile.ContentHash!))]
+        };
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("agent", new(NodeTypes.Agent, "1.0.0", Agent: configuredAgent))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "iterator-delegated-model-byte-reservation-proof", "input", nodes,
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-agent", new(new("input", "out"), new("agent", "in"), "data"))
+                .Add("agent-output", new(new("agent", "out"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-agent", Edge("input", "then", "agent", "execute"))
+                .Add("agent-output", Edge("agent", "out", "output", "execute")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
+            AgentProfiles = profiles.ToImmutableSortedDictionary(profile => profile.Id + "@" + profile.Version,
+                profile => profile, StringComparer.Ordinal)
+        };
+        var revision = WorkflowRevision.Create(definition, "iterator-delegated-model-byte-reservation-proof");
+        var provider = new AgentProviderDescriptor(providerId, "Proof delegated model", "proof-chat-v1", true);
+
+        foreach (var candidate in new[] { "structured", "fresh-subworkflow", "hybrid" })
+        {
+            var baseline = await ExecuteCandidateAsync(candidate, maximumBytes: 4_000_000);
+            Assert.NotNull(baseline.Output);
+            Assert.Equal(4, baseline.Model.Prompts.Length);
+            Assert.Equal(2, baseline.Model.MaximumConcurrentDelegateCalls);
+            Assert.Single(baseline.Events, evt => evt.Kind == ExecutionEventKinds.AgentTeamStarted);
+            Assert.Single(baseline.Events, evt => evt.Kind == ExecutionEventKinds.AgentTeamCompleted);
+            Assert.Equal(4, baseline.Events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested));
+            Assert.Equal(4, baseline.Events.Count(evt => evt.Kind == ExecutionEventKinds.ModelResponded));
+
+            var parentInvocation = Assert.Single(baseline.Events, evt =>
+                evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent").InvocationId;
+            var delegatedRequests = baseline.Events.Where(evt =>
+                    evt.Kind == ExecutionEventKinds.ModelRequested && evt.InvocationId != parentInvocation)
+                .OrderBy(evt => evt.Sequence).ToArray();
+            Assert.Equal(2, delegatedRequests.Length);
+            var secondRequest = delegatedRequests[1];
+            var prefixBytes = baseline.Events.Where(evt => evt.Sequence < secondRequest.Sequence).Sum(EventBytes);
+            const long maximumOutcomeBytes = 64_000;
+            const long reservedFailureBytes = 64_000;
+            const long byteAdmissionMargin = 4_096;
+            var maximumBytes = checked(prefixBytes + EventBytes(secondRequest) + (2 * maximumOutcomeBytes) +
+                reservedFailureBytes - byteAdmissionMargin);
+
+            var limited = await ExecuteCandidateAsync(candidate, maximumBytes);
+            Assert.Null(limited.Output);
+            Assert.True(limited.ReservationRejected,
+                $"{candidate} dispatched a delegated model call after its second concurrent outcome reservation " +
+                $"was rejected at {maximumBytes} bytes.");
+            Assert.Equal(1, limited.Model.MaximumConcurrentDelegateCalls);
+            Assert.Equal(2, limited.Model.Prompts.Length); // parent plus only the admitted delegate
+            Assert.Equal(2, limited.Events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested));
+            var limitedParentInvocation = Assert.Single(limited.Events, evt =>
+                evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent").InvocationId;
+            Assert.DoesNotContain(limited.Events, evt => evt.Kind == ExecutionEventKinds.ModelResponded &&
+                evt.InvocationId != limitedParentInvocation);
+            Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.AgentFailed);
+            Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.AgentTeamFailed);
+            Assert.DoesNotContain(limited.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "agent");
+            Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+            Assert.Equal(1, limited.PendingOutcomeReservations);
+            Assert.Equal(limited.Events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested) -
+                limited.Events.Count(evt => evt.Kind == ExecutionEventKinds.ModelResponded),
+                limited.PendingOutcomeReservations);
+            Assert.True(limited.PersistedEventBytes <= maximumBytes);
+            Assert.Equal(limited.Events.Sum(EventBytes), limited.PersistedEventBytes);
+        }
+
+        async Task<DelegatedCandidateResult> ExecuteCandidateAsync(string candidate, long maximumBytes)
+        {
+            using var store = new ProofRunStore(revision, input, sqlite);
+            var recorder = new ReservedEvidenceProofRecorder(store, maximumEvents: 512,
+                maximumBytes, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
+                maximumOutcomeBytes: 64_000, maximumConcurrentOutcomeReservations: 2,
+                reservationRequestKind: ExecutionEventKinds.ModelRequested,
+                reservationOutcomeKind: ExecutionEventKinds.ModelResponded);
+            var model = new ParallelDelegateEvidenceModel(parentInstructions, researcherInstructions,
+                reviewerInstructions, task, delegateOutputCharacters: 128);
+            var agents = new AgentNodeExecutor(
+                [new AgentProviderRegistration(provider, () => new ParallelDelegateEvidenceChatClient(model))],
+                new EchoToolBroker());
+            var tools = new EchoToolBroker();
+            string? output = null;
+
+            if (candidate == "structured")
+            {
+                try
+                {
+                    var result = await new WorkflowRunner(tools, agents)
+                        .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                            recorder.RecordResequencedAsync);
+                    output = result.Output;
+                }
+                catch (EvidenceBudgetExhaustedException) when (recorder.ReservationRejected.IsCompleted) { }
+            }
+            else if (candidate == "fresh-subworkflow")
+            {
+                await RecordRootAsync(ExecutionEventKinds.Started);
+                var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder, agents, tools);
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                var failed = false;
+                await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+                await foreach (var evt in run.WatchStreamAsync())
+                {
+                    if (evt is WorkflowOutputEvent { Data: string value }) output = value;
+                    if (evt is WorkflowErrorEvent) failed = true;
+                }
+                await RecordRootAsync(failed || output is null
+                    ? ExecutionEventKinds.Failed
+                    : ExecutionEventKinds.Completed);
+            }
+            else
+            {
+                var result = await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, tools, input);
+                output = result.Output;
+            }
+
+            var events = recorder.Snapshot();
+            AssertPersistedSequence(store, events, output is null ? "failed" : "completed");
+            return new(output, events, model, recorder.PendingOutcomeReservations,
+                recorder.PersistedEventBytes, recorder.ReservationRejected.IsCompleted);
+
+            ValueTask RecordRootAsync(string kind) => recorder.RecordResequencedAsync(new ExecutionEvent(
+                store.RunId, store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow, kind));
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_SettleProductionMcpTimeoutReservations(bool sqlite)
     {
         const string input = "[\"one\"]";
@@ -3347,6 +3500,10 @@ public sealed class ArrayIterationVawBodyProofTests
 
     private sealed record CandidateProductionMcpReservationResult(string? Output, ExecutionEvent[] Events,
         int MaximumPendingReservations, int PendingReservations, bool ReservationRejected);
+
+    private sealed record DelegatedCandidateResult(string? Output, ExecutionEvent[] Events,
+        ParallelDelegateEvidenceModel Model, int PendingOutcomeReservations, long PersistedEventBytes,
+        bool ReservationRejected);
 
     private sealed record CandidateBudgetResult(string? Output, ExecutionEvent[] Events, int ModelCalls,
         string[] ToolQueries, int PendingOutcomeReservations, long PersistedEventBytes,

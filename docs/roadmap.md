@@ -398,9 +398,18 @@ will be introduced.
       cases). The full Agent Framework suite passes 348/348. This remains
       proof-only accounting, not production budget ownership; see Decision
       0070.
-    - [ ] Complete remaining budget proof for delegated tools, concurrent
-      model/delegated byte caps, aggregate work limits, and broader
-      external-outcome boundaries.
+    - [x] Compare delegated model outcome-byte reservations across the
+      structured, fresh-subworkflow, and hybrid candidates, using the real
+      `AgentNodeExecutor` team fan-out and file/SQLite stores. A synchronized
+      baseline records both delegated requests; under a prefix-calibrated cap,
+      the competing request is rejected before provider dispatch, the admitted
+      sibling is canceled with its unresolved outcome reservation retained,
+      and the run fails with a contiguous persisted prefix (6/6
+      candidate-store cases).
+    - [ ] Complete remaining budget proof for direct sibling-model byte caps,
+      delegated tools, aggregate work limits, and broader external-outcome
+      boundaries. These harness reservations are not production budget
+      ownership.
       Store reopen/process loss, nested frames, typed iterator pins, Sequence,
       collaboration, and crash recovery also remain open.
     - [x] Measure representative maximum-shaped `model.responded`,

@@ -129,7 +129,7 @@ join completes. File and SQLite cases pass (2/2), and the complete Agent
 Framework suite passes (344/344). The broker connections and tool server are
 real, but the evidence budget remains a test-only recorder; this selects no
 production scheduler or budget owner. Delegated reservations, concurrent
-model/delegated byte-cap exhaustion, aggregate work bounds, and full
+model byte-cap exhaustion, aggregate work bounds, and full
 outcome-failure matrix remain open.
 
 The same case calibrates a second byte ceiling from the persisted prefix through
@@ -142,6 +142,19 @@ candidate (6/6 candidate-store cases). This proves concurrent production MCP
 reservation under a measured byte cap, but selects no global cap or production
 budget owner. The full Agent Framework suite passes 348/348 with both
 concurrent count and byte reservation cases included.
+
+`IteratorCandidates_ReserveConcurrentDelegatedModelOutcomesAndBytesBeforeDispatch`
+uses the production `AgentNodeExecutor` team fan-out in each iterator candidate.
+The baseline records the parent model request and both synchronized delegated
+requests. A byte ceiling calibrated at the second delegated request rejects
+that reservation before the second provider dispatch; the admitted delegate is
+canceled when its sibling fails and its outstanding model outcome reservation
+remains represented as unresolved evidence. The root fails with a contiguous
+persisted prefix. Structured, fresh-subworkflow, and hybrid candidates pass
+against both file and SQLite stores (6/6 candidate-store cases). The proof
+closes only delegated-model concurrent byte admission in the test harness; it
+does not establish direct sibling-model byte limits, delegated MCP limits,
+aggregate work caps, or production budget ownership.
 
 `IteratorCandidates_SettleProductionMcpTimeoutReservations` compares the
 post-dispatch timeout path for the same parallel direct-MCP body through the
@@ -797,10 +810,10 @@ limit remain test-only; this does not add a production run budget or compare the
 three iterator candidates through the production broker.
 
 This is a test-only accounting harness, not a production run budget. It proves
-reservation mechanics for one bounded model call and one bounded MCP tool call,
-using test-specific outcome byte allowances. Together with the concurrent
-broker case above, it does not prove worst-case bounds for all event shapes,
-delegated MCP reservation races, unlimited turns, timeout/cancellation
+reservation mechanics for bounded model calls, delegated model fan-out, and MCP
+tool calls, using test-specific outcome byte allowances. Together with the
+concurrent broker case above, it does not prove worst-case bounds for all event
+shapes, delegated MCP reservation races, unlimited turns, timeout/cancellation
 settlement for every outcome, or a production terminal reserve. No aggregate
 cap is selected.
 
