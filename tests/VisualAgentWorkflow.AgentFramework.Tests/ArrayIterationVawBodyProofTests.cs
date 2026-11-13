@@ -3019,7 +3019,7 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task IteratorCandidates_ReserveConcurrentProductionMcpOutcomesBeforeDispatch(bool sqlite)
+    public async Task IteratorCandidates_ReserveConcurrentProductionMcpOutcomesAndBytesBeforeDispatch(bool sqlite)
     {
         const string input = "[\"one\"]";
         var registrations = CreateDemoMcpRegistrations();
@@ -3054,6 +3054,27 @@ public sealed class ArrayIterationVawBodyProofTests
             Assert.Equal(2, baseline.MaximumPendingReservations);
             Assert.Equal(0, baseline.PendingReservations);
 
+            var authorizations = baseline.Events.Where(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized)
+                .OrderBy(evt => evt.Sequence).ToArray();
+            var secondAuthorization = authorizations[1];
+            var bytesBeforeSecondAuthorization = baseline.Events
+                .Where(evt => evt.Sequence < secondAuthorization.Sequence).Sum(EventBytes);
+            var concurrentOutcomeByteLimit = bytesBeforeSecondAuthorization + EventBytes(secondAuthorization) +
+                (2 * 32_000L) + 64_000 - 4_096;
+            var byteLimited = await ExecuteCandidateAsync(candidate, maximumConcurrentReservations: 2,
+                maximumBytes: concurrentOutcomeByteLimit);
+            Assert.Null(byteLimited.Output);
+            Assert.True(byteLimited.ReservationRejected);
+            Assert.Single(byteLimited.Events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+            Assert.Single(byteLimited.Events, evt => evt.Kind == ExecutionEventKinds.ToolFailed);
+            Assert.Single(byteLimited.Events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain);
+            Assert.DoesNotContain(byteLimited.Events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+            Assert.DoesNotContain(byteLimited.Events,
+                evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+            Assert.Contains(byteLimited.Events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+            Assert.Equal(1, byteLimited.MaximumPendingReservations);
+            Assert.Equal(0, byteLimited.PendingReservations);
+
             var limited = await ExecuteCandidateAsync(candidate, maximumConcurrentReservations: 1);
             Assert.Null(limited.Output);
             Assert.True(limited.ReservationRejected);
@@ -3068,11 +3089,11 @@ public sealed class ArrayIterationVawBodyProofTests
         }
 
         async Task<CandidateProductionMcpReservationResult> ExecuteCandidateAsync(string candidate,
-            int maximumConcurrentReservations)
+            int maximumConcurrentReservations, long maximumBytes = 4_000_000)
         {
             using var store = new ProofRunStore(revision, input, sqlite);
             var recorder = new ReservedEvidenceProofRecorder(store, maximumEvents: 512,
-                maximumBytes: 4_000_000, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
+                maximumBytes, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
                 maximumOutcomeBytes: 32_000,
                 maximumConcurrentOutcomeReservations: maximumConcurrentReservations,
                 reservationRequestKind: ExecutionEventKinds.ToolAuthorized,

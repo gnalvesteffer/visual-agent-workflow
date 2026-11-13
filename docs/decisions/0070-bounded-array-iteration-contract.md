@@ -119,7 +119,7 @@ follows below. Delegated MCP tools, byte-cap exhaustion under concurrency,
 aggregate work limits, and production budget ownership remain open. No
 scheduler or public cap is selected.
 
-`IteratorCandidates_ReserveConcurrentProductionMcpOutcomesBeforeDispatch`
+`IteratorCandidates_ReserveConcurrentProductionMcpOutcomesAndBytesBeforeDispatch`
 repeats the three-candidate comparison with the production `McpToolBroker` and
 two synchronized real stdio `demo.slow` nodes. With two outcome reservations,
 both tool outcomes persist and the join completes. With one, one call is
@@ -128,8 +128,20 @@ the admitted call records an uncertain outcome after sibling cancellation; no
 join completes. File and SQLite cases pass (2/2), and the complete Agent
 Framework suite passes (344/344). The broker connections and tool server are
 real, but the evidence budget remains a test-only recorder; this selects no
-production scheduler or budget owner. Delegated reservations, concurrent byte
-caps, aggregate work bounds, and full outcome-failure matrix remain open.
+production scheduler or budget owner. Delegated reservations, concurrent
+model/delegated byte-cap exhaustion, aggregate work bounds, and full
+outcome-failure matrix remain open.
+
+The same case calibrates a second byte ceiling from the persisted prefix through
+the second authorization, then leaves 4,096 bytes of margin below the capacity
+needed to reserve both bounded MCP outcomes. For all three candidates, one
+production-broker authorization is persisted, the competing authorization is
+rejected before dispatch, the admitted outcome settles as uncertain after
+sibling cancellation, and the join is suppressed. Both stores pass for each
+candidate (6/6 candidate-store cases). This proves concurrent production MCP
+reservation under a measured byte cap, but selects no global cap or production
+budget owner. The full Agent Framework suite passes 348/348 with both
+concurrent count and byte reservation cases included.
 
 `IteratorCandidates_SettleProductionMcpTimeoutReservations` compares the
 post-dispatch timeout path for the same parallel direct-MCP body through the
