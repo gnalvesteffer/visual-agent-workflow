@@ -2,6 +2,18 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Typed-array iterator candidate aggregate work caps
+
+The structured, fresh-subworkflow, and hybrid proof candidates now share
+test-only serial caps for body activations, model dispatches, and MCP
+authorizations. In both file and SQLite stores, each cap rejects the second
+unit before its body, provider request, or tool dispatch begins and records a
+failed root run. The matrix covers 18 limited candidate/store/cap cases plus
+six baselines; the focused test passes 2/2 and the Agent Framework suite passes
+354/354. This is candidate-recorder evidence only: it does not select numeric
+limits, prove concurrent atomic quotas, or implement a production budget
+owner. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Static fixed-node pin descriptor convergence
 
 The registered static descriptor is now the single pin definition for fixed

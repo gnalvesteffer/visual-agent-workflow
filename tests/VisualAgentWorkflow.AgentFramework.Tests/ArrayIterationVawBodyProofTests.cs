@@ -2814,6 +2814,105 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_EnforceAggregateWorkLimitsAcrossActivations(bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "array-iteration-candidate-aggregate-work-limit-proof");
+        const string input = "[\"first\",\"second\"]";
+
+        foreach (var candidate in new[] { "structured", "fresh-subworkflow", "hybrid" })
+        {
+            var baseline = await ExecuteCandidateAsync(candidate);
+            Assert.Equal("echo:bounded;echo:bounded", baseline.Output);
+            Assert.Equal(2, baseline.ModelCalls);
+            Assert.Equal(["bounded", "bounded"], baseline.ToolQueries);
+            Assert.Equal(2, baseline.Events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+            Assert.Equal(2, baseline.Events.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
+            Assert.Equal(2, baseline.Events.Count(evt => evt.Kind == ExecutionEventKinds.ToolCompleted));
+
+            foreach (var workLimit in new[] { "activations", "model-dispatches", "tool-dispatches" })
+            {
+                var limited = await ExecuteCandidateAsync(candidate, workLimit);
+                Assert.Null(limited.Output);
+                Assert.True(limited.WorkLimitRejected, $"{candidate} did not enforce {workLimit}.");
+                Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+
+                var expectedModelCalls = workLimit == "tool-dispatches" ? 2 : 1;
+                Assert.Equal(expectedModelCalls, limited.ModelCalls);
+                Assert.Single(limited.ToolQueries);
+                Assert.Equal(workLimit == "activations" ? 1 : 2,
+                    limited.Events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+                Assert.Equal(expectedModelCalls,
+                    limited.Events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested));
+                Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+                Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+            }
+        }
+
+        async Task<CandidateWorkLimitResult> ExecuteCandidateAsync(string candidate, string? workLimit = null)
+        {
+            using var store = new ProofRunStore(revision, input, sqlite);
+            var recorder = new ReservedEvidenceProofRecorder(store, maximumEvents: 512,
+                maximumBytes: 4_000_000, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
+                maximumOutcomeBytes: 64_000,
+                maximumLoopActivations: workLimit == "activations" ? 1 : int.MaxValue,
+                maximumModelDispatches: workLimit == "model-dispatches" ? 1 : int.MaxValue,
+                maximumToolDispatches: workLimit == "tool-dispatches" ? 1 : int.MaxValue);
+            var model = new SharedBudgetProofModel();
+            var provider = new AgentProviderDescriptor("proof.echo-agent", "Proof model", "proof-chat-v1", true);
+            var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+            var agents = new AgentNodeExecutor(
+                [new AgentProviderRegistration(provider, () => new SharedBudgetProofChatClient(model))],
+                new EchoToolBroker());
+            string? output = null;
+
+            if (candidate == "structured")
+            {
+                try
+                {
+                    var result = await new WorkflowRunner(tools, agents)
+                        .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                            recorder.RecordResequencedAsync);
+                    output = result.Output;
+                }
+                catch (EvidenceBudgetExhaustedException)
+                {
+                }
+            }
+            else if (candidate == "fresh-subworkflow")
+            {
+                await recorder.RecordResequencedAsync(new ExecutionEvent(store.RunId,
+                    store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow,
+                    ExecutionEventKinds.Started));
+                var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder, agents, tools);
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                var failed = false;
+                await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+                await foreach (var evt in run.WatchStreamAsync())
+                {
+                    if (evt is WorkflowOutputEvent { Data: string value }) output = value;
+                    if (evt is WorkflowErrorEvent) failed = true;
+                }
+
+                await recorder.RecordResequencedAsync(new ExecutionEvent(store.RunId,
+                    store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow,
+                    failed ? ExecutionEventKinds.Failed : ExecutionEventKinds.Completed));
+            }
+            else
+            {
+                var result = await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, tools, input);
+                output = result.Output;
+            }
+
+            var events = recorder.Snapshot();
+            AssertPersistedSequence(store, events, output is null ? "failed" : "completed");
+            return new(output, events, model.Calls, tools.Queries, recorder.WorkLimitRejected.IsCompleted);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_ReserveConcurrentModelOutcomesBeforeDispatch(bool sqlite)
     {
         const string providerId = "proof.iterator-parallel-reservation";
@@ -3708,6 +3807,9 @@ public sealed class ArrayIterationVawBodyProofTests
         string[] ToolQueries, int PendingOutcomeReservations, long PersistedEventBytes,
         bool ReservationRejected);
 
+    private sealed record CandidateWorkLimitResult(string? Output, ExecutionEvent[] Events, int ModelCalls,
+        string[] ToolQueries, bool WorkLimitRejected);
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -3890,10 +3992,6 @@ public sealed class ArrayIterationVawBodyProofTests
             var parameters = ImmutableSortedDictionary<string, string>.Empty
                 .Add("index", index.ToString(System.Globalization.CultureInfo.InvariantCulture));
             var frame = parentFrame.Enter("array-loop", index, items[index], parameters);
-            await recorder.RecordResequencedAsync(new ExecutionEvent(runId, revisionId, 0,
-                DateTimeOffset.UtcNow, ExecutionEventKinds.LoopIterationStarted, "array-loop", frame.Id)
-            { ScopeId = frame.ScopeId });
-
             ValueTask Record(ExecutionEvent evt)
             {
                 if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
@@ -3904,6 +4002,9 @@ public sealed class ArrayIterationVawBodyProofTests
 
             try
             {
+                await recorder.RecordResequencedAsync(new ExecutionEvent(runId, revisionId, 0,
+                    DateTimeOffset.UtcNow, ExecutionEventKinds.LoopIterationStarted, "array-loop", frame.Id)
+                { ScopeId = frame.ScopeId });
                 var result = await new WorkflowRunner(tools, agents).ExecuteWithOutcomeAsync(runId,
                     revision, items[index], parameters, Record);
                 if (result.Failed || result.Output is null)
@@ -4406,16 +4507,23 @@ public sealed class ArrayIterationVawBodyProofTests
         private readonly long reservedFailureBytes;
         private readonly long maximumOutcomeBytes;
         private readonly int maximumConcurrentOutcomeReservations;
+        private readonly int maximumLoopActivations;
+        private readonly int maximumModelDispatches;
+        private readonly int maximumToolDispatches;
         private readonly string reservationRequestKind;
         private readonly string reservationOutcomeKind;
         private readonly string? additionalReservationOutcomeKind;
         private readonly object gate = new();
         private readonly List<ExecutionEvent> events = [];
         private readonly TaskCompletionSource reservationRejected = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource workLimitRejected = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int ordinaryEvents;
         private int failureEvents;
         private int pendingOutcomeReservations;
         private int maximumPendingOutcomeReservationsObserved;
+        private int loopActivations;
+        private int modelDispatches;
+        private int toolDispatches;
         private long ordinaryBytes;
         private long pendingOutcomeBytes;
         private long failureBytes;
@@ -4426,7 +4534,10 @@ public sealed class ArrayIterationVawBodyProofTests
             int maximumConcurrentOutcomeReservations = int.MaxValue,
             string reservationRequestKind = ExecutionEventKinds.ModelRequested,
             string reservationOutcomeKind = ExecutionEventKinds.ModelResponded,
-            string? additionalReservationOutcomeKind = null)
+            string? additionalReservationOutcomeKind = null,
+            int maximumLoopActivations = int.MaxValue,
+            int maximumModelDispatches = int.MaxValue,
+            int maximumToolDispatches = int.MaxValue)
         {
             this.runStore = runStore;
             ordinaryEventLimit = maximumEvents - reservedFailureEvents;
@@ -4435,11 +4546,15 @@ public sealed class ArrayIterationVawBodyProofTests
             this.reservedFailureBytes = reservedFailureBytes;
             this.maximumOutcomeBytes = maximumOutcomeBytes;
             this.maximumConcurrentOutcomeReservations = maximumConcurrentOutcomeReservations;
+            this.maximumLoopActivations = maximumLoopActivations;
+            this.maximumModelDispatches = maximumModelDispatches;
+            this.maximumToolDispatches = maximumToolDispatches;
             this.reservationRequestKind = reservationRequestKind;
             this.reservationOutcomeKind = reservationOutcomeKind;
             this.additionalReservationOutcomeKind = additionalReservationOutcomeKind;
             if (ordinaryEventLimit < 0 || reservedFailureEvents < FailureEvidenceKinds.Count || maximumBytes < reservedFailureBytes ||
-                reservedFailureBytes < 0 || maximumOutcomeBytes < 0 || maximumConcurrentOutcomeReservations < 1)
+                reservedFailureBytes < 0 || maximumOutcomeBytes < 0 || maximumConcurrentOutcomeReservations < 1 ||
+                maximumLoopActivations < 1 || maximumModelDispatches < 1 || maximumToolDispatches < 1)
                 throw new ArgumentOutOfRangeException(nameof(maximumEvents));
         }
 
@@ -4448,6 +4563,7 @@ public sealed class ArrayIterationVawBodyProofTests
         public int MaximumPendingOutcomeReservationsObserved { get { lock (gate) return maximumPendingOutcomeReservationsObserved; } }
         public long PersistedEventBytes { get { lock (gate) return persistedEventBytes; } }
         public Task ReservationRejected => reservationRejected.Task;
+        public Task WorkLimitRejected => workLimitRejected.Task;
 
         public ValueTask RecordAsync(ExecutionEvent evt)
         {
@@ -4471,6 +4587,14 @@ public sealed class ArrayIterationVawBodyProofTests
             var isRequest = evt.Kind == reservationRequestKind;
             var isOutcome = evt.Kind == reservationOutcomeKind || evt.Kind == additionalReservationOutcomeKind;
             var isFailureEvidence = FailureEvidenceKinds.Contains(evt.Kind);
+
+            if ((evt.Kind == ExecutionEventKinds.LoopIterationStarted && loopActivations >= maximumLoopActivations) ||
+                (evt.Kind == ExecutionEventKinds.ModelRequested && modelDispatches >= maximumModelDispatches) ||
+                (evt.Kind == ExecutionEventKinds.ToolAuthorized && toolDispatches >= maximumToolDispatches))
+            {
+                workLimitRejected.TrySetResult();
+                throw new EvidenceBudgetExhaustedException();
+            }
 
             if (isRequest && pendingOutcomeReservations >= maximumConcurrentOutcomeReservations)
             {
@@ -4496,6 +4620,10 @@ public sealed class ArrayIterationVawBodyProofTests
             runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
             events.Add(evt);
             persistedEventBytes += bytes;
+
+            if (evt.Kind == ExecutionEventKinds.LoopIterationStarted) loopActivations++;
+            if (evt.Kind == ExecutionEventKinds.ModelRequested) modelDispatches++;
+            if (evt.Kind == ExecutionEventKinds.ToolAuthorized) toolDispatches++;
 
             if (isRequest)
             {
@@ -4530,7 +4658,7 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     private sealed class EvidenceBudgetExhaustedException()
-        : InvalidOperationException("The run evidence budget cannot reserve the model request and outcome.");
+        : InvalidOperationException("A test-only work or evidence budget was exhausted.");
 
     private sealed class EchoAgentExecutor(string? failInput = null, string? failNodeId = null) : IAgentNodeExecutor
     {
@@ -4746,13 +4874,15 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
-    private sealed class EchoToolBroker(Func<string, string>? respond = null) : INodeToolBroker
+    private sealed class EchoToolBroker(Func<string, string>? respond = null,
+        bool recordToolDispatchEvents = false) : INodeToolBroker
     {
         private readonly ConcurrentQueue<string> queries = new();
         public string[] Queries => [.. queries];
         public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
-        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new EchoToolScope(queries, respond);
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) =>
+            new EchoToolScope(queries, respond, invocation, recordToolDispatchEvents);
     }
 
     private static IReadOnlyList<McpToolRegistration> CreateDemoMcpRegistrations()
@@ -4803,18 +4933,28 @@ public sealed class ArrayIterationVawBodyProofTests
         return new McpToolBroker(synchronized, new DemoToolPolicy(), timeout ?? TimeSpan.FromSeconds(20));
     }
 
-    private sealed class EchoToolScope(ConcurrentQueue<string> queries, Func<string, string>? respond) : INodeToolScope
+    private sealed class EchoToolScope(ConcurrentQueue<string> queries, Func<string, string>? respond,
+        NodeInvocationContext invocation, bool recordToolDispatchEvents) : INodeToolScope
     {
         public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
         public Task<string> InvokeAsync(string bindingId, string input, CancellationToken cancellationToken = default) =>
             Task.FromException<string>(new NotSupportedException("The proof expects structured MCP arguments."));
-        public Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments, CancellationToken cancellationToken = default)
+        public async Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments,
+            CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var query = arguments.GetProperty("query").GetString()!;
+            var toolCallId = Guid.NewGuid();
+            if (recordToolDispatchEvents)
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolAuthorized,
+                    JsonSerializer.Serialize(new { toolCallId, bindingId, input = arguments }));
             queries.Enqueue(query);
-            return Task.FromResult(respond?.Invoke(query) ?? $"echo:{query}");
+            var output = respond?.Invoke(query) ?? $"echo:{query}";
+            if (recordToolDispatchEvents)
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolCompleted,
+                    JsonSerializer.Serialize(new { toolCallId, bindingId, output }));
+            return output;
         }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }

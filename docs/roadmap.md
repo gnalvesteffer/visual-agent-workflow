@@ -237,9 +237,8 @@ will be introduced.
       conformance or a production budget owner. The suite passes 348/348; see
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [ ] Add authored typed array item/index pins and a real Break node, then
-      continue the hybrid comparison for aggregate work/model-turn/tool limits,
-      concurrent and delegated reservations, other join/cancellation races,
-      and complete evidence bounds. Keep
+      continue the hybrid comparison for broader external-outcome boundaries,
+      other join/cancellation races, and complete evidence bounds. Keep
       production architecture unselected until the shared lifecycle and budget
       owner is proven.
     - [x] Add a non-production candidate-1 contract fixture proving nested frame
@@ -417,6 +416,18 @@ will be introduced.
       byte caps reject the competing delegated call before dispatch, persist a
       host failure for that call, allow the agent to recover, and complete the
       team and workflow (18 baseline/limited candidate-store executions).
+    - [x] Compare serial aggregate work caps across structured,
+      fresh-subworkflow, and hybrid candidates in file and SQLite stores.
+      Shared test-only limits reject the next activation before its body starts,
+      the next model request before provider dispatch, and the next tool
+      authorization before MCP dispatch (18 limited candidate/store/cap cases;
+      six baselines). Focused tests pass (2/2); the full Agent Framework suite
+      passes (354/354). This does not establish a production budget owner,
+      concurrency-safe work quotas, or broader external-outcome boundaries;
+      see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [ ] Complete broader external-outcome boundaries, store reopen/process
+      loss, and the remaining evidence matrix. Harness reservations and work
+      caps are not production budget ownership.
     - [ ] Complete remaining budget proof for aggregate work limits and
       broader external-outcome boundaries. These harness reservations are not
       production budget ownership.
