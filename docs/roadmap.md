@@ -192,8 +192,15 @@ will be introduced.
       not complete, and no later item starts in file and SQLite stores (2/2).
       All five hybrid proof theories pass (10/10); the full Agent Framework
       suite passes 324/324.
-    - [ ] Exercise nested `Break` dispatch and shared atomic budgets through the
-      hybrid candidate. Other join/cancellation races also remain open.
+    - [x] Exercise proof-only nearest-loop break routing in the hybrid
+      coordinator using a private body-result sentinel: the inner loop stops,
+      the outer loop continues, and production Agent/MCP evidence retains the
+      nested scopes in file and SQLite stores (2/2). All six hybrid proof
+      theories pass (12/12); the full Agent Framework suite passes 326/326.
+      This does not add an authored Break node.
+    - [ ] Add authored typed array item/index pins and a real Break node, then
+      verify node dispatch and shared atomic budgets through the hybrid
+      candidate. Other join/cancellation races also remain open.
     - [x] Add a non-production candidate-1 contract fixture proving nested frame
       identity, activation-scoped runtime values and variables, nearest-loop
       lookup, one-shot concurrent fork release, and cancellation before the

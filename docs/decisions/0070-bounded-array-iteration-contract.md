@@ -40,12 +40,16 @@ hybrid cases verify explicit cancellation of a nested production Agent
 activation, cancellation after both parallel Agent branches have entered, and
 a synchronized parallel failure after the sibling Agent completes. They
 preserve child-scope invocation identity, suppress the join, and prevent
-admission of the following nested item in both stores. The focused nested
-cancellation/failure variants pass (6/6); all five hybrid proof theories pass
-(10/10), and the full Agent Framework suite passes 324/324. These are
-representative controlled outcomes; nested `Break` dispatch, other
-join/cancellation races, and shared atomic work/evidence budgets remain
-unproven. The hybrid comparison advances but does not select the architecture.
+admission of the following nested item in both stores. The proof-only
+`HybridFrameCoordinator_BreakStopsNearestNestedLoopAndOuterLoopContinues` case
+uses a private sentinel from the tool fixture as a stand-in for a future Break
+node. It verifies the hybrid coordinator targets the current nearest frame,
+stops the inner iteration, preserves the enclosing iteration, and persists
+scoped production Agent/MCP evidence through both stores (2/2). All six hybrid
+proof theories pass (12/12), and the full Agent Framework suite passes
+326/326. This does not prove an authored Break node or schema contract. Other
+join/cancellation races and shared atomic work/evidence budgets also remain
+unproven; the hybrid comparison does not select the architecture.
 
 ## Status
 

@@ -2392,6 +2392,107 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.DoesNotContain(events, evt => evt.ScopeId == "outer-loop/4/inner-loop/1");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HybridFrameCoordinator_BreakStopsNearestNestedLoopAndOuterLoopContinues(bool sqlite)
+    {
+        var definition = NestedBodyDefinition();
+        var revision = WorkflowRevision.Create(definition, "array-iteration-hybrid-nested-break-proof");
+        const string input = "[\"outer-a\",\"outer-b\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore);
+        var agents = new EchoAgentExecutor();
+        var tools = new EchoToolBroker(query => query.StartsWith("BREAK:", StringComparison.Ordinal)
+            ? HybridLoopProofBreak.Signal
+            : $"echo:{query}");
+        var breakDispatches = new ConcurrentQueue<HybridLoopProofBreakDispatch>();
+
+        var output = await RunHybridLoopProofAsync(runStore.RunId, revision, recorder, agents, tools,
+            "outer-loop", ["outer-a", "outer-b"], parentFrame: null, indexParameterId: "outerIndex",
+            breakDispatches, async outerFrame =>
+            {
+                var innerOutput = await RunHybridLoopProofAsync(runStore.RunId, revision, recorder, agents,
+                    tools, "inner-loop", ["continue", "break", "must-not-run"], outerFrame, "index",
+                    breakDispatches, async innerFrame =>
+                    {
+                        ValueTask Record(ExecutionEvent evt)
+                        {
+                            if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                                ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
+                                ExecutionEventKinds.Terminated)
+                                return ValueTask.CompletedTask;
+                            recorder.Append(evt with { ScopeId = innerFrame.ScopeId });
+                            return ValueTask.CompletedTask;
+                        }
+
+                        var body = await new WorkflowRunner(tools, agents).ExecuteWithOutcomeAsync(
+                            runStore.RunId, revision, innerFrame.Item, innerFrame.Parameters, Record);
+                        return body.Output ?? throw new InvalidOperationException("The nested body had no output.");
+                    });
+                return $"outer-{outerFrame.Index}:{innerOutput}";
+            });
+        recorder.CompleteRoot();
+
+        Assert.Equal("outer-0:echo:CONTINUE:0/0;outer-1:echo:CONTINUE:0/1", output);
+        Assert.Equal(["CONTINUE:0/0", "BREAK:1/0", "CONTINUE:0/1", "BREAK:1/1"], agents.Inputs);
+        Assert.Equal(agents.Inputs, tools.Queries);
+        var dispatches = breakDispatches.ToArray();
+        Assert.Equal(2, dispatches.Length);
+        Assert.All(dispatches, dispatch => Assert.Equal(dispatch.SourceFrameId, dispatch.TargetFrameId));
+        Assert.Equal(["outer-loop/0/inner-loop/1", "outer-loop/1/inner-loop/1"],
+            dispatches.Select(dispatch => dispatch.ScopeId));
+
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "completed");
+        Assert.DoesNotContain(events, evt => evt.ScopeId is
+            "outer-loop/0/inner-loop/2" or "outer-loop/1/inner-loop/2");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.NodeId == "outer-loop" && evt.ScopeId == "outer-loop/1");
+    }
+
+    private static async Task<string> RunHybridLoopProofAsync(Guid runId, WorkflowRevision revision,
+        ProofRecorder recorder, IAgentNodeExecutor agents, INodeToolBroker tools, string loopNodeId,
+        IReadOnlyList<string> items, WorkflowRunner.StructuredActivationFrame? parentFrame,
+        string indexParameterId, ConcurrentQueue<HybridLoopProofBreakDispatch> breakDispatches,
+        Func<WorkflowRunner.StructuredActivationFrame, Task<string>> executeBody)
+    {
+        var results = new List<string>(items.Count);
+        for (var index = 0; index < items.Count; index++)
+        {
+            var parameters = parentFrame?.Parameters.ToBuilder() ??
+                ImmutableSortedDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
+            parameters[indexParameterId] = index.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var frameParameters = parameters.ToImmutable();
+            var frame = parentFrame?.Enter(loopNodeId, index, items[index], frameParameters) ??
+                new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null, loopNodeId, index,
+                    items[index], frameParameters);
+            recorder.Append(ExecutionEventKinds.LoopIterationStarted, loopNodeId, frame.Id, frame.ScopeId);
+
+            var result = await executeBody(frame);
+            if (result == HybridLoopProofBreak.Signal)
+            {
+                var target = frame.NearestLoop();
+                breakDispatches.Enqueue(new(frame.Id, target.Id, frame.ScopeId));
+                if (target.Id != frame.Id)
+                    throw new InvalidOperationException("The hybrid coordinator did not own the nearest loop target.");
+                break;
+            }
+
+            recorder.Append(ExecutionEventKinds.LoopIterationCompleted, loopNodeId, frame.Id, frame.ScopeId);
+            results.Add(result);
+        }
+
+        return string.Join(';', results);
+    }
+
+    private static class HybridLoopProofBreak
+    {
+        public const string Signal = "__hybrid_loop_break_proof__";
+    }
+
+    private sealed record HybridLoopProofBreakDispatch(Guid SourceFrameId, Guid TargetFrameId, string ScopeId);
+
     private static WorkflowDefinition BodyDefinition(bool includeVariableStore = false, bool includeIndexParameter = false)
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
@@ -3039,16 +3140,16 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
-    private sealed class EchoToolBroker : INodeToolBroker
+    private sealed class EchoToolBroker(Func<string, string>? respond = null) : INodeToolBroker
     {
         private readonly ConcurrentQueue<string> queries = new();
         public string[] Queries => [.. queries];
         public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
-        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new EchoToolScope(queries);
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new EchoToolScope(queries, respond);
     }
 
-    private sealed class EchoToolScope(ConcurrentQueue<string> queries) : INodeToolScope
+    private sealed class EchoToolScope(ConcurrentQueue<string> queries, Func<string, string>? respond) : INodeToolScope
     {
         public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
@@ -3059,7 +3160,7 @@ public sealed class ArrayIterationVawBodyProofTests
             cancellationToken.ThrowIfCancellationRequested();
             var query = arguments.GetProperty("query").GetString()!;
             queries.Enqueue(query);
-            return Task.FromResult($"echo:{query}");
+            return Task.FromResult(respond?.Invoke(query) ?? $"echo:{query}");
         }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
