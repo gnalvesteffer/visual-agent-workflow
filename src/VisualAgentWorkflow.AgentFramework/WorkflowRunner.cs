@@ -302,7 +302,27 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         bool TerminationSignal = false, bool FailureSignal = false,
         Guid? ParallelActivationId = null, string? ParallelBranchId = null, string? ParallelForkNodeId = null,
         string? CollaborationTargetBranchId = null, bool CollaborationTransition = false,
-        SequenceMessageLineage? SequenceLineage = null, bool HasValue = true);
+        SequenceMessageLineage? SequenceLineage = null, bool HasValue = true,
+        StructuredActivationFrame? ActivationFrame = null);
+
+    internal sealed record StructuredActivationFrame(Guid Id, StructuredActivationFrame? Parent,
+        string LoopNodeId, int Index, string Item, ImmutableSortedDictionary<string, string> Parameters)
+    {
+        public string ScopeId => Parent is null
+            ? $"{LoopNodeId}/{Index}"
+            : $"{Parent.ScopeId}/{LoopNodeId}/{Index}";
+
+        public StructuredActivationFrame NearestLoop()
+        {
+            for (StructuredActivationFrame? current = this; current is not null; current = current.Parent)
+                if (!string.IsNullOrWhiteSpace(current.LoopNodeId)) return current;
+            throw new InvalidOperationException("The activation is not inside an iterator.");
+        }
+
+        public StructuredActivationFrame Enter(string loopNodeId, int index, string item,
+            ImmutableSortedDictionary<string, string> parameters) =>
+            new(Guid.NewGuid(), this, loopNodeId, index, item, parameters);
+    }
 
     /// <summary>Private transport identity for a future Sequence activation; never authored or persisted.</summary>
     private sealed record SequenceMessageLineage(Guid SequenceInvocationId, string SequenceNodeId,
@@ -674,28 +694,57 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         IReadOnlyDictionary<string, string>? parameters)
     {
         private int functionNodeVisits;
-        private readonly ConcurrentDictionary<(string NodeId, string PortId), GraphFunctionAudit> functionAudits = new();
-        private readonly ConcurrentDictionary<(string NodeId, string PortId), ExplicitGraphValue> runtimeValues = new();
-        private readonly ConcurrentDictionary<string, GraphFunctionEvaluationBudget> functionValueBudgets = new(StringComparer.Ordinal);
+        private readonly AsyncLocal<StructuredActivationFrame?> activeFrame = new();
+        private readonly ConcurrentDictionary<(Guid? FrameId, string NodeId, string PortId), GraphFunctionAudit> functionAudits = new();
+        private readonly ConcurrentDictionary<(Guid? FrameId, string NodeId, string PortId), ExplicitGraphValue> runtimeValues = new();
+        private readonly ConcurrentDictionary<(Guid? FrameId, string NodeId), GraphFunctionEvaluationBudget> functionValueBudgets = new();
 
-        public void SetRuntimeOutput(string nodeId, string portId, string dataType, object value) =>
-            runtimeValues[(nodeId, portId)] = new(dataType, value);
+        private string CurrentInput => activeFrame.Value?.Item ?? input;
+        private IReadOnlyDictionary<string, string>? CurrentParameters => activeFrame.Value?.Parameters ?? parameters;
 
-        public DataInputEvaluation ResolveInput(string nodeId, string inputPort)
+        public void SetRuntimeOutput(string nodeId, string portId, string dataType, object value,
+            StructuredActivationFrame? frame = null) =>
+            runtimeValues[((frame ?? activeFrame.Value)?.Id, nodeId, portId)] = new(dataType, value);
+
+        public IDisposable EnterActivation(StructuredActivationFrame? frame)
         {
-            var edge = definition.Connections.Single(connection => connection.Value.Target.NodeId == nodeId && connection.Value.Target.PortId == inputPort);
-            return ResolveInputConnection(edge.Key);
+            var previousFrame = activeFrame.Value;
+            activeFrame.Value = frame ?? previousFrame;
+            return new ActivationScope(() => activeFrame.Value = previousFrame);
         }
 
-        public DataInputEvaluation ResolveInputConnection(string connectionId)
+        private sealed class ActivationScope(Action restore) : IDisposable
+        {
+            private Action? restore = restore;
+            public void Dispose() => Interlocked.Exchange(ref restore, null)?.Invoke();
+        }
+
+        public DataInputEvaluation ResolveInput(string nodeId, string inputPort,
+            StructuredActivationFrame? frame = null)
+        {
+            var edge = definition.Connections.Single(connection => connection.Value.Target.NodeId == nodeId && connection.Value.Target.PortId == inputPort);
+            return ResolveInputConnection(edge.Key, frame);
+        }
+
+        public DataInputEvaluation ResolveInputConnection(string connectionId,
+            StructuredActivationFrame? frame = null)
         {
             if (!definition.Connections.TryGetValue(connectionId, out var edge) || edge is null)
                 throw new InvalidOperationException("The requested data connection is unavailable.");
-            var evaluated = ImmutableArray.CreateBuilder<EvaluatedDataValue>();
-            var cache = new Dictionary<(string NodeId, string PortId), ExplicitGraphValue>();
-            var active = new HashSet<(string NodeId, string PortId)>();
-            var value = ResolveOutput(edge.Source.NodeId, edge.Source.PortId, connectionId, evaluated, cache, active);
-            return new(value, evaluated.ToImmutable());
+            var previousFrame = activeFrame.Value;
+            activeFrame.Value = frame ?? previousFrame;
+            try
+            {
+                var evaluated = ImmutableArray.CreateBuilder<EvaluatedDataValue>();
+                var cache = new Dictionary<(string NodeId, string PortId), ExplicitGraphValue>();
+                var active = new HashSet<(string NodeId, string PortId)>();
+                var value = ResolveOutput(edge.Source.NodeId, edge.Source.PortId, connectionId, evaluated, cache, active);
+                return new(value, evaluated.ToImmutable());
+            }
+            finally
+            {
+                activeFrame.Value = previousFrame;
+            }
         }
 
         private ExplicitGraphValue ResolveOutput(string nodeId, string outputPort,
@@ -715,7 +764,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             {
                 if (!definition.Nodes.TryGetValue(nodeId, out var node) || node is null)
                     throw new InvalidOperationException("Pure data source is unavailable.");
-                if (runtimeValues.TryGetValue(key, out var runtimeValue))
+                var activationKey = (activeFrame.Value?.Id, nodeId, outputPort);
+                if (runtimeValues.TryGetValue(activationKey, out var runtimeValue))
                 {
                     cache.Add(key, runtimeValue);
                     evaluated.Add(new(nodeId, outputPort, runtimeValue.DataType, runtimeValue.Value, connectionId));
@@ -728,13 +778,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     {
                     NodeTypes.Input when outputPort == "out" && definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&
                         WorkflowDataTypes.TryGetArrayElementType(node.InputDataType, out var inputElementType) && inputElementType != WorkflowDataTypes.Json =>
-                        new ExplicitGraphValue(WorkflowDataTypes.ArrayOf(inputElementType), ParseTypedArrayInput(nodeId, inputElementType)),
+                        new ExplicitGraphValue(WorkflowDataTypes.ArrayOf(inputElementType), ParseTypedArrayInput(nodeId, inputElementType, CurrentInput)),
                     NodeTypes.Input when outputPort == "out" && definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph && node.InputDataType == WorkflowDataTypes.Json =>
-                        new ExplicitGraphValue(WorkflowDataTypes.Json, ParseJson(input)),
-                    NodeTypes.Input when outputPort == "out" => new ExplicitGraphValue("string", input),
+                        new ExplicitGraphValue(WorkflowDataTypes.Json, ParseJson(CurrentInput)),
+                    NodeTypes.Input when outputPort == "out" => new ExplicitGraphValue("string", CurrentInput),
                     NodeTypes.TextTemplate when outputPort == "out" && definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph =>
                         new ExplicitGraphValue("string", PromptRendering.Render(node.TextTemplate!,
-                            ResolveStringInput(nodeId, "in", evaluated, cache, active), parameters)),
+                            ResolveStringInput(nodeId, "in", evaluated, cache, active), CurrentParameters)),
                     NodeTypes.WorkflowValue when outputPort == "out" => ResolveParameter(node),
                     NodeTypes.StringConstant when outputPort == "out" => new ExplicitGraphValue("string", node.StringConstant!.Value),
                     NodeTypes.TextConcat when outputPort == "out" => new ExplicitGraphValue("string", Concatenate(nodeId, "left", "right", evaluated, cache, active)),
@@ -785,7 +835,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 if (result.DataType == "string" && ((string)result.Value).Length > 16_384)
                     throw new InvalidOperationException("Pure data output exceeds 16,384 characters.");
                 cache.Add(key, result);
-                functionAudits.TryGetValue(key, out var functionEvidence);
+                functionAudits.TryGetValue(activationKey, out var functionEvidence);
                 evaluated.Add(new(nodeId, outputPort, result.DataType, result.Value, connectionId, functionEvidence));
                 return result;
             }
@@ -804,13 +854,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             var function = configuration.Definition;
             var inputs = function.Inputs.ToDictionary(pair => pair.Key,
                 pair => ResolveFunctionInput(nodeId, pair.Key, pair.Value.DataType, evaluated, cache, active), StringComparer.Ordinal);
-            var budget = functionValueBudgets.GetOrAdd(nodeId, static _ => new GraphFunctionEvaluationBudget());
+            var budget = functionValueBudgets.GetOrAdd((activeFrame.Value?.Id, nodeId), static _ => new GraphFunctionEvaluationBudget());
             var result = GraphFunctionJson.Evaluate(function, inputs, outputPort,
                 () => Interlocked.Increment(ref functionNodeVisits), budget);
             if (result.DataType != outputType)
                 throw new InvalidOperationException("The graph function returned a value with an incompatible output type.");
             budget.RecordOutput(result.DataType, result.Value);
-            functionAudits[(nodeId, outputPort)] = new(function.FunctionId, function.Version, configuration.ContentHash,
+            functionAudits[(activeFrame.Value?.Id, nodeId, outputPort)] = new(function.FunctionId, function.Version, configuration.ContentHash,
                 outputPort, inputs.ToDictionary(pair => pair.Key, pair => pair.Value.Value, StringComparer.Ordinal), result.Values);
             return new(result.DataType, result.Value);
         }
@@ -841,7 +891,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
 
         private ExplicitGraphValue ResolveParameter(NodeDefinition node)
         {
-            if (node.ParameterId is not { } parameterId || parameters is null || !parameters.TryGetValue(parameterId, out var value) ||
+            if (node.ParameterId is not { } parameterId || CurrentParameters is not { } resolvedParameters || !resolvedParameters.TryGetValue(parameterId, out var value) ||
                 definition.Parameters is not { } declared || !declared.TryGetValue(parameterId, out var parameter))
                 throw new InvalidOperationException("The workflow parameter value is unavailable.");
             if (definition.SchemaVersion != WorkflowSchemaVersions.UnifiedWorkflowGraph && definition.SchemaVersion != WorkflowSchemaVersions.IntegerGraph && definition.SchemaVersion != WorkflowSchemaVersions.NumberPropagationGraph && definition.SchemaVersion != WorkflowSchemaVersions.NumberArithmeticGraph)
@@ -1041,9 +1091,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             return document.RootElement.Clone();
         }
 
-        private JsonElement ParseTypedArrayInput(string nodeId, string elementType)
+        private JsonElement ParseTypedArrayInput(string nodeId, string elementType, string sourceInput)
         {
-            if (!WorkflowArrayLiteral.TryParseValue(elementType, input, out var value, out var error))
+            if (!WorkflowArrayLiteral.TryParseValue(elementType, sourceInput, out var value, out var error))
                 throw new GraphDataEvaluationException(nodeId, error, new InvalidOperationException(error));
             return value;
         }
@@ -1060,16 +1110,25 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             return result;
         }
 
-        public DataInputEvaluation ResolveBranchCondition(string nodeId)
+        public DataInputEvaluation ResolveBranchCondition(string nodeId, StructuredActivationFrame? frame = null)
         {
             var edge = definition.Connections.Single(connection => connection.Value.Target.NodeId == nodeId && connection.Value.Target.PortId == "condition");
-            var evaluated = ImmutableArray.CreateBuilder<EvaluatedDataValue>();
-            var cache = new Dictionary<(string NodeId, string PortId), ExplicitGraphValue>();
-            var active = new HashSet<(string NodeId, string PortId)>();
-            var value = ResolveOutput(edge.Value.Source.NodeId, edge.Value.Source.PortId, edge.Key, evaluated, cache, active);
-            if (value.DataType != "boolean" || value.Value is not bool)
-                throw new InvalidOperationException("A Boolean Branch requires an actual Boolean value.");
-            return new(value, evaluated.ToImmutable());
+            var previousFrame = activeFrame.Value;
+            activeFrame.Value = frame ?? previousFrame;
+            try
+            {
+                var evaluated = ImmutableArray.CreateBuilder<EvaluatedDataValue>();
+                var cache = new Dictionary<(string NodeId, string PortId), ExplicitGraphValue>();
+                var active = new HashSet<(string NodeId, string PortId)>();
+                var value = ResolveOutput(edge.Value.Source.NodeId, edge.Value.Source.PortId, edge.Key, evaluated, cache, active);
+                if (value.DataType != "boolean" || value.Value is not bool)
+                    throw new InvalidOperationException("A Boolean Branch requires an actual Boolean value.");
+                return new(value, evaluated.ToImmutable());
+            }
+            finally
+            {
+                activeFrame.Value = previousFrame;
+            }
         }
     }
 
@@ -1092,7 +1151,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         SequenceWorkflowCallSettlement? callSettlement = null,
         bool allowOutcomeUnknown = false,
         Func<string, CancellationTokenSource?>? callScopeCancellation = null,
-        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null)
+        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
+        Func<Guid?, WorkflowVariableStore?>? activationVariableStore = null)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -1151,6 +1211,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             Func<GraphMessage, string, CancellationToken, ValueTask> dispatch,
             CancellationToken cancellationToken)
         {
+            using var activationScope = dataEvaluator?.EnterActivation(received.ActivationFrame);
             var internalTerminationHandoff = node.Type == NodeTypes.Output && received.TerminationSignal;
             if (gate is not null && !internalTerminationHandoff) await gate.WaitForBoundaryAsync(Id, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
@@ -1243,7 +1304,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     if (started) await Emit(ExecutionEventKinds.NodeStarted, Id, invocation,
                         data: configurable ? $"Waiting for {expectedCount} parallel branch results." : "Waiting for both parallel branch results.");
                     await Emit(ExecutionEventKinds.ParallelJoinProgress, Id, invocation, data: progress);
-                    if (!complete) return new("", Id, "parallel.pending", DataType: "json");
+                    if (!complete) return new("", Id, "parallel.pending", DataType: "json",
+                        ActivationFrame: received.ActivationFrame);
                     if (configurable)
                     {
                         using var document = JsonDocument.Parse(result!);
@@ -1252,7 +1314,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation, null, result);
                     return new(result!, Id, configurable ? "then" : "out", DataType: "json",
                         ParallelActivationId: received.ParallelActivationId, ParallelForkNodeId: received.ParallelForkNodeId,
-                        SequenceLineage: received.SequenceLineage);
+                        SequenceLineage: received.SequenceLineage,
+                        ActivationFrame: received.ActivationFrame);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -1402,11 +1465,12 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     await recordSequenceTerminal(terminatedLineage, SequenceTerminalState.Completed);
                 if (node.Type == NodeTypes.VariableSet)
                 {
-                    if (variableStore is null || variableSetEvaluation is null || node.VariableId is not { } variableId)
+                    var currentVariableStore = activationVariableStore?.Invoke(received.ActivationFrame?.Id) ?? variableStore;
+                    if (currentVariableStore is null || variableSetEvaluation is null || node.VariableId is not { } variableId)
                         throw new InvalidOperationException("The variable store or Set value is unavailable.");
-                    if (!variableStore.TryRead(variableId, out var previous))
+                    if (!currentVariableStore.TryRead(variableId, out var previous))
                         throw new InvalidOperationException($"Variable '{variableId}' is not declared.");
-                    var written = variableStore.Write(variableId, variableSetEvaluation.Result.DataType, variableSetEvaluation.Result.Value, cancellationToken);
+                    var written = currentVariableStore.Write(variableId, variableSetEvaluation.Result.DataType, variableSetEvaluation.Result.Value, cancellationToken);
                     await Emit(ExecutionEventKinds.VariableWritten, Id, invocation, null, JsonSerializer.Serialize(new
                     {
                         variableId,
@@ -1419,7 +1483,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 }
                 if (node.Type == NodeTypes.VariableGet)
                 {
-                    if (variableStore is null || dataEvaluator is null || node.VariableId is not { } variableId || !variableStore.TryRead(variableId, out var current))
+                    var currentVariableStore = activationVariableStore?.Invoke(received.ActivationFrame?.Id) ?? variableStore;
+                    if (currentVariableStore is null || dataEvaluator is null || node.VariableId is not { } variableId || !currentVariableStore.TryRead(variableId, out var current))
                         throw new InvalidOperationException("The variable store or Get variable is unavailable.");
                     dataEvaluator.SetRuntimeOutput(Id, "out", current.DataType, current.Value);
                     await Emit(ExecutionEventKinds.VariableRead, Id, invocation, null, JsonSerializer.Serialize(new
@@ -1634,7 +1699,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         await dispatch(new GraphMessage(result, Id, edge.Source.PortId, DataType: "string",
                             ParallelActivationId: activationId, ParallelBranchId: branchId,
                             ParallelForkNodeId: configurable ? Id : null,
-                            SequenceLineage: received.SequenceLineage), edge.Target.NodeId, cancellationToken);
+                            SequenceLineage: received.SequenceLineage,
+                            ActivationFrame: received.ActivationFrame), edge.Target.NodeId, cancellationToken);
                     }
                     return new(result, Id, "parallel.dispatched", DataType: "string");
                 }
@@ -1653,7 +1719,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 boundaryTracker?.PublishTransition(Id, port, next?.Target.NodeId, next?.Target.PortId, nextLoopIteration);
                 return new(result, internalTerminationHandoff ? received.SourceNode : Id, terminated ? "terminated" : port, permit, outputType, nextLoopIteration,
                     terminated, failureSignal, received.ParallelActivationId, received.ParallelBranchId, received.ParallelForkNodeId,
-                    SequenceLineage: received.SequenceLineage, HasValue: resultAvailable);
+                    SequenceLineage: received.SequenceLineage, HasValue: resultAvailable,
+                    ActivationFrame: received.ActivationFrame);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

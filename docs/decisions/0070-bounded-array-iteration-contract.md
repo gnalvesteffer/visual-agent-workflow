@@ -200,19 +200,24 @@ fork/join and demonstrates that a failed MCP branch cancels a blocked sibling
 and suppresses join publication. The three focused scheduler tests pass, and
 the full Agent Framework suite passes 257/257.
 
-This is still one workflow body activation. It does not provide array item/index
-pins, repeated or nested activation frames, nearest-loop `Break`, activation
-scoping for the production evaluator/variables/join, persistence-backed event
-accounting, or shared atomic work/evidence budgets. The proof explicitly
-rejects Sequence and collaboration graphs. It is not evidence that the full
-parity-level scheduler has been selected or implemented.
+This scheduler proof initially exercises one workflow body activation. It does
+not provide array item/index pins, nested activation dispatch, nearest-loop
+`Break`, persistence-backed event accounting, or shared atomic work/evidence
+budgets. The proof explicitly rejects Sequence and collaboration graphs. It is
+not evidence that the full parity-level scheduler has been selected or
+implemented.
 
 `ExecuteStructuredActivationSequenceProofAsync` now adds a proof-only VAW-owned
 sequential activation coordinator around the structured dispatcher. It runs the
 same production body once for each string in a bounded JSON array, binds the
-zero-based index through the existing typed workflow parameter, creates a
-fresh evaluator/variable store/executor set per activation, and writes scoped
-node evidence into one monotonically sequenced run event stream. Its focused
+zero-based index through the existing typed workflow parameter, and writes
+scoped node evidence into one monotonically sequenced run event stream. The
+proof now retains one production graph-data evaluator while indexing runtime
+outputs, per-function array-value evidence budgets, item input, and parameters
+by immutable activation frame. The graph-function node-visit ceiling remains
+shared by the retained evaluator. It maps each frame to its own production
+variable store; the production node executor set is still rebuilt for each
+activation. Its focused
 test verifies item/index isolation across three activations, production Agent
 and direct-MCP calls, invocation-correlated events, and one root lifecycle.
 Its failure variant preserves the failed Agent invocation under the active item
@@ -234,6 +239,18 @@ nested frame stack or authored `Break`, and does not compare failure,
 cancellation, or join outcomes across candidates. Store reopening after process
 loss, crash recovery, and shared atomic budgets also remain unproven. The
 architecture decision and public iterator remain open.
+
+`StructuredActivationSequenceProof_SharesEvaluatorButScopesRuntimeValuesAndVariables`
+reuses the evaluator across three body invocations containing real Variable Set
+and Get nodes plus Agent and MCP nodes. It verifies the correct per-item value
+is evaluated after each activation, every activation observes the declared
+variable default before its write, and the item/index still reaches the model
+and tool. The first run exposed an unscoped fallback in evaluator input and
+runtime-output access; the test failed because later activations reused the
+first item's model/tool value. Explicit activation scope now flows through the
+production handler and evaluator. This proves retained evaluator and variable
+isolation in the sequential proof; it does not retain join executor state,
+exercise nested dispatch or typed item pins, or change production scheduling.
 
 `ArrayIterationVawBodyProofTests.StructuredAndFreshSubworkflowCandidates_StopAtSameFailedActivation`
 compares both candidates against the same Agent/direct-MCP body and fails the

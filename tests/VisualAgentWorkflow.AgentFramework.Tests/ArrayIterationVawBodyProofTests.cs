@@ -55,7 +55,7 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Fact]
-    public async Task StructuredActivationSequenceProof_IsolatesProductionNodeStateAcrossItemsAndCorrelatesEvents()
+    public async Task StructuredActivationSequenceProof_SharesEvaluatorButScopesRuntimeValuesAndVariables()
     {
         var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
             "array-iteration-structured-activation-proof");
@@ -86,8 +86,11 @@ public sealed class ArrayIterationVawBodyProofTests
             var activationEvents = recorded.Where(evt => evt.ScopeId == scopeId).ToArray();
             Assert.Equal($"alpha;beta;gamma".Split(';')[index], ReadVariableValue(activationEvents,
                 ExecutionEventKinds.VariableWritten, "set"));
+            Assert.Equal("default", ReadVariablePreviousValue(activationEvents, "set"));
             Assert.Equal($"alpha;beta;gamma".Split(';')[index], ReadVariableValue(activationEvents,
                 ExecutionEventKinds.VariableRead, "get"));
+            Assert.Equal($"alpha;beta;gamma".Split(';')[index],
+                ReadEvaluatedValue(activationEvents, "get"));
             var agentStart = Assert.Single(activationEvents,
                 evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent");
             var agentDone = Assert.Single(activationEvents,
@@ -2318,6 +2321,20 @@ public sealed class ArrayIterationVawBodyProofTests
     private static string? ReadVariableValue(IEnumerable<ExecutionEvent> events, string eventKind, string nodeId)
     {
         var evt = Assert.Single(events, item => item.Kind == eventKind && item.NodeId == nodeId);
+        using var payload = JsonDocument.Parse(evt.Data!);
+        return payload.RootElement.GetProperty("value").GetString();
+    }
+
+    private static string? ReadVariablePreviousValue(IEnumerable<ExecutionEvent> events, string nodeId)
+    {
+        var evt = Assert.Single(events, item => item.Kind == ExecutionEventKinds.VariableWritten && item.NodeId == nodeId);
+        using var payload = JsonDocument.Parse(evt.Data!);
+        return payload.RootElement.GetProperty("previousValue").GetString();
+    }
+
+    private static string? ReadEvaluatedValue(IEnumerable<ExecutionEvent> events, string nodeId)
+    {
+        var evt = Assert.Single(events, item => item.Kind == ExecutionEventKinds.DataEvaluated && item.NodeId == nodeId);
         using var payload = JsonDocument.Parse(evt.Data!);
         return payload.RootElement.GetProperty("value").GetString();
     }

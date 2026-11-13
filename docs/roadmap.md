@@ -205,6 +205,18 @@ will be introduced.
     - [ ] Add nested activation frames, typed array item/index pins, nearest-loop
       Break, and activation-scoped data/variable/join state to the
       production-backed proof without using a per-item child Workflow.
+    - [x] Extend the structured proof to reuse one production graph-data
+      evaluator across sequential activations while scoping runtime outputs,
+      graph-function array-value evidence budgets, workflow parameters, input
+      values, and production variable stores by immutable activation-frame
+      identity. Regression
+      coverage verifies three production Agent/MCP body activations read their
+      own values and each variable starts from its declared default. This
+      focused regression and the full Agent Framework suite pass (317/317).
+      This closes only the retained evaluator/variable isolation slice: executors
+      are still rebuilt per activation, so retained join state, nested
+      activation dispatch, typed pins, Break, persistence recovery, and shared
+      work/evidence budgets remain unproven.
     - [x] Compare both candidates on the same three-item Agent/direct-MCP body
       and parameter-index matrix. Both candidates produce matching outputs,
       model/tool inputs, event shape, activation scope, and invocation
