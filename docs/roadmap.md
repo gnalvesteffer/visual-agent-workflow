@@ -227,9 +227,38 @@ will be introduced.
       outputs complete before the aggregate join fails. Both stores retain the
       successful tool outcomes and terminal failure: 31 events and 76,611–
       76,612 serialized event bytes. Agent Framework tests pass (265/265).
-    - [ ] Extend sizing to concurrent delegated/model/tool reservations,
-      function-call and failure evidence, terminal reserve, and event-count
-      exhaustion before setting aggregate caps.
+    - [x] Measure two synchronized production `AgentNodeExecutor` model
+      requests with maximum-sized prompt instruction/input evidence. File and
+      SQLite runs retain 40 events and about 263.6 KB total serialized event
+      evidence, including about 50.5 KB for both model-request events. The
+      deterministic model proof and full Agent Framework suite pass (269/269).
+      This does not cover live inference, delegated fan-out, function-call
+      arguments, response maxima, or reservation limits.
+    - [x] Measure synchronized concurrent model-request failure after
+      maximum-shaped request capture. File and SQLite retain the requests and
+      terminal failure without synthetic response events: 28 events and about
+      257.9 KB serialized. Focused cases pass (2/2); the complete Agent
+      Framework suite passes (269/269).
+    - [x] Measure a production parent Agent's maximum-sized team function call
+      and concurrent maximum-sized delegated requests/responses. Both stores
+      retain 33 events: about 154.5 KB of request envelopes, 52.7 KB of
+      response envelopes, and 404.5 KB total event evidence. The full Agent
+      Framework suite passes (273/273). See
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Measure a synchronized delegated child failure, sibling cancellation,
+      and parent recovery failure. File and SQLite retain all 26 team/agent/run
+      events, including 4.8 KB of failure evidence; no completed team aggregate
+      is emitted. The full Agent Framework suite passes (273/273).
+    - [x] Verify a failed `model.requested` append stops provider dispatch and
+      leaves a terminal failure in both stores. This covers only the pre-call
+      recorder callback boundary, not a store append failure. Agent Framework
+      tests pass (275/275).
+    - [x] Prove post-dispatch store append failure after a local MCP tool has
+      completed. The broker records an uncertain outcome, and both file and
+      SQLite stores retain contiguous tool/sequence/root failure evidence.
+      Focused regression cases pass (2/2); see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [ ] Prove reserved terminal capacity and event-count exhaustion before
+      setting aggregate caps.
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable

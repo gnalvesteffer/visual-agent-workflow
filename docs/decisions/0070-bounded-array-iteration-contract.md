@@ -273,6 +273,74 @@ aggregate path, but does not measure concurrent model/delegate traces,
 reservation races, terminal-capacity exhaustion, or aggregate-limit behavior;
 no cap is inferred from this scenario.
 
+`ArrayIterationVawBodyProofTests.ConcurrentAgentRequests_PersistMaximumPromptEvidenceThroughBothStores`
+drives two real `AgentNodeExecutor` invocations concurrently through a
+deterministic `IChatClient`. Each prompt carries 8,192 instruction characters
+and 16,384 user-input characters. The model calls synchronize before returning,
+proving both requests were in flight together. File and SQLite histories each
+retain 40 events and approximately 263.6 KB of serialized event JSON, including
+approximately 50.5 KB for the two `model.requested` events. The one-to-two-byte
+store/run variation comes from event timestamps. The focused cases and full
+Agent Framework suite passes (269/269). This measures maximum prompt evidence
+for two concurrent model calls, not live inference, delegated fan-out, function
+call arguments, response-size maxima, failure paths, or a reservation limit.
+
+`ArrayIterationVawBodyProofTests.ConcurrentAgentRequestFailures_PersistMaximumPromptAndFailureEvidence`
+uses the same synchronized maximum-shaped prompts but fails both deterministic
+model calls after request capture and before a response. Both stores retain the
+two request events, Agent/run failure evidence, and no synthetic
+`model.responded` event: 28 events and approximately 257.9 KB of serialized
+event JSON. The complete Agent Framework suite passes (269/269) with both
+concurrent success and failure cases included. This confirms the observed
+failure path preserves the attempted request and terminal evidence. It does
+not reserve terminal capacity or prove behavior when a recorder or store
+rejects an append.
+
+`ArrayIterationVawBodyProofTests.ParallelDelegateFanout_PersistsMaximumFunctionCallAndChildEvidence`
+uses the production Agent adapter with one parent and two concurrent assigned
+profiles. The parent prompt is 16,384 characters; its `team_0` function call
+contains a 16,384-character task; each delegate has 8,192 instruction
+characters and returns 16,384 characters. The parent and both child invocations
+produce four model requests and four responses, with overlapping delegate
+calls. Both stores retain 33 events: model-request envelopes total 154,529–
+154,530 bytes, response envelopes total 52,717 bytes, and all event envelopes
+total 404,517–404,518 bytes. This measures successful delegated fan-out and
+maximum function-call arguments/results; it does not cover delegated failure,
+recorder/store append failure, reservation exhaustion, or establish aggregate
+budget limits.
+
+`ArrayIterationVawBodyProofTests.ParallelDelegateFailure_PersistsFailureAndTerminalEvidence`
+uses a synchronized two-profile team where one child fails and the sibling is
+cancelled, then the parent model fails while trying to recover. Both stores
+retain the team, delegated-agent, parent-agent, and run failure sequence with
+no completed team aggregate: 26 events, 4,823–4,825 bytes of team/agent/
+terminal failure evidence, and 23,185–23,191 bytes for the complete event
+history. This covers a concurrent delegated failure and cancellation path; it
+does not exercise a persistence append failure or guarantee terminal capacity.
+The full Agent Framework suite passes (273/273) with both delegated cases
+included.
+
+`ArrayIterationVawBodyProofTests.ModelRequestEvidenceAppendFailure_PreventsProviderDispatch`
+injects a run-event sink failure while persisting `model.requested`. Through
+the production Agent adapter, the provider is never called, no request or
+response event is persisted, and the failure terminal is retained in both file
+and SQLite histories. This establishes the pre-dispatch side of the boundary
+for a rejected model-request event. It simulates the recorder callback failing
+before reaching the store; it does not simulate `IWorkflowRunStore.Append`
+failure, a failure after an external tool completes, or reserved terminal
+capacity. The Agent Framework suite passes (275/275) with this boundary case.
+
+`StoreAppendFailureTests.ToolCompletionAppendFailure_RecordsUnknownOutcomeAndKeepsContiguousTerminalHistory`
+rejects `tool.completed` at the actual file or SQLite store append boundary
+after the local MCP tool has run. The broker records `tool.uncertain`, and the
+sequence and root terminal failures remain persisted with contiguous event
+numbers in both stores (2/2 cases pass). `WorkflowRunner.Emit` now commits its
+sequence cursor and activation-ledger observation only after the event sink
+accepts the event. This proves post-dispatch append recovery for one tool
+completion event; it does not establish terminal capacity under a full event
+budget, event-count exhaustion, or behavior when failure/terminal events
+themselves cannot be appended.
+
 The public iterator contract must be Blueprint-style and composable with all
 existing graph capabilities. The proposed pins are an execution input, typed
 `array<T>` input, `Loop Body` execution output, typed `Array Element` data

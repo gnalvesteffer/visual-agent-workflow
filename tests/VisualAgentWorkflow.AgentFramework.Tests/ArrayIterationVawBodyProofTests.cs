@@ -550,6 +550,301 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ConcurrentAgentRequestFailures_PersistMaximumPromptAndFailureEvidence(bool sqlite)
+    {
+        const int maximumInputCharacters = 16_384;
+        const int maximumInstructionCharacters = 8_192;
+        var definition = ParallelBodyDefinition();
+        var nodes = definition.Nodes;
+        foreach (var nodeId in new[] { "agent-left", "agent-right" })
+            nodes = nodes.SetItem(nodeId, nodes[nodeId] with
+            {
+                Agent = new AgentConfiguration("proof.concurrent-model", null,
+                    new string('i', maximumInstructionCharacters), [])
+            });
+        var revision = WorkflowRevision.Create(definition with { Nodes = nodes }, "parallel-model-failure-evidence-proof");
+        var input = new string('u', maximumInputCharacters);
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore);
+        var model = new ConcurrentPromptModel(expectedConcurrentCalls: 2, failAfterStart: true);
+        var provider = new AgentProviderDescriptor("proof.concurrent-model", "Proof model", "proof-chat-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SynchronizedResponseChatClient(model))],
+            new EchoToolBroker());
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(agents: agents).ExecuteWithOutcomeAsync(
+            runStore.RunId, revision, input, null, evt =>
+            {
+                recorder.Append(evt);
+                return ValueTask.CompletedTask;
+            }));
+
+        Assert.NotNull(failure);
+        Assert.Equal(2, model.MaximumConcurrentCalls);
+        Assert.Equal(2, model.Calls.Length);
+        Assert.All(model.Calls, call =>
+        {
+            Assert.Equal(maximumInstructionCharacters, call.InstructionCharacters);
+            Assert.Equal(maximumInputCharacters, call.UserMessageCharacters);
+        });
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "failed");
+        var requestedEvents = events.Where(evt => evt.Kind == ExecutionEventKinds.ModelRequested).ToArray();
+        Assert.Equal(2, requestedEvents.Length);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed);
+
+        var requestEvidenceBytes = requestedEvents.Sum(evt => JsonSerializer.SerializeToUtf8Bytes(evt,
+            JsonSerializerOptions.Web).Length);
+        var totalPersistedEventBytes = events.Sum(evt => JsonSerializer.SerializeToUtf8Bytes(evt,
+            JsonSerializerOptions.Web).Length);
+        Console.WriteLine($"{(sqlite ? "sqlite" : "file")} parallel max-prompt failure run: {events.Length} events, " +
+            $"{requestEvidenceBytes} UTF-8 bytes of concurrent model-request evidence, " +
+            $"{totalPersistedEventBytes} UTF-8 event bytes total, failed before response.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ParallelDelegateFanout_PersistsMaximumFunctionCallAndChildEvidence(bool sqlite)
+    {
+        const int maximumInputCharacters = 16_384;
+        const int maximumInstructionsCharacters = 8_192;
+        const int maximumTaskCharacters = 16_384;
+        const int maximumDelegateOutputCharacters = 16_384;
+        const string providerId = "proof.delegate-model";
+        var parentInstructions = "P" + new string('p', maximumInstructionsCharacters - 1);
+        var researcherInstructions = "R" + new string('r', maximumInstructionsCharacters - 1);
+        var reviewerInstructions = "V" + new string('v', maximumInstructionsCharacters - 1);
+        var profiles = new[]
+        {
+            AgentProfile.Create("researcher", "1", "Researcher", "Find relevant facts.", providerId,
+                researcherInstructions, []),
+            AgentProfile.Create("reviewer", "1", "Reviewer", "Check the answer.", providerId,
+                reviewerInstructions, [])
+        };
+        var agent = new AgentConfiguration(providerId, null, parentInstructions, [])
+        {
+            Delegates = [.. profiles.Select(profile => new AgentProfileReference(profile.Id, profile.Version,
+                profile.ContentHash!))]
+        };
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("agent", new(NodeTypes.Agent, "1.0.0", Agent: agent))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-agent", new(new("input", "out"), new("agent", "in"), "data"))
+            .Add("agent-output", new(new("agent", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-agent", Edge("input", "then", "agent", "execute"))
+            .Add("agent-output", Edge("agent", "out", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-delegated-evidence-proof", "input", nodes, data)
+        {
+            AgentProfiles = profiles.ToImmutableSortedDictionary(profile => profile.Id + "@" + profile.Version,
+                profile => profile, StringComparer.Ordinal),
+            ExecutionConnections = execution
+        };
+        var revision = WorkflowRevision.Create(definition, "parallel-delegate-evidence-proof");
+        var input = new string('u', maximumInputCharacters);
+        var task = new string('t', maximumTaskCharacters);
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore);
+        var model = new ParallelDelegateEvidenceModel(parentInstructions, researcherInstructions,
+            reviewerInstructions, task, maximumDelegateOutputCharacters);
+        var provider = new AgentProviderDescriptor(providerId, "Proof delegate model", "proof-chat-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new ParallelDelegateEvidenceChatClient(model))],
+            new EchoToolBroker());
+
+        var result = await new WorkflowRunner(agents: agents).ExecuteWithOutcomeAsync(runStore.RunId, revision,
+            input, null, evt =>
+            {
+                recorder.Append(evt);
+                return ValueTask.CompletedTask;
+            });
+
+        Assert.False(result.Failed);
+        Assert.Equal("Team review complete.", result.Output);
+        Assert.Equal(2, model.MaximumConcurrentDelegateCalls);
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "completed");
+        var parentInvocation = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId == "agent").InvocationId;
+        var modelRequests = events.Where(evt => evt.Kind == ExecutionEventKinds.ModelRequested).ToArray();
+        var modelResponses = events.Where(evt => evt.Kind == ExecutionEventKinds.ModelResponded).ToArray();
+        Assert.Equal(4, modelRequests.Length);
+        Assert.Equal(4, modelResponses.Length);
+        Assert.Equal(2, modelRequests.Count(evt => evt.InvocationId != parentInvocation));
+        Assert.Equal(4, model.Prompts.Length);
+        Assert.All(model.Prompts, prompt => Assert.Equal(maximumInstructionsCharacters,
+            prompt.InstructionCharacters));
+        Assert.All(model.Prompts, prompt => Assert.Equal(maximumInputCharacters,
+            prompt.UserMessageCharacters));
+        Assert.Equal(4, model.Prompts.Count(prompt => prompt.UserMessageCharacters == maximumTaskCharacters));
+        Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.AgentTeamStarted));
+        Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.AgentTeamCompleted));
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.AgentTeamFailed or ExecutionEventKinds.Failed);
+
+        var parentCallResponse = Assert.Single(modelResponses, evt => evt.InvocationId == parentInvocation &&
+            evt.Data!.Contains("function-call", StringComparison.Ordinal));
+        using (var responsePayload = JsonDocument.Parse(parentCallResponse.Data!))
+        {
+            var functionCall = responsePayload.RootElement.GetProperty("messages").EnumerateArray()
+                .SelectMany(message => message.GetProperty("content").EnumerateArray())
+                .Single(content => content.GetProperty("kind").GetString() == "function-call");
+            Assert.Equal(maximumTaskCharacters,
+                functionCall.GetProperty("Arguments").GetProperty("task").GetString()!.Length);
+        }
+
+        var parentRequests = modelRequests.Where(evt => evt.InvocationId == parentInvocation).ToArray();
+        Assert.Equal(2, parentRequests.Length);
+        using var initialRequestPayload = JsonDocument.Parse(parentRequests[0].Data!);
+        var initialUserMessage = initialRequestPayload.RootElement.GetProperty("messages").EnumerateArray()
+            .SelectMany(message => message.GetProperty("content").EnumerateArray())
+            .Single(content => content.GetProperty("kind").GetString() == "text");
+        Assert.Equal(maximumInputCharacters, initialUserMessage.GetProperty("text").GetString()!.Length);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentTeamCompleted &&
+            evt.Data!.Length > maximumDelegateOutputCharacters);
+
+        var requestEvidenceBytes = modelRequests.Sum(evt => JsonSerializer.SerializeToUtf8Bytes(evt,
+            JsonSerializerOptions.Web).Length);
+        var responseEvidenceBytes = modelResponses.Sum(evt => JsonSerializer.SerializeToUtf8Bytes(evt,
+            JsonSerializerOptions.Web).Length);
+        var totalPersistedEventBytes = events.Sum(evt => JsonSerializer.SerializeToUtf8Bytes(evt,
+            JsonSerializerOptions.Web).Length);
+        Console.WriteLine($"{(sqlite ? "sqlite" : "file")} parallel delegated evidence run: {events.Length} events, " +
+            $"{requestEvidenceBytes} UTF-8 bytes of model requests, {responseEvidenceBytes} model responses, " +
+            $"{totalPersistedEventBytes} total event bytes, including max-size function-call and delegated results.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ParallelDelegateFailure_PersistsFailureAndTerminalEvidence(bool sqlite)
+    {
+        const string providerId = "proof.delegate-model";
+        var parentInstructions = "Parent instructions.";
+        var researcherInstructions = "Research instructions.";
+        var reviewerInstructions = "Review instructions.";
+        var profiles = new[]
+        {
+            AgentProfile.Create("researcher", "1", "Researcher", "Find relevant facts.", providerId,
+                researcherInstructions, []),
+            AgentProfile.Create("reviewer", "1", "Reviewer", "Check the answer.", providerId,
+                reviewerInstructions, [])
+        };
+        var agent = new AgentConfiguration(providerId, null, parentInstructions, [])
+        {
+            Delegates = [.. profiles.Select(profile => new AgentProfileReference(profile.Id, profile.Version,
+                profile.ContentHash!))]
+        };
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("agent", new(NodeTypes.Agent, "1.0.0", Agent: agent))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-agent", new(new("input", "out"), new("agent", "in"), "data"))
+            .Add("agent-output", new(new("agent", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-agent", Edge("input", "then", "agent", "execute"))
+            .Add("agent-output", Edge("agent", "out", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-delegated-failure-proof", "input", nodes, data)
+        {
+            AgentProfiles = profiles.ToImmutableSortedDictionary(profile => profile.Id + "@" + profile.Version,
+                profile => profile, StringComparer.Ordinal),
+            ExecutionConnections = execution
+        };
+        var revision = WorkflowRevision.Create(definition, "parallel-delegate-failure-proof");
+        const string input = "Review this proposal.";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore);
+        var model = new ParallelDelegateEvidenceModel(parentInstructions, researcherInstructions,
+            reviewerInstructions, "Review this proposal.", 64, failResearcher: true, failParentFollowup: true);
+        var provider = new AgentProviderDescriptor(providerId, "Proof delegate model", "proof-chat-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new ParallelDelegateEvidenceChatClient(model))],
+            new EchoToolBroker());
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(agents: agents).ExecuteWithOutcomeAsync(
+            runStore.RunId, revision, input, null, evt =>
+            {
+                recorder.Append(evt);
+                return ValueTask.CompletedTask;
+            }));
+
+        Assert.NotNull(failure);
+        Assert.Equal(2, model.MaximumConcurrentDelegateCalls);
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "failed");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentTeamStarted);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentTeamFailed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.AgentTeamCompleted);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed &&
+            evt.Data!.Contains("Delegated agent failed.", StringComparison.Ordinal));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed);
+
+        var teamFailureBytes = events.Where(evt => evt.Kind is ExecutionEventKinds.AgentTeamFailed or
+                ExecutionEventKinds.AgentFailed or ExecutionEventKinds.Failed)
+            .Sum(evt => JsonSerializer.SerializeToUtf8Bytes(evt, JsonSerializerOptions.Web).Length);
+        var totalPersistedEventBytes = events.Sum(evt => JsonSerializer.SerializeToUtf8Bytes(evt,
+            JsonSerializerOptions.Web).Length);
+        Console.WriteLine($"{(sqlite ? "sqlite" : "file")} parallel delegated failure run: {events.Length} events, " +
+            $"{teamFailureBytes} UTF-8 bytes of team/agent/terminal failure evidence, " +
+            $"{totalPersistedEventBytes} UTF-8 event bytes total.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ModelRequestEvidenceAppendFailure_PreventsProviderDispatch(bool sqlite)
+    {
+        const string providerId = "proof.concurrent-model";
+        var definition = BodyDefinition();
+        var agent = definition.Nodes["agent"].Agent! with
+        {
+            ProviderId = providerId,
+            Instructions = "Request persistence proof."
+        };
+        var revision = WorkflowRevision.Create(definition with
+        {
+            Nodes = definition.Nodes.SetItem("agent", definition.Nodes["agent"] with { Agent = agent })
+        }, "model-request-persistence-failure-proof");
+        const string input = "Do not invoke the model if its request cannot be recorded.";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore);
+        var model = new ConcurrentPromptModel(expectedConcurrentCalls: 1);
+        var provider = new AgentProviderDescriptor(providerId, "Proof model", "proof-chat-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SynchronizedResponseChatClient(model))],
+            new EchoToolBroker());
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(new EchoToolBroker(), agents)
+            .ExecuteWithOutcomeAsync(runStore.RunId, revision, input, null, evt =>
+            {
+                if (evt.Kind == ExecutionEventKinds.ModelRequested)
+                    throw new IOException("Deterministic run-store append failure.");
+                recorder.Append(evt);
+                return ValueTask.CompletedTask;
+            }));
+
+        Assert.NotNull(failure);
+        Assert.Empty(model.Calls);
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "failed");
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ModelRequested or
+            ExecutionEventKinds.ModelResponded);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "agent");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed);
+        Assert.DoesNotContain(events, evt => evt.NodeId == "tool" &&
+            evt.Kind is ExecutionEventKinds.ToolAuthorized or ExecutionEventKinds.ToolCompleted);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task FreshVawRunnerPerItem_EmptyArrayCompletesWithoutActivatingBody(bool sqlite)
     {
         var definition = BodyDefinition(includeVariableStore: true);
@@ -1050,7 +1345,92 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
-    private sealed class ConcurrentPromptModel(int expectedConcurrentCalls)
+    private sealed class ParallelDelegateEvidenceModel(string parentInstructions, string researcherInstructions,
+        string reviewerInstructions, string task, int delegateOutputCharacters, bool failResearcher = false,
+        bool failParentFollowup = false)
+    {
+        private readonly ConcurrentQueue<DelegatedPrompt> prompts = new();
+        private readonly TaskCompletionSource bothDelegatesStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int parentTurns;
+        private int activeDelegates;
+        private int maximumConcurrentDelegateCalls;
+
+        public DelegatedPrompt[] Prompts => [.. prompts];
+        public int MaximumConcurrentDelegateCalls => maximumConcurrentDelegateCalls;
+
+        public async Task<ChatResponse> RespondAsync(IEnumerable<ChatMessage> messages, ChatOptions? options,
+            CancellationToken cancellationToken)
+        {
+            var instructions = options?.Instructions ?? string.Empty;
+            var inputCharacters = messages.Where(message => message.Role == ChatRole.User)
+                .SelectMany(message => message.Contents.OfType<TextContent>())
+                .Sum(content => content.Text.Length);
+            prompts.Enqueue(new(instructions.Length, inputCharacters));
+
+            if (instructions == parentInstructions)
+            {
+                if (Interlocked.Increment(ref parentTurns) == 1)
+                    return new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                        [new FunctionCallContent("team-call", "team_0",
+                            new Dictionary<string, object?> { ["task"] = task })]))
+                    { ModelId = "proof-chat-v1", FinishReason = ChatFinishReason.ToolCalls };
+
+                if (failParentFollowup)
+                    throw new InvalidOperationException("Deterministic parent model failure after team failure.");
+                return new ChatResponse(new ChatMessage(ChatRole.Assistant, "Team review complete."))
+                { ModelId = "proof-chat-v1", FinishReason = ChatFinishReason.Stop };
+            }
+
+            var output = instructions == researcherInstructions
+                ? new string('r', delegateOutputCharacters)
+                : instructions == reviewerInstructions
+                    ? new string('v', delegateOutputCharacters)
+                    : throw new InvalidOperationException("Unexpected delegated model instructions.");
+            var active = Interlocked.Increment(ref activeDelegates);
+            UpdateMaximum(active);
+            if (active >= 2) bothDelegatesStarted.TrySetResult();
+            try
+            {
+                await bothDelegatesStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+                if (failResearcher && instructions == researcherInstructions)
+                    throw new InvalidOperationException("Deterministic researcher failure.");
+                if (failResearcher && instructions == reviewerInstructions)
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return new ChatResponse(new ChatMessage(ChatRole.Assistant, output))
+                { ModelId = "proof-chat-v1", FinishReason = ChatFinishReason.Stop };
+            }
+            finally
+            {
+                Interlocked.Decrement(ref activeDelegates);
+            }
+        }
+
+        private void UpdateMaximum(int candidate)
+        {
+            var current = Volatile.Read(ref maximumConcurrentDelegateCalls);
+            while (candidate > current)
+            {
+                var previous = Interlocked.CompareExchange(ref maximumConcurrentDelegateCalls, candidate, current);
+                if (previous == current) return;
+                current = previous;
+            }
+        }
+    }
+
+    private sealed class ParallelDelegateEvidenceChatClient(ParallelDelegateEvidenceModel model) : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+            CancellationToken cancellationToken = default) => model.RespondAsync(messages, options, cancellationToken);
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public void Dispose() { }
+    }
+
+    private sealed record DelegatedPrompt(int InstructionCharacters, int UserMessageCharacters);
+
+    private sealed class ConcurrentPromptModel(int expectedConcurrentCalls, bool failAfterStart = false)
     {
         private readonly ConcurrentQueue<PromptCall> calls = new();
         private readonly TaskCompletionSource bothStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1073,6 +1453,7 @@ public sealed class ArrayIterationVawBodyProofTests
             try
             {
                 await bothStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+                if (failAfterStart) throw new InvalidOperationException("Deterministic model failure after request capture.");
                 return new ChatResponse(new ChatMessage(ChatRole.Assistant, "done"))
                 {
                     ModelId = "proof-chat-v1",

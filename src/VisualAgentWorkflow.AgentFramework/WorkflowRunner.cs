@@ -95,11 +95,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             await recordGate.WaitAsync();
             try
             {
-                var evt = new ExecutionEvent(runId, revision.RevisionId, Interlocked.Increment(ref sequence), DateTimeOffset.UtcNow,
+                var nextSequence = sequence + 1;
+                var evt = new ExecutionEvent(runId, revision.RevisionId, nextSequence, DateTimeOffset.UtcNow,
                     kind, node, invocation, connection, data)
                 { ScopeId = scopeId };
-                activationLedger.Observe(evt);
                 await record(evt);
+                sequence = nextSequence;
+                activationLedger.Observe(evt);
             }
             finally { recordGate.Release(); }
         }
