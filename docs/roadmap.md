@@ -213,13 +213,14 @@ will be introduced.
       and SQLite stores (2/2); the Agent Framework suite passes 330/330. This
       verifies Sequence composition in the candidate harness, not Sequence
       behavior in a selected iterator runtime.
-    - [x] Exercise two-phase collaboration in repeated hybrid activations
-      using the unified workflow schema. Each activation reads only its own
-      branch messages, and scoped phased evidence persists through file and
-      SQLite stores (2/2); journal validation selects the contract from region
-      shape and validates each invocation independently. The Agent Framework
-      suite passes 332/332. This proves compatibility in the candidate harness,
-      not production iterator integration.
+    - [x] Exercise single-phase and two-phase collaboration in repeated hybrid
+      activations using the unified workflow schema. Each activation reads only
+      its own branch messages, and scoped evidence persists through file and
+      SQLite stores (4/4); journal validation selects the contract from region
+      shape and validates each invocation independently while preserving the
+      root terminal outcome. The Agent Framework suite passes 334/334. This
+      proves compatibility in the candidate harness, not production iterator
+      integration.
     - [ ] Add authored typed array item/index pins and a real Break node, then
       continue the hybrid comparison for aggregate work/model-turn/tool limits,
       concurrent and delegated reservations, other join/cancellation races,

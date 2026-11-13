@@ -2585,11 +2585,16 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task HybridFrameCoordinator_IsolatesTwoPhaseCollaborationPerActivation(bool sqlite)
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task HybridFrameCoordinator_IsolatesCollaborationPerActivation(bool phased, bool sqlite)
     {
-        var definition = WorkflowRunnerCollaborationTests.CreatePhasedGraph(branchCount: 2, timeoutSeconds: 30)
+        var sourceDefinition = phased
+            ? WorkflowRunnerCollaborationTests.CreatePhasedGraph(branchCount: 2, timeoutSeconds: 30)
+            : WorkflowRunnerCollaborationTests.CreateGraph(branchCount: 2, timeoutSeconds: 30);
+        var definition = sourceDefinition
             with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
         var revision = WorkflowRevision.Create(definition, "array-iteration-hybrid-collaboration-proof");
         const string input = "[\"item-a\",\"item-b\"]";
@@ -2645,10 +2650,14 @@ public sealed class ArrayIterationVawBodyProofTests
             var scopeId = $"outer-loop/4/array-loop/{index}";
             var scoped = events.Where(evt => evt.ScopeId == scopeId).ToArray();
             Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationRegionStarted);
-            Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationReleased));
-            Assert.Equal(4, scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationArrival));
-            Assert.Equal(4, scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationMessageSent));
-            Assert.Equal(4, scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationMessagesRead));
+            Assert.Equal(phased ? 2 : 1,
+                scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationReleased));
+            Assert.Equal(phased ? 4 : 2,
+                scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationArrival));
+            Assert.Equal(phased ? 4 : 2,
+                scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationMessageSent));
+            Assert.Equal(phased ? 4 : 2,
+                scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationMessagesRead));
             Assert.DoesNotContain(scoped, evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationAborted);
         }
     }
@@ -2755,11 +2764,13 @@ public sealed class ArrayIterationVawBodyProofTests
             CancellationToken cancellationToken = default)
         {
             var branchId = invocation.Revision.Definition.Nodes[invocation.NodeId].Agent!.Instructions;
-            var phase = invocation.CollaborationPhase!;
+            var phase = invocation.Revision.Definition.ParallelCollaborationRegions!.Values.Single()
+                .SecondRendezvousNodeId is null ? null : invocation.CollaborationPhase;
             if (invocation.CollaborationRole == ParallelCollaborationRoles.Publish)
             {
                 Assert.NotNull(invocation.CollaborationSend);
-                await invocation.CollaborationSend!("work", $"{input}|{phase}|{branchId}", cancellationToken);
+                var content = phase is null ? $"{input}|{branchId}" : $"{input}|{phase}|{branchId}";
+                await invocation.CollaborationSend!("work", content, cancellationToken);
                 return input;
             }
 
@@ -2770,7 +2781,8 @@ public sealed class ArrayIterationVawBodyProofTests
             var messages = document.RootElement.EnumerateArray()
                 .Select(item => item.GetProperty("content").GetString()!).ToArray();
             Assert.Equal(branchCount, messages.Length);
-            Assert.All(messages, message => Assert.StartsWith($"{input}|{phase}|", message, StringComparison.Ordinal));
+            var prefix = phase is null ? $"{input}|" : $"{input}|{phase}|";
+            Assert.All(messages, message => Assert.StartsWith(prefix, message, StringComparison.Ordinal));
             return input;
         }
     }

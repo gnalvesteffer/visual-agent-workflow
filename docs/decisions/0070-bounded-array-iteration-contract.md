@@ -74,14 +74,15 @@ stores (2/2). This closes one Sequence-composition case in the hybrid harness;
 it does not compare all candidates or establish behavior in a selected
 production iterator runtime.
 
-`HybridFrameCoordinator_IsolatesTwoPhaseCollaborationPerActivation` exercises
-two sequential nested activations of a unified-schema body containing a
-two-phase collaboration region. Each activation publishes and reads only its
-own branch messages; both file and SQLite journals validate and persist the
-scoped event history (2/2). Journal validation selects the evidence contract
-from the region shape and validates each phased region invocation independently.
-This closes that compatibility case in the hybrid harness; it does not prove
-production iterator integration or resolve the candidate comparison.
+`HybridFrameCoordinator_IsolatesCollaborationPerActivation` exercises two
+sequential nested activations of unified-schema bodies containing either
+single-phase or two-phase collaboration regions. Each activation publishes
+and reads only its own branch messages; file and SQLite journals validate and
+persist the scoped event history (4/4). Journal validation selects the evidence
+contract from the region shape and validates repeated invocations independently
+while preserving the root terminal outcome. This closes those compatibility
+cases in the hybrid harness; it does not prove production iterator integration
+or resolve the candidate comparison.
 
 ## Status
 

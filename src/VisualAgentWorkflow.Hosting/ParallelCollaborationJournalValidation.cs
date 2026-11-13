@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -11,9 +12,11 @@ internal static class ParallelCollaborationJournalValidation
     private const int PayloadVersion = 1;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public static void Validate(RunSnapshot snapshot)
+    public static void Validate(RunSnapshot snapshot) => Validate(snapshot,
+        snapshot.Events.Where(evt => IsCollaborationEvent(evt.Kind)).ToArray());
+
+    private static void Validate(RunSnapshot snapshot, ExecutionEvent[] events)
     {
-        var events = snapshot.Events.Where(evt => IsCollaborationEvent(evt.Kind)).ToArray();
         if (events.Length == 0) return;
 
         var definition = snapshot.Header.Definition;
@@ -26,11 +29,12 @@ internal static class ParallelCollaborationJournalValidation
         if (region.SecondRendezvousNodeId is not null)
         {
             if (events.Any(evt => ReadVersion(evt) != 2)) return;
-            foreach (var invocationEvents in GroupPhasedInvocations(events))
-                ValidatePhased(snapshot, invocationEvents, region);
+            if (ValidateRepeatedInvocations(snapshot, events)) return;
+            ValidatePhased(snapshot, events, region);
             return;
         }
         if (events.Any(evt => ReadVersion(evt) != PayloadVersion)) return;
+        if (ValidateRepeatedInvocations(snapshot, events)) return;
 
         var branches = region.Branches.ToDictionary(branch => branch.BranchId, StringComparer.Ordinal);
         var messages = new SortedDictionary<string, List<CollaborationMessage>>(StringComparer.Ordinal);
@@ -106,17 +110,39 @@ internal static class ParallelCollaborationJournalValidation
         }
     }
 
-    private static IEnumerable<ExecutionEvent[]> GroupPhasedInvocations(ExecutionEvent[] events)
+    private static bool ValidateRepeatedInvocations(RunSnapshot snapshot, ExecutionEvent[] events)
     {
-        var groups = new Dictionary<Guid, List<ExecutionEvent>>();
+        var groups = GroupInvocations(events).ToArray();
+        if (groups.Length <= 1) return false;
+
+        for (var index = 0; index < groups.Length; index++)
+        {
+            var invocationEvents = groups[index];
+            var invocationSnapshot = index == groups.Length - 1
+                ? snapshot
+                : snapshot with { Events = invocationEvents.ToImmutableArray() };
+            Validate(invocationSnapshot, invocationEvents);
+        }
+        return true;
+    }
+
+    private static IEnumerable<ExecutionEvent[]> GroupInvocations(ExecutionEvent[] events)
+    {
+        var groups = new List<List<ExecutionEvent>>();
+        var groupIndexes = new Dictionary<Guid, int>();
         foreach (var evt in events)
         {
             using var payload = ParsePayload(evt);
             var invocationId = RequiredGuid(payload.RootElement, "regionInvocationId");
-            if (!groups.TryGetValue(invocationId, out var group)) groups.Add(invocationId, group = []);
-            group.Add(evt);
+            if (!groupIndexes.TryGetValue(invocationId, out var groupIndex))
+            {
+                groupIndex = groups.Count;
+                groupIndexes.Add(invocationId, groupIndex);
+                groups.Add([]);
+            }
+            groups[groupIndex].Add(evt);
         }
-        return groups.Values.Select(group => group.ToArray());
+        return groups.Select(group => group.ToArray());
     }
 
     private static void ValidatePhased(RunSnapshot snapshot, ExecutionEvent[] events, ParallelCollaborationRegion region)
