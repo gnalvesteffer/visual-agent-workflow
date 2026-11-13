@@ -2671,6 +2671,116 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task StructuredAndFreshSubworkflowCandidates_ShareEvidenceBudgetAcrossActivations(bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "array-iteration-candidate-shared-evidence-budget-proof");
+        const string input = "[\"first\",\"second\"]";
+
+        foreach (var structured in new[] { true, false })
+        {
+            var baseline = await ExecuteCandidateAsync(structured, maximumEvents: 512);
+            Assert.Equal("echo:bounded;echo:bounded", baseline.Output);
+            Assert.Equal(2, baseline.ModelCalls);
+            Assert.Equal(["bounded", "bounded"], baseline.ToolQueries);
+
+            var secondRequest = Assert.Single(baseline.Events, evt =>
+                evt.Kind == ExecutionEventKinds.ModelRequested && evt.ScopeId == "array-loop/1");
+            const int reservedFailureEvents = 8;
+            var maximumEvents = checked((int)secondRequest.Sequence - 1 + reservedFailureEvents);
+            var limited = await ExecuteCandidateAsync(structured, maximumEvents);
+
+            Assert.Null(limited.Output);
+            Assert.True(limited.ReservationRejected);
+            Assert.Equal(1, limited.ModelCalls);
+            Assert.Equal(["bounded"], limited.ToolQueries);
+            Assert.Equal(0, limited.PendingOutcomeReservations);
+            Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.ModelRequested &&
+                evt.ScopeId == "array-loop/0");
+            Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.ModelResponded &&
+                evt.ScopeId == "array-loop/0");
+            Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "tool" && evt.ScopeId == "array-loop/0");
+            Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.NodeId == "array-loop" && evt.ScopeId == "array-loop/1");
+            Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == "agent" && evt.ScopeId == "array-loop/1");
+            Assert.DoesNotContain(limited.Events, evt =>
+                (evt.Kind is ExecutionEventKinds.ModelRequested or ExecutionEventKinds.ModelResponded) &&
+                evt.ScopeId == "array-loop/1");
+            var failedAgent = Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.AgentFailed &&
+                evt.ScopeId == "array-loop/1");
+            Assert.Equal(failedAgent.InvocationId, Assert.Single(limited.Events, evt =>
+                evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent" &&
+                evt.ScopeId == "array-loop/1").InvocationId);
+            Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+            Assert.DoesNotContain(limited.Events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.ScopeId == "array-loop/1");
+            Assert.True(limited.Events.Length <= maximumEvents);
+            Assert.Equal(limited.Events.Sum(EventBytes), limited.PersistedEventBytes);
+        }
+
+        async Task<CandidateBudgetResult> ExecuteCandidateAsync(bool structured, int maximumEvents)
+        {
+            using var store = new ProofRunStore(revision, input, sqlite);
+            var recorder = new ReservedEvidenceProofRecorder(store, maximumEvents,
+                maximumBytes: 4_000_000, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
+                maximumModelOutcomeBytes: 64_000);
+            var model = new SharedBudgetProofModel();
+            var provider = new AgentProviderDescriptor("proof.echo-agent", "Proof model", "proof-chat-v1", true);
+            var agents = new AgentNodeExecutor(
+                [new AgentProviderRegistration(provider, () => new SharedBudgetProofChatClient(model))],
+                new EchoToolBroker());
+            var tools = new EchoToolBroker();
+            string? output = null;
+
+            if (structured)
+            {
+                try
+                {
+                    var result = await new WorkflowRunner(tools, agents)
+                        .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                            recorder.RecordResequencedAsync);
+                    output = result.Output;
+                }
+                catch (EvidenceBudgetExhaustedException)
+                {
+                }
+            }
+            else
+            {
+                await recorder.RecordResequencedAsync(new ExecutionEvent(store.RunId,
+                    store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow,
+                    ExecutionEventKinds.Started));
+                var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder, agents, tools);
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                var failed = false;
+                await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+                await foreach (var evt in run.WatchStreamAsync())
+                {
+                    if (evt is WorkflowOutputEvent { Data: string value }) output = value;
+                    if (evt is WorkflowErrorEvent) failed = true;
+                }
+
+                await recorder.RecordResequencedAsync(new ExecutionEvent(store.RunId,
+                    store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow,
+                    failed ? ExecutionEventKinds.Failed : ExecutionEventKinds.Completed));
+            }
+
+            var events = recorder.Snapshot();
+            AssertPersistedSequence(store, events, output is null ? "failed" : "completed");
+            return new(output, events, model.Calls, tools.Queries, recorder.PendingOutcomeReservations,
+                recorder.PersistedEventBytes, recorder.ReservationRejected.IsCompleted);
+        }
+    }
+
+    private sealed record CandidateBudgetResult(string? Output, ExecutionEvent[] Events, int ModelCalls,
+        string[] ToolQueries, int PendingOutcomeReservations, long PersistedEventBytes,
+        bool ReservationRejected);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task HybridFrameCoordinator_ExecutesUnifiedSequenceBodyPerActivation(bool sqlite)
     {
         var revision = WorkflowRevision.Create(SequenceBodyDefinition(),
@@ -3206,13 +3316,57 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
-    private sealed class PerItemWorkflowExecutor(Guid runId, WorkflowRevision revision, ProofRecorder recorder,
-        IAgentNodeExecutor agents, INodeToolBroker tools, IWorkflowExecutionGate? gate = null,
-        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
-        Func<ExecutionEvent, ValueTask>? observeEvent = null,
-        WorkflowRunner.StructuredActivationFrame? parentFrame = null, string loopNodeId = "array-loop")
-        : Executor<string, string>("array-iterator-proof", declareCrossRunShareable: true)
+    private sealed class PerItemWorkflowExecutor : Executor<string, string>
     {
+        private readonly Guid runId;
+        private readonly WorkflowRevision revision;
+        private readonly Func<ExecutionEvent, ValueTask> recordEvent;
+        private readonly IAgentNodeExecutor agents;
+        private readonly INodeToolBroker tools;
+        private readonly IWorkflowExecutionGate? gate;
+        private readonly Func<string, CancellationToken, ValueTask>? afterNodeStarted;
+        private readonly Func<ExecutionEvent, ValueTask>? observeEvent;
+        private readonly WorkflowRunner.StructuredActivationFrame? parentFrame;
+        private readonly string loopNodeId;
+
+        public PerItemWorkflowExecutor(Guid runId, WorkflowRevision revision, ProofRecorder recorder,
+            IAgentNodeExecutor agents, INodeToolBroker tools, IWorkflowExecutionGate? gate = null,
+            Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
+            Func<ExecutionEvent, ValueTask>? observeEvent = null,
+            WorkflowRunner.StructuredActivationFrame? parentFrame = null, string loopNodeId = "array-loop")
+            : this(runId, revision, RecordTo(recorder), agents, tools, gate, afterNodeStarted, observeEvent,
+                parentFrame, loopNodeId) { }
+
+        public PerItemWorkflowExecutor(Guid runId, WorkflowRevision revision,
+            ReservedEvidenceProofRecorder recorder, IAgentNodeExecutor agents, INodeToolBroker tools)
+            : this(runId, revision, recorder.RecordResequencedAsync, agents, tools, null, null, null, null,
+                "array-loop") { }
+
+        private PerItemWorkflowExecutor(Guid runId, WorkflowRevision revision,
+            Func<ExecutionEvent, ValueTask> recordEvent, IAgentNodeExecutor agents, INodeToolBroker tools,
+            IWorkflowExecutionGate? gate, Func<string, CancellationToken, ValueTask>? afterNodeStarted,
+            Func<ExecutionEvent, ValueTask>? observeEvent,
+            WorkflowRunner.StructuredActivationFrame? parentFrame, string loopNodeId)
+            : base("array-iterator-proof", declareCrossRunShareable: true)
+        {
+            this.runId = runId;
+            this.revision = revision;
+            this.recordEvent = recordEvent;
+            this.agents = agents;
+            this.tools = tools;
+            this.gate = gate;
+            this.afterNodeStarted = afterNodeStarted;
+            this.observeEvent = observeEvent;
+            this.parentFrame = parentFrame;
+            this.loopNodeId = loopNodeId;
+        }
+
+        private static Func<ExecutionEvent, ValueTask> RecordTo(ProofRecorder recorder) => evt =>
+        {
+            recorder.Append(evt);
+            return ValueTask.CompletedTask;
+        };
+
         public override async ValueTask<string> HandleAsync(string input, IWorkflowContext context,
             CancellationToken cancellationToken = default)
         {
@@ -3234,17 +3388,17 @@ public sealed class ArrayIterationVawBodyProofTests
                     throw new InvalidOperationException("The child activation did not resolve its nearest loop frame.");
                 var invocationId = frame.Id;
                 var scopeId = frame.ScopeId;
-                recorder.Append(ExecutionEventKinds.LoopIterationStarted, loopNodeId, invocationId, scopeId);
-                ValueTask Record(ExecutionEvent evt)
+                await recordEvent(new ExecutionEvent(runId, revision.RevisionId, 0, DateTimeOffset.UtcNow,
+                    ExecutionEventKinds.LoopIterationStarted, loopNodeId, invocationId) { ScopeId = scopeId });
+                async ValueTask Record(ExecutionEvent evt)
                 {
                     if (evt.Kind is not (ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
                         ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated))
                     {
                         var scopedEvent = evt with { ScopeId = scopeId };
-                        recorder.Append(scopedEvent);
-                        if (observeEvent is not null) return observeEvent(scopedEvent);
+                        await recordEvent(scopedEvent);
+                        if (observeEvent is not null) await observeEvent(scopedEvent);
                     }
-                    return ValueTask.CompletedTask;
                 }
                 var runner = new WorkflowRunner(tools, agents);
                 var result = afterNodeStarted is not null
@@ -3256,7 +3410,8 @@ public sealed class ArrayIterationVawBodyProofTests
                             items[index], frameParameters, Record, gate, cancellationToken);
                 if (result.Failed || result.Output is null)
                     throw new InvalidOperationException($"Body workflow failed at array index {index}.");
-                recorder.Append(ExecutionEventKinds.LoopIterationCompleted, loopNodeId, invocationId, scopeId);
+                await recordEvent(new ExecutionEvent(runId, revision.RevisionId, 0, DateTimeOffset.UtcNow,
+                    ExecutionEventKinds.LoopIterationCompleted, loopNodeId, invocationId) { ScopeId = scopeId });
                 results.Add(result.Output);
             }
             return string.Join(';', results);
