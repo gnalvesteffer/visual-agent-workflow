@@ -219,7 +219,13 @@ will be introduced.
       its scoped lifecycle, and do not dispatch index 2. Joined-body outcomes
       also now match for a two-branch Agent fork/join: each item completes both
       branches and the barrier, with equivalent scoped evidence in both stores.
-      Dispatch/evidence budgets and join failure/cancellation cases remain open.
+      A fork-failure comparison confirms both candidates suppress the join and
+      stop before the next item, but exposes an evidence parity gap: the fresh
+      Agent Framework body records the sibling branch as activated/cancelled,
+      while structured dispatch cancels before that sibling records a node
+      start. Resolve this branch-lifecycle difference before selecting an
+      architecture. Dispatch/evidence budgets and join-cancellation cases also
+      remain open.
     - [ ] Compare candidate budgets at atomic dispatch/evidence boundaries and
       prove exhaustion behavior. Store reopen/process loss, nested frames,
       typed iterator pins, Sequence, collaboration, and crash recovery also

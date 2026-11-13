@@ -259,8 +259,19 @@ compares the same two-item, two-Agent fork/join body through both candidates.
 For each item, the candidates produce identical joined output, activate both
 Agent branches, complete the barrier, and persist equivalent node/connection
 and join-progress event shapes under that item's scope. Both file and SQLite
-variants pass. This covers successful joined bodies only; join failure,
-cancellation, and shared dispatch/evidence exhaustion are not yet compared.
+variants pass. This covers successful joined bodies only; join cancellation
+and shared dispatch/evidence exhaustion are not yet compared.
+
+`ArrayIterationVawBodyProofTests.StructuredAndFreshSubworkflowCandidates_FailSameParallelActivationWithoutJoin`
+compares a two-item fork/join where the left Agent fails. Both candidates fail
+item 0, suppress the join, and do not start item 1; the failure branch's
+node-event shape matches in both stores. The Agent Framework candidate also
+records the right branch's execution activation and cancelled node lifecycle.
+The structured candidate stops that branch before its node-start event, so the
+evidence shapes differ even though both runs fail and suppress the join. This
+is now an explicit unresolved lifecycle-parity requirement, not evidence for
+selecting either architecture. Both file and SQLite variants pass the proof's
+invariants. Join-cancellation and budget-exhaustion comparisons remain open.
 
 ### Initial persistence sizing evidence
 
