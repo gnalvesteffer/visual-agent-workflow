@@ -262,7 +262,13 @@ will be introduced.
       its outcome and the three-record agent/node/run failure chain. File and
       SQLite retain 10 events and 4,239–4,240 serialized UTF-8 bytes. The
       focused proof cases pass (10/10); the full Agent Framework suite passes
-      (285/285).
+      (287/287) with the standalone byte proof included.
+    - [x] Independently exhaust the byte ceiling while keeping event capacity
+      ample: reject `model.requested` before provider dispatch when the byte
+      reserve is 256 bytes short of covering the request, measured response,
+      and failure allowance. Both stores preserve failure evidence (2/2
+      focused cases); this covers one measured response shape, not worst-case
+      envelopes.
     - [x] Prove one-at-a-time admission under synchronized parallel Agent
       requests, accepted-outcome settlement and unused-reservation release in
       both stores (27 events in the race case; 16 events and 7,256–7,257 bytes
@@ -281,9 +287,9 @@ will be introduced.
       store append, then settle it only after `tool.uncertain` is accepted by
       each store (2/2 cases).
     - [ ] Complete the remaining production-path proof for delegated calls,
-      maximum-shaped outcome/error envelopes, standalone byte exhaustion, and
-      timeout/cancellation settlement. Current harness is test-only and selects
-      no aggregate caps; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+      maximum-shaped outcome/error envelopes, and timeout/cancellation
+      settlement. Current harness is test-only and selects no aggregate caps;
+      see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable

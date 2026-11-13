@@ -360,7 +360,16 @@ the reservation remains held while failure evidence persists (11 events,
 4,991–4,992 bytes). When the store rejects `run.failed`, the reserve cannot
 make storage succeed; the persisted prefix remains nonterminal at 9 events and
 4,011–4,012 bytes. The focused proof cases pass (10/10), and the complete Agent
-Framework suite passes (285/285).
+Framework suite passed at 285/285 before this byte-only case; after adding it,
+the complete suite passes (287/287).
+
+`ArrayIterationVawBodyProofTests.ModelRequestByteCapacityExhaustion_RejectsDispatchAndPersistsReservedFailure`
+sets the event ceiling well above the baseline trace and independently makes
+the byte ceiling 256 bytes too small for the model request, bounded response,
+and failure reserve. Both file and SQLite reject the request before provider
+dispatch and preserve the three agent/node/run failure events (2/2 focused
+cases pass). This is a standalone byte-admission proof for one measured model
+response shape; it does not establish worst-case response/error envelope sizes.
 
 `StoreAppendFailureTests.ToolAuthorizationEvidenceBudgetExhaustion_PreventsDispatchAndPersistsFailure`
 extends the proof to the production `McpToolBroker` and its real stdio demo
@@ -378,9 +387,9 @@ appended, then settles only after that evidence is accepted. Both stores pass
 This is a test-only accounting harness, not a production run budget. It proves
 reservation mechanics for one bounded model call and one bounded MCP tool call,
 using test-specific outcome byte allowances. It does not prove worst-case
-bounds for all event shapes, standalone byte-limit exhaustion, MCP/delegate
-reservation races, unlimited turns, timeout/cancellation settlement, or a
-production terminal reserve. No aggregate cap is selected.
+bounds for all event shapes, MCP/delegate reservation races, unlimited turns,
+timeout/cancellation settlement, or a production terminal reserve. No
+aggregate cap is selected.
 
 The public iterator contract must be Blueprint-style and composable with all
 existing graph capabilities. The proposed pins are an execution input, typed

@@ -900,6 +900,64 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ModelRequestByteCapacityExhaustion_RejectsDispatchAndPersistsReservedFailure(bool sqlite)
+    {
+        const string providerId = "proof.concurrent-model";
+        const string input = "Evidence byte-capacity proof.";
+        var revision = ModelEvidenceRevision(providerId);
+        using var baselineStore = new ProofRunStore(revision, input, sqlite);
+        var baselineRecorder = new ProofRecorder(baselineStore);
+        var baselineModel = new ConcurrentPromptModel(expectedConcurrentCalls: 1);
+        var provider = new AgentProviderDescriptor(providerId, "Proof model", "proof-chat-v1", true);
+        var baselineAgents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SynchronizedResponseChatClient(baselineModel))],
+            new EchoToolBroker());
+        await new WorkflowRunner(new EchoToolBroker(), baselineAgents).ExecuteWithOutcomeAsync(baselineStore.RunId, revision,
+            input, null, evt => { baselineRecorder.Append(evt); return ValueTask.CompletedTask; });
+        var baselineEvents = baselineRecorder.Snapshot();
+        var requestIndex = Array.FindIndex(baselineEvents, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
+        Assert.True(requestIndex > 0);
+        Assert.Equal(2, baselineEvents.Count(evt => evt.Kind == ExecutionEventKinds.Started));
+        var request = baselineEvents[requestIndex];
+        var eventsBeforeRequestBytes = baselineEvents.Take(requestIndex).Skip(1).Sum(EventBytes);
+        var responseBytes = EventBytes(Assert.Single(baselineEvents, evt => evt.Kind == ExecutionEventKinds.ModelResponded));
+
+        using var limitedStore = new ProofRunStore(revision, input, sqlite);
+        var model = new ConcurrentPromptModel(expectedConcurrentCalls: 1);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SynchronizedResponseChatClient(model))],
+            new EchoToolBroker());
+        const int reservedFailureEvents = 3;
+        const long reservedFailureBytes = 64_000;
+        var recorder = new ReservedEvidenceProofRecorder(limitedStore,
+            maximumEvents: 1_000,
+            maximumBytes: eventsBeforeRequestBytes + EventBytes(request) + responseBytes + 512 +
+                reservedFailureBytes - 256,
+            reservedFailureEvents,
+            reservedFailureBytes,
+            maximumModelOutcomeBytes: responseBytes + 512);
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(new EchoToolBroker(), agents).ExecuteWithOutcomeAsync(
+            limitedStore.RunId, revision, input, null, recorder.RecordAsync));
+
+        Assert.NotNull(failure);
+        Assert.Contains("run evidence budget", failure.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(model.Calls);
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(limitedStore, events, "failed");
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ModelRequested or
+            ExecutionEventKinds.ModelResponded);
+        Assert.Equal([ExecutionEventKinds.AgentFailed, ExecutionEventKinds.NodeFailed, ExecutionEventKinds.Failed],
+            events.TakeLast(reservedFailureEvents).Select(evt => evt.Kind));
+        Assert.Equal(0, recorder.PendingOutcomeReservations);
+        Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
+        Console.WriteLine($"{(sqlite ? "sqlite" : "file")} byte-only exhaustion: {events.Length} persisted events, " +
+            $"{recorder.PersistedEventBytes} UTF-8 bytes, 256-byte shortfall with event capacity available, no model dispatch.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ModelOutcomeAccepted_SettlesReservationAndReleasesUnusedBytes(bool sqlite)
     {
         const string providerId = "proof.concurrent-model";
