@@ -726,9 +726,11 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ParallelDelegateFailure_PersistsFailureAndTerminalEvidence(bool sqlite)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task ParallelDelegateFailure_PreservesUnsettledReservations(bool sqlite, bool rejectChildOutcomeAppend)
     {
         const string providerId = "proof.delegate-model";
         var parentInstructions = "Parent instructions.";
@@ -765,7 +767,21 @@ public sealed class ArrayIterationVawBodyProofTests
         };
         var revision = WorkflowRevision.Create(definition, "parallel-delegate-failure-proof");
         const string input = "Review this proposal.";
-        using var runStore = new ProofRunStore(revision, input, sqlite);
+        Guid? parentInvocationId = null;
+        var rejectedAppendCount = 0;
+        var rejectedInvocationIds = new ConcurrentQueue<Guid>();
+        Func<ExecutionEvent, bool>? rejectAppend = rejectChildOutcomeAppend ? evt =>
+        {
+            if (parentInvocationId is null && evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent")
+                parentInvocationId = evt.InvocationId;
+            if (evt.Kind != ExecutionEventKinds.ModelResponded || parentInvocationId is not { } parentId ||
+                evt.InvocationId == parentId || evt.InvocationId is not { } invocationId ||
+                Interlocked.CompareExchange(ref rejectedAppendCount, 1, 0) != 0) return false;
+            rejectedInvocationIds.Enqueue(invocationId);
+            return true;
+        } : null;
+        using var runStore = new ProofRunStore(revision, input, sqlite,
+            rejectedAppendPredicate: rejectAppend);
         var recorder = new ReservedEvidenceProofRecorder(runStore,
             maximumEvents: 512,
             maximumBytes: 4_000_000,
@@ -774,7 +790,8 @@ public sealed class ArrayIterationVawBodyProofTests
             maximumModelOutcomeBytes: 64_000,
             maximumConcurrentOutcomeReservations: 8);
         var model = new ParallelDelegateEvidenceModel(parentInstructions, researcherInstructions,
-            reviewerInstructions, "Review this proposal.", 64, failResearcher: true, failParentFollowup: true);
+            reviewerInstructions, "Review this proposal.", 64, failResearcher: !rejectChildOutcomeAppend,
+            failParentFollowup: true);
         var provider = new AgentProviderDescriptor(providerId, "Proof delegate model", "proof-chat-v1", true);
         var agents = new AgentNodeExecutor(
             [new AgentProviderRegistration(provider, () => new ParallelDelegateEvidenceChatClient(model))],
@@ -793,6 +810,12 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed &&
             evt.Data!.Contains("Delegated agent failed.", StringComparison.Ordinal));
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed);
+        if (rejectChildOutcomeAppend)
+        {
+            var rejectedInvocationId = Assert.Single(rejectedInvocationIds);
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded &&
+                evt.InvocationId == rejectedInvocationId);
+        }
         var unsettledModelCalls = events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested) -
             events.Count(evt => evt.Kind == ExecutionEventKinds.ModelResponded);
         Assert.True(unsettledModelCalls >= 2);
@@ -1446,14 +1469,17 @@ public sealed class ArrayIterationVawBodyProofTests
         private readonly string directory = Path.Combine(Path.GetTempPath(), $"vaw-array-proof-{Guid.NewGuid():N}");
 
         public ProofRunStore(WorkflowRevision revision, string input, bool sqlite,
-            string[]? rejectedAppendEventKinds = null)
+            string[]? rejectedAppendEventKinds = null,
+            Func<ExecutionEvent, bool>? rejectedAppendPredicate = null)
         {
             Directory.CreateDirectory(directory);
             IWorkflowRunStore store = sqlite
                 ? new SqliteWorkflowRunStore(Path.Combine(directory, "runs.sqlite3"))
                 : new FileRunJournal(directory);
-            Store = rejectedAppendEventKinds is { Length: > 0 }
-                ? new RejectingAppendRunStore(store, rejectedAppendEventKinds.ToHashSet(StringComparer.Ordinal))
+            Store = rejectedAppendEventKinds is { Length: > 0 } || rejectedAppendPredicate is not null
+                ? new RejectingAppendRunStore(store,
+                    rejectedAppendEventKinds?.ToHashSet(StringComparer.Ordinal) ?? new HashSet<string>(StringComparer.Ordinal),
+                    rejectedAppendPredicate)
                 : store;
             RunId = Store.Create(revision, input).Header.RunId;
         }
@@ -1464,7 +1490,8 @@ public sealed class ArrayIterationVawBodyProofTests
         public void Dispose() => Directory.Delete(directory, recursive: true);
     }
 
-    private sealed class RejectingAppendRunStore(IWorkflowRunStore inner, IReadOnlySet<string> rejectedKinds)
+    private sealed class RejectingAppendRunStore(IWorkflowRunStore inner, IReadOnlySet<string> rejectedKinds,
+        Func<ExecutionEvent, bool>? rejectedAppendPredicate)
         : IWorkflowRunStore
     {
         public RunSnapshot Create(WorkflowRevision revision, string input) => inner.Create(revision, input);
@@ -1472,8 +1499,10 @@ public sealed class ArrayIterationVawBodyProofTests
         public IReadOnlyList<RunSnapshot> List() => inner.List();
         public RunSnapshot Append(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events)
         {
-            if (events.Any(evt => rejectedKinds.Contains(evt.Kind)))
-                throw new IOException($"Injected store append failure for {events.First(evt => rejectedKinds.Contains(evt.Kind)).Kind}.");
+            var rejected = events.FirstOrDefault(evt => rejectedKinds.Contains(evt.Kind) ||
+                rejectedAppendPredicate?.Invoke(evt) == true);
+            if (rejected is not null)
+                throw new IOException($"Injected store append failure for {rejected.Kind}.");
             return inner.Append(runId, expectedSequence, events);
         }
     }

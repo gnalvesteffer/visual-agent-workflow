@@ -262,7 +262,7 @@ will be introduced.
       its outcome and the three-record agent/node/run failure chain. File and
       SQLite retain 10 events and 4,239–4,240 serialized UTF-8 bytes. The
       focused proof cases pass (10/10); the full Agent Framework suite passes
-      (287/287) with the standalone byte proof included.
+      (289/289) with byte and delegated reservation proofs included.
     - [x] Independently exhaust the byte ceiling while keeping event capacity
       ample: reject `model.requested` before provider dispatch when the byte
       reserve is 256 bytes short of covering the request, measured response,
@@ -286,14 +286,15 @@ will be introduced.
     - [x] Hold an MCP outcome reservation across a rejected `tool.completed`
       store append, then settle it only after `tool.uncertain` is accepted by
       each store (2/2 cases).
-    - [x] Run maximum-shaped parallel delegate success and child-failure paths
-      through the shared reservation recorder. Success holds two child
-      reservations concurrently and settles all four model calls; cancellation
-      retains reservations for unanswered calls in both stores (4/4 cases).
-    - [ ] Complete the remaining proof for delegated append failure and
-      reservation races, maximum-shaped error envelopes, and timeout/other
-      cancellation settlement. Current harness is test-only and selects no
-      aggregate caps; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Run maximum-shaped parallel delegate success, failure/cancellation,
+      and child-response append-failure paths through the shared reservation
+      recorder. Success holds two child reservations concurrently and settles
+      all four model calls; failed/unpersisted calls remain reserved until an
+      accepted outcome exists (6/6 store cases).
+    - [ ] Complete the remaining proof for delegated function-call evidence
+      append failures, reservation races, maximum-shaped error envelopes, and
+      timeout/other cancellation settlement. Current harness is test-only and
+      selects no aggregate caps; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable

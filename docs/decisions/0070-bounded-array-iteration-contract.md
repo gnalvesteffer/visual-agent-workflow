@@ -325,10 +325,18 @@ accepted responses, and all reservations settle in both stores. On the
 delegated failure path, one child fails, its sibling is cancelled, and the
 parent follow-up fails; the remaining pending reservations equal the number of
 model requests without a recorded response, so cancellation/failure does not
-falsely settle an external outcome. The four store cases pass, and the full
-Agent Framework suite passes (287/287). This remains a test-only recorder and
-does not cover store append failure during delegated outcomes or a competing
-reservation being rejected.
+falsely settle an external outcome. The four base success/failure store cases
+pass, and the full Agent Framework suite passes (289/289). This remains a
+test-only recorder and does not cover a competing reservation being rejected.
+
+The failure test also injects one `model.responded` append failure for a child
+invocation at the actual file/SQLite store boundary. The rejected response is
+absent from history, and its pending reservation remains counted with the
+other requested calls that have no accepted response. This confirms an
+unpersisted delegated response is not treated as settled; all six delegated
+reservation cases pass across the two stores. It does not cover append failure
+for function-call/delegation evidence or the rejection side of a reservation
+race.
 
 `ArrayIterationVawBodyProofTests.ModelRequestEvidenceAppendFailure_PreventsProviderDispatch`
 injects a run-event sink failure while persisting `model.requested`. Through
