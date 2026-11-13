@@ -180,9 +180,10 @@ will be introduced.
     selected no production architecture; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Extend the hybrid candidate with nested immutable activation frames
       and parent parameter inheritance around the production Agent/MCP body;
-      verify scoped events and variable state through file and SQLite stores
-      (2/2), with the Agent Framework suite passing 320/320. Nested `Break`,
-      nested joins, and shared atomic budgets remain open.
+      verify scoped events, variable state, and a production parallel join
+      through file and SQLite stores (4/4), with the Agent Framework suite
+      passing 320/320. Nested `Break`, join failure/cancellation races, and
+      shared atomic budgets remain open.
     - [x] Add a non-production candidate-1 contract fixture proving nested frame
       identity, activation-scoped runtime values and variables, nearest-loop
       lookup, one-shot concurrent fork release, and cancellation before the

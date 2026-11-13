@@ -32,10 +32,15 @@ workflow body, leaving static graph routing and joins inside Agent Framework.
 verifies inherited outer parameters, nested scope identity, production Agent
 and direct-MCP execution, fresh variable state, and one monotonic evidence
 ledger persisted through both file and SQLite stores (2/2 focused cases). The
-full Agent Framework suite passes 320/320. This is one nested production body
-case; it does not exercise nested `Break` dispatch, configured parallel joins
-under a nested frame, or shared atomic work/evidence budgets. It therefore
-advances the hybrid comparison but does not select the architecture.
+companion `HybridFrameCoordinator_ExecutesConfigurableParallelJoinUnderNestedActivation`
+case also proves that the production Agent Framework body completes its
+two-branch join beneath a nested frame, with both branch completions and join
+arrivals attributed to the child scope in file and SQLite stores. Both hybrid
+proof theories pass (4/4 cases), and the full Agent Framework suite passes
+320/320. These are representative nested success cases; nested `Break`
+dispatch, nested join failure/cancellation races, and shared atomic
+work/evidence budgets remain unproven. The hybrid comparison advances but does
+not select the architecture.
 
 ## Status
 

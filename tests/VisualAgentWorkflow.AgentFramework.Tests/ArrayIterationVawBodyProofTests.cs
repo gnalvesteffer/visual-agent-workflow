@@ -1052,7 +1052,7 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task FreshVawRunnerPerItem_ExecutesConfigurableParallelJoin(bool sqlite)
+    public async Task HybridFrameCoordinator_ExecutesConfigurableParallelJoinUnderNestedActivation(bool sqlite)
     {
         var definition = ParallelBodyDefinition();
         WorkflowValidator.ThrowIfInvalid(definition);
@@ -1062,7 +1062,10 @@ public sealed class ArrayIterationVawBodyProofTests
         var recorder = new ProofRecorder(runStore);
         var agents = new EchoAgentExecutor();
         var tools = new EchoToolBroker();
-        var iterator = new PerItemWorkflowExecutor(runStore.RunId, revision, recorder, agents, tools);
+        var parentFrame = new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null,
+            "outer-loop", 4, "outer", ImmutableSortedDictionary<string, string>.Empty);
+        var iterator = new PerItemWorkflowExecutor(runStore.RunId, revision, recorder, agents, tools,
+            parentFrame: parentFrame, loopNodeId: "inner-loop");
         var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
 
         await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
@@ -1087,6 +1090,18 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress && evt.NodeId == "join"));
         Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
             evt.NodeId is "agent-left" or "agent-right"));
+        for (var index = 0; index < 2; index++)
+        {
+            var scopeId = $"outer-loop/4/inner-loop/{index}";
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.ScopeId == scopeId && evt.NodeId == "inner-loop");
+            Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress &&
+                evt.NodeId == "join" && evt.ScopeId == scopeId));
+            Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId is "agent-left" or "agent-right" && evt.ScopeId == scopeId));
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.ScopeId == scopeId && evt.NodeId == "inner-loop");
+        }
     }
 
     [Theory]
