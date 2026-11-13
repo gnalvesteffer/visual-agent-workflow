@@ -2584,6 +2584,75 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HybridFrameCoordinator_IsolatesTwoPhaseCollaborationPerActivation(bool sqlite)
+    {
+        var definition = WorkflowRunnerCollaborationTests.CreatePhasedGraph(branchCount: 2, timeoutSeconds: 30)
+            with { SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph };
+        var revision = WorkflowRevision.Create(definition, "array-iteration-hybrid-collaboration-proof");
+        const string input = "[\"item-a\",\"item-b\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var eventGate = new object();
+        var events = new List<ExecutionEvent>();
+        long sequence = 0;
+        var runId = runStore.RunId;
+        var revisionId = runStore.Store.Get(runId)!.Header.RevisionId;
+        void RecordPersistable(ExecutionEvent evt)
+        {
+            lock (eventGate) events.Add(evt with { Sequence = ++sequence });
+        }
+        RecordPersistable(new ExecutionEvent(runId, revisionId, 0, DateTimeOffset.UtcNow,
+            ExecutionEventKinds.Started));
+        var parentFrame = new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null,
+            "outer-loop", 4, "outer", ImmutableSortedDictionary<string, string>.Empty);
+        var agent = new ActivationScopedCollaborationAgentExecutor(branchCount: 2);
+        var items = JsonSerializer.Deserialize<string[]>(input)!;
+
+        for (var index = 0; index < items.Length; index++)
+        {
+            var frame = parentFrame.Enter("array-loop", index, items[index],
+                ImmutableSortedDictionary<string, string>.Empty);
+            RecordPersistable(new ExecutionEvent(runId, revisionId, 0, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.LoopIterationStarted, "array-loop", frame.Id) { ScopeId = frame.ScopeId });
+            ValueTask Record(ExecutionEvent evt)
+            {
+                if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                    ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                    return ValueTask.CompletedTask;
+                RecordPersistable(evt with { ScopeId = frame.ScopeId });
+                return ValueTask.CompletedTask;
+            }
+
+            var result = await new WorkflowRunner(agents: agent).ExecuteWithOutcomeAsync(runStore.RunId,
+                revision, items[index], null, Record);
+            Assert.False(result.Failed, string.Join(" | ", events.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
+            Assert.NotNull(result.Output);
+            using var joined = JsonDocument.Parse(result.Output!);
+            Assert.Equal(2, joined.RootElement.EnumerateObject().Count());
+            Assert.All(joined.RootElement.EnumerateObject(), branch => Assert.Equal(items[index], branch.Value.GetString()));
+            RecordPersistable(new ExecutionEvent(runId, revisionId, 0, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id) { ScopeId = frame.ScopeId });
+        }
+        RecordPersistable(new ExecutionEvent(runId, revisionId, 0, DateTimeOffset.UtcNow,
+            ExecutionEventKinds.Completed));
+        runStore.Store.Append(runId, 0, events);
+
+        AssertPersistedSequence(runStore, events, "completed");
+        for (var index = 0; index < items.Length; index++)
+        {
+            var scopeId = $"outer-loop/4/array-loop/{index}";
+            var scoped = events.Where(evt => evt.ScopeId == scopeId).ToArray();
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationRegionStarted);
+            Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationReleased));
+            Assert.Equal(4, scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationArrival));
+            Assert.Equal(4, scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationMessageSent));
+            Assert.Equal(4, scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationMessagesRead));
+            Assert.DoesNotContain(scoped, evt => evt.Kind == ExecutionEventKinds.ParallelCollaborationAborted);
+        }
+    }
+
     private static WorkflowDefinition SequenceBodyDefinition()
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
@@ -2676,6 +2745,35 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     private sealed record HybridBudgetLoopResult(string? Output, string? Error);
+
+    private sealed class ActivationScopedCollaborationAgentExecutor(int branchCount) : IAgentNodeExecutor
+    {
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>([new("fixture", "Fixture", "test", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            var branchId = invocation.Revision.Definition.Nodes[invocation.NodeId].Agent!.Instructions;
+            var phase = invocation.CollaborationPhase!;
+            if (invocation.CollaborationRole == ParallelCollaborationRoles.Publish)
+            {
+                Assert.NotNull(invocation.CollaborationSend);
+                await invocation.CollaborationSend!("work", $"{input}|{phase}|{branchId}", cancellationToken);
+                return input;
+            }
+
+            Assert.Equal(ParallelCollaborationRoles.Read, invocation.CollaborationRole);
+            Assert.NotNull(invocation.CollaborationRead);
+            var snapshot = await invocation.CollaborationRead!("work", cancellationToken);
+            using var document = JsonDocument.Parse(snapshot);
+            var messages = document.RootElement.EnumerateArray()
+                .Select(item => item.GetProperty("content").GetString()!).ToArray();
+            Assert.Equal(branchCount, messages.Length);
+            Assert.All(messages, message => Assert.StartsWith($"{input}|{phase}|", message, StringComparison.Ordinal));
+            return input;
+        }
+    }
 
     private static async Task<string> RunHybridLoopProofAsync(Guid runId, WorkflowRevision revision,
         ProofRecorder recorder, IAgentNodeExecutor agents, INodeToolBroker tools, string loopNodeId,

@@ -17,16 +17,17 @@ internal static class ParallelCollaborationJournalValidation
         if (events.Length == 0) return;
 
         var definition = snapshot.Header.Definition;
-        if (definition.SchemaVersion is not (WorkflowSchemaVersions.CollaborativeParallelGraph or WorkflowSchemaVersions.PhasedCollaborativeParallelGraph) ||
-            definition.ParallelCollaborationRegions is not { Count: 1 } regions)
+        if (definition.ParallelCollaborationRegions is not { Count: 1 } regions)
             throw Invalid("Collaboration events require one supported collaboration region.");
 
         var region = regions.Values.Single();
         // A future payload version is deliberately unavailable to this reader. Do not mistake its
-        // data for a validated v1 history; Studio can still report that the evidence is unsupported.
-        if (definition.SchemaVersion == WorkflowSchemaVersions.PhasedCollaborativeParallelGraph)
+        // data for a validated history; Studio can still report that the evidence is unsupported.
+        if (region.SecondRendezvousNodeId is not null)
         {
-            ValidatePhased(snapshot, events, region);
+            if (events.Any(evt => ReadVersion(evt) != 2)) return;
+            foreach (var invocationEvents in GroupPhasedInvocations(events))
+                ValidatePhased(snapshot, invocationEvents, region);
             return;
         }
         if (events.Any(evt => ReadVersion(evt) != PayloadVersion)) return;
@@ -103,6 +104,19 @@ internal static class ParallelCollaborationJournalValidation
                     break;
             }
         }
+    }
+
+    private static IEnumerable<ExecutionEvent[]> GroupPhasedInvocations(ExecutionEvent[] events)
+    {
+        var groups = new Dictionary<Guid, List<ExecutionEvent>>();
+        foreach (var evt in events)
+        {
+            using var payload = ParsePayload(evt);
+            var invocationId = RequiredGuid(payload.RootElement, "regionInvocationId");
+            if (!groups.TryGetValue(invocationId, out var group)) groups.Add(invocationId, group = []);
+            group.Add(evt);
+        }
+        return groups.Values.Select(group => group.ToArray());
     }
 
     private static void ValidatePhased(RunSnapshot snapshot, ExecutionEvent[] events, ParallelCollaborationRegion region)

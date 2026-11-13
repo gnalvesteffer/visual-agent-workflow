@@ -329,7 +329,7 @@ public sealed class WorkflowRunnerCollaborationTests
         };
     }
 
-    private static WorkflowDefinition CreatePhasedGraph(int branchCount, int? timeoutSeconds)
+    internal static WorkflowDefinition CreatePhasedGraph(int branchCount, int? timeoutSeconds)
     {
         var branchIds = Enumerable.Range(0, branchCount).Select(index => $"branch_{(char)('a' + index)}").ToArray();
         var descriptors = branchIds.Select((branchId, index) => new ParallelBranchDescriptor(branchId, $"Branch {index + 1}", $"anchor-{branchId}")).ToImmutableArray();

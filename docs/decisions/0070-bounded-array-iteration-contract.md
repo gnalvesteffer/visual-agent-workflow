@@ -71,8 +71,17 @@ invoke a direct MCP node. It executes the body for two nested activation
 frames, verifies both MCP calls and Sequence output dispatch/completion evidence
 per item, and persists the correctly scoped ledger through file and SQLite
 stores (2/2). This closes one Sequence-composition case in the hybrid harness;
-it does not compare all candidates, exercise collaboration compatibility, or
-establish behavior in a selected production iterator runtime.
+it does not compare all candidates or establish behavior in a selected
+production iterator runtime.
+
+`HybridFrameCoordinator_IsolatesTwoPhaseCollaborationPerActivation` exercises
+two sequential nested activations of a unified-schema body containing a
+two-phase collaboration region. Each activation publishes and reads only its
+own branch messages; both file and SQLite journals validate and persist the
+scoped event history (2/2). Journal validation selects the evidence contract
+from the region shape and validates each phased region invocation independently.
+This closes that compatibility case in the hybrid harness; it does not prove
+production iterator integration or resolve the candidate comparison.
 
 ## Status
 
