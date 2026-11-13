@@ -205,6 +205,70 @@ public sealed class ArrayIterationVawBodyProofTests
             evt.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted;
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredAndFreshSubworkflowCandidates_StopAtSameFailedActivation(bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "array-iteration-candidate-failure-comparison-proof");
+        const string input = "[\"alpha\",\"beta\",\"gamma\"]";
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var structuredAgents = new EchoAgentExecutor(failInput: "BETA:1");
+        var subworkflowAgents = new EchoAgentExecutor(failInput: "BETA:1");
+        var structuredTools = new EchoToolBroker();
+        var subworkflowTools = new EchoToolBroker();
+
+        var structuredFailure = await Record.ExceptionAsync(() =>
+            new WorkflowRunner(structuredTools, structuredAgents)
+                .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                    evt => { structuredRecorder.Append(evt); return ValueTask.CompletedTask; }));
+        Assert.NotNull(structuredFailure);
+
+        var iterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision, subworkflowRecorder,
+            subworkflowAgents, subworkflowTools);
+        var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+        string? subworkflowOutput = null;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input))
+            await foreach (var evt in run.WatchStreamAsync())
+                if (evt is WorkflowOutputEvent { Data: string value }) subworkflowOutput = value;
+        Assert.Null(subworkflowOutput);
+        subworkflowRecorder.FailRoot();
+
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        AssertPersistedSequence(structuredStore, structuredEvents, "failed");
+        AssertPersistedSequence(subworkflowStore, subworkflowEvents, "failed");
+        Assert.Equal(["ALPHA:0", "BETA:1"], structuredAgents.Inputs);
+        Assert.Equal(structuredAgents.Inputs, subworkflowAgents.Inputs);
+        Assert.Equal(["ALPHA:0"], structuredTools.Queries);
+        Assert.Equal(structuredTools.Queries, subworkflowTools.Queries);
+        AssertActivationFailurePrefix(structuredEvents);
+        AssertActivationFailurePrefix(subworkflowEvents);
+        Assert.Equal(subworkflowEvents.Where(IsNodeFailureBoundary).Select(EventShape),
+            structuredEvents.Where(IsNodeFailureBoundary).Select(EventShape));
+
+        static (string Kind, string? NodeId, string? ScopeId) EventShape(ExecutionEvent evt) =>
+            (evt.Kind, evt.NodeId, evt.ScopeId);
+        static bool IsNodeFailureBoundary(ExecutionEvent evt) =>
+            evt.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeFailed;
+        static void AssertActivationFailurePrefix(IReadOnlyList<ExecutionEvent> events)
+        {
+            Assert.Equal(["array-loop/0", "array-loop/1"], events
+                .Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted)
+                .Select(evt => evt.ScopeId));
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+                evt.NodeId == "agent" && evt.ScopeId == "array-loop/1");
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == "tool" && evt.ScopeId == "array-loop/1");
+            Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/2");
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+        }
+    }
+
     [Fact]
     public async Task StructuredSchedulerProof_ExecutesProductionAgentNodesAcrossParallelJoin()
     {

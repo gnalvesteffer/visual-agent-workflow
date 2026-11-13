@@ -235,6 +235,15 @@ cancellation, or join outcomes across candidates. Store reopening after process
 loss, crash recovery, and shared atomic budgets also remain unproven. The
 architecture decision and public iterator remain open.
 
+`ArrayIterationVawBodyProofTests.StructuredAndFreshSubworkflowCandidates_StopAtSameFailedActivation`
+compares both candidates against the same Agent/direct-MCP body and fails the
+Agent at item index 1. For both file and SQLite stores, each candidate persists
+the started activation prefix for indices 0 and 1, the same Agent start/failure
+node-event shape scoped to index 1, no events for index 2, and a failed root
+terminal. Neither candidate dispatches the tool for the failing item. Both
+store variants pass. This narrows the comparison gap for per-item failure
+attribution but does not compare cancellation races or joined-body outcomes.
+
 ### Initial persistence sizing evidence
 
 `RunStoreTests.MaximumShapedModelMcpAndGraphEvents_MeasurePersistedUtf8Envelope`

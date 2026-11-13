@@ -210,9 +210,12 @@ will be introduced.
       model/tool inputs, event shape, activation scope, and invocation
       boundaries; their full event streams persist through file and SQLite
       stores. The comparison exposed and fixed dropped connection IDs in the
-      structured event bridge. It does not cover full-graph parity or failure,
-      cancellation, and join outcomes side by side. The Agent Framework suite
-      passes (263/263).
+      structured event bridge. A persisted failure comparison now checks that
+      both candidates stop at the same failing activation, preserve the failed
+      Agent's scoped lifecycle, and never dispatch the following item in both
+      file and SQLite stores. This failure prefix comparison passes in both
+      store variants; cancellation and join outcomes still need side-by-side
+      coverage.
     - [ ] Compare candidate budgets at atomic dispatch/evidence boundaries and
       prove exhaustion behavior. Store reopen/process loss, nested frames,
       typed iterator pins, Sequence, collaboration, and crash recovery also
