@@ -232,8 +232,21 @@ will be introduced.
       `node.started` event or Agent adapter entry, without synthesizing a
       `node.cancelled` event. Immediate failure before structured dispatch still
       differs. Dispatch/evidence budgets and join-cancellation cases also remain
-      open. Both controlled lifecycle comparisons pass in file and SQLite
-      stores; the full Agent Framework suite passes (309/309).
+      open. The initial controlled lifecycle comparisons pass in file and
+      SQLite stores; the full Agent Framework suite passed 309/309 at that
+      point. A post-start
+      gate now holds the right branch after its persisted `node.started` event
+      but before the Agent adapter. Left-branch failure produces matching
+      right-node cancellation evidence in both candidates and stores, without
+      entering the right adapter. With the right target ordered first and
+      synchronized to complete before left failure, both candidates retain the
+      same failed run and suppress the next item; the structured candidate
+      records one partial join arrival, while the AF fan-in barrier has not yet
+      invoked the join. The review adjudication keeps both architectures open:
+      queue-then-run is a proof candidate, not a selected contract. Staging
+      failure semantics and the broader budget/state/recovery matrix remain
+      unproven. The new post-start and reversed-order comparisons pass in file
+      and SQLite variants; the full Agent Framework suite passes (313/313).
     - [ ] Compare candidate budgets at atomic dispatch/evidence boundaries and
       prove exhaustion behavior. Store reopen/process loss, nested frames,
       typed iterator pins, Sequence, collaboration, and crash recovery also

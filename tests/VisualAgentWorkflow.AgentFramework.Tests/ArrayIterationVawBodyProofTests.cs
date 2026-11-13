@@ -479,6 +479,98 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task StructuredAndFreshSubworkflowCandidates_CompareJoinArrivalAfterSuccessfulBranch(bool sqlite)
+    {
+        var definition = ParallelBodyDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var execution = definition.ExecutionConnections!;
+        definition = definition with
+        {
+            ExecutionConnections = execution.Remove("fork-left").Remove("fork-right")
+                .Add("fork-z-left", Edge("fork", ParallelBranchLimits.PinId("left"), "anchor-left", "execute"))
+                .Add("fork-a-right", Edge("fork", ParallelBranchLimits.PinId("right"), "anchor-right", "execute"))
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "array-iteration-candidate-reversed-parallel-order-proof");
+        const string input = "[\"north\",\"south\"]";
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var structuredAdvance = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var subworkflowAdvance = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var structuredAgents = new FirstSuccessThenFailAgentExecutor(structuredAdvance);
+        var subworkflowAgents = new FirstSuccessThenFailAgentExecutor(subworkflowAdvance);
+
+        ValueTask RecordStructured(ExecutionEvent evt)
+        {
+            structuredRecorder.Append(evt);
+            if (evt.Kind == ExecutionEventKinds.ParallelJoinProgress && evt.NodeId == "join")
+                structuredAdvance.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var structuredFailure = await Record.ExceptionAsync(() =>
+            new WorkflowRunner(agents: structuredAgents)
+                .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                    RecordStructured));
+        Assert.NotNull(structuredFailure);
+
+        var iterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision, subworkflowRecorder,
+            subworkflowAgents, new EchoToolBroker(), observeEvent: evt =>
+            {
+                if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-right")
+                    subworkflowAdvance.TrySetResult();
+                return ValueTask.CompletedTask;
+            });
+        var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+        var workflowError = false;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input))
+            await foreach (var evt in run.WatchStreamAsync()) workflowError |= evt is WorkflowErrorEvent;
+        Assert.True(workflowError);
+        subworkflowRecorder.FailRoot();
+
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        AssertPersistedSequence(structuredStore, structuredEvents, "failed");
+        AssertPersistedSequence(subworkflowStore, subworkflowEvents, "failed");
+        AssertSuccessfulBranchBeforeFailure(structuredEvents, joinStarts: true);
+        AssertSuccessfulBranchBeforeFailure(subworkflowEvents, joinStarts: false);
+
+        static void AssertSuccessfulBranchBeforeFailure(IReadOnlyList<ExecutionEvent> events, bool joinStarts)
+        {
+            var rightTargetActivated = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated &&
+                evt.NodeId == "anchor-right" && evt.ConnectionId == "execution:fork-a-right" &&
+                evt.ScopeId == "array-loop/0");
+            var leftTargetActivated = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated &&
+                evt.NodeId == "anchor-left" && evt.ConnectionId == "execution:fork-z-left" &&
+                evt.ScopeId == "array-loop/0");
+            Assert.True(rightTargetActivated.Sequence < leftTargetActivated.Sequence);
+            var rightCompleted = events.SingleOrDefault(evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "agent-right" && evt.ScopeId == "array-loop/0");
+            var leftFailed = events.SingleOrDefault(evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+                evt.NodeId == "agent-left" && evt.ScopeId == "array-loop/0");
+            var trace = string.Join(" | ", events.Where(evt => evt.NodeId is "agent-left" or "agent-right" or "join")
+                .Select(evt => $"{evt.Sequence}:{evt.Kind}:{evt.NodeId}"));
+            Assert.True(rightCompleted is not null, trace);
+            Assert.True(leftFailed is not null, trace);
+            Assert.True(rightCompleted.Sequence < leftFailed.Sequence,
+                trace);
+            Assert.Equal(joinStarts, events.Any(evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == "join" && evt.ScopeId == "array-loop/0"));
+            Assert.Equal(joinStarts, events.Any(evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress &&
+                evt.NodeId == "join" && evt.ScopeId == "array-loop/0"));
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+            Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task StructuredAndFreshSubworkflowCandidates_CancelSiblingAfterHandlerEntry(bool sqlite)
     {
         var definition = ParallelBodyDefinition() with
@@ -602,6 +694,77 @@ public sealed class ArrayIterationVawBodyProofTests
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
                 evt.NodeId == "agent-right");
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent-right");
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+            Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredAndFreshSubworkflowCandidates_CancelAdmittedSiblingBeforeAgentHandler(bool sqlite)
+    {
+        var definition = ParallelBodyDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "array-iteration-candidate-parallel-admitted-sibling-proof");
+        const string input = "[\"north\",\"south\"]";
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var structuredGate = new CoordinatedPostStartGate();
+        var subworkflowGate = new CoordinatedPostStartGate();
+        var structuredAgents = new CoordinatedPostStartFailureAgentExecutor(structuredGate);
+        var subworkflowAgents = new CoordinatedPostStartFailureAgentExecutor(subworkflowGate);
+
+        var structuredFailure = await Record.ExceptionAsync(() =>
+            new WorkflowRunner(agents: structuredAgents)
+                .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                    evt => { structuredRecorder.Append(evt); return ValueTask.CompletedTask; },
+                    afterNodeStarted: structuredGate.WaitAsync));
+        Assert.NotNull(structuredFailure);
+
+        var iterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision, subworkflowRecorder,
+            subworkflowAgents, new EchoToolBroker(), afterNodeStarted: subworkflowGate.WaitAsync);
+        var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+        var workflowError = false;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input))
+            await foreach (var evt in run.WatchStreamAsync()) workflowError |= evt is WorkflowErrorEvent;
+        Assert.True(workflowError);
+        subworkflowRecorder.FailRoot();
+
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        AssertPersistedSequence(structuredStore, structuredEvents, "failed");
+        AssertPersistedSequence(subworkflowStore, subworkflowEvents, "failed");
+        Assert.True(structuredGate.RightNodeStarted.Task.IsCompletedSuccessfully);
+        Assert.True(subworkflowGate.RightNodeStarted.Task.IsCompletedSuccessfully);
+        Assert.Equal(["agent-left"], structuredAgents.EnteredNodes);
+        Assert.Equal(structuredAgents.EnteredNodes, subworkflowAgents.EnteredNodes);
+        AssertAdmittedSiblingCancellation(structuredEvents);
+        AssertAdmittedSiblingCancellation(subworkflowEvents);
+        Assert.Equal(subworkflowEvents.Where(IsBranchLifecycleEvent).Select(EventShape),
+            structuredEvents.Where(IsBranchLifecycleEvent).Select(EventShape));
+
+        static (string Kind, string? NodeId, string? ScopeId, string? ConnectionId) EventShape(ExecutionEvent evt) =>
+            (evt.Kind, evt.NodeId, evt.ScopeId, evt.ConnectionId);
+        static bool IsBranchLifecycleEvent(ExecutionEvent evt) =>
+            evt.NodeId is "agent-left" or "agent-right" or "join";
+        static void AssertAdmittedSiblingCancellation(IReadOnlyList<ExecutionEvent> events)
+        {
+            var rightStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == "agent-right" && evt.ScopeId == "array-loop/0");
+            var leftFailed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+                evt.NodeId == "agent-left" && evt.ScopeId == "array-loop/0");
+            var rightCancelled = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+                evt.NodeId == "agent-right" && evt.ScopeId == "array-loop/0");
+            Assert.Equal(rightStarted.InvocationId, rightCancelled.InvocationId);
+            Assert.True(rightStarted.Sequence < leftFailed.Sequence);
+            Assert.True(leftFailed.Sequence < rightCancelled.Sequence);
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
             Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
         }
@@ -2128,7 +2291,9 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     private sealed class PerItemWorkflowExecutor(Guid runId, WorkflowRevision revision, ProofRecorder recorder,
-        IAgentNodeExecutor agents, INodeToolBroker tools, IWorkflowExecutionGate? gate = null)
+        IAgentNodeExecutor agents, INodeToolBroker tools, IWorkflowExecutionGate? gate = null,
+        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
+        Func<ExecutionEvent, ValueTask>? observeEvent = null)
         : Executor<string, string>("array-iterator-proof", declareCrossRunShareable: true)
     {
         public override async ValueTask<string> HandleAsync(string input, IWorkflowContext context,
@@ -2147,16 +2312,23 @@ public sealed class ArrayIterationVawBodyProofTests
                 {
                     if (evt.Kind is not (ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
                         ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated))
-                        recorder.Append(evt with { ScopeId = scopeId });
+                    {
+                        var scopedEvent = evt with { ScopeId = scopeId };
+                        recorder.Append(scopedEvent);
+                        if (observeEvent is not null) return observeEvent(scopedEvent);
+                    }
                     return ValueTask.CompletedTask;
                 }
                 var itemParameters = revision.Definition.Parameters is null ? null :
                     ImmutableSortedDictionary<string, string>.Empty.Add("index", index.ToString());
                 var runner = new WorkflowRunner(tools, agents);
-                var result = gate is null
-                    ? await runner.ExecuteWithOutcomeAsync(runId, revision, items[index], itemParameters, Record, cancellationToken)
-                    : await runner.ExecuteControlledWithParametersAndOutcomeAsync(runId, revision,
-                        items[index], itemParameters, Record, gate, cancellationToken);
+                var result = afterNodeStarted is not null
+                    ? await runner.ExecuteAfterNodeStartGateProofAsync(runId, revision, items[index], itemParameters,
+                        Record, afterNodeStarted, cancellationToken)
+                    : gate is null
+                        ? await runner.ExecuteWithOutcomeAsync(runId, revision, items[index], itemParameters, Record, cancellationToken)
+                        : await runner.ExecuteControlledWithParametersAndOutcomeAsync(runId, revision,
+                            items[index], itemParameters, Record, gate, cancellationToken);
                 if (result.Failed || result.Output is null)
                     throw new InvalidOperationException($"Body workflow failed at array index {index}.");
                 recorder.Append(ExecutionEventKinds.LoopIterationCompleted, "array-loop", invocationId, scopeId);
@@ -2348,6 +2520,28 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
+    private sealed class FirstSuccessThenFailAgentExecutor(TaskCompletionSource successfulBranchAdvanced)
+        : IAgentNodeExecutor
+    {
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.branch-order", "Branch order proof", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            if (invocation.NodeId == "agent-right")
+                return JsonSerializer.Serialize(new { query = $"{input}-agent-right" });
+            if (invocation.NodeId == "agent-left")
+            {
+                await successfulBranchAdvanced.Task.WaitAsync(cancellationToken);
+                throw new InvalidOperationException("Deterministic second-branch failure.");
+            }
+
+            throw new InvalidOperationException($"Unexpected proof Agent node '{invocation.NodeId}'.");
+        }
+    }
+
     private sealed class BlockingAgentExecutor(string blockedInput) : IAgentNodeExecutor
     {
         private readonly ConcurrentQueue<string> inputs = new();
@@ -2431,6 +2625,42 @@ public sealed class ArrayIterationVawBodyProofTests
             {
                 await gate.RightReached.Task.WaitAsync(cancellationToken);
                 throw new InvalidOperationException("Deterministic failure after sibling target delivery.");
+            }
+
+            throw new InvalidOperationException($"Unexpected proof Agent node '{invocation.NodeId}'.");
+        }
+    }
+
+    private sealed class CoordinatedPostStartGate
+    {
+        public TaskCompletionSource RightNodeStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async ValueTask WaitAsync(string nodeId, CancellationToken cancellationToken)
+        {
+            if (nodeId != "agent-right") return;
+            RightNodeStarted.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        }
+    }
+
+    private sealed class CoordinatedPostStartFailureAgentExecutor(CoordinatedPostStartGate gate) : IAgentNodeExecutor
+    {
+        private readonly ConcurrentQueue<string> enteredNodes = new();
+
+        public string[] EnteredNodes => [.. enteredNodes];
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.post-start", "Post-start gate proof", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            enteredNodes.Enqueue(invocation.NodeId);
+            if (invocation.NodeId == "agent-left")
+            {
+                await gate.RightNodeStarted.Task.WaitAsync(cancellationToken);
+                throw new InvalidOperationException("Deterministic failure after sibling node start.");
             }
 
             throw new InvalidOperationException($"Unexpected proof Agent node '{invocation.NodeId}'.");

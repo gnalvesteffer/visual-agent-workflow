@@ -55,6 +55,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         return ExecuteCoreAsync(runId, revision, input, parameters, record, gate, cancellationToken);
     }
 
+    internal Task<WorkflowExecutionResult> ExecuteAfterNodeStartGateProofAsync(Guid runId, WorkflowRevision revision,
+        string input, IReadOnlyDictionary<string, string>? parameters, Func<ExecutionEvent, ValueTask> record,
+        Func<string, CancellationToken, ValueTask> afterNodeStarted,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(afterNodeStarted);
+        return ExecuteCoreAsync(runId, revision, input, parameters, record, null, cancellationToken,
+            afterNodeStarted: afterNodeStarted);
+    }
+
     private static async Task<string> MapOutput(Task<WorkflowExecutionResult> execution)
     {
         var result = await execution;
@@ -68,7 +78,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         SequenceProductionPlan? sequencePlan = null, bool sequenceWorkflowCallProof = false,
         bool allowOutcomeUnknown = false,
         Func<string, CancellationTokenSource?>? callScopeCancellation = null,
-        bool skipValidationForInternalProof = false)
+        bool skipValidationForInternalProof = false,
+        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null)
     {
         var callerCancellationToken = cancellationToken;
         ArgumentNullException.ThrowIfNull(revision);
@@ -115,7 +126,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         if (linkedCancellation is not null) cancellationToken = linkedCancellation.Token;
         var workflow = sequencePlan is null
             ? BuildWorkflow(runId, revision, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
-                collaborationRuntime, variableStore)
+                collaborationRuntime, variableStore, afterNodeStarted: afterNodeStarted)
             : BuildSequenceProductionWorkflow(runId, revision, sequencePlan, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
                 callScopeCancellation);
 
@@ -234,13 +245,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         Func<string, string?, Guid?, string?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate,
         WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath,
         ParallelCollaborationRuntime? collaborationRuntime = null, WorkflowVariableStore? variableStore = null,
-        CheckpointBoundaryTracker? boundaryTracker = null)
+        CheckpointBoundaryTracker? boundaryTracker = null,
+        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null)
     {
         var definition = revision.Definition;
         var dataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(definition) ? new ExplicitGraphDataEvaluator(definition, input, parameters) : null;
         var executors = definition.Nodes.ToDictionary(
             n => n.Key,
-            n => (Executor<GraphMessage, GraphMessage>)new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, dataEvaluator, variableStore, emit, gate, null, rootRevision, workflowPath, collaborationOptions, collaborationRuntime, null, boundaryTracker));
+            n => (Executor<GraphMessage, GraphMessage>)new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, dataEvaluator, variableStore, emit, gate, null, rootRevision, workflowPath, collaborationOptions, collaborationRuntime, null, boundaryTracker, afterNodeStarted: afterNodeStarted));
         if (collaborationRuntime is not null)
         {
             var region = collaborationRuntime.Region;
@@ -1079,7 +1091,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         CheckpointBoundaryTracker? boundaryTracker = null,
         SequenceWorkflowCallSettlement? callSettlement = null,
         bool allowOutcomeUnknown = false,
-        Func<string, CancellationTokenSource?>? callScopeCancellation = null)
+        Func<string, CancellationTokenSource?>? callScopeCancellation = null,
+        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -1257,6 +1270,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             boundaryTracker?.BeginHandler(Id, received.SourceNode, received.SourcePort, received.LoopIteration);
             try
             {
+                if (afterNodeStarted is not null)
+                    await afterNodeStarted(Id, cancellationToken);
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Output &&
                     !internalTerminationHandoff && (received.SequenceLineage is null ||
                         revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&

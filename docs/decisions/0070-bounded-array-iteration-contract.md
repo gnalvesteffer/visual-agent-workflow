@@ -294,7 +294,33 @@ but before node admission. It does not erase the earlier mismatch when
 structured dispatch fails before sending the sibling target, and it does not
 define evidence for queued-but-not-admitted work. The architecture remains
 undecided. Both controlled sibling-failure comparisons pass for file and
-SQLite stores; the full Agent Framework suite passes (309/309).
+SQLite stores; the full Agent Framework suite passed 309/309 at that point.
+
+The post-admission window is now controlled by a proof-only callback immediately
+after the persisted `node.started` event. The right Agent blocks there; the left
+Agent fails; both candidates persist the right `node.cancelled` event after its
+start and before join completion or the next item. The right Agent adapter is
+not entered. File and SQLite variants pass.
+
+`ArrayIterationVawBodyProofTests.StructuredAndFreshSubworkflowCandidates_CompareJoinArrivalAfterSuccessfulBranch`
+reverses the fork target connection ordering and synchronizes left failure
+until the right Agent has completed. Both candidates record right completion
+before left failure and suppress the join result and next item. The structured
+candidate invokes the join for the first branch and records partial join
+progress; the Agent Framework fan-in barrier retains that branch result and
+does not invoke the join while the other source has not emitted. This is a
+measured intermediate event-timing difference; final workflow outcomes agree.
+
+A fresh three-role review adjudicated **REVISE**: keep the architecture and
+lifecycle contract open. Queue-then-run is a reasonable proof candidate
+because immediate recursive dispatch makes later delivery depend on an earlier
+branch's failure, but neither all-target staging nor its failure semantics has
+been proven. Before selecting a scheduler contract, prove post-admission
+pre-handler cancellation (covered above), reversed target ordering (covered
+above), and failure during staging. The broader nested-frame, typed-pin,
+activation-scope, budget, and recovery requirements remain open.
+The added post-start and reversed-order comparisons pass in file and SQLite
+variants; the current full Agent Framework suite passes 313/313.
 
 ### Initial persistence sizing evidence
 
