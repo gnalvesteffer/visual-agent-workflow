@@ -411,9 +411,15 @@ will be introduced.
       second parallel request before provider dispatch; the admitted call
       settles, failure evidence persists, and the join is suppressed (6/6
       candidate-store cases).
-    - [ ] Complete remaining budget proof for delegated tools, aggregate work
-      limits, and broader external-outcome boundaries. These harness
-      reservations are not production budget ownership.
+    - [x] Compare delegated production-MCP count and byte reservations across
+      the same candidates and stores, using real `McpToolBroker` scopes and
+      stdio `demo.slow` tools. Capacity two completes both calls; count and
+      byte caps reject the competing delegated call before dispatch, persist a
+      host failure for that call, allow the agent to recover, and complete the
+      team and workflow (18 baseline/limited candidate-store executions).
+    - [ ] Complete remaining budget proof for aggregate work limits and
+      broader external-outcome boundaries. These harness reservations are not
+      production budget ownership.
       Store reopen/process loss, nested frames, typed iterator pins, Sequence,
       collaboration, and crash recovery also remain open.
     - [x] Measure representative maximum-shaped `model.responded`,

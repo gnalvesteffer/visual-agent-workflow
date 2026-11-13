@@ -29,13 +29,16 @@ A follow-up three-role readiness review after the production MCP concurrency and
 timeout proofs returned **REVISE** again. The hybrid is the leading candidate,
 but production selection remains gated on authored typed item/index and real
 nearest-loop `Break` behavior, a production-owned shared budget and lifecycle,
-delegated/concurrent byte reservations, custom-broker failure/timeout behavior,
-and the full persisted evidence matrix. The proponent argued those could be
-closed as implementation gates; the adjudicator rejected that sequencing
-because the remaining gaps define the architecture being selected. No
-body-allowlist is permitted. Selection would begin integrated implementation,
-not establish parity; checkpoint recovery remains excluded until frames are
-captured and restored.
+the full persisted evidence matrix, and custom-broker failure/timeout behavior.
+The proponent argued those could be closed as implementation gates; the
+adjudicator rejected that sequencing because the remaining gaps define the
+architecture being selected. Subsequent proof-only increments now cover
+concurrent direct and delegated model reservations plus direct and delegated
+production-MCP count/byte reservations across the three candidates and both
+stores. They verify admission mechanics, not the missing production budget
+owner/lifecycle or the complete evidence matrix. No body-allowlist is permitted.
+Selection would begin integrated implementation, not establish parity;
+checkpoint recovery remains excluded until frames are captured and restored.
 
 The first hybrid increment extends `PerItemWorkflowExecutor` with immutable
 parent/child activation frames while each item still runs the production VAW
@@ -118,9 +121,8 @@ the other is rejected before dispatch, its admitted sibling settles, the join is
 suppressed, and the run fails with a contiguous persisted prefix. File and
 SQLite cases pass for each candidate (2/2 per store). This is a candidate-harness
 proof using a controlled `INodeToolBroker`; the production broker comparison
-follows below. Delegated MCP tools, byte-cap exhaustion under concurrency,
-aggregate work limits, and production budget ownership remain open. No
-scheduler or public cap is selected.
+follows below. Aggregate work limits and production budget ownership remain
+open. No scheduler or public cap is selected.
 
 `IteratorCandidates_ReserveConcurrentProductionMcpOutcomesAndBytesBeforeDispatch`
 repeats the three-candidate comparison with the production `McpToolBroker` and
@@ -131,9 +133,8 @@ the admitted call records an uncertain outcome after sibling cancellation; no
 join completes. File and SQLite cases pass (2/2), and the complete Agent
 Framework suite passes (344/344). The broker connections and tool server are
 real, but the evidence budget remains a test-only recorder; this selects no
-production scheduler or budget owner. Delegated reservations, concurrent
-model byte-cap exhaustion, aggregate work bounds, and full
-outcome-failure matrix remain open.
+production scheduler or budget owner. Concurrent model byte-cap exhaustion,
+aggregate work bounds, and the full outcome-failure matrix remain open.
 
 The same case calibrates a second byte ceiling from the persisted prefix through
 the second authorization, then leaves 4,096 bytes of margin below the capacity
@@ -156,8 +157,22 @@ remains represented as unresolved evidence. The root fails with a contiguous
 persisted prefix. Structured, fresh-subworkflow, and hybrid candidates pass
 against both file and SQLite stores (6/6 candidate-store cases). The proof
 closes only delegated-model concurrent byte admission in the test harness; it
-does not establish direct sibling-model byte limits, delegated MCP limits,
-aggregate work caps, or production budget ownership.
+does not establish direct sibling-model byte limits, aggregate work caps, or
+production budget ownership.
+
+`IteratorCandidates_ReserveDelegatedProductionMcpOutcomesAndBytesBeforeDispatch`
+uses the production `AgentNodeExecutor` and `McpToolBroker` with two delegated
+profiles calling synchronized real stdio `demo.slow` tools. Across structured,
+fresh-subworkflow, and hybrid candidates, the two-reservation baseline completes
+both calls and the team. A one-reservation limit and a prefix-calibrated byte
+limit each reject the competing delegated authorization before dispatch; the
+admitted tool completes, the rejected call records a host failure, and the
+agent recovers so the team and workflow complete. The matrix covers all three
+candidates and both file and SQLite stores (18 baseline/limited executions).
+This closes concurrent delegated MCP admission for these success/rejection
+paths only; it does not select production budget ownership or cover all
+delegated failure, timeout, and cancellation combinations. The full Agent
+Framework suite passes 352/352.
 
 `IteratorCandidates_SettleProductionMcpTimeoutReservations` compares the
 post-dispatch timeout path for the same parallel direct-MCP body through the
@@ -815,8 +830,8 @@ three iterator candidates through the production broker.
 This is a test-only accounting harness, not a production run budget. It proves
 reservation mechanics for bounded model calls, delegated model fan-out, and MCP
 tool calls, using test-specific outcome byte allowances. Together with the
-concurrent broker case above, it does not prove worst-case bounds for all event
-shapes, delegated MCP reservation races, unlimited turns, timeout/cancellation
+concurrent broker cases above, it does not prove worst-case bounds for all event
+shapes, all delegated MCP outcome paths, unlimited turns, timeout/cancellation
 settlement for every outcome, or a production terminal reserve. No aggregate
 cap is selected.
 

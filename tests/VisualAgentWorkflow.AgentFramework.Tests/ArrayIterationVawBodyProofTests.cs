@@ -3328,6 +3328,174 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_ReserveDelegatedProductionMcpOutcomesAndBytesBeforeDispatch(bool sqlite)
+    {
+        const string input = "[\"proposal\"]";
+        const string providerId = "proof.iterator-delegated-mcp";
+        const string parentInstructions = "Ask the team to complete the proposal.";
+        const string researcherInstructions = "Research the proposal.";
+        const string reviewerInstructions = "Review the proposal.";
+        var registrations = CreateDemoMcpRegistrations();
+        var discoveryBroker = new McpToolBroker(registrations, new DemoToolPolicy());
+        var slowBinding = Assert.Single(await discoveryBroker.ListBindingsAsync(),
+            binding => binding.BindingId == "demo.slow");
+        var tool = new ToolBindingRequest(slowBinding.BindingId, slowBinding.ContractHash)
+        {
+            DescriptionHash = slowBinding.DescriptionHash
+        };
+        var profiles = new[]
+        {
+            AgentProfile.Create("researcher", "1", "Researcher", "Researches the proposal.", providerId,
+                researcherInstructions, [tool]),
+            AgentProfile.Create("reviewer", "1", "Reviewer", "Reviews the proposal.", providerId,
+                reviewerInstructions, [tool])
+        };
+        var agent = new AgentConfiguration(providerId, null, parentInstructions, [])
+        {
+            Delegates = [.. profiles.Select(profile => new AgentProfileReference(profile.Id, profile.Version,
+                profile.ContentHash!))]
+        };
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("agent", new(NodeTypes.Agent, "1.0.0", Agent: agent))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "iterator-delegated-production-mcp-reservation-proof", "input", nodes,
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-agent", new(new("input", "out"), new("agent", "in"), "data"))
+                .Add("agent-output", new(new("agent", "out"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-agent", Edge("input", "then", "agent", "execute"))
+                .Add("agent-output", Edge("agent", "out", "output", "execute")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
+            AgentProfiles = profiles.ToImmutableSortedDictionary(profile => profile.Id + "@" + profile.Version,
+                profile => profile, StringComparer.Ordinal)
+        };
+        var revision = WorkflowRevision.Create(definition, "iterator-delegated-production-mcp-reservation-proof");
+        var provider = new AgentProviderDescriptor(providerId, "Proof delegated MCP", "proof-chat-v1", true);
+
+        foreach (var candidate in new[] { "structured", "fresh-subworkflow", "hybrid" })
+        {
+            var baseline = await ExecuteCandidateAsync(candidate, maximumBytes: 4_000_000,
+                maximumConcurrentReservations: 2);
+            Assert.NotNull(baseline.Output);
+            Assert.Equal(2, baseline.Events.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
+            Assert.Equal(2, baseline.Events.Count(evt => evt.Kind == ExecutionEventKinds.ToolCompleted));
+            Assert.Single(baseline.Events, evt => evt.Kind == ExecutionEventKinds.AgentTeamStarted);
+            Assert.Single(baseline.Events, evt => evt.Kind == ExecutionEventKinds.AgentTeamCompleted);
+            Assert.Equal(2, baseline.MaximumPendingOutcomeReservations);
+            Assert.Equal(0, baseline.PendingOutcomeReservations);
+
+            var countLimited = await ExecuteCandidateAsync(candidate, maximumBytes: 4_000_000,
+                maximumConcurrentReservations: 1);
+            AssertDelegatedToolRecovery(countLimited, maximumBytes: 4_000_000);
+
+            var authorizations = baseline.Events.Where(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized)
+                .OrderBy(evt => evt.Sequence).ToArray();
+            var secondAuthorization = authorizations[1];
+            var prefixBytes = baseline.Events.Where(evt => evt.Sequence < secondAuthorization.Sequence)
+                .Sum(EventBytes);
+            const long maximumOutcomeBytes = 32_000;
+            const long reservedFailureBytes = 64_000;
+            const long byteAdmissionMargin = 4_096;
+            var maximumBytes = checked(prefixBytes + EventBytes(secondAuthorization) +
+                (2 * maximumOutcomeBytes) + reservedFailureBytes - byteAdmissionMargin);
+
+            var byteLimited = await ExecuteCandidateAsync(candidate, maximumBytes,
+                maximumConcurrentReservations: 2);
+            AssertDelegatedToolRecovery(byteLimited, maximumBytes);
+        }
+
+        void AssertDelegatedToolRecovery(DelegatedMcpCandidateResult limited, long maximumBytes)
+        {
+            Assert.True(limited.ReservationRejected,
+                $"Reservation was not rejected at {limited.PersistedEventBytes}/{maximumBytes} bytes; " +
+                $"maximum concurrent reservations: {limited.MaximumPendingOutcomeReservations}.");
+            Assert.Equal("Work completed.", limited.Output);
+            Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+            var failedTool = Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.ToolFailed);
+            using var failureEnvelope = JsonDocument.Parse(failedTool.Data!);
+            using var failureData = JsonDocument.Parse(failureEnvelope.RootElement.GetProperty("eventData").GetString()!);
+            Assert.Equal("tool.host_failure", failureData.RootElement.GetProperty("failureCode").GetString());
+            Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+            Assert.DoesNotContain(limited.Events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain);
+            Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.AgentTeamStarted);
+            Assert.DoesNotContain(limited.Events, evt => evt.Kind == ExecutionEventKinds.AgentTeamFailed);
+            Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.AgentTeamCompleted);
+            Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.AgentCompleted);
+            Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent");
+            Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
+            Assert.Equal(0, limited.PendingOutcomeReservations);
+            Assert.True(limited.PersistedEventBytes <= maximumBytes);
+            Assert.Equal(limited.Events.Sum(EventBytes), limited.PersistedEventBytes);
+        }
+
+        async Task<DelegatedMcpCandidateResult> ExecuteCandidateAsync(string candidate, long maximumBytes,
+            int maximumConcurrentReservations)
+        {
+            using var store = new ProofRunStore(revision, input, sqlite);
+            var recorder = new ReservedEvidenceProofRecorder(store, maximumEvents: 512,
+                maximumBytes, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
+                maximumOutcomeBytes: 32_000, maximumConcurrentOutcomeReservations: maximumConcurrentReservations,
+                reservationRequestKind: ExecutionEventKinds.ToolAuthorized,
+                reservationOutcomeKind: ExecutionEventKinds.ToolCompleted,
+                additionalReservationOutcomeKind: ExecutionEventKinds.ToolUncertain);
+            var model = new DelegatedMcpProofModel(parentInstructions, researcherInstructions, reviewerInstructions);
+            var tools = CreateSynchronizedDemoMcpBroker(registrations, expectedConnections: 2);
+            var agents = new AgentNodeExecutor(
+                [new AgentProviderRegistration(provider, () => new DelegatedMcpProofChatClient(model))],
+                tools);
+            string? output = null;
+
+            if (candidate == "structured")
+            {
+                try
+                {
+                    var result = await new WorkflowRunner(tools, agents)
+                        .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                            recorder.RecordResequencedAsync);
+                    output = result.Output;
+                }
+                catch (EvidenceBudgetExhaustedException) when (recorder.ReservationRejected.IsCompleted) { }
+            }
+            else if (candidate == "fresh-subworkflow")
+            {
+                await RecordRootAsync(ExecutionEventKinds.Started);
+                var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder, agents, tools);
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                var failed = false;
+                await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+                await foreach (var evt in run.WatchStreamAsync())
+                {
+                    if (evt is WorkflowOutputEvent { Data: string value }) output = value;
+                    if (evt is WorkflowErrorEvent) failed = true;
+                }
+                await RecordRootAsync(failed || output is null
+                    ? ExecutionEventKinds.Failed
+                    : ExecutionEventKinds.Completed);
+            }
+            else
+            {
+                var result = await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, tools, input);
+                output = result.Output;
+            }
+
+            var events = recorder.Snapshot();
+            AssertPersistedSequence(store, events, output is null ? "failed" : "completed");
+            return new(output, events, recorder.MaximumPendingOutcomeReservationsObserved,
+                recorder.PendingOutcomeReservations, recorder.PersistedEventBytes,
+                recorder.ReservationRejected.IsCompleted);
+
+            ValueTask RecordRootAsync(string kind) => recorder.RecordResequencedAsync(new ExecutionEvent(
+                store.RunId, store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow, kind));
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_SettleProductionMcpTimeoutReservations(bool sqlite)
     {
         const string input = "[\"one\"]";
@@ -3530,6 +3698,10 @@ public sealed class ArrayIterationVawBodyProofTests
 
     private sealed record DelegatedCandidateResult(string? Output, ExecutionEvent[] Events,
         ParallelDelegateEvidenceModel Model, int PendingOutcomeReservations, long PersistedEventBytes,
+        bool ReservationRejected);
+
+    private sealed record DelegatedMcpCandidateResult(string? Output, ExecutionEvent[] Events,
+        int MaximumPendingOutcomeReservations, int PendingOutcomeReservations, long PersistedEventBytes,
         bool ReservationRejected);
 
     private sealed record CandidateBudgetResult(string? Output, ExecutionEvent[] Events, int ModelCalls,
@@ -4875,6 +5047,41 @@ public sealed class ArrayIterationVawBodyProofTests
     {
         public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
             CancellationToken cancellationToken = default) => model.RespondAsync(messages, options, cancellationToken);
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public void Dispose() { }
+    }
+
+    private sealed class DelegatedMcpProofModel(string parentInstructions, string researcherInstructions,
+        string reviewerInstructions)
+    {
+        private readonly ConcurrentDictionary<string, int> turnsByProfile = new(StringComparer.Ordinal);
+        public Task<ChatResponse> RespondAsync(ChatOptions? options, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var instructions = options?.Instructions ?? string.Empty;
+            var turn = turnsByProfile.AddOrUpdate(instructions, 1, static (_, previous) => previous + 1);
+            if (instructions == parentInstructions && turn == 1)
+                return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                    [new FunctionCallContent("team-call", "team_0",
+                        new Dictionary<string, object?> { ["task"] = "Review the proposal." })]))
+                { ModelId = "proof-chat-v1", FinishReason = ChatFinishReason.ToolCalls });
+            if ((instructions == researcherInstructions || instructions == reviewerInstructions) && turn == 1)
+                return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                    [new FunctionCallContent($"slow-call-{instructions[0]}", "tool_0",
+                        new Dictionary<string, object?>())]))
+                { ModelId = "proof-chat-v1", FinishReason = ChatFinishReason.ToolCalls });
+            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "Work completed."))
+            { ModelId = "proof-chat-v1", FinishReason = ChatFinishReason.Stop });
+        }
+    }
+
+    private sealed class DelegatedMcpProofChatClient(DelegatedMcpProofModel model) : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+            CancellationToken cancellationToken = default) => model.RespondAsync(options, cancellationToken);
         public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
             ChatOptions? options = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
