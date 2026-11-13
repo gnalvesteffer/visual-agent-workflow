@@ -331,6 +331,14 @@ will be introduced.
       semantics remain open. The broader budget/state/recovery matrix remains
       unproven. These additions and the post-start/reversed-order comparisons
       pass in file and SQLite variants; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Compare cancellation at the persisted node-completion callback after
+      one parallel Agent finishes and before its output resumes graph routing.
+      The structured candidate cancels before admitting the second branch;
+      Agent Framework has already started that sibling and records its
+      cancellation. Both stores preserve the completed branch, cancellation,
+      suppressed join, and no next item (2/2). This exposes a candidate
+      lifecycle mismatch; it does not select a scheduler or establish atomic
+      publication. The Agent Framework suite passes 336/336.
     - [ ] Compare candidate budgets at atomic dispatch/evidence boundaries and
       prove exhaustion behavior. Store reopen/process loss, nested frames,
       typed iterator pins, Sequence, collaboration, and crash recovery also

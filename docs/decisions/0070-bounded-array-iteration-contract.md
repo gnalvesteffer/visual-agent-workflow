@@ -433,6 +433,17 @@ progress; the Agent Framework fan-in barrier retains that branch result and
 does not invoke the join while the other source has not emitted. This is a
 measured intermediate event-timing difference; final workflow outcomes agree.
 
+`StructuredAndFreshSubworkflowCandidates_CancelAfterOneJoinBranchCompletes`
+holds each candidate at the persisted right-Agent completion callback, then
+cancels before that callback returns control to graph routing. The structured
+candidate has not admitted the left branch; the Agent Framework candidate has
+already started it and records its cancellation. In both file and SQLite
+stores, the right branch completion and root cancellation persist, the join
+does not complete, and the next item does not start (2/2). This is a controlled
+cancellation-boundary mismatch, not evidence that either scheduler has the
+correct general contract; it does not demonstrate atomic publication or select
+the architecture.
+
 A fresh three-role review adjudicated **REVISE**: keep the architecture and
 lifecycle contract open. Queue-then-run is a reasonable proof candidate
 because immediate recursive dispatch makes later delivery depend on an earlier

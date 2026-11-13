@@ -617,6 +617,111 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task StructuredAndFreshSubworkflowCandidates_CancelAfterOneJoinBranchCompletes(bool sqlite)
+    {
+        var definition = ParallelBodyDefinition();
+        var execution = definition.ExecutionConnections!;
+        definition = definition with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
+            ExecutionConnections = execution.Remove("fork-left").Remove("fork-right")
+                .Add("fork-z-left", Edge("fork", ParallelBranchLimits.PinId("left"), "anchor-left", "execute"))
+                .Add("fork-a-right", Edge("fork", ParallelBranchLimits.PinId("right"), "anchor-right", "execute"))
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "array-iteration-candidate-join-cancellation-proof");
+        const string input = "[\"north\",\"must-not-run\"]";
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        using var structuredCancellation = new CancellationTokenSource();
+        var structuredAgents = new OneBranchCompletedThenBlockedAgentExecutor();
+        var structuredTask = new WorkflowRunner(agents: structuredAgents)
+            .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                async evt =>
+                {
+                    structuredRecorder.Append(evt);
+                    if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-right")
+                    {
+                        structuredAgents.RightCompleted.TrySetResult();
+                        await structuredAgents.ReleaseRight.Task;
+                    }
+                }, structuredCancellation.Token);
+        var structuredFirstSignal = await Task.WhenAny(structuredAgents.RightCompleted.Task, structuredTask)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        if (structuredFirstSignal == structuredTask) await structuredTask;
+        await structuredAgents.RightCompleted.Task;
+        structuredCancellation.Cancel();
+        structuredAgents.ReleaseRight.TrySetResult();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => structuredTask);
+
+        var subworkflowAgents = new OneBranchCompletedThenBlockedAgentExecutor();
+        var iterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision, subworkflowRecorder,
+            subworkflowAgents, new EchoToolBroker(), observeEvent: async evt =>
+            {
+                if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-right")
+                {
+                    subworkflowAgents.RightCompleted.TrySetResult();
+                    await subworkflowAgents.ReleaseRight.Task;
+                }
+            });
+        var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input))
+        {
+            var watch = Task.Run(async () =>
+            {
+                await foreach (var _ in run.WatchStreamAsync()) { }
+            });
+            await subworkflowAgents.RightCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var cancellation = run.CancelRunAsync();
+            subworkflowAgents.ReleaseRight.TrySetResult();
+            await cancellation;
+            await watch.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        subworkflowRecorder.CancelRoot();
+
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        AssertPersistedSequence(structuredStore, structuredEvents, "cancelled");
+        AssertPersistedSequence(subworkflowStore, subworkflowEvents, "cancelled");
+        AssertCancelledJoinPrefix(structuredEvents, "structured");
+        AssertCancelledJoinPrefix(subworkflowEvents, "fresh-subworkflow");
+
+        static void AssertCancelledJoinPrefix(IReadOnlyList<ExecutionEvent> events, string candidate)
+        {
+            const string scopeId = "array-loop/0";
+            var rightStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == "agent-right" && evt.ScopeId == scopeId);
+            var rightCompleted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "agent-right" && evt.ScopeId == scopeId);
+            Assert.Equal(rightStarted.InvocationId, rightCompleted.InvocationId);
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "join" && evt.ScopeId == scopeId);
+            Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Cancelled);
+            if (candidate == "fresh-subworkflow")
+            {
+                var leftStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                    evt.NodeId == "agent-left" && evt.ScopeId == scopeId);
+                var leftCancelled = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+                    evt.NodeId == "agent-left" && evt.ScopeId == scopeId);
+                Assert.Equal(leftStarted.InvocationId, leftCancelled.InvocationId);
+                Assert.True(rightCompleted.Sequence < leftCancelled.Sequence);
+            }
+            else
+            {
+                Assert.DoesNotContain(events, evt =>
+                    (evt.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCancelled) &&
+                    evt.NodeId == "agent-left" && evt.ScopeId == scopeId);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task StructuredStagedForkCandidate_StagingFailureDoesNotStartAnyBranch(bool sqlite)
     {
         var revision = WorkflowRevision.Create(ParallelBodyDefinition(),
@@ -3335,6 +3440,29 @@ public sealed class ArrayIterationVawBodyProofTests
                 await successfulBranchAdvanced.Task.WaitAsync(cancellationToken);
                 throw new InvalidOperationException("Deterministic second-branch failure.");
             }
+
+            throw new InvalidOperationException($"Unexpected proof Agent node '{invocation.NodeId}'.");
+        }
+    }
+
+    private sealed class OneBranchCompletedThenBlockedAgentExecutor : IAgentNodeExecutor
+    {
+        public TaskCompletionSource RightCompleted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseRight { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.join-cancellation", "Join cancellation proof", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            if (invocation.NodeId == "agent-right")
+                return JsonSerializer.Serialize(new { query = $"{input}-agent-right" });
+            if (invocation.NodeId == "agent-left")
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
 
             throw new InvalidOperationException($"Unexpected proof Agent node '{invocation.NodeId}'.");
         }
