@@ -10,9 +10,13 @@ authorizations. In both file and SQLite stores, each cap rejects the second
 unit before its body, provider request, or tool dispatch begins and records a
 failed root run. The matrix covers 18 limited candidate/store/cap cases plus
 six baselines; the focused test passes 2/2 and the Agent Framework suite passes
-354/354. This is candidate-recorder evidence only: it does not select numeric
-limits, prove concurrent atomic quotas, or implement a production budget
-owner. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+354/354. Each completed or failed trace is reread through a newly constructed
+file or SQLite store instance; exact event ordering and root status persist in
+all 24 candidate/store executions. This proves snapshot readability after
+reopening, not process-loss recovery or execution resumption. The evidence is
+candidate-recorder only: it does not select numeric limits, prove concurrent
+atomic quotas, or implement a production budget owner. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
 ## Static fixed-node pin descriptor convergence
 

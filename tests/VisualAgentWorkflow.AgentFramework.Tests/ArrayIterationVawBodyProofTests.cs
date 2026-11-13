@@ -2905,7 +2905,13 @@ public sealed class ArrayIterationVawBodyProofTests
             }
 
             var events = recorder.Snapshot();
-            AssertPersistedSequence(store, events, output is null ? "failed" : "completed");
+            var expectedStatus = output is null ? "failed" : "completed";
+            AssertPersistedSequence(store, events, expectedStatus);
+            var reopened = store.ReopenStore().Get(store.RunId)!;
+            Assert.Equal(expectedStatus, reopened.Status);
+            Assert.Equal(events, reopened.Events);
+            Assert.Equal(Enumerable.Range(1, events.Length).Select(value => (long)value),
+                reopened.Events.Select(evt => evt.Sequence));
             return new(output, events, model.Calls, tools.Queries, recorder.WorkLimitRejected.IsCompleted);
         }
     }
@@ -4307,15 +4313,15 @@ public sealed class ArrayIterationVawBodyProofTests
     private sealed class ProofRunStore : IDisposable
     {
         private readonly string directory = Path.Combine(Path.GetTempPath(), $"vaw-array-proof-{Guid.NewGuid():N}");
+        private readonly bool sqlite;
 
         public ProofRunStore(WorkflowRevision revision, string input, bool sqlite,
             string[]? rejectedAppendEventKinds = null,
             Func<ExecutionEvent, bool>? rejectedAppendPredicate = null)
         {
+            this.sqlite = sqlite;
             Directory.CreateDirectory(directory);
-            IWorkflowRunStore store = sqlite
-                ? new SqliteWorkflowRunStore(Path.Combine(directory, "runs.sqlite3"))
-                : new FileRunJournal(directory);
+            IWorkflowRunStore store = OpenStore();
             Store = rejectedAppendEventKinds is { Length: > 0 } || rejectedAppendPredicate is not null
                 ? new RejectingAppendRunStore(store,
                     rejectedAppendEventKinds?.ToHashSet(StringComparer.Ordinal) ?? new HashSet<string>(StringComparer.Ordinal),
@@ -4326,6 +4332,12 @@ public sealed class ArrayIterationVawBodyProofTests
 
         public IWorkflowRunStore Store { get; }
         public Guid RunId { get; }
+
+        public IWorkflowRunStore ReopenStore() => OpenStore();
+
+        private IWorkflowRunStore OpenStore() => sqlite
+            ? new SqliteWorkflowRunStore(Path.Combine(directory, "runs.sqlite3"))
+            : new FileRunJournal(directory);
 
         public void Dispose() => Directory.Delete(directory, recursive: true);
     }
@@ -4658,7 +4670,7 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     private sealed class EvidenceBudgetExhaustedException()
-        : InvalidOperationException("A test-only work or evidence budget was exhausted.");
+        : InvalidOperationException("The run evidence budget or aggregate work limit was exhausted.");
 
     private sealed class EchoAgentExecutor(string? failInput = null, string? failNodeId = null) : IAgentNodeExecutor
     {

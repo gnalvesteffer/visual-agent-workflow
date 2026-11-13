@@ -425,9 +425,13 @@ will be introduced.
       passes (354/354). This does not establish a production budget owner,
       concurrency-safe work quotas, or broader external-outcome boundaries;
       see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
-    - [ ] Complete broader external-outcome boundaries, store reopen/process
-      loss, and the remaining evidence matrix. Harness reservations and work
-      caps are not production budget ownership.
+      Each baseline and limited trace is also read through a new FileRunJournal
+      or SqliteWorkflowRunStore instance; exact event order and terminal state
+      survive reopening in all 24 candidate/store executions.
+    - [ ] Complete process-loss and interrupted-execution recovery, broader
+      external-outcome boundaries, and the remaining evidence matrix. Reopening
+      a persisted snapshot does not recover or resume execution; test-harness
+      reservations and work caps are not production budget ownership.
     - [ ] Complete remaining budget proof for aggregate work limits and
       broader external-outcome boundaries. These harness reservations are not
       production budget ownership.

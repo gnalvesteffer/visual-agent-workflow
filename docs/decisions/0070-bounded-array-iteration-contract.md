@@ -845,10 +845,14 @@ prefix through both file and SQLite stores. The tool fixture records
 authorization/completion around its deterministic dispatch; this is not another
 production-broker proof. The matrix covers 18 limited candidate/store/counter
 cases plus six baselines. Focused tests pass 2/2, and the full Agent Framework
-suite passes 354/354. This closes only serial work-counter exhaustion in the
-candidate recorder. It does not establish concurrent atomic quotas, a
-production-owned budget context, numeric product limits, or broader external
-outcome boundaries; no architecture or cap is selected.
+suite passes 354/354. Every baseline and limited history is then read through a
+new `FileRunJournal` or `SqliteWorkflowRunStore` instance; exact event sequence
+and terminal status survive reopening in all 24 candidate/store executions.
+This establishes persisted-prefix readability, not process-loss recovery or
+execution resumption. It closes only serial work-counter exhaustion and store
+reopen readability in the candidate recorder. It does not establish concurrent
+atomic quotas, a production-owned budget context, numeric product limits, or
+broader external outcome boundaries; no architecture or cap is selected.
 
 The public iterator contract must be Blueprint-style and composable with all
 existing graph capabilities. The proposed pins are an execution input, typed
