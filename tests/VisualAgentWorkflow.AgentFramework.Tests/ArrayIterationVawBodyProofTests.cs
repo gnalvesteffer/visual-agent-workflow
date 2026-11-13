@@ -2451,6 +2451,147 @@ public sealed class ArrayIterationVawBodyProofTests
             evt.NodeId == "outer-loop" && evt.ScopeId == "outer-loop/1");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HybridFrameCoordinator_SharesEvidenceBudgetAcrossFreshNestedBodies(bool sqlite)
+    {
+        var definition = BodyDefinition(includeVariableStore: true, includeIndexParameter: true);
+        var revision = WorkflowRevision.Create(definition, "array-iteration-hybrid-shared-evidence-budget-proof");
+        const string input = "[\"first\",\"second\"]";
+        var provider = new AgentProviderDescriptor("proof.echo-agent", "Proof model", "proof-chat-v1", true);
+
+        using var baselineStore = new ProofRunStore(revision, input, sqlite);
+        var baselineRecorder = new ReservedEvidenceProofRecorder(baselineStore, maximumEvents: 512,
+            maximumBytes: 4_000_000, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
+            maximumModelOutcomeBytes: 64_000);
+        var baselineModel = new SharedBudgetProofModel();
+        var baselineAgents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SharedBudgetProofChatClient(baselineModel))],
+            new EchoToolBroker());
+        var baselineTools = new EchoToolBroker();
+        var baseline = await ExecuteHybridBudgetLoopAsync(baselineStore, revision, baselineRecorder,
+            baselineAgents, baselineTools, input);
+
+        Assert.Null(baseline.Error);
+        Assert.Equal("echo:bounded;echo:bounded", baseline.Output);
+        Assert.Equal(2, baselineModel.Calls);
+        Assert.Equal(["bounded", "bounded"], baselineTools.Queries);
+        var baselineEvents = baselineRecorder.Snapshot();
+        AssertPersistedSequence(baselineStore, baselineEvents, "completed");
+        var secondRequest = Assert.Single(baselineEvents, evt => evt.Kind == ExecutionEventKinds.ModelRequested &&
+            evt.ScopeId == "outer-loop/0/array-loop/1");
+
+        const int reservedFailureEvents = 8;
+        var maximumEvents = checked((int)secondRequest.Sequence - 1 + reservedFailureEvents);
+        using var limitedStore = new ProofRunStore(revision, input, sqlite);
+        var limitedRecorder = new ReservedEvidenceProofRecorder(limitedStore, maximumEvents,
+            maximumBytes: 4_000_000, reservedFailureEvents: reservedFailureEvents,
+            reservedFailureBytes: 64_000, maximumModelOutcomeBytes: 64_000);
+        var limitedModel = new SharedBudgetProofModel();
+        var limitedAgents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SharedBudgetProofChatClient(limitedModel))],
+            new EchoToolBroker());
+        var limitedTools = new EchoToolBroker();
+        var limited = await ExecuteHybridBudgetLoopAsync(limitedStore, revision, limitedRecorder,
+            limitedAgents, limitedTools, input);
+
+        Assert.Contains("run evidence budget", limited.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, limitedModel.Calls);
+        Assert.Equal(["bounded"], limitedTools.Queries);
+        Assert.Equal(0, limitedRecorder.PendingOutcomeReservations);
+        var limitedEvents = limitedRecorder.Snapshot();
+        AssertPersistedSequence(limitedStore, limitedEvents, "failed");
+        Assert.Single(limitedEvents, evt => evt.Kind == ExecutionEventKinds.ModelRequested &&
+            evt.ScopeId == "outer-loop/0/array-loop/0");
+        Assert.Contains(limitedEvents, evt => evt.Kind == ExecutionEventKinds.ModelResponded &&
+            evt.ScopeId == "outer-loop/0/array-loop/0");
+        Assert.Contains(limitedEvents, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "tool" && evt.ScopeId == "outer-loop/0/array-loop/0");
+        Assert.Contains(limitedEvents, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.NodeId == "array-loop" && evt.ScopeId == "outer-loop/0/array-loop/1");
+        Assert.Contains(limitedEvents, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId == "agent" && evt.ScopeId == "outer-loop/0/array-loop/1");
+        Assert.DoesNotContain(limitedEvents, evt =>
+            (evt.Kind is ExecutionEventKinds.ModelRequested or ExecutionEventKinds.ModelResponded) &&
+            evt.ScopeId == "outer-loop/0/array-loop/1");
+        var failedAgent = Assert.Single(limitedEvents, evt => evt.Kind == ExecutionEventKinds.AgentFailed &&
+            evt.ScopeId == "outer-loop/0/array-loop/1");
+        Assert.Equal(failedAgent.InvocationId, Assert.Single(limitedEvents, evt =>
+            evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent" &&
+            evt.ScopeId == "outer-loop/0/array-loop/1").InvocationId);
+        Assert.Contains(limitedEvents, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+        Assert.DoesNotContain(limitedEvents, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "outer-loop/0/array-loop/1");
+        Assert.True(limitedEvents.Length <= maximumEvents);
+        Assert.True(limitedRecorder.PersistedEventBytes <= 4_000_000);
+        Assert.Equal(limitedEvents.Sum(EventBytes), limitedRecorder.PersistedEventBytes);
+    }
+
+    private static async Task<HybridBudgetLoopResult> ExecuteHybridBudgetLoopAsync(ProofRunStore runStore,
+        WorkflowRevision revision, ReservedEvidenceProofRecorder recorder, IAgentNodeExecutor agents,
+        INodeToolBroker tools, string input)
+    {
+        var runId = runStore.RunId;
+        var revisionId = runStore.Store.Get(runId)!.Header.RevisionId;
+        var parentFrame = new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null,
+            "outer-loop", 0, "outer", ImmutableSortedDictionary<string, string>.Empty);
+        await recorder.RecordResequencedAsync(new ExecutionEvent(runId, revisionId, 0,
+            DateTimeOffset.UtcNow, ExecutionEventKinds.Started));
+        var items = JsonSerializer.Deserialize<string[]>(input)
+            ?? throw new InvalidOperationException("Array input was not a string array.");
+        var results = new List<string>(items.Length);
+
+        for (var index = 0; index < items.Length; index++)
+        {
+            var parameters = ImmutableSortedDictionary<string, string>.Empty
+                .Add("index", index.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            var frame = parentFrame.Enter("array-loop", index, items[index], parameters);
+            await recorder.RecordResequencedAsync(new ExecutionEvent(runId, revisionId, 0,
+                DateTimeOffset.UtcNow, ExecutionEventKinds.LoopIterationStarted, "array-loop", frame.Id)
+            { ScopeId = frame.ScopeId });
+
+            ValueTask Record(ExecutionEvent evt)
+            {
+                if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                    ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                    return ValueTask.CompletedTask;
+                return recorder.RecordResequencedAsync(evt with { ScopeId = frame.ScopeId });
+            }
+
+            try
+            {
+                var result = await new WorkflowRunner(tools, agents).ExecuteWithOutcomeAsync(runId,
+                    revision, items[index], parameters, Record);
+                if (result.Failed || result.Output is null)
+                {
+                    var error = recorder.Snapshot().LastOrDefault(evt => evt.Kind == ExecutionEventKinds.AgentFailed)?.Data
+                        ?? "Nested workflow body failed.";
+                    await RecordRootTerminalAsync(ExecutionEventKinds.Failed);
+                    return new(null, error);
+                }
+
+                results.Add(result.Output);
+                await recorder.RecordResequencedAsync(new ExecutionEvent(runId, revisionId, 0,
+                    DateTimeOffset.UtcNow, ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id)
+                { ScopeId = frame.ScopeId });
+            }
+            catch (Exception exception)
+            {
+                await RecordRootTerminalAsync(ExecutionEventKinds.Failed);
+                return new(null, exception.ToString());
+            }
+        }
+
+        await RecordRootTerminalAsync(ExecutionEventKinds.Completed);
+        return new(string.Join(';', results), null);
+
+        ValueTask RecordRootTerminalAsync(string kind) => recorder.RecordResequencedAsync(
+            new ExecutionEvent(runId, revisionId, 0, DateTimeOffset.UtcNow, kind));
+    }
+
+    private sealed record HybridBudgetLoopResult(string? Output, string? Error);
+
     private static async Task<string> RunHybridLoopProofAsync(Guid runId, WorkflowRevision revision,
         ProofRecorder recorder, IAgentNodeExecutor agents, INodeToolBroker tools, string loopNodeId,
         IReadOnlyList<string> items, WorkflowRunner.StructuredActivationFrame? parentFrame,
@@ -2883,64 +3024,77 @@ public sealed class ArrayIterationVawBodyProofTests
         {
             lock (gate)
             {
-                var bytes = EventBytes(evt);
-                var isRequest = evt.Kind == ExecutionEventKinds.ModelRequested;
-                var isOutcome = evt.Kind == ExecutionEventKinds.ModelResponded;
-                var isFailureEvidence = FailureEvidenceKinds.Contains(evt.Kind);
-
-                if (isRequest && pendingOutcomeReservations >= maximumConcurrentOutcomeReservations)
-                {
-                    reservationRejected.TrySetResult();
-                    throw new EvidenceBudgetExhaustedException();
-                }
-                if (isRequest && (ordinaryEvents + pendingOutcomeReservations + 2 > ordinaryEventLimit ||
-                    ordinaryBytes + pendingOutcomeBytes + bytes + maximumModelOutcomeBytes > maximumBytes - reservedFailureBytes))
-                {
-                    reservationRejected.TrySetResult();
-                    throw new EvidenceBudgetExhaustedException();
-                }
-                if (isOutcome && (pendingOutcomeReservations == 0 || bytes > maximumModelOutcomeBytes ||
-                    ordinaryBytes + pendingOutcomeBytes - maximumModelOutcomeBytes + bytes > maximumBytes - reservedFailureBytes))
-                    throw new InvalidOperationException("The model outcome exceeded its proof reservation.");
-                if (isFailureEvidence && (failureEvents >= reservedFailureEvents || failureBytes + bytes > reservedFailureBytes))
-                    throw new InvalidOperationException("The terminal failure evidence exceeded its proof reserve.");
-                if (!isRequest && !isOutcome && !isFailureEvidence &&
-                    (ordinaryEvents + pendingOutcomeReservations + 1 > ordinaryEventLimit ||
-                     ordinaryBytes + pendingOutcomeBytes + bytes > maximumBytes - reservedFailureBytes))
-                    throw new EvidenceBudgetExhaustedException();
-
-                runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
-                events.Add(evt);
-                persistedEventBytes += bytes;
-
-                if (isRequest)
-                {
-                    ordinaryEvents++;
-                    ordinaryBytes += bytes;
-                    pendingOutcomeReservations++;
-                    maximumPendingOutcomeReservationsObserved = Math.Max(maximumPendingOutcomeReservationsObserved,
-                        pendingOutcomeReservations);
-                    pendingOutcomeBytes += maximumModelOutcomeBytes;
-                }
-                else if (isOutcome)
-                {
-                    ordinaryEvents++;
-                    ordinaryBytes += bytes;
-                    pendingOutcomeReservations--;
-                    pendingOutcomeBytes -= maximumModelOutcomeBytes;
-                }
-                else if (isFailureEvidence)
-                {
-                    failureEvents++;
-                    failureBytes += bytes;
-                }
-                else
-                {
-                    ordinaryEvents++;
-                    ordinaryBytes += bytes;
-                }
-                return ValueTask.CompletedTask;
+                return RecordLocked(evt);
             }
+        }
+
+        public ValueTask RecordResequencedAsync(ExecutionEvent evt)
+        {
+            lock (gate)
+            {
+                return RecordLocked(evt with { Sequence = events.Count + 1L });
+            }
+        }
+
+        private ValueTask RecordLocked(ExecutionEvent evt)
+        {
+            var bytes = EventBytes(evt);
+            var isRequest = evt.Kind == ExecutionEventKinds.ModelRequested;
+            var isOutcome = evt.Kind == ExecutionEventKinds.ModelResponded;
+            var isFailureEvidence = FailureEvidenceKinds.Contains(evt.Kind);
+
+            if (isRequest && pendingOutcomeReservations >= maximumConcurrentOutcomeReservations)
+            {
+                reservationRejected.TrySetResult();
+                throw new EvidenceBudgetExhaustedException();
+            }
+            if (isRequest && (ordinaryEvents + pendingOutcomeReservations + 2 > ordinaryEventLimit ||
+                ordinaryBytes + pendingOutcomeBytes + bytes + maximumModelOutcomeBytes > maximumBytes - reservedFailureBytes))
+            {
+                reservationRejected.TrySetResult();
+                throw new EvidenceBudgetExhaustedException();
+            }
+            if (isOutcome && (pendingOutcomeReservations == 0 || bytes > maximumModelOutcomeBytes ||
+                ordinaryBytes + pendingOutcomeBytes - maximumModelOutcomeBytes + bytes > maximumBytes - reservedFailureBytes))
+                throw new InvalidOperationException("The model outcome exceeded its proof reservation.");
+            if (isFailureEvidence && (failureEvents >= reservedFailureEvents || failureBytes + bytes > reservedFailureBytes))
+                throw new InvalidOperationException("The terminal failure evidence exceeded its proof reserve.");
+            if (!isRequest && !isOutcome && !isFailureEvidence &&
+                (ordinaryEvents + pendingOutcomeReservations + 1 > ordinaryEventLimit ||
+                 ordinaryBytes + pendingOutcomeBytes + bytes > maximumBytes - reservedFailureBytes))
+                throw new EvidenceBudgetExhaustedException();
+
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            persistedEventBytes += bytes;
+
+            if (isRequest)
+            {
+                ordinaryEvents++;
+                ordinaryBytes += bytes;
+                pendingOutcomeReservations++;
+                maximumPendingOutcomeReservationsObserved = Math.Max(maximumPendingOutcomeReservationsObserved,
+                    pendingOutcomeReservations);
+                pendingOutcomeBytes += maximumModelOutcomeBytes;
+            }
+            else if (isOutcome)
+            {
+                ordinaryEvents++;
+                ordinaryBytes += bytes;
+                pendingOutcomeReservations--;
+                pendingOutcomeBytes -= maximumModelOutcomeBytes;
+            }
+            else if (isFailureEvidence)
+            {
+                failureEvents++;
+                failureBytes += bytes;
+            }
+            else
+            {
+                ordinaryEvents++;
+                ordinaryBytes += bytes;
+            }
+            return ValueTask.CompletedTask;
         }
 
         public ExecutionEvent[] Snapshot() { lock (gate) return [.. events]; }
@@ -3413,6 +3567,35 @@ public sealed class ArrayIterationVawBodyProofTests
     {
         public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
             CancellationToken cancellationToken = default) => model.RespondAsync(messages, options, cancellationToken);
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public void Dispose() { }
+    }
+
+    private sealed class SharedBudgetProofModel
+    {
+        private int calls;
+        public int Calls => Volatile.Read(ref calls);
+
+        public Task<ChatResponse> RespondAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref calls);
+            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "{\"query\":\"bounded\"}"))
+            {
+                ModelId = "proof-chat-v1",
+                FinishReason = ChatFinishReason.Stop,
+                Usage = new UsageDetails { InputTokenCount = 2, OutputTokenCount = 1, TotalTokenCount = 3 }
+            });
+        }
+    }
+
+    private sealed class SharedBudgetProofChatClient(SharedBudgetProofModel model) : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+            CancellationToken cancellationToken = default) => model.RespondAsync(cancellationToken);
         public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
             ChatOptions? options = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();

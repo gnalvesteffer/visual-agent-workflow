@@ -198,9 +198,20 @@ will be introduced.
       nested scopes in file and SQLite stores (2/2). All six hybrid proof
       theories pass (12/12); the full Agent Framework suite passes 326/326.
       This does not add an authored Break node.
+    - [x] Prove serial cross-activation model evidence reservation in the
+      hybrid test harness: one run-scoped recorder meters root/iteration
+      lifecycle and body evidence across two fresh Agent/MCP activations; the
+      second model request is rejected before provider dispatch while reserved
+      failure evidence persists through file and SQLite stores (2/2). This
+      does not establish production budget ownership, aggregate work limits,
+      concurrent/delegated reservations, or a complete evidence-shape bound.
+      The Agent Framework suite passes 328/328. See
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [ ] Add authored typed array item/index pins and a real Break node, then
-      verify node dispatch and shared atomic budgets through the hybrid
-      candidate. Other join/cancellation races also remain open.
+      continue the hybrid comparison for aggregate work/model-turn/tool limits,
+      concurrent and delegated reservations, other join/cancellation races,
+      and complete evidence bounds. Keep production architecture unselected
+      until the shared lifecycle and budget owner is proven.
     - [x] Add a non-production candidate-1 contract fixture proving nested frame
       identity, activation-scoped runtime values and variables, nearest-loop
       lookup, one-shot concurrent fork release, and cancellation before the

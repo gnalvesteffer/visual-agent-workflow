@@ -45,11 +45,25 @@ admission of the following nested item in both stores. The proof-only
 uses a private sentinel from the tool fixture as a stand-in for a future Break
 node. It verifies the hybrid coordinator targets the current nearest frame,
 stops the inner iteration, preserves the enclosing iteration, and persists
-scoped production Agent/MCP evidence through both stores (2/2). All six hybrid
-proof theories pass (12/12), and the full Agent Framework suite passes
-326/326. This does not prove an authored Break node or schema contract. Other
-join/cancellation races and shared atomic work/evidence budgets also remain
-unproven; the hybrid comparison does not select the architecture.
+scoped production Agent/MCP evidence through both stores (2/2). This does not
+prove an authored Break node or schema contract. The shared evidence-reservation
+proof below is a separate seventh hybrid theory; aggregate work limits,
+concurrency, delegation, broader join/cancellation races, and full evidence
+bounds remain unproven. The hybrid comparison does not select the architecture.
+
+`HybridFrameCoordinator_SharesEvidenceBudgetAcrossFreshNestedBodies` adds a
+test-only shared evidence-reservation slice for two serial fresh production
+bodies. The same recorder accounts for root and iteration lifecycle events,
+scoped production Agent/MCP events, and terminal evidence. A baseline trace
+calibrates event capacity so the first Agent request/response and tool path
+complete, while the second model request is rejected before provider dispatch;
+the reserved failure events still persist and close the root as failed. Both
+file and SQLite variants pass (2/2), with persisted sequence/status and the
+serialized event-byte count checked. This proves only serial, cross-activation
+model evidence reservation in the hybrid test harness. It does not prove a
+production-owned budget context, aggregate work/model-turn/tool limits,
+concurrent reservations, delegated work, or all evidence shapes; those remain
+open and the candidate comparison remains unresolved.
 
 ## Status
 
