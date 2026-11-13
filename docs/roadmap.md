@@ -292,10 +292,13 @@ will be introduced.
       concurrently and settles all four model calls; failed/unpersisted calls
       remain reserved until an accepted outcome exists. The competing call is
       rejected before provider dispatch (8/8 store cases).
-    - [ ] Complete the remaining proof for delegated function-call evidence
-      append failures, maximum-shaped error envelopes, and timeout/other
-      cancellation settlement. Current harness is test-only and selects no
-      aggregate caps; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Reject the parent `model.responded` append containing a delegated
+      team function call at the file/SQLite store boundary. The call is not
+      dispatched, no child starts, terminal failure evidence persists, and
+      its reservation remains unsettled (2/2 store cases).
+    - [ ] Complete the remaining proof for maximum-shaped error envelopes and
+      timeout/other cancellation settlement. Current harness is test-only and
+      selects no aggregate caps; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable

@@ -338,9 +338,13 @@ unpersisted delegated response is not treated as settled. A one-slot variant
 also races both children for the sole outcome reservation: one child is
 admitted, the competing call is rejected before provider dispatch, and the
 admitted call remains unsettled after cancellation. The complete delegated
-reservation matrix has eight file/SQLite cases. It remains a test-only proof;
-function-call/delegation evidence append failure and maximum-shaped error
-envelopes remain uncovered. The full Agent Framework suite passes (291/291).
+reservation matrix has eight file/SQLite cases. A separate parent-side
+`model.responded` append failure rejects the event containing the delegated
+team function call; no child dispatch occurs, failure evidence persists, and
+the parent outcome reservation remains unsettled (2/2 stores). These remain
+test-only proofs. Maximum-shaped error envelopes and timeout/other
+cancellation settlement remain uncovered. The full Agent Framework suite
+passes (293/293).
 
 `ArrayIterationVawBodyProofTests.ModelRequestEvidenceAppendFailure_PreventsProviderDispatch`
 injects a run-event sink failure while persisting `model.requested`. Through

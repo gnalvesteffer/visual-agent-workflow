@@ -849,6 +849,96 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task DelegatedFunctionCallEvidenceAppendFailure_PreventsChildDispatch(bool sqlite)
+    {
+        const string providerId = "proof.delegate-call-evidence";
+        const string parentInstructions = "Parent instructions.";
+        const string researcherInstructions = "Research instructions.";
+        const string reviewerInstructions = "Review instructions.";
+        const string task = "Review this proposal.";
+        var profiles = new[]
+        {
+            AgentProfile.Create("researcher", "1", "Researcher", "Find relevant facts.", providerId,
+                researcherInstructions, []),
+            AgentProfile.Create("reviewer", "1", "Reviewer", "Check the answer.", providerId,
+                reviewerInstructions, [])
+        };
+        var agent = new AgentConfiguration(providerId, null, parentInstructions, [])
+        {
+            Delegates = [.. profiles.Select(profile => new AgentProfileReference(profile.Id, profile.Version,
+                profile.ContentHash!))]
+        };
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("agent", new(NodeTypes.Agent, "1.0.0", Agent: agent))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-agent", new(new("input", "out"), new("agent", "in"), "data"))
+            .Add("agent-output", new(new("agent", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-agent", Edge("input", "then", "agent", "execute"))
+            .Add("agent-output", Edge("agent", "out", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-delegated-call-append-proof", "input", nodes, data)
+        {
+            AgentProfiles = profiles.ToImmutableSortedDictionary(profile => profile.Id + "@" + profile.Version,
+                profile => profile, StringComparer.Ordinal),
+            ExecutionConnections = execution
+        };
+        var revision = WorkflowRevision.Create(definition, "delegate-call-append-proof");
+        Guid? parentInvocationId = null;
+        var rejectedAppendCount = 0;
+        Func<ExecutionEvent, bool> rejectAppend = evt =>
+        {
+            if (parentInvocationId is null && evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent")
+                parentInvocationId = evt.InvocationId;
+            if (evt.Kind != ExecutionEventKinds.ModelResponded || evt.InvocationId != parentInvocationId ||
+                evt.Data?.Contains("team_0", StringComparison.Ordinal) != true ||
+                Interlocked.CompareExchange(ref rejectedAppendCount, 1, 0) != 0)
+                return false;
+            return true;
+        };
+        using var runStore = new ProofRunStore(revision, task, sqlite, rejectedAppendPredicate: rejectAppend);
+        var recorder = new ReservedEvidenceProofRecorder(runStore,
+            maximumEvents: 512,
+            maximumBytes: 4_000_000,
+            reservedFailureEvents: 8,
+            reservedFailureBytes: 64_000,
+            maximumModelOutcomeBytes: 64_000,
+            maximumConcurrentOutcomeReservations: 8);
+        var model = new ParallelDelegateEvidenceModel(parentInstructions, researcherInstructions,
+            reviewerInstructions, task, delegateOutputCharacters: 64);
+        var provider = new AgentProviderDescriptor(providerId, "Proof delegate model", "proof-chat-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new ParallelDelegateEvidenceChatClient(model))],
+            new EchoToolBroker());
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(agents: agents).ExecuteWithOutcomeAsync(
+            runStore.RunId, revision, task, null, recorder.RecordAsync));
+
+        Assert.NotNull(failure);
+        Assert.Equal(1, rejectedAppendCount);
+        Assert.Equal(0, model.MaximumConcurrentDelegateCalls);
+        Assert.DoesNotContain(model.Prompts, prompt => prompt.InstructionCharacters != parentInstructions.Length);
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "failed");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded);
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.AgentTeamStarted or
+            ExecutionEventKinds.AgentTeamCompleted or ExecutionEventKinds.AgentTeamFailed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.AgentStarted && evt.InvocationId != parentInvocationId);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed);
+        Assert.Equal(1, recorder.PendingOutcomeReservations);
+        Assert.Equal(1, recorder.MaximumPendingOutcomeReservationsObserved);
+        Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
+        Console.WriteLine((sqlite ? "sqlite" : "file") + " rejected delegated function-call evidence: " +
+            $"{events.Length} events, no child dispatch, {recorder.PendingOutcomeReservations} unsettled model reservation.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ModelRequestEvidenceAppendFailure_PreventsProviderDispatch(bool sqlite)
     {
         const string providerId = "proof.concurrent-model";
