@@ -1183,14 +1183,19 @@ public class AgentExecutionTests
         var broker = BrokerTests.CreateBroker(policy: new DemoToolPolicy());
         var submit = (await broker.ListBindingsAsync()).Single(binding => binding.BindingId == "demo.submit-answer");
         var responses = 0;
+        var modelRequests = new List<ChatMessage[]>();
         var registration = DeterministicDemoChatClient.Registration() with
         {
-            Create = () => new CallbackClient((_, _, _) => Task.FromResult(++responses == 1
-                ? new ChatResponse(new ChatMessage(ChatRole.Assistant,
-                    [new FunctionCallContent("invalid-answer", "tool_0", new Dictionary<string, object?> { ["text"] = "not-a-number" })]))
-                  { FinishReason = ChatFinishReason.ToolCalls }
-                : new ChatResponse(new ChatMessage(ChatRole.Assistant, "Recovered after the tool error."))
-                  { FinishReason = ChatFinishReason.Stop }))
+            Create = () => new CallbackClient((messages, _, _) =>
+            {
+                modelRequests.Add(messages.ToArray());
+                return Task.FromResult(++responses == 1
+                    ? new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                        [new FunctionCallContent("invalid-answer", "tool_0", new Dictionary<string, object?> { ["text"] = "not-a-number" })]))
+                      { FinishReason = ChatFinishReason.ToolCalls }
+                    : new ChatResponse(new ChatMessage(ChatRole.Assistant, "Recovered after the tool error."))
+                      { FinishReason = ChatFinishReason.Stop });
+            })
         };
         var events = new List<ExecutionEvent>();
 
@@ -1202,6 +1207,12 @@ public class AgentExecutionTests
         Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested));
         var failed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolFailed);
         Assert.Contains("RecoverableFeedback", failed.Data);
+        Assert.DoesNotContain("Submit only a base-10 integer answer.", failed.Data, StringComparison.Ordinal);
+        var correction = string.Join("\n", modelRequests[1]
+            .SelectMany(message => message.Contents.OfType<FunctionResultContent>())
+            .Select(content => content.Result?.ToString()));
+        Assert.Contains("correct the arguments", correction, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Submit only a base-10 integer answer.", correction, StringComparison.Ordinal);
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentCompleted);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed);
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);

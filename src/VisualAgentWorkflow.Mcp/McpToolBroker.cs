@@ -190,6 +190,8 @@ public sealed class McpToolBroker : INodeToolBroker
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             deadline.CancelAfter(owner.timeout);
             var dispatched = false;
+            string? failureCode = null;
+            string? failureReason = null;
             try
             {
                 await using var connection = await Connect(registration,
@@ -214,14 +216,16 @@ public sealed class McpToolBroker : INodeToolBroker
                 });
                 dispatched = true;
                 var result = await client.CallToolAsync(registration.ToolName, callArguments, cancellationToken: deadline.Token);
-                var output = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(c => c.Text));
                 if (result.IsError == true)
-                    throw new ToolInvocationException(string.IsNullOrWhiteSpace(output)
-                            ? "The MCP server reported a tool failure."
-                            : $"The MCP server reported a tool failure: {TrimFailureDetail(output)}",
+                {
+                    failureCode = "mcp.server_declared_failure";
+                    failureReason = "The MCP server reported a tool failure. Correct the arguments or choose another assigned tool.";
+                    throw new ToolInvocationException(failureReason,
                         registration.AllowModelRecoveryAfterFailure
                             ? ToolInvocationFailureDisposition.RecoverableFeedback
                             : ToolInvocationFailureDisposition.Fatal);
+                }
+                var output = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(c => c.Text));
                 if (result.Content.Any(c => c is not TextContentBlock)) throw new ToolInvocationException("The tool returned unsupported non-text content.");
                 if (output.Length > 16_384) throw new ToolInvocationException("Tool output exceeds the workflow limit.");
                 await Record(ExecutionEventKinds.ToolCompleted, new { toolCallId, parentToolCallId = invocation.ParentToolCallId, bindingId, output });
@@ -229,16 +233,25 @@ public sealed class McpToolBroker : INodeToolBroker
             }
             catch (OperationCanceledException)
             {
+                var disposition = dispatched
+                    ? ToolInvocationFailureDisposition.OutcomeUnknown
+                    : ToolInvocationFailureDisposition.Fatal;
+                failureCode = dispatched ? "tool.outcome_unknown" : "tool.not_dispatched";
+                failureReason = dispatched
+                    ? "The tool call was cancelled or timed out after dispatch; its outcome may be unknown. Do not retry automatically."
+                    : "The tool call was cancelled or timed out before dispatch.";
                 await Record(dispatched ? ExecutionEventKinds.ToolUncertain : ExecutionEventKinds.ToolFailed,
                     new
                     {
                         toolCallId,
                         parentToolCallId = invocation.ParentToolCallId,
                         bindingId,
-                        reason = "Tool call cancelled or timed out; no automatic retry."
+                        failureCode,
+                        disposition = disposition.ToString(),
+                        reason = failureReason
                     });
                 if (cancellationToken.IsCancellationRequested) throw;
-                throw new ToolInvocationException("The tool operation timed out.");
+                throw new ToolInvocationException(failureReason, disposition);
             }
             catch (Exception error)
             {
@@ -246,20 +259,24 @@ public sealed class McpToolBroker : INodeToolBroker
                     IsDefinitiveToolFailure(registration, error);
                 if (recoverableFailure)
                 {
-                    var feedback = new ToolInvocationException(
-                        "The MCP server reported a definitive tool failure.",
+                    failureCode = "host.classified_failure";
+                    failureReason = "The host classified this tool failure as definitive. Correct the arguments or choose another assigned tool.";
+                    var feedback = new ToolInvocationException(failureReason,
                         ToolInvocationFailureDisposition.RecoverableFeedback);
                     await Record(ExecutionEventKinds.ToolFailed, new
                     {
                         toolCallId,
                         parentToolCallId = invocation.ParentToolCallId,
                         bindingId,
+                        failureCode,
                         disposition = feedback.Disposition.ToString(),
-                        reason = error.Message,
-                        detail = "The host classified the server error as recoverable model feedback."
+                        reason = failureReason
                     });
                     throw feedback;
                 }
+                var safeFailure = failureCode is null
+                    ? SafeFailure(error, dispatched)
+                    : new SafeToolFailure(failureCode, failureReason!);
                 await Record(error is ToolAccessDeniedException ? ExecutionEventKinds.ToolDenied :
                     dispatched && error is not ToolInvocationException ? ExecutionEventKinds.ToolUncertain : ExecutionEventKinds.ToolFailed,
                     new
@@ -267,20 +284,44 @@ public sealed class McpToolBroker : INodeToolBroker
                         toolCallId,
                         parentToolCallId = invocation.ParentToolCallId,
                         bindingId,
+                        failureCode = safeFailure.Code,
                         disposition = error is ToolInvocationException invocationFailure
                             ? invocationFailure.Disposition.ToString()
                             : dispatched ? ToolInvocationFailureDisposition.OutcomeUnknown.ToString() : ToolInvocationFailureDisposition.Fatal.ToString(),
-                        reason = error switch
-                        {
-                            ToolContractMismatchException => "Input/output schema mismatch.",
-                            ToolDescriptionMismatchException => "Description mismatch.",
-                            _ => error.Message
-                        },
-                        errorType = error.GetType().Name
+                        reason = safeFailure.Reason
                     });
-                throw;
+                if (error is OperationCanceledException && cancellationToken.IsCancellationRequested) throw;
+                if (error is ToolAccessDeniedException or ToolContractMismatchException or ToolDescriptionMismatchException)
+                    throw;
+                var disposition = error is ToolInvocationException knownFailure
+                    ? knownFailure.Disposition
+                    : dispatched ? ToolInvocationFailureDisposition.OutcomeUnknown : ToolInvocationFailureDisposition.Fatal;
+                throw new ToolInvocationException(safeFailure.Reason, disposition);
             }
         }
+
+        private static SafeToolFailure SafeFailure(Exception error, bool dispatched) => error switch
+        {
+            ToolAccessDeniedException => new("authorization.denied", "The workflow node is not authorized to call this tool."),
+            ToolContractMismatchException => new("tool.contract_mismatch", "The tool input/output contract changed after the workflow pinned it."),
+            ToolDescriptionMismatchException => new("tool.description_mismatch", "The tool description changed after the workflow pinned it."),
+            ToolInvocationException { Disposition: ToolInvocationFailureDisposition.RecoverableFeedback } =>
+                new("tool.recoverable_failure", "The tool reported a definitive failure. Correct the arguments or choose another assigned tool."),
+            ToolInvocationException { Disposition: ToolInvocationFailureDisposition.OutcomeUnknown } =>
+                new("tool.outcome_unknown", "The tool may have completed, but its outcome is unknown. Do not retry automatically."),
+            ToolInvocationException => new("tool.invocation_failed", "The tool invocation failed."),
+            OperationCanceledException => dispatched
+                ? new("tool.outcome_unknown", "The tool call was cancelled after dispatch; its outcome may be unknown. Do not retry automatically.")
+                : new("tool.not_dispatched", "The tool call was cancelled before dispatch."),
+            TimeoutException or IOException or HttpRequestException => dispatched
+                ? new("tool.outcome_unknown", "The tool connection failed after dispatch; its outcome may be unknown. Do not retry automatically.")
+                : new("tool.connection_failed", "The tool connection failed before dispatch."),
+            _ => dispatched
+                ? new("tool.outcome_unknown", "The tool may have completed, but its outcome is unknown. Do not retry automatically.")
+                : new("tool.host_failure", "The tool could not be invoked because of a host-side failure.")
+        };
+
+        private sealed record SafeToolFailure(string Code, string Reason);
 
         private static bool IsDefinitiveToolFailure(McpToolRegistration registration, Exception error)
         {
@@ -291,9 +332,6 @@ public sealed class McpToolBroker : INodeToolBroker
             try { return registration.IsDefinitiveToolFailure(error); }
             catch { return false; }
         }
-
-        private static string TrimFailureDetail(string detail) =>
-            detail.Length <= 2_000 ? detail : detail[..2_000] + "…";
 
         private static async Task<McpToolConnection> Connect(McpToolRegistration registration,
             NodeInvocationContext invocation, CancellationToken cancellationToken) =>

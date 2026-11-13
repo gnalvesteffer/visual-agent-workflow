@@ -304,12 +304,16 @@ will be introduced.
       path, using `int.MaxValue` for the HTTP status. Both stores persist the
       provider error and complete failure envelope within the proof reserve
       (2/2 store cases).
-    - [ ] Implement and prove the reviewed typed failure envelope: safe,
-      actionable categories; no raw MCP/host exception text in durable events
-      or model feedback by default; preserve fatal/recoverable/uncertain and
-      cancellation dispositions. Then complete timeout-specific settlement.
-      The review is recorded in [Decision 0070](decisions/0070-bounded-array-iteration-contract.md);
-      current reservations remain test-only and select no aggregate caps.
+    - [x] Implement the reviewed typed failure envelope at the MCP broker:
+      stable safe categories/reasons, no raw MCP/host exception text in durable
+      failure events or model correction feedback by default, and preserved
+      fatal/recoverable/uncertain and cancellation dispositions. Tests inspect
+      both persisted evidence and model feedback.
+    - [ ] Complete timeout-specific settlement and prove the failure envelope
+      for custom broker implementations before selecting production aggregate
+      evidence caps. The review and remaining limits are recorded in
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md); the
+      current reservation recorder remains test-only.
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable

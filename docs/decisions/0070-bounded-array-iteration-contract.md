@@ -379,18 +379,23 @@ themselves cannot be appended.
 
 ### Reviewed failure-envelope direction
 
-A three-role review recommends a typed, bounded failure envelope with
+A three-role review recommended a typed, bounded failure envelope with
 actionable category-specific safe messages and bounded structured metadata
-where its meaning is stable. Arbitrary host exception messages and MCP
-server-declared error text should not enter durable run evidence or model
-correction feedback by default: length truncation limits size but does not
-remove secrets or user data. Preserve existing fatal, recoverable, cancelled,
-timed-out, and outcome-unknown dispositions exactly. The repository currently
-has no host diagnostic lookup/retention contract, so do not imply that a
-correlation ID can retrieve richer details. This is reviewed direction, not
-implemented behavior; compatibility, user-facing diagnostics, and worst-case
-serialized envelopes still need an implementation proof before aggregate
-evidence limits can be selected.
+where its meaning is stable. The MCP broker now emits stable failure codes and
+fixed safe reasons for invocation failures, omits arbitrary host exception
+messages and MCP server-declared error text from durable failure events, and
+returns fixed corrective feedback for explicitly recoverable failures. This
+avoids treating truncation as redaction: truncation limits size but does not
+remove secrets or user data. Authorization, contract, recoverable, fatal,
+cancelled, and outcome-unknown dispositions remain distinct; a dispatched
+timeout or cancellation is recorded as uncertain and is never automatically
+retried. Regression tests cover host-classified and unclassified post-dispatch
+exceptions and inspect both persisted events and model feedback. The bounded
+envelope is implemented at the MCP broker boundary; it does not bound arbitrary
+custom broker implementations. The repository has no host diagnostic
+lookup/retention contract, so a correlation ID does not imply retrieval of
+richer details. Timeout-specific settlement and universal aggregate evidence
+limits remain unproven; these tests select no production aggregate caps.
 
 The adjudicated next proof distinguishes capacity from storage guarantees:
 admission requires a request, one bounded outcome, and failure evidence to be

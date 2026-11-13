@@ -425,17 +425,24 @@ public class BrokerTests
             AllowModelRecoveryAfterFailure = true,
             IsDefinitiveToolFailure = exception => exception is ModelContextProtocol.McpProtocolException
         };
-        var events = new List<string>();
+        var events = new List<(string Kind, string? Data)>();
         var broker = CreateBroker([hostRegistration], new DemoToolPolicy());
-        await using var scope = broker.OpenScope(Invocation(Revision(registration), events));
+        var revision = Revision(registration);
+        var invocation = new NodeInvocationContext(Guid.NewGuid(), revision, "step-1", Guid.NewGuid(),
+            (kind, data) => { events.Add((kind, data)); return ValueTask.CompletedTask; });
+        await using var scope = broker.OpenScope(invocation);
 
         using var arguments = JsonDocument.Parse("{}");
         var failure = await Assert.ThrowsAsync<ToolInvocationException>(() => scope.InvokeJsonAsync(registration.BindingId, arguments.RootElement));
 
         Assert.True(failure.Disposition == ToolInvocationFailureDisposition.RecoverableFeedback,
             $"{failure.GetType().FullName}: {failure.Message}");
-        Assert.Contains(ExecutionEventKinds.ToolFailed, events);
-        Assert.DoesNotContain(ExecutionEventKinds.ToolUncertain, events);
+        Assert.DoesNotContain("requested fixture operation was rejected", failure.Message, StringComparison.OrdinalIgnoreCase);
+        var failureEvent = Assert.Single(events, item => item.Kind == ExecutionEventKinds.ToolFailed);
+        Assert.DoesNotContain("requested fixture operation was rejected", failureEvent.Data, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("McpProtocolException", failureEvent.Data, StringComparison.Ordinal);
+        Assert.Contains("host.classified_failure", failureEvent.Data);
+        Assert.DoesNotContain(events, item => item.Kind == ExecutionEventKinds.ToolUncertain);
     }
 
     [Fact]
@@ -452,11 +459,15 @@ public class BrokerTests
         await using var scope = broker.OpenScope(invocation);
 
         using var arguments = JsonDocument.Parse("{}");
-        await Assert.ThrowsAnyAsync<Exception>(() => scope.InvokeJsonAsync(registration.BindingId, arguments.RootElement));
+        var thrown = await Assert.ThrowsAsync<ToolInvocationException>(() =>
+            scope.InvokeJsonAsync(registration.BindingId, arguments.RootElement));
+        Assert.Equal(ToolInvocationFailureDisposition.OutcomeUnknown, thrown.Disposition);
+        Assert.DoesNotContain("requested fixture operation was rejected", thrown.Message, StringComparison.OrdinalIgnoreCase);
 
         var failure = Assert.Single(events, item => item.Kind == ExecutionEventKinds.ToolUncertain);
-        Assert.Contains("errorType", failure.Data);
-        Assert.DoesNotContain("Tool operation failed.", failure.Data);
+        Assert.DoesNotContain("errorType", failure.Data);
+        Assert.DoesNotContain("requested fixture operation was rejected", failure.Data, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("tool.outcome_unknown", failure.Data);
         Assert.DoesNotContain(events, item => item.Kind == ExecutionEventKinds.ToolFailed);
     }
 
