@@ -349,7 +349,13 @@ will be introduced.
       evidence (2/2 file/SQLite cases). This is test-only evidence and does not
       compare concurrent reservations, byte-cap exhaustion, aggregate work
       limits, or production budget ownership.
-    - [ ] Complete candidate budget comparison for concurrent model/MCP
+    - [x] Compare concurrent model outcome reservations across all three proof
+      candidates. At capacity two, both requests/responses complete and the
+      join runs; at capacity one, only one provider call occurs, the second
+      request is rejected, and the join is suppressed. File and SQLite cases
+      pass (2/2 each). This does not cover MCP concurrency or production budget
+      ownership.
+    - [ ] Complete candidate budget comparison for concurrent MCP
       reservations, serialized-byte exhaustion, aggregate work limits, and
       external-dispatch outcome boundaries. Store reopen/process loss, nested
       frames, typed iterator pins, Sequence, collaboration, and crash recovery

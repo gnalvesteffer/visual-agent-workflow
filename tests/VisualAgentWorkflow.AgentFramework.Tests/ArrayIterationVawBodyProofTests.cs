@@ -2774,6 +2774,116 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IteratorCandidates_ReserveConcurrentModelOutcomesBeforeDispatch(bool sqlite)
+    {
+        const string providerId = "proof.iterator-parallel-reservation";
+        const string input = "[\"one\"]";
+        var definition = ParallelBodyDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var nodes = definition.Nodes;
+        foreach (var nodeId in new[] { "agent-left", "agent-right" })
+            nodes = nodes.SetItem(nodeId, nodes[nodeId] with
+            {
+                Agent = nodes[nodeId].Agent! with
+                {
+                    ProviderId = providerId,
+                    Instructions = $"Concurrent reservation proof for {nodeId}."
+                }
+            });
+        var revision = WorkflowRevision.Create(definition with { Nodes = nodes },
+            "array-iteration-parallel-reservation-candidate-proof");
+
+        foreach (var candidate in new[] { "structured", "fresh-subworkflow", "hybrid" })
+        {
+            var baseline = await ExecuteCandidateAsync(candidate, maximumConcurrentReservations: 2);
+            Assert.NotNull(baseline.Output);
+            Assert.Equal(2, baseline.ProviderCalls);
+            Assert.Equal(2, baseline.MaximumConcurrentModelCalls);
+            Assert.Equal(2, baseline.MaximumPendingReservations);
+            Assert.Equal(2, baseline.Events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested));
+            Assert.Equal(2, baseline.Events.Count(evt => evt.Kind == ExecutionEventKinds.ModelResponded));
+            Assert.Contains(baseline.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+
+            var limited = await ExecuteCandidateAsync(candidate, maximumConcurrentReservations: 1);
+            Assert.Null(limited.Output);
+            Assert.True(limited.ReservationRejected);
+            Assert.Equal(1, limited.ProviderCalls);
+            Assert.Equal(1, limited.MaximumConcurrentModelCalls);
+            Assert.Equal(1, limited.MaximumPendingReservations);
+            Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
+            Assert.DoesNotContain(limited.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "join");
+            Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+        }
+
+        async Task<CandidateReservationResult> ExecuteCandidateAsync(string candidate,
+            int maximumConcurrentReservations)
+        {
+            using var store = new ProofRunStore(revision, input, sqlite);
+            var recorder = new ReservedEvidenceProofRecorder(store, maximumEvents: 512,
+                maximumBytes: 4_000_000, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
+                maximumModelOutcomeBytes: 32_000,
+                maximumConcurrentOutcomeReservations: maximumConcurrentReservations);
+            var model = new ConcurrentPromptModel(expectedConcurrentCalls: 2,
+                releaseOnReservationRejected: recorder.ReservationRejected);
+            var provider = new AgentProviderDescriptor(providerId, "Concurrent reservation proof", "proof-chat-v1", true);
+            var agents = new AgentNodeExecutor(
+                [new AgentProviderRegistration(provider, () => new SynchronizedResponseChatClient(model))],
+                new EchoToolBroker());
+            var tools = new EchoToolBroker();
+            string? output = null;
+
+            if (candidate == "structured")
+            {
+                try
+                {
+                    var result = await new WorkflowRunner(tools, agents)
+                        .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                            recorder.RecordResequencedAsync);
+                    output = result.Output;
+                }
+                catch (EvidenceBudgetExhaustedException) when (recorder.ReservationRejected.IsCompleted) { }
+            }
+            else if (candidate == "fresh-subworkflow")
+            {
+                await RecordRootAsync(ExecutionEventKinds.Started);
+                var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder, agents, tools);
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                var failed = false;
+                await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+                await foreach (var evt in run.WatchStreamAsync())
+                {
+                    if (evt is WorkflowOutputEvent { Data: string value }) output = value;
+                    if (evt is WorkflowErrorEvent) failed = true;
+                }
+                await RecordRootAsync(failed || output is null ? ExecutionEventKinds.Failed : ExecutionEventKinds.Completed);
+            }
+            else
+            {
+                var result = await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, tools, input);
+                output = result.Output;
+            }
+
+            var events = recorder.Snapshot();
+            AssertPersistedSequence(store, events, output is null ? "failed" : "completed");
+            Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
+            return new(output, events, model.Calls.Length, model.MaximumConcurrentCalls,
+                recorder.MaximumPendingOutcomeReservationsObserved, recorder.ReservationRejected.IsCompleted);
+
+            ValueTask RecordRootAsync(string kind) => recorder.RecordResequencedAsync(new ExecutionEvent(
+                store.RunId, store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow, kind));
+        }
+    }
+
+    private sealed record CandidateReservationResult(string? Output, ExecutionEvent[] Events, int ProviderCalls,
+        int MaximumConcurrentModelCalls, int MaximumPendingReservations, bool ReservationRejected);
+
     private sealed record CandidateBudgetResult(string? Output, ExecutionEvent[] Events, int ModelCalls,
         string[] ToolQueries, int PendingOutcomeReservations, long PersistedEventBytes,
         bool ReservationRejected);
@@ -4027,7 +4137,8 @@ public sealed class ArrayIterationVawBodyProofTests
         public void Dispose() { }
     }
 
-    private sealed class ConcurrentPromptModel(int expectedConcurrentCalls, bool failAfterStart = false)
+    private sealed class ConcurrentPromptModel(int expectedConcurrentCalls, bool failAfterStart = false,
+        Task? releaseOnReservationRejected = null)
     {
         private readonly ConcurrentQueue<PromptCall> calls = new();
         private readonly TaskCompletionSource bothStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -4049,7 +4160,10 @@ public sealed class ArrayIterationVawBodyProofTests
             if (calls.Count >= expectedConcurrentCalls) bothStarted.TrySetResult();
             try
             {
-                await bothStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+                Task release = releaseOnReservationRejected is null
+                    ? bothStarted.Task
+                    : Task.WhenAny(bothStarted.Task, releaseOnReservationRejected);
+                await release.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
                 if (failAfterStart) throw new InvalidOperationException("Deterministic model failure after request capture.");
                 return new ChatResponse(new ChatMessage(ChatRole.Assistant, "done"))
                 {

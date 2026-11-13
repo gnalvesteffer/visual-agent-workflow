@@ -78,6 +78,15 @@ boundary across all three proof candidates. It does not compare concurrent
 reservations, byte-cap exhaustion, aggregate work limits, or production budget
 ownership and selects no scheduler or public limit.
 
+`IteratorCandidates_ReserveConcurrentModelOutcomesBeforeDispatch` compares the
+three candidates on a synchronized parallel-Agent body. With two outcome
+reservations, both model requests and responses persist and the join completes;
+with one, the second request is rejected before provider dispatch, only one
+provider call occurs, the join is suppressed, and failure evidence closes the
+run. File and SQLite cases pass for each candidate (2/2 per store). This is a
+test-only model-reservation comparison; MCP concurrency, byte-cap exhaustion,
+aggregate work limits, and production budget ownership remain open.
+
 `HybridFrameCoordinator_ExecutesUnifiedSequenceBodyPerActivation` exercises a
 current unified-schema body containing a two-output Sequence whose paths each
 invoke a direct MCP node. It executes the body for two nested activation
