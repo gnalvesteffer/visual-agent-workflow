@@ -362,12 +362,25 @@ make storage succeed; the persisted prefix remains nonterminal at 9 events and
 4,011–4,012 bytes. The focused proof cases pass (10/10), and the complete Agent
 Framework suite passes (285/285).
 
+`StoreAppendFailureTests.ToolAuthorizationEvidenceBudgetExhaustion_PreventsDispatchAndPersistsFailure`
+extends the proof to the production `McpToolBroker` and its real stdio demo
+server. It rejects recording `tool.authorized` when the combined event-count
+and byte threshold cannot cover both a bounded tool outcome and failure
+evidence. The broker records `tool.failed` without dispatching, and
+both file and SQLite retain contiguous run-failure history (2/2 focused cases
+pass).
+The companion `ToolCompletionAppendFailure_RecordsUnknownOutcomeAndKeepsContiguousTerminalHistory`
+now uses the same reservation recorder: when the store rejects `tool.completed`
+after the tool ran, the reservation is still held when `tool.uncertain` is
+appended, then settles only after that evidence is accepted. Both stores pass
+(2/2 cases).
+
 This is a test-only accounting harness, not a production run budget. It proves
-the event-count reservation mechanics for one bounded model call and models a
-test-specific outcome byte allowance. It does not prove worst-case bounds for
-all event shapes, byte-limit exhaustion, MCP/delegate reservation races,
-unlimited turns, timeout/cancellation settlement, or a production terminal
-reserve. No aggregate cap is selected.
+reservation mechanics for one bounded model call and one bounded MCP tool call,
+using test-specific outcome byte allowances. It does not prove worst-case
+bounds for all event shapes, standalone byte-limit exhaustion, MCP/delegate
+reservation races, unlimited turns, timeout/cancellation settlement, or a
+production terminal reserve. No aggregate cap is selected.
 
 The public iterator contract must be Blueprint-style and composable with all
 existing graph capabilities. The proposed pins are an execution input, typed

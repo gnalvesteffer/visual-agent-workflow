@@ -272,10 +272,18 @@ will be introduced.
       persisted (11 events, 4,991–4,992 bytes). Also reject `run.failed` at the
       actual store boundary and confirm an in-memory reserve cannot overcome
       that outage (9-event nonterminal prefix, 4,011–4,012 bytes).
-    - [ ] Complete the production-path proof across MCP, delegated calls,
-      maximum-shaped outcome/error envelopes, byte exhaustion, and
-      timeout/cancellation/uncertain settlement. Current harness is test-only
-      and selects no aggregate caps; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Exercise MCP admission against the real stdio broker: reject
+      authorization when the combined event-count/byte threshold cannot
+      reserve the outcome and failure evidence, then confirm both stores
+      retain a failed run without authorization or a claimed tool outcome
+      (2/2 cases).
+    - [x] Hold an MCP outcome reservation across a rejected `tool.completed`
+      store append, then settle it only after `tool.uncertain` is accepted by
+      each store (2/2 cases).
+    - [ ] Complete the remaining production-path proof for delegated calls,
+      maximum-shaped outcome/error envelopes, standalone byte exhaustion, and
+      timeout/cancellation settlement. Current harness is test-only and selects
+      no aggregate caps; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable
