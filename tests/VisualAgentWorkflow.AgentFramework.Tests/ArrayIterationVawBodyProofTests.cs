@@ -476,6 +476,71 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredAndFreshSubworkflowCandidates_CancelSiblingAfterHandlerEntry(bool sqlite)
+    {
+        var definition = ParallelBodyDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "array-iteration-candidate-parallel-sibling-entry-proof");
+        const string input = "[\"north\",\"south\"]";
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var structuredAgents = new CoordinatedBranchFailureAgentExecutor();
+        var subworkflowAgents = new CoordinatedBranchFailureAgentExecutor();
+
+        var structuredFailure = await Record.ExceptionAsync(() =>
+            new WorkflowRunner(agents: structuredAgents)
+                .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                    evt => { structuredRecorder.Append(evt); return ValueTask.CompletedTask; }));
+        Assert.NotNull(structuredFailure);
+
+        var iterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision, subworkflowRecorder,
+            subworkflowAgents, new EchoToolBroker());
+        var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+        var workflowError = false;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input))
+            await foreach (var evt in run.WatchStreamAsync()) workflowError |= evt is WorkflowErrorEvent;
+        Assert.True(workflowError);
+        subworkflowRecorder.FailRoot();
+
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        AssertPersistedSequence(structuredStore, structuredEvents, "failed");
+        AssertPersistedSequence(subworkflowStore, subworkflowEvents, "failed");
+        Assert.Equal(["agent-left", "agent-right"], structuredAgents.EnteredNodes.Order(StringComparer.Ordinal));
+        Assert.Equal(structuredAgents.EnteredNodes.Order(StringComparer.Ordinal),
+            subworkflowAgents.EnteredNodes.Order(StringComparer.Ordinal));
+        AssertParallelSiblingCancellation(structuredEvents);
+        AssertParallelSiblingCancellation(subworkflowEvents);
+        Assert.Equal(subworkflowEvents.Where(IsBranchLifecycleEvent).Select(EventShape),
+            structuredEvents.Where(IsBranchLifecycleEvent).Select(EventShape));
+
+        static (string Kind, string? NodeId, string? ScopeId, string? ConnectionId) EventShape(ExecutionEvent evt) =>
+            (evt.Kind, evt.NodeId, evt.ScopeId, evt.ConnectionId);
+        static bool IsBranchLifecycleEvent(ExecutionEvent evt) =>
+            evt.NodeId is "agent-left" or "agent-right" or "join";
+        static void AssertParallelSiblingCancellation(IReadOnlyList<ExecutionEvent> events)
+        {
+            Assert.Equal(["array-loop/0"], events
+                .Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted)
+                .Select(evt => evt.ScopeId));
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+                evt.NodeId == "agent-left" && evt.ScopeId == "array-loop/0");
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+                evt.NodeId == "agent-right" && evt.ScopeId == "array-loop/0");
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+            Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        }
+    }
+
     [Fact]
     public async Task StructuredSchedulerProof_ExecutesProductionAgentNodesAcrossParallelJoin()
     {
@@ -2231,6 +2296,37 @@ public sealed class ArrayIterationVawBodyProofTests
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             }
             return JsonSerializer.Serialize(new { query = input });
+        }
+    }
+
+    private sealed class CoordinatedBranchFailureAgentExecutor : IAgentNodeExecutor
+    {
+        private readonly ConcurrentQueue<string> enteredNodes = new();
+        private readonly TaskCompletionSource rightEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public string[] EnteredNodes => [.. enteredNodes];
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.coordinated", "Coordinated proof", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            enteredNodes.Enqueue(invocation.NodeId);
+            if (invocation.NodeId == "agent-right")
+            {
+                rightEntered.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+
+            if (invocation.NodeId == "agent-left")
+            {
+                await rightEntered.Task.WaitAsync(cancellationToken);
+                throw new InvalidOperationException("Deterministic coordinated branch failure.");
+            }
+
+            throw new InvalidOperationException($"Unexpected proof Agent node '{invocation.NodeId}'.");
         }
     }
 

@@ -224,8 +224,12 @@ will be introduced.
       Agent Framework body records the sibling branch as activated/cancelled,
       while structured dispatch cancels before that sibling records a node
       start. Resolve this branch-lifecycle difference before selecting an
-      architecture. Dispatch/evidence budgets and join-cancellation cases also
-      remain open.
+      architecture. A synchronized follow-up makes the right Agent enter and
+      block before the left Agent fails; both candidates then persist matching
+      failed/cancelled node lifecycles and suppress the join in file and SQLite
+      stores. The earlier failure-before-handler-entry window still differs,
+      so the lifecycle contract and architecture remain open. Dispatch/evidence
+      budgets and join-cancellation cases also remain open.
     - [ ] Compare candidate budgets at atomic dispatch/evidence boundaries and
       prove exhaustion behavior. Store reopen/process loss, nested frames,
       typed iterator pins, Sequence, collaboration, and crash recovery also

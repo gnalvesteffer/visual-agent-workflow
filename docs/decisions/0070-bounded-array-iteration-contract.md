@@ -273,6 +273,17 @@ is now an explicit unresolved lifecycle-parity requirement, not evidence for
 selecting either architecture. Both file and SQLite variants pass the proof's
 invariants. Join-cancellation and budget-exhaustion comparisons remain open.
 
+`ArrayIterationVawBodyProofTests.StructuredAndFreshSubworkflowCandidates_CancelSiblingAfterHandlerEntry`
+adds a gated race in which the right Agent handler signals entry and blocks;
+the left Agent fails only after that signal. In both file and SQLite stores,
+both candidates record the left Agent failure, cancellation of the entered
+right Agent, no join completion, and no next item. Their branch lifecycle
+events match. The proof narrows the mismatch to failure before the sibling
+handler enters; it does not establish whether an admitted but not-yet-entered
+branch should receive a start/cancel event. This is evidence about one
+controlled lifecycle boundary, not a scheduler selection. The architecture
+remains undecided.
+
 ### Initial persistence sizing evidence
 
 `RunStoreTests.MaximumShapedModelMcpAndGraphEvents_MeasurePersistedUtf8Envelope`
