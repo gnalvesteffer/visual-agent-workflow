@@ -981,6 +981,23 @@ drives validation and the typed output pin; the same typed pin can be connected
 to an iterator or other compatible array input. JSON text is an authoring
 representation, not a loss of graph type information.
 
+## 2026-11-13 adjudication: matched graph-level proof is next
+
+A three-role review considered whether to prove typed item/index and nearest
+`Break` behavior first in the structured candidate or as one matched graph
+contract across all candidates. The adjudicator returned **REVISE**: the
+structured-only proof could anchor the architecture before comparison. The
+next proof must run the same private, production-backed graph-level contract
+through the structured, fresh-subworkflow, and hybrid candidates. It must
+resolve typed item and zero-based index through graph data paths; route an
+actual `Break` signal to the nearest nested iterator; skip remaining inner
+items while allowing the outer iteration to continue; and compare scoped event
+ordering and persisted prefixes. A coordinator-only sentinel is not sufficient
+evidence of graph dispatch. This proof remains private and selects no runtime
+architecture; production-owned budget/lifecycle and the rest of the matrix
+remain open. No public node, schema contract, or Studio authoring is admitted
+by this adjudication.
+
 ## Compatibility constraints
 
 - Keep iteration as a distinct node family; do not broaden or reinterpret the
