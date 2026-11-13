@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -41,6 +42,100 @@ public sealed class RunStoreTests : IDisposable
         Assert.Single(store.List());
         Assert.Throws<InvalidOperationException>(() => store.Append(run.Header.RunId, 2, [Event(run, 3)]));
         Assert.Equal(2, store.Get(run.Header.RunId)!.Events.Length);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MaximumShapedModelMcpAndGraphEvents_MeasurePersistedUtf8Envelope(bool sqlite)
+    {
+        var store = Store(sqlite);
+        var run = store.Create(Revision(), "measurement");
+        var trace = MaximumShapedModelTrace();
+        var largeToolOutput = new string('x', 16_384);
+        var dataValue = new string('x', 16_384);
+        var timestamp = new DateTimeOffset(2026, 11, 12, 0, 0, 0, TimeSpan.Zero);
+        var shapedEvents = new[]
+        {
+            new ExecutionEvent(run.Header.RunId, run.Header.RevisionId, 2, timestamp,
+                ExecutionEventKinds.ModelResponded, "agent", Guid.NewGuid(), Data: trace),
+            new ExecutionEvent(run.Header.RunId, run.Header.RevisionId, 3, timestamp,
+                ExecutionEventKinds.ToolCompleted, "tool", Guid.NewGuid(), Data: JsonSerializer.Serialize(new
+                {
+                    toolCallId = Guid.NewGuid(), parentToolCallId = (Guid?)null, bindingId = "proof.binding",
+                    output = largeToolOutput
+                })),
+            new ExecutionEvent(run.Header.RunId, run.Header.RevisionId, 4, timestamp,
+                ExecutionEventKinds.DataEvaluated, "source", Guid.NewGuid(), "data:input-source",
+                JsonSerializer.Serialize(new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["activatedByNodeId"] = "sink",
+                    ["port"] = "out",
+                    ["dataType"] = "string",
+                    ["value"] = dataValue
+                }, new JsonSerializerOptions(JsonSerializerDefaults.Web)))
+        };
+        Assert.Equal(262_144, trace.Length);
+        store.Append(run.Header.RunId, 0, [Event(run, 1)]);
+        store.Append(run.Header.RunId, 1,
+        [
+            .. shapedEvents,
+            new ExecutionEvent(run.Header.RunId, run.Header.RevisionId, 5, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.Completed)
+        ]);
+
+        foreach (var evt in shapedEvents)
+        {
+            var expected = JsonSerializer.SerializeToUtf8Bytes(evt, JsonSerializerOptions.Web).Length;
+            var persisted = PersistedEventJson(evt.Sequence, run.Header.RunId, sqlite);
+            var actual = Encoding.UTF8.GetByteCount(persisted);
+            Assert.Equal(expected, actual);
+            Console.WriteLine($"{(sqlite ? "sqlite" : "file")} {evt.Kind}: {actual} UTF-8 bytes (Data={Encoding.UTF8.GetByteCount(evt.Data!)} bytes)");
+        }
+
+        Assert.Equal("completed", store.Get(run.Header.RunId)!.Status);
+    }
+
+    private static string MaximumShapedModelTrace()
+    {
+        const int maximumCharacters = 262_144;
+        object Payload(string text) => new
+        {
+            modelCallId = Guid.Parse("20df9e9c-e958-44bb-a236-4ae555857b43"),
+            ModelId = "proof-model",
+            ResponseId = "proof-response",
+            finishReason = "stop",
+            usage = new { InputTokenCount = 1, OutputTokenCount = 1, TotalTokenCount = 2,
+                CachedInputTokenCount = 0, ReasoningTokenCount = 0, cacheWriteInputTokenCount = 0 },
+            messages = new[] { new { role = "assistant", content = new[] { new { kind = "text", text } } } }
+        };
+
+        var empty = JsonSerializer.Serialize(Payload(string.Empty));
+        var escapedCharacterCount = (maximumCharacters - empty.Length) / 6;
+        var paddingCharacterCount = maximumCharacters - empty.Length - escapedCharacterCount * 6;
+        var text = string.Concat(new string('\u0001', escapedCharacterCount), new string('x', paddingCharacterCount));
+        var trace = JsonSerializer.Serialize(Payload(text));
+        if (trace.Length != maximumCharacters)
+            throw new InvalidOperationException("The maximum-shaped model trace did not reach its configured character cap.");
+        return trace;
+    }
+
+    private string PersistedEventJson(long sequence, Guid runId, bool sqlite)
+    {
+        if (sqlite)
+        {
+            using var connection = new SqliteConnection($"Data Source={Database};Pooling=False");
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT event_json FROM run_events WHERE run_id=$runId AND sequence=$sequence;";
+            command.Parameters.AddWithValue("$runId", runId.ToString());
+            command.Parameters.AddWithValue("$sequence", sequence);
+            return (string)command.ExecuteScalar()!;
+        }
+
+        using var snapshot = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(directory, $"{runId:D}.snapshot.json")));
+        return snapshot.RootElement.GetProperty("events").EnumerateArray()
+            .Single(evt => evt.GetProperty("sequence").GetInt64() == sequence).GetRawText();
     }
 
     [Theory]

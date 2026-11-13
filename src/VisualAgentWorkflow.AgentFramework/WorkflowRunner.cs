@@ -1122,7 +1122,19 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             return ValueTask.CompletedTask;
         }
 
-        public override async ValueTask<GraphMessage> HandleAsync(GraphMessage received, IWorkflowContext context, CancellationToken cancellationToken = default)
+        public override ValueTask<GraphMessage> HandleAsync(GraphMessage received, IWorkflowContext context,
+            CancellationToken cancellationToken = default) =>
+            HandleCoreAsync(received, (message, target, token) => context.SendMessageAsync(message, target, token), cancellationToken);
+
+        /// <summary>Invokes node behavior while leaving all execution-edge scheduling to the caller.</summary>
+        public ValueTask<GraphMessage> HandleForStructuredSchedulerAsync(GraphMessage received,
+            Func<GraphMessage, string, CancellationToken, ValueTask> dispatch,
+            CancellationToken cancellationToken = default) =>
+            HandleCoreAsync(received, dispatch, cancellationToken);
+
+        private async ValueTask<GraphMessage> HandleCoreAsync(GraphMessage received,
+            Func<GraphMessage, string, CancellationToken, ValueTask> dispatch,
+            CancellationToken cancellationToken)
         {
             var internalTerminationHandoff = node.Type == NodeTypes.Output && received.TerminationSignal;
             if (gate is not null && !internalTerminationHandoff) await gate.WaitForBoundaryAsync(Id, cancellationToken);
@@ -1602,7 +1614,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     {
                         var branchId = configurable && edge.Source.PortId.StartsWith("branch.", StringComparison.Ordinal)
                             ? edge.Source.PortId["branch.".Length..] : null;
-                        await context.SendMessageAsync(new GraphMessage(result, Id, edge.Source.PortId, DataType: "string",
+                        await dispatch(new GraphMessage(result, Id, edge.Source.PortId, DataType: "string",
                             ParallelActivationId: activationId, ParallelBranchId: branchId,
                             ParallelForkNodeId: configurable ? Id : null,
                             SequenceLineage: received.SequenceLineage), edge.Target.NodeId, cancellationToken);

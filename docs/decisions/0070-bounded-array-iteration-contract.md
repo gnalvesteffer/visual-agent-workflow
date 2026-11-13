@@ -172,6 +172,107 @@ multiple activations within one retained runner, typed element/index pins, or
 atomic shared budgets, and candidate 1 remains unimplemented. Architecture
 remains undecided.
 
+`ArrayIterationStructuredActivationProofTests` adds an initial candidate-1
+contract prototype for immutable nested activation frames, item/index identity,
+activation-scoped data outputs and variables, nearest-loop lookup, concurrent
+fork arrivals keyed by activation, and cancellation before the next item. Its
+two focused tests pass, and the full Agent Framework suite passes 254/254.
+This fixture is deliberately not connected to
+`WorkflowRunner`, `StringExecutor`, Agent/MCP adapters, the event recorder, or a
+run store. It validates state-key and lifecycle mechanics only; it is not
+evidence that the structured scheduler architecture can execute a representative
+workflow or meet the shared budget contract. Candidate 1 and the full
+side-by-side proof remain open.
+
+The candidate-1 production seam is now more specific: `WorkflowRunner.BuildWorkflow`
+creates one `StringExecutor` per authored node and wires static Agent Framework
+edges. The executor returns the selected source node/port for ordinary routing;
+its only direct `IWorkflowContext` dispatch is the current parallel-fork send.
+`StringExecutor` now has an internal invocation path that accepts a
+caller-owned fork-dispatch callback. The existing Agent Framework handler uses
+that same path and forwards dispatch to `IWorkflowContext.SendMessageAsync`;
+the Agent Framework suite passes 254/254 at that increment. The
+proof-only `ExecuteStructuredSchedulerProofAsync` now calls the same production
+node handlers directly and owns edge dispatch. Against the same Agent → direct
+MCP body used by the subworkflow proof, it matches output, inputs, event kinds,
+and node completion. It also executes production Agent nodes through a static
+fork/join and demonstrates that a failed MCP branch cancels a blocked sibling
+and suppresses join publication. The three focused scheduler tests pass, and
+the full Agent Framework suite passes 257/257.
+
+This is still one workflow body activation. It does not provide array item/index
+pins, repeated or nested activation frames, nearest-loop `Break`, activation
+scoping for the production evaluator/variables/join, persistence-backed event
+accounting, or shared atomic work/evidence budgets. The proof explicitly
+rejects Sequence and collaboration graphs. It is not evidence that the full
+parity-level scheduler has been selected or implemented.
+
+`ExecuteStructuredActivationSequenceProofAsync` now adds a proof-only VAW-owned
+sequential activation coordinator around the structured dispatcher. It runs the
+same production body once for each string in a bounded JSON array, binds the
+zero-based index through the existing typed workflow parameter, creates a
+fresh evaluator/variable store/executor set per activation, and writes scoped
+node evidence into one monotonically sequenced run event stream. Its focused
+test verifies item/index isolation across three activations, production Agent
+and direct-MCP calls, invocation-correlated events, and one root lifecycle.
+Its failure variant preserves the failed Agent invocation under the active item
+scope and proves a later item is not dispatched. A persistence variant sends
+the same structured-candidate stream through the real file and SQLite run
+stores; both snapshots retain the single monotonic sequence, completed status,
+activation scopes, and correlated Agent/MCP node evidence.
+The four focused activation-sequence cases pass, and the full Agent Framework
+suite passes 261/261.
+The matching fresh-subworkflow candidate already exercises the same body
+definition and inputs with file and SQLite persistence. This is a useful
+sequential repeat-activation comparison. A paired test runs both candidates
+against that same three-item graph and parameter-index matrix, persists each
+stream through both stores, and compares output, model/tool inputs, ordered
+event shape, scopes, and invocation boundaries. It caught and fixed missing
+connection IDs in the structured event bridge. This remains proof-only: the
+outer coordinator accepts JSON strings rather than a typed array pin, has no
+nested frame stack or authored `Break`, and does not compare failure,
+cancellation, or join outcomes across candidates. Store reopening after process
+loss, crash recovery, and shared atomic budgets also remain unproven. The
+architecture decision and public iterator remain open.
+
+### Initial persistence sizing evidence
+
+`RunStoreTests.MaximumShapedModelMcpAndGraphEvents_MeasurePersistedUtf8Envelope`
+serializes maximum-shaped model response, MCP completion, and graph data
+evaluation events through the real file snapshot and SQLite event-row paths.
+The fixture matches the 262,144-character model trace cap using escape-heavy
+text, a 16,384-character MCP output, and a 16,384-character graph string value.
+With a fixed timestamp, both stores persist the same event envelope sizes:
+
+| Event | Inner `Data` UTF-8 bytes | Persisted event JSON bytes |
+| --- | ---: | ---: |
+| `model.responded` | 262,144 | 306,284 |
+| `tool.completed` | 16,501 | 16,848 |
+| `data.evaluated` | 16,456 | 16,830 |
+
+The test checks each persisted raw event representation against
+`JsonSerializer.SerializeToUtf8Bytes` with the store's web defaults. File
+snapshot embedding and SQLite's `event_json` column produced identical sizes.
+These are representative per-event measurements, not aggregate caps or a
+complete worst-case proof. Concurrent delegated traces, function-call content,
+the full set of failure/terminal evidence, event-count exhaustion, and atomic
+reservations remain unmeasured; no runtime limits are selected from these
+numbers.
+
+`ArrayIterationVawBodyProofTests.ConcurrentMaximumMcpOutcomes_PersistBeforeAggregateJoinFailure`
+adds a synchronized concurrent case through the production parallel graph
+runner and a controlled MCP broker. Both branches return 16,384-character
+outputs successfully; their combined join exceeds the existing 16,384-character
+aggregate result limit, so the join and run fail after both external calls
+complete. File and SQLite evidence retain both `tool.completed` records and the
+terminal failure: 31 events, 33,742 bytes for the two tool outcome events, and
+76,611–76,612 serialized event bytes total. The one-byte total difference is
+timestamp precision in independently executed runs. Agent Framework tests
+pass 265/265. This demonstrates concurrent outcome retention and a failed
+aggregate path, but does not measure concurrent model/delegate traces,
+reservation races, terminal-capacity exhaustion, or aggregate-limit behavior;
+no cap is inferred from this scenario.
+
 The public iterator contract must be Blueprint-style and composable with all
 existing graph capabilities. The proposed pins are an execution input, typed
 `array<T>` input, `Loop Body` execution output, typed `Array Element` data
@@ -219,12 +320,12 @@ representation, not a loss of graph type information.
 ## Work required before implementation
 
 1. Extend the non-public architecture proof against Agent Framework 1.26.0:
-   implement the structured VAW activation candidate and compare it with the
-   fresh-subworkflow candidate using the same representative composition and
-   criteria described above. Candidate 2 currently proves static conditional/
-   parallel routing and a production VAW Agent→MCP body under a test event
-   bridge. Do not add a public node,
-   schema gate, or Studio authoring before the complete proof selects the
+   compare the structured VAW activation candidate and fresh-subworkflow
+   candidate across the complete representative matrix described above. The
+   first matched three-item Agent/direct-MCP slice now persists and compares
+   equivalent evidence; static joins, nested frames, typed pins, cancellation,
+   failures, and shared accounting remain incomplete. Do not add a public
+   node, schema gate, or Studio authoring before the complete proof selects the
    architecture.
 2. For the selected architecture, define the activation lifecycle, graph
    reachability, body completion, nested frames, dynamic branch/join
@@ -250,6 +351,13 @@ representation, not a loss of graph type information.
    envelope/attribution bytes and concurrent delegated reservations, and only
    then set named hard count/byte caps. Verify the bounds and exhaustion paths
    against file and SQLite stores.
+   - [x] Initial maximum-shaped `model.responded`, `tool.completed`, and
+     `data.evaluated` event envelope measurements match between the actual
+     file snapshot and SQLite event-row paths. The Hosting suite passes
+     260/260. See the measured sizes above.
+   - [ ] Complete the matrix for concurrent/delegated evidence, function calls,
+     failures and terminal reserve, and event-count exhaustion; the initial
+     per-event samples are not sufficient to select aggregate limits.
 7. Specify lifecycle event order and bounded correlation metadata for starts,
    completions, cancellation, and failure. Preserve the failed node's
    invocation identity and active array index without duplicating raw items in

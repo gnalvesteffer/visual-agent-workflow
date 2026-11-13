@@ -38,6 +38,15 @@ Conditional graphs carry one string value along one selected route. Every output
 
 The implemented approval gate is process-owned: journaled request/decision evidence does not restore a continuation after restart. Test reserved tool invocation IDs, exact action hashes, idempotent/conflicting decisions, cancellation/owner loss and independent manual pause. Never auto-approve on resume or retry an approved external effect on restart. Approval waits release the active execution permit and retain the bounded admission slot.
 
+Typed array iteration remains a planned capability. Its runtime proof must carry
+immutable nested activation frames and scope runtime data values, variables,
+parallel join arrivals, and failure attribution to the correct activation.
+Nested `Break` targets the nearest iterator; cancellation must settle active
+descendants before another item is admitted. A contract fixture that tests
+these state keys is not production scheduler or adapter evidence. Keep the
+existing predicate-based string Loop separate, and do not admit checkpoint
+recovery until frame capture/restoration is proven. See [Decision 0070](../../../docs/decisions/0070-bounded-array-iteration-contract.md).
+
 Nested approvals use the root run/revision identity plus an ordered path of call-node IDs and exact child revision/content hashes; the executing child identity, immediate approval-to-MCP edge, input/contract and reserved invocation are bound too. The request/decision events share that path's slash-separated `ScopeId`. Before accepting a decision, validate the path against the definitions embedded in the root snapshot and verify the event scope matches. This identity check does not grant MCP access: host policy still authorizes the child node at dispatch. The current controller supports one pending approval per run, so reject parallel graphs whose two branches can both suspend for nested approval. Keep direct root approval hashes/wire data backward-compatible and test old root requests alongside nested path tampering and playback.
 
 Runtime/controller storage now uses `IWorkflowRunStore`. Validate event/state batches atomically with the expected last sequence. A persistence conflict is not permission to retry external work. SQLite serializes storage writes but provides no runtime lease: startup interruption still requires one exclusive owner. See [run storage](../../../docs/run-storage.md).

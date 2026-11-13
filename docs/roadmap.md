@@ -167,7 +167,7 @@ will be introduced.
     outcome persist through both file and SQLite run stores. Synchronized
     cancellation during a blocked Agent records the matching evidence and prevents
     later items. Empty input completes without activating the body. The current
-    Agent Framework suite passes (252/252). These tests do
+    Agent Framework suite passes (257/257). These tests do
     not establish authored For Each/Break graph semantics, process-loss
     recovery, cancellation dispatch/publication races, typed iterator item/index
     pins, retained-runner cache isolation, budget accounting, or scheduler
@@ -175,6 +175,61 @@ will be introduced.
     See `ArrayIterationSubworkflowProofTests` and
     `ArrayIterationVawBodyProofTests`.
   - [ ] Candidate structured scheduler and full shared proof matrix remain open.
+    - [x] Add a non-production candidate-1 contract fixture proving nested frame
+      identity, activation-scoped runtime values and variables, nearest-loop
+      lookup, one-shot concurrent fork release, and cancellation before the
+      following item. The fixture's focused Agent Framework tests pass (2/2).
+      It does not execute `WorkflowRunner` or prove adapter, recorder, store, or
+      shared-budget integration; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Separate `StringExecutor` node behavior from its fork-dispatch
+      mechanism with an internal caller-owned dispatch callback. The current
+      Agent Framework runner forwards that callback to its existing context;
+      its full suite passes (254/254). No structured scheduler uses the callback
+      yet.
+    - [x] Add an internal structured-dispatch proof using production node
+      handlers. It executes the same Agent → direct MCP body, matches ordinary
+      runner inputs/output/event kinds, executes a configurable parallel Agent
+      join, and cancels a blocked sibling after MCP failure. Three focused
+      tests pass; the full Agent Framework suite passes (257/257). This remains
+      a single activation and is not a public runtime path.
+    - [x] Add a proof-only VAW-owned sequential activation coordinator around
+      the production structured dispatcher. It runs the Agent/direct-MCP body
+      for three input items with zero-based typed parameter indices, isolates
+      evaluator and variable state per activation, and records correlated node
+      events under one root lifecycle and monotonic sequence. Success evidence
+      persists through both file and SQLite stores; focused success, failure,
+      and persistence tests pass. The owning Agent Framework suite passes
+      (261/261). It runs the same body composition/input matrix as the fresh
+      subworkflow candidate. This remains a string-array proof adapter, not an
+      authored typed iterator or crash-recovery proof.
+    - [ ] Add nested activation frames, typed array item/index pins, nearest-loop
+      Break, and activation-scoped data/variable/join state to the
+      production-backed proof without using a per-item child Workflow.
+    - [x] Compare both candidates on the same three-item Agent/direct-MCP body
+      and parameter-index matrix. Both candidates produce matching outputs,
+      model/tool inputs, event shape, activation scope, and invocation
+      boundaries; their full event streams persist through file and SQLite
+      stores. The comparison exposed and fixed dropped connection IDs in the
+      structured event bridge. It does not cover full-graph parity or failure,
+      cancellation, and join outcomes side by side. The Agent Framework suite
+      passes (263/263).
+    - [ ] Compare candidate budgets at atomic dispatch/evidence boundaries and
+      prove exhaustion behavior. Store reopen/process loss, nested frames,
+      typed iterator pins, Sequence, collaboration, and crash recovery also
+      remain open.
+    - [x] Measure representative maximum-shaped `model.responded`,
+      `tool.completed`, and `data.evaluated` event envelopes through the actual
+      file snapshot and SQLite event-row serializers. The measured envelope
+      sizes match across stores: 306,284, 16,848, and 16,830 UTF-8 bytes.
+      Hosting tests pass (260/260). These are per-event fixture measurements;
+      they do not select aggregate limits.
+    - [x] Persist a synchronized two-branch MCP case where both maximum-sized
+      outputs complete before the aggregate join fails. Both stores retain the
+      successful tool outcomes and terminal failure: 31 events and 76,611–
+      76,612 serialized event bytes. Agent Framework tests pass (265/265).
+    - [ ] Extend sizing to concurrent delegated/model/tool reservations,
+      function-call and failure evidence, terminal reserve, and event-count
+      exhaustion before setting aggregate caps.
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable

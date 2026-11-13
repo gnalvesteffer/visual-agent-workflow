@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Text.Json;
 using Microsoft.Agents.AI.Workflows;
+using Microsoft.Extensions.AI;
 using VisualAgentWorkflow.AgentFramework;
 using VisualAgentWorkflow.Core;
 using VisualAgentWorkflow.Hosting;
@@ -15,6 +16,239 @@ namespace VisualAgentWorkflow.AgentFramework.Tests;
 /// </summary>
 public sealed class ArrayIterationVawBodyProofTests
 {
+    [Fact]
+    public async Task StructuredSchedulerProof_ReusesProductionAgentAndMcpNodeAdapters()
+    {
+        var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "array-iteration-structured-adapter-proof");
+        var standardAgent = new EchoAgentExecutor();
+        var standardTools = new EchoToolBroker();
+        var structuredAgent = new EchoAgentExecutor();
+        var structuredTools = new EchoToolBroker();
+        var standardEvents = new ConcurrentQueue<ExecutionEvent>();
+        var structuredEvents = new ConcurrentQueue<ExecutionEvent>();
+        var parameters = ImmutableSortedDictionary<string, string>.Empty.Add("index", "2");
+
+        var standard = await new WorkflowRunner(standardTools, standardAgent).ExecuteWithOutcomeAsync(
+            Guid.NewGuid(), revision, "alpha", parameters, evt =>
+            {
+                standardEvents.Enqueue(evt);
+                return ValueTask.CompletedTask;
+            });
+        var structured = await new WorkflowRunner(structuredTools, structuredAgent).ExecuteStructuredSchedulerProofAsync(
+            Guid.NewGuid(), revision, "alpha", parameters, evt =>
+            {
+                structuredEvents.Enqueue(evt);
+                return ValueTask.CompletedTask;
+            });
+
+        Assert.Equal("echo:ALPHA:2", standard.Output);
+        Assert.Equal(standard.Output, structured.Output);
+        Assert.Equal(["ALPHA:2"], standardAgent.Inputs);
+        Assert.Equal(standardAgent.Inputs, structuredAgent.Inputs);
+        Assert.Equal(["ALPHA:2"], standardTools.Queries);
+        Assert.Equal(standardTools.Queries, structuredTools.Queries);
+        Assert.Equal(standardEvents.Select(evt => evt.Kind).Order(StringComparer.Ordinal),
+            structuredEvents.Select(evt => evt.Kind).Order(StringComparer.Ordinal));
+        Assert.Equal(1, structuredEvents.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent"));
+        Assert.Equal(1, structuredEvents.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "tool"));
+    }
+
+    [Fact]
+    public async Task StructuredActivationSequenceProof_IsolatesProductionNodeStateAcrossItemsAndCorrelatesEvents()
+    {
+        var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "array-iteration-structured-activation-proof");
+        var agents = new EchoAgentExecutor();
+        var tools = new EchoToolBroker();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var result = await new WorkflowRunner(tools, agents).ExecuteStructuredActivationSequenceProofAsync(
+            Guid.NewGuid(), revision, "[\"alpha\",\"beta\",\"gamma\"]", "index", null, evt =>
+            {
+                events.Enqueue(evt);
+                return ValueTask.CompletedTask;
+            });
+
+        Assert.Equal("echo:ALPHA:0;echo:BETA:1;echo:GAMMA:2", result.Output);
+        Assert.Equal(["ALPHA:0", "BETA:1", "GAMMA:2"], agents.Inputs);
+        Assert.Equal(["ALPHA:0", "BETA:1", "GAMMA:2"], tools.Queries);
+        var recorded = events.ToArray();
+        Assert.Equal(Enumerable.Range(1, recorded.Length).Select(value => (long)value),
+            recorded.Select(evt => evt.Sequence));
+        Assert.Equal(1, recorded.Count(evt => evt.Kind == ExecutionEventKinds.Started));
+        Assert.Equal(1, recorded.Count(evt => evt.Kind == ExecutionEventKinds.Completed));
+        Assert.Equal(3, recorded.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.Equal(3, recorded.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted));
+        for (var index = 0; index < 3; index++)
+        {
+            var scopeId = $"array-loop/{index}";
+            var activationEvents = recorded.Where(evt => evt.ScopeId == scopeId).ToArray();
+            Assert.Equal($"alpha;beta;gamma".Split(';')[index], ReadVariableValue(activationEvents,
+                ExecutionEventKinds.VariableWritten, "set"));
+            Assert.Equal($"alpha;beta;gamma".Split(';')[index], ReadVariableValue(activationEvents,
+                ExecutionEventKinds.VariableRead, "get"));
+            var agentStart = Assert.Single(activationEvents,
+                evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent");
+            var agentDone = Assert.Single(activationEvents,
+                evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent");
+            var toolStart = Assert.Single(activationEvents,
+                evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "tool");
+            var toolDone = Assert.Single(activationEvents,
+                evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "tool");
+            Assert.Equal(agentStart.InvocationId, agentDone.InvocationId);
+            Assert.Equal(toolStart.InvocationId, toolDone.InvocationId);
+        }
+    }
+
+    [Fact]
+    public async Task StructuredActivationSequenceProof_FailureIsAttributedToItemAndStopsLaterDispatch()
+    {
+        var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "array-iteration-structured-activation-failure-proof");
+        var agents = new EchoAgentExecutor(failInput: "BETA:1");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var failure = await Record.ExceptionAsync(async () =>
+            await new WorkflowRunner(new EchoToolBroker(), agents).ExecuteStructuredActivationSequenceProofAsync(
+                Guid.NewGuid(), revision, "[\"alpha\",\"beta\",\"gamma\"]", "index", null, evt =>
+                {
+                    events.Enqueue(evt);
+                    return ValueTask.CompletedTask;
+                }));
+
+        Assert.NotNull(failure);
+        Assert.Equal(["ALPHA:0", "BETA:1"], agents.Inputs);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "agent" &&
+            evt.ScopeId == "array-loop/1");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/2");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredActivationSequenceProof_PersistsOneCorrelatedRunThroughBothStores(bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "array-iteration-structured-persistence-proof");
+        const string input = "[\"alpha\",\"beta\",\"gamma\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new EchoAgentExecutor();
+        var tools = new EchoToolBroker();
+
+        var result = await new WorkflowRunner(tools, agents).ExecuteStructuredActivationSequenceProofAsync(
+            runStore.RunId, revision, input, "index", null, evt =>
+            {
+                recorder.Append(evt);
+                return ValueTask.CompletedTask;
+            });
+
+        Assert.Equal("echo:ALPHA:0;echo:BETA:1;echo:GAMMA:2", result.Output);
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "completed");
+        for (var index = 0; index < 3; index++)
+        {
+            var scopedEvents = events.Where(evt => evt.ScopeId == $"array-loop/{index}").ToArray();
+            Assert.Equal($"alpha;beta;gamma".Split(';')[index], ReadVariableValue(scopedEvents,
+                ExecutionEventKinds.VariableWritten, "set"));
+            Assert.Single(scopedEvents, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent");
+            Assert.Single(scopedEvents, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "tool");
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredAndFreshSubworkflowCandidates_MatchOnSamePersistedActivationMatrix(bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "array-iteration-candidate-comparison-proof");
+        const string input = "[\"alpha\",\"beta\",\"gamma\"]";
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var structuredAgents = new EchoAgentExecutor();
+        var subworkflowAgents = new EchoAgentExecutor();
+        var structuredTools = new EchoToolBroker();
+        var subworkflowTools = new EchoToolBroker();
+
+        var structuredResult = await new WorkflowRunner(structuredTools, structuredAgents)
+            .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                evt => { structuredRecorder.Append(evt); return ValueTask.CompletedTask; });
+        var iterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision, subworkflowRecorder,
+            subworkflowAgents, subworkflowTools);
+        var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+        await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+        string? subworkflowOutput = null;
+        await foreach (var evt in run.WatchStreamAsync())
+            if (evt is WorkflowOutputEvent { Data: string value }) subworkflowOutput = value;
+        subworkflowRecorder.CompleteRoot();
+
+        Assert.Equal(subworkflowOutput, structuredResult.Output);
+        Assert.Equal(subworkflowAgents.Inputs, structuredAgents.Inputs);
+        Assert.Equal(subworkflowTools.Queries, structuredTools.Queries);
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        AssertPersistedSequence(structuredStore, structuredEvents, "completed");
+        AssertPersistedSequence(subworkflowStore, subworkflowEvents, "completed");
+        Assert.Equal(subworkflowEvents.Select(EventShape), structuredEvents.Select(EventShape));
+        Assert.Equal(subworkflowEvents.Where(IsInvocationBoundary).Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId)),
+            structuredEvents.Where(IsInvocationBoundary).Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId)));
+
+        static (string Kind, string? NodeId, string? ScopeId, string? ConnectionId) EventShape(ExecutionEvent evt) =>
+            (evt.Kind, evt.NodeId, evt.ScopeId, evt.ConnectionId);
+        static bool IsInvocationBoundary(ExecutionEvent evt) =>
+            evt.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted;
+    }
+
+    [Fact]
+    public async Task StructuredSchedulerProof_ExecutesProductionAgentNodesAcrossParallelJoin()
+    {
+        var revision = WorkflowRevision.Create(ParallelBodyDefinition(), "array-iteration-structured-parallel-proof");
+        var agents = new EchoAgentExecutor();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var result = await new WorkflowRunner(agents: agents).ExecuteStructuredSchedulerProofAsync(
+            Guid.NewGuid(), revision, "north", null, evt =>
+            {
+                events.Enqueue(evt);
+                return ValueTask.CompletedTask;
+            });
+
+        using var output = JsonDocument.Parse(Assert.IsType<string>(result.Output));
+        Assert.Equal("{\"query\":\"north-agent-left\"}", output.RootElement.GetProperty("left").GetString());
+        Assert.Equal("{\"query\":\"north-agent-right\"}", output.RootElement.GetProperty("right").GetString());
+        Assert.Equal(2, agents.Inputs.Length);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId is "agent-left" or "agent-right"));
+    }
+
+    [Fact]
+    public async Task StructuredSchedulerProof_FailedMcpBranchCancelsBlockedSiblingAndSuppressesJoin()
+    {
+        var revision = WorkflowRevision.Create(ParallelMcpDefinition(), "array-iteration-structured-failure-proof");
+        var tools = new ParallelMcpBroker(failNode: "tool-research", holdUntilCancelled: true);
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(tools: tools)
+            .ExecuteStructuredSchedulerProofAsync(Guid.NewGuid(), revision, "north", null, evt =>
+            {
+                events.Enqueue(evt);
+                return ValueTask.CompletedTask;
+            }).WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.NotNull(failure);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "tool-research");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == "tool-review");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -204,6 +438,113 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
             evt.NodeId is "tool-research" or "tool-review"));
         Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConcurrentMaximumMcpOutcomes_PersistBeforeAggregateJoinFailure(bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(ParallelMcpDefinition(), "parallel-mcp-maximum-evidence-proof");
+        const string input = "maximum-output";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore);
+        var broker = new ParallelMcpBroker(resultPayload: new string('x', 16_384));
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(broker)
+            .ExecuteWithOutcomeAsync(runStore.RunId, revision, input, null, evt =>
+            {
+                recorder.Append(evt);
+                return ValueTask.CompletedTask;
+            }));
+
+        Assert.NotNull(failure);
+        Assert.Equal(2, broker.MaximumConcurrentCalls);
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "failed");
+        var completedTools = events.Where(evt => evt.Kind == ExecutionEventKinds.ToolCompleted).ToArray();
+        Assert.Equal(2, completedTools.Length);
+        foreach (var evt in completedTools)
+        {
+            using var payload = JsonDocument.Parse(evt.Data!);
+            Assert.Equal(16_384, payload.RootElement.GetProperty("output").GetString()!.Length);
+        }
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "join");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+
+        var totalPersistedEventBytes = events.Sum(evt => JsonSerializer.SerializeToUtf8Bytes(evt,
+            JsonSerializerOptions.Web).Length);
+        var toolEvidenceBytes = completedTools.Sum(evt => JsonSerializer.SerializeToUtf8Bytes(evt,
+            JsonSerializerOptions.Web).Length);
+        Console.WriteLine($"{(sqlite ? "sqlite" : "file")} parallel max-output run: {events.Length} events, " +
+            $"{toolEvidenceBytes} UTF-8 bytes of successful tool evidence, {totalPersistedEventBytes} UTF-8 event bytes total, failed join retained.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConcurrentAgentRequests_PersistMaximumPromptEvidenceThroughBothStores(bool sqlite)
+    {
+        const int maximumInputCharacters = 16_384;
+        const int maximumInstructionCharacters = 8_192;
+        var definition = ParallelBodyDefinition();
+        var nodes = definition.Nodes;
+        foreach (var nodeId in new[] { "agent-left", "agent-right" })
+            nodes = nodes.SetItem(nodeId, nodes[nodeId] with
+            {
+                Agent = new AgentConfiguration("proof.concurrent-model", null,
+                    new string('i', maximumInstructionCharacters), [])
+            });
+        var revision = WorkflowRevision.Create(definition with { Nodes = nodes }, "parallel-model-evidence-proof");
+        var input = new string('u', maximumInputCharacters);
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore);
+        var model = new ConcurrentPromptModel(expectedConcurrentCalls: 2);
+        var provider = new AgentProviderDescriptor("proof.concurrent-model", "Proof model", "proof-chat-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SynchronizedResponseChatClient(model))],
+            new EchoToolBroker());
+
+        var result = await new WorkflowRunner(agents: agents).ExecuteWithOutcomeAsync(runStore.RunId,
+            revision, input, null, evt =>
+            {
+                recorder.Append(evt);
+                return ValueTask.CompletedTask;
+            });
+
+        Assert.False(result.Failed);
+        Assert.Equal(2, model.MaximumConcurrentCalls);
+        Assert.Equal(2, model.Calls.Length);
+        Assert.All(model.Calls, call =>
+        {
+            Assert.Equal(maximumInstructionCharacters, call.InstructionCharacters);
+            Assert.Equal(maximumInputCharacters, call.UserMessageCharacters);
+        });
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "completed");
+        foreach (var nodeId in new[] { "agent-left", "agent-right" })
+        {
+            var requested = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested && evt.NodeId == nodeId);
+            var responded = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded && evt.NodeId == nodeId);
+            using var requestPayload = JsonDocument.Parse(requested.Data!);
+            Assert.Equal(maximumInstructionCharacters, requestPayload.RootElement.GetProperty("instructions").GetString()!.Length);
+            var userMessage = requestPayload.RootElement.GetProperty("messages").EnumerateArray()
+                .SelectMany(message => message.GetProperty("content").EnumerateArray())
+                .Single(content => content.GetProperty("kind").GetString() == "text");
+            Assert.Equal(maximumInputCharacters, userMessage.GetProperty("text").GetString()!.Length);
+            Assert.True(requested.Sequence < responded.Sequence);
+        }
+
+        var requestedEvents = events.Where(evt => evt.Kind == ExecutionEventKinds.ModelRequested).ToArray();
+        var requestEvidenceBytes = requestedEvents.Sum(evt => JsonSerializer.SerializeToUtf8Bytes(evt,
+            JsonSerializerOptions.Web).Length);
+        var totalPersistedEventBytes = events.Sum(evt => JsonSerializer.SerializeToUtf8Bytes(evt,
+            JsonSerializerOptions.Web).Length);
+        Console.WriteLine($"{(sqlite ? "sqlite" : "file")} parallel max-prompt agent run: {events.Length} events, " +
+            $"{requestEvidenceBytes} UTF-8 bytes of concurrent model-request evidence, " +
+            $"{totalPersistedEventBytes} UTF-8 event bytes total, successful join.");
     }
 
     [Theory]
@@ -531,10 +872,10 @@ public sealed class ArrayIterationVawBodyProofTests
         private readonly List<ExecutionEvent> events = [];
         private long sequence;
 
-        public ProofRecorder(ProofRunStore store)
+        public ProofRecorder(ProofRunStore store, bool startRoot = true)
         {
             this.store = store;
-            Append(CreateEvent(ExecutionEventKinds.Started));
+            if (startRoot) Append(CreateEvent(ExecutionEventKinds.Started));
         }
 
         public void Append(ExecutionEvent evt)
@@ -637,7 +978,7 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     private sealed class ParallelMcpBroker(string? denyNode = null, string? failNode = null,
-        bool holdUntilCancelled = false) : INodeToolBroker
+        bool holdUntilCancelled = false, string? resultPayload = null) : INodeToolBroker
     {
         private readonly ConcurrentQueue<ParallelToolCall> calls = new();
         private readonly TaskCompletionSource branchesStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -651,11 +992,11 @@ public sealed class ArrayIterationVawBodyProofTests
             Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
         public INodeToolScope OpenScope(NodeInvocationContext invocation) =>
             new Scope(this, invocation.NodeId, invocation.InvocationId, invocation.Record,
-                denyNode, failNode, holdUntilCancelled);
+                denyNode, failNode, holdUntilCancelled, resultPayload);
 
         private sealed class Scope(ParallelMcpBroker owner, string nodeId, Guid invocationId,
             Func<string, string?, ValueTask> record, string? denyNode, string? failNode,
-            bool holdUntilCancelled) : INodeToolScope
+            bool holdUntilCancelled, string? resultPayload) : INodeToolScope
         {
             public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default) =>
                 Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
@@ -685,8 +1026,11 @@ public sealed class ArrayIterationVawBodyProofTests
                     }
                     if (holdUntilCancelled)
                         await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-                    var result = $"result:{query}";
-                    await record(ExecutionEventKinds.ToolCompleted, result);
+                    var result = resultPayload ?? $"result:{query}";
+                    await record(ExecutionEventKinds.ToolCompleted, JsonSerializer.Serialize(new
+                    {
+                        toolCallId = Guid.NewGuid(), parentToolCallId = (Guid?)null, bindingId, output = result
+                    }));
                     return result;
                 }
                 finally { Interlocked.Decrement(ref owner.activeCalls); }
@@ -706,5 +1050,65 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
+    private sealed class ConcurrentPromptModel(int expectedConcurrentCalls)
+    {
+        private readonly ConcurrentQueue<PromptCall> calls = new();
+        private readonly TaskCompletionSource bothStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int activeCalls;
+        private int maximumConcurrentCalls;
+
+        public PromptCall[] Calls => [.. calls];
+        public int MaximumConcurrentCalls => maximumConcurrentCalls;
+
+        public async Task<ChatResponse> RespondAsync(IEnumerable<ChatMessage> messages, ChatOptions? options,
+            CancellationToken cancellationToken)
+        {
+            var active = Interlocked.Increment(ref activeCalls);
+            UpdateMaximum(active);
+            var userCharacters = messages.Where(message => message.Role == ChatRole.User)
+                .SelectMany(message => message.Contents.OfType<TextContent>())
+                .Sum(content => content.Text.Length);
+            calls.Enqueue(new(options?.Instructions?.Length ?? 0, userCharacters));
+            if (calls.Count >= expectedConcurrentCalls) bothStarted.TrySetResult();
+            try
+            {
+                await bothStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+                return new ChatResponse(new ChatMessage(ChatRole.Assistant, "done"))
+                {
+                    ModelId = "proof-chat-v1",
+                    FinishReason = ChatFinishReason.Stop,
+                    Usage = new UsageDetails { InputTokenCount = 2, OutputTokenCount = 1, TotalTokenCount = 3 }
+                };
+            }
+            finally
+            {
+                Interlocked.Decrement(ref activeCalls);
+            }
+        }
+
+        private void UpdateMaximum(int candidate)
+        {
+            var current = Volatile.Read(ref maximumConcurrentCalls);
+            while (candidate > current)
+            {
+                var previous = Interlocked.CompareExchange(ref maximumConcurrentCalls, candidate, current);
+                if (previous == current) return;
+                current = previous;
+            }
+        }
+    }
+
+    private sealed class SynchronizedResponseChatClient(ConcurrentPromptModel model) : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+            CancellationToken cancellationToken = default) => model.RespondAsync(messages, options, cancellationToken);
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public void Dispose() { }
+    }
+
+    private sealed record PromptCall(int InstructionCharacters, int UserMessageCharacters);
     private sealed record ParallelToolCall(string NodeId, Guid InvocationId, string Query);
 }
