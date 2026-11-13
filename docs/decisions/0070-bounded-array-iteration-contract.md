@@ -101,10 +101,22 @@ reach the join; at capacity one, only one call passes authorization/dispatch,
 the other is rejected before dispatch, its admitted sibling settles, the join is
 suppressed, and the run fails with a contiguous persisted prefix. File and
 SQLite cases pass for each candidate (2/2 per store). This is a candidate-harness
-proof using a controlled `INodeToolBroker`; it does not yet exercise parallel
-reservation through the production `McpToolBroker`, delegated MCP tools, byte
-cap exhaustion under concurrency, aggregate work limits, or production budget
-ownership. No scheduler or public cap is selected.
+proof using a controlled `INodeToolBroker`; the production broker comparison
+follows below. Delegated MCP tools, byte-cap exhaustion under concurrency,
+aggregate work limits, and production budget ownership remain open. No
+scheduler or public cap is selected.
+
+`IteratorCandidates_ReserveConcurrentProductionMcpOutcomesBeforeDispatch`
+repeats the three-candidate comparison with the production `McpToolBroker` and
+two synchronized real stdio `demo.slow` nodes. With two outcome reservations,
+both tool outcomes persist and the join completes. With one, one call is
+authorized, the competing call fails before the broker's dispatch point, and
+the admitted call records an uncertain outcome after sibling cancellation; no
+join completes. File and SQLite cases pass (2/2), and the complete Agent
+Framework suite passes (344/344). The broker connections and tool server are
+real, but the evidence budget remains a test-only recorder; this selects no
+production scheduler or budget owner. Delegated reservations, concurrent byte
+caps, aggregate work bounds, and full outcome-failure matrix remain open.
 
 `HybridFrameCoordinator_ExecutesUnifiedSequenceBodyPerActivation` exercises a
 current unified-schema body containing a two-output Sequence whose paths each

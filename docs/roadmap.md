@@ -372,11 +372,19 @@ will be introduced.
       pass (2/2); the full MCP suite passes (104 passed, 2 opt-in skips). This
       validates the production broker boundary with a test-only reservation
       recorder, not a production budget implementation.
-    - [ ] Compare production MCP-broker reservations across the iterator
-      candidates and complete the remaining budget proof for delegated tools,
-      concurrent byte caps, aggregate work limits, and external outcome
-      boundaries. Store reopen/process loss, nested frames, typed iterator
-      pins, Sequence, collaboration, and crash recovery also remain open.
+    - [x] Compare production `McpToolBroker` reservations across structured,
+      fresh-subworkflow, and hybrid candidates. Each runs a parallel
+      direct-MCP body using synchronized real `demo.slow` stdio tools against
+      file and SQLite. Capacity two completes both outcomes and the join;
+      capacity one admits one call, rejects its sibling before dispatch,
+      records uncertain completion after cancellation, and suppresses the
+      join. Focused cases pass (2/2); the complete Agent Framework suite passes
+      (344/344). This remains proof-only accounting, not production budget
+      ownership; see Decision 0070.
+    - [ ] Complete remaining budget proof for delegated tools, concurrent byte
+      caps, aggregate work limits, and broader external-outcome boundaries.
+      Store reopen/process loss, nested frames, typed iterator pins, Sequence,
+      collaboration, and crash recovery also remain open.
     - [x] Measure representative maximum-shaped `model.responded`,
       `tool.completed`, and `data.evaluated` event envelopes through the actual
       file snapshot and SQLite event-row serializers. The measured envelope
