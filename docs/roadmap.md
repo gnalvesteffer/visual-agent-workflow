@@ -202,9 +202,15 @@ will be introduced.
       (261/261). It runs the same body composition/input matrix as the fresh
       subworkflow candidate. This remains a string-array proof adapter, not an
       authored typed iterator or crash-recovery proof.
-    - [ ] Exercise nested activation dispatch, typed array item/index pins, and
-      nearest-loop Break in the production-backed proof without using a
-      per-item child Workflow.
+    - [x] Prove one nested production-handler activation frame inherits its
+      parent's workflow parameters, gets a nested scope identity, resolves its
+      nearest loop frame, and runs the Agent/MCP body with activation-scoped
+      evaluator and variable state. The focused regression passes (1/1), and
+      the full Agent Framework suite passes (318/318).
+    - [ ] Exercise authored typed array item/index pins and actual nearest-loop
+      `Break` dispatch in the production-backed proof without using a per-item
+      child Workflow. The frame test above does not establish these graph
+      contracts or dispatch behavior.
     - [x] Extend the structured proof to reuse one production graph-data
       evaluator across sequential activations while scoping runtime outputs,
       graph-function array-value evidence budgets, workflow parameters, input

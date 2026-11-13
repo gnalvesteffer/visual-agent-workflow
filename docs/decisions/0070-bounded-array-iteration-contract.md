@@ -207,6 +207,16 @@ budgets. The proof explicitly rejects Sequence and collaboration graphs. It is
 not evidence that the full parity-level scheduler has been selected or
 implemented.
 
+The production-backed activation coordinator now accepts a parent activation
+frame for a nested proof invocation. `StructuredActivationSequenceProof_NestedFramesInheritParametersAndScopeProductionNodes`
+executes the same production Agent/MCP body beneath an outer frame, verifies
+that the child inherits the outer index parameter, records distinct nested
+scope paths, and resolves the child's frame as the nearest loop. Its focused
+test passes, and the full Agent Framework suite passes 318/318. This proves
+parameter inheritance and frame identity for one nested activation level only;
+there is still no authored typed array item/index pin or `Break` dispatch, and
+it does not select or ship an iterator architecture.
+
 `ExecuteStructuredActivationSequenceProofAsync` now adds a proof-only VAW-owned
 sequential activation coordinator around the structured dispatcher. It runs the
 same production body once for each string in a bounded JSON array, binds the
