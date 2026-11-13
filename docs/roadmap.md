@@ -286,10 +286,14 @@ will be introduced.
     - [x] Hold an MCP outcome reservation across a rejected `tool.completed`
       store append, then settle it only after `tool.uncertain` is accepted by
       each store (2/2 cases).
-    - [ ] Complete the remaining production-path proof for delegated calls,
-      maximum-shaped outcome/error envelopes, and timeout/cancellation
-      settlement. Current harness is test-only and selects no aggregate caps;
-      see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Run maximum-shaped parallel delegate success and child-failure paths
+      through the shared reservation recorder. Success holds two child
+      reservations concurrently and settles all four model calls; cancellation
+      retains reservations for unanswered calls in both stores (4/4 cases).
+    - [ ] Complete the remaining proof for delegated append failure and
+      reservation races, maximum-shaped error envelopes, and timeout/other
+      cancellation settlement. Current harness is test-only and selects no
+      aggregate caps; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable

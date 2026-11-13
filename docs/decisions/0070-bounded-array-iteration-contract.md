@@ -305,8 +305,7 @@ produce four model requests and four responses, with overlapping delegate
 calls. Both stores retain 33 events: model-request envelopes total 154,529–
 154,530 bytes, response envelopes total 52,717 bytes, and all event envelopes
 total 404,517–404,518 bytes. This measures successful delegated fan-out and
-maximum function-call arguments/results; it does not cover delegated failure,
-recorder/store append failure, reservation exhaustion, or establish aggregate
+maximum function-call arguments/results; it does not establish aggregate
 budget limits.
 
 `ArrayIterationVawBodyProofTests.ParallelDelegateFailure_PersistsFailureAndTerminalEvidence`
@@ -317,8 +316,19 @@ no completed team aggregate: 26 events, 4,823–4,825 bytes of team/agent/
 terminal failure evidence, and 23,185–23,191 bytes for the complete event
 history. This covers a concurrent delegated failure and cancellation path; it
 does not exercise a persistence append failure or guarantee terminal capacity.
-The full Agent Framework suite passes (273/273) with both delegated cases
-included.
+The full Agent Framework suite passed (273/273) with the original cases.
+
+Both delegated tests now also use `ReservedEvidenceProofRecorder`. On the
+successful maximum-shaped fan-out, the two child model calls hold two outcome
+reservations concurrently, all four parent/child model requests receive
+accepted responses, and all reservations settle in both stores. On the
+delegated failure path, one child fails, its sibling is cancelled, and the
+parent follow-up fails; the remaining pending reservations equal the number of
+model requests without a recorded response, so cancellation/failure does not
+falsely settle an external outcome. The four store cases pass, and the full
+Agent Framework suite passes (287/287). This remains a test-only recorder and
+does not cover store append failure during delegated outcomes or a competing
+reservation being rejected.
 
 `ArrayIterationVawBodyProofTests.ModelRequestEvidenceAppendFailure_PreventsProviderDispatch`
 injects a run-event sink failure while persisting `model.requested`. Through

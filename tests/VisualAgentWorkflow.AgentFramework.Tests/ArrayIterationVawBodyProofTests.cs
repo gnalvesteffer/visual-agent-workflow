@@ -650,7 +650,13 @@ public sealed class ArrayIterationVawBodyProofTests
         var input = new string('u', maximumInputCharacters);
         var task = new string('t', maximumTaskCharacters);
         using var runStore = new ProofRunStore(revision, input, sqlite);
-        var recorder = new ProofRecorder(runStore);
+        var recorder = new ReservedEvidenceProofRecorder(runStore,
+            maximumEvents: 512,
+            maximumBytes: 4_000_000,
+            reservedFailureEvents: 8,
+            reservedFailureBytes: 64_000,
+            maximumModelOutcomeBytes: 64_000,
+            maximumConcurrentOutcomeReservations: 2);
         var model = new ParallelDelegateEvidenceModel(parentInstructions, researcherInstructions,
             reviewerInstructions, task, maximumDelegateOutputCharacters);
         var provider = new AgentProviderDescriptor(providerId, "Proof delegate model", "proof-chat-v1", true);
@@ -658,12 +664,8 @@ public sealed class ArrayIterationVawBodyProofTests
             [new AgentProviderRegistration(provider, () => new ParallelDelegateEvidenceChatClient(model))],
             new EchoToolBroker());
 
-        var result = await new WorkflowRunner(agents: agents).ExecuteWithOutcomeAsync(runStore.RunId, revision,
-            input, null, evt =>
-            {
-                recorder.Append(evt);
-                return ValueTask.CompletedTask;
-            });
+        var result = await new WorkflowRunner(agents: agents).ExecuteWithOutcomeAsync(
+            runStore.RunId, revision, input, null, recorder.RecordAsync);
 
         Assert.False(result.Failed);
         Assert.Equal("Team review complete.", result.Output);
@@ -676,6 +678,10 @@ public sealed class ArrayIterationVawBodyProofTests
         var modelResponses = events.Where(evt => evt.Kind == ExecutionEventKinds.ModelResponded).ToArray();
         Assert.Equal(4, modelRequests.Length);
         Assert.Equal(4, modelResponses.Length);
+        Assert.Equal(2, recorder.MaximumPendingOutcomeReservationsObserved);
+        Assert.Equal(0, recorder.PendingOutcomeReservations);
+        Assert.Equal(0, recorder.PendingOutcomeBytes);
+        Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
         Assert.Equal(2, modelRequests.Count(evt => evt.InvocationId != parentInvocation));
         Assert.Equal(4, model.Prompts.Length);
         Assert.All(model.Prompts, prompt => Assert.Equal(maximumInstructionsCharacters,
@@ -760,7 +766,13 @@ public sealed class ArrayIterationVawBodyProofTests
         var revision = WorkflowRevision.Create(definition, "parallel-delegate-failure-proof");
         const string input = "Review this proposal.";
         using var runStore = new ProofRunStore(revision, input, sqlite);
-        var recorder = new ProofRecorder(runStore);
+        var recorder = new ReservedEvidenceProofRecorder(runStore,
+            maximumEvents: 512,
+            maximumBytes: 4_000_000,
+            reservedFailureEvents: 8,
+            reservedFailureBytes: 64_000,
+            maximumModelOutcomeBytes: 64_000,
+            maximumConcurrentOutcomeReservations: 8);
         var model = new ParallelDelegateEvidenceModel(parentInstructions, researcherInstructions,
             reviewerInstructions, "Review this proposal.", 64, failResearcher: true, failParentFollowup: true);
         var provider = new AgentProviderDescriptor(providerId, "Proof delegate model", "proof-chat-v1", true);
@@ -769,11 +781,7 @@ public sealed class ArrayIterationVawBodyProofTests
             new EchoToolBroker());
 
         var failure = await Record.ExceptionAsync(() => new WorkflowRunner(agents: agents).ExecuteWithOutcomeAsync(
-            runStore.RunId, revision, input, null, evt =>
-            {
-                recorder.Append(evt);
-                return ValueTask.CompletedTask;
-            }));
+            runStore.RunId, revision, input, null, recorder.RecordAsync));
 
         Assert.NotNull(failure);
         Assert.Equal(2, model.MaximumConcurrentDelegateCalls);
@@ -785,6 +793,12 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed &&
             evt.Data!.Contains("Delegated agent failed.", StringComparison.Ordinal));
         Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed);
+        var unsettledModelCalls = events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested) -
+            events.Count(evt => evt.Kind == ExecutionEventKinds.ModelResponded);
+        Assert.True(unsettledModelCalls >= 2);
+        Assert.Equal(unsettledModelCalls, recorder.PendingOutcomeReservations);
+        Assert.True(recorder.MaximumPendingOutcomeReservationsObserved >= 2);
+        Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
 
         var teamFailureBytes = events.Where(evt => evt.Kind is ExecutionEventKinds.AgentTeamFailed or
                 ExecutionEventKinds.AgentFailed or ExecutionEventKinds.Failed)
