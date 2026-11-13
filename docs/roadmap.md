@@ -217,7 +217,9 @@ will be introduced.
       store variants. A synchronized cancellation comparison also passes for
       both stores: both candidates cancel the active Agent at index 1, preserve
       its scoped lifecycle, and do not dispatch index 2. Joined-body outcomes
-      still need side-by-side coverage.
+      also now match for a two-branch Agent fork/join: each item completes both
+      branches and the barrier, with equivalent scoped evidence in both stores.
+      Dispatch/evidence budgets and join failure/cancellation cases remain open.
     - [ ] Compare candidate budgets at atomic dispatch/evidence boundaries and
       prove exhaustion behavior. Store reopen/process loss, nested frames,
       typed iterator pins, Sequence, collaboration, and crash recovery also
