@@ -227,8 +227,15 @@ will be introduced.
       `tool.uncertain`, suppress the join, fail the root run, and settle both
       outcome reservations (6/6 candidate-store cases); see
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
-      The Agent Framework suite passes 346/346. Custom `INodeToolBroker`
-      implementations remain unproven.
+      The Agent Framework suite passes 346/346; custom brokers are covered by
+      the separate proof below.
+    - [x] Exercise a custom `INodeToolBroker` whose parallel calls record
+      authorization, hit a broker-owned post-dispatch deadline, persist
+      `tool.outcome-unknown`, and fail. All three candidates settle reservations
+      and suppress the join through file and SQLite stores (6/6). This proves
+      the path for a contract-compliant custom broker, not arbitrary broker
+      conformance or a production budget owner. The suite passes 348/348; see
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [ ] Add authored typed array item/index pins and a real Break node, then
       continue the hybrid comparison for aggregate work/model-turn/tool limits,
       concurrent and delegated reservations, other join/cancellation races,

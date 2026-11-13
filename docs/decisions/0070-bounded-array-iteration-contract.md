@@ -25,6 +25,18 @@ capture and restoration are proven. No public iterator node or Studio authoring
 should be implemented before this comparison resolves one coherent lifecycle,
 cancellation, join, and budget owner.
 
+A follow-up three-role readiness review after the production MCP concurrency and
+timeout proofs returned **REVISE** again. The hybrid is the leading candidate,
+but production selection remains gated on authored typed item/index and real
+nearest-loop `Break` behavior, a production-owned shared budget and lifecycle,
+delegated/concurrent byte reservations, custom-broker failure/timeout behavior,
+and the full persisted evidence matrix. The proponent argued those could be
+closed as implementation gates; the adjudicator rejected that sequencing
+because the remaining gaps define the architecture being selected. No
+body-allowlist is permitted. Selection would begin integrated implementation,
+not establish parity; checkpoint recovery remains excluded until frames are
+captured and restored.
+
 The first hybrid increment extends `PerItemWorkflowExecutor` with immutable
 parent/child activation frames while each item still runs the production VAW
 workflow body, leaving static graph routing and joins inside Agent Framework.
@@ -131,6 +143,17 @@ implementations honor equivalent timeout or settlement behavior, nor select
 production iterator scheduling or aggregate limits. The owning Agent Framework
 suite passes 346/346 after adding this case and making the controlled concurrent
 reservation comparison deterministic.
+
+`IteratorCandidates_SettleCustomBrokerUnknownOutcomes` exercises the broker
+extension boundary with a deterministic custom `INodeToolBroker`: two parallel
+calls record authorization, hit a broker-owned deadline after dispatch, persist
+`tool.outcome-unknown`, then fail. All three candidate harnesses settle both
+reservations, suppress the join, and fail the root through file and SQLite
+stores (6/6 candidate-store cases). This proves the runner/store path for a
+custom broker that honors the event contract; it does not enforce that
+arbitrary broker implementations emit truthful authorization and uncertainty
+evidence, nor does it add a production budget owner. The Agent Framework suite
+passes 348/348 with this case included.
 
 `HybridFrameCoordinator_ExecutesUnifiedSequenceBodyPerActivation` exercises a
 current unified-schema body containing a two-output Sequence whose paths each
