@@ -726,11 +726,14 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
-    public async Task ParallelDelegateFailure_PreservesUnsettledReservations(bool sqlite, bool rejectChildOutcomeAppend)
+    [InlineData(false, false, 8)]
+    [InlineData(true, false, 8)]
+    [InlineData(false, true, 8)]
+    [InlineData(true, true, 8)]
+    [InlineData(false, false, 1)]
+    [InlineData(true, false, 1)]
+    public async Task ParallelDelegateFailure_PreservesUnsettledReservations(bool sqlite,
+        bool rejectChildOutcomeAppend, int maximumConcurrentReservations)
     {
         const string providerId = "proof.delegate-model";
         var parentInstructions = "Parent instructions.";
@@ -788,7 +791,7 @@ public sealed class ArrayIterationVawBodyProofTests
             reservedFailureEvents: 8,
             reservedFailureBytes: 64_000,
             maximumModelOutcomeBytes: 64_000,
-            maximumConcurrentOutcomeReservations: 8);
+            maximumConcurrentOutcomeReservations: maximumConcurrentReservations);
         var model = new ParallelDelegateEvidenceModel(parentInstructions, researcherInstructions,
             reviewerInstructions, "Review this proposal.", 64, failResearcher: !rejectChildOutcomeAppend,
             failParentFollowup: true);
@@ -801,7 +804,7 @@ public sealed class ArrayIterationVawBodyProofTests
             runStore.RunId, revision, input, null, recorder.RecordAsync));
 
         Assert.NotNull(failure);
-        Assert.Equal(2, model.MaximumConcurrentDelegateCalls);
+        Assert.Equal(maximumConcurrentReservations == 1 ? 1 : 2, model.MaximumConcurrentDelegateCalls);
         var events = recorder.Snapshot();
         AssertPersistedSequence(runStore, events, "failed");
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentTeamStarted);
@@ -818,9 +821,19 @@ public sealed class ArrayIterationVawBodyProofTests
         }
         var unsettledModelCalls = events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested) -
             events.Count(evt => evt.Kind == ExecutionEventKinds.ModelResponded);
-        Assert.True(unsettledModelCalls >= 2);
+        Assert.True(unsettledModelCalls >= (maximumConcurrentReservations == 1 ? 1 : 2));
         Assert.Equal(unsettledModelCalls, recorder.PendingOutcomeReservations);
-        Assert.True(recorder.MaximumPendingOutcomeReservationsObserved >= 2);
+        if (maximumConcurrentReservations == 1)
+        {
+            Assert.Contains("run evidence budget", failure.ToString(), StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1, recorder.MaximumPendingOutcomeReservationsObserved);
+            Assert.Equal(1, recorder.PendingOutcomeReservations);
+            Assert.True(model.MaximumConcurrentDelegateCalls <= 1);
+        }
+        else
+        {
+            Assert.True(recorder.MaximumPendingOutcomeReservationsObserved >= 2);
+        }
         Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
 
         var teamFailureBytes = events.Where(evt => evt.Kind is ExecutionEventKinds.AgentTeamFailed or

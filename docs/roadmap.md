@@ -287,14 +287,15 @@ will be introduced.
       store append, then settle it only after `tool.uncertain` is accepted by
       each store (2/2 cases).
     - [x] Run maximum-shaped parallel delegate success, failure/cancellation,
-      and child-response append-failure paths through the shared reservation
-      recorder. Success holds two child reservations concurrently and settles
-      all four model calls; failed/unpersisted calls remain reserved until an
-      accepted outcome exists (6/6 store cases).
+      child-response append-failure, and one-slot admission-race paths through
+      the shared reservation recorder. Success holds two child reservations
+      concurrently and settles all four model calls; failed/unpersisted calls
+      remain reserved until an accepted outcome exists. The competing call is
+      rejected before provider dispatch (8/8 store cases).
     - [ ] Complete the remaining proof for delegated function-call evidence
-      append failures, reservation races, maximum-shaped error envelopes, and
-      timeout/other cancellation settlement. Current harness is test-only and
-      selects no aggregate caps; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+      append failures, maximum-shaped error envelopes, and timeout/other
+      cancellation settlement. Current harness is test-only and selects no
+      aggregate caps; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable
