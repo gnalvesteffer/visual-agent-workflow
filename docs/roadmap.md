@@ -555,11 +555,16 @@ will be introduced.
       failure events or model correction feedback by default, and preserved
       fatal/recoverable/uncertain and cancellation dispositions. Tests inspect
       both persisted evidence and model feedback.
-    - [ ] Prove failure-envelope and timeout-settlement behavior for custom
-      broker implementations before selecting production aggregate evidence
-      caps. Production `McpToolBroker` timeout settlement is covered in the
-      three-candidate proof; the reservation recorder remains test-only. See
-      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Prove custom-broker timeout and post-authorization exception
+      behavior across the three candidates and file/SQLite stores. A
+      contract-conforming timeout broker persists `tool.uncertain` and settles
+      reservations; an arbitrary exception leaks no raw message, leaves its
+      correlated `tool.authorized` outcome unresolved, and retains the
+      reservation. The focused exception test passes 2/2 (six candidate/store
+      runs); the full Agent Framework suite passes (364/364). This does not let
+      the runtime enforce a custom broker's event contract or select
+      production-wide evidence caps. See [Decision 0070](
+      decisions/0070-bounded-array-iteration-contract.md).
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable

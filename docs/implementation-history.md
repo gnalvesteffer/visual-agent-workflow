@@ -2,6 +2,21 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Typed-array iterator custom broker failure evidence
+
+The custom broker matrix now pairs its timeout/uncertain-outcome case with an
+unclassified exception after authorization. Across the structured,
+fresh-subworkflow, and hybrid candidates in both stores, a raw exception
+canary is absent from persisted node/root failures, the next item is not
+started, and the unmatched authorization retains its reservation. The
+timeout-case broker emits `tool.uncertain` and settles reservations, while the
+throwing broker emits no outcome; the runtime preserves this uncertainty
+instead of inventing completion. The focused exception test passes 2/2 (six
+candidate/store executions), and the full Agent Framework suite passes
+364/364. This remains proof-only and cannot enforce how a custom broker records
+its external side effects. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Typed-array iterator root-terminal append failures
 
 The structured, fresh-subworkflow, and hybrid proof candidates now cover

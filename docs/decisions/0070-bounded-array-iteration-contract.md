@@ -199,6 +199,19 @@ arbitrary broker implementations emit truthful authorization and uncertainty
 evidence, nor does it add a production budget owner. The Agent Framework suite
 passes 348/348 with this case included.
 
+`IteratorCandidates_CustomBrokerExceptionKeepsOutcomeUnknownAndFailureSafe`
+adds the complementary unclassified-exception path. A custom broker records a
+correlated `tool.requested`/`tool.authorized` pair, attempts its dispatch, then
+throws an exception containing a secret canary without emitting an outcome.
+Across all three candidates and both stores, the run stops before the next
+item, persisted node/root failure messages omit the raw exception, and the
+unmatched authorization remains visible with its outcome reservation held.
+Reopening preserves the same contiguous failed prefix (6/6 executions; focused
+tests pass 2/2; the full Agent Framework suite passes 364/364). Together with
+the timeout proof, this covers both a contract-conforming uncertainty event and
+a broker that omits outcome evidence. It does not make arbitrary broker
+outcome claims enforceable or establish production budget ownership.
+
 `HybridFrameCoordinator_ExecutesUnifiedSequenceBodyPerActivation` exercises a
 current unified-schema body containing a two-output Sequence whose paths each
 invoke a direct MCP node. It executes the body for two nested activation

@@ -4140,6 +4140,103 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IteratorCandidates_CustomBrokerExceptionKeepsOutcomeUnknownAndFailureSafe(bool sqlite)
+    {
+        const string input = "[\"first\",\"second\"]";
+        const string bindingId = "proof.custom-throwing-tool";
+        const string secretCanary = "custom-broker-secret-canary-should-not-persist";
+        var definition = BodyDefinition(includeVariableStore: true, includeIndexParameter: true);
+        var nodes = definition.Nodes.SetItem("tool", definition.Nodes["tool"] with
+        {
+            Tool = new ToolBindingRequest(bindingId, new string('c', 64)),
+            McpArgumentsJson = "{}"
+        });
+        var revision = WorkflowRevision.Create(definition with { Nodes = nodes },
+            "array-iteration-custom-broker-exception-candidate-proof");
+
+        foreach (var candidate in new[] { "structured", "fresh-subworkflow", "hybrid" })
+        {
+            using var store = new ProofRunStore(revision, input, sqlite);
+            var recorder = new ReservedEvidenceProofRecorder(store,
+                maximumEvents: 512, maximumBytes: 4_000_000, reservedFailureEvents: 8,
+                reservedFailureBytes: 64_000, maximumOutcomeBytes: 32_000,
+                reservationRequestKind: ExecutionEventKinds.ToolAuthorized,
+                reservationOutcomeKind: ExecutionEventKinds.ToolCompleted,
+                additionalReservationOutcomeKind: ExecutionEventKinds.ToolUncertain);
+            var broker = new ThrowingCustomOutcomeToolBroker(bindingId, secretCanary);
+            var agents = new EchoAgentExecutor();
+            string? output = null;
+
+            if (candidate == "structured")
+            {
+                try
+                {
+                    var result = await new WorkflowRunner(broker, agents)
+                        .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                            recorder.RecordResequencedAsync);
+                    output = result.Output;
+                }
+                catch (Exception)
+                {
+                    // A custom broker failed after authorization without an outcome record.
+                }
+            }
+            else if (candidate == "fresh-subworkflow")
+            {
+                await RecordRootAsync(ExecutionEventKinds.Started);
+                var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder, agents, broker);
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                var failed = false;
+                await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+                await foreach (var evt in run.WatchStreamAsync())
+                {
+                    if (evt is WorkflowOutputEvent { Data: string value }) output = value;
+                    if (evt is WorkflowErrorEvent) failed = true;
+                }
+                await RecordRootAsync(failed || output is null
+                    ? ExecutionEventKinds.Failed
+                    : ExecutionEventKinds.Completed);
+            }
+            else
+            {
+                var result = await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, broker, input);
+                output = result.Output;
+            }
+
+            var events = recorder.Snapshot();
+            var requested = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolRequested);
+            var authorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+            Assert.Equal(1, broker.DispatchAttempts);
+            Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+            Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ToolCompleted or
+                ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ToolUncertain);
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "tool" &&
+                evt.Data == "Node execution failed.");
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+            Assert.Null(output);
+            Assert.DoesNotContain(events, evt => evt.Data?.Contains(secretCanary, StringComparison.Ordinal) == true);
+            Assert.Equal(1, recorder.PendingOutcomeReservations);
+            Assert.True(recorder.PendingOutcomeBytes > 0);
+            AssertPersistedSequence(store, events, "failed");
+
+            using var requestedPayload = JsonDocument.Parse(requested.Data!);
+            using var authorizedPayload = JsonDocument.Parse(authorized.Data!);
+            Assert.Equal(requestedPayload.RootElement.GetProperty("toolCallId").GetString(),
+                authorizedPayload.RootElement.GetProperty("toolCallId").GetString());
+
+            var reopened = store.ReopenStore().Get(store.RunId)!;
+            Assert.Equal("failed", reopened.Status);
+            Assert.Equal(events, reopened.Events);
+
+            ValueTask RecordRootAsync(string kind) => recorder.RecordResequencedAsync(new ExecutionEvent(
+                store.RunId, store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow, kind));
+        }
+    }
+
     private sealed record CandidateReservationResult(string? Output, ExecutionEvent[] Events, int ProviderCalls,
         int MaximumConcurrentModelCalls, int MaximumPendingReservations, int PendingReservations,
         long PersistedEventBytes, bool ReservationRejected);
@@ -5379,6 +5476,51 @@ public sealed class ArrayIterationVawBodyProofTests
                     reason
                 }));
                 throw new ToolInvocationException(reason, ToolInvocationFailureDisposition.OutcomeUnknown);
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingCustomOutcomeToolBroker(string bindingId, string failureMessage) : INodeToolBroker
+    {
+        private readonly string registeredBindingId = bindingId;
+        private readonly string rawFailureMessage = failureMessage;
+        private int dispatchAttempts;
+
+        public int DispatchAttempts => Volatile.Read(ref dispatchAttempts);
+
+        public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new Scope(this, invocation);
+
+        private sealed class Scope(ThrowingCustomOutcomeToolBroker owner, NodeInvocationContext invocation)
+            : INodeToolScope
+        {
+            public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(
+                CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+            public Task<string> InvokeAsync(string requestedBindingId, string input,
+                CancellationToken cancellationToken = default) =>
+                Task.FromException<string>(new NotSupportedException("The proof expects structured tool arguments."));
+
+            public async Task<string> InvokeJsonAsync(string requestedBindingId, JsonElement arguments,
+                CancellationToken cancellationToken = default)
+            {
+                if (requestedBindingId != owner.registeredBindingId)
+                    throw new InvalidOperationException("The workflow requested an unexpected custom tool.");
+
+                var toolCallId = Guid.NewGuid();
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolRequested,
+                    JsonSerializer.Serialize(new { toolCallId, bindingId = requestedBindingId }));
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolAuthorized,
+                    JsonSerializer.Serialize(new { toolCallId, bindingId = requestedBindingId, input = arguments }));
+
+                Interlocked.Increment(ref owner.dispatchAttempts);
+                throw new InvalidOperationException(owner.rawFailureMessage);
             }
 
             public ValueTask DisposeAsync() => ValueTask.CompletedTask;
