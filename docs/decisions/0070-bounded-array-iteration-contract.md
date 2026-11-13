@@ -65,18 +65,21 @@ production-owned budget context, aggregate work/model-turn/tool limits,
 concurrent reservations, delegated work, or all evidence shapes; those remain
 open and the candidate comparison remains unresolved.
 
-`StructuredAndFreshSubworkflowCandidates_ShareEvidenceBudgetAcrossActivations`
-extends that same event-count exhaustion trace to the structured and fresh-
-subworkflow candidates. Each candidate is calibrated from its own two-item
-baseline, then run through the same production Agent/MCP body with file and
-SQLite stores. The first activation's model request/response and MCP tool
-complete; the next activation starts, but its model request is rejected before
-provider dispatch, the Agent fails, the second tool is not called, and reserved
-failure evidence closes the run (2/2 per candidate). Together with the hybrid
-case above, this compares one serial cross-activation event-count exhaustion
-boundary across all three proof candidates. It does not compare concurrent
-reservations, byte-cap exhaustion, aggregate work limits, or production budget
-ownership and selects no scheduler or public limit.
+`IteratorCandidates_EnforceSharedEventAndByteBudgetsAcrossActivations` compares
+event-count and byte-cap exhaustion across the structured,
+fresh-subworkflow, and hybrid candidates. Each candidate is calibrated from
+its own two-item baseline, then run through the same production Agent/MCP body
+with file and SQLite stores. The first activation's model request/response and
+MCP tool complete; the next activation starts, but its model request is
+rejected before provider dispatch, the Agent fails, the second tool is not
+called, and reserved failure evidence closes the run (2/2 per candidate). The
+same case also calibrates a serialized-byte cap from each baseline's event
+prefix and second model request, leaving a 1 KiB admission margin below the
+bounded outcome and terminal reserves. All three candidates reject that
+request before provider dispatch and preserve the same failed prefix in both
+stores. These are test-only serial comparisons; they do not prove concurrent
+MCP reservations, aggregate work limits, or production budget ownership and
+select no scheduler or public limit.
 
 `IteratorCandidates_ReserveConcurrentModelOutcomesBeforeDispatch` compares the
 three candidates on a synchronized parallel-Agent body. With two outcome

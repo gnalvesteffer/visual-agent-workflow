@@ -341,14 +341,14 @@ will be introduced.
       select a scheduler or establish a production cancellation contract or
       atomic publication. The focused test passes (2/2). Broader delivery,
       admission, cancellation, and publication races remain open.
-    - [x] Compare serial shared event-count exhaustion across the structured,
-      fresh-subworkflow, and hybrid proof candidates. Each is calibrated from
-      its own two-item baseline; the second model request is rejected before
-      provider dispatch, its Agent fails, the second tool is not called, and
-      both stores retain a contiguous failed prefix with reserved failure
-      evidence (2/2 file/SQLite cases). This is test-only evidence and does not
-      compare concurrent reservations, byte-cap exhaustion, aggregate work
-      limits, or production budget ownership.
+    - [x] Compare serial shared event-count and serialized-byte exhaustion
+      across the structured, fresh-subworkflow, and hybrid proof candidates.
+      Each cap is calibrated from its two-item baseline; the second model
+      request is rejected before provider dispatch, its Agent fails, the
+      second tool is not called, and both stores retain a contiguous failed
+      prefix with reserved failure evidence (2/2 file/SQLite cases). This is
+      test-only evidence and does not compare concurrent MCP reservations,
+      aggregate work limits, or production budget ownership.
     - [x] Compare concurrent model outcome reservations across all three proof
       candidates. At capacity two, both requests/responses complete and the
       join runs; at capacity one, only one provider call occurs, the second
@@ -356,10 +356,9 @@ will be introduced.
       pass (2/2 each). This does not cover MCP concurrency or production budget
       ownership.
     - [ ] Complete candidate budget comparison for concurrent MCP
-      reservations, serialized-byte exhaustion, aggregate work limits, and
-      external-dispatch outcome boundaries. Store reopen/process loss, nested
-      frames, typed iterator pins, Sequence, collaboration, and crash recovery
-      also remain open.
+      reservations, aggregate work limits, and external-dispatch outcome
+      boundaries. Store reopen/process loss, nested frames, typed iterator
+      pins, Sequence, collaboration, and crash recovery also remain open.
     - [x] Measure representative maximum-shaped `model.responded`,
       `tool.completed`, and `data.evaluated` event envelopes through the actual
       file snapshot and SQLite event-row serializers. The measured envelope

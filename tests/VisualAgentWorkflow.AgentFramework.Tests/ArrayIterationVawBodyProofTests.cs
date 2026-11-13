@@ -2671,60 +2671,90 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task StructuredAndFreshSubworkflowCandidates_ShareEvidenceBudgetAcrossActivations(bool sqlite)
+    public async Task IteratorCandidates_EnforceSharedEventAndByteBudgetsAcrossActivations(bool sqlite)
     {
         var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
             "array-iteration-candidate-shared-evidence-budget-proof");
         const string input = "[\"first\",\"second\"]";
 
-        foreach (var structured in new[] { true, false })
+        foreach (var candidate in new[] { "structured", "fresh-subworkflow", "hybrid" })
         {
-            var baseline = await ExecuteCandidateAsync(structured, maximumEvents: 512);
+            var baseline = await ExecuteCandidateAsync(candidate, maximumEvents: 512);
             Assert.Equal("echo:bounded;echo:bounded", baseline.Output);
             Assert.Equal(2, baseline.ModelCalls);
             Assert.Equal(["bounded", "bounded"], baseline.ToolQueries);
 
+            var secondIterationScope = candidate == "hybrid"
+                ? "outer-loop/0/array-loop/1"
+                : "array-loop/1";
             var secondRequest = Assert.Single(baseline.Events, evt =>
-                evt.Kind == ExecutionEventKinds.ModelRequested && evt.ScopeId == "array-loop/1");
+                evt.Kind == ExecutionEventKinds.ModelRequested && evt.ScopeId == secondIterationScope);
             const int reservedFailureEvents = 8;
             var maximumEvents = checked((int)secondRequest.Sequence - 1 + reservedFailureEvents);
-            var limited = await ExecuteCandidateAsync(structured, maximumEvents);
+            var eventLimited = await ExecuteCandidateAsync(candidate, maximumEvents);
+            AssertBudgetRejected(eventLimited, candidate, maximumEvents, maximumBytes: 4_000_000);
 
+            const long maximumModelOutcomeBytes = 64_000;
+            const long reservedFailureBytes = 64_000;
+            const long byteAdmissionMargin = 1_024;
+            var prefixBytes = baseline.Events.Where(evt => evt.Sequence < secondRequest.Sequence).Sum(EventBytes);
+            var maximumBytes = checked(prefixBytes + EventBytes(secondRequest) + maximumModelOutcomeBytes +
+                reservedFailureBytes - byteAdmissionMargin);
+            var byteLimited = await ExecuteCandidateAsync(candidate, maximumEvents: 512, maximumBytes);
+            Assert.True(byteLimited.ReservationRejected,
+                $"{candidate} did not reject the second request at {maximumBytes} bytes; " +
+                $"prefix {prefixBytes}, request {EventBytes(secondRequest)}, outcome reserve " +
+                $"{maximumModelOutcomeBytes}, failure reserve {reservedFailureBytes}; persisted " +
+                $"{byteLimited.PersistedEventBytes} bytes across {byteLimited.Events.Length} events.");
+            AssertBudgetRejected(byteLimited, candidate, maximumEvents: 512, maximumBytes);
+        }
+
+        void AssertBudgetRejected(CandidateBudgetResult limited, string candidate, int maximumEvents,
+            long maximumBytes)
+        {
+            var iterationZeroScope = candidate == "hybrid"
+                ? "outer-loop/0/array-loop/0"
+                : "array-loop/0";
+            var iterationOneScope = candidate == "hybrid"
+                ? "outer-loop/0/array-loop/1"
+                : "array-loop/1";
             Assert.Null(limited.Output);
             Assert.True(limited.ReservationRejected);
             Assert.Equal(1, limited.ModelCalls);
             Assert.Equal(["bounded"], limited.ToolQueries);
             Assert.Equal(0, limited.PendingOutcomeReservations);
             Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.ModelRequested &&
-                evt.ScopeId == "array-loop/0");
+                evt.ScopeId == iterationZeroScope);
             Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.ModelResponded &&
-                evt.ScopeId == "array-loop/0");
+                evt.ScopeId == iterationZeroScope);
             Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
-                evt.NodeId == "tool" && evt.ScopeId == "array-loop/0");
+                evt.NodeId == "tool" && evt.ScopeId == iterationZeroScope);
             Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
-                evt.NodeId == "array-loop" && evt.ScopeId == "array-loop/1");
+                evt.NodeId == "array-loop" && evt.ScopeId == iterationOneScope);
             Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
-                evt.NodeId == "agent" && evt.ScopeId == "array-loop/1");
+                evt.NodeId == "agent" && evt.ScopeId == iterationOneScope);
             Assert.DoesNotContain(limited.Events, evt =>
                 (evt.Kind is ExecutionEventKinds.ModelRequested or ExecutionEventKinds.ModelResponded) &&
-                evt.ScopeId == "array-loop/1");
+                evt.ScopeId == iterationOneScope);
             var failedAgent = Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.AgentFailed &&
-                evt.ScopeId == "array-loop/1");
+                evt.ScopeId == iterationOneScope);
             Assert.Equal(failedAgent.InvocationId, Assert.Single(limited.Events, evt =>
                 evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent" &&
-                evt.ScopeId == "array-loop/1").InvocationId);
+                evt.ScopeId == iterationOneScope).InvocationId);
             Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
             Assert.DoesNotContain(limited.Events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
-                evt.ScopeId == "array-loop/1");
+                evt.ScopeId == iterationOneScope);
             Assert.True(limited.Events.Length <= maximumEvents);
+            Assert.True(limited.PersistedEventBytes <= maximumBytes);
             Assert.Equal(limited.Events.Sum(EventBytes), limited.PersistedEventBytes);
         }
 
-        async Task<CandidateBudgetResult> ExecuteCandidateAsync(bool structured, int maximumEvents)
+        async Task<CandidateBudgetResult> ExecuteCandidateAsync(string candidate, int maximumEvents,
+            long maximumBytes = 4_000_000)
         {
             using var store = new ProofRunStore(revision, input, sqlite);
             var recorder = new ReservedEvidenceProofRecorder(store, maximumEvents,
-                maximumBytes: 4_000_000, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
+                maximumBytes, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
                 maximumModelOutcomeBytes: 64_000);
             var model = new SharedBudgetProofModel();
             var provider = new AgentProviderDescriptor("proof.echo-agent", "Proof model", "proof-chat-v1", true);
@@ -2734,7 +2764,7 @@ public sealed class ArrayIterationVawBodyProofTests
             var tools = new EchoToolBroker();
             string? output = null;
 
-            if (structured)
+            if (candidate == "structured")
             {
                 try
                 {
@@ -2747,7 +2777,7 @@ public sealed class ArrayIterationVawBodyProofTests
                 {
                 }
             }
-            else
+            else if (candidate == "fresh-subworkflow")
             {
                 await recorder.RecordResequencedAsync(new ExecutionEvent(store.RunId,
                     store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow,
@@ -2765,6 +2795,11 @@ public sealed class ArrayIterationVawBodyProofTests
                 await recorder.RecordResequencedAsync(new ExecutionEvent(store.RunId,
                     store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow,
                     failed ? ExecutionEventKinds.Failed : ExecutionEventKinds.Completed));
+            }
+            else
+            {
+                var result = await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, tools, input);
+                output = result.Output;
             }
 
             var events = recorder.Snapshot();
