@@ -1158,7 +1158,24 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
     {
         private ValueTask Emit(string kind, string? node = null, Guid? invocation = null, string? connection = null,
             string? data = null, string? eventScope = null) =>
-            record(kind, node, invocation, connection, data, eventScope ?? scopeId);
+            record(kind, node, invocation, connection, data,
+                eventScope ?? activeActivationFrame.Value?.ScopeId ?? scopeId);
+
+        private IReadOnlyDictionary<string, string>? CurrentParameters =>
+            activeActivationFrame.Value?.Parameters ?? parameters;
+
+        private IDisposable EnterActivationFrame(StructuredActivationFrame? frame)
+        {
+            var previous = activeActivationFrame.Value;
+            activeActivationFrame.Value = frame ?? previous;
+            return new ActivationScope(() => activeActivationFrame.Value = previous);
+        }
+
+        private sealed class ActivationScope(Action restore) : IDisposable
+        {
+            private Action? restore = restore;
+            public void Dispose() => Interlocked.Exchange(ref restore, null)?.Invoke();
+        }
 
         private static string SerializeDataEvidence(string activatedByNodeId, EvaluatedDataValue value)
         {
@@ -1175,11 +1192,19 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
 
         private sealed class JsonProjectionContractException(string message) : InvalidOperationException(message) { }
 
-        private readonly object parallelJoinSync = new();
-        private readonly SemaphoreSlim parallelJoinExecution = new(1, 1);
-        private readonly SortedDictionary<string, string> parallelJoinInputs = new(StringComparer.Ordinal);
-        private Guid? configurableParallelActivationId;
-        private Guid? parallelJoinInvocationId;
+        private readonly ConcurrentDictionary<ParallelJoinActivationKey, ParallelJoinActivationState> parallelJoinActivations = new();
+        private readonly AsyncLocal<StructuredActivationFrame?> activeActivationFrame = new();
+
+        private readonly record struct ParallelJoinActivationKey(Guid? FrameId, Guid? ForkActivationId);
+
+        private sealed class ParallelJoinActivationState(Guid? frameId, Guid? forkActivationId)
+        {
+            public ParallelJoinActivationKey Key { get; } = new(frameId, forkActivationId);
+            public object Sync { get; } = new();
+            public SemaphoreSlim Execution { get; } = new(1, 1);
+            public SortedDictionary<string, string> Inputs { get; } = new(StringComparer.Ordinal);
+            public Guid? InvocationId { get; set; }
+        }
         private bool UsesConfigurableParallelGraph => revision.Definition.SchemaVersion is
             WorkflowSchemaVersions.UnifiedWorkflowGraph or
             WorkflowSchemaVersions.ConfigurableParallelGraph or WorkflowSchemaVersions.CollaborativeParallelGraph or
@@ -1212,14 +1237,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             CancellationToken cancellationToken)
         {
             using var activationScope = dataEvaluator?.EnterActivation(received.ActivationFrame);
+            using var eventActivationScope = EnterActivationFrame(received.ActivationFrame);
             var internalTerminationHandoff = node.Type == NodeTypes.Output && received.TerminationSignal;
             if (gate is not null && !internalTerminationHandoff) await gate.WaitForBoundaryAsync(Id, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             var message = received.Text;
+            var joinActivation = node.Type == NodeTypes.ParallelJoin ? GetParallelJoinActivation(received) : null;
             var invocation = node.Type == NodeTypes.ParallelJoin &&
                 UsesConfigurableParallelGraph && received.ParallelActivationId is { } activation
                 ? activation
-                : node.Type == NodeTypes.ParallelJoin ? ParallelJoinInvocation() : received.Approval?.TargetInvocationId ?? Guid.NewGuid();
+                : node.Type == NodeTypes.ParallelJoin ? ParallelJoinInvocation(joinActivation!) : received.Approval?.TargetInvocationId ?? Guid.NewGuid();
             // Receiving the downstream message is direct evidence of delivery, not inferred completion.
             string? incomingPort = null;
             DataInputEvaluation? outputEvaluation = null;
@@ -1288,13 +1315,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             }
             if (node.Type == NodeTypes.ParallelJoin)
             {
-                await parallelJoinExecution.WaitAsync(cancellationToken);
+                await joinActivation!.Execution.WaitAsync(cancellationToken);
                 try
                 {
                     var configurable = UsesConfigurableParallelGraph;
                     var joinResult = configurable
-                        ? CollectConfigurableParallelJoinInput(incomingPort!, received)
-                        : CollectParallelJoinInput(incomingPort!, message) is var legacy
+                        ? CollectConfigurableParallelJoinInput(joinActivation, incomingPort!, received)
+                        : CollectParallelJoinInput(joinActivation, incomingPort!, message) is var legacy
                             ? (legacy.Started, legacy.Complete, legacy.Result, legacy.ReceivedCount, ParallelGraphLimits.MaximumBranches)
                             : throw new InvalidOperationException("Parallel join could not read its branch result.");
                     var (started, complete, result, receivedCount, expectedCount) = joinResult;
@@ -1327,7 +1354,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     await Emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, "Parallel join failed.");
                     throw;
                 }
-                finally { parallelJoinExecution.Release(); }
+                finally { joinActivation!.Execution.Release(); }
             }
             if (!internalTerminationHandoff) await Emit(ExecutionEventKinds.NodeStarted, Id, invocation, null, message);
             boundaryTracker?.BeginHandler(Id, received.SourceNode, received.SourcePort, received.LoopIteration);
@@ -1428,7 +1455,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                             childCall = new WorkflowCallConfiguration(child.WorkflowId, child.RevisionId,
                                 child.Version, child.ContentHash, child.Definition);
                         }
-                        childOutcome = await ExecuteWorkflowCall(childCall!, message, cancellationToken, callScopeCancellation);
+                        childOutcome = await ExecuteWorkflowCall(childCall!, message, cancellationToken,
+                            CurrentParameters, activeActivationFrame.Value?.ScopeId ?? scopeId,
+                            callScopeCancellation);
                         callSettlement?.TrySettleChild(childOutcome.OutcomeUnknown
                             ? SequenceWorkflowCallSettlementState.Unknown
                             : childOutcome.Failed
@@ -1509,8 +1538,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     NodeTypes.JsonProject => ProjectJson(message, node.JsonProjection!),
                     NodeTypes.ParallelBranch => message,
                     NodeTypes.ParallelFork => message,
-                    NodeTypes.TextTemplate => PromptRendering.Render(node.TextTemplate!, message, parameters),
-                    NodeTypes.WorkflowValue => parameters is null || !parameters.TryGetValue(node.ParameterId!, out var value)
+                    NodeTypes.TextTemplate => PromptRendering.Render(node.TextTemplate!, message, CurrentParameters),
+                    NodeTypes.WorkflowValue => CurrentParameters is null || !CurrentParameters.TryGetValue(node.ParameterId!, out var value)
                         ? throw new InvalidOperationException("The workflow parameter was not resolved for this run.") : value,
                     NodeTypes.Uppercase => message.ToUpperInvariant(),
                     NodeTypes.SequenceUppercase => message.ToUpperInvariant(),
@@ -1525,7 +1554,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                         await agents.ExecuteAsync(new NodeInvocationContext(runId, revision, Id, invocation,
                             (kind, data) => Emit(kind, Id, invocation, null, AddSequenceLineage(data)))
                         {
-                            Parameters = parameters,
+                            Parameters = CurrentParameters,
                             RecordWithInvocation = (eventInvocationId, kind, data) => Emit(kind, Id, eventInvocationId, null, AddSequenceLineage(data)),
                         CollaborationPhase = CollaborationGrant(Id, received.ParallelBranchId)?.Phase,
                         CollaborationRole = CollaborationGrant(Id, received.ParallelBranchId) is { } collaborationGrant
@@ -1765,9 +1794,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             }
         }
 
-        private Guid ParallelJoinInvocation()
+        private ParallelJoinActivationState GetParallelJoinActivation(GraphMessage message) =>
+            parallelJoinActivations.GetOrAdd(
+                new ParallelJoinActivationKey(message.ActivationFrame?.Id, message.ParallelActivationId),
+                static key => new ParallelJoinActivationState(key.FrameId, key.ForkActivationId));
+
+        private static Guid ParallelJoinInvocation(ParallelJoinActivationState activation)
         {
-            lock (parallelJoinSync) return parallelJoinInvocationId ??= Guid.NewGuid();
+            lock (activation.Sync) return activation.InvocationId ??= Guid.NewGuid();
         }
 
         private ParallelCollaborationAgentGrant? CollaborationGrant(string nodeId, string? branchId)
@@ -1782,12 +1816,14 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             (collaborationRuntime!.IsPhased ? grant.Role == role : grant.Phase == role)
                 ? grant.Channels : null;
 
-        private async Task<WorkflowExecutionResult> ExecuteWorkflowCall(WorkflowCallConfiguration call, string input, CancellationToken cancellationToken,
+        private async Task<WorkflowExecutionResult> ExecuteWorkflowCall(WorkflowCallConfiguration call, string input,
+            CancellationToken cancellationToken, IReadOnlyDictionary<string, string>? currentParameters,
+            string? currentScopeId,
             Func<string, CancellationTokenSource?>? callScopeCancellation = null)
         {
             var child = WorkflowRevision.Rehydrate(call.RevisionId, call.Definition, "embedded-workflow-prefab", null,
                 DateTimeOffset.UnixEpoch, call.ContentHash);
-            var childScope = scopeId is null ? Id : $"{scopeId}/{Id}";
+            var childScope = currentScopeId is null ? Id : $"{currentScopeId}/{Id}";
             async ValueTask RecordChild(ExecutionEvent childEvent)
             {
                 var kind = childEvent.Kind switch
@@ -1832,7 +1868,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             var runner = new WorkflowRunner(tools, agents, collaborationOptions);
             var childWorkflowPath = workflowPath.Add(new WorkflowApprovalScope(Id, child.RevisionId, child.ContentHash));
             IReadOnlyDictionary<string, string>? childParameters = call.ParameterMappings is { Length: > 0 } mappings
-                ? mappings.ToDictionary(mapping => mapping.ChildParameterId, mapping => parameters![mapping.ParentParameterId], StringComparer.Ordinal)
+                ? mappings.ToDictionary(mapping => mapping.ChildParameterId, mapping => currentParameters![mapping.ParentParameterId], StringComparer.Ordinal)
                 : null;
             var scopeCancellation = callScopeCancellation?.Invoke(Id);
             using var scopeSource = scopeCancellation is null
@@ -1860,25 +1896,26 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             }
         }
 
-        private (bool Started, bool Complete, string? Result, int ReceivedCount) CollectParallelJoinInput(string inputPort, string input)
+        private (bool Started, bool Complete, string? Result, int ReceivedCount) CollectParallelJoinInput(
+            ParallelJoinActivationState activation, string inputPort, string input)
         {
-            lock (parallelJoinSync)
+            lock (activation.Sync)
             {
-                if (inputPort is not ("branch_1" or "branch_2") || !parallelJoinInputs.TryAdd(inputPort, input))
+                if (inputPort is not ("branch_1" or "branch_2") || !activation.Inputs.TryAdd(inputPort, input))
                     throw new InvalidOperationException("The parallel join received an unexpected or duplicate branch result.");
-                var started = parallelJoinInputs.Count == 1;
-                if (parallelJoinInputs.Count < ParallelGraphLimits.MaximumBranches)
-                    return (started, false, null, parallelJoinInputs.Count);
+                var started = activation.Inputs.Count == 1;
+                if (activation.Inputs.Count < ParallelGraphLimits.MaximumBranches)
+                    return (started, false, null, activation.Inputs.Count);
 
-                var result = JsonSerializer.Serialize(parallelJoinInputs);
+                var result = JsonSerializer.Serialize(activation.Inputs);
                 if (result.Length > ParallelGraphLimits.MaximumAggregateCharacters)
                     throw new InvalidOperationException($"Parallel branch results exceed {ParallelGraphLimits.MaximumAggregateCharacters} characters.");
-                return (started, true, result, parallelJoinInputs.Count);
+                return (started, true, result, activation.Inputs.Count);
             }
         }
 
         private (bool Started, bool Complete, string? Result, int ReceivedCount, int ExpectedCount)
-            CollectConfigurableParallelJoinInput(string inputPort, GraphMessage message)
+            CollectConfigurableParallelJoinInput(ParallelJoinActivationState activation, string inputPort, GraphMessage message)
         {
             var configuration = node.ParallelJoin ?? throw new InvalidOperationException("The parallel join has no branch configuration.");
             var fork = revision.Definition.Nodes[configuration.ForkNodeId];
@@ -1888,22 +1925,21 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 message.ParallelBranchId != branchId || !expectedBranches.Contains(branchId) || fork.Type != NodeTypes.ParallelFork)
                 throw new InvalidOperationException("The parallel join received a result from an unexpected fork or branch.");
 
-            lock (parallelJoinSync)
+            lock (activation.Sync)
             {
-                if (configurableParallelActivationId is { } existingActivation && existingActivation != activationId)
+                if (activation.Key.ForkActivationId is { } expectedActivation && expectedActivation != activationId)
                     throw new InvalidOperationException("A parallel join cannot combine results from different fork activations.");
-                configurableParallelActivationId = activationId;
-                if (!parallelJoinInputs.TryAdd(branchId, message.Text))
+                if (!activation.Inputs.TryAdd(branchId, message.Text))
                     throw new InvalidOperationException("The parallel join received a duplicate branch result.");
 
-                var started = parallelJoinInputs.Count == 1;
-                if (parallelJoinInputs.Count < expectedBranches.Count)
-                    return (started, false, null, parallelJoinInputs.Count, expectedBranches.Count);
+                var started = activation.Inputs.Count == 1;
+                if (activation.Inputs.Count < expectedBranches.Count)
+                    return (started, false, null, activation.Inputs.Count, expectedBranches.Count);
 
-                var result = JsonSerializer.Serialize(parallelJoinInputs);
+                var result = JsonSerializer.Serialize(activation.Inputs);
                 if (result.Length > ParallelGraphLimits.MaximumAggregateCharacters)
                     throw new InvalidOperationException($"Parallel branch results exceed {ParallelGraphLimits.MaximumAggregateCharacters} characters.");
-                return (started, true, result, parallelJoinInputs.Count, expectedBranches.Count);
+                return (started, true, result, activation.Inputs.Count, expectedBranches.Count);
             }
         }
 

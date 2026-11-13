@@ -7,6 +7,23 @@ namespace VisualAgentWorkflow.AgentFramework;
 
 public sealed partial class WorkflowRunner
 {
+    private sealed class StructuredProofSession
+    {
+        private Func<string, string?, Guid?, string?, string?, string?, ValueTask>? recordNodeEvent;
+
+        public StructuredProofSession(Action? executorSetCreated) => ExecutorSetCreated = executorSetCreated;
+
+        public Dictionary<string, StringExecutor>? Executors { get; set; }
+        public Action? ExecutorSetCreated { get; }
+
+        public void Bind(Func<string, string?, Guid?, string?, string?, string?, ValueTask> callback) =>
+            recordNodeEvent = callback;
+
+        public ValueTask RecordNodeEventAsync(string kind, string? nodeId, Guid? invocationId,
+            string? connectionId, string? data, string? scopeId) =>
+            recordNodeEvent?.Invoke(kind, nodeId, invocationId, connectionId, data, scopeId) ?? ValueTask.CompletedTask;
+    }
+
     /// <summary>
     /// Proof-only structured scheduler that reuses the production node executors
     /// while owning edge dispatch. It is not reachable through public execution.
@@ -20,7 +37,7 @@ public sealed partial class WorkflowRunner
         Func<int, string, ValueTask>? afterForkTargetStaged = null)
         => ExecuteStructuredSchedulerProofCoreAsync(runId, revision, input, parameters, record,
             cancellationToken, activationScopeId, emitRunLifecycle, gate, afterNodeStarted,
-            stageForkTargetsBeforeDispatch, afterForkTargetStaged, null, null, null);
+            stageForkTargetsBeforeDispatch, afterForkTargetStaged, null, null, null, null);
 
     private async Task<WorkflowExecutionResult> ExecuteStructuredSchedulerProofCoreAsync(Guid runId,
         WorkflowRevision revision, string input, IReadOnlyDictionary<string, string>? parameters,
@@ -31,7 +48,8 @@ public sealed partial class WorkflowRunner
         Func<int, string, ValueTask>? afterForkTargetStaged,
         ExplicitGraphDataEvaluator? retainedDataEvaluator,
         StructuredActivationFrame? activationFrame,
-        Func<Guid?, WorkflowVariableStore?>? activationVariableStore)
+        Func<Guid?, WorkflowVariableStore?>? activationVariableStore,
+        StructuredProofSession? retainedSession)
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(input);
@@ -55,21 +73,32 @@ public sealed partial class WorkflowRunner
         var recordGate = new SemaphoreSlim(1, 1);
         using var schedulerCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         long sequence = 0;
-        var executors = definition.Nodes.ToDictionary(entry => entry.Key,
+        var createsExecutorSet = retainedSession?.Executors is null;
+        var executors = retainedSession?.Executors ?? definition.Nodes.ToDictionary(entry => entry.Key,
             entry => (StringExecutor)new StringExecutor(entry.Key, entry.Value, runId, revision, resolvedParameters,
-                tools, agents, dataEvaluator, variableStore, EmitNodeEvent, gate, null, revision, [],
-                collaborationOptions, afterNodeStarted: afterNodeStarted,
+                tools, agents, dataEvaluator, variableStore,
+                retainedSession is null ? EmitNodeEvent : retainedSession.RecordNodeEventAsync,
+                gate, null, revision, [], collaborationOptions, afterNodeStarted: afterNodeStarted,
                 activationVariableStore: activationVariableStore));
+        if (retainedSession is not null)
+        {
+            if (createsExecutorSet)
+            {
+                retainedSession.Executors = executors;
+                retainedSession.ExecutorSetCreated?.Invoke();
+            }
+            retainedSession.Bind(EmitNodeEvent);
+        }
 
         async ValueTask Emit(string kind, string? nodeId = null, Guid? invocationId = null,
-            string? connectionId = null, string? data = null)
+            string? connectionId = null, string? data = null, string? eventScope = null)
         {
             await recordGate.WaitAsync();
             try
             {
                 await record(new ExecutionEvent(runId, revision.RevisionId, Interlocked.Increment(ref sequence),
                     DateTimeOffset.UtcNow, kind, nodeId, invocationId, connectionId, data)
-                    { ScopeId = activationScopeId });
+                    { ScopeId = eventScope ?? activationScopeId });
             }
             finally
             {
@@ -78,8 +107,8 @@ public sealed partial class WorkflowRunner
         }
 
         ValueTask EmitNodeEvent(string kind, string? nodeId, Guid? invocationId,
-            string? connectionId, string? data, string? _) =>
-            Emit(kind, nodeId, invocationId, connectionId, data);
+            string? connectionId, string? data, string? eventScope) =>
+            Emit(kind, nodeId, invocationId, connectionId, data, eventScope);
 
         try
         {
@@ -176,15 +205,16 @@ public sealed partial class WorkflowRunner
     }
 
     /// <summary>
-    /// Proof-only sequential activation coordinator. It keeps one run/event stream
-    /// while creating an isolated production node/evaluator state set per item.
+    /// Proof-only sequential activation coordinator. It keeps one run/event stream,
+    /// evaluator, executor set, and frame-scoped variable stores across items.
     /// This does not define or admit a public iterator graph contract.
     /// </summary>
     internal async Task<WorkflowExecutionResult> ExecuteStructuredActivationSequenceProofAsync(Guid runId,
         WorkflowRevision bodyRevision, string jsonItems, string indexParameterId,
         IReadOnlyDictionary<string, string>? parameters, Func<ExecutionEvent, ValueTask> record,
         CancellationToken cancellationToken = default, IWorkflowExecutionGate? gate = null,
-        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null)
+        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
+        Action? executorSetCreated = null)
     {
         ArgumentNullException.ThrowIfNull(bodyRevision);
         ArgumentNullException.ThrowIfNull(jsonItems);
@@ -204,6 +234,7 @@ public sealed partial class WorkflowRunner
             ? new ExplicitGraphDataEvaluator(bodyRevision.Definition, items.FirstOrDefault() ?? string.Empty, baseParameters)
             : null;
         var variableStores = new ConcurrentDictionary<Guid, WorkflowVariableStore>();
+        var session = new StructuredProofSession(executorSetCreated);
         var recordGate = new SemaphoreSlim(1, 1);
         async ValueTask Emit(string kind, string? nodeId = null, Guid? invocationId = null,
             string? scopeId = null, string? data = null, string? connectionId = null)
@@ -242,12 +273,13 @@ public sealed partial class WorkflowRunner
                         ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or
                         ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated
                         ? ValueTask.CompletedTask
-                        : Emit(evt.Kind, evt.NodeId, evt.InvocationId, scopeId, evt.Data, evt.ConnectionId),
+                        : Emit(evt.Kind, evt.NodeId, evt.InvocationId, evt.ScopeId ?? scopeId, evt.Data, evt.ConnectionId),
                     cancellationToken, scopeId, emitRunLifecycle: false, gate: gate,
                     afterNodeStarted: afterNodeStarted, stageForkTargetsBeforeDispatch: false,
                     afterForkTargetStaged: null, retainedDataEvaluator: retainedDataEvaluator,
                     activationFrame: frame, activationVariableStore: id =>
-                        id == iterationId ? variableStore : null);
+                        id is { } frameId && variableStores.TryGetValue(frameId, out var currentStore) ? currentStore : null,
+                    retainedSession: session);
                 if (result.Failed || result.Output is null)
                 {
                     await Emit(ExecutionEventKinds.Failed, "array-loop", iterationId, scopeId,

@@ -178,10 +178,12 @@ public sealed class ArrayIterationVawBodyProofTests
         var subworkflowAgents = new EchoAgentExecutor();
         var structuredTools = new EchoToolBroker();
         var subworkflowTools = new EchoToolBroker();
+        var structuredExecutorSetCreations = 0;
 
         var structuredResult = await new WorkflowRunner(structuredTools, structuredAgents)
             .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
-                evt => { structuredRecorder.Append(evt); return ValueTask.CompletedTask; });
+                evt => { structuredRecorder.Append(evt); return ValueTask.CompletedTask; },
+                executorSetCreated: () => structuredExecutorSetCreations++);
         var iterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision, subworkflowRecorder,
             subworkflowAgents, subworkflowTools);
         var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
@@ -192,6 +194,7 @@ public sealed class ArrayIterationVawBodyProofTests
         subworkflowRecorder.CompleteRoot();
 
         Assert.Equal(subworkflowOutput, structuredResult.Output);
+        Assert.Equal(1, structuredExecutorSetCreations);
         Assert.Equal(subworkflowAgents.Inputs, structuredAgents.Inputs);
         Assert.Equal(subworkflowTools.Queries, structuredTools.Queries);
         var structuredEvents = structuredRecorder.Snapshot();
