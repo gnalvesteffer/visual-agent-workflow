@@ -446,12 +446,23 @@ will be introduced.
       recorded as `tool.uncertain`; the failed activation stops before the
       next item, no parallel join completes, and all reservations settle.
       All six candidate/store cases pass and their contiguous failed histories
-      survive reopening. Root-terminal append failure and
-      process-loss/interrupted-execution recovery remain open; store reopening
-      is not execution recovery, and candidate reservations are not production
+      survive reopening. Process-loss/interrupted-execution recovery remains
+      open; store reopening is not execution recovery, and candidate
+      reservations are not production
       budget ownership. The focused test passes 2/2 and the full Agent
       Framework suite passes (358/358); see [Decision 0070](
       decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Compare root-terminal append failures across the same candidates and
+      stores. If `run.completed` is rejected after both items finish, each
+      candidate records the runner's `run.failed` fallback. If `run.failed`
+      itself is rejected, no terminal event is persisted and the store remains
+      running. All twelve candidate/store/outcome cases pass, including exact
+      prefix reads after reopening. The focused tests pass 4/4 and the full
+      Agent Framework suite passes (362/362); see [Decision 0070](
+      decisions/0070-bounded-array-iteration-contract.md).
+    - [ ] Complete process-loss/interrupted-execution recovery and the
+      remaining evidence matrix. Store reopening does not recover or resume
+      execution; candidate reservations are not production budget ownership.
     - [x] Measure representative maximum-shaped `model.responded`,
       `tool.completed`, and `data.evaluated` event envelopes through the actual
       file snapshot and SQLite event-row serializers. The measured envelope

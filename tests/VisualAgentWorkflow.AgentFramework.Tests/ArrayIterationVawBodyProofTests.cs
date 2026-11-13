@@ -3115,6 +3115,159 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_RootCompletionAppendFailureRecordsFailedFallback(bool sqlite)
+    {
+        const string input = "[\"first\",\"second\"]";
+        var revision = WorkflowRevision.Create(
+            BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "array-iteration-candidate-root-completion-append-failure-proof");
+
+        foreach (var candidate in new[] { "structured", "fresh-subworkflow", "hybrid" })
+        {
+            using var store = new ProofRunStore(revision, input, sqlite,
+                rejectedAppendEventKinds: [ExecutionEventKinds.Completed]);
+            var recorder = new ReservedEvidenceProofRecorder(store,
+                maximumEvents: 512, maximumBytes: 4_000_000, reservedFailureEvents: 8,
+                reservedFailureBytes: 64_000, maximumOutcomeBytes: 64_000);
+            var agents = new EchoAgentExecutor();
+            var tools = new EchoToolBroker();
+            Exception? failure = null;
+
+            try
+            {
+                if (candidate == "structured")
+                {
+                    await new WorkflowRunner(tools, agents).ExecuteStructuredActivationSequenceProofAsync(
+                        store.RunId, revision, input, "index", null, recorder.RecordResequencedAsync);
+                }
+                else if (candidate == "fresh-subworkflow")
+                {
+                    await RecordRootAsync(ExecutionEventKinds.Started);
+                    var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder, agents, tools);
+                    var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                    await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+                    await foreach (var evt in run.WatchStreamAsync())
+                        Assert.IsNotType<WorkflowErrorEvent>(evt);
+
+                    try
+                    {
+                        await RecordRootAsync(ExecutionEventKinds.Completed);
+                    }
+                    catch (IOException)
+                    {
+                        await RecordRootAsync(ExecutionEventKinds.Failed);
+                        throw;
+                    }
+                }
+                else
+                {
+                    await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, tools, input,
+                        recordCompletionAppendFailureAsRunFailure: true);
+                }
+            }
+            catch (IOException exception)
+            {
+                failure = exception;
+            }
+
+            Assert.NotNull(failure);
+            Assert.Contains("Injected store append failure", failure.ToString(), StringComparison.Ordinal);
+            var events = recorder.Snapshot();
+            Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+            Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted));
+            Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent"));
+            Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "tool"));
+            Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.Completed or
+                ExecutionEventKinds.Cancelled);
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+            Assert.Equal("failed", store.Store.Get(store.RunId)!.Status);
+            AssertPersistedSequence(store, events, "failed");
+
+            var reopened = store.ReopenStore().Get(store.RunId)!;
+            Assert.Equal("failed", reopened.Status);
+            Assert.Equal(events, reopened.Events);
+            Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
+
+            ValueTask RecordRootAsync(string kind) => recorder.RecordResequencedAsync(new ExecutionEvent(
+                store.RunId, store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow, kind));
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IteratorCandidates_RootFailureAppendFailureLeavesUnterminalHistory(bool sqlite)
+    {
+        const string input = "[\"first\",\"second\"]";
+        var revision = WorkflowRevision.Create(
+            BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "array-iteration-candidate-root-failure-append-failure-proof");
+
+        foreach (var candidate in new[] { "structured", "fresh-subworkflow", "hybrid" })
+        {
+            using var store = new ProofRunStore(revision, input, sqlite,
+                rejectedAppendEventKinds: [ExecutionEventKinds.Failed]);
+            var recorder = new ReservedEvidenceProofRecorder(store,
+                maximumEvents: 512, maximumBytes: 4_000_000, reservedFailureEvents: 8,
+                reservedFailureBytes: 64_000, maximumOutcomeBytes: 64_000);
+            var agents = new EchoAgentExecutor(failNodeId: "agent");
+            var tools = new EchoToolBroker();
+            Exception? failure = null;
+
+            try
+            {
+                if (candidate == "structured")
+                {
+                    await new WorkflowRunner(tools, agents).ExecuteStructuredActivationSequenceProofAsync(
+                        store.RunId, revision, input, "index", null, recorder.RecordResequencedAsync);
+                }
+                else if (candidate == "fresh-subworkflow")
+                {
+                    await RecordRootAsync(ExecutionEventKinds.Started);
+                    var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder, agents, tools);
+                    var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                    var workflowFailed = false;
+                    await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+                    await foreach (var evt in run.WatchStreamAsync())
+                        workflowFailed |= evt is WorkflowErrorEvent;
+
+                    Assert.True(workflowFailed);
+                    await RecordRootAsync(ExecutionEventKinds.Failed);
+                }
+                else
+                {
+                    await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, tools, input);
+                }
+            }
+            catch (IOException exception)
+            {
+                failure = exception;
+            }
+
+            Assert.NotNull(failure);
+            Assert.Contains("Injected store append failure", failure.ToString(), StringComparison.Ordinal);
+            var events = recorder.Snapshot();
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "agent");
+            Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.Completed or
+                ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled);
+            Assert.Equal("running", store.Store.Get(store.RunId)!.Status);
+            AssertPersistedSequence(store, events, "running");
+
+            var reopened = store.ReopenStore().Get(store.RunId)!;
+            Assert.Equal("running", reopened.Status);
+            Assert.Equal(events, reopened.Events);
+            Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
+
+            ValueTask RecordRootAsync(string kind) => recorder.RecordResequencedAsync(new ExecutionEvent(
+                store.RunId, store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow, kind));
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_ReserveConcurrentModelOutcomesBeforeDispatch(bool sqlite)
     {
         const string providerId = "proof.iterator-parallel-reservation";
@@ -4177,7 +4330,7 @@ public sealed class ArrayIterationVawBodyProofTests
 
     private static async Task<HybridBudgetLoopResult> ExecuteHybridBudgetLoopAsync(ProofRunStore runStore,
         WorkflowRevision revision, ReservedEvidenceProofRecorder recorder, IAgentNodeExecutor agents,
-        INodeToolBroker tools, string input)
+        INodeToolBroker tools, string input, bool recordCompletionAppendFailureAsRunFailure = false)
     {
         var runId = runStore.RunId;
         var revisionId = runStore.Store.Get(runId)!.Header.RevisionId;
@@ -4229,7 +4382,15 @@ public sealed class ArrayIterationVawBodyProofTests
             }
         }
 
-        await RecordRootTerminalAsync(ExecutionEventKinds.Completed);
+        try
+        {
+            await RecordRootTerminalAsync(ExecutionEventKinds.Completed);
+        }
+        catch (IOException) when (recordCompletionAppendFailureAsRunFailure)
+        {
+            await RecordRootTerminalAsync(ExecutionEventKinds.Failed);
+            throw;
+        }
         return new(string.Join(';', results), null);
 
         ValueTask RecordRootTerminalAsync(string kind) => recorder.RecordResequencedAsync(

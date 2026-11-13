@@ -2,6 +2,19 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Typed-array iterator root-terminal append failures
+
+The structured, fresh-subworkflow, and hybrid proof candidates now cover
+terminal append failures in file and SQLite stores. When `run.completed` is
+rejected after two successful activations, the candidate paths persist the
+`run.failed` fallback. When `run.failed` itself is rejected after a body
+failure, no terminal event is durable and the store remains running. All
+twelve candidate/store/outcome traces preserve their contiguous accepted
+prefix after reopening; focused tests pass 4/4 and the full Agent Framework
+suite passes 362/362. This is test-only candidate evidence, not execution
+recovery, and does not make an unterminal run resumable. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Typed-array iterator MCP outcome append failure
 
 The structured, fresh-subworkflow, and hybrid candidates now share a
@@ -11,8 +24,7 @@ as `tool.uncertain`; no later item or parallel join runs, and reservations
 settle after uncertainty is persisted. All six candidate/store histories
 remain contiguous and match after reopening through a new file or SQLite store
 instance. The focused test passes 2/2 and the full Agent Framework suite
-passes 358/358. Root-terminal append failure and process-loss recovery remain
-open; this proof does not retry the tool or resume execution. See
+passes 362/362. This proof does not retry the tool or resume execution. See
 [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
 ## Typed-array iterator model outcome append failure
@@ -24,8 +36,9 @@ scoped Agent/node failure plus root failure stop the MCP node and next item.
 All six candidate/store traces survive reopening through a fresh file or
 SQLite store instance. The focused test passes 2/2; the full Agent Framework
 suite passes 356/356. This does not retry the provider request or resume a
-failed activation; MCP outcome and terminal-append candidate comparisons remain
-open. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+failed activation. Tool-outcome and root-terminal candidate append failures
+are documented separately; execution recovery remains open. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 
 ## Typed-array iterator candidate aggregate work caps
 

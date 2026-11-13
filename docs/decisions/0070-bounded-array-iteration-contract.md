@@ -876,9 +876,23 @@ against both file and SQLite stores. The authorization and uncertainty event
 counts match, all outcome reservations settle, and every failed event prefix
 is contiguous and identical after reopening a new store instance (6/6 cases).
 The focused test passes 2/2 and the full Agent Framework suite passes
-358/358. This proves uncertain-outcome recording for this append failure, not
-tool replay safety, root-terminal append recovery, or process-loss execution
-recovery.
+362/362. This proves uncertain-outcome recording for this append failure, not
+tool replay safety or process-loss execution recovery.
+
+`IteratorCandidates_RootCompletionAppendFailureRecordsFailedFallback` and
+`IteratorCandidates_RootFailureAppendFailureLeavesUnterminalHistory` compare
+root terminal append failures for all three test-only candidates and both
+stores. When `run.completed` is rejected after two successful body
+activations, the structured runner and fresh/hybrid candidate fixtures persist
+`run.failed` as fallback and preserve the original storage exception. When the
+root `run.failed` append is rejected after a body failure, no terminal event
+is durable and the run remains `running`. The
+accepted prefixes remain contiguous and identical after store reopening in
+all twelve candidate/store/outcome traces (focused tests pass 4/4; the full
+Agent Framework suite passes 362/362). This demonstrates the storage boundary;
+a `running` prefix is not resumable
+execution, and the fallback failure does not recover the lost completion
+record.
 
 The public iterator contract must be Blueprint-style and composable with all
 existing graph capabilities. The proposed pins are an execution input, typed
