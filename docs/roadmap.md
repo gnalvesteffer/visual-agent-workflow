@@ -361,13 +361,22 @@ will be introduced.
       dispatch, the admitted call settles, and the join is suppressed. File
       and SQLite cases pass (2/2); the full Agent Framework suite passes
       (342/342). This does not yet exercise concurrent reservations through
-      the production MCP broker, delegated tools, byte caps under concurrency,
-      aggregate work limits, or production budget ownership; see Decision 0070.
-    - [ ] Complete candidate budget comparison for production MCP-broker
-      concurrent reservations, aggregate work limits, and external-dispatch
-      outcome boundaries. Store reopen/process loss, nested frames, typed
-      iterator pins, Sequence, collaboration, and crash recovery also remain
-      open.
+      delegated tools, byte caps under concurrency, aggregate work limits, or
+      production budget ownership; see Decision 0070.
+    - [x] Exercise production `McpToolBroker` concurrent authorization with
+      two synchronized stdio `demo.slow` nodes against both stores. Baseline
+      admits two pending outcomes and completes the join; a one-reservation
+      limit records one authorization, rejects the competing call before the
+      broker's dispatch point, retains the admitted call as uncertain after
+      sibling cancellation, and suppresses the join. File and SQLite cases
+      pass (2/2); the full MCP suite passes (104 passed, 2 opt-in skips). This
+      validates the production broker boundary with a test-only reservation
+      recorder, not a production budget implementation.
+    - [ ] Compare production MCP-broker reservations across the iterator
+      candidates and complete the remaining budget proof for delegated tools,
+      concurrent byte caps, aggregate work limits, and external outcome
+      boundaries. Store reopen/process loss, nested frames, typed iterator
+      pins, Sequence, collaboration, and crash recovery also remain open.
     - [x] Measure representative maximum-shaped `model.responded`,
       `tool.completed`, and `data.evaluated` event envelopes through the actual
       file snapshot and SQLite event-row serializers. The measured envelope

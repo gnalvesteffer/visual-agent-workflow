@@ -723,12 +723,25 @@ after the tool ran, the reservation is still held when `tool.uncertain` is
 appended, then settles only after that evidence is accepted. Both stores pass
 (2/2 cases).
 
+`StoreAppendFailureTests.ConcurrentToolAuthorizationReservationLimit_PreventsSecondDispatch`
+exercises the production `McpToolBroker` with two parallel direct-MCP nodes
+and synchronized real stdio `demo.slow` connections. Both reservations are
+pending concurrently in the baseline and both tools complete before the join.
+With a one-outcome limit, one `tool.authorized` is recorded, the competing
+authorization recorder rejects before the broker's dispatch point, and the
+admitted slow call is canceled by sibling failure and recorded as uncertain;
+the join does not complete. File and SQLite tests pass (2/2), with the complete
+MCP suite at 104 passed and 2 opt-in skips. The event recorder and reservation
+limit remain test-only; this does not add a production run budget or compare the
+three iterator candidates through the production broker.
+
 This is a test-only accounting harness, not a production run budget. It proves
 reservation mechanics for one bounded model call and one bounded MCP tool call,
-using test-specific outcome byte allowances. It does not prove worst-case
-bounds for all event shapes, MCP/delegate reservation races, unlimited turns,
-timeout/cancellation settlement, or a production terminal reserve. No
-aggregate cap is selected.
+using test-specific outcome byte allowances. Together with the concurrent
+broker case above, it does not prove worst-case bounds for all event shapes,
+delegated MCP reservation races, unlimited turns, timeout/cancellation
+settlement for every outcome, or a production terminal reserve. No aggregate
+cap is selected.
 
 The public iterator contract must be Blueprint-style and composable with all
 existing graph capabilities. The proposed pins are an execution input, typed

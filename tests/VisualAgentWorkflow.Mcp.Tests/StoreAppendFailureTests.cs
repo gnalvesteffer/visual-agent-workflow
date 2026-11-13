@@ -77,6 +77,77 @@ public sealed class StoreAppendFailureTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ConcurrentToolAuthorizationReservationLimit_PreventsSecondDispatch(bool sqlite)
+    {
+        var registration = Assert.Single(BrokerTests.Registrations(), candidate => candidate.BindingId == "demo.slow");
+        var discoveryBroker = BrokerTests.CreateBroker([registration]);
+        var binding = Assert.Single(await discoveryBroker.ListBindingsAsync());
+        var revision = WorkflowRevision.Create(ParallelSlowToolWorkflow(binding), "parallel-mcp-reservation-proof");
+
+        using var baselineDirectory = new TemporaryDirectory();
+        IWorkflowRunStore baselineStore = CreateStore(baselineDirectory.Path, sqlite, "baseline.sqlite3");
+        var baselineRunId = baselineStore.Create(revision, "unused").Header.RunId;
+        var baselineRecorder = new McpEvidenceBudgetProofRecorder(baselineStore, baselineRunId,
+            maximumEvents: 512, maximumBytes: 4_000_000,
+            McpEvidenceBudgetProofRecorder.ReservedFailureEvents,
+            McpEvidenceBudgetProofRecorder.ReservedFailureBytes,
+            maximumOutcomeBytes: 64_000,
+            maximumPendingOutcomeReservations: 2);
+        var baselineBroker = CreateParallelBroker(registration, new DemoToolPolicy(), maximumConnections: 2);
+        await new WorkflowRunner(baselineBroker).ExecuteWithOutcomeAsync(baselineRunId, revision,
+            "unused", null, baselineRecorder.RecordAsync);
+
+        var baselineEvents = baselineRecorder.Snapshot();
+        Assert.Equal("completed", baselineStore.Get(baselineRunId)!.Status);
+        Assert.Equal(2, baselineEvents.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
+        Assert.Equal(2, baselineEvents.Count(evt => evt.Kind == ExecutionEventKinds.ToolCompleted));
+        Assert.Contains(baselineEvents, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.Equal(2, baselineRecorder.MaximumPendingOutcomeReservationsObserved);
+        Assert.Equal(0, baselineRecorder.PendingOutcomeReservations);
+
+        using var limitedDirectory = new TemporaryDirectory();
+        IWorkflowRunStore limitedStore = CreateStore(limitedDirectory.Path, sqlite, "limited.sqlite3");
+        var limitedRunId = limitedStore.Create(revision, "unused").Header.RunId;
+        var limitedRecorder = new McpEvidenceBudgetProofRecorder(limitedStore, limitedRunId,
+            maximumEvents: 512, maximumBytes: 4_000_000,
+            McpEvidenceBudgetProofRecorder.ReservedFailureEvents,
+            McpEvidenceBudgetProofRecorder.ReservedFailureBytes,
+            maximumOutcomeBytes: 64_000,
+            maximumPendingOutcomeReservations: 1);
+        var authorizationAttempts = 0;
+        async ValueTask RecordLimitedAsync(ExecutionEvent evt)
+        {
+            if (evt.Kind == ExecutionEventKinds.ToolAuthorized) Interlocked.Increment(ref authorizationAttempts);
+            await limitedRecorder.RecordAsync(evt);
+        }
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(
+            CreateParallelBroker(registration, new DemoToolPolicy(), maximumConnections: 2))
+            .ExecuteWithOutcomeAsync(limitedRunId, revision, "unused", null, RecordLimitedAsync));
+
+        Assert.NotNull(failure);
+        var limitedEvents = limitedRecorder.Snapshot();
+        Assert.Equal("failed", limitedStore.Get(limitedRunId)!.Status);
+        Assert.Equal(limitedEvents, limitedStore.Get(limitedRunId)!.Events);
+        Assert.Equal(Enumerable.Range(1, limitedEvents.Length).Select(index => (long)index),
+            limitedEvents.Select(evt => evt.Sequence));
+        Assert.Equal(2, authorizationAttempts);
+        var authorized = Assert.Single(limitedEvents, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+        var rejected = Assert.Single(limitedEvents, evt => evt.Kind == ExecutionEventKinds.ToolFailed);
+        var uncertain = Assert.Single(limitedEvents, evt => evt.Kind == ExecutionEventKinds.ToolUncertain);
+        Assert.NotEqual(authorized.NodeId, rejected.NodeId);
+        Assert.Equal(authorized.NodeId, uncertain.NodeId);
+        Assert.Equal(1, limitedRecorder.MaximumPendingOutcomeReservationsObserved);
+        Assert.DoesNotContain(limitedEvents, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+        Assert.DoesNotContain(limitedEvents, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.Contains(limitedEvents, evt => evt.Kind == ExecutionEventKinds.Failed);
+        Assert.Equal(0, limitedRecorder.PendingOutcomeReservations);
+        Assert.Equal(limitedEvents.Sum(EventBytes), limitedRecorder.PersistedEventBytes);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ToolCompletionAppendFailure_RecordsUnknownOutcomeAndKeepsContiguousTerminalHistory(bool sqlite)
     {
         var registrations = BrokerTests.Registrations()
@@ -191,6 +262,83 @@ public sealed class StoreAppendFailureTests
         };
     }
 
+    private static WorkflowDefinition ParallelSlowToolWorkflow(ToolBindingDescriptor binding)
+    {
+        var branches = ImmutableArray.Create(
+            new ParallelBranchDescriptor("left", "Left", "anchor-left"),
+            new ParallelBranchDescriptor("right", "Right", "anchor-right"));
+        var tool = new NodeDefinition(NodeTypes.McpTool, "1.0.0",
+            new ToolBindingRequest(binding.BindingId, binding.ContractHash)
+            {
+                DescriptionHash = binding.DescriptionHash
+            })
+        {
+            McpArgumentsJson = "{}"
+        };
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("fork", new(NodeTypes.ParallelFork, "1.0.0") { ParallelFork = new(branches) })
+            .Add("anchor-left", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("fork", "left") })
+            .Add("anchor-right", new(NodeTypes.ParallelBranch, "1.0.0") { ParallelBranch = new("fork", "right") })
+            .Add("tool-left", tool)
+            .Add("tool-right", tool)
+            .Add("join", new(NodeTypes.ParallelJoin, "1.0.0")
+            {
+                ParallelJoin = new("fork", ["left", "right"])
+            })
+            .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.Json });
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("join-output", new(new("join", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input-fork", Edge("input", "then", "fork", "execute"))
+            .Add("fork-left", Edge("fork", ParallelBranchLimits.PinId("left"), "anchor-left", "execute"))
+            .Add("fork-right", Edge("fork", ParallelBranchLimits.PinId("right"), "anchor-right", "execute"))
+            .Add("left-tool", Edge("anchor-left", "then", "tool-left", "execute"))
+            .Add("right-tool", Edge("anchor-right", "then", "tool-right", "execute"))
+            .Add("left-join", Edge("tool-left", "then", "join", "branch.left"))
+            .Add("right-join", Edge("tool-right", "then", "join", "branch.right"))
+            .Add("join-output", Edge("join", "then", "output", "execute"));
+        return new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "parallel-slow-mcp-budget-proof", "input", nodes, data)
+        {
+            ExecutionConnections = execution
+        };
+    }
+
+    private static McpToolBroker CreateParallelBroker(McpToolRegistration registration,
+        IToolAuthorizationPolicy policy, int maximumConnections)
+    {
+        var bothConnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var connections = 0;
+        var connect = registration.Connect;
+        var synchronized = registration with
+        {
+            Connect = async cancellationToken =>
+            {
+                var client = await connect(cancellationToken);
+                if (Interlocked.Increment(ref connections) == maximumConnections) bothConnected.TrySetResult();
+                try
+                {
+                    await bothConnected.Task.WaitAsync(cancellationToken);
+                    return client;
+                }
+                catch
+                {
+                    await client.DisposeAsync();
+                    throw;
+                }
+            }
+        };
+        return BrokerTests.CreateBroker([synchronized], policy, TimeSpan.FromSeconds(20));
+    }
+
+    private static IWorkflowRunStore CreateStore(string directory, bool sqlite, string fileName) => sqlite
+        ? new SqliteWorkflowRunStore(Path.Combine(directory, fileName))
+        : new FileRunJournal(directory);
+
+    private static ConnectionDefinition Edge(string source, string sourcePort, string target, string targetPort) =>
+        new(new(source, sourcePort), new(target, targetPort), "execution");
+
     private static long EventBytes(ExecutionEvent evt) =>
         JsonSerializer.SerializeToUtf8Bytes(evt, JsonSerializerOptions.Web).Length;
 
@@ -201,7 +349,8 @@ public sealed class StoreAppendFailureTests
         long maximumBytes,
         int reservedFailureEvents,
         long reservedFailureBytes,
-        long maximumOutcomeBytes)
+        long maximumOutcomeBytes,
+        int maximumPendingOutcomeReservations = int.MaxValue)
     {
         public const int ReservedFailureEvents = 8;
         public const long ReservedFailureBytes = 64_000;
@@ -221,10 +370,12 @@ public sealed class StoreAppendFailureTests
         private long failureBytes;
         private long pendingOutcomeBytes;
         private int pendingOutcomeReservations;
+        private int maximumPendingOutcomeReservationsObserved;
         private long persistedEventBytes;
         private int pendingReservationsObservedOnUncertain;
 
         public int PendingOutcomeReservations { get { lock (gate) return pendingOutcomeReservations; } }
+        public int MaximumPendingOutcomeReservationsObserved { get { lock (gate) return maximumPendingOutcomeReservationsObserved; } }
         public long PersistedEventBytes { get { lock (gate) return persistedEventBytes; } }
         public int PendingReservationsObservedOnUncertain { get { lock (gate) return pendingReservationsObservedOnUncertain; } }
 
@@ -240,8 +391,9 @@ public sealed class StoreAppendFailureTests
                 if (evt.Kind == ExecutionEventKinds.ToolUncertain)
                     pendingReservationsObservedOnUncertain = pendingOutcomeReservations;
 
-                if (isAuthorization && (ordinaryEvents + 2 > maximumEvents - reservedFailureEvents ||
-                    ordinaryBytes + bytes + maximumOutcomeBytes > maximumBytes - reservedFailureBytes))
+                if (isAuthorization && (pendingOutcomeReservations >= maximumPendingOutcomeReservations ||
+                    ordinaryEvents + pendingOutcomeReservations + 2 > maximumEvents - reservedFailureEvents ||
+                    ordinaryBytes + pendingOutcomeBytes + bytes + maximumOutcomeBytes > maximumBytes - reservedFailureBytes))
                     throw new InvalidOperationException("MCP run evidence budget cannot reserve the tool outcome and failure evidence.");
                 if (isOutcome && evt.Kind != ExecutionEventKinds.ToolFailed && pendingOutcomeReservations == 0)
                     throw new InvalidOperationException("MCP tool outcome has no proof reservation.");
@@ -262,6 +414,8 @@ public sealed class StoreAppendFailureTests
                     ordinaryEvents++;
                     ordinaryBytes += bytes;
                     pendingOutcomeReservations++;
+                    maximumPendingOutcomeReservationsObserved = Math.Max(
+                        maximumPendingOutcomeReservationsObserved, pendingOutcomeReservations);
                     pendingOutcomeBytes += maximumOutcomeBytes;
                 }
                 else if (isOutcome && evt.Kind != ExecutionEventKinds.ToolFailed)
