@@ -14,7 +14,9 @@ public sealed partial class WorkflowRunner
         WorkflowRevision revision, string input, IReadOnlyDictionary<string, string>? parameters,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default,
         string? activationScopeId = null, bool emitRunLifecycle = true, IWorkflowExecutionGate? gate = null,
-        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null)
+        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
+        bool stageForkTargetsBeforeDispatch = false,
+        Func<int, string, ValueTask>? afterForkTargetStaged = null)
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(input);
@@ -107,14 +109,25 @@ public sealed partial class WorkflowRunner
                 var executor = executors[nodeId];
                 var node = definition.Nodes[nodeId];
                 var forkTasks = new List<Task<GraphMessage?>>();
+                var stagedForkTargets = new List<(GraphMessage Message, string Target, CancellationToken Token)>();
                 var result = await executor.HandleForStructuredSchedulerAsync(message, (outgoing, target, ct) =>
                 {
+                    if (node.Type == NodeTypes.ParallelFork && stageForkTargetsBeforeDispatch)
+                    {
+                        stagedForkTargets.Add((outgoing, target, ct));
+                        return afterForkTargetStaged is null
+                            ? ValueTask.CompletedTask
+                            : afterForkTargetStaged(stagedForkTargets.Count, target);
+                    }
+
                     forkTasks.Add(DispatchNode(target, outgoing, ct));
                     return ValueTask.CompletedTask;
                 }, token);
 
                 if (node.Type == NodeTypes.ParallelFork)
                 {
+                    foreach (var staged in stagedForkTargets)
+                        forkTasks.Add(DispatchNode(staged.Target, staged.Message, staged.Token));
                     var branchResults = await Task.WhenAll(forkTasks);
                     var outputs = branchResults.Where(branch => branch is not null).ToArray();
                     return outputs.Length switch

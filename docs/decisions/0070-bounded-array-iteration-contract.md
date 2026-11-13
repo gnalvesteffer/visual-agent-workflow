@@ -265,13 +265,12 @@ and shared dispatch/evidence exhaustion are not yet compared.
 `ArrayIterationVawBodyProofTests.StructuredAndFreshSubworkflowCandidates_FailSameParallelActivationWithoutJoin`
 compares a two-item fork/join where the left Agent fails. Both candidates fail
 item 0, suppress the join, and do not start item 1; the failure branch's
-node-event shape matches in both stores. The Agent Framework candidate also
-records the right branch's execution activation and cancelled node lifecycle.
-The structured candidate stops that branch before its node-start event, so the
-evidence shapes differ even though both runs fail and suppress the join. This
-is now an explicit unresolved lifecycle-parity requirement, not evidence for
-selecting either architecture. Both file and SQLite variants pass the proof's
-invariants. Join-cancellation and budget-exhaustion comparisons remain open.
+node-event shape matches in both stores. Because this comparison does not
+synchronize target delivery against the left failure, it makes no assertion
+about the right branch's activation or cancellation prefix; those events vary
+with the scheduler race. Both file and SQLite variants prove the shared final
+failure invariants. Join-cancellation and budget-exhaustion comparisons remain
+open.
 
 `ArrayIterationVawBodyProofTests.StructuredAndFreshSubworkflowCandidates_CancelSiblingAfterHandlerEntry`
 adds a gated race in which the right Agent handler signals entry and blocks;
@@ -317,10 +316,28 @@ because immediate recursive dispatch makes later delivery depend on an earlier
 branch's failure, but neither all-target staging nor its failure semantics has
 been proven. Before selecting a scheduler contract, prove post-admission
 pre-handler cancellation (covered above), reversed target ordering (covered
-above), and failure during staging. The broader nested-frame, typed-pin,
-activation-scope, budget, and recovery requirements remain open.
-The added post-start and reversed-order comparisons pass in file and SQLite
-variants; the current full Agent Framework suite passes 313/313.
+above), and failure during staging.
+
+The proof-only structured staged-fork candidate now proves both outcomes.
+On success, both targets are staged before the first branch activation, and
+both branch results reach the join in file and SQLite stores. On injected
+failure after the first of two targets is staged, neither branch starts, no
+join completes, and no later activation is dispatched; both stores retain the
+evidence. In both cases, the fork's `node.completed` is recorded before its
+dispatch callbacks; injected failure is followed by `node.failed` for the same
+invocation. A separate three-role review rejected
+changing production `node.completed` ordering: it is durable node-local
+evidence, and buffering in the proof does not demonstrate atomic publication
+through Agent Framework. Any future scheduler staging result needs a separately
+defined event/contract and production-level proof of preparation, cancellation,
+and partial publication. This test proves only the structured candidate's
+withheld dispatch behavior; it does not establish Agent Framework staging
+atomicity or select the iterator architecture.
+
+The broader nested-frame, typed-pin, activation-scope, budget, and recovery
+requirements remain open. Post-start, reversed-order, and staged-candidate
+comparisons pass in file and SQLite variants; the full Agent Framework suite
+passes 317/317.
 
 ### Initial persistence sizing evidence
 

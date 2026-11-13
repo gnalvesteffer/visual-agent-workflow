@@ -220,19 +220,21 @@ will be introduced.
       also now match for a two-branch Agent fork/join: each item completes both
       branches and the barrier, with equivalent scoped evidence in both stores.
       A fork-failure comparison confirms both candidates suppress the join and
-      stop before the next item, but exposes an evidence parity gap: the fresh
-      Agent Framework body records the sibling branch as activated/cancelled,
-      while structured dispatch cancels before that sibling records a node
-      start. Resolve this branch-lifecycle difference before selecting an
-      architecture. A synchronized follow-up makes the right Agent enter and
-      block before the left Agent fails; both candidates then persist matching
+      stop before the next item. Its unsynchronized sibling event prefix varies
+      with dispatch timing, so the controlled gate cases below define the
+      comparable lifecycle boundaries; do not infer a cancellation contract
+      from whichever sibling events win this race. Resolve remaining branch
+      lifecycle differences before selecting an architecture. A synchronized
+      follow-up makes the right Agent enter and block before the left Agent
+      fails; both candidates then persist matching
       failed/cancelled node lifecycles and suppress the join in file and SQLite
       stores. The lifecycle contract and architecture remain open. A pre-admission
       gate also confirms both candidates cancel a delivered sibling before its
       `node.started` event or Agent adapter entry, without synthesizing a
-      `node.cancelled` event. Immediate failure before structured dispatch still
-      differs. Dispatch/evidence budgets and join-cancellation cases also remain
-      open. The initial controlled lifecycle comparisons pass in file and
+      `node.cancelled` event. Immediate failure before structured dispatch is
+      retained as a separate, not-yet-controlled case. Dispatch/evidence
+      budgets and join-cancellation cases also remain open. The initial
+      controlled lifecycle comparisons pass in file and
       SQLite stores; the full Agent Framework suite passed 309/309 at that
       point. A post-start
       gate now holds the right branch after its persisted `node.started` event
@@ -242,11 +244,19 @@ will be introduced.
       synchronized to complete before left failure, both candidates retain the
       same failed run and suppress the next item; the structured candidate
       records one partial join arrival, while the AF fan-in barrier has not yet
-      invoked the join. The review adjudication keeps both architectures open:
-      queue-then-run is a proof candidate, not a selected contract. Staging
-      failure semantics and the broader budget/state/recovery matrix remain
-      unproven. The new post-start and reversed-order comparisons pass in file
-      and SQLite variants; the full Agent Framework suite passes (313/313).
+      invoked the join. Queue-then-run remains a proof candidate, not a selected
+      contract. The staged candidate dispatches both branches only after all
+      targets have been staged; file and SQLite runs reach the join. Fault
+      injection after the first of two targets confirms no branch begins and
+      no join or next item runs in either store. The fork's `node.completed`
+      remains before its dispatch callbacks, and injected failure then records
+      `node.failed` for that invocation. A separate three-role review rejected
+      changing this durable production event order: proof buffering does not
+      demonstrate atomic publication by Agent Framework. A production staging
+      event/contract, cancellation during preparation, and partial publication
+      semantics remain open. The broader budget/state/recovery matrix remains
+      unproven. These additions and the post-start/reversed-order comparisons
+      pass in file and SQLite variants; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [ ] Compare candidate budgets at atomic dispatch/evidence boundaries and
       prove exhaustion behavior. Store reopen/process loss, nested frames,
       typed iterator pins, Sequence, collaboration, and crash recovery also

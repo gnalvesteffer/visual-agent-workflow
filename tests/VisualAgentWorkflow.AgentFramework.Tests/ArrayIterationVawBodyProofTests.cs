@@ -454,9 +454,6 @@ public sealed class ArrayIterationVawBodyProofTests
         AssertParallelFailurePrefix(subworkflowEvents);
         Assert.Equal(subworkflowEvents.Where(IsFailingBranchBoundary).Select(EventShape),
             structuredEvents.Where(IsFailingBranchBoundary).Select(EventShape));
-        Assert.Contains(subworkflowEvents, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated &&
-            evt.NodeId == "agent-right" && evt.ConnectionId == "execution:right-agent");
-        Assert.Contains(subworkflowEvents, evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == "agent-right");
         Assert.DoesNotContain(structuredEvents, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent-right");
 
         static (string Kind, string? NodeId, string? ScopeId, string? ConnectionId) EventShape(ExecutionEvent evt) =>
@@ -566,6 +563,97 @@ public sealed class ArrayIterationVawBodyProofTests
             Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
             Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredStagedForkCandidate_StagingFailureDoesNotStartAnyBranch(bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(ParallelBodyDefinition(),
+            "array-iteration-candidate-fork-staging-failure-proof");
+        using var runStore = new ProofRunStore(revision, "north", sqlite);
+        var recorder = new ProofRecorder(runStore);
+        var stagedTargets = new List<(int Ordinal, string NodeId)>();
+
+        var failure = await Record.ExceptionAsync(() =>
+            new WorkflowRunner(agents: new EchoAgentExecutor())
+                .ExecuteStructuredSchedulerProofAsync(runStore.RunId, revision, "north", null,
+                    evt => { recorder.Append(evt); return ValueTask.CompletedTask; },
+                    activationScopeId: "array-loop/0", emitRunLifecycle: false,
+                    stageForkTargetsBeforeDispatch: true,
+                    afterForkTargetStaged: (ordinal, target) =>
+                    {
+                        stagedTargets.Add((ordinal, target));
+                        return ordinal == 1
+                            ? ValueTask.FromException(new IOException("Injected fork staging failure."))
+                            : ValueTask.CompletedTask;
+                    }));
+        Assert.IsType<IOException>(failure);
+        recorder.FailRoot();
+
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "failed");
+        Assert.Equal([(1, "anchor-left")], stagedTargets);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ExecutionActivated &&
+            evt.NodeId is "anchor-left" or "anchor-right");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId is "anchor-left" or "anchor-right" or "agent-left" or "agent-right" or "join");
+        var forkCompleted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "fork" && evt.ScopeId == "array-loop/0");
+        var forkFailed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+            evt.NodeId == "fork" && evt.ScopeId == "array-loop/0");
+        Assert.Equal(forkCompleted.InvocationId, forkFailed.InvocationId);
+        Assert.True(forkCompleted.Sequence < forkFailed.Sequence);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredStagedForkCandidate_DispatchesAllTargetsAfterStaging(bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(ParallelBodyDefinition(),
+            "array-iteration-candidate-fork-staging-success-proof");
+        using var runStore = new ProofRunStore(revision, "north", sqlite);
+        var recorder = new ProofRecorder(runStore);
+        var stagedTargets = new List<(int Ordinal, string NodeId)>();
+        var stagedCountAtFirstBranchActivation = 0;
+        var branchActivationAfterForkCompletion = true;
+        var forkCompletionObserved = false;
+
+        var result = await new WorkflowRunner(agents: new EchoAgentExecutor())
+            .ExecuteStructuredSchedulerProofAsync(runStore.RunId, revision, "north", null,
+                evt =>
+                {
+                    recorder.Append(evt);
+                    if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "fork")
+                        forkCompletionObserved = true;
+                    if (evt.Kind == ExecutionEventKinds.ExecutionActivated &&
+                        evt.NodeId is "anchor-left" or "anchor-right")
+                    {
+                        if (stagedCountAtFirstBranchActivation == 0)
+                            stagedCountAtFirstBranchActivation = stagedTargets.Count;
+                        branchActivationAfterForkCompletion &= forkCompletionObserved;
+                    }
+                    return ValueTask.CompletedTask;
+                }, stageForkTargetsBeforeDispatch: true,
+                afterForkTargetStaged: (ordinal, target) =>
+                {
+                    stagedTargets.Add((ordinal, target));
+                    return ValueTask.CompletedTask;
+                });
+
+        Assert.False(result.Failed);
+        Assert.NotNull(result.Output);
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "completed");
+        Assert.Equal([(1, "anchor-left"), (2, "anchor-right")], stagedTargets);
+        Assert.Equal(2, stagedCountAtFirstBranchActivation);
+        Assert.True(branchActivationAfterForkCompletion);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-left");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-right");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
     }
 
     [Theory]
