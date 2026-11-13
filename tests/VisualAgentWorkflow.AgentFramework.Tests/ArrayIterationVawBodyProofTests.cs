@@ -269,6 +269,75 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredAndFreshSubworkflowCandidates_CancelSameActiveActivation(bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "array-iteration-candidate-cancellation-comparison-proof");
+        const string input = "[\"alpha\",\"beta\",\"gamma\"]";
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var structuredAgents = new BlockingAgentExecutor("BETA:1");
+        var subworkflowAgents = new BlockingAgentExecutor("BETA:1");
+        var structuredTools = new EchoToolBroker();
+        var subworkflowTools = new EchoToolBroker();
+        using var structuredCancellation = new CancellationTokenSource();
+
+        var structuredTask = new WorkflowRunner(structuredTools, structuredAgents)
+            .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                evt => { structuredRecorder.Append(evt); return ValueTask.CompletedTask; },
+                structuredCancellation.Token);
+        await structuredAgents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        structuredCancellation.Cancel();
+        var structuredFailure = await Record.ExceptionAsync(async () => await structuredTask);
+        Assert.IsAssignableFrom<OperationCanceledException>(structuredFailure);
+
+        var iterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision, subworkflowRecorder,
+            subworkflowAgents, subworkflowTools);
+        var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+        await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+        var watch = Task.Run(async () =>
+        {
+            await foreach (var _ in run.WatchStreamAsync()) { }
+        });
+        await subworkflowAgents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await run.CancelRunAsync();
+        await watch.WaitAsync(TimeSpan.FromSeconds(5));
+        subworkflowRecorder.CancelRoot();
+
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        AssertPersistedSequence(structuredStore, structuredEvents, "cancelled");
+        AssertPersistedSequence(subworkflowStore, subworkflowEvents, "cancelled");
+        Assert.Equal(["ALPHA:0", "BETA:1"], structuredAgents.Inputs);
+        Assert.Equal(structuredAgents.Inputs, subworkflowAgents.Inputs);
+        Assert.Equal(["ALPHA:0"], structuredTools.Queries);
+        Assert.Equal(structuredTools.Queries, subworkflowTools.Queries);
+        AssertActiveCancellationPrefix(structuredEvents);
+        AssertActiveCancellationPrefix(subworkflowEvents);
+        Assert.Equal(subworkflowEvents.Where(IsNodeCancellationBoundary).Select(EventShape),
+            structuredEvents.Where(IsNodeCancellationBoundary).Select(EventShape));
+
+        static (string Kind, string? NodeId, string? ScopeId) EventShape(ExecutionEvent evt) =>
+            (evt.Kind, evt.NodeId, evt.ScopeId);
+        static bool IsNodeCancellationBoundary(ExecutionEvent evt) =>
+            evt.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCancelled;
+        static void AssertActiveCancellationPrefix(IReadOnlyList<ExecutionEvent> events)
+        {
+            Assert.Equal(["array-loop/0", "array-loop/1"], events
+                .Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted)
+                .Select(evt => evt.ScopeId));
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+                evt.NodeId == "agent" && evt.ScopeId == "array-loop/1");
+            Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/2");
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+        }
+    }
+
     [Fact]
     public async Task StructuredSchedulerProof_ExecutesProductionAgentNodesAcrossParallelJoin()
     {

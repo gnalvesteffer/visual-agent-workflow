@@ -214,8 +214,10 @@ will be introduced.
       both candidates stop at the same failing activation, preserve the failed
       Agent's scoped lifecycle, and never dispatch the following item in both
       file and SQLite stores. This failure prefix comparison passes in both
-      store variants; cancellation and join outcomes still need side-by-side
-      coverage.
+      store variants. A synchronized cancellation comparison also passes for
+      both stores: both candidates cancel the active Agent at index 1, preserve
+      its scoped lifecycle, and do not dispatch index 2. Joined-body outcomes
+      still need side-by-side coverage.
     - [ ] Compare candidate budgets at atomic dispatch/evidence boundaries and
       prove exhaustion behavior. Store reopen/process loss, nested frames,
       typed iterator pins, Sequence, collaboration, and crash recovery also
