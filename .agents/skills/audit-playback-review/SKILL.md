@@ -34,6 +34,15 @@ Approval evidence binds run/revision/content, approval node/invocation, target n
 
 File journals now publish complete `.snapshot.json` records by rename, preferring them over unchanged legacy header/JSONL files after the first successful write. SQLite stores events and sequence/status in one transaction. Verify consistent read-only prefixes, legacy evidence and failure after event insertion; never infer crash-resumable execution from committed evidence.
 
+When proving run-level evidence budgets, distinguish reserved capacity from
+store availability. Reserve request, bounded outcome/failure and terminal
+event capacity before dispatch; settle byte/count reservations only after the
+store accepts the exact UTF-8 event envelope produced by its persistence
+serializer. Keep an outcome reservation when its append fails after external
+dispatch. Test a store rejecting the terminal append separately: an in-memory
+reserve cannot make that write durable. A test-only budget proof does not
+establish production limits or worst-case bounds for unmeasured event shapes.
+
 Checkpoint JSON is stored separately from execution-event payloads with a version/runtime stamp, pinned identities, bounded native state, payload hash and exact cursor. SQLite commits the latest frame plus capture/suspension evidence atomically. Observation/playback consumes snapshots only, not native deserialization or resume. A suspended checkpoint run has no live pause continuation; recovery appends an explicit marker before execution.
 
 Model and MCP evidence now includes `modelCallId`/`toolCallId` per request. Correlate outcomes by kind/node/invocation/call, never clear a missing external outcome merely because its node/run failed. Legacy events without call IDs require one unambiguous outstanding request; ambiguous/unknown histories fail closed. Read-only reconciliation returns metadata at an exact cursor, not payloads/native checkpoint state or a worker-liveness/ownership claim. See [reconciliation](../../../docs/run-reconciliation.md).

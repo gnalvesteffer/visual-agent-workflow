@@ -341,6 +341,34 @@ completion event; it does not establish terminal capacity under a full event
 budget, event-count exhaustion, or behavior when failure/terminal events
 themselves cannot be appended.
 
+The adjudicated next proof distinguishes capacity from storage guarantees:
+admission requires a request, one bounded outcome, and failure evidence to be
+reserved before external dispatch; accounting charges the exact serialized
+UTF-8 event envelope only after the store accepts it; a held terminal reserve
+does not promise success when the store rejects the terminal append. The
+proof-only `ReservedEvidenceProofRecorder` exercises these rules through the
+production `WorkflowRunner` and `AgentNodeExecutor` with file and SQLite
+stores. With an event ceiling derived from the baseline trace, both stores
+reject `model.requested` before provider dispatch while retaining
+`agent.failed`, `node.failed`, and `run.failed`: 10 events and 4,239–4,240
+serialized bytes. A separate synchronized parallel-agent case admits one of
+two competing calls, never more than one pending outcome reservation, and
+persists 27 events in each store. Successful response append settles the
+reservation and releases unused allowance (16 events, 7,256–7,257 bytes).
+When the actual store wrapper rejects `model.responded` after provider dispatch,
+the reservation remains held while failure evidence persists (11 events,
+4,991–4,992 bytes). When the store rejects `run.failed`, the reserve cannot
+make storage succeed; the persisted prefix remains nonterminal at 9 events and
+4,011–4,012 bytes. The focused proof cases pass (10/10), and the complete Agent
+Framework suite passes (285/285).
+
+This is a test-only accounting harness, not a production run budget. It proves
+the event-count reservation mechanics for one bounded model call and models a
+test-specific outcome byte allowance. It does not prove worst-case bounds for
+all event shapes, byte-limit exhaustion, MCP/delegate reservation races,
+unlimited turns, timeout/cancellation settlement, or a production terminal
+reserve. No aggregate cap is selected.
+
 The public iterator contract must be Blueprint-style and composable with all
 existing graph capabilities. The proposed pins are an execution input, typed
 `array<T>` input, `Loop Body` execution output, typed `Array Element` data

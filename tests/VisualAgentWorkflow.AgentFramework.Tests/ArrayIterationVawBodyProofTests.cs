@@ -845,6 +845,268 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ModelRequestEventCapacityExhaustion_RejectsDispatchAndPersistsReservedFailure(bool sqlite)
+    {
+        const string providerId = "proof.concurrent-model";
+        const string input = "Evidence capacity proof.";
+        var revision = ModelEvidenceRevision(providerId);
+        using var baselineStore = new ProofRunStore(revision, input, sqlite);
+        var baselineRecorder = new ProofRecorder(baselineStore);
+        var baselineModel = new ConcurrentPromptModel(expectedConcurrentCalls: 1);
+        var provider = new AgentProviderDescriptor(providerId, "Proof model", "proof-chat-v1", true);
+        var baselineAgents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SynchronizedResponseChatClient(baselineModel))],
+            new EchoToolBroker());
+        await new WorkflowRunner(new EchoToolBroker(), baselineAgents).ExecuteWithOutcomeAsync(baselineStore.RunId, revision,
+            input, null, evt => { baselineRecorder.Append(evt); return ValueTask.CompletedTask; });
+        var baselineEvents = baselineRecorder.Snapshot();
+        var requestIndex = Array.FindIndex(baselineEvents, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
+        Assert.True(requestIndex > 0);
+        Assert.Equal(2, baselineEvents.Count(evt => evt.Kind == ExecutionEventKinds.Started));
+        var eventsBeforeRequest = requestIndex - 1; // ProofRecorder writes an extra root-start event.
+        var responseBytes = EventBytes(Assert.Single(baselineEvents, evt => evt.Kind == ExecutionEventKinds.ModelResponded));
+
+        using var limitedStore = new ProofRunStore(revision, input, sqlite);
+        var model = new ConcurrentPromptModel(expectedConcurrentCalls: 1);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SynchronizedResponseChatClient(model))],
+            new EchoToolBroker());
+        const int reservedFailureEvents = 3;
+        var recorder = new ReservedEvidenceProofRecorder(limitedStore,
+            maximumEvents: eventsBeforeRequest + 1 + reservedFailureEvents,
+            maximumBytes: 4_000_000,
+            reservedFailureEvents,
+            reservedFailureBytes: 64_000,
+            maximumModelOutcomeBytes: responseBytes + 512);
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(new EchoToolBroker(), agents).ExecuteWithOutcomeAsync(
+            limitedStore.RunId, revision, input, null, recorder.RecordAsync));
+
+        Assert.NotNull(failure);
+        Assert.Contains("run evidence budget", failure.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(model.Calls);
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(limitedStore, events, "failed");
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ModelRequested or
+            ExecutionEventKinds.ModelResponded);
+        Assert.Equal([ExecutionEventKinds.AgentFailed, ExecutionEventKinds.NodeFailed, ExecutionEventKinds.Failed],
+            events.TakeLast(reservedFailureEvents).Select(evt => evt.Kind));
+        Assert.Equal(0, recorder.PendingOutcomeReservations);
+        Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
+        Console.WriteLine($"{(sqlite ? "sqlite" : "file")} event-count exhaustion: {events.Length} persisted events, " +
+            $"{recorder.PersistedEventBytes} UTF-8 bytes, no model dispatch, all three reserved failure records persisted.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ModelOutcomeAccepted_SettlesReservationAndReleasesUnusedBytes(bool sqlite)
+    {
+        const string providerId = "proof.concurrent-model";
+        const string input = "Outcome reservation settlement proof.";
+        var revision = ModelEvidenceRevision(providerId);
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var model = new ConcurrentPromptModel(expectedConcurrentCalls: 1);
+        var provider = new AgentProviderDescriptor(providerId, "Proof model", "proof-chat-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SynchronizedResponseChatClient(model))],
+            new EchoToolBroker());
+        var recorder = new ReservedEvidenceProofRecorder(runStore,
+            maximumEvents: 64,
+            maximumBytes: 4_000_000,
+            reservedFailureEvents: 3,
+            reservedFailureBytes: 64_000,
+            maximumModelOutcomeBytes: 128_000);
+
+        var result = await new WorkflowRunner(new EchoToolBroker(), agents).ExecuteWithOutcomeAsync(
+            runStore.RunId, revision, input, null, recorder.RecordAsync);
+
+        Assert.Equal("done", result.Output);
+        AssertPersistedSequence(runStore, recorder.Snapshot(), "completed");
+        Assert.Single(recorder.Snapshot(), evt => evt.Kind == ExecutionEventKinds.ModelResponded);
+        Assert.Equal(0, recorder.PendingOutcomeReservations);
+        Assert.Equal(0, recorder.PendingOutcomeBytes);
+        Assert.Equal(recorder.Snapshot().Sum(EventBytes), recorder.PersistedEventBytes);
+        Console.WriteLine($"{(sqlite ? "sqlite" : "file")} outcome reservation settlement: {recorder.Snapshot().Length} events, " +
+            $"{recorder.PersistedEventBytes} UTF-8 bytes; unused outcome allowance released after append acceptance.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ModelOutcomeAppendFailure_KeepsReservationUntilTerminalEvidence(bool sqlite)
+    {
+        const string providerId = "proof.concurrent-model";
+        const string input = "Outcome append failure proof.";
+        var revision = ModelEvidenceRevision(providerId);
+        using var baselineStore = new ProofRunStore(revision, input, sqlite);
+        var baselineRecorder = new ProofRecorder(baselineStore);
+        var baselineModel = new ConcurrentPromptModel(expectedConcurrentCalls: 1);
+        var provider = new AgentProviderDescriptor(providerId, "Proof model", "proof-chat-v1", true);
+        var baselineAgents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SynchronizedResponseChatClient(baselineModel))],
+            new EchoToolBroker());
+        await new WorkflowRunner(new EchoToolBroker(), baselineAgents).ExecuteWithOutcomeAsync(baselineStore.RunId, revision,
+            input, null, evt => { baselineRecorder.Append(evt); return ValueTask.CompletedTask; });
+        var responseBytes = EventBytes(Assert.Single(baselineRecorder.Snapshot(),
+            evt => evt.Kind == ExecutionEventKinds.ModelResponded));
+
+        using var limitedStore = new ProofRunStore(revision, input, sqlite,
+            rejectedAppendEventKinds: [ExecutionEventKinds.ModelResponded]);
+        var model = new ConcurrentPromptModel(expectedConcurrentCalls: 1);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SynchronizedResponseChatClient(model))],
+            new EchoToolBroker());
+        var recorder = new ReservedEvidenceProofRecorder(limitedStore,
+            maximumEvents: 64,
+            maximumBytes: 4_000_000,
+            reservedFailureEvents: 3,
+            reservedFailureBytes: 64_000,
+            maximumModelOutcomeBytes: responseBytes + 512);
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(new EchoToolBroker(), agents).ExecuteWithOutcomeAsync(
+            limitedStore.RunId, revision, input, null, recorder.RecordAsync));
+
+        Assert.NotNull(failure);
+        Assert.Contains("Injected store append failure", failure.ToString(), StringComparison.Ordinal);
+        Assert.Single(model.Calls);
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(limitedStore, events, "failed");
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed);
+        Assert.Equal(1, recorder.PendingOutcomeReservations);
+        Assert.True(recorder.PendingOutcomeBytes > 0);
+        Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
+        Console.WriteLine($"{(sqlite ? "sqlite" : "file")} rejected model outcome append: {events.Length} events, " +
+            $"{recorder.PersistedEventBytes} UTF-8 bytes; one outcome reservation retained through run failure.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TerminalAppendFailure_RemainsAStorageFailureDespiteReservedCapacity(bool sqlite)
+    {
+        const string providerId = "proof.concurrent-model";
+        const string input = "Terminal persistence failure proof.";
+        var revision = ModelEvidenceRevision(providerId);
+        using var baselineStore = new ProofRunStore(revision, input, sqlite);
+        var baselineRecorder = new ProofRecorder(baselineStore);
+        var baselineModel = new ConcurrentPromptModel(expectedConcurrentCalls: 1);
+        var provider = new AgentProviderDescriptor(providerId, "Proof model", "proof-chat-v1", true);
+        var baselineAgents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SynchronizedResponseChatClient(baselineModel))],
+            new EchoToolBroker());
+        await new WorkflowRunner(new EchoToolBroker(), baselineAgents).ExecuteWithOutcomeAsync(baselineStore.RunId,
+            revision, input, null, evt => { baselineRecorder.Append(evt); return ValueTask.CompletedTask; });
+        var baselineEvents = baselineRecorder.Snapshot();
+        var requestIndex = Array.FindIndex(baselineEvents, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
+        Assert.True(requestIndex > 0);
+        var eventsBeforeRequest = requestIndex - 1;
+
+        using var runStore = new ProofRunStore(revision, input, sqlite,
+            rejectedAppendEventKinds: [ExecutionEventKinds.Failed]);
+        var model = new ConcurrentPromptModel(expectedConcurrentCalls: 1);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SynchronizedResponseChatClient(model))],
+            new EchoToolBroker());
+        var recorder = new ReservedEvidenceProofRecorder(runStore,
+            maximumEvents: eventsBeforeRequest + 1 + 3,
+            maximumBytes: 1_000_000,
+            reservedFailureEvents: 3,
+            reservedFailureBytes: 64_000,
+            maximumModelOutcomeBytes: 128_000);
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(new EchoToolBroker(), agents)
+            .ExecuteWithOutcomeAsync(runStore.RunId, revision, input, null, recorder.RecordAsync));
+
+        Assert.NotNull(failure);
+        Assert.Contains("Injected store append failure", failure.ToString(), StringComparison.Ordinal);
+        Assert.Empty(model.Calls);
+        var events = recorder.Snapshot();
+        Assert.Equal("running", runStore.Store.Get(runStore.RunId)!.Status);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Failed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed);
+        Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
+        Console.WriteLine($"{(sqlite ? "sqlite" : "file")} rejected terminal append: {events.Length} events, " +
+            $"{recorder.PersistedEventBytes} UTF-8 bytes; failure reserve available but store remains running.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ParallelModelRequests_CannotOvercommitOutcomeReservations(bool sqlite)
+    {
+        const string providerId = "proof.concurrent-model";
+        const string input = "Two branches compete for one in-flight model reservation.";
+        var definition = ParallelBodyDefinition();
+        var nodes = definition.Nodes;
+        foreach (var nodeId in new[] { "agent-left", "agent-right" })
+            nodes = nodes.SetItem(nodeId, nodes[nodeId] with
+            {
+                Agent = nodes[nodeId].Agent! with
+                {
+                    ProviderId = providerId,
+                    Instructions = $"Reservation race for {nodeId}."
+                }
+            });
+        var revision = WorkflowRevision.Create(definition with { Nodes = nodes }, "parallel-evidence-reservation-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ReservedEvidenceProofRecorder(runStore,
+            maximumEvents: 512,
+            maximumBytes: 4_000_000,
+            reservedFailureEvents: 8,
+            reservedFailureBytes: 64_000,
+            maximumModelOutcomeBytes: 32_000,
+            maximumConcurrentOutcomeReservations: 1);
+        var model = new ReservationRaceModel(recorder.ReservationRejected);
+        var provider = new AgentProviderDescriptor(providerId, "Proof model", "proof-chat-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new ReservationRaceChatClient(model))],
+            new EchoToolBroker());
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(agents: agents).ExecuteWithOutcomeAsync(
+            runStore.RunId, revision, input, null, recorder.RecordAsync));
+
+        Assert.NotNull(failure);
+        Assert.Contains("run evidence budget", failure.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, model.Calls);
+        Assert.Equal(1, recorder.MaximumPendingOutcomeReservationsObserved);
+        AssertPersistedSequence(runStore, recorder.Snapshot(), "failed");
+        Assert.Single(recorder.Snapshot(), evt => evt.Kind == ExecutionEventKinds.ModelRequested);
+        Assert.Contains(recorder.Snapshot(), evt => evt.Kind == ExecutionEventKinds.Failed);
+        Console.WriteLine($"{(sqlite ? "sqlite" : "file")} parallel reservation race: {recorder.Snapshot().Length} events, " +
+            $"one provider dispatch, maximum {recorder.MaximumPendingOutcomeReservationsObserved} pending outcome reservations.");
+    }
+
+    private static WorkflowRevision ModelEvidenceRevision(string providerId)
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("agent", new(NodeTypes.Agent, "1.0.0", Agent: new(providerId, null,
+                "Run the bounded event evidence proof.", [])))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-agent", new(new("input", "out"), new("agent", "in"), "data"))
+            .Add("agent-output", new(new("agent", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-agent", Edge("input", "then", "agent", "execute"))
+            .Add("agent-output", Edge("agent", "out", "output", "execute"));
+        return WorkflowRevision.Create(new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "bounded-event-evidence-proof", "input", nodes, data)
+        {
+            ExecutionConnections = execution
+        }, "bounded-event-evidence-proof");
+    }
+
+    private static long EventBytes(ExecutionEvent evt) =>
+        JsonSerializer.SerializeToUtf8Bytes(evt, JsonSerializerOptions.Web).Length;
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task FreshVawRunnerPerItem_EmptyArrayCompletesWithoutActivatingBody(bool sqlite)
     {
         var definition = BodyDefinition(includeVariableStore: true);
@@ -1111,12 +1373,16 @@ public sealed class ArrayIterationVawBodyProofTests
     {
         private readonly string directory = Path.Combine(Path.GetTempPath(), $"vaw-array-proof-{Guid.NewGuid():N}");
 
-        public ProofRunStore(WorkflowRevision revision, string input, bool sqlite)
+        public ProofRunStore(WorkflowRevision revision, string input, bool sqlite,
+            string[]? rejectedAppendEventKinds = null)
         {
             Directory.CreateDirectory(directory);
-            Store = sqlite
+            IWorkflowRunStore store = sqlite
                 ? new SqliteWorkflowRunStore(Path.Combine(directory, "runs.sqlite3"))
                 : new FileRunJournal(directory);
+            Store = rejectedAppendEventKinds is { Length: > 0 }
+                ? new RejectingAppendRunStore(store, rejectedAppendEventKinds.ToHashSet(StringComparer.Ordinal))
+                : store;
             RunId = Store.Create(revision, input).Header.RunId;
         }
 
@@ -1124,6 +1390,20 @@ public sealed class ArrayIterationVawBodyProofTests
         public Guid RunId { get; }
 
         public void Dispose() => Directory.Delete(directory, recursive: true);
+    }
+
+    private sealed class RejectingAppendRunStore(IWorkflowRunStore inner, IReadOnlySet<string> rejectedKinds)
+        : IWorkflowRunStore
+    {
+        public RunSnapshot Create(WorkflowRevision revision, string input) => inner.Create(revision, input);
+        public RunSnapshot? Get(Guid runId) => inner.Get(runId);
+        public IReadOnlyList<RunSnapshot> List() => inner.List();
+        public RunSnapshot Append(Guid runId, long expectedSequence, IReadOnlyList<ExecutionEvent> events)
+        {
+            if (events.Any(evt => rejectedKinds.Contains(evt.Kind)))
+                throw new IOException($"Injected store append failure for {events.First(evt => rejectedKinds.Contains(evt.Kind)).Kind}.");
+            return inner.Append(runId, expectedSequence, events);
+        }
     }
 
     private sealed class PerItemWorkflowExecutor(Guid runId, WorkflowRevision revision, ProofRecorder recorder,
@@ -1205,6 +1485,122 @@ public sealed class ArrayIterationVawBodyProofTests
             lock (gate) return [.. events];
         }
     }
+
+    private sealed class ReservedEvidenceProofRecorder
+    {
+        private static readonly HashSet<string> FailureEvidenceKinds =
+        [ExecutionEventKinds.AgentFailed, ExecutionEventKinds.NodeFailed, ExecutionEventKinds.Failed];
+
+        private readonly ProofRunStore runStore;
+        private readonly int ordinaryEventLimit;
+        private readonly int reservedFailureEvents;
+        private readonly long maximumBytes;
+        private readonly long reservedFailureBytes;
+        private readonly long maximumModelOutcomeBytes;
+        private readonly int maximumConcurrentOutcomeReservations;
+        private readonly object gate = new();
+        private readonly List<ExecutionEvent> events = [];
+        private readonly TaskCompletionSource reservationRejected = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int ordinaryEvents;
+        private int failureEvents;
+        private int pendingOutcomeReservations;
+        private int maximumPendingOutcomeReservationsObserved;
+        private long ordinaryBytes;
+        private long pendingOutcomeBytes;
+        private long failureBytes;
+        private long persistedEventBytes;
+
+        public ReservedEvidenceProofRecorder(ProofRunStore runStore, int maximumEvents, long maximumBytes,
+            int reservedFailureEvents, long reservedFailureBytes, long maximumModelOutcomeBytes,
+            int maximumConcurrentOutcomeReservations = int.MaxValue)
+        {
+            this.runStore = runStore;
+            ordinaryEventLimit = maximumEvents - reservedFailureEvents;
+            this.maximumBytes = maximumBytes;
+            this.reservedFailureEvents = reservedFailureEvents;
+            this.reservedFailureBytes = reservedFailureBytes;
+            this.maximumModelOutcomeBytes = maximumModelOutcomeBytes;
+            this.maximumConcurrentOutcomeReservations = maximumConcurrentOutcomeReservations;
+            if (ordinaryEventLimit < 0 || reservedFailureEvents < FailureEvidenceKinds.Count || maximumBytes < reservedFailureBytes ||
+                reservedFailureBytes < 0 || maximumModelOutcomeBytes < 0 || maximumConcurrentOutcomeReservations < 1)
+                throw new ArgumentOutOfRangeException(nameof(maximumEvents));
+        }
+
+        public int PendingOutcomeReservations { get { lock (gate) return pendingOutcomeReservations; } }
+        public long PendingOutcomeBytes { get { lock (gate) return pendingOutcomeBytes; } }
+        public int MaximumPendingOutcomeReservationsObserved { get { lock (gate) return maximumPendingOutcomeReservationsObserved; } }
+        public long PersistedEventBytes { get { lock (gate) return persistedEventBytes; } }
+        public Task ReservationRejected => reservationRejected.Task;
+
+        public ValueTask RecordAsync(ExecutionEvent evt)
+        {
+            lock (gate)
+            {
+                var bytes = EventBytes(evt);
+                var isRequest = evt.Kind == ExecutionEventKinds.ModelRequested;
+                var isOutcome = evt.Kind == ExecutionEventKinds.ModelResponded;
+                var isFailureEvidence = FailureEvidenceKinds.Contains(evt.Kind);
+
+                if (isRequest && pendingOutcomeReservations >= maximumConcurrentOutcomeReservations)
+                {
+                    reservationRejected.TrySetResult();
+                    throw new EvidenceBudgetExhaustedException();
+                }
+                if (isRequest && (ordinaryEvents + pendingOutcomeReservations + 2 > ordinaryEventLimit ||
+                    ordinaryBytes + pendingOutcomeBytes + bytes + maximumModelOutcomeBytes > maximumBytes - reservedFailureBytes))
+                {
+                    reservationRejected.TrySetResult();
+                    throw new EvidenceBudgetExhaustedException();
+                }
+                if (isOutcome && (pendingOutcomeReservations == 0 || bytes > maximumModelOutcomeBytes ||
+                    ordinaryBytes + pendingOutcomeBytes - maximumModelOutcomeBytes + bytes > maximumBytes - reservedFailureBytes))
+                    throw new InvalidOperationException("The model outcome exceeded its proof reservation.");
+                if (isFailureEvidence && (failureEvents >= reservedFailureEvents || failureBytes + bytes > reservedFailureBytes))
+                    throw new InvalidOperationException("The terminal failure evidence exceeded its proof reserve.");
+                if (!isRequest && !isOutcome && !isFailureEvidence &&
+                    (ordinaryEvents + pendingOutcomeReservations + 1 > ordinaryEventLimit ||
+                     ordinaryBytes + pendingOutcomeBytes + bytes > maximumBytes - reservedFailureBytes))
+                    throw new EvidenceBudgetExhaustedException();
+
+                runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+                events.Add(evt);
+                persistedEventBytes += bytes;
+
+                if (isRequest)
+                {
+                    ordinaryEvents++;
+                    ordinaryBytes += bytes;
+                    pendingOutcomeReservations++;
+                    maximumPendingOutcomeReservationsObserved = Math.Max(maximumPendingOutcomeReservationsObserved,
+                        pendingOutcomeReservations);
+                    pendingOutcomeBytes += maximumModelOutcomeBytes;
+                }
+                else if (isOutcome)
+                {
+                    ordinaryEvents++;
+                    ordinaryBytes += bytes;
+                    pendingOutcomeReservations--;
+                    pendingOutcomeBytes -= maximumModelOutcomeBytes;
+                }
+                else if (isFailureEvidence)
+                {
+                    failureEvents++;
+                    failureBytes += bytes;
+                }
+                else
+                {
+                    ordinaryEvents++;
+                    ordinaryBytes += bytes;
+                }
+                return ValueTask.CompletedTask;
+            }
+        }
+
+        public ExecutionEvent[] Snapshot() { lock (gate) return [.. events]; }
+    }
+
+    private sealed class EvidenceBudgetExhaustedException()
+        : InvalidOperationException("The run evidence budget cannot reserve the model request and outcome.");
 
     private sealed class EchoAgentExecutor(string? failInput = null) : IAgentNodeExecutor
     {
@@ -1429,6 +1825,35 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     private sealed record DelegatedPrompt(int InstructionCharacters, int UserMessageCharacters);
+
+    private sealed class ReservationRaceModel(Task reservationRejected)
+    {
+        private int calls;
+        public int Calls => Volatile.Read(ref calls);
+
+        public async Task<ChatResponse> RespondAsync(CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref calls);
+            await reservationRejected.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+            return new ChatResponse(new ChatMessage(ChatRole.Assistant, "done"))
+            {
+                ModelId = "proof-chat-v1",
+                FinishReason = ChatFinishReason.Stop,
+                Usage = new UsageDetails { InputTokenCount = 2, OutputTokenCount = 1, TotalTokenCount = 3 }
+            };
+        }
+    }
+
+    private sealed class ReservationRaceChatClient(ReservationRaceModel model) : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+            CancellationToken cancellationToken = default) => model.RespondAsync(cancellationToken);
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public void Dispose() { }
+    }
 
     private sealed class ConcurrentPromptModel(int expectedConcurrentCalls, bool failAfterStart = false)
     {

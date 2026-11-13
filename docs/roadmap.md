@@ -257,8 +257,25 @@ will be introduced.
       completed. The broker records an uncertain outcome, and both file and
       SQLite stores retain contiguous tool/sequence/root failure evidence.
       Focused regression cases pass (2/2); see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
-    - [ ] Prove reserved terminal capacity and event-count exhaustion before
-      setting aggregate caps.
+    - [x] Add a proof-only model-call reservation harness: a request is rejected
+      before provider dispatch when the event-count ceiling cannot cover both
+      its outcome and the three-record agent/node/run failure chain. File and
+      SQLite retain 10 events and 4,239–4,240 serialized UTF-8 bytes. The
+      focused proof cases pass (10/10); the full Agent Framework suite passes
+      (285/285).
+    - [x] Prove one-at-a-time admission under synchronized parallel Agent
+      requests, accepted-outcome settlement and unused-reservation release in
+      both stores (27 events in the race case; 16 events and 7,256–7,257 bytes
+      for completed settlement).
+    - [x] Distinguish post-dispatch outcome append failure from budget
+      exhaustion: retain the pending reservation while failure evidence is
+      persisted (11 events, 4,991–4,992 bytes). Also reject `run.failed` at the
+      actual store boundary and confirm an in-memory reserve cannot overcome
+      that outage (9-event nonterminal prefix, 4,011–4,012 bytes).
+    - [ ] Complete the production-path proof across MCP, delegated calls,
+      maximum-shaped outcome/error envelopes, byte exhaustion, and
+      timeout/cancellation/uncertain settlement. Current harness is test-only
+      and selects no aggregate caps; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable
