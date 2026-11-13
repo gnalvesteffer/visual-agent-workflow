@@ -347,18 +347,27 @@ will be introduced.
       request is rejected before provider dispatch, its Agent fails, the
       second tool is not called, and both stores retain a contiguous failed
       prefix with reserved failure evidence (2/2 file/SQLite cases). This is
-      test-only evidence and does not compare concurrent MCP reservations,
-      aggregate work limits, or production budget ownership.
+      test-only evidence and does not compare aggregate work limits or
+      production budget ownership.
     - [x] Compare concurrent model outcome reservations across all three proof
       candidates. At capacity two, both requests/responses complete and the
       join runs; at capacity one, only one provider call occurs, the second
       request is rejected, and the join is suppressed. File and SQLite cases
-      pass (2/2 each). This does not cover MCP concurrency or production budget
-      ownership.
-    - [ ] Complete candidate budget comparison for concurrent MCP
-      reservations, aggregate work limits, and external-dispatch outcome
-      boundaries. Store reopen/process loss, nested frames, typed iterator
-      pins, Sequence, collaboration, and crash recovery also remain open.
+      pass (2/2 each).
+    - [x] Compare concurrent direct-MCP outcome reservations across all three
+      proof candidates using a synchronized broker and shared event recorder.
+      At capacity two, both calls dispatch, complete, and reach the join; at
+      capacity one, the competing authorization is rejected before simulated
+      dispatch, the admitted call settles, and the join is suppressed. File
+      and SQLite cases pass (2/2); the full Agent Framework suite passes
+      (342/342). This does not yet exercise concurrent reservations through
+      the production MCP broker, delegated tools, byte caps under concurrency,
+      aggregate work limits, or production budget ownership; see Decision 0070.
+    - [ ] Complete candidate budget comparison for production MCP-broker
+      concurrent reservations, aggregate work limits, and external-dispatch
+      outcome boundaries. Store reopen/process loss, nested frames, typed
+      iterator pins, Sequence, collaboration, and crash recovery also remain
+      open.
     - [x] Measure representative maximum-shaped `model.responded`,
       `tool.completed`, and `data.evaluated` event envelopes through the actual
       file snapshot and SQLite event-row serializers. The measured envelope

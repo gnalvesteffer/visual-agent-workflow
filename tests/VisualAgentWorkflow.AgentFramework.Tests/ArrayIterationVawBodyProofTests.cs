@@ -1654,7 +1654,7 @@ public sealed class ArrayIterationVawBodyProofTests
             maximumBytes: 4_000_000,
             reservedFailureEvents: 8,
             reservedFailureBytes: 64_000,
-            maximumModelOutcomeBytes: 64_000,
+            maximumOutcomeBytes: 64_000,
             maximumConcurrentOutcomeReservations: 2);
         var model = new ParallelDelegateEvidenceModel(parentInstructions, researcherInstructions,
             reviewerInstructions, task, maximumDelegateOutputCharacters);
@@ -1791,7 +1791,7 @@ public sealed class ArrayIterationVawBodyProofTests
             maximumBytes: 4_000_000,
             reservedFailureEvents: 8,
             reservedFailureBytes: 64_000,
-            maximumModelOutcomeBytes: 64_000,
+            maximumOutcomeBytes: 64_000,
             maximumConcurrentOutcomeReservations: maximumConcurrentReservations);
         var model = new ParallelDelegateEvidenceModel(parentInstructions, researcherInstructions,
             reviewerInstructions, "Review this proposal.", 64, failResearcher: !rejectChildOutcomeAppend,
@@ -1930,7 +1930,7 @@ public sealed class ArrayIterationVawBodyProofTests
             maximumBytes: 4_000_000,
             reservedFailureEvents: 8,
             reservedFailureBytes: 64_000,
-            maximumModelOutcomeBytes: 64_000,
+            maximumOutcomeBytes: 64_000,
             maximumConcurrentOutcomeReservations: 8);
         var model = new ParallelDelegateEvidenceModel(parentInstructions, researcherInstructions,
             reviewerInstructions, task, delegateOutputCharacters: 64);
@@ -2008,7 +2008,7 @@ public sealed class ArrayIterationVawBodyProofTests
             maximumBytes: 4_000_000,
             reservedFailureEvents: 8,
             reservedFailureBytes: 64_000,
-            maximumModelOutcomeBytes: 64_000,
+            maximumOutcomeBytes: 64_000,
             maximumConcurrentOutcomeReservations: 8);
         var model = new ParallelDelegateEvidenceModel(parentInstructions, researcherInstructions,
             reviewerInstructions, task, delegateOutputCharacters: 64, blockDelegatesUntilCancelled: true);
@@ -2131,7 +2131,7 @@ public sealed class ArrayIterationVawBodyProofTests
             maximumBytes: 4_000_000,
             reservedFailureEvents,
             reservedFailureBytes: 64_000,
-            maximumModelOutcomeBytes: responseBytes + 512);
+            maximumOutcomeBytes: responseBytes + 512);
 
         var failure = await Record.ExceptionAsync(() => new WorkflowRunner(new EchoToolBroker(), agents).ExecuteWithOutcomeAsync(
             limitedStore.RunId, revision, input, null, recorder.RecordAsync));
@@ -2189,7 +2189,7 @@ public sealed class ArrayIterationVawBodyProofTests
                 reservedFailureBytes - 256,
             reservedFailureEvents,
             reservedFailureBytes,
-            maximumModelOutcomeBytes: responseBytes + 512);
+            maximumOutcomeBytes: responseBytes + 512);
 
         var failure = await Record.ExceptionAsync(() => new WorkflowRunner(new EchoToolBroker(), agents).ExecuteWithOutcomeAsync(
             limitedStore.RunId, revision, input, null, recorder.RecordAsync));
@@ -2228,7 +2228,7 @@ public sealed class ArrayIterationVawBodyProofTests
             maximumBytes: 4_000_000,
             reservedFailureEvents: 3,
             reservedFailureBytes: 64_000,
-            maximumModelOutcomeBytes: 128_000);
+            maximumOutcomeBytes: 128_000);
 
         var result = await new WorkflowRunner(new EchoToolBroker(), agents).ExecuteWithOutcomeAsync(
             runStore.RunId, revision, input, null, recorder.RecordAsync);
@@ -2274,7 +2274,7 @@ public sealed class ArrayIterationVawBodyProofTests
             maximumBytes: 4_000_000,
             reservedFailureEvents: 3,
             reservedFailureBytes: 64_000,
-            maximumModelOutcomeBytes: responseBytes + 512);
+            maximumOutcomeBytes: responseBytes + 512);
 
         var failure = await Record.ExceptionAsync(() => new WorkflowRunner(new EchoToolBroker(), agents).ExecuteWithOutcomeAsync(
             limitedStore.RunId, revision, input, null, recorder.RecordAsync));
@@ -2328,7 +2328,7 @@ public sealed class ArrayIterationVawBodyProofTests
             maximumBytes: 1_000_000,
             reservedFailureEvents: 3,
             reservedFailureBytes: 64_000,
-            maximumModelOutcomeBytes: 128_000);
+            maximumOutcomeBytes: 128_000);
 
         var failure = await Record.ExceptionAsync(() => new WorkflowRunner(new EchoToolBroker(), agents)
             .ExecuteWithOutcomeAsync(runStore.RunId, revision, input, null, recorder.RecordAsync));
@@ -2371,7 +2371,7 @@ public sealed class ArrayIterationVawBodyProofTests
             maximumBytes: 4_000_000,
             reservedFailureEvents: 8,
             reservedFailureBytes: 64_000,
-            maximumModelOutcomeBytes: 32_000,
+            maximumOutcomeBytes: 32_000,
             maximumConcurrentOutcomeReservations: 1);
         var model = new ReservationRaceModel(recorder.ReservationRejected);
         var provider = new AgentProviderDescriptor(providerId, "Proof model", "proof-chat-v1", true);
@@ -2604,7 +2604,7 @@ public sealed class ArrayIterationVawBodyProofTests
         using var baselineStore = new ProofRunStore(revision, input, sqlite);
         var baselineRecorder = new ReservedEvidenceProofRecorder(baselineStore, maximumEvents: 512,
             maximumBytes: 4_000_000, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
-            maximumModelOutcomeBytes: 64_000);
+            maximumOutcomeBytes: 64_000);
         var baselineModel = new SharedBudgetProofModel();
         var baselineAgents = new AgentNodeExecutor(
             [new AgentProviderRegistration(provider, () => new SharedBudgetProofChatClient(baselineModel))],
@@ -2627,7 +2627,7 @@ public sealed class ArrayIterationVawBodyProofTests
         using var limitedStore = new ProofRunStore(revision, input, sqlite);
         var limitedRecorder = new ReservedEvidenceProofRecorder(limitedStore, maximumEvents,
             maximumBytes: 4_000_000, reservedFailureEvents: reservedFailureEvents,
-            reservedFailureBytes: 64_000, maximumModelOutcomeBytes: 64_000);
+            reservedFailureBytes: 64_000, maximumOutcomeBytes: 64_000);
         var limitedModel = new SharedBudgetProofModel();
         var limitedAgents = new AgentNodeExecutor(
             [new AgentProviderRegistration(provider, () => new SharedBudgetProofChatClient(limitedModel))],
@@ -2694,17 +2694,17 @@ public sealed class ArrayIterationVawBodyProofTests
             var eventLimited = await ExecuteCandidateAsync(candidate, maximumEvents);
             AssertBudgetRejected(eventLimited, candidate, maximumEvents, maximumBytes: 4_000_000);
 
-            const long maximumModelOutcomeBytes = 64_000;
+            const long maximumOutcomeBytes = 64_000;
             const long reservedFailureBytes = 64_000;
             const long byteAdmissionMargin = 1_024;
             var prefixBytes = baseline.Events.Where(evt => evt.Sequence < secondRequest.Sequence).Sum(EventBytes);
-            var maximumBytes = checked(prefixBytes + EventBytes(secondRequest) + maximumModelOutcomeBytes +
+            var maximumBytes = checked(prefixBytes + EventBytes(secondRequest) + maximumOutcomeBytes +
                 reservedFailureBytes - byteAdmissionMargin);
             var byteLimited = await ExecuteCandidateAsync(candidate, maximumEvents: 512, maximumBytes);
             Assert.True(byteLimited.ReservationRejected,
                 $"{candidate} did not reject the second request at {maximumBytes} bytes; " +
                 $"prefix {prefixBytes}, request {EventBytes(secondRequest)}, outcome reserve " +
-                $"{maximumModelOutcomeBytes}, failure reserve {reservedFailureBytes}; persisted " +
+                $"{maximumOutcomeBytes}, failure reserve {reservedFailureBytes}; persisted " +
                 $"{byteLimited.PersistedEventBytes} bytes across {byteLimited.Events.Length} events.");
             AssertBudgetRejected(byteLimited, candidate, maximumEvents: 512, maximumBytes);
         }
@@ -2755,7 +2755,7 @@ public sealed class ArrayIterationVawBodyProofTests
             using var store = new ProofRunStore(revision, input, sqlite);
             var recorder = new ReservedEvidenceProofRecorder(store, maximumEvents,
                 maximumBytes, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
-                maximumModelOutcomeBytes: 64_000);
+                maximumOutcomeBytes: 64_000);
             var model = new SharedBudgetProofModel();
             var provider = new AgentProviderDescriptor("proof.echo-agent", "Proof model", "proof-chat-v1", true);
             var agents = new AgentNodeExecutor(
@@ -2863,7 +2863,7 @@ public sealed class ArrayIterationVawBodyProofTests
             using var store = new ProofRunStore(revision, input, sqlite);
             var recorder = new ReservedEvidenceProofRecorder(store, maximumEvents: 512,
                 maximumBytes: 4_000_000, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
-                maximumModelOutcomeBytes: 32_000,
+                maximumOutcomeBytes: 32_000,
                 maximumConcurrentOutcomeReservations: maximumConcurrentReservations);
             var model = new ConcurrentPromptModel(expectedConcurrentCalls: 2,
                 releaseOnReservationRejected: recorder.ReservationRejected);
@@ -2916,8 +2916,108 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IteratorCandidates_ReserveConcurrentMcpOutcomesBeforeDispatch(bool sqlite)
+    {
+        const string input = "[\"one\"]";
+        var definition = ParallelMcpDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "array-iteration-parallel-mcp-reservation-candidate-proof");
+
+        foreach (var candidate in new[] { "structured", "fresh-subworkflow", "hybrid" })
+        {
+            var baseline = await ExecuteCandidateAsync(candidate, maximumConcurrentReservations: 2,
+                holdDispatchUntilReservationRejected: false);
+            Assert.NotNull(baseline.Output);
+            Assert.Equal(2, baseline.DispatchedCalls);
+            Assert.Equal(2, baseline.MaximumConcurrentCalls);
+            Assert.Equal(2, baseline.MaximumPendingReservations);
+            Assert.Equal(2, baseline.Events.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
+            Assert.Equal(2, baseline.Events.Count(evt => evt.Kind == ExecutionEventKinds.ToolCompleted));
+            Assert.Contains(baseline.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+
+            var limited = await ExecuteCandidateAsync(candidate, maximumConcurrentReservations: 1,
+                holdDispatchUntilReservationRejected: true);
+            Assert.Null(limited.Output);
+            Assert.True(limited.ReservationRejected);
+            Assert.Equal(1, limited.DispatchedCalls);
+            Assert.Equal(2, limited.MaximumConcurrentCalls);
+            Assert.Equal(1, limited.MaximumPendingReservations);
+            Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+            Assert.Single(limited.Events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+            Assert.DoesNotContain(limited.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+            Assert.Contains(limited.Events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+        }
+
+        async Task<CandidateMcpReservationResult> ExecuteCandidateAsync(string candidate,
+            int maximumConcurrentReservations, bool holdDispatchUntilReservationRejected)
+        {
+            using var store = new ProofRunStore(revision, input, sqlite);
+            var recorder = new ReservedEvidenceProofRecorder(store, maximumEvents: 512,
+                maximumBytes: 4_000_000, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
+                maximumOutcomeBytes: 32_000,
+                maximumConcurrentOutcomeReservations: maximumConcurrentReservations,
+                reservationRequestKind: ExecutionEventKinds.ToolAuthorized,
+                reservationOutcomeKind: ExecutionEventKinds.ToolCompleted);
+            var tools = new ParallelMcpBroker(
+                releaseAfterReservationRejected: holdDispatchUntilReservationRejected ? recorder.ReservationRejected : null);
+            string? output = null;
+
+            if (candidate == "structured")
+            {
+                try
+                {
+                    var result = await new WorkflowRunner(tools)
+                        .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                            recorder.RecordResequencedAsync);
+                    output = result.Output;
+                }
+                catch (EvidenceBudgetExhaustedException) when (recorder.ReservationRejected.IsCompleted) { }
+            }
+            else if (candidate == "fresh-subworkflow")
+            {
+                await RecordRootAsync(ExecutionEventKinds.Started);
+                var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder,
+                    new EchoAgentExecutor(), tools);
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                var failed = false;
+                await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+                await foreach (var evt in run.WatchStreamAsync())
+                {
+                    if (evt is WorkflowOutputEvent { Data: string value }) output = value;
+                    if (evt is WorkflowErrorEvent) failed = true;
+                }
+                await RecordRootAsync(failed || output is null ? ExecutionEventKinds.Failed : ExecutionEventKinds.Completed);
+            }
+            else
+            {
+                var result = await ExecuteHybridBudgetLoopAsync(store, revision, recorder,
+                    new EchoAgentExecutor(), tools, input);
+                output = result.Output;
+            }
+
+            var events = recorder.Snapshot();
+            AssertPersistedSequence(store, events, output is null ? "failed" : "completed");
+            Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
+            return new(output, events, tools.DispatchedCalls, tools.MaximumConcurrentCalls,
+                recorder.MaximumPendingOutcomeReservationsObserved, recorder.ReservationRejected.IsCompleted);
+
+            ValueTask RecordRootAsync(string kind) => recorder.RecordResequencedAsync(new ExecutionEvent(
+                store.RunId, store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow, kind));
+        }
+    }
+
     private sealed record CandidateReservationResult(string? Output, ExecutionEvent[] Events, int ProviderCalls,
         int MaximumConcurrentModelCalls, int MaximumPendingReservations, bool ReservationRejected);
+
+    private sealed record CandidateMcpReservationResult(string? Output, ExecutionEvent[] Events, int DispatchedCalls,
+        int MaximumConcurrentCalls, int MaximumPendingReservations, bool ReservationRejected);
 
     private sealed record CandidateBudgetResult(string? Output, ExecutionEvent[] Events, int ModelCalls,
         string[] ToolQueries, int PendingOutcomeReservations, long PersistedEventBytes,
@@ -3619,8 +3719,10 @@ public sealed class ArrayIterationVawBodyProofTests
         private readonly int reservedFailureEvents;
         private readonly long maximumBytes;
         private readonly long reservedFailureBytes;
-        private readonly long maximumModelOutcomeBytes;
+        private readonly long maximumOutcomeBytes;
         private readonly int maximumConcurrentOutcomeReservations;
+        private readonly string reservationRequestKind;
+        private readonly string reservationOutcomeKind;
         private readonly object gate = new();
         private readonly List<ExecutionEvent> events = [];
         private readonly TaskCompletionSource reservationRejected = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -3634,18 +3736,22 @@ public sealed class ArrayIterationVawBodyProofTests
         private long persistedEventBytes;
 
         public ReservedEvidenceProofRecorder(ProofRunStore runStore, int maximumEvents, long maximumBytes,
-            int reservedFailureEvents, long reservedFailureBytes, long maximumModelOutcomeBytes,
-            int maximumConcurrentOutcomeReservations = int.MaxValue)
+            int reservedFailureEvents, long reservedFailureBytes, long maximumOutcomeBytes,
+            int maximumConcurrentOutcomeReservations = int.MaxValue,
+            string reservationRequestKind = ExecutionEventKinds.ModelRequested,
+            string reservationOutcomeKind = ExecutionEventKinds.ModelResponded)
         {
             this.runStore = runStore;
             ordinaryEventLimit = maximumEvents - reservedFailureEvents;
             this.maximumBytes = maximumBytes;
             this.reservedFailureEvents = reservedFailureEvents;
             this.reservedFailureBytes = reservedFailureBytes;
-            this.maximumModelOutcomeBytes = maximumModelOutcomeBytes;
+            this.maximumOutcomeBytes = maximumOutcomeBytes;
             this.maximumConcurrentOutcomeReservations = maximumConcurrentOutcomeReservations;
+            this.reservationRequestKind = reservationRequestKind;
+            this.reservationOutcomeKind = reservationOutcomeKind;
             if (ordinaryEventLimit < 0 || reservedFailureEvents < FailureEvidenceKinds.Count || maximumBytes < reservedFailureBytes ||
-                reservedFailureBytes < 0 || maximumModelOutcomeBytes < 0 || maximumConcurrentOutcomeReservations < 1)
+                reservedFailureBytes < 0 || maximumOutcomeBytes < 0 || maximumConcurrentOutcomeReservations < 1)
                 throw new ArgumentOutOfRangeException(nameof(maximumEvents));
         }
 
@@ -3674,8 +3780,8 @@ public sealed class ArrayIterationVawBodyProofTests
         private ValueTask RecordLocked(ExecutionEvent evt)
         {
             var bytes = EventBytes(evt);
-            var isRequest = evt.Kind == ExecutionEventKinds.ModelRequested;
-            var isOutcome = evt.Kind == ExecutionEventKinds.ModelResponded;
+            var isRequest = evt.Kind == reservationRequestKind;
+            var isOutcome = evt.Kind == reservationOutcomeKind;
             var isFailureEvidence = FailureEvidenceKinds.Contains(evt.Kind);
 
             if (isRequest && pendingOutcomeReservations >= maximumConcurrentOutcomeReservations)
@@ -3684,13 +3790,13 @@ public sealed class ArrayIterationVawBodyProofTests
                 throw new EvidenceBudgetExhaustedException();
             }
             if (isRequest && (ordinaryEvents + pendingOutcomeReservations + 2 > ordinaryEventLimit ||
-                ordinaryBytes + pendingOutcomeBytes + bytes + maximumModelOutcomeBytes > maximumBytes - reservedFailureBytes))
+                ordinaryBytes + pendingOutcomeBytes + bytes + maximumOutcomeBytes > maximumBytes - reservedFailureBytes))
             {
                 reservationRejected.TrySetResult();
                 throw new EvidenceBudgetExhaustedException();
             }
-            if (isOutcome && (pendingOutcomeReservations == 0 || bytes > maximumModelOutcomeBytes ||
-                ordinaryBytes + pendingOutcomeBytes - maximumModelOutcomeBytes + bytes > maximumBytes - reservedFailureBytes))
+            if (isOutcome && (pendingOutcomeReservations == 0 || bytes > maximumOutcomeBytes ||
+                ordinaryBytes + pendingOutcomeBytes - maximumOutcomeBytes + bytes > maximumBytes - reservedFailureBytes))
                 throw new InvalidOperationException("The model outcome exceeded its proof reservation.");
             if (isFailureEvidence && (failureEvents >= reservedFailureEvents || failureBytes + bytes > reservedFailureBytes))
                 throw new InvalidOperationException("The terminal failure evidence exceeded its proof reserve.");
@@ -3710,14 +3816,14 @@ public sealed class ArrayIterationVawBodyProofTests
                 pendingOutcomeReservations++;
                 maximumPendingOutcomeReservationsObserved = Math.Max(maximumPendingOutcomeReservationsObserved,
                     pendingOutcomeReservations);
-                pendingOutcomeBytes += maximumModelOutcomeBytes;
+                pendingOutcomeBytes += maximumOutcomeBytes;
             }
             else if (isOutcome)
             {
                 ordinaryEvents++;
                 ordinaryBytes += bytes;
                 pendingOutcomeReservations--;
-                pendingOutcomeBytes -= maximumModelOutcomeBytes;
+                pendingOutcomeBytes -= maximumOutcomeBytes;
             }
             else if (isFailureEvidence)
             {
@@ -3978,25 +4084,28 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     private sealed class ParallelMcpBroker(string? denyNode = null, string? failNode = null,
-        bool holdUntilCancelled = false, string? resultPayload = null) : INodeToolBroker
+        bool holdUntilCancelled = false, string? resultPayload = null,
+        Task? releaseAfterReservationRejected = null) : INodeToolBroker
     {
         private readonly ConcurrentQueue<ParallelToolCall> calls = new();
         private readonly TaskCompletionSource branchesStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int activeCalls;
         private int maximumConcurrentCalls;
+        private int dispatchedCalls;
 
         public int MaximumConcurrentCalls => maximumConcurrentCalls;
+        public int DispatchedCalls => dispatchedCalls;
         public ParallelToolCall[] Calls => [.. calls];
         public Task BothBranchesStarted => branchesStarted.Task;
         public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
         public INodeToolScope OpenScope(NodeInvocationContext invocation) =>
             new Scope(this, invocation.NodeId, invocation.InvocationId, invocation.Record,
-                denyNode, failNode, holdUntilCancelled, resultPayload);
+                denyNode, failNode, holdUntilCancelled, resultPayload, releaseAfterReservationRejected);
 
         private sealed class Scope(ParallelMcpBroker owner, string nodeId, Guid invocationId,
             Func<string, string?, ValueTask> record, string? denyNode, string? failNode,
-            bool holdUntilCancelled, string? resultPayload) : INodeToolScope
+            bool holdUntilCancelled, string? resultPayload, Task? releaseAfterReservationRejected) : INodeToolScope
         {
             public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default) =>
                 Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
@@ -4019,6 +4128,9 @@ public sealed class ArrayIterationVawBodyProofTests
                         throw new ToolAccessDeniedException();
                     }
                     await record(ExecutionEventKinds.ToolAuthorized, query);
+                    Interlocked.Increment(ref owner.dispatchedCalls);
+                    if (releaseAfterReservationRejected is not null)
+                        await releaseAfterReservationRejected;
                     if (nodeId == failNode)
                     {
                         await record(ExecutionEventKinds.ToolFailed, "Deterministic branch tool failure.");

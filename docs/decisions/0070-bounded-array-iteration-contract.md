@@ -90,6 +90,20 @@ run. File and SQLite cases pass for each candidate (2/2 per store). This is a
 test-only model-reservation comparison; MCP concurrency, byte-cap exhaustion,
 aggregate work limits, and production budget ownership remain open.
 
+`IteratorCandidates_ReserveConcurrentMcpOutcomesBeforeDispatch` now compares
+the same reservation boundary for a parallel direct-MCP body across structured,
+fresh-subworkflow, and hybrid candidates. The deterministic broker synchronizes
+both branches before authorization and holds the admitted call until a competing
+reservation is rejected. At capacity two, both calls dispatch, complete, and
+reach the join; at capacity one, only one call passes authorization/dispatch,
+the other is rejected before dispatch, its admitted sibling settles, the join is
+suppressed, and the run fails with a contiguous persisted prefix. File and
+SQLite cases pass for each candidate (2/2 per store). This is a candidate-harness
+proof using a controlled `INodeToolBroker`; it does not yet exercise parallel
+reservation through the production `McpToolBroker`, delegated MCP tools, byte
+cap exhaustion under concurrency, aggregate work limits, or production budget
+ownership. No scheduler or public cap is selected.
+
 `HybridFrameCoordinator_ExecutesUnifiedSequenceBodyPerActivation` exercises a
 current unified-schema body containing a two-output Sequence whose paths each
 invoke a direct MCP node. It executes the body for two nested activation
