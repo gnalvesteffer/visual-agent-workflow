@@ -726,14 +726,16 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
-    [InlineData(false, false, 8)]
-    [InlineData(true, false, 8)]
-    [InlineData(false, true, 8)]
-    [InlineData(true, true, 8)]
-    [InlineData(false, false, 1)]
-    [InlineData(true, false, 1)]
+    [InlineData(false, false, 8, 0)]
+    [InlineData(true, false, 8, 0)]
+    [InlineData(false, true, 8, 0)]
+    [InlineData(true, true, 8, 0)]
+    [InlineData(false, false, 1, 0)]
+    [InlineData(true, false, 1, 0)]
+    [InlineData(false, false, 8, int.MaxValue)]
+    [InlineData(true, false, 8, int.MaxValue)]
     public async Task ParallelDelegateFailure_PreservesUnsettledReservations(bool sqlite,
-        bool rejectChildOutcomeAppend, int maximumConcurrentReservations)
+        bool rejectChildOutcomeAppend, int maximumConcurrentReservations, int researcherFailureStatusCode)
     {
         const string providerId = "proof.delegate-model";
         var parentInstructions = "Parent instructions.";
@@ -794,7 +796,9 @@ public sealed class ArrayIterationVawBodyProofTests
             maximumConcurrentOutcomeReservations: maximumConcurrentReservations);
         var model = new ParallelDelegateEvidenceModel(parentInstructions, researcherInstructions,
             reviewerInstructions, "Review this proposal.", 64, failResearcher: !rejectChildOutcomeAppend,
-            failParentFollowup: true);
+            failParentFollowup: true, researcherFailureStatusCode: researcherFailureStatusCode is > 0
+                ? researcherFailureStatusCode
+                : null);
         var provider = new AgentProviderDescriptor(providerId, "Proof delegate model", "proof-chat-v1", true);
         var agents = new AgentNodeExecutor(
             [new AgentProviderRegistration(provider, () => new ParallelDelegateEvidenceChatClient(model))],
@@ -835,6 +839,29 @@ public sealed class ArrayIterationVawBodyProofTests
             Assert.True(recorder.MaximumPendingOutcomeReservationsObserved >= 2);
         }
         Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
+        if (researcherFailureStatusCode > 0)
+        {
+            var failureEvents = events.Where(evt =>
+            {
+                if (evt.Kind != ExecutionEventKinds.AgentFailed) return false;
+                using var envelope = JsonDocument.Parse(evt.Data!);
+                if (!envelope.RootElement.TryGetProperty("eventData", out var eventData) ||
+                    eventData.ValueKind != JsonValueKind.String) return false;
+                using var failurePayload = JsonDocument.Parse(eventData.GetString()!);
+                return failurePayload.RootElement.TryGetProperty("statusCode", out var statusCode) &&
+                    statusCode.GetInt32() == researcherFailureStatusCode;
+            }).ToArray();
+            Assert.True(failureEvents.Length == 1,
+                $"Expected one provider status failure envelope, observed: {string.Join(" | ", events.Where(evt => evt.Kind == ExecutionEventKinds.AgentFailed).Select(evt => evt.Data))}");
+            var maximumShapeFailure = Assert.Single(failureEvents);
+            var failureEnvelopeBytes = events.Where(evt => evt.Kind is ExecutionEventKinds.AgentFailed or
+                    ExecutionEventKinds.NodeFailed or ExecutionEventKinds.Failed)
+                .Sum(EventBytes);
+            Assert.True(EventBytes(maximumShapeFailure) < 1_000);
+            Assert.True(failureEnvelopeBytes < 64_000);
+            Console.WriteLine($"Maximum provider status failure event: {EventBytes(maximumShapeFailure)} UTF-8 bytes; " +
+                $"delegated failure envelope: {failureEnvelopeBytes} bytes.");
+        }
 
         var teamFailureBytes = events.Where(evt => evt.Kind is ExecutionEventKinds.AgentTeamFailed or
                 ExecutionEventKinds.AgentFailed or ExecutionEventKinds.Failed)
@@ -2035,7 +2062,8 @@ public sealed class ArrayIterationVawBodyProofTests
 
     private sealed class ParallelDelegateEvidenceModel(string parentInstructions, string researcherInstructions,
         string reviewerInstructions, string task, int delegateOutputCharacters, bool failResearcher = false,
-        bool failParentFollowup = false, bool blockDelegatesUntilCancelled = false)
+        bool failParentFollowup = false, bool blockDelegatesUntilCancelled = false,
+        int? researcherFailureStatusCode = null)
     {
         private readonly ConcurrentQueue<DelegatedPrompt> prompts = new();
         private readonly TaskCompletionSource bothDelegatesStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2084,7 +2112,11 @@ public sealed class ArrayIterationVawBodyProofTests
                 if (blockDelegatesUntilCancelled)
                     await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
                 if (failResearcher && instructions == researcherInstructions)
+                {
+                    if (researcherFailureStatusCode is { } statusCode)
+                        throw new AgentProviderRequestException(AgentProviderFailureKind.Unavailable, statusCode);
                     throw new InvalidOperationException("Deterministic researcher failure.");
+                }
                 if (failResearcher && instructions == reviewerInstructions)
                     await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
                 return new ChatResponse(new ChatMessage(ChatRole.Assistant, output))

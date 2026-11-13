@@ -300,9 +300,16 @@ will be introduced.
       File and SQLite retain both child identities, team cancellation, and the
       cancelled run; both unanswered child calls retain their reservations
       (2/2 store cases).
-    - [ ] Complete the remaining proof for maximum-shaped error envelopes and
-      timeout-specific settlement. Current harness is test-only and
-      selects no aggregate caps; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Exercise the maximum safe provider-failure shape in the delegated
+      path, using `int.MaxValue` for the HTTP status. Both stores persist the
+      provider error and complete failure envelope within the proof reserve
+      (2/2 store cases).
+    - [ ] Implement and prove the reviewed typed failure envelope: safe,
+      actionable categories; no raw MCP/host exception text in durable events
+      or model feedback by default; preserve fatal/recoverable/uncertain and
+      cancellation dispositions. Then complete timeout-specific settlement.
+      The review is recorded in [Decision 0070](decisions/0070-bounded-array-iteration-contract.md);
+      current reservations remain test-only and select no aggregate caps.
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable

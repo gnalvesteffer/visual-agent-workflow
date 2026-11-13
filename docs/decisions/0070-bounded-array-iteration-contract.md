@@ -345,8 +345,16 @@ the parent outcome reservation remains unsettled (2/2 stores). These remain
 test-only proofs. A synchronized root cancellation after both delegated model
 calls enter the provider retains both child identities and team cancellation;
 the two unanswered model requests remain reserved and the run is cancelled in
-both stores (2/2 cases). Maximum-shaped error envelopes and timeout-specific
-settlement remain uncovered. The full Agent Framework suite passes (295/295).
+both stores (2/2 cases). A universal maximum failure envelope and timeout-
+specific settlement remain uncovered. The maximum safe provider error shape
+was then measured in the delegated failure path using `HTTP int.MaxValue`; its
+`agent.failed` envelope is 926 UTF-8 bytes and the complete delegated failure
+evidence is 4,789 bytes in both stores, within the 64,000-byte test reserve.
+This does not bound MCP/host exception messages that are copied into failure
+evidence, so those envelopes still need an explicit bound before a universal
+maximum can be claimed. Timeout-specific settlement also remains uncovered.
+These tests select no production aggregate caps. The full Agent Framework
+suite passes (297/297).
 
 `ArrayIterationVawBodyProofTests.ModelRequestEvidenceAppendFailure_PreventsProviderDispatch`
 injects a run-event sink failure while persisting `model.requested`. Through
@@ -368,6 +376,21 @@ accepts the event. This proves post-dispatch append recovery for one tool
 completion event; it does not establish terminal capacity under a full event
 budget, event-count exhaustion, or behavior when failure/terminal events
 themselves cannot be appended.
+
+### Reviewed failure-envelope direction
+
+A three-role review recommends a typed, bounded failure envelope with
+actionable category-specific safe messages and bounded structured metadata
+where its meaning is stable. Arbitrary host exception messages and MCP
+server-declared error text should not enter durable run evidence or model
+correction feedback by default: length truncation limits size but does not
+remove secrets or user data. Preserve existing fatal, recoverable, cancelled,
+timed-out, and outcome-unknown dispositions exactly. The repository currently
+has no host diagnostic lookup/retention contract, so do not imply that a
+correlation ID can retrieve richer details. This is reviewed direction, not
+implemented behavior; compatibility, user-facing diagnostics, and worst-case
+serialized envelopes still need an implementation proof before aggregate
+evidence limits can be selected.
 
 The adjudicated next proof distinguishes capacity from storage guarantees:
 admission requires a request, one bounded outcome, and failure evidence to be
