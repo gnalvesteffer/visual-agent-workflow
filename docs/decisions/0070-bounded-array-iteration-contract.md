@@ -1,5 +1,30 @@
 # Decision 0070: Bounded array iteration needs an execution and evidence budget
 
+## Current review outcome (2026-11-13)
+
+The three-role architecture review returned **REVISE**: do not select either
+existing candidate for production implementation yet. Extend the proof matrix
+with a hybrid candidate in which VAW owns item sequencing, nested iterator
+identity, nearest-loop `Break`, shared budgets, and run lifecycle, while Agent
+Framework owns static routing and joins inside each body. This is a candidate
+to test, not an approved production architecture. The review found that the
+current subworkflow candidate has stronger production-body integration
+evidence, while the structured candidate has stronger activation-state
+evidence; neither demonstrates the full graph-capability and shared-budget
+contract. The hybrid may still split lifecycle ownership and duplicate
+semantics, so compare it directly rather than assuming its benefits.
+
+The next architecture proof must run the same representative graph through the
+structured, fresh-subworkflow, and hybrid candidates against pinned Agent
+Framework 1.26.0. Compare typed item/index values, empty and multi-item input,
+conditional routing, parallel joins, nested loops and nearest-loop `Break`,
+Sequence and collaboration compatibility, cancellation races, failure
+attribution, production adapters, file and SQLite stores, and atomic shared
+work/evidence budgets. Preserve checkpoint recovery as out of scope until frame
+capture and restoration are proven. No public iterator node or Studio authoring
+should be implemented before this comparison resolves one coherent lifecycle,
+cancellation, join, and budget owner.
+
 ## Status
 
 Architecture proof required; no iterator behavior is shipped.

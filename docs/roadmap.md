@@ -174,7 +174,10 @@ will be introduced.
     parity.
     See `ArrayIterationSubworkflowProofTests` and
     `ArrayIterationVawBodyProofTests`.
-  - [ ] Candidate structured scheduler and full shared proof matrix remain open.
+  - [ ] Compare the structured scheduler, fresh Agent Framework subworkflow,
+    and newly added hybrid proof candidate on the same full capability and
+    shared-budget matrix. The 2026-11-13 three-role review returned REVISE and
+    selected no production architecture; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Add a non-production candidate-1 contract fixture proving nested frame
       identity, activation-scoped runtime values and variables, nearest-loop
       lookup, one-shot concurrent fork release, and cancellation before the
