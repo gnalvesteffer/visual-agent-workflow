@@ -182,8 +182,14 @@ will be introduced.
       and parent parameter inheritance around the production Agent/MCP body;
       verify scoped events, variable state, and a production parallel join
       through file and SQLite stores (4/4), with the Agent Framework suite
-      passing 320/320. Nested `Break`, join failure/cancellation races, and
-      shared atomic budgets remain open.
+      passing 320/320.
+    - [x] Add controlled nested cancellation and parallel failure cases: cancel
+      an active production Agent under a child frame, and fail one joined
+      branch after its sibling completes; verify failure attribution, join
+      suppression, and no next-item dispatch in file and SQLite stores (4/4).
+      The full Agent Framework suite passes 322/322.
+    - [ ] Exercise nested `Break` dispatch and shared atomic budgets through the
+      hybrid candidate. Other join/cancellation races also remain open.
     - [x] Add a non-production candidate-1 contract fixture proving nested frame
       identity, activation-scoped runtime values and variables, nearest-loop
       lookup, one-shot concurrent fork release, and cancellation before the

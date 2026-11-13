@@ -37,10 +37,13 @@ case also proves that the production Agent Framework body completes its
 two-branch join beneath a nested frame, with both branch completions and join
 arrivals attributed to the child scope in file and SQLite stores. Both hybrid
 proof theories pass (4/4 cases), and the full Agent Framework suite passes
-320/320. These are representative nested success cases; nested `Break`
-dispatch, nested join failure/cancellation races, and shared atomic
-work/evidence budgets remain unproven. The hybrid comparison advances but does
-not select the architecture.
+322/322. Additional hybrid cases verify explicit cancellation of a nested
+production Agent activation and a synchronized parallel failure after the
+sibling Agent completes, suppressing the join and any following nested item in
+both stores. The focused nested cancellation and join-failure variants pass
+(4/4). These are representative controlled outcomes; nested `Break` dispatch,
+other join/cancellation races, and shared atomic work/evidence budgets remain
+unproven. The hybrid comparison advances but does not select the architecture.
 
 ## Status
 

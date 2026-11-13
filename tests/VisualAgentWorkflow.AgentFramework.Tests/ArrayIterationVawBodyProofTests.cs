@@ -1107,6 +1107,50 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task HybridFrameCoordinator_FailedNestedParallelBranchSuppressesJoin(bool sqlite)
+    {
+        var definition = ParallelBodyDefinition();
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition, "array-iteration-hybrid-nested-join-failure-proof");
+        const string input = "[\"north\",\"must-not-run\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore);
+        var parentFrame = new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null,
+            "outer-loop", 4, "outer", ImmutableSortedDictionary<string, string>.Empty);
+        var rightBranchArrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var agents = new FirstSuccessThenFailAgentExecutor(rightBranchArrived);
+        ValueTask Observe(ExecutionEvent evt)
+        {
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-right")
+                rightBranchArrived.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+        var iterator = new PerItemWorkflowExecutor(runStore.RunId, revision, recorder, agents,
+            new EchoToolBroker(), observeEvent: Observe, parentFrame: parentFrame, loopNodeId: "inner-loop");
+        var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+
+        await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+        var workflowFailed = false;
+        await foreach (var evt in run.WatchStreamAsync())
+            workflowFailed |= evt is WorkflowErrorEvent;
+        recorder.FailRoot();
+
+        Assert.True(workflowFailed);
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "failed");
+        const string failedScopeId = "outer-loop/4/inner-loop/0";
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "agent-right" && evt.ScopeId == failedScopeId);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed &&
+            evt.NodeId == "agent-left" && evt.ScopeId == failedScopeId);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "join" && evt.ScopeId == failedScopeId);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "outer-loop/4/inner-loop/1");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task FreshVawRunnerPerItem_ExecutesConcurrentMcpBranchesAndPersistsResults(bool sqlite)
     {
         var definition = ParallelMcpDefinition();
@@ -2250,7 +2294,7 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task FreshVawRunnerPerItem_CancelsActiveItemAndPersistsCancellation(bool sqlite)
+    public async Task HybridFrameCoordinator_CancelsNestedActiveItemAndPersistsCancellation(bool sqlite)
     {
         var definition = BodyDefinition();
         var revision = WorkflowRevision.Create(definition, "array-iteration-cancellation-proof");
@@ -2259,7 +2303,10 @@ public sealed class ArrayIterationVawBodyProofTests
         var recorder = new ProofRecorder(runStore);
         var agents = new BlockingAgentExecutor("hold");
         var tools = new EchoToolBroker();
-        var iterator = new PerItemWorkflowExecutor(runStore.RunId, revision, recorder, agents, tools);
+        var parentFrame = new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null,
+            "outer-loop", 4, "outer", ImmutableSortedDictionary<string, string>.Empty);
+        var iterator = new PerItemWorkflowExecutor(runStore.RunId, revision, recorder, agents, tools,
+            parentFrame: parentFrame, loopNodeId: "inner-loop");
         var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
 
         await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
@@ -2284,13 +2331,14 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Empty(tools.Queries);
         var events = recorder.Snapshot();
         AssertPersistedSequence(runStore, events, "cancelled");
-        var cancelledScope = events.Where(evt => evt.ScopeId == "array-loop/0").ToArray();
+        const string cancelledScopeId = "outer-loop/4/inner-loop/0";
+        var cancelledScope = events.Where(evt => evt.ScopeId == cancelledScopeId).ToArray();
         var agentStarted = Assert.Single(cancelledScope,
             evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent");
         var agentCancelled = Assert.Single(cancelledScope,
             evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == "agent");
         Assert.Equal(agentStarted.InvocationId, agentCancelled.InvocationId);
-        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "outer-loop/4/inner-loop/1");
     }
 
     private static WorkflowDefinition BodyDefinition(bool includeVariableStore = false, bool includeIndexParameter = false)
