@@ -62,8 +62,9 @@ file and SQLite variants pass (2/2), with persisted sequence/status and the
 serialized event-byte count checked. This proves only serial, cross-activation
 model evidence reservation in the hybrid test harness. It does not prove a
 production-owned budget context, aggregate work/model-turn/tool limits,
-concurrent reservations, delegated work, or all evidence shapes; those remain
-open and the candidate comparison remains unresolved.
+delegated work, or all evidence shapes. The later candidate comparison covers
+concurrent model and controlled-broker MCP reservations, but not production
+budget ownership; architecture selection remains unresolved.
 
 `IteratorCandidates_EnforceSharedEventAndByteBudgetsAcrossActivations` compares
 event-count and byte-cap exhaustion across the structured,
@@ -78,8 +79,8 @@ prefix and second model request, leaving a 1 KiB admission margin below the
 bounded outcome and terminal reserves. All three candidates reject that
 request before provider dispatch and preserve the same failed prefix in both
 stores. These are test-only serial comparisons; they do not prove concurrent
-MCP reservations, aggregate work limits, or production budget ownership and
-select no scheduler or public limit.
+production-broker reservations, aggregate work limits, or production budget
+ownership and select no scheduler or public limit.
 
 `IteratorCandidates_ReserveConcurrentModelOutcomesBeforeDispatch` compares the
 three candidates on a synchronized parallel-Agent body. With two outcome
@@ -87,8 +88,9 @@ reservations, both model requests and responses persist and the join completes;
 with one, the second request is rejected before provider dispatch, only one
 provider call occurs, the join is suppressed, and failure evidence closes the
 run. File and SQLite cases pass for each candidate (2/2 per store). This is a
-test-only model-reservation comparison; MCP concurrency, byte-cap exhaustion,
-aggregate work limits, and production budget ownership remain open.
+test-only model-reservation comparison; production MCP broker concurrency,
+byte-cap exhaustion under concurrency, aggregate work limits, and production
+budget ownership remain open.
 
 `IteratorCandidates_ReserveConcurrentMcpOutcomesBeforeDispatch` now compares
 the same reservation boundary for a parallel direct-MCP body across structured,
