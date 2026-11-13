@@ -187,7 +187,11 @@ will be introduced.
       an active production Agent under a child frame, and fail one joined
       branch after its sibling completes; verify failure attribution, join
       suppression, and no next-item dispatch in file and SQLite stores (4/4).
-      The full Agent Framework suite passes 322/322.
+    - [x] Cancel after both nested parallel Agent branches have entered; verify
+      each child invocation is cancelled under the right scope, the join does
+      not complete, and no later item starts in file and SQLite stores (2/2).
+      All five hybrid proof theories pass (10/10); the full Agent Framework
+      suite passes 324/324.
     - [ ] Exercise nested `Break` dispatch and shared atomic budgets through the
       hybrid candidate. Other join/cancellation races also remain open.
     - [x] Add a non-production candidate-1 contract fixture proving nested frame

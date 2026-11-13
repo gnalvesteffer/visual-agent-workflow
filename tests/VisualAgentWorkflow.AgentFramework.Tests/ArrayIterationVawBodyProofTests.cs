@@ -1151,6 +1151,57 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task HybridFrameCoordinator_CancelsNestedParallelBranchesBeforeNextItem(bool sqlite)
+    {
+        var definition = ParallelBodyDefinition();
+        var revision = WorkflowRevision.Create(definition, "array-iteration-hybrid-nested-join-cancel-proof");
+        const string input = "[\"north\",\"must-not-run\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore);
+        var parentFrame = new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null,
+            "outer-loop", 4, "outer", ImmutableSortedDictionary<string, string>.Empty);
+        var agents = new TwoBranchBlockingAgentExecutor();
+        var iterator = new PerItemWorkflowExecutor(runStore.RunId, revision, recorder, agents,
+            new EchoToolBroker(), parentFrame: parentFrame, loopNodeId: "inner-loop");
+        var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+
+        await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+        var watch = Task.Run(async () =>
+        {
+            await foreach (var _ in run.WatchStreamAsync()) { }
+        });
+
+        try
+        {
+            await agents.BothBranchesStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await run.CancelRunAsync();
+            await watch.WaitAsync(TimeSpan.FromSeconds(5));
+            recorder.CancelRoot();
+        }
+        finally
+        {
+            if (!watch.IsCompleted) await run.CancelRunAsync();
+        }
+
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "cancelled");
+        const string scopeId = "outer-loop/4/inner-loop/0";
+        foreach (var nodeId in new[] { "agent-left", "agent-right" })
+        {
+            var started = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId == nodeId && evt.ScopeId == scopeId);
+            var cancelled = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+                evt.NodeId == nodeId && evt.ScopeId == scopeId);
+            Assert.Equal(started.InvocationId, cancelled.InvocationId);
+        }
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "join" && evt.ScopeId == scopeId);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "outer-loop/4/inner-loop/1");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task FreshVawRunnerPerItem_ExecutesConcurrentMcpBranchesAndPersistsResults(bool sqlite)
     {
         var definition = ParallelMcpDefinition();
@@ -2858,6 +2909,30 @@ public sealed class ArrayIterationVawBodyProofTests
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             }
             return JsonSerializer.Serialize(new { query = input });
+        }
+    }
+
+    private sealed class TwoBranchBlockingAgentExecutor : IAgentNodeExecutor
+    {
+        private readonly ConcurrentDictionary<string, byte> started = new(StringComparer.Ordinal);
+
+        public TaskCompletionSource BothBranchesStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.parallel-cancellation", "Parallel cancellation proof", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            if (invocation.NodeId is not ("agent-left" or "agent-right"))
+                throw new InvalidOperationException($"Unexpected proof Agent node '{invocation.NodeId}'.");
+
+            started.TryAdd(invocation.NodeId, 0);
+            if (started.Count == 2) BothBranchesStarted.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("The cancelled branch unexpectedly resumed.");
         }
     }
 

@@ -35,14 +35,16 @@ ledger persisted through both file and SQLite stores (2/2 focused cases). The
 companion `HybridFrameCoordinator_ExecutesConfigurableParallelJoinUnderNestedActivation`
 case also proves that the production Agent Framework body completes its
 two-branch join beneath a nested frame, with both branch completions and join
-arrivals attributed to the child scope in file and SQLite stores. Both hybrid
-proof theories pass (4/4 cases), and the full Agent Framework suite passes
-322/322. Additional hybrid cases verify explicit cancellation of a nested
-production Agent activation and a synchronized parallel failure after the
-sibling Agent completes, suppressing the join and any following nested item in
-both stores. The focused nested cancellation and join-failure variants pass
-(4/4). These are representative controlled outcomes; nested `Break` dispatch,
-other join/cancellation races, and shared atomic work/evidence budgets remain
+arrivals attributed to the child scope in file and SQLite stores. Additional
+hybrid cases verify explicit cancellation of a nested production Agent
+activation, cancellation after both parallel Agent branches have entered, and
+a synchronized parallel failure after the sibling Agent completes. They
+preserve child-scope invocation identity, suppress the join, and prevent
+admission of the following nested item in both stores. The focused nested
+cancellation/failure variants pass (6/6); all five hybrid proof theories pass
+(10/10), and the full Agent Framework suite passes 324/324. These are
+representative controlled outcomes; nested `Break` dispatch, other
+join/cancellation races, and shared atomic work/evidence budgets remain
 unproven. The hybrid comparison advances but does not select the architecture.
 
 ## Status
