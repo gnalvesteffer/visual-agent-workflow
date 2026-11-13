@@ -907,6 +907,18 @@ a `running` prefix is not resumable
 execution, and the fallback failure does not recover the lost completion
 record.
 
+`IteratorCandidates_DataEvaluationAppendFailureStopsBeforeAgentDispatch`
+rejects persistence of the `uppercase` node's `data.evaluated` event while the
+same variable/index/Agent/MCP body runs through the structured, fresh
+subworkflow, and hybrid candidates. Across file and SQLite stores (6/6
+candidate/store cases), each candidate stops before Agent or MCP dispatch,
+does not complete the active iteration or start the next item, and persists a
+contiguous failed prefix that matches the reopened store. The rejected data
+event is absent. This compares one derived-data evidence append failure; it
+does not close the full data/function-call failure matrix or establish
+process-loss recovery or production budget ownership. The focused tests pass
+2/2 and the full Agent Framework suite passes 366/366.
+
 The public iterator contract must be Blueprint-style and composable with all
 existing graph capabilities. The proposed pins are an execution input, typed
 `array<T>` input, `Loop Body` execution output, typed `Array Element` data

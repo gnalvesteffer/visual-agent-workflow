@@ -460,6 +460,15 @@ will be introduced.
       prefix reads after reopening. The focused tests pass 4/4 and the full
       Agent Framework suite passes (362/362); see [Decision 0070](
       decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Compare a derived-data event append failure across all three
+      candidates and both stores. Rejecting the `uppercase` node's
+      `data.evaluated` event stops Agent/MCP dispatch and later items; the
+      rejected event is absent and the contiguous failed prefix matches after
+      reopening (6/6 cases). Focused tests pass 2/2 and the full Agent
+      Framework suite passes 366/366. This covers one data evaluator failure
+      point; broader graph/function-call evidence failures, process-loss
+      recovery, and production budget ownership remain open. See [Decision
+      0070](decisions/0070-bounded-array-iteration-contract.md).
     - [ ] Complete process-loss/interrupted-execution recovery and the
       remaining evidence matrix. Store reopening does not recover or resume
       execution; candidate reservations are not production budget ownership.

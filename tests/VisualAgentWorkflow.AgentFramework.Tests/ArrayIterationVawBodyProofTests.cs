@@ -3010,6 +3010,85 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_DataEvaluationAppendFailureStopsBeforeAgentDispatch(bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(
+            BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "array-iteration-candidate-data-evaluation-append-failure-proof");
+        const string input = "[\"first\",\"second\"]";
+
+        foreach (var candidate in new[] { "structured", "fresh-subworkflow", "hybrid" })
+        {
+            using var store = new ProofRunStore(revision, input, sqlite,
+                rejectedAppendPredicate: evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                    evt.NodeId == "uppercase");
+            var recorder = new ReservedEvidenceProofRecorder(store,
+                maximumEvents: 512, maximumBytes: 4_000_000, reservedFailureEvents: 8,
+                reservedFailureBytes: 64_000, maximumOutcomeBytes: 64_000);
+            var agents = new EchoAgentExecutor();
+            var tools = new EchoToolBroker();
+            string? output = null;
+
+            if (candidate == "structured")
+            {
+                try
+                {
+                    var result = await new WorkflowRunner(tools, agents)
+                        .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                            recorder.RecordResequencedAsync);
+                    output = result.Output;
+                }
+                catch (IOException)
+                {
+                    // The data evaluator ran, but the store rejected its evidence event.
+                }
+            }
+            else if (candidate == "fresh-subworkflow")
+            {
+                await recorder.RecordResequencedAsync(new ExecutionEvent(store.RunId,
+                    store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow,
+                    ExecutionEventKinds.Started));
+                var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder, agents, tools);
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                var failed = false;
+                await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+                await foreach (var evt in run.WatchStreamAsync())
+                {
+                    if (evt is WorkflowOutputEvent { Data: string value }) output = value;
+                    if (evt is WorkflowErrorEvent) failed = true;
+                }
+
+                await recorder.RecordResequencedAsync(new ExecutionEvent(store.RunId,
+                    store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow,
+                    failed ? ExecutionEventKinds.Failed : ExecutionEventKinds.Completed));
+            }
+            else
+            {
+                var result = await ExecuteHybridBudgetLoopAsync(store, revision, recorder, agents, tools, input);
+                output = result.Output;
+            }
+
+            var events = recorder.Snapshot();
+            Assert.Null(output);
+            Assert.Empty(agents.Inputs);
+            Assert.Empty(tools.Queries);
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                evt.NodeId == "uppercase");
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+            AssertPersistedSequence(store, events, "failed");
+
+            var reopened = store.ReopenStore().Get(store.RunId)!;
+            Assert.Equal("failed", reopened.Status);
+            Assert.Equal(events, reopened.Events);
+            Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_McpOutcomeAppendFailureStopsLaterActivations(bool sqlite)
     {
         const string input = "[\"first\",\"second\"]";
