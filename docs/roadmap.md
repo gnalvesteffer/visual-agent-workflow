@@ -227,9 +227,13 @@ will be introduced.
       architecture. A synchronized follow-up makes the right Agent enter and
       block before the left Agent fails; both candidates then persist matching
       failed/cancelled node lifecycles and suppress the join in file and SQLite
-      stores. The earlier failure-before-handler-entry window still differs,
-      so the lifecycle contract and architecture remain open. Dispatch/evidence
-      budgets and join-cancellation cases also remain open.
+      stores. The lifecycle contract and architecture remain open. A pre-admission
+      gate also confirms both candidates cancel a delivered sibling before its
+      `node.started` event or Agent adapter entry, without synthesizing a
+      `node.cancelled` event. Immediate failure before structured dispatch still
+      differs. Dispatch/evidence budgets and join-cancellation cases also remain
+      open. Both controlled lifecycle comparisons pass in file and SQLite
+      stores; the full Agent Framework suite passes (309/309).
     - [ ] Compare candidate budgets at atomic dispatch/evidence boundaries and
       prove exhaustion behavior. Store reopen/process loss, nested frames,
       typed iterator pins, Sequence, collaboration, and crash recovery also

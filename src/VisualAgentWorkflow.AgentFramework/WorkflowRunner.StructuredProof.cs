@@ -13,7 +13,7 @@ public sealed partial class WorkflowRunner
     internal async Task<WorkflowExecutionResult> ExecuteStructuredSchedulerProofAsync(Guid runId,
         WorkflowRevision revision, string input, IReadOnlyDictionary<string, string>? parameters,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default,
-        string? activationScopeId = null, bool emitRunLifecycle = true)
+        string? activationScopeId = null, bool emitRunLifecycle = true, IWorkflowExecutionGate? gate = null)
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(input);
@@ -39,7 +39,7 @@ public sealed partial class WorkflowRunner
         long sequence = 0;
         var executors = definition.Nodes.ToDictionary(entry => entry.Key,
             entry => (StringExecutor)new StringExecutor(entry.Key, entry.Value, runId, revision, resolvedParameters,
-                tools, agents, dataEvaluator, variableStore, EmitNodeEvent, null, null, revision, [],
+                tools, agents, dataEvaluator, variableStore, EmitNodeEvent, gate, null, revision, [],
                 collaborationOptions));
 
         async ValueTask Emit(string kind, string? nodeId = null, Guid? invocationId = null,
@@ -152,7 +152,7 @@ public sealed partial class WorkflowRunner
     internal async Task<WorkflowExecutionResult> ExecuteStructuredActivationSequenceProofAsync(Guid runId,
         WorkflowRevision bodyRevision, string jsonItems, string indexParameterId,
         IReadOnlyDictionary<string, string>? parameters, Func<ExecutionEvent, ValueTask> record,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, IWorkflowExecutionGate? gate = null)
     {
         ArgumentNullException.ThrowIfNull(bodyRevision);
         ArgumentNullException.ThrowIfNull(jsonItems);
@@ -203,7 +203,7 @@ public sealed partial class WorkflowRunner
                         ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated
                         ? ValueTask.CompletedTask
                         : Emit(evt.Kind, evt.NodeId, evt.InvocationId, scopeId, evt.Data, evt.ConnectionId),
-                    cancellationToken, scopeId, emitRunLifecycle: false);
+                    cancellationToken, scopeId, emitRunLifecycle: false, gate: gate);
                 if (result.Failed || result.Output is null)
                 {
                     await Emit(ExecutionEventKinds.Failed, "array-loop", iterationId, scopeId,
