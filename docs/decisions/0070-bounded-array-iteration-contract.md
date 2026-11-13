@@ -342,9 +342,11 @@ reservation matrix has eight file/SQLite cases. A separate parent-side
 `model.responded` append failure rejects the event containing the delegated
 team function call; no child dispatch occurs, failure evidence persists, and
 the parent outcome reservation remains unsettled (2/2 stores). These remain
-test-only proofs. Maximum-shaped error envelopes and timeout/other
-cancellation settlement remain uncovered. The full Agent Framework suite
-passes (293/293).
+test-only proofs. A synchronized root cancellation after both delegated model
+calls enter the provider retains both child identities and team cancellation;
+the two unanswered model requests remain reserved and the run is cancelled in
+both stores (2/2 cases). Maximum-shaped error envelopes and timeout-specific
+settlement remain uncovered. The full Agent Framework suite passes (295/295).
 
 `ArrayIterationVawBodyProofTests.ModelRequestEvidenceAppendFailure_PreventsProviderDispatch`
 injects a run-event sink failure while persisting `model.requested`. Through

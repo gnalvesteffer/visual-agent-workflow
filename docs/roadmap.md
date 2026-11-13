@@ -296,8 +296,12 @@ will be introduced.
       team function call at the file/SQLite store boundary. The call is not
       dispatched, no child starts, terminal failure evidence persists, and
       its reservation remains unsettled (2/2 store cases).
+    - [x] Cancel after both delegated model calls are synchronized in flight.
+      File and SQLite retain both child identities, team cancellation, and the
+      cancelled run; both unanswered child calls retain their reservations
+      (2/2 store cases).
     - [ ] Complete the remaining proof for maximum-shaped error envelopes and
-      timeout/other cancellation settlement. Current harness is test-only and
+      timeout-specific settlement. Current harness is test-only and
       selects no aggregate caps; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.

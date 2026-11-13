@@ -939,6 +939,94 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ParallelDelegateCancellation_PreservesUnsettledChildReservations(bool sqlite)
+    {
+        const string providerId = "proof.delegate-cancellation";
+        const string parentInstructions = "Parent instructions.";
+        const string researcherInstructions = "Research instructions.";
+        const string reviewerInstructions = "Review instructions.";
+        const string task = "Review this proposal.";
+        var profiles = new[]
+        {
+            AgentProfile.Create("researcher", "1", "Researcher", "Find relevant facts.", providerId,
+                researcherInstructions, []),
+            AgentProfile.Create("reviewer", "1", "Reviewer", "Check the answer.", providerId,
+                reviewerInstructions, [])
+        };
+        var agent = new AgentConfiguration(providerId, null, parentInstructions, [])
+        {
+            Delegates = [.. profiles.Select(profile => new AgentProfileReference(profile.Id, profile.Version,
+                profile.ContentHash!))]
+        };
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("agent", new(NodeTypes.Agent, "1.0.0", Agent: agent))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-agent", new(new("input", "out"), new("agent", "in"), "data"))
+            .Add("agent-output", new(new("agent", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-agent", Edge("input", "then", "agent", "execute"))
+            .Add("agent-output", Edge("agent", "out", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-delegated-cancellation-proof", "input", nodes, data)
+        {
+            AgentProfiles = profiles.ToImmutableSortedDictionary(profile => profile.Id + "@" + profile.Version,
+                profile => profile, StringComparer.Ordinal),
+            ExecutionConnections = execution
+        };
+        var revision = WorkflowRevision.Create(definition, "delegate-cancellation-proof");
+        using var runStore = new ProofRunStore(revision, task, sqlite);
+        var recorder = new ReservedEvidenceProofRecorder(runStore,
+            maximumEvents: 512,
+            maximumBytes: 4_000_000,
+            reservedFailureEvents: 8,
+            reservedFailureBytes: 64_000,
+            maximumModelOutcomeBytes: 64_000,
+            maximumConcurrentOutcomeReservations: 8);
+        var model = new ParallelDelegateEvidenceModel(parentInstructions, researcherInstructions,
+            reviewerInstructions, task, delegateOutputCharacters: 64, blockDelegatesUntilCancelled: true);
+        var provider = new AgentProviderDescriptor(providerId, "Proof delegate model", "proof-chat-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new ParallelDelegateEvidenceChatClient(model))],
+            new EchoToolBroker());
+        using var cancellation = new CancellationTokenSource();
+        var executionTask = new WorkflowRunner(agents: agents).ExecuteWithOutcomeAsync(
+            runStore.RunId, revision, task, null, recorder.RecordAsync, cancellation.Token);
+
+        await model.BothDelegateCallsStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        var failure = await Record.ExceptionAsync(() => executionTask);
+
+        Assert.NotNull(failure);
+        Assert.Equal(2, model.MaximumConcurrentDelegateCalls);
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "cancelled");
+        var parentInvocationId = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId == "agent").InvocationId;
+        Assert.Equal(3, events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded &&
+            evt.InvocationId == parentInvocationId);
+        Assert.Equal(2, events.Where(evt => evt.Kind == ExecutionEventKinds.AgentStarted &&
+                evt.InvocationId != parentInvocationId)
+            .Select(evt => evt.InvocationId).Distinct().Count());
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentTeamStarted);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentTeamFailed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Cancelled);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.AgentTeamCompleted);
+        var unsettledModelCalls = events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested) -
+            events.Count(evt => evt.Kind == ExecutionEventKinds.ModelResponded);
+        Assert.Equal(2, unsettledModelCalls);
+        Assert.Equal(unsettledModelCalls, recorder.PendingOutcomeReservations);
+        Assert.Equal(2, recorder.MaximumPendingOutcomeReservationsObserved);
+        Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
+        Console.WriteLine((sqlite ? "sqlite" : "file") + " cancelled parallel delegates: " +
+            $"{events.Length} events, {recorder.PendingOutcomeReservations} unsettled child model reservations.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ModelRequestEvidenceAppendFailure_PreventsProviderDispatch(bool sqlite)
     {
         const string providerId = "proof.concurrent-model";
@@ -1947,7 +2035,7 @@ public sealed class ArrayIterationVawBodyProofTests
 
     private sealed class ParallelDelegateEvidenceModel(string parentInstructions, string researcherInstructions,
         string reviewerInstructions, string task, int delegateOutputCharacters, bool failResearcher = false,
-        bool failParentFollowup = false)
+        bool failParentFollowup = false, bool blockDelegatesUntilCancelled = false)
     {
         private readonly ConcurrentQueue<DelegatedPrompt> prompts = new();
         private readonly TaskCompletionSource bothDelegatesStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1957,6 +2045,7 @@ public sealed class ArrayIterationVawBodyProofTests
 
         public DelegatedPrompt[] Prompts => [.. prompts];
         public int MaximumConcurrentDelegateCalls => maximumConcurrentDelegateCalls;
+        public Task BothDelegateCallsStarted => bothDelegatesStarted.Task;
 
         public async Task<ChatResponse> RespondAsync(IEnumerable<ChatMessage> messages, ChatOptions? options,
             CancellationToken cancellationToken)
@@ -1992,6 +2081,8 @@ public sealed class ArrayIterationVawBodyProofTests
             try
             {
                 await bothDelegatesStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+                if (blockDelegatesUntilCancelled)
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
                 if (failResearcher && instructions == researcherInstructions)
                     throw new InvalidOperationException("Deterministic researcher failure.");
                 if (failResearcher && instructions == reviewerInstructions)
