@@ -1005,6 +1005,53 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task HybridFrameCoordinator_UsesFreshProductionWorkflowBodyAndOneNestedRunLedger(bool sqlite)
+    {
+        var definition = NestedBodyDefinition();
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition, "array-iteration-hybrid-nested-frame-proof");
+        const string input = "[\"alpha\",\"beta\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore);
+        var outerParameters = ImmutableSortedDictionary<string, string>.Empty.Add("outerIndex", "7");
+        var parentFrame = new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null,
+            "outer-loop", 7, "outer", outerParameters);
+        var agents = new EchoAgentExecutor();
+        var tools = new EchoToolBroker();
+        var iterator = new PerItemWorkflowExecutor(runStore.RunId, revision, recorder, agents, tools,
+            parentFrame: parentFrame, loopNodeId: "inner-loop");
+        var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+
+        await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+        string? output = null;
+        await foreach (var evt in run.WatchStreamAsync())
+            if (evt is WorkflowOutputEvent { Data: string value }) output = value;
+        recorder.CompleteRoot();
+
+        Assert.Equal("echo:ALPHA:0/7;echo:BETA:1/7", output);
+        Assert.Equal(["ALPHA:0/7", "BETA:1/7"], agents.Inputs);
+        Assert.Equal(agents.Inputs, tools.Queries);
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "completed");
+        for (var index = 0; index < 2; index++)
+        {
+            var scopeId = $"outer-loop/7/inner-loop/{index}";
+            var scoped = events.Where(evt => evt.ScopeId == scopeId).ToArray();
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.NodeId == "inner-loop");
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.NodeId == "inner-loop");
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent");
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "tool");
+            Assert.Equal("default", ReadVariablePreviousValue(scoped, "set"));
+            Assert.Equal(index == 0 ? "alpha" : "beta",
+                ReadVariableValue(scoped, ExecutionEventKinds.VariableRead, "get"));
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task FreshVawRunnerPerItem_ExecutesConfigurableParallelJoin(bool sqlite)
     {
         var definition = ParallelBodyDefinition();
@@ -2471,7 +2518,8 @@ public sealed class ArrayIterationVawBodyProofTests
     private sealed class PerItemWorkflowExecutor(Guid runId, WorkflowRevision revision, ProofRecorder recorder,
         IAgentNodeExecutor agents, INodeToolBroker tools, IWorkflowExecutionGate? gate = null,
         Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
-        Func<ExecutionEvent, ValueTask>? observeEvent = null)
+        Func<ExecutionEvent, ValueTask>? observeEvent = null,
+        WorkflowRunner.StructuredActivationFrame? parentFrame = null, string loopNodeId = "array-loop")
         : Executor<string, string>("array-iterator-proof", declareCrossRunShareable: true)
     {
         public override async ValueTask<string> HandleAsync(string input, IWorkflowContext context,
@@ -2483,9 +2531,19 @@ public sealed class ArrayIterationVawBodyProofTests
             for (var index = 0; index < items.Length; index++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var invocationId = Guid.NewGuid();
-                var scopeId = $"array-loop/{index}";
-                recorder.Append(ExecutionEventKinds.LoopIterationStarted, "array-loop", invocationId, scopeId);
+                var itemParameters = parentFrame?.Parameters.ToBuilder() ??
+                    ImmutableSortedDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
+                if (revision.Definition.Parameters?.ContainsKey("index") == true)
+                    itemParameters["index"] = index.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                var frameParameters = itemParameters.ToImmutable();
+                var frame = parentFrame?.Enter(loopNodeId, index, items[index], frameParameters) ??
+                    new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null, loopNodeId, index,
+                        items[index], frameParameters);
+                if (parentFrame is not null && frame.NearestLoop().Id != frame.Id)
+                    throw new InvalidOperationException("The child activation did not resolve its nearest loop frame.");
+                var invocationId = frame.Id;
+                var scopeId = frame.ScopeId;
+                recorder.Append(ExecutionEventKinds.LoopIterationStarted, loopNodeId, invocationId, scopeId);
                 ValueTask Record(ExecutionEvent evt)
                 {
                     if (evt.Kind is not (ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
@@ -2497,19 +2555,17 @@ public sealed class ArrayIterationVawBodyProofTests
                     }
                     return ValueTask.CompletedTask;
                 }
-                var itemParameters = revision.Definition.Parameters is null ? null :
-                    ImmutableSortedDictionary<string, string>.Empty.Add("index", index.ToString());
                 var runner = new WorkflowRunner(tools, agents);
                 var result = afterNodeStarted is not null
-                    ? await runner.ExecuteAfterNodeStartGateProofAsync(runId, revision, items[index], itemParameters,
+                    ? await runner.ExecuteAfterNodeStartGateProofAsync(runId, revision, items[index], frameParameters,
                         Record, afterNodeStarted, cancellationToken)
                     : gate is null
-                        ? await runner.ExecuteWithOutcomeAsync(runId, revision, items[index], itemParameters, Record, cancellationToken)
+                        ? await runner.ExecuteWithOutcomeAsync(runId, revision, items[index], frameParameters, Record, cancellationToken)
                         : await runner.ExecuteControlledWithParametersAndOutcomeAsync(runId, revision,
-                            items[index], itemParameters, Record, gate, cancellationToken);
+                            items[index], frameParameters, Record, gate, cancellationToken);
                 if (result.Failed || result.Output is null)
                     throw new InvalidOperationException($"Body workflow failed at array index {index}.");
-                recorder.Append(ExecutionEventKinds.LoopIterationCompleted, "array-loop", invocationId, scopeId);
+                recorder.Append(ExecutionEventKinds.LoopIterationCompleted, loopNodeId, invocationId, scopeId);
                 results.Add(result.Output);
             }
             return string.Join(';', results);

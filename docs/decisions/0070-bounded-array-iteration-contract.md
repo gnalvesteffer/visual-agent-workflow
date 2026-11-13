@@ -25,6 +25,18 @@ capture and restoration are proven. No public iterator node or Studio authoring
 should be implemented before this comparison resolves one coherent lifecycle,
 cancellation, join, and budget owner.
 
+The first hybrid increment extends `PerItemWorkflowExecutor` with immutable
+parent/child activation frames while each item still runs the production VAW
+workflow body, leaving static graph routing and joins inside Agent Framework.
+`HybridFrameCoordinator_UsesFreshProductionWorkflowBodyAndOneNestedRunLedger`
+verifies inherited outer parameters, nested scope identity, production Agent
+and direct-MCP execution, fresh variable state, and one monotonic evidence
+ledger persisted through both file and SQLite stores (2/2 focused cases). The
+full Agent Framework suite passes 320/320. This is one nested production body
+case; it does not exercise nested `Break` dispatch, configured parallel joins
+under a nested frame, or shared atomic work/evidence budgets. It therefore
+advances the hybrid comparison but does not select the architecture.
+
 ## Status
 
 Architecture proof required; no iterator behavior is shipped.
