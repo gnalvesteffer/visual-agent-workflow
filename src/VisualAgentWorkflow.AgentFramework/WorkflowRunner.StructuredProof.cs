@@ -214,11 +214,14 @@ public sealed partial class WorkflowRunner
         IReadOnlyDictionary<string, string>? parameters, Func<ExecutionEvent, ValueTask> record,
         CancellationToken cancellationToken = default, IWorkflowExecutionGate? gate = null,
         Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
-        Action? executorSetCreated = null)
+        Action? executorSetCreated = null,
+        StructuredActivationFrame? parentFrame = null,
+        string activationLoopNodeId = "array-loop")
     {
         ArgumentNullException.ThrowIfNull(bodyRevision);
         ArgumentNullException.ThrowIfNull(jsonItems);
         ArgumentException.ThrowIfNullOrWhiteSpace(indexParameterId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(activationLoopNodeId);
         ArgumentNullException.ThrowIfNull(record);
         if (runId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(runId));
 
@@ -259,14 +262,20 @@ public sealed partial class WorkflowRunner
             for (var index = 0; index < items.Length; index++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var scopeId = $"array-loop/{index}";
-                var iterationId = Guid.NewGuid();
-                await Emit(ExecutionEventKinds.LoopIterationStarted, "array-loop", iterationId, scopeId);
-                var activationParameters = parameters?.ToDictionary(pair => pair.Key, pair => pair.Value,
+                var activationParameters = baseParameters?.ToDictionary(pair => pair.Key, pair => pair.Value,
                     StringComparer.Ordinal) ?? new Dictionary<string, string>(StringComparer.Ordinal);
+                if (parentFrame is not null)
+                    foreach (var (parameterId, value) in parentFrame.Parameters)
+                        activationParameters[parameterId] = value;
                 activationParameters[indexParameterId] = index.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 var frameParameters = activationParameters.ToImmutableSortedDictionary(StringComparer.Ordinal);
-                var frame = new StructuredActivationFrame(iterationId, null, "array-loop", index, items[index], frameParameters);
+                var frame = parentFrame?.Enter(activationLoopNodeId, index, items[index], frameParameters) ??
+                    new StructuredActivationFrame(Guid.NewGuid(), null, activationLoopNodeId, index, items[index], frameParameters);
+                var iterationId = frame.Id;
+                if (parentFrame is not null && frame.NearestLoop().Id != frame.Id)
+                    throw new InvalidOperationException("A nested activation did not resolve its nearest loop frame.");
+                var scopeId = frame.ScopeId;
+                await Emit(ExecutionEventKinds.LoopIterationStarted, activationLoopNodeId, iterationId, scopeId);
                 var variableStore = variableStores.GetOrAdd(iterationId, _ => new WorkflowVariableStore(bodyRevision.Definition));
                 var result = await ExecuteStructuredSchedulerProofCoreAsync(runId, bodyRevision, items[index],
                     activationParameters, evt => evt.Kind is ExecutionEventKinds.Started or
@@ -282,13 +291,13 @@ public sealed partial class WorkflowRunner
                     retainedSession: session);
                 if (result.Failed || result.Output is null)
                 {
-                    await Emit(ExecutionEventKinds.Failed, "array-loop", iterationId, scopeId,
+                    await Emit(ExecutionEventKinds.Failed, activationLoopNodeId, iterationId, scopeId,
                         $"Activation failed at index {index}.");
                     await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed.");
                     return new(null, true, true, HasOutput: false);
                 }
                 results.Add(result.Output);
-                await Emit(ExecutionEventKinds.LoopIterationCompleted, "array-loop", iterationId, scopeId);
+                await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId, iterationId, scopeId);
             }
 
             var output = string.Join(';', results);

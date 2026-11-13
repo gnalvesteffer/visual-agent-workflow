@@ -105,6 +105,49 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Fact]
+    public async Task StructuredActivationSequenceProof_NestedFramesInheritParametersAndScopeProductionNodes()
+    {
+        var revision = WorkflowRevision.Create(NestedBodyDefinition(),
+            "array-iteration-nested-activation-proof");
+        var parentParameters = ImmutableSortedDictionary<string, string>.Empty
+            .Add("outerIndex", "7");
+        var parentFrame = new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null,
+            "outer-loop", 7, "outer", parentParameters);
+        var agents = new EchoAgentExecutor();
+        var tools = new EchoToolBroker();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var executorSetCreations = 0;
+
+        var result = await new WorkflowRunner(tools, agents).ExecuteStructuredActivationSequenceProofAsync(
+            Guid.NewGuid(), revision, "[\"alpha\",\"beta\"]", "index", null, evt =>
+            {
+                events.Enqueue(evt);
+                return ValueTask.CompletedTask;
+            }, executorSetCreated: () => executorSetCreations++, parentFrame: parentFrame,
+            activationLoopNodeId: "inner-loop");
+
+        Assert.Equal("echo:ALPHA:0/7;echo:BETA:1/7", result.Output);
+        Assert.Equal(["ALPHA:0/7", "BETA:1/7"], agents.Inputs);
+        Assert.Equal(agents.Inputs, tools.Queries);
+        Assert.Equal(1, executorSetCreations);
+        var recorded = events.ToArray();
+        Assert.Equal(Enumerable.Range(1, recorded.Length).Select(value => (long)value),
+            recorded.Select(evt => evt.Sequence));
+        for (var index = 0; index < 2; index++)
+        {
+            var scopeId = $"outer-loop/7/inner-loop/{index}";
+            var scoped = recorded.Where(evt => evt.ScopeId == scopeId).ToArray();
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.NodeId == "inner-loop");
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.NodeId == "inner-loop");
+            Assert.Equal("default", ReadVariablePreviousValue(scoped, "set"));
+            Assert.Equal(index == 0 ? "alpha" : "beta",
+                ReadVariableValue(scoped, ExecutionEventKinds.VariableRead, "get"));
+        }
+    }
+
+    [Fact]
     public async Task StructuredActivationSequenceProof_FailureIsAttributedToItemAndStopsLaterDispatch()
     {
         var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
@@ -2256,6 +2299,33 @@ public sealed class ArrayIterationVawBodyProofTests
                 ? ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
                     .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
                 : null
+        };
+    }
+
+    private static WorkflowDefinition NestedBodyDefinition()
+    {
+        var definition = BodyDefinition(includeVariableStore: true, includeIndexParameter: true);
+        var nodes = definition.Nodes
+            .Add("outer-index", new(NodeTypes.WorkflowValue, "1.0.0")
+                { ParameterId = "outerIndex", OutputDataType = WorkflowDataTypes.Integer })
+            .Add("outer-index-text", new(NodeTypes.IntegerToString, "1.0.0"))
+            .Add("outer-separator", new(NodeTypes.StringConstant, "1.0.0")
+                { StringConstant = new("/") })
+            .Add("outer-suffix", new(NodeTypes.TextConcat, "1.0.0"))
+            .Add("nested-coordinate", new(NodeTypes.TextConcat, "1.0.0"));
+        var connections = definition.Connections.Remove("item-index-uppercase")
+            .Add("outer-index-text", new(new("outer-index", "out"), new("outer-index-text", "in"), "data"))
+            .Add("outer-separator", new(new("outer-separator", "out"), new("outer-suffix", "left"), "data"))
+            .Add("outer-suffix-index", new(new("outer-index-text", "out"), new("outer-suffix", "right"), "data"))
+            .Add("coordinate-item", new(new("item-index", "out"), new("nested-coordinate", "left"), "data"))
+            .Add("coordinate-outer", new(new("outer-suffix", "out"), new("nested-coordinate", "right"), "data"))
+            .Add("coordinate-uppercase", new(new("nested-coordinate", "out"), new("uppercase", "in"), "data"));
+        return definition with
+        {
+            Nodes = nodes,
+            Connections = connections,
+            Parameters = definition.Parameters!.Add("outerIndex",
+                new("Outer array index", "0") { Type = WorkflowDataTypes.Integer })
         };
     }
 
