@@ -2,6 +2,19 @@
 
 Delivered milestones are listed in reverse chronological order. This page records completed work and its scope; for the current product boundary and priorities, see the [roadmap](roadmap.md). Detailed behavior and limits remain in the linked feature documentation.
 
+## Typed-array iterator MCP outcome append failure
+
+The structured, fresh-subworkflow, and hybrid candidates now share a
+cross-store proof for `tool.completed` append failure using the production MCP
+broker and local `demo.slow` registration. The rejected completion is recorded
+as `tool.uncertain`; no later item or parallel join runs, and reservations
+settle after uncertainty is persisted. All six candidate/store histories
+remain contiguous and match after reopening through a new file or SQLite store
+instance. The focused test passes 2/2 and the full Agent Framework suite
+passes 358/358. Root-terminal append failure and process-loss recovery remain
+open; this proof does not retry the tool or resume execution. See
+[Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+
 ## Typed-array iterator model outcome append failure
 
 The structured, fresh-subworkflow, and hybrid candidates now share a

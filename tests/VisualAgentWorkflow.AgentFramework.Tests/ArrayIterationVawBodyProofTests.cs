@@ -3010,6 +3010,111 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_McpOutcomeAppendFailureStopsLaterActivations(bool sqlite)
+    {
+        const string input = "[\"first\",\"second\"]";
+        var registrations = CreateDemoMcpRegistrations();
+        var discoveryBroker = new McpToolBroker(registrations, new DemoToolPolicy());
+        var slowBinding = Assert.Single(await discoveryBroker.ListBindingsAsync(),
+            binding => binding.BindingId == "demo.slow");
+        var definition = ParallelMcpDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var configuredTool = new ToolBindingRequest(slowBinding.BindingId, slowBinding.ContractHash)
+        {
+            DescriptionHash = slowBinding.DescriptionHash
+        };
+        var nodes = definition.Nodes;
+        foreach (var nodeId in new[] { "tool-research", "tool-review" })
+            nodes = nodes.SetItem(nodeId, nodes[nodeId] with
+            {
+                Tool = configuredTool,
+                McpArgumentsJson = "{}"
+            });
+        var revision = WorkflowRevision.Create(definition with { Nodes = nodes },
+            "array-iteration-candidate-mcp-outcome-append-failure-proof");
+
+        foreach (var candidate in new[] { "structured", "fresh-subworkflow", "hybrid" })
+        {
+            using var store = new ProofRunStore(revision, input, sqlite,
+                rejectedAppendEventKinds: [ExecutionEventKinds.ToolCompleted]);
+            var recorder = new ReservedEvidenceProofRecorder(store,
+                maximumEvents: 512, maximumBytes: 4_000_000, reservedFailureEvents: 8,
+                reservedFailureBytes: 64_000, maximumOutcomeBytes: 32_000,
+                maximumConcurrentOutcomeReservations: 2,
+                reservationRequestKind: ExecutionEventKinds.ToolAuthorized,
+                reservationOutcomeKind: ExecutionEventKinds.ToolCompleted,
+                additionalReservationOutcomeKind: ExecutionEventKinds.ToolUncertain);
+            var tools = new McpToolBroker(registrations, new DemoToolPolicy(), TimeSpan.FromSeconds(20));
+            string? output = null;
+
+            if (candidate == "structured")
+            {
+                try
+                {
+                    var result = await new WorkflowRunner(tools)
+                        .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                            recorder.RecordResequencedAsync);
+                    output = result.Output;
+                }
+                catch (Exception)
+                {
+                    // The external tool ran, but the store rejected its completion evidence.
+                }
+            }
+            else if (candidate == "fresh-subworkflow")
+            {
+                await RecordRootAsync(ExecutionEventKinds.Started);
+                var iterator = new PerItemWorkflowExecutor(store.RunId, revision, recorder,
+                    new EchoAgentExecutor(), tools);
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                var failed = false;
+                await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+                await foreach (var evt in run.WatchStreamAsync())
+                {
+                    if (evt is WorkflowOutputEvent { Data: string value }) output = value;
+                    if (evt is WorkflowErrorEvent) failed = true;
+                }
+                await RecordRootAsync(failed || output is null
+                    ? ExecutionEventKinds.Failed
+                    : ExecutionEventKinds.Completed);
+            }
+            else
+            {
+                var result = await ExecuteHybridBudgetLoopAsync(store, revision, recorder,
+                    new EchoAgentExecutor(), tools, input);
+                output = result.Output;
+            }
+
+            var events = recorder.Snapshot();
+            var authorizations = events.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+            Assert.Null(output);
+            Assert.InRange(authorizations, 1, 2);
+            Assert.Equal(authorizations, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolUncertain));
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+            Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+            Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+            Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+            Assert.Equal(0, recorder.PendingOutcomeReservations);
+            Assert.InRange(recorder.MaximumPendingOutcomeReservationsObserved, 1, 2);
+            AssertPersistedSequence(store, events, "failed");
+
+            var reopened = store.ReopenStore().Get(store.RunId)!;
+            Assert.Equal("failed", reopened.Status);
+            Assert.Equal(events, reopened.Events);
+            Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
+
+            ValueTask RecordRootAsync(string kind) => recorder.RecordResequencedAsync(new ExecutionEvent(
+                store.RunId, store.Store.Get(store.RunId)!.Header.RevisionId, 0, DateTimeOffset.UtcNow, kind));
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_ReserveConcurrentModelOutcomesBeforeDispatch(bool sqlite)
     {
         const string providerId = "proof.iterator-parallel-reservation";

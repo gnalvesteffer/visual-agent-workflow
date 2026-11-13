@@ -440,11 +440,18 @@ will be introduced.
       each persisted failure prefix also survives a new store instance. The
       full Agent Framework suite passes (356/356); see
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
-    - [ ] Compare tool-outcome and root-terminal append failures across all
-      candidates, then complete process-loss/interrupted-execution recovery
-      and the remaining evidence matrix. Store reopening does not recover or
-      resume execution; candidate reservations are not production budget
-      ownership.
+    - [x] Compare MCP tool-outcome append failure across the structured,
+      fresh-subworkflow, and hybrid candidates in file and SQLite stores. A
+      real `demo.slow` dispatch whose `tool.completed` append is rejected is
+      recorded as `tool.uncertain`; the failed activation stops before the
+      next item, no parallel join completes, and all reservations settle.
+      All six candidate/store cases pass and their contiguous failed histories
+      survive reopening. Root-terminal append failure and
+      process-loss/interrupted-execution recovery remain open; store reopening
+      is not execution recovery, and candidate reservations are not production
+      budget ownership. The focused test passes 2/2 and the full Agent
+      Framework suite passes (358/358); see [Decision 0070](
+      decisions/0070-bounded-array-iteration-contract.md).
     - [x] Measure representative maximum-shaped `model.responded`,
       `tool.completed`, and `data.evaluated` event envelopes through the actual
       file snapshot and SQLite event-row serializers. The measured envelope

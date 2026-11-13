@@ -864,9 +864,21 @@ item are not started, and the outcome reservation remains pending. Each
 candidate/store history is reopened through a fresh store instance and retains
 the same contiguous failed prefix (6/6 cases). The focused test passes 2/2, and
 the full Agent Framework suite passes 356/356. This covers a production model
-adapter with injected outcome-append rejection; tool-outcome and root-terminal
-append failures remain to be compared across candidates. It does not authorize
-retrying the provider request or establish recovery of the failed activation.
+adapter with injected outcome-append rejection. It does not authorize retrying
+the provider request or establish recovery of the failed activation.
+
+`IteratorCandidates_McpOutcomeAppendFailureStopsLaterActivations` injects a
+store rejection for `tool.completed` while each candidate invokes the real
+local `demo.slow` MCP registration through the production broker. The broker
+records `tool.uncertain`, does not claim completion, and fails the activation;
+no later array item or parallel join runs. All three candidates are exercised
+against both file and SQLite stores. The authorization and uncertainty event
+counts match, all outcome reservations settle, and every failed event prefix
+is contiguous and identical after reopening a new store instance (6/6 cases).
+The focused test passes 2/2 and the full Agent Framework suite passes
+358/358. This proves uncertain-outcome recording for this append failure, not
+tool replay safety, root-terminal append recovery, or process-loss execution
+recovery.
 
 The public iterator contract must be Blueprint-style and composable with all
 existing graph capabilities. The proposed pins are an execution input, typed
