@@ -218,6 +218,12 @@ will be introduced.
     - [x] Reject a body-activation start when its lifecycle event cannot be
       appended. Both stores retain the failed root, and neither body Agent nor
       MCP work is dispatched.
+    - [x] Persist and reopen an explicitly uncertain custom-broker outcome
+      through the production-body coordinator in file and SQLite stores. The
+      correlated `tool.outcome-unknown` settles its reservation and the root
+      records one distinct terminal `outcome-unknown` status; later appends are
+      rejected. The broader custom-broker exception/timeout and integrated
+      playback matrix remain open.
   - [x] Verify typed-array checkpoint exclusion: standalone schema-2.0 array
     dataflow does not match the deterministic checkpoint shape, and typed
     arrays combined with otherwise eligible loop or variable graphs fail Core

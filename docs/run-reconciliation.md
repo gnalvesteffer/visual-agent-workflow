@@ -1,6 +1,6 @@
 # Read-only run reconciliation
 
-Run reconciliation explains the **recorded disposition** of a run before a host considers recovery or an operator investigates uncertain work. It does not execute a workflow, contact a provider/MCP server, approve anything, alter history or settle an external effect. A terminal `failed`, `cancelled` or `interrupted` status can still contain unsettled external work.
+Run reconciliation explains the **recorded disposition** of a run before a host considers recovery or an operator investigates uncertain work. It does not execute a workflow, contact a provider/MCP server, approve anything, alter history or settle an external effect. Terminal `failed`, `outcome-unknown`, `cancelled` or `interrupted` statuses can still contain unsettled external work.
 
 ## Read the assessment
 

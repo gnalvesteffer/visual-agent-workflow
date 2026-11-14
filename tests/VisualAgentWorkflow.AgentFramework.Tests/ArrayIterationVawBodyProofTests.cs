@@ -254,6 +254,64 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_PersistsCustomBrokerUncertainty(bool sqlite)
+    {
+        const string input = "[\"one\"]";
+        const string bindingId = "proof.production-custom-unknown";
+        var definition = BodyDefinition(includeVariableStore: true, includeIndexParameter: true);
+        var nodes = definition.Nodes.SetItem("tool", definition.Nodes["tool"] with
+        {
+            Tool = new ToolBindingRequest(bindingId, new string('a', 64))
+            {
+                DescriptionHash = new string('b', 64)
+            },
+            McpArgumentsJson = "{}"
+        });
+        var revision = WorkflowRevision.Create(definition with { Nodes = nodes },
+            "production-body-custom-broker-uncertainty-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+        var broker = new ConcurrentUnknownOutcomeToolBroker(bindingId, expectedAuthorizations: 1);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var outcome = await new WorkflowRunner(tools: broker, agents: new EchoAgentExecutor())
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2));
+
+        Assert.True(outcome.OutcomeUnknown);
+        Assert.True(outcome.Failed);
+        var requested = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolRequested);
+        var authorized = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+        var uncertain = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain);
+        using var requestedPayload = JsonDocument.Parse(requested.Data!);
+        using var authorizedPayload = JsonDocument.Parse(authorized.Data!);
+        using var uncertainPayload = JsonDocument.Parse(uncertain.Data!);
+        var toolCallId = requestedPayload.RootElement.GetProperty("toolCallId").GetString();
+        Assert.Equal(toolCallId, authorizedPayload.RootElement.GetProperty("toolCallId").GetString());
+        Assert.Equal(toolCallId, uncertainPayload.RootElement.GetProperty("toolCallId").GetString());
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.Completed or
+            ExecutionEventKinds.ToolCompleted);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        AssertPersistedSequence(runStore, events, "outcome-unknown");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal("outcome-unknown", reopened.Status);
+        Assert.True(reopened.IsTerminal);
+        Assert.Equal(events, reopened.Events);
+        Assert.Throws<InvalidOperationException>(() => runStore.Store.Append(runStore.RunId, events.Count,
+            [new ExecutionEvent(runStore.RunId, revision.RevisionId, events.Count + 1, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.NodeStarted, "agent")]));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_TerminatesRootExactlyOnce(bool sqlite)
     {
         var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,

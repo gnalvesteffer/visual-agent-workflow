@@ -30,7 +30,7 @@ sequenceDiagram
     Store-->>Observer: Complete committed evidence
 ```
 
-State is derived from committed events, including independent pause and approval holds. SQLite also stores the sequence/status projection in the same transaction and checks it against the event history on reads. Events and persisted state cannot independently advance through this API. The workflow authoring catalog remains a separate store and transaction.
+State is derived from committed events, including independent pause and approval holds. `run.outcome-unknown` is a distinct terminal status (`outcome-unknown`), not a live `running` state. SQLite also stores the sequence/status projection in the same transaction and checks it against the event history on reads. Events and persisted state cannot independently advance through this API. The workflow authoring catalog remains a separate store and transaction.
 
 ## Select a store in a consumer
 

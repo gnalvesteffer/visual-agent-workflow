@@ -1773,3 +1773,17 @@ It does not close the broader persisted playback, joins, cancellation/failure
 race, custom-broker uncertainty, or store-append-failure matrix; nor does it
 admit a public iterator/Break schema or Studio authoring. Keep the main
 architecture gate open pending that matrix and readiness review.
+
+## Production-body custom broker uncertainty and terminal projection (2026-11-14)
+
+A file/SQLite production-body test now sends a custom broker's explicit
+`tool.outcome-unknown` through the shared run context. The matching request,
+authorization, uncertainty, and root `run.outcome-unknown` events persist and
+reopen; no later loop item or success event is recorded. This exposed that
+`RunSnapshot` omitted the already-defined root uncertainty event from its
+terminal projection, leaving both stores reporting `running`. Core now reports
+the distinct `outcome-unknown` status and treats it as terminal, so a later
+event append is rejected. Focused Core and production-body tests pass for both
+stores. This covers an explicit uncertainty report only; raw custom-broker
+exceptions, timeout behavior, full passive playback, and append-failure races
+remain in the broader matrix.
