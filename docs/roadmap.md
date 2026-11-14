@@ -166,6 +166,13 @@ will be introduced.
     activation scopes, and join payloads agree through file and SQLite (2/2
     focused theory cases). Other runtime-cache lifetimes and production frame
     semantics remain open.
+  - [ ] Complete the non-public production-seam proof before selecting an
+    iterator architecture: dispatch typed item/index values through Core's
+    existing typed value contracts, consume a nearest-frame `Break`, and
+    establish one VAW-owned frame/lifecycle/shared-budget owner. Then cover the
+    remaining persisted outcome and custom-broker failure/timeout cases through
+    file and SQLite and repeat the three-role readiness review. The latest
+    review returned **REVISE**; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   - [x] Compare typed item/index `data.evaluated` payloads across candidates.
     Evaluated values, activation scopes, and data connection IDs match and
     persist in both stores (2/2 focused theory cases). Broader runtime-output

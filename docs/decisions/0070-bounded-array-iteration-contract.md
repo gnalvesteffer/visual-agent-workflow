@@ -40,6 +40,20 @@ owner/lifecycle or the complete evidence matrix. No body-allowlist is permitted.
 Selection would begin integrated implementation, not establish parity;
 checkpoint recovery remains excluded until frames are captured and restored.
 
+A further proponent/opponent/adjudicator review after the matched parallel
+Agent-result and typed direct-MCP argument/result proofs also returned
+**REVISE**. The added comparisons strengthen activation-scoped value and join
+evidence across the three candidates and both stores, but remain harness-owned.
+The adjudicator supports a focused, non-public production-seam proof and
+rejects selecting the hybrid or publishing a typed iterator contract yet. The
+next proof must exercise typed item/index dispatch through real Core value
+contracts and nearest-frame `Break` consumption alongside one VAW-owned frame,
+lifecycle, and shared-budget owner. It must then cover the remaining persisted
+outcome and custom-broker failure/timeout cases through both stores. Re-review
+that concrete seam before adding a public node or Studio authoring. No
+schema-specific gate or body allowlist is justified; checkpoint recovery stays
+excluded until frame capture and restoration are demonstrated.
+
 The first hybrid increment extends `PerItemWorkflowExecutor` with immutable
 parent/child activation frames while each item still runs the production VAW
 workflow body, leaving static graph routing and joins inside Agent Framework.
