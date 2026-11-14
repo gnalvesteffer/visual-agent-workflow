@@ -13,11 +13,24 @@ Historical 1.x definitions retain their serialized bytes, hashes, revisions,
 and runtime semantics. Loading a legacy definition does not rewrite stored
 source or published revisions. `WorkflowSchemaNormalization.NormalizeForEditing`
 creates a separate current draft, preserving graph identities and embedded
-snapshots. It accepts explicit graphs and verified implicit linear text graphs,
-including unrouted Agent nodes. For these implicit graphs, original data edges
-are retained and explicit execution edges connect Input, Agents, and Output;
-pure text transforms remain lazy data nodes. Unsupported control-flow
+snapshots. It accepts explicit graphs, verified implicit linear text graphs,
+including unrouted Agent nodes, and a bounded legacy conditional shape. For
+implicit linear graphs, original data edges are retained and explicit execution
+edges connect Input, Agents, and Output; pure text transforms remain lazy data
+nodes. Unsupported control-flow
 translations return diagnostics. Saving remains an authored edit.
+
+Legacy conditional schemas 1.4–1.22 normalize when there is exactly one
+Condition and one Merge, with one linear path of pure uppercase/reverse nodes
+before the Condition, two disjoint linear pure-text arms that both reach the
+Merge, and one linear pure-text path from Merge to Output. The conversion keeps
+node IDs and all data connections, adds explicit activation edges for Input,
+the two selected Condition outputs, Merge, and Output, and records the normal
+source/target provenance. Direct-to-Output arms, extra control nodes, shared
+arm nodes, bypasses, and ambiguous paths remain unchanged with diagnostics.
+The current Merge data pin accepts 1–16 alternative incoming values; runtime
+selects the value belonging to the active execution route without evaluating
+the unchosen arm.
 
 The schema-1.45 explicitly wired bounded loop-variable graph is additionally
 qualified through the unified schema: normalization preserves node, data, and

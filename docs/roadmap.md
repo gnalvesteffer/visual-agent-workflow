@@ -77,6 +77,14 @@ the historical promotion chain.
   per-pass values, and both stop conditions. Other historical control-flow
   migrations, effectful loop-body translation, and persisted normalization
   provenance remain future compatibility work.
+  - [x] Normalize legacy conditional schemas 1.4–1.22 when there is exactly
+    one Condition and Merge, disjoint linear pure-uppercase/reverse arms that
+    reconverge at that Merge, and unambiguous linear pure-text paths before and
+    after the conditional region. Stable IDs and data wires are preserved;
+    explicit activation edges are derived, and the merge evaluates only the
+    selected route. Runtime output and route evidence match both legacy
+    outcomes. Direct-to-Output arms and other ambiguous control-flow topologies
+    remain diagnostic-only.
 - [x] Preserve 2.0 through package, reuse, graph-function, clipboard, and
   nested-workflow editing paths while preserving pinned dependency snapshots.
 - [x] Extend bounded `array<json>` in current schema 2.0 with an exact

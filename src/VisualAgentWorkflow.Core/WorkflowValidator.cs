@@ -2129,6 +2129,9 @@ public static class WorkflowValidator
                     (port.Required && port.Cardinality == WorkflowPortCardinality.ExactlyOne && dataIncoming.GetValueOrDefault((id, port.Id)) != 1 ||
                      unified && port.Cardinality != WorkflowPortCardinality.Many && dataIncoming.GetValueOrDefault((id, port.Id)) > 1))
                     error("data.degree", $"nodes.{id}.inputs.{port.Id}", "Every required data input must have exactly one compatible data edge.");
+            if (unified && node.Type == NodeTypes.Merge &&
+                dataIncoming.GetValueOrDefault((id, "in")) is not (>= 1 and <= 16))
+                error("merge.data.degree", $"nodes.{id}.inputs.in", "A merge requires 1–16 incoming data paths.");
             var actualExecutionInput = WorkflowPorts.Explicit(node)
                 .Where(port => port.Direction == WorkflowPortDirection.Input && port.Kind == WorkflowPortKind.Execution)
                 .Sum(port => executionIncoming.GetValueOrDefault((id, port.Id)));

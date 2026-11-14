@@ -17,6 +17,14 @@ public class WorkflowSchemaNormalizationTests
             ["direct"] = new(new("input", "out"), new("output", "in"), "data")
         }.ToImmutableSortedDictionary());
 
+    private static WorkflowDefinition ConditionalTextGraph()
+    {
+        var graph = GraphEditing.InsertConditionalAfter(Blank(), "input", "out");
+        var condition = graph.Nodes.Single(pair => pair.Value.Type == NodeTypes.Condition).Key;
+        graph = GraphEditing.InsertNodeAfter(graph, condition, "true", new(NodeTypes.Uppercase, "1.0.0"));
+        return GraphEditing.InsertNodeAfter(graph, condition, "false", new(NodeTypes.Reverse, "1.0.0"));
+    }
+
     [Fact]
     public void RemovingUnifiedConfiguredParallelRegionUsesExecutionWiresAndKeepsSchema()
     {
@@ -207,6 +215,25 @@ public class WorkflowSchemaNormalizationTests
     }
 
     [Fact]
+    public void LegacyConditionalNormalizationPreservesPureTextPathsBeforeAndAfterTheRegion()
+    {
+        var source = GraphEditing.InsertConditionalAfter(Blank(), "input", "out");
+        var conditionId = source.Nodes.Single(pair => pair.Value.Type == NodeTypes.Condition).Key;
+        var mergeId = source.Nodes.Single(pair => pair.Value.Type == NodeTypes.Merge).Key;
+        source = GraphEditing.InsertNodeAfter(source, "input", "out", new(NodeTypes.Uppercase, "1.0.0"));
+        source = GraphEditing.InsertNodeAfter(source, mergeId, "out", new(NodeTypes.Reverse, "1.0.0"));
+
+        var normalized = WorkflowSchemaNormalization.NormalizeForEditing(source);
+
+        Assert.Equal(source.Nodes.Keys, normalized.Nodes.Keys);
+        Assert.Equal(source.Connections, normalized.Connections);
+        Assert.Equal(4, normalized.ExecutionConnections!.Count);
+        Assert.Contains(normalized.ExecutionConnections.Values, edge => edge.Source == new PortReference("input", "then") &&
+            edge.Target == new PortReference(conditionId, "execute"));
+        Assert.Empty(WorkflowValidator.Validate(normalized));
+    }
+
+    [Fact]
     public void ExplicitConversionPreservesAllWiresAndHistoricalHelperBehavior()
     {
         var source = GraphEditing.EnableExplicitGraph(Blank());
@@ -234,12 +261,66 @@ public class WorkflowSchemaNormalizationTests
     }
 
     [Fact]
-    public void UnsupportedImplicitControlFlowReportsDiagnosticWithoutMutatingSource()
+    public void EmptyLegacyConditionalArmsNormalizeWithoutMutatingSource()
     {
         var source = GraphEditing.InsertConditionalAfter(Blank(), "input", "out");
         var original = WorkflowJson.Serialize(source);
-        var exception = Assert.Throws<ArgumentException>(() => WorkflowSchemaNormalization.NormalizeForEditing(source));
-        Assert.Contains("normalization.implicit-unsafe", exception.Message);
+        var normalized = WorkflowSchemaNormalization.NormalizeForEditing(source);
+
+        Assert.Equal("2.0", normalized.SchemaVersion);
+        Assert.Equal(4, normalized.ExecutionConnections!.Count);
+        Assert.Empty(WorkflowValidator.Validate(normalized));
+        Assert.Equal(original, WorkflowJson.Serialize(source));
+    }
+
+    [Fact]
+    public void LegacyConditionalTextGraphNormalizesDeterministicallyWithStableIdentities()
+    {
+        var source = ConditionalTextGraph();
+        var original = WorkflowJson.Serialize(source);
+        var normalized = WorkflowSchemaNormalization.NormalizeForEditing(source);
+
+        Assert.Equal("2.0", normalized.SchemaVersion);
+        Assert.Equal(source.Nodes.Keys, normalized.Nodes.Keys);
+        Assert.Equal(source.Connections, normalized.Connections);
+        Assert.Equal(original, WorkflowJson.Serialize(source));
+        Assert.Equal(WorkflowJson.Serialize(normalized),
+            WorkflowJson.Serialize(WorkflowSchemaNormalization.NormalizeForEditing(source)));
+        var conversion = WorkflowSchemaNormalization.NormalizeForEditingWithProvenance(source);
+        Assert.True(conversion.Succeeded);
+        Assert.Equal(WorkflowSchemaNormalization.NormalizerVersion, conversion.Provenance!.NormalizerVersion);
+        conversion.Provenance.Validate();
+        var expectedExecution = new[]
+        {
+            new ConnectionDefinition(new("input", "then"), new(source.Nodes.Single(pair => pair.Value.Type == NodeTypes.Condition).Key, "execute"), "execution"),
+            new ConnectionDefinition(new(source.Nodes.Single(pair => pair.Value.Type == NodeTypes.Condition).Key, "true"), new(source.Nodes.Single(pair => pair.Value.Type == NodeTypes.Merge).Key, "execute"), "execution"),
+            new ConnectionDefinition(new(source.Nodes.Single(pair => pair.Value.Type == NodeTypes.Condition).Key, "false"), new(source.Nodes.Single(pair => pair.Value.Type == NodeTypes.Merge).Key, "execute"), "execution"),
+            new ConnectionDefinition(new(source.Nodes.Single(pair => pair.Value.Type == NodeTypes.Merge).Key, "then"), new("output", "execute"), "execution")
+        };
+        Assert.Equal(expectedExecution.Length, normalized.ExecutionConnections!.Count);
+        Assert.All(expectedExecution, edge => Assert.Contains(normalized.ExecutionConnections.Values, actual => actual == edge));
+        Assert.Empty(WorkflowValidator.Validate(normalized));
+    }
+
+    [Fact]
+    public void LegacyConditionalArmsThatBypassTheirMergeAreRejectedWithoutPartialTarget()
+    {
+        var source = GraphEditing.InsertConditionalAfter(Blank(), "input", "out");
+        var condition = source.Nodes.Single(pair => pair.Value.Type == NodeTypes.Condition).Key;
+        var merge = source.Nodes.Single(pair => pair.Value.Type == NodeTypes.Merge).Key;
+        var connections = source.Connections.RemoveRange(source.Connections
+            .Where(pair => pair.Value.Source.NodeId == condition || pair.Value.Source.NodeId == merge ||
+                pair.Value.Target.NodeId == merge).Select(pair => pair.Key))
+            .Add("true-output", new(new(condition, "true"), new("output", "in"), "data"))
+            .Add("false-output", new(new(condition, "false"), new("output", "in"), "data"));
+        source = source with { Nodes = source.Nodes.Remove(merge), Connections = connections };
+        var original = WorkflowJson.Serialize(source);
+
+        var result = WorkflowSchemaNormalization.NormalizeForEditingWithProvenance(source);
+
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Provenance);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "normalization.conditional-topology");
         Assert.Equal(original, WorkflowJson.Serialize(source));
     }
 }

@@ -18,6 +18,14 @@ activation edges only for a linear body of pure uppercase/reverse transforms.
 Runtime input selection is iteration-aware; effectful historical loop bodies
 are not silently converted.
 
+Legacy conditional schemas 1.4–1.22 also normalize when they contain one
+Condition, one Merge, disjoint pure-text arms, and unambiguous pure-text paths
+around the region. The conversion preserves node identities and data wires,
+derives execution edges, and keeps the source revision unchanged. At runtime,
+the current-schema merge resolves the incoming data path from its active
+execution source and selected route; it does not evaluate the unchosen arm.
+Other legacy control-flow shapes remain diagnostic-only.
+
 Historical 1.x validators and execution paths remain for stored revisions.
 Editor normalization creates a separate current draft and preserves the
 source; package and reuse operations preserve current schema identity and

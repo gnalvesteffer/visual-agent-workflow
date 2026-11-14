@@ -50,6 +50,55 @@ public sealed class ConditionalExecutionTests
         Assert.Single(events, e => e.Kind == ExecutionEventKinds.Completed);
     }
 
+    [Theory]
+    [InlineData("say yes", "true", "SAY YES")]
+    [InlineData("abc", "false", "cba")]
+    public async Task NormalizedConditionalPreservesLegacyOutputAndSelectedRoute(string input, string expectedPort, string expectedOutput)
+    {
+        var legacy = Graph();
+        var normalized = WorkflowSchemaNormalization.NormalizeForEditing(legacy);
+        var legacyEvents = new List<ExecutionEvent>();
+        var normalizedEvents = new List<ExecutionEvent>();
+
+        var legacyOutput = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(legacy, "legacy"), input,
+            evt => { legacyEvents.Add(evt); return ValueTask.CompletedTask; });
+        var normalizedOutput = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(normalized, "normalized"), input,
+            evt => { normalizedEvents.Add(evt); return ValueTask.CompletedTask; });
+
+        Assert.Equal(expectedOutput, legacyOutput);
+        Assert.Equal(legacyOutput, normalizedOutput);
+        Assert.Equal(SelectedPort(legacyEvents), SelectedPort(normalizedEvents));
+        Assert.Equal(expectedPort, SelectedPort(normalizedEvents));
+        Assert.Single(normalizedEvents, evt => evt.Kind == ExecutionEventKinds.Completed);
+    }
+
+    [Theory]
+    [InlineData("say yes", "SEY YAS")]
+    [InlineData("abc", "CBA")]
+    public async Task NormalizedConditionalPreservesPureTextPrefixAndSuffix(string input, string expectedOutput)
+    {
+        var graph = EmptyArmsGraph();
+        var merge = graph.Nodes.Single(node => node.Value.Type == NodeTypes.Merge).Key;
+        var condition = graph.Nodes.Single(node => node.Value.Type == NodeTypes.Condition).Key;
+        graph = GraphEditing.ReplaceNode(graph, condition,
+            graph.Nodes[condition] with { Condition = new("contains", "YES") });
+        graph = GraphEditing.InsertNodeAfter(graph, "input", "out", new(NodeTypes.Uppercase, "1.0.0"));
+        graph = GraphEditing.InsertNodeAfter(graph, merge, "out", new(NodeTypes.Reverse, "1.0.0"));
+        var normalized = WorkflowSchemaNormalization.NormalizeForEditing(graph);
+
+        var legacyOutput = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(graph, "legacy"), input,
+            _ => ValueTask.CompletedTask);
+        var normalizedOutput = await new WorkflowRunner().ExecuteAsync(Guid.NewGuid(), WorkflowRevision.Create(normalized, "normalized"), input,
+            _ => ValueTask.CompletedTask);
+
+        Assert.Equal(expectedOutput, legacyOutput);
+        Assert.Equal(legacyOutput, normalizedOutput);
+    }
+
+    private static string? SelectedPort(IEnumerable<ExecutionEvent> events) =>
+        JsonDocument.Parse(events.Single(evt => evt.Kind == ExecutionEventKinds.BranchSelected).Data!)
+            .RootElement.GetProperty("port").GetString();
+
     [Fact]
     public async Task UnchosenArmDoesNotCreateAgentOrToolScopes()
     {

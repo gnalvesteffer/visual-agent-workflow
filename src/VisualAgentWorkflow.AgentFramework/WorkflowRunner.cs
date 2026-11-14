@@ -972,10 +972,43 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         }
 
         public DataInputEvaluation ResolveInput(string nodeId, string inputPort,
-            StructuredActivationFrame? frame = null)
+            StructuredActivationFrame? frame = null, string? activeSourceNode = null, string? activeSourcePort = null)
         {
+            if (definition.Nodes.TryGetValue(nodeId, out var node) && node.Type == NodeTypes.Merge &&
+                activeSourceNode is not null && activeSourcePort is not null)
+                return ResolveInputConnection(FindSelectedMergeInput(nodeId, activeSourceNode, activeSourcePort), frame);
             var edge = definition.Connections.Single(connection => connection.Value.Target.NodeId == nodeId && connection.Value.Target.PortId == inputPort);
             return ResolveInputConnection(edge.Key, frame);
+        }
+
+        private string FindSelectedMergeInput(string mergeNodeId, string sourceNodeId, string sourceExecutionPort)
+        {
+            if (!definition.Nodes.TryGetValue(sourceNodeId, out var sourceNode))
+                throw new InvalidOperationException("The active merge path source is unavailable.");
+            var dataPort = sourceNode.Type == NodeTypes.Condition ? sourceExecutionPort : "out";
+            var matches = new List<string>();
+            FindMergeInputs(sourceNodeId, dataPort, mergeNodeId, new HashSet<(string NodeId, string PortId)>(), matches);
+            return matches.Count == 1
+                ? matches[0]
+                : throw new InvalidOperationException("The active execution path does not identify exactly one merge data input.");
+        }
+
+        private void FindMergeInputs(string sourceNodeId, string sourcePort, string mergeNodeId,
+            HashSet<(string NodeId, string PortId)> visited, List<string> matches)
+        {
+            if (!visited.Add((sourceNodeId, sourcePort))) return;
+            foreach (var (connectionId, edge) in definition.Connections.Where(pair =>
+                         pair.Value.Source.NodeId == sourceNodeId && pair.Value.Source.PortId == sourcePort))
+            {
+                if (edge.Target.NodeId == mergeNodeId)
+                {
+                    matches.Add(connectionId);
+                    continue;
+                }
+                if (definition.Nodes.TryGetValue(edge.Target.NodeId, out var target) &&
+                    target.Type is NodeTypes.Uppercase or NodeTypes.Reverse)
+                    FindMergeInputs(edge.Target.NodeId, "out", mergeNodeId, visited, matches);
+            }
         }
 
         public DataInputEvaluation ResolveInputConnection(string connectionId,
@@ -1697,7 +1730,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     !(node.Type == NodeTypes.McpTool && received.Approval is not null) &&
                     revision.Definition.Connections.Values.Any(edge => edge.Target.NodeId == Id && edge.Target.PortId == "in"))
                 {
-                    var evaluation = dataEvaluator!.ResolveInput(Id, "in");
+                    var evaluation = dataEvaluator!.ResolveInput(Id, "in", received.ActivationFrame,
+                        node.Type == NodeTypes.Merge ? received.SourceNode : null,
+                        node.Type == NodeTypes.Merge ? received.SourcePort : null);
                     message = evaluation.Result.Value switch
                     {
                         string text => text,

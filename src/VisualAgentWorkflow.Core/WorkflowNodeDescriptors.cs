@@ -443,7 +443,7 @@ public static class WorkflowNodeDescriptorRegistry
         Descriptor(NodeTypes.JsonProject, "json-project", [Input("in", WorkflowDataTypes.Json), Output(WorkflowDataTypes.Json)], "1.53"),
         Descriptor(NodeTypes.TextTemplate, "text-template", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String)], "1.0"),
         Descriptor(NodeTypes.Condition, "condition", [Input("in", WorkflowDataTypes.String), Output("true", WorkflowDataTypes.String), Output("false", WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("true"), ExecutionOutput("false")], "1.0"),
-        Descriptor(NodeTypes.Merge, "merge", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("then")], "1.0"),
+        Descriptor(NodeTypes.Merge, "merge", [ManyInput("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("then")], "1.0"),
         Descriptor(NodeTypes.Approval, "approval", [Input("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("then")], "1.0"),
         Descriptor(NodeTypes.Loop, "loop", [OptionalInput("in", WorkflowDataTypes.String), Output("body", WorkflowDataTypes.String), Output("done", WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("body"), ExecutionOutput("done")], "1.0"),
         Descriptor(NodeTypes.LoopBody, "loop-body", [OptionalInput("in", WorkflowDataTypes.String), Output(WorkflowDataTypes.String), ExecutionInput("execute"), ExecutionOutput("then")], "1.45"),
@@ -484,6 +484,13 @@ public static class WorkflowNodeDescriptorRegistry
         {
             Required = true,
             Cardinality = WorkflowPortCardinality.ExactlyOne
+        };
+
+    private static WorkflowPortDescriptor ManyInput(string id, string dataType) =>
+        new(id, WorkflowPortDirection.Input, WorkflowPortKind.Data, dataType)
+        {
+            Required = true,
+            Cardinality = WorkflowPortCardinality.Many
         };
 
     private static WorkflowPortDescriptor OptionalInput(string id, string dataType) =>
