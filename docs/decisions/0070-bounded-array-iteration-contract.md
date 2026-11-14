@@ -61,12 +61,12 @@ uses a private sentinel from the tool fixture as a stand-in for a future Break
 node. It verifies the hybrid coordinator targets the current nearest frame,
 stops the inner iteration, preserves the enclosing iteration, and persists
 scoped production Agent/MCP evidence through both stores (2/2). The hybrid
-fixture no longer uses a magic tool-result string: its harness converts the
-body result and active frame into a typed Break result carrying source and
-nearest target activation IDs, which the owning loop consumes. The trigger is
-still synthetic harness behavior. This does not prove an authored workflow
-Break node or schema contract, and it is not yet the matched graph-level
-contract across candidates. At this point in the proof,
+fixture no longer uses a magic tool-result string: a test-only graph condition
+routes the body result to a Break node, which emits a typed result carrying its
+node ID and nearest target activation ID for the owning loop to consume. The
+graph and trigger remain synthetic harness behavior. This does not prove an
+authored workflow Break node or schema contract, and it is not yet the matched
+graph-level contract across candidates. At this point in the proof,
 aggregate work limits, concurrency, delegation, broader join/cancellation
 races, and full evidence bounds remain unproven. Later entries document the
 subsequent serial work-counter and reservation comparisons; the hybrid

@@ -2627,6 +2627,8 @@ public sealed class ArrayIterationVawBodyProofTests
         var agents = new EchoAgentExecutor();
         var tools = new EchoToolBroker(query => $"echo:{query}");
         var breakDispatches = new ConcurrentQueue<HybridLoopProofBreakDispatch>();
+        var proofGraph = new HybridLoopProofGraph();
+        var proofGraphDispatches = new ConcurrentQueue<(string NodeId, string ScopeId)>();
 
         var output = await RunHybridLoopProofAsync(runStore.RunId, revision, recorder, agents, tools,
             "outer-loop", ["outer-a", "outer-b"], parentFrame: null, indexParameterId: "outerIndex",
@@ -2649,7 +2651,7 @@ public sealed class ArrayIterationVawBodyProofTests
                         var body = await new WorkflowRunner(tools, agents).ExecuteWithOutcomeAsync(
                             runStore.RunId, revision, innerFrame.Item, innerFrame.Parameters, Record);
                         var output = body.Output ?? throw new InvalidOperationException("The nested body had no output.");
-                        return HybridLoopProofResultFactory.FromBodyResult(output, innerFrame);
+                        return proofGraph.Execute(output, innerFrame, proofGraphDispatches);
                     });
                 return new HybridLoopProofValue($"outer-{outerFrame.Index}:{innerOutput}");
             });
@@ -2660,9 +2662,17 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(agents.Inputs, tools.Queries);
         var dispatches = breakDispatches.ToArray();
         Assert.Equal(2, dispatches.Length);
+        Assert.All(dispatches, dispatch => Assert.Equal("break", dispatch.SourceNodeId));
         Assert.All(dispatches, dispatch => Assert.Equal(dispatch.SourceFrameId, dispatch.TargetFrameId));
         Assert.Equal(["outer-loop/0/inner-loop/1", "outer-loop/1/inner-loop/1"],
             dispatches.Select(dispatch => dispatch.ScopeId));
+        Assert.Equal(
+            ["outer-loop/0/inner-loop/0", "outer-loop/0/inner-loop/1", "outer-loop/1/inner-loop/0", "outer-loop/1/inner-loop/1"],
+            proofGraphDispatches.Where(dispatch => dispatch.NodeId == "break-condition")
+                .Select(dispatch => dispatch.ScopeId));
+        Assert.Equal(dispatches.Select(dispatch => dispatch.ScopeId),
+            proofGraphDispatches.Where(dispatch => dispatch.NodeId == "break")
+                .Select(dispatch => dispatch.ScopeId));
 
         var events = recorder.Snapshot();
         AssertPersistedSequence(runStore, events, "completed");
@@ -5090,7 +5100,8 @@ public sealed class ArrayIterationVawBodyProofTests
             var result = await executeBody(frame);
             if (result is HybridLoopProofBreak signal)
             {
-                breakDispatches.Enqueue(new(signal.SourceFrameId, signal.TargetFrameId, signal.ScopeId));
+                breakDispatches.Enqueue(new(signal.SourceNodeId, signal.SourceFrameId, signal.TargetFrameId,
+                    signal.ScopeId));
                 if (signal.TargetFrameId != frame.Id)
                     throw new InvalidOperationException("The hybrid coordinator did not own the nearest loop target.");
                 break;
@@ -5105,20 +5116,25 @@ public sealed class ArrayIterationVawBodyProofTests
 
     private abstract record HybridLoopProofResult;
     private sealed record HybridLoopProofValue(string Value) : HybridLoopProofResult;
-    private sealed record HybridLoopProofBreak(Guid SourceFrameId, Guid TargetFrameId, string ScopeId)
+    private sealed record HybridLoopProofBreak(string SourceNodeId, Guid SourceFrameId, Guid TargetFrameId,
+        string ScopeId)
         : HybridLoopProofResult;
-    private sealed record HybridLoopProofBreakDispatch(Guid SourceFrameId, Guid TargetFrameId, string ScopeId);
+    private sealed record HybridLoopProofBreakDispatch(string SourceNodeId, Guid SourceFrameId,
+        Guid TargetFrameId, string ScopeId);
 
-    private static class HybridLoopProofResultFactory
+    private sealed class HybridLoopProofGraph
     {
-        public static HybridLoopProofResult FromBodyResult(string value,
-            WorkflowRunner.StructuredActivationFrame activation)
+        public HybridLoopProofResult Execute(string bodyResult,
+            WorkflowRunner.StructuredActivationFrame activation,
+            ConcurrentQueue<(string NodeId, string ScopeId)> dispatches)
         {
-            if (!value.Contains("BREAK:", StringComparison.Ordinal))
-                return new HybridLoopProofValue(value);
+            dispatches.Enqueue(("break-condition", activation.ScopeId));
+            if (!bodyResult.Contains("BREAK:", StringComparison.Ordinal))
+                return new HybridLoopProofValue(bodyResult);
 
+            dispatches.Enqueue(("break", activation.ScopeId));
             var nearestLoop = activation.NearestLoop();
-            return new HybridLoopProofBreak(activation.Id, nearestLoop.Id, activation.ScopeId);
+            return new HybridLoopProofBreak("break", activation.Id, nearestLoop.Id, activation.ScopeId);
         }
     }
 
