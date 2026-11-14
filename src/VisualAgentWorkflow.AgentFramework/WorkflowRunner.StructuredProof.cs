@@ -314,7 +314,8 @@ public sealed partial class WorkflowRunner
         IReadOnlyDictionary<string, string>? parameters, Func<ExecutionEvent, ValueTask> record,
         CancellationToken cancellationToken = default, StructuredActivationFrame? parentFrame = null,
         string activationLoopNodeId = "array-loop", string? itemParameterId = null,
-        string arrayElementType = WorkflowDataTypes.String, StructuredActivationRunBudget? runBudget = null)
+        string arrayElementType = WorkflowDataTypes.String, StructuredActivationRunBudget? runBudget = null,
+        IReadOnlySet<string>? proofBreakNodeIds = null)
     {
         ArgumentNullException.ThrowIfNull(bodyRevision);
         ArgumentNullException.ThrowIfNull(jsonItems);
@@ -324,6 +325,9 @@ public sealed partial class WorkflowRunner
         if (runId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(runId));
         if (jsonItems.Length > 16_384)
             throw new ArgumentException("Activation proof input exceeds 16,384 characters.", nameof(jsonItems));
+        proofBreakNodeIds ??= bodyRevision.Definition.Nodes
+            .Where(entry => entry.Value.Type == StructuredProofBreakNodeType).Select(entry => entry.Key)
+            .ToHashSet(StringComparer.Ordinal);
         if (!WorkflowArrayLiteral.TryParseValue(arrayElementType, jsonItems, out var typedItems, out var arrayError))
             throw new ArgumentException($"Activation proof input is not a valid {WorkflowDataTypes.ArrayOf(arrayElementType)}: {arrayError}",
                 nameof(jsonItems));
@@ -378,14 +382,23 @@ public sealed partial class WorkflowRunner
                 await Emit(ExecutionEventKinds.LoopIterationStarted, activationLoopNodeId, frame.Id, scopeId);
                 var bodyOutcome = await ExecuteBodyForActivationProofAsync(runId, bodyRevision, items[index],
                     frame.Parameters, evt => Emit(evt.Kind, evt.NodeId, evt.InvocationId,
-                        evt.ScopeId ?? scopeId, evt.Data, evt.ConnectionId), cancellationToken);
+                        evt.ScopeId ?? scopeId, evt.Data, evt.ConnectionId), cancellationToken,
+                    activationFrame: frame, proofBreakNodeIds: proofBreakNodeIds);
 
+                var breakLoop = false;
                 switch (bodyOutcome.Disposition)
                 {
                     case WorkflowBodyProofDisposition.Succeeded when bodyOutcome.Output is { } bodyOutput:
                         results.Add(bodyOutput);
                         await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId, frame.Id,
                             scopeId);
+                        break;
+                    case WorkflowBodyProofDisposition.BreakRequested when bodyOutcome.BreakRequest is { } breakRequest:
+                        var breakSignal = frame.ConsumeNearestBreak(breakRequest);
+                        await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId, frame.Id,
+                            scopeId, JsonSerializer.Serialize(new { outcome = "break", breakSignal.SourceNodeId,
+                                breakSignal.TargetFrameId }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                        breakLoop = true;
                         break;
                     case WorkflowBodyProofDisposition.Terminated:
                         await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId, frame.Id,
@@ -416,6 +429,7 @@ public sealed partial class WorkflowRunner
                         return await FailRunAsync(index, frame.Id, scopeId,
                             $"Activation ended with {bodyOutcome.Disposition} at index {index}.");
                 }
+                if (breakLoop) break;
             }
 
             cancellationToken.ThrowIfCancellationRequested();

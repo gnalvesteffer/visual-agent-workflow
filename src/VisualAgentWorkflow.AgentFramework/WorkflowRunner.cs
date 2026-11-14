@@ -15,6 +15,7 @@ internal enum WorkflowBodyProofDisposition
 {
     Succeeded,
     Terminated,
+    BreakRequested,
     Failed,
     Cancelled,
     TimedOut,
@@ -24,7 +25,7 @@ internal enum WorkflowBodyProofDisposition
 }
 
 internal sealed record WorkflowBodyProofOutcome(WorkflowBodyProofDisposition Disposition, string? Output = null,
-    string? TerminalNodeId = null);
+    string? TerminalNodeId = null, WorkflowRunner.StructuredActivationBreakRequest? BreakRequest = null);
 
 /// <summary>Host-resolved defaults for bounded collaborative workflow regions.</summary>
 public sealed record ParallelCollaborationRuntimeOptions(TimeSpan? DefaultTimeout = null);
@@ -88,10 +89,28 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
     internal async Task<WorkflowBodyProofOutcome> ExecuteBodyForActivationProofAsync(Guid runId,
         WorkflowRevision revision, string input, IReadOnlyDictionary<string, string>? parameters,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default,
-        IWorkflowExecutionGate? gate = null)
+        IWorkflowExecutionGate? gate = null, StructuredActivationFrame? activationFrame = null,
+        IReadOnlySet<string>? proofBreakNodeIds = null)
     {
         ArgumentNullException.ThrowIfNull(record);
         string? terminalNodeId = null;
+        StructuredActivationBreakRequest? breakRequest = null;
+        proofBreakNodeIds ??= revision.Definition.Nodes
+            .Where(entry => entry.Value.Type == StructuredProofBreakNodeType).Select(entry => entry.Key)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var nodeId in proofBreakNodeIds)
+        {
+            if (!revision.Definition.Nodes.TryGetValue(nodeId, out var node) ||
+                node.Type != StructuredProofBreakNodeType ||
+                revision.Definition.ExecutionConnections?.Values.Any(edge => edge.Source.NodeId == nodeId) == true ||
+                revision.Definition.Connections.Values.Any(edge => edge.Source.NodeId == nodeId || edge.Target.NodeId == nodeId))
+                throw new ArgumentException("Activation proof Break IDs must identify private Break nodes without outgoing or data connections.",
+                    nameof(proofBreakNodeIds));
+        }
+        if (proofBreakNodeIds.Count > 0 && revision.Definition.Nodes.Values.Any(node =>
+                node.Type is NodeTypes.Sequence or NodeTypes.ParallelFork))
+            throw new NotSupportedException("The production Break proof does not yet cover Sequence or parallel-fork settlement.");
+        if (proofBreakNodeIds.Count > 0) WorkflowValidator.ThrowIfInvalid(ValidationProjection(revision.Definition));
 
         async ValueTask RecordBodyEvent(ExecutionEvent evt)
         {
@@ -116,7 +135,12 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         try
         {
             var result = await ExecuteCoreAsync(runId, revision, input, parameters, RecordBodyEvent, gate,
-                cancellationToken, allowOutcomeUnknown: true, emitRunLifecycle: false);
+                cancellationToken, allowOutcomeUnknown: true,
+                skipValidationForInternalProof: proofBreakNodeIds.Count > 0, emitRunLifecycle: false,
+                activationFrame: activationFrame, proofBreakNodeIds: proofBreakNodeIds,
+                captureActivationBreak: request => breakRequest = request);
+            if (breakRequest is not null)
+                return new(WorkflowBodyProofDisposition.BreakRequested, BreakRequest: breakRequest);
             if (result.OutcomeUnknown) return new(WorkflowBodyProofDisposition.OutcomeUnknown);
             if (result.Failed) return new(WorkflowBodyProofDisposition.Failed);
             if (result.Terminated) return new(WorkflowBodyProofDisposition.Terminated, TerminalNodeId: terminalNodeId);
@@ -176,7 +200,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         Func<string, CancellationTokenSource?>? callScopeCancellation = null,
         bool skipValidationForInternalProof = false,
         Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
-        bool emitRunLifecycle = true)
+        bool emitRunLifecycle = true,
+        StructuredActivationFrame? activationFrame = null,
+        IReadOnlySet<string>? proofBreakNodeIds = null,
+        Action<StructuredActivationBreakRequest>? captureActivationBreak = null)
     {
         var callerCancellationToken = cancellationToken;
         ArgumentNullException.ThrowIfNull(revision);
@@ -223,7 +250,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         if (linkedCancellation is not null) cancellationToken = linkedCancellation.Token;
         var workflow = sequencePlan is null
             ? BuildWorkflow(runId, revision, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
-                collaborationRuntime, variableStore, afterNodeStarted: afterNodeStarted)
+                collaborationRuntime, variableStore, afterNodeStarted: afterNodeStarted,
+                activationFrame: activationFrame, proofBreakNodeIds: proofBreakNodeIds)
             : BuildSequenceProductionWorkflow(runId, revision, sequencePlan, input, resolvedParameters, Emit, gate, rootRevision, workflowPath,
                 callScopeCancellation);
 
@@ -236,7 +264,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 ? InProcessExecution.Concurrent
                 : InProcessExecution.Default;
             await using var run = await execution.RunStreamingAsync(workflow,
-                new GraphMessage(input, null, null, DataType: inputType), cancellationToken: cancellationToken);
+                new GraphMessage(input, null, null, DataType: inputType,
+                    ActivationFrame: activationFrame), cancellationToken: cancellationToken);
             using var cancellationRegistration = cancellationToken.Register(
                 static state => _ = CancelStreamingRunAsync((StreamingRun)state!), run);
             GraphMessage? output = null;
@@ -255,6 +284,13 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             if (output is null) throw new InvalidOperationException("The workflow produced no output.");
             if (gate is not null) await gate.WaitForBoundaryAsync(null, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
+            if (output.ActivationBreakRequest is { } activationBreak)
+            {
+                if (captureActivationBreak is null)
+                    throw new InvalidOperationException("An activation Break reached an execution path without a VAW coordinator.");
+                captureActivationBreak(activationBreak);
+                return new(null, false, HasOutput: false);
+            }
             if (output.FailureSignal)
             {
                 if (emitRunLifecycle)
@@ -345,13 +381,20 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         WorkflowRevision rootRevision, ImmutableArray<WorkflowApprovalScope> workflowPath,
         ParallelCollaborationRuntime? collaborationRuntime = null, WorkflowVariableStore? variableStore = null,
         CheckpointBoundaryTracker? boundaryTracker = null,
-        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null)
+        Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
+        StructuredActivationFrame? activationFrame = null,
+        IReadOnlySet<string>? proofBreakNodeIds = null)
     {
         var definition = revision.Definition;
         var dataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(definition) ? new ExplicitGraphDataEvaluator(definition, input, parameters) : null;
         var executors = definition.Nodes.ToDictionary(
             n => n.Key,
-            n => (Executor<GraphMessage, GraphMessage>)new StringExecutor(n.Key, n.Value, runId, revision, parameters, tools, agents, dataEvaluator, variableStore, emit, gate, null, rootRevision, workflowPath, collaborationOptions, collaborationRuntime, null, boundaryTracker, afterNodeStarted: afterNodeStarted));
+            n => (Executor<GraphMessage, GraphMessage>)new StringExecutor(n.Key, n.Value,
+                runId, revision, parameters, tools, agents, dataEvaluator, variableStore, emit, gate, null,
+                rootRevision, workflowPath, collaborationOptions, collaborationRuntime, null, boundaryTracker,
+                afterNodeStarted: afterNodeStarted,
+                activationBreakNode: proofBreakNodeIds?.Contains(n.Key) == true,
+                proofBreakNodeIds: proofBreakNodeIds));
         if (collaborationRuntime is not null)
         {
             var region = collaborationRuntime.Region;
@@ -389,9 +432,15 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             builder.AddFanInBarrierEdge(branchSources, (ExecutorBinding)executors[join.Key]);
         }
         var outputId = definition.Nodes.Single(n => n.Value.Type == NodeTypes.Output).Key;
-        foreach (var terminator in definition.Nodes.Where(n => n.Value.Type is NodeTypes.Terminate or NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall))
+        foreach (var terminator in definition.Nodes.Where(n =>
+                     (n.Value.Type is NodeTypes.Terminate or NodeTypes.WorkflowCall or NodeTypes.WorkflowInterfaceCall) &&
+                     proofBreakNodeIds?.Contains(n.Key) != true))
             builder.AddEdge<GraphMessage>(executors[terminator.Key], executors[outputId], message =>
                 message?.SourceNode == terminator.Key && message.SourcePort == "terminated" && message.TerminationSignal);
+        foreach (var breakNodeId in proofBreakNodeIds ?? ImmutableHashSet<string>.Empty)
+            builder.AddEdge<GraphMessage>(executors[breakNodeId], executors[outputId], message =>
+                message?.SourceNode == breakNodeId && message.SourcePort == "break" &&
+                message.ActivationBreakRequest?.SourceNodeId == breakNodeId);
         builder.WithOutputFrom(executors[outputId]);
         return builder.Build();
     }
@@ -1286,7 +1335,9 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         bool allowOutcomeUnknown = false,
         Func<string, CancellationTokenSource?>? callScopeCancellation = null,
         Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
-        Func<Guid?, WorkflowVariableStore?>? activationVariableStore = null)
+        Func<Guid?, WorkflowVariableStore?>? activationVariableStore = null,
+        bool activationBreakNode = false,
+        IReadOnlySet<string>? proofBreakNodeIds = null)
         // BuildWorkflow creates a fresh executor set for each run; these instances may process branch messages concurrently within that run.
         : Executor<GraphMessage, GraphMessage>(id, declareCrossRunShareable: true)
     {
@@ -1373,6 +1424,15 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             var activeCollaborationRuntime = received.CollaborationRuntime ?? collaborationRuntime;
             using var activationScope = dataEvaluator?.EnterActivation(received.ActivationFrame);
             using var eventActivationScope = EnterActivationFrame(received.ActivationFrame);
+            if (node.Type == NodeTypes.Output && received.ActivationBreakRequest is { } breakRequest)
+            {
+                var frame = received.ActivationFrame;
+                if (proofBreakNodeIds?.Contains(breakRequest.SourceNodeId) != true ||
+                    received.SourceNode != breakRequest.SourceNodeId || frame is null ||
+                    breakRequest.SourceFrameId != frame.Id || breakRequest.ScopeId != frame.ScopeId)
+                    throw new InvalidOperationException("Invalid activation Break output handoff.");
+                return received with { SourcePort = "break" };
+            }
             var internalTerminationHandoff = node.Type == NodeTypes.Output && received.TerminationSignal;
             if (gate is not null && !internalTerminationHandoff) await gate.WaitForBoundaryAsync(Id, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
@@ -1497,6 +1557,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             {
                 if (afterNodeStarted is not null)
                     await afterNodeStarted(Id, cancellationToken);
+                if (activationBreakNode)
+                {
+                    var frame = received.ActivationFrame
+                        ?? throw new InvalidOperationException("The activation proof Break has no active frame.");
+                    var request = new StructuredActivationBreakRequest(Id, frame.Id, frame.ScopeId);
+                    await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation,
+                        data: JsonSerializer.Serialize(request, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                    return new(string.Empty, Id, "break", DataType: "string", HasValue: false,
+                        ActivationFrame: frame, ActivationBreakRequest: request);
+                }
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Output &&
                     !internalTerminationHandoff && (received.SequenceLineage is null ||
                         revision.Definition.SchemaVersion == WorkflowSchemaVersions.UnifiedWorkflowGraph &&

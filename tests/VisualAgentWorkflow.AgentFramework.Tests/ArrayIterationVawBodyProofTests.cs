@@ -257,6 +257,66 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Fact]
+    public async Task ProductionBodyActivationCoordinator_ConsumesGraphDispatchedBreak()
+    {
+        var revision = WorkflowRevision.CreateProofOnly(StructuredBreakProofDefinition(),
+            "production-body-activation-break-proof");
+        const string input = "[\"continue\",\"stop\",\"must-not-run\"]";
+        var runId = Guid.NewGuid();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            events.Enqueue(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var outcome = await new WorkflowRunner().ExecuteProductionBodyActivationSequenceProofAsync(
+            runId, revision, input, "index", null, Record, itemParameterId: "item");
+        var recorded = events.ToArray();
+
+        Assert.Equal("continue:0", outcome.Output);
+        Assert.False(outcome.Failed);
+        Assert.Equal(2, recorded.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.DoesNotContain(recorded, evt => evt.ScopeId == "array-loop/2");
+        var breakStart = Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+            evt.NodeId == "proof-break");
+        var breakComplete = Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "proof-break");
+        Assert.Equal(breakStart.InvocationId, breakComplete.InvocationId);
+        using var requestData = JsonDocument.Parse(breakComplete.Data!);
+        Assert.Equal("proof-break", requestData.RootElement.GetProperty("sourceNodeId").GetString());
+        Assert.False(requestData.RootElement.TryGetProperty("targetFrameId", out _));
+        var consumed = Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/1" && evt.Data is not null);
+        using var consumedData = JsonDocument.Parse(consumed.Data!);
+        Assert.Equal("proof-break", consumedData.RootElement.GetProperty("sourceNodeId").GetString());
+        Assert.Equal(consumed.InvocationId, consumedData.RootElement.GetProperty("targetFrameId").GetGuid());
+        Assert.DoesNotContain(recorded, evt => evt.NodeId == "output" && evt.ScopeId == "array-loop/1");
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+    }
+
+    [Theory]
+    [InlineData(NodeTypes.Sequence)]
+    [InlineData(NodeTypes.ParallelFork)]
+    public async Task ProductionBodyBreakProof_RejectsUnsettledControlRegions(string unsupportedNodeType)
+    {
+        var bodyDefinition = StructuredBreakProofDefinition();
+        var definition = bodyDefinition with
+        {
+            Nodes = bodyDefinition.Nodes.Add("unsupported-control",
+                new NodeDefinition(unsupportedNodeType, "1.0.0"))
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition, "production-body-break-limitation-proof");
+
+        var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+            new WorkflowRunner().ExecuteBodyForActivationProofAsync(Guid.NewGuid(), revision, "stop", null,
+                _ => ValueTask.CompletedTask));
+
+        Assert.Contains("Sequence or parallel-fork settlement", exception.Message);
+    }
+
+    [Fact]
     public async Task StructuredSchedulerProof_ReusesProductionAgentAndMcpNodeAdapters()
     {
         var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),

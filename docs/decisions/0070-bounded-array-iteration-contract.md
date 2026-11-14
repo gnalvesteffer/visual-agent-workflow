@@ -1642,3 +1642,27 @@ architecture. It does not yet consume graph-dispatched typed `Break`, complete
 the persisted failure/race/custom-broker/store-fault matrix, or prove all
 reservation-settlement cases. The main gate remains **REVISE**; public typed
 iteration, Studio authoring, and checkpoint recovery remain out of scope.
+
+## Production body Break transport proof (2026-11-14)
+
+The private proof now carries a graph-dispatched Break through the production
+Agent Framework `WorkflowBuilder` path using a typed field on `GraphMessage`.
+The configured Output executor serves as the framework output handoff, but the
+private Break handoff bypasses ordinary Output-node events and visible
+execution-transfer evidence. The body dispatcher returns a source-only request
+(node, activation frame, and scope); the VAW coordinator validates it with the
+active frame, derives the target, records that target in iteration evidence,
+and stops admitting later items. The bridge does not set or reinterpret the
+workflow termination signal. A production-backed condition route proves the
+bridge; existing tests separately preserve ordinary `core.terminate` behavior.
+The focused dispatcher/coordinator and frame-rejection tests pass.
+
+This remains an in-memory proof over a private, non-publishable node type. The
+current transport rejects Sequence and parallel-fork bodies because sequence
+abort and concurrent sibling settlement are not yet implemented here. It also
+does not prove nested outer-loop continuation or stale/foreign identity
+rejection through the production body boundary, and the Break-specific event
+history has not been persisted through file/SQLite playback. The structured
+scheduler remains behavioral evidence for those cases, not proof of this
+Agent-Framework path. Keep the parent gate open and do not introduce public
+schema or Studio authoring.

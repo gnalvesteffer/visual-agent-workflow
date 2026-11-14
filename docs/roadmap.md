@@ -150,6 +150,16 @@ will be introduced.
     only source identity and derive/consume the target in the coordinator.
     Prove nested outer-loop continuation and rejection of stale or foreign
     requests without changing `core.terminate` semantics.
+    - [x] Prove a private condition-routed Break through the production Agent
+      Framework body workflow and output handoff. The dispatcher records only
+      source node/frame/scope; the VAW frame derives and consumes the target
+      and stops later items. Existing coordinator termination tests keep
+      `core.terminate` on its ordinary path. The typed marker bypasses visible
+      Output-node events. This proof is in-memory only; it rejects bodies with
+      Sequence or parallel forks until abort/settlement behavior is proven.
+      Nested continuation, persisted
+      playback, and stale/foreign requests at this production boundary remain
+      open, so the parent Break item remains unchecked.
   - [ ] Move root/activation lifecycle and shared atomic reservations behind
     one VAW-owned run context; the body dispatcher returns typed outcomes and
     does not finalize the root. Prove exact-once terminal outcomes, pre-dispatch
