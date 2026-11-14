@@ -142,7 +142,7 @@ public sealed class ArrayIterationVawBodyProofTests
                 if (evt is WorkflowOutputEvent { Data: string output }) subworkflowOutput = output;
         subworkflowRecorder.CompleteRoot();
 
-        var hybridOutput = await RunHybridLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
+        var hybridOutput = await RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
             hybridAgents, new EchoToolBroker(), "array-loop", ["7", "11"], null, "index", [],
             async frame =>
             {
@@ -159,7 +159,7 @@ public sealed class ArrayIterationVawBodyProofTests
                     hybridStore.RunId, revision, frame.Item, frame.Parameters, Record);
                 if (outcome.Failed || outcome.Output is null)
                     throw new InvalidOperationException("The hybrid typed-value body did not return a result.");
-                return new HybridLoopProofValue(outcome.Output);
+                return new ActivationLoopProofValue(outcome.Output);
             });
         hybridRecorder.CompleteRoot();
 
@@ -2626,15 +2626,15 @@ public sealed class ArrayIterationVawBodyProofTests
         var recorder = new ProofRecorder(runStore);
         var agents = new EchoAgentExecutor();
         var tools = new EchoToolBroker(query => $"echo:{query}");
-        var breakDispatches = new ConcurrentQueue<HybridLoopProofBreakDispatch>();
-        var proofGraph = new HybridLoopProofGraph();
+        var breakDispatches = new ConcurrentQueue<LoopProofBreakDispatch>();
+        var proofGraph = new LoopControlProofGraph();
         var proofGraphDispatches = new ConcurrentQueue<(string NodeId, string ScopeId)>();
 
-        var output = await RunHybridLoopProofAsync(runStore.RunId, revision, recorder, agents, tools,
+        var output = await RunActivationLoopProofAsync(runStore.RunId, revision, recorder, agents, tools,
             "outer-loop", ["outer-a", "outer-b"], parentFrame: null, indexParameterId: "outerIndex",
             breakDispatches, async outerFrame =>
             {
-                var innerOutput = await RunHybridLoopProofAsync(runStore.RunId, revision, recorder, agents,
+                var innerOutput = await RunActivationLoopProofAsync(runStore.RunId, revision, recorder, agents,
                     tools, "inner-loop", ["continue", "break", "must-not-run"], outerFrame, "index",
                     breakDispatches, async innerFrame =>
                     {
@@ -2653,7 +2653,7 @@ public sealed class ArrayIterationVawBodyProofTests
                         var output = body.Output ?? throw new InvalidOperationException("The nested body had no output.");
                         return proofGraph.Execute(output, innerFrame, proofGraphDispatches);
                     });
-                return new HybridLoopProofValue($"outer-{outerFrame.Index}:{innerOutput}");
+                return new ActivationLoopProofValue($"outer-{outerFrame.Index}:{innerOutput}");
             });
         recorder.CompleteRoot();
 
@@ -2673,6 +2673,68 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(dispatches.Select(dispatch => dispatch.ScopeId),
             proofGraphDispatches.Where(dispatch => dispatch.NodeId == "break")
                 .Select(dispatch => dispatch.ScopeId));
+
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "completed");
+        Assert.DoesNotContain(events, evt => evt.ScopeId is
+            "outer-loop/0/inner-loop/2" or "outer-loop/1/inner-loop/2");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.NodeId == "outer-loop" && evt.ScopeId == "outer-loop/1");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredNodeDispatcher_BreakStopsNearestNestedLoopAndOuterLoopContinues(bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(NestedBodyDefinition(),
+            "array-iteration-structured-nested-break-proof");
+        const string input = "[\"outer-a\",\"outer-b\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore);
+        var agents = new EchoAgentExecutor();
+        var tools = new EchoToolBroker(query => $"echo:{query}");
+        var breakDispatches = new ConcurrentQueue<LoopProofBreakDispatch>();
+        var proofGraph = new LoopControlProofGraph();
+        var proofGraphDispatches = new ConcurrentQueue<(string NodeId, string ScopeId)>();
+
+        var output = await RunActivationLoopProofAsync(runStore.RunId, revision, recorder, agents, tools,
+            "outer-loop", ["outer-a", "outer-b"], parentFrame: null, indexParameterId: "outerIndex",
+            breakDispatches, async outerFrame =>
+            {
+                var innerOutput = await RunActivationLoopProofAsync(runStore.RunId, revision, recorder, agents,
+                    tools, "inner-loop", ["continue", "break", "must-not-run"], outerFrame, "index",
+                    breakDispatches, async innerFrame =>
+                    {
+                        ValueTask Record(ExecutionEvent evt)
+                        {
+                            if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                                ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
+                                ExecutionEventKinds.Terminated)
+                                return ValueTask.CompletedTask;
+                            recorder.Append(evt with { ScopeId = evt.ScopeId ?? innerFrame.ScopeId });
+                            return ValueTask.CompletedTask;
+                        }
+
+                        var result = await new WorkflowRunner(tools, agents)
+                            .ExecuteStructuredSchedulerProofAsync(runStore.RunId, revision, innerFrame.Item,
+                                innerFrame.Parameters, Record, activationScopeId: innerFrame.ScopeId,
+                                emitRunLifecycle: false);
+                        if (result.Failed || result.Output is null)
+                            throw new InvalidOperationException("The structured body did not return a result.");
+                        return proofGraph.Execute(result.Output, innerFrame, proofGraphDispatches);
+                    });
+                return new ActivationLoopProofValue($"outer-{outerFrame.Index}:{innerOutput}");
+            });
+        recorder.CompleteRoot();
+
+        Assert.Equal("outer-0:echo:CONTINUE:0/0;outer-1:echo:CONTINUE:0/1", output);
+        Assert.Equal(["CONTINUE:0/0", "BREAK:1/0", "CONTINUE:0/1", "BREAK:1/1"], agents.Inputs);
+        Assert.Equal(agents.Inputs, tools.Queries);
+        Assert.Equal(2, breakDispatches.Count);
+        Assert.All(breakDispatches, dispatch => Assert.Equal(dispatch.SourceFrameId, dispatch.TargetFrameId));
+        Assert.Equal(["outer-loop/0/inner-loop/1", "outer-loop/1/inner-loop/1"],
+            breakDispatches.Select(dispatch => dispatch.ScopeId));
 
         var events = recorder.Snapshot();
         AssertPersistedSequence(runStore, events, "completed");
@@ -5077,11 +5139,11 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
-    private static async Task<string> RunHybridLoopProofAsync(Guid runId, WorkflowRevision revision,
+    private static async Task<string> RunActivationLoopProofAsync(Guid runId, WorkflowRevision revision,
         ProofRecorder recorder, IAgentNodeExecutor agents, INodeToolBroker tools, string loopNodeId,
         IReadOnlyList<string> items, WorkflowRunner.StructuredActivationFrame? parentFrame,
-        string indexParameterId, ConcurrentQueue<HybridLoopProofBreakDispatch> breakDispatches,
-        Func<WorkflowRunner.StructuredActivationFrame, Task<HybridLoopProofResult>> executeBody)
+        string indexParameterId, ConcurrentQueue<LoopProofBreakDispatch> breakDispatches,
+        Func<WorkflowRunner.StructuredActivationFrame, Task<LoopProofResult>> executeBody)
     {
         var results = new List<string>(items.Count);
         for (var index = 0; index < items.Count; index++)
@@ -5098,7 +5160,7 @@ public sealed class ArrayIterationVawBodyProofTests
             recorder.Append(ExecutionEventKinds.LoopIterationStarted, loopNodeId, frame.Id, frame.ScopeId);
 
             var result = await executeBody(frame);
-            if (result is HybridLoopProofBreak signal)
+            if (result is LoopProofBreak signal)
             {
                 breakDispatches.Enqueue(new(signal.SourceNodeId, signal.SourceFrameId, signal.TargetFrameId,
                     signal.ScopeId));
@@ -5108,33 +5170,32 @@ public sealed class ArrayIterationVawBodyProofTests
             }
 
             recorder.Append(ExecutionEventKinds.LoopIterationCompleted, loopNodeId, frame.Id, frame.ScopeId);
-            results.Add(((HybridLoopProofValue)result).Value);
+            results.Add(((ActivationLoopProofValue)result).Value);
         }
 
         return string.Join(';', results);
     }
 
-    private abstract record HybridLoopProofResult;
-    private sealed record HybridLoopProofValue(string Value) : HybridLoopProofResult;
-    private sealed record HybridLoopProofBreak(string SourceNodeId, Guid SourceFrameId, Guid TargetFrameId,
-        string ScopeId)
-        : HybridLoopProofResult;
-    private sealed record HybridLoopProofBreakDispatch(string SourceNodeId, Guid SourceFrameId,
+    private abstract record LoopProofResult;
+    private sealed record ActivationLoopProofValue(string Value) : LoopProofResult;
+    private sealed record LoopProofBreak(string SourceNodeId, Guid SourceFrameId, Guid TargetFrameId,
+        string ScopeId) : LoopProofResult;
+    private sealed record LoopProofBreakDispatch(string SourceNodeId, Guid SourceFrameId,
         Guid TargetFrameId, string ScopeId);
 
-    private sealed class HybridLoopProofGraph
+    private sealed class LoopControlProofGraph
     {
-        public HybridLoopProofResult Execute(string bodyResult,
+        public LoopProofResult Execute(string bodyResult,
             WorkflowRunner.StructuredActivationFrame activation,
             ConcurrentQueue<(string NodeId, string ScopeId)> dispatches)
         {
             dispatches.Enqueue(("break-condition", activation.ScopeId));
             if (!bodyResult.Contains("BREAK:", StringComparison.Ordinal))
-                return new HybridLoopProofValue(bodyResult);
+                return new ActivationLoopProofValue(bodyResult);
 
             dispatches.Enqueue(("break", activation.ScopeId));
             var nearestLoop = activation.NearestLoop();
-            return new HybridLoopProofBreak("break", activation.Id, nearestLoop.Id, activation.ScopeId);
+            return new LoopProofBreak("break", activation.Id, nearestLoop.Id, activation.ScopeId);
         }
     }
 

@@ -186,6 +186,14 @@ will be introduced.
       persisted-prefix checks in file and SQLite stores (6 candidate/store
       executions). This proves typed parameter dataflow across candidates, not
       dedicated iterator pins or `Break` dispatch.
+    - [x] Exercise the nested typed Break control result against the structured
+      production node dispatcher, in addition to the hybrid and fresh
+      subworkflow harnesses. Each candidate-specific body dispatch stops at
+      the inner activation and allows the outer item to continue, with scoped
+      Agent/MCP evidence persisted in file and SQLite stores. The structured
+      case uses a test-owned activation coordinator and the shared private
+      control graph; this is not yet the adjudicated matched graph contract or
+      a production iterator. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Extend the hybrid candidate with nested immutable activation frames
       and parent parameter inheritance around the production Agent/MCP body;
       verify scoped events, variable state, and a production parallel join

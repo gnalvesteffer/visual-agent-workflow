@@ -1014,6 +1014,18 @@ parameter dataflow only. Dedicated iterator element/index pins and actual
 nearest-loop `Break` dispatch remain unproven, so the matched graph-level proof
 and architecture gate stay open.
 
+The structured node-dispatch proof now runs the same production
+`NestedBodyDefinition` used by the hybrid nested-break case through
+`ExecuteStructuredSchedulerProofAsync`, with a test-owned activation
+coordinator and the private typed control graph. For each outer item it
+resolves the nested item/index through graph data pins, dispatches the real
+Agent/MCP-backed body, consumes a nearest-inner-frame Break result, and
+continues the outer item. File and SQLite cases pass (2/2) with scoped
+invocation evidence and no body dispatch for the item after Break. This adds
+structured dispatcher evidence but still leaves iteration sequencing in a
+test coordinator; the subworkflow's separate synthetic graph has not yet been
+matched to this production body and control graph.
+
 ## Compatibility constraints
 
 - Keep iteration as a distinct node family; do not broaden or reinterpret the
