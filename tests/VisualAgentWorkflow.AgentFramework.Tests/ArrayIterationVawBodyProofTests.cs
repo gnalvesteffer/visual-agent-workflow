@@ -5121,6 +5121,122 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_ExecuteSequenceOutputsPerActivation(bool sqlite)
+    {
+        var definition = SequenceBodyDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition, "array-iteration-structured-sequence-proof");
+        const string input = "[\"hello\",\"world\"]";
+        var candidates = new[]
+        {
+            await RunCandidateAsync("structured"),
+            await RunCandidateAsync("fresh-subworkflow"),
+            await RunCandidateAsync("hybrid")
+        };
+
+        Assert.All(candidates, candidate => Assert.Equal("echo:sequence;echo:sequence", candidate.Output));
+        Assert.All(candidates, candidate => Assert.Equal(
+            ["sequence", "sequence", "sequence", "sequence"], candidate.ToolQueries));
+        Assert.Equal(SequenceShape(candidates[0].Events), SequenceShape(candidates[1].Events));
+        Assert.Equal(SequenceShape(candidates[0].Events), SequenceShape(candidates[2].Events));
+
+        foreach (var candidate in candidates)
+            for (var index = 0; index < 2; index++)
+            {
+                var scopeId = $"array-loop/{index}";
+                var scoped = candidate.Events.Where(evt => evt.ScopeId == scopeId).ToArray();
+                Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.SequenceStarted);
+                Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputDispatched));
+                Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.SequenceOutputCompleted));
+                Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+                Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                    evt.NodeId is "inventory-tool" or "architecture-tool"));
+                Assert.Contains(scoped, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                    evt.NodeId == "array-loop");
+            }
+
+        async Task<(string Output, ExecutionEvent[] Events, string[] ToolQueries)> RunCandidateAsync(string candidate)
+        {
+            using var runStore = new ProofRunStore(revision, input, sqlite);
+            var recorder = new ProofRecorder(runStore, startRoot: false);
+            var tools = new EchoToolBroker();
+            string output;
+
+            if (candidate == "structured")
+            {
+                var result = await new WorkflowRunner(tools).ExecuteStructuredActivationSequenceProofAsync(
+                    runStore.RunId, revision, input, "index", null, evt =>
+                    {
+                        recorder.Append(evt);
+                        return ValueTask.CompletedTask;
+                    });
+                Assert.False(result.Failed);
+                output = result.Output!;
+            }
+            else if (candidate == "fresh-subworkflow")
+            {
+                recorder.Append(new ExecutionEvent(runStore.RunId, revision.RevisionId, 0, DateTimeOffset.UtcNow,
+                    ExecutionEventKinds.Started));
+                var iterator = new PerItemWorkflowExecutor(runStore.RunId, revision, recorder,
+                    new EchoAgentExecutor(), tools);
+                var workflow = new WorkflowBuilder(iterator).WithOutputFrom(iterator).Build();
+                string? observedOutput = null;
+                await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, input);
+                await foreach (var evt in run.WatchStreamAsync())
+                    if (evt is WorkflowOutputEvent { Data: string value }) observedOutput = value;
+                output = observedOutput ?? throw new InvalidOperationException("The subworkflow candidate produced no output.");
+                recorder.CompleteRoot();
+            }
+            else
+            {
+                recorder.Append(new ExecutionEvent(runStore.RunId, revision.RevisionId, 0, DateTimeOffset.UtcNow,
+                    ExecutionEventKinds.Started));
+                var items = JsonSerializer.Deserialize<string[]>(input)!;
+                var values = new List<string>(items.Length);
+                for (var index = 0; index < items.Length; index++)
+                {
+                    var scopeId = $"array-loop/{index}";
+                    var frame = new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null,
+                        "array-loop", index, items[index], ImmutableSortedDictionary<string, string>.Empty
+                            .Add("index", index.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+                    recorder.Append(ExecutionEventKinds.LoopIterationStarted, "array-loop", frame.Id, scopeId);
+                    async ValueTask Record(ExecutionEvent evt)
+                    {
+                        if (evt.Kind is not (ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                            ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated))
+                            recorder.Append(evt with { ScopeId = scopeId });
+                    }
+                    var result = await new WorkflowRunner(tools).ExecuteWithOutcomeAsync(runStore.RunId, revision,
+                        items[index], frame.Parameters, Record);
+                    Assert.False(result.Failed);
+                    values.Add(result.Output!);
+                    recorder.Append(ExecutionEventKinds.LoopIterationCompleted, "array-loop", frame.Id, scopeId);
+                }
+                output = string.Join(';', values);
+                recorder.CompleteRoot();
+            }
+
+            var events = recorder.Snapshot();
+            AssertPersistedSequence(runStore, events, "completed");
+            return (output, events, tools.Queries);
+        }
+
+        static (string Kind, string? NodeId, string? ConnectionId, string? ScopeId)[] SequenceShape(
+            IEnumerable<ExecutionEvent> events) => events
+            .Where(evt => evt.Kind.StartsWith("sequence.", StringComparison.Ordinal))
+            .Select(evt => (evt.Kind, evt.NodeId, evt.ConnectionId, evt.ScopeId))
+            .OrderBy(evt => evt.ScopeId, StringComparer.Ordinal)
+            .ThenBy(evt => evt.Kind, StringComparer.Ordinal)
+            .ThenBy(evt => evt.ConnectionId, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task HybridFrameCoordinator_ExecutesUnifiedSequenceBodyPerActivation(bool sqlite)
     {
         var revision = WorkflowRevision.Create(SequenceBodyDefinition(),

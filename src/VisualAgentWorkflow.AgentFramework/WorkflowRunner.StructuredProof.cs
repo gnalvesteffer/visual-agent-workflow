@@ -57,9 +57,8 @@ public sealed partial class WorkflowRunner
         if (runId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(runId));
         if (input.Length > 16_384) throw new ArgumentException("Input exceeds 16,384 characters.", nameof(input));
         WorkflowValidator.ThrowIfInvalid(revision.Definition);
-        if (revision.Definition.ParallelCollaborationRegions is { Count: > 0 } ||
-            revision.Definition.Nodes.Values.Any(node => node.Type == NodeTypes.Sequence))
-            throw new NotSupportedException("The structured scheduler proof does not cover collaboration or Sequence nodes yet.");
+        if (revision.Definition.ParallelCollaborationRegions is { Count: > 0 })
+            throw new NotSupportedException("The structured scheduler proof does not cover collaboration nodes yet.");
 
         var definition = revision.Definition;
         var resolvedParameters = WorkflowParameters.Resolve(definition, parameters);
@@ -152,6 +151,9 @@ public sealed partial class WorkflowRunner
             try
             {
                 token.ThrowIfCancellationRequested();
+                if (definition.Nodes[nodeId].Type == NodeTypes.Sequence)
+                    return await DispatchSequence(nodeId, message, token);
+
                 var executor = executors[nodeId];
                 var node = definition.Nodes[nodeId];
                 var forkTasks = new List<Task<GraphMessage?>>();
@@ -199,6 +201,98 @@ public sealed partial class WorkflowRunner
             catch
             {
                 if (!schedulerCancellation.IsCancellationRequested) schedulerCancellation.Cancel();
+                throw;
+            }
+        }
+
+        async Task<GraphMessage?> DispatchSequence(string nodeId, GraphMessage message, CancellationToken token)
+        {
+            var sequence = definition.Nodes[nodeId].Sequence
+                ?? throw new InvalidOperationException("The Sequence node has no configured outputs.");
+            var outputEdges = sequence.Outputs.Select(output =>
+            {
+                var portId = SequenceOutputLimits.PinId(output.Id);
+                var edge = definition.ExecutionConnections!.Single(candidate => candidate.Value.Source.NodeId == nodeId &&
+                    candidate.Value.Source.PortId == portId);
+                return (OutputId: output.Id, PortId: portId, ConnectionId: edge.Key, Edge: edge.Value);
+            }).ToArray();
+            var connectionIds = outputEdges.ToDictionary(output => output.OutputId, output => output.ConnectionId,
+                StringComparer.Ordinal);
+            var sequenceInvocationId = Guid.NewGuid();
+            var coordinator = new SequenceRuntimeCoordinator(sequenceInvocationId, nodeId,
+                outputEdges.Select(output => output.OutputId).ToArray(), connectionIds);
+
+            async ValueTask FlushSequenceEvents()
+            {
+                foreach (var runtimeEvent in coordinator.DrainEvents())
+                {
+                    var evidence = new SequenceLifecycleEvidence(runtimeEvent.SequenceInvocationId,
+                        runtimeEvent.SequenceNodeId, runtimeEvent.OutputId, runtimeEvent.Ordinal,
+                        runtimeEvent.ActivationId, runtimeEvent.ConnectionId);
+                    await Emit(runtimeEvent.Kind, runtimeEvent.SequenceNodeId, runtimeEvent.SequenceInvocationId,
+                        runtimeEvent.ConnectionId, SequenceEvidence.Serialize(evidence));
+                }
+            }
+
+            await Emit(ExecutionEventKinds.NodeStarted, nodeId, sequenceInvocationId, data: message.Text);
+            await FlushSequenceEvents();
+            try
+            {
+                var outputTasks = outputEdges.Select(async output =>
+                {
+                    var activationId = Guid.NewGuid();
+                    var activation = coordinator.DispatchNext(activationId);
+                    await FlushSequenceEvents();
+                    var lineage = new SequenceMessageLineage(sequenceInvocationId, nodeId, activation.OutputId,
+                        activation.Ordinal, activation.ActivationId!.Value, output.ConnectionId,
+                        message.ActivationFrame?.ScopeId);
+                    try
+                    {
+                        var result = await DispatchNode(output.Edge.Target.NodeId,
+                            new GraphMessage(message.Text, nodeId, output.PortId, DataType: message.DataType,
+                                SequenceLineage: lineage, ActivationFrame: message.ActivationFrame), token);
+                        if (result is null)
+                            throw new InvalidOperationException($"Sequence output '{output.OutputId}' produced no result.");
+                        coordinator.Complete(activationId, SequenceTerminalState.Completed, result.Text);
+                        await FlushSequenceEvents();
+                        return result;
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        coordinator.Complete(activationId, SequenceTerminalState.Cancelled);
+                        await FlushSequenceEvents();
+                        throw;
+                    }
+                    catch
+                    {
+                        coordinator.Complete(activationId, SequenceTerminalState.Failed);
+                        await FlushSequenceEvents();
+                        throw;
+                    }
+                }).ToArray();
+
+                var results = await Task.WhenAll(outputTasks);
+                var deterministicResult = coordinator.DeterministicResult
+                    ?? throw new InvalidOperationException("The Sequence produced no completed output value.");
+                await Emit(ExecutionEventKinds.NodeCompleted, nodeId, sequenceInvocationId,
+                    data: "All Sequence outputs completed.");
+                var firstOutputResult = results[0];
+                return firstOutputResult with { Text = deterministicResult };
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                coordinator.CancelPending();
+                await FlushSequenceEvents();
+                await Emit(ExecutionEventKinds.NodeCancelled, nodeId, sequenceInvocationId,
+                    data: "Sequence execution cancelled.");
+                throw;
+            }
+            catch
+            {
+                coordinator.CancelPending();
+                await FlushSequenceEvents();
+                await Emit(ExecutionEventKinds.NodeFailed, nodeId, sequenceInvocationId,
+                    data: "Sequence execution failed.");
                 throw;
             }
         }
