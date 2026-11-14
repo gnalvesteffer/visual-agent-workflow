@@ -159,7 +159,7 @@ public sealed class ArrayIterationVawBodyProofTests
                     hybridStore.RunId, revision, frame.Item, frame.Parameters, Record);
                 if (outcome.Failed || outcome.Output is null)
                     throw new InvalidOperationException("The hybrid typed-value body did not return a result.");
-                return outcome.Output;
+                return new HybridLoopProofValue(outcome.Output);
             });
         hybridRecorder.CompleteRoot();
 
@@ -2625,9 +2625,7 @@ public sealed class ArrayIterationVawBodyProofTests
         using var runStore = new ProofRunStore(revision, input, sqlite);
         var recorder = new ProofRecorder(runStore);
         var agents = new EchoAgentExecutor();
-        var tools = new EchoToolBroker(query => query.StartsWith("BREAK:", StringComparison.Ordinal)
-            ? HybridLoopProofBreak.Signal
-            : $"echo:{query}");
+        var tools = new EchoToolBroker(query => $"echo:{query}");
         var breakDispatches = new ConcurrentQueue<HybridLoopProofBreakDispatch>();
 
         var output = await RunHybridLoopProofAsync(runStore.RunId, revision, recorder, agents, tools,
@@ -2650,9 +2648,10 @@ public sealed class ArrayIterationVawBodyProofTests
 
                         var body = await new WorkflowRunner(tools, agents).ExecuteWithOutcomeAsync(
                             runStore.RunId, revision, innerFrame.Item, innerFrame.Parameters, Record);
-                        return body.Output ?? throw new InvalidOperationException("The nested body had no output.");
+                        var output = body.Output ?? throw new InvalidOperationException("The nested body had no output.");
+                        return HybridLoopProofResultFactory.FromBodyResult(output, innerFrame);
                     });
-                return $"outer-{outerFrame.Index}:{innerOutput}";
+                return new HybridLoopProofValue($"outer-{outerFrame.Index}:{innerOutput}");
             });
         recorder.CompleteRoot();
 
@@ -5072,7 +5071,7 @@ public sealed class ArrayIterationVawBodyProofTests
         ProofRecorder recorder, IAgentNodeExecutor agents, INodeToolBroker tools, string loopNodeId,
         IReadOnlyList<string> items, WorkflowRunner.StructuredActivationFrame? parentFrame,
         string indexParameterId, ConcurrentQueue<HybridLoopProofBreakDispatch> breakDispatches,
-        Func<WorkflowRunner.StructuredActivationFrame, Task<string>> executeBody)
+        Func<WorkflowRunner.StructuredActivationFrame, Task<HybridLoopProofResult>> executeBody)
     {
         var results = new List<string>(items.Count);
         for (var index = 0; index < items.Count; index++)
@@ -5089,28 +5088,39 @@ public sealed class ArrayIterationVawBodyProofTests
             recorder.Append(ExecutionEventKinds.LoopIterationStarted, loopNodeId, frame.Id, frame.ScopeId);
 
             var result = await executeBody(frame);
-            if (result == HybridLoopProofBreak.Signal)
+            if (result is HybridLoopProofBreak signal)
             {
-                var target = frame.NearestLoop();
-                breakDispatches.Enqueue(new(frame.Id, target.Id, frame.ScopeId));
-                if (target.Id != frame.Id)
+                breakDispatches.Enqueue(new(signal.SourceFrameId, signal.TargetFrameId, signal.ScopeId));
+                if (signal.TargetFrameId != frame.Id)
                     throw new InvalidOperationException("The hybrid coordinator did not own the nearest loop target.");
                 break;
             }
 
             recorder.Append(ExecutionEventKinds.LoopIterationCompleted, loopNodeId, frame.Id, frame.ScopeId);
-            results.Add(result);
+            results.Add(((HybridLoopProofValue)result).Value);
         }
 
         return string.Join(';', results);
     }
 
-    private static class HybridLoopProofBreak
-    {
-        public const string Signal = "__hybrid_loop_break_proof__";
-    }
-
+    private abstract record HybridLoopProofResult;
+    private sealed record HybridLoopProofValue(string Value) : HybridLoopProofResult;
+    private sealed record HybridLoopProofBreak(Guid SourceFrameId, Guid TargetFrameId, string ScopeId)
+        : HybridLoopProofResult;
     private sealed record HybridLoopProofBreakDispatch(Guid SourceFrameId, Guid TargetFrameId, string ScopeId);
+
+    private static class HybridLoopProofResultFactory
+    {
+        public static HybridLoopProofResult FromBodyResult(string value,
+            WorkflowRunner.StructuredActivationFrame activation)
+        {
+            if (!value.Contains("BREAK:", StringComparison.Ordinal))
+                return new HybridLoopProofValue(value);
+
+            var nearestLoop = activation.NearestLoop();
+            return new HybridLoopProofBreak(activation.Id, nearestLoop.Id, activation.ScopeId);
+        }
+    }
 
     private static WorkflowDefinition TypedItemAndIndexBodyDefinition()
     {

@@ -199,12 +199,13 @@ will be introduced.
       not complete, and no later item starts in file and SQLite stores (2/2).
       All five hybrid proof theories pass (10/10); the full Agent Framework
       suite passes 324/324.
-    - [x] Exercise proof-only nearest-loop break routing in the hybrid
-      coordinator using a private body-result sentinel: the inner loop stops,
-      the outer loop continues, and production Agent/MCP evidence retains the
-      nested scopes in file and SQLite stores (2/2). All six hybrid proof
-      theories pass (12/12); the full Agent Framework suite passes 326/326.
-      This does not add an authored Break node.
+    - [x] Replace the hybrid candidate's magic string result with a typed
+      harness Break result carrying source and nearest target activation IDs.
+      The hybrid loop consumes that signal, skips later inner items, and lets
+      the outer loop continue; production Agent/MCP evidence retains nested
+      scopes in file and SQLite stores (2/2). This remains synthetic harness
+      behavior, not graph-authored Break dispatch or a cross-candidate proof.
+      See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Prove serial cross-activation model evidence reservation in the
       hybrid test harness: one run-scoped recorder meters root/iteration
       lifecycle and body evidence across two fresh Agent/MCP activations; the
