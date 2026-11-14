@@ -43,6 +43,31 @@ public sealed class BlueprintParityPlaybackProofTests
     }
 
     [Fact]
+    public async Task Recorded_loop_iteration_prefixes_render_the_current_activity_passively()
+    {
+        var definition = LoopDefinition();
+        var revision = WorkflowRevision.Create(definition, "loop-playback-proof");
+        var runId = Guid.NewGuid();
+        var events = new List<ExecutionEvent>();
+
+        await new WorkflowRunner().ExecuteAsync(runId, revision, "continue",
+            evt => { events.Add(evt); return ValueTask.CompletedTask; });
+
+        var iterations = events.Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted).ToArray();
+        Assert.Equal(3, iterations.Length);
+        for (var index = 0; index < iterations.Length; index++)
+        {
+            var prefix = events.TakeWhile(evt => evt.Sequence <= iterations[index].Sequence).ToImmutableArray();
+            var snapshot = Snapshot(runId, revision, prefix, "loop-playback-proof", "continue");
+            var html = await Render(snapshot);
+
+            Assert.Contains($"Iteration {index + 1} of 3", html, StringComparison.Ordinal);
+            Assert.Contains("entering body", html, StringComparison.Ordinal);
+            Assert.DoesNotContain($"Iteration {index + 2} of 3", html, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public async Task Unknown_tool_outcome_is_explained_without_suggesting_a_blind_retry()
     {
         var revision = WorkflowRevision.Create(WorkflowTemplates.Create("uppercase"), "unknown-outcome-playback");
@@ -84,4 +109,37 @@ public sealed class BlueprintParityPlaybackProofTests
         graph = GraphEditing.InsertNodeAfter(graph, condition, "true", new(NodeTypes.Uppercase, "1.0.0"));
         return GraphEditing.InsertNodeAfter(graph, condition, "false", new(NodeTypes.Reverse, "1.0.0"));
     }
+
+    private static WorkflowDefinition LoopDefinition()
+    {
+        var baseline = new WorkflowDefinition("1.0", "loop-playback-proof", "input",
+            new Dictionary<string, NodeDefinition>
+            {
+                ["input"] = new(NodeTypes.Input, "1.0.0"),
+                ["output"] = new(NodeTypes.Output, "1.0.0")
+            }.ToImmutableSortedDictionary(),
+            new Dictionary<string, ConnectionDefinition>
+            {
+                ["input-output"] = new(new("input", "out"), new("output", "in"), "data")
+            }.ToImmutableSortedDictionary());
+        return GraphEditing.InsertBoundedLoopAfter(baseline, "input", "out");
+    }
+
+    private static RunSnapshot Snapshot(Guid runId, WorkflowRevision revision,
+        ImmutableArray<ExecutionEvent> events, string author, string input) =>
+        new(new(runId, revision.RevisionId, null, author, DateTimeOffset.UtcNow,
+            revision.ContentHash, revision.Definition, input), events);
+
+    private static async Task<string> Render(RunSnapshot snapshot)
+    {
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        return await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<WorkflowRunViewer>(ParameterView.FromDictionary(
+                new Dictionary<string, object?> { [nameof(WorkflowRunViewer.Snapshot)] = snapshot }));
+            return component.ToHtmlString();
+        });
+    }
+
 }
