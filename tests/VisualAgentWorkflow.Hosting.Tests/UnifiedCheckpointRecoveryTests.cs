@@ -85,6 +85,47 @@ public sealed class UnifiedCheckpointRecoveryTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => WorkflowRunner.ValidateCheckpointGraph(definition, true));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Unified_checkpoint_admission_rejects_typed_arrays_with_or_without_loop_variable_state(bool withLoop)
+    {
+        var definition = withLoop ? LoopDefinition() : VariableDefinition();
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        WorkflowRunner.ValidateCheckpointGraph(definition, allowLoopCheckpointRecovery: withLoop);
+
+        var withArray = definition with
+        {
+            Nodes = definition.Nodes.Add("array", new NodeDefinition(NodeTypes.ArrayLiteral, "1.0.0")
+            {
+                ArrayLiteral = new(WorkflowDataTypes.String, "[\"value\"]")
+            })
+        };
+
+        Assert.Contains(WorkflowValidator.Validate(withArray), issue => issue.Code == "array.placement");
+        var admissionError = Assert.Throws<ArgumentException>(() =>
+            WorkflowRunner.ValidateCheckpointGraph(withArray, allowLoopCheckpointRecovery: withLoop));
+        Assert.Contains("array.placement", admissionError.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Unified_checkpoint_admission_rejects_typed_array_dataflow_without_loop_or_variables()
+    {
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph, "typed-array", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input", new(NodeTypes.Input, "1.0.0") { InputDataType = "array<string>" })
+                .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = "array<string>" }),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("value", new(new("input", "out"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("execute", new(new("input", "then"), new("output", "execute"), "execution"))
+        };
+
+        Assert.Empty(WorkflowValidator.Validate(definition));
+        Assert.Throws<InvalidOperationException>(() => WorkflowRunner.ValidateCheckpointGraph(definition));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(directory)) Directory.Delete(directory, true);
@@ -121,6 +162,32 @@ public sealed class UnifiedCheckpointRecoveryTests : IDisposable
             Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty
                 .Add("message", new("Message", "default")),
             ExecutionConnections = execution.ToImmutableSortedDictionary()
+        };
+    }
+
+    private static WorkflowDefinition VariableDefinition()
+    {
+        var nodes = new Dictionary<string, NodeDefinition>
+        {
+            ["input"] = new(NodeTypes.Input, "1.0.0"),
+            ["set"] = new(NodeTypes.VariableSet, "1.0.0")
+                { VariableId = "message", InputDataType = WorkflowDataTypes.String },
+            ["get"] = new(NodeTypes.VariableGet, "1.0.0")
+                { VariableId = "message", OutputDataType = WorkflowDataTypes.String },
+            ["output"] = new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.String }
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input-value", new(new("input", "out"), new("set", "value"), "data"))
+            .Add("get-value", new(new("get", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input-set", new(new("input", "then"), new("set", "execute"), "execution"))
+            .Add("set-get", new(new("set", "then"), new("get", "execute"), "execution"))
+            .Add("get-output", new(new("get", "then"), new("output", "execute"), "execution"));
+        return new(WorkflowSchemaVersions.UnifiedWorkflowGraph, "checkpoint-variable", "input", nodes, data)
+        {
+            Variables = ImmutableSortedDictionary<string, WorkflowVariableDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("message", new("Message", "default") { Type = WorkflowDataTypes.String }),
+            ExecutionConnections = execution
         };
     }
 

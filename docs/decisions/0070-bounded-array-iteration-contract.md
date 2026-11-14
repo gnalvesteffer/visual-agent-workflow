@@ -1262,8 +1262,13 @@ does not select production scheduling or close recovery and lifecycle gates.
    completions, cancellation, and failure. Preserve the failed node's
    invocation identity and active array index without duplicating raw items in
    iterator lifecycle events.
-8. Prove checkpoint admission rejects iterator graphs and combinations with
-   otherwise eligible loop or variable graphs.
+8. [x] Prove current array graph shapes remain outside checkpoint admission.
+   A schema-2.0 typed-array input/output graph is rejected by the deterministic
+   checkpoint shape gate; otherwise eligible loop and variable graphs are
+   admitted under their existing policy, while adding a typed array to either
+   is rejected by Core's `array.placement` rule, including with explicit loop
+   recovery opt-in. This proves current placement and admission boundaries,
+   not future iterator-frame capture/restoration.
 9. Measure the chosen candidate's maximum-shaped model, MCP, and graph evidence
    through actual persistence serialization, including concurrent dispatch,
    before setting aggregate caps or admitting the graph to storage recovery.

@@ -30,6 +30,13 @@ also covers cancellation immediately after durable publication; the saved
   without replaying loop writes. See [decision
   0031](decisions/0031-loop-checkpoint-proof-frame.md).
 
+Schema 2.0 typed-array graphs remain outside checkpoint recovery. Array-only
+dataflow does not match the deterministic checkpoint graph shapes, and Core
+rejects typed arrays combined with loop or variable state before checkpoint
+admission. Loop recovery opt-in does not widen this array placement rule.
+Focused Hosting regressions cover each boundary; iterator activation frames are
+not implemented or recoverable.
+
 The adapter also contains a lifecycle probe that pairs actual loop
 executor transitions with `Executor.OnCheckpointingAsync` callbacks and the
 native checkpoint-store callback. It rejects capture when a handler is active

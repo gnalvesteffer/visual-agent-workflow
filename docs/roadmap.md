@@ -145,6 +145,11 @@ will be introduced.
   exclude checkpoint recovery until frame restoration is proven. The eventual
   Studio array editor uses one JSON text field validated by the declared type.
   See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  - [x] Verify typed-array checkpoint exclusion: standalone schema-2.0 array
+    dataflow does not match the deterministic checkpoint shape, and typed
+    arrays combined with otherwise eligible loop or variable graphs fail Core
+    validation even when loop recovery is explicitly enabled. This is existing
+    placement/admission behavior; iterator frame recovery remains unimplemented.
   - [x] Candidate subworkflow proof: fresh per-item AF 1.26.0 workflow bindings
     preserve exclusive routing and parallel barrier state across sequential
     items. A nested test workflow returns a typed Break control signal with
