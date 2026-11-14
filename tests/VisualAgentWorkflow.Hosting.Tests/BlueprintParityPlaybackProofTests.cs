@@ -42,6 +42,40 @@ public sealed class BlueprintParityPlaybackProofTests
         Assert.Contains("SAY YES", html, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Unknown_tool_outcome_is_explained_without_suggesting_a_blind_retry()
+    {
+        var revision = WorkflowRevision.Create(WorkflowTemplates.Create("uppercase"), "unknown-outcome-playback");
+        var runId = Guid.NewGuid();
+        var events = ImmutableArray.Create(
+            new ExecutionEvent(runId, revision.RevisionId, 1, DateTimeOffset.UtcNow, ExecutionEventKinds.Started),
+            new ExecutionEvent(runId, revision.RevisionId, 2, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.ToolAuthorized, "tool", Data: "{\"toolCallId\":\"call-1\"}"),
+            new ExecutionEvent(runId, revision.RevisionId, 3, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.ToolUncertain, "tool", Data: "{\"toolCallId\":\"call-1\"}"),
+            new ExecutionEvent(runId, revision.RevisionId, 4, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.OutcomeUnknown));
+        var snapshot = new RunSnapshot(new(runId, revision.RevisionId, null, "unknown-outcome-playback",
+            DateTimeOffset.UtcNow, revision.ContentHash, revision.Definition, "question"), events);
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<WorkflowRunViewer>(ParameterView.FromDictionary(
+                new Dictionary<string, object?> { [nameof(WorkflowRunViewer.Snapshot)] = snapshot }));
+            return component.ToHtmlString();
+        });
+
+        Assert.Equal("outcome-unknown", snapshot.Status);
+        Assert.True(snapshot.IsTerminal);
+        Assert.Contains("Latest run status: outcome-unknown", html, StringComparison.Ordinal);
+        Assert.Contains("A tool outcome is unknown.", html, StringComparison.Ordinal);
+        Assert.Contains("Review its recorded events before running again", html, StringComparison.Ordinal);
+        Assert.Contains("operation may already have taken effect", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("start a new run to retry", html, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static WorkflowDefinition ConditionalDefinition()
     {
         var baseline = WorkflowTemplates.Create("uppercase");

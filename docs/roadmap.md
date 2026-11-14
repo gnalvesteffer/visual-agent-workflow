@@ -230,6 +230,10 @@ will be introduced.
       uncertainty and a terminal `outcome-unknown` through the production-body
       coordinator. Passive playback and the remaining failure/race/append
       matrix stay open.
+    - [x] Explain terminal `outcome-unknown` in the run inspector and direct
+      users to review recorded events before another run, since the external
+      operation may already have taken effect. An HtmlRenderer regression
+      verifies the warning and ensures the generic retry message is absent.
   - [x] Verify typed-array checkpoint exclusion: standalone schema-2.0 array
     dataflow does not match the deterministic checkpoint shape, and typed
     arrays combined with otherwise eligible loop or variable graphs fail Core

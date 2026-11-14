@@ -14,7 +14,14 @@
             <h2>@(string.IsNullOrWhiteSpace(Snapshot.Header.Definition.DisplayName) ? Snapshot.Header.Definition.WorkflowId : Snapshot.Header.Definition.DisplayName)</h2>
             <div><strong>@(follow ? "Live / latest" : "Recorded playback")</strong> · Latest run status: @Snapshot.Status@(AccumulatedCost() is { } totalCost ? $" · Estimated cost: ${totalCost:0.000000}" : null)</div>
             @if (VisibleStatus == "terminated") { <p class="vaw-help" role="status">The workflow ended successfully without returning a result.</p> }
-            @if (Snapshot.Status is "failed" or "cancelled") { <p class="vaw-run-recovery" role="status">Run ended · start a new run to retry.</p> }
+            @if (Snapshot.Status == "outcome-unknown")
+            {
+                <p class="vaw-run-recovery" role="status">A tool outcome is unknown. Review its recorded events before running again; the operation may already have taken effect.</p>
+            }
+            else if (Snapshot.Status is "failed" or "cancelled")
+            {
+                <p class="vaw-run-recovery" role="status">Run ended · start a new run to retry.</p>
+            }
             <p class="vaw-help">State at recorded position: @VisibleStatus</p>
             <small>Run @Snapshot.Header.RunId · revision @Snapshot.Header.RevisionId</small>
             @if (Snapshot.Header.Parameters is { Count: > 0 } parameters)

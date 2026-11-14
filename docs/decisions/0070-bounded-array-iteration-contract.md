@@ -1800,3 +1800,9 @@ reservations, the join is suppressed, and file/SQLite histories reopen with
 terminal `outcome-unknown` status. Other append-failure points,
 cancellation/failure playback, and the full passive run playback matrix remain
 open.
+
+The run inspector now gives terminal `outcome-unknown` a distinct warning:
+review the recorded events before starting another run because the external
+operation may already have taken effect. An HtmlRenderer regression verifies
+that this status does not show the generic retry message. This improves
+operator guidance but does not close the passive playback matrix.
