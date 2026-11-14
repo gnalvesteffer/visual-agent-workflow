@@ -1787,3 +1787,12 @@ event append is rejected. Focused Core and production-body tests pass for both
 stores. This covers an explicit uncertainty report only; raw custom-broker
 exceptions, timeout behavior, full passive playback, and append-failure races
 remain in the broader matrix.
+
+The production-body matrix now also includes a raw custom-broker exception and
+a rejected `tool.completed` store append. In both file and SQLite histories,
+the root fails after the authorized dispatch, the next item is not admitted,
+and no tool outcome is inferred. The custom exception text is not persisted.
+The append-failure case retains the accepted authorization prefix while
+leaving the external effect unresolved. These tests do not qualify provider
+timeout behavior, other append-failure points, or passive run playback; those
+gates remain open.

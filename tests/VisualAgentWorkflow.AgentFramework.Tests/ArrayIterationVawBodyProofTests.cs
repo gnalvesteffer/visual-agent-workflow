@@ -312,6 +312,89 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_KeepsRawBrokerFailureUnresolved(bool sqlite)
+    {
+        const string input = "[\"first\",\"must-not-run\"]";
+        const string bindingId = "proof.production-custom-throw";
+        const string secret = "production-custom-broker-secret";
+        var definition = BodyDefinition(includeVariableStore: true, includeIndexParameter: true);
+        var nodes = definition.Nodes.SetItem("tool", definition.Nodes["tool"] with
+        {
+            Tool = new ToolBindingRequest(bindingId, new string('c', 64)),
+            McpArgumentsJson = "{}"
+        });
+        var revision = WorkflowRevision.Create(definition with { Nodes = nodes },
+            "production-body-custom-broker-throw-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+        var broker = new ThrowingCustomOutcomeToolBroker(bindingId, secret);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(tools: broker, agents: new EchoAgentExecutor())
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2));
+
+        Assert.True(result.Failed);
+        Assert.False(result.OutcomeUnknown);
+        Assert.Equal(1, broker.DispatchAttempts);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolRequested);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ToolCompleted or
+            ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ToolUncertain);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId == "array-loop/1");
+        Assert.DoesNotContain(events, evt => evt.Data?.Contains(secret, StringComparison.Ordinal) == true);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+        Assert.Equal(events, runStore.ReopenStore().Get(runStore.RunId)!.Events);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_AppendFailureKeepsToolOutcomeUnresolved(bool sqlite)
+    {
+        const string input = "[\"one\"]";
+        var revision = WorkflowRevision.Create(
+            BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "production-body-tool-outcome-append-failure-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite,
+            rejectedAppendEventKinds: [ExecutionEventKinds.ToolCompleted]);
+        var events = new List<ExecutionEvent>();
+        var agents = new EchoAgentExecutor();
+        var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(tools, agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2));
+
+        Assert.True(result.Failed);
+        Assert.Equal(["ONE:0"], agents.Inputs);
+        Assert.Equal(["ONE:0"], tools.Queries);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ToolCompleted or
+            ExecutionEventKinds.ToolUncertain);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+        Assert.Equal(events, runStore.ReopenStore().Get(runStore.RunId)!.Events);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_TerminatesRootExactlyOnce(bool sqlite)
     {
         var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
