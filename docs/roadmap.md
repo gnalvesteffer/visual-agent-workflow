@@ -165,6 +165,9 @@ will be introduced.
     - [x] Persist and reopen the host-cancellation-versus-Break race through
       file and SQLite stores. Host cancellation remains the root outcome, with
       no successful terminal event.
+    - [x] Reject a body-activation start when its lifecycle event cannot be
+      appended. Both stores retain the failed root, and neither body Agent nor
+      MCP work is dispatched.
   - [x] Verify typed-array checkpoint exclusion: standalone schema-2.0 array
     dataflow does not match the deterministic checkpoint shape, and typed
     arrays combined with otherwise eligible loop or variable graphs fail Core

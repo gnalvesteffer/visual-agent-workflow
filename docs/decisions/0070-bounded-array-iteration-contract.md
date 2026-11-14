@@ -1487,7 +1487,9 @@ failure-race coverage for this static-fork proof only. The host-cancellation
 race is also persisted and reopened through both stores (2/2 focused store
 cases); the root remains cancelled and has no successful terminal event. These
 store cases cover the supported root/branch histories, not passive playback
-support for Sequence abort. Production scheduler selection, authored iterator
-pins, and public Break/array contracts remain open. This increments the proof
-only and does not change the **REVISE** architecture outcome or authorize public
-schema/Studio work.
+support for Sequence abort. A rejected `loop.iteration.started` append is also
+tested through both stores (2/2 focused cases): the runtime records root
+failure and dispatches no body Agent or MCP work. Production scheduler
+selection, authored iterator pins, and public Break/array contracts remain
+open. This increments the proof only and does not change the **REVISE**
+architecture outcome or authorize public schema/Studio work.

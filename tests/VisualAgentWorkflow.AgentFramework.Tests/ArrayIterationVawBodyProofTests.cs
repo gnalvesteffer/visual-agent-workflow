@@ -5393,6 +5393,40 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task StructuredActivationLoopStartAppendFailureStopsBeforeBodyDispatch(bool sqlite)
+    {
+        const string input = "[\"first\"]";
+        var revision = WorkflowRevision.Create(
+            BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "array-iteration-loop-start-append-failure-proof");
+        using var store = new ProofRunStore(revision, input, sqlite,
+            rejectedAppendEventKinds: [ExecutionEventKinds.LoopIterationStarted]);
+        var recorder = new ReservedEvidenceProofRecorder(store,
+            maximumEvents: 512, maximumBytes: 4_000_000, reservedFailureEvents: 8,
+            reservedFailureBytes: 64_000, maximumOutcomeBytes: 64_000);
+        var agents = new EchoAgentExecutor();
+        var tools = new EchoToolBroker();
+
+        await Assert.ThrowsAsync<IOException>(() => new WorkflowRunner(tools, agents)
+            .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                recorder.RecordResequencedAsync, runBudget: StructuredRunBudget(maximumToolDispatches: 2)));
+
+        var events = recorder.Snapshot();
+        Assert.Empty(agents.Inputs);
+        Assert.Empty(tools.Queries);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+        AssertPersistedSequence(store, events, "failed");
+
+        var reopened = store.ReopenStore().Get(store.RunId)!;
+        Assert.Equal(events, reopened.Events);
+        Assert.Equal("failed", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_ReserveConcurrentModelOutcomesBeforeDispatch(bool sqlite)
     {
         const string providerId = "proof.iterator-parallel-reservation";
