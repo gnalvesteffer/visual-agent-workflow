@@ -651,6 +651,51 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredActivationSequenceProof_PersistsUnknownToolOutcomeWhenBreakCancelsForkSibling(bool sqlite)
+    {
+        var definition = ParallelMcpDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition, "array-iteration-break-unknown-tool-outcome-proof");
+        using var runStore = new ProofRunStore(revision, "[\"first\",\"must-not-run\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var tools = new CancelAfterDispatchToolBroker("proof.parallel-tool", classifyCancelledInvocationAsUnknown: true);
+
+        await Assert.ThrowsAsync<ToolInvocationException>(() => new WorkflowRunner(tools: tools)
+            .ExecuteStructuredActivationSequenceProofAsync(runStore.RunId, revision,
+                "[\"first\",\"must-not-run\"]", "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, afterNodeStarted: (nodeId, token) => nodeId == "tool-research"
+                    ? new(tools.DispatchStarted.WaitAsync(token))
+                    : ValueTask.CompletedTask,
+                proofBreakNodeIds: new HashSet<string>(StringComparer.Ordinal) { "tool-research" }));
+
+        var recorded = recorder.Snapshot();
+        AssertPersistedSequence(runStore, recorded, "failed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(recorded, reopened.Events);
+        var authorization = Assert.Single(reopened.Events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized &&
+            evt.NodeId == "tool-review");
+        var uncertain = Assert.Single(reopened.Events, evt => evt.Kind == ExecutionEventKinds.ToolUncertain &&
+            evt.NodeId == "tool-review");
+        using var authorizationData = JsonDocument.Parse(authorization.Data!);
+        using var uncertainData = JsonDocument.Parse(uncertain.Data!);
+        Assert.Equal(authorizationData.RootElement.GetProperty("toolCallId").GetGuid(),
+            uncertainData.RootElement.GetProperty("toolCallId").GetGuid());
+        Assert.DoesNotContain(reopened.Events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId == "array-loop/1");
+        Assert.DoesNotContain(reopened.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.Single(reopened.Events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(reopened.Events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+    }
+
     [Fact]
     public void StructuredActivationFrame_DerivesNearestBreakTargetAndRejectsForeignRequests()
     {
@@ -9877,9 +9922,11 @@ public sealed class ArrayIterationVawBodyProofTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private sealed class CancelAfterDispatchToolBroker(string bindingId) : INodeToolBroker
+    private sealed class CancelAfterDispatchToolBroker(string bindingId,
+        bool classifyCancelledInvocationAsUnknown = false) : INodeToolBroker
     {
         private readonly string expectedBindingId = bindingId;
+        public bool ClassifyCancelledInvocationAsUnknown { get; } = classifyCancelledInvocationAsUnknown;
         private readonly TaskCompletionSource dispatchStarted =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int dispatchAttempts;
@@ -9935,6 +9982,8 @@ public sealed class ArrayIterationVawBodyProofTests
                             disposition = ToolInvocationFailureDisposition.OutcomeUnknown.ToString(),
                             reason
                         }));
+                    if (owner.ClassifyCancelledInvocationAsUnknown)
+                        throw new ToolInvocationException(reason, ToolInvocationFailureDisposition.OutcomeUnknown);
                     throw;
                 }
             }

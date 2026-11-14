@@ -186,6 +186,13 @@ will be introduced.
       and failed root outcome without completing the join. Sequence Break
       remains an in-memory proof only; its abort marker is not a supported
       passive-playback event. See Decision 0070's 2026-11-14 adjudication.
+    - [x] Persist and reopen a static-fork Break race where an already
+      authorized direct MCP call reports an unknown external outcome after
+      cancellation. The correlated `tool.uncertain` evidence remains attached
+      to the same call; the root fails, the join is suppressed, and the next
+      array item is not admitted (file and SQLite). This is controlled broker
+      proof evidence only; it does not establish arbitrary broker behavior or
+      passive playback for Sequence abort.
     - [x] Persist and reopen the host-cancellation-versus-Break race through
       file and SQLite stores. Host cancellation remains the root outcome, with
       no successful terminal event.

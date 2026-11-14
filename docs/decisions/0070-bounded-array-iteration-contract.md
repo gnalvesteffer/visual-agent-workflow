@@ -1502,6 +1502,15 @@ selection, authored iterator pins, and public Break/array contracts remain
 open. This increments the proof only and does not change the **REVISE**
 architecture outcome or authorize public schema/Studio work.
 
+A further controlled-broker proof covers Break cancelling a static-fork sibling
+after MCP authorization. The broker reports an unknown post-dispatch outcome;
+the `tool.uncertain` event retains the authorized call ID, and file/SQLite
+reopen preserve it with a failed root, no join completion, and no next-item
+admission (2/2 focused cases). This is proof of the coordinator's handling of
+that broker contract, not a guarantee for arbitrary custom brokers or the
+production Agent Framework scheduler. Sequence abort remains in-memory and
+outside supported passive playback.
+
 ## Break target ownership in the structured proof (2026-11-14)
 
 The private structured dispatcher now returns a typed Break request containing
