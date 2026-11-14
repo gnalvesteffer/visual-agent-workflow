@@ -54,6 +54,29 @@ that concrete seam before adding a public node or Studio authoring. No
 schema-specific gate or body allowlist is justified; checkpoint recovery stays
 excluded until frame capture and restoration are demonstrated.
 
+## Readiness re-review (2026-11-14)
+
+A new proponent/opponent/adjudicator review returned **REVISE**. The hybrid
+remains the leading proof candidate, but the integrated seam is still absent:
+tests generate and consume Break outside the workflow dispatcher, and the
+private structured proof does not establish a single production VAW owner for
+frames, root lifecycle, and shared atomic budgets. The reviewers confirmed the
+existing typed-binding, body-dispatch, Agent/MCP, join, and file/SQLite results
+as useful candidate evidence while distinguishing them from shipped iterator
+behavior.
+
+The roadmap gate remains unchanged. Continue with a non-public integrated seam
+proof: a graph-dispatched typed Break carrying source and activation identity;
+nearest-frame consumption with stale/foreign-target rejection; one VAW-owned
+run context whose dispatcher returns typed outcomes without finalizing the
+root; and the persisted lifecycle, budget, adapter, and playback matrix through
+both stores. Preserve `core.terminate` as workflow-level successful exit. The
+review found no demonstrated compatibility defect, but compatibility and
+playback evidence remain prerequisites. Do not add public iterator/Break
+schema or Studio authoring until the integrated proof passes and the design is
+reviewed again. Checkpoint recovery remains excluded until activation frames
+are captured and restored.
+
 On 2026-11-13, the structured proof candidate moved item/index binding into its
 VAW-owned activation frame. The frame carries the declared primitive element
 type, requires an item parameter of that same type when one is requested,

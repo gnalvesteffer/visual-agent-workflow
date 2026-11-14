@@ -132,19 +132,31 @@ will be introduced.
   against the owning suites on 2026-11-02: Core 590/590 and Agent Framework
   252/252 passed. The prior MCP suite result is 98 passed with 2 opt-in tests
   skipped; it was not rerun for this increment.
-- [ ] Prove the runtime architecture for Blueprint-style typed array iteration
-  against the pinned Agent Framework 1.26.0 package. Compare a VAW structured
-  activation runtime with a fresh Agent Framework subworkflow per item using
-  the same representative graph: typed item/index, empty arrays, conditions,
-  parallel joins, nested iteration, nearest-loop `Break`, cancellation,
-  per-item failure evidence, activation-scoped values and variables, event
-  identity, and shared dispatch/evidence accounting. Do not introduce a public
-  iterator node or narrow body allowlist before this proof. The selected runtime
-  must compose with all existing body capabilities, keep Agent Framework behind
-  the agent adapter, preserve the separate predicate-based string Loop, and
-  exclude checkpoint recovery until frame restoration is proven. The eventual
-  Studio array editor uses one JSON text field validated by the declared type.
+- [ ] Prove one integrated runtime seam for Blueprint-style typed array
+  iteration against pinned Agent Framework 1.26.0. Candidate comparisons now
+  cover structured, fresh-subworkflow, and hybrid execution; the missing
+  evidence is one VAW-owned coordinator carrying frames, root lifecycle, and
+  atomic work/evidence budgets across real graph dispatch and production Agent/
+  MCP nodes. Do not introduce public iterator/Break schema or Studio authoring
+  until that seam passes and a new three-role review selects the architecture.
+  The final runtime must compose with existing body capabilities, keep Agent
+  Framework behind its adapter, preserve the separate predicate-based string
+  Loop, and exclude checkpoint recovery until frame restoration is proven. The
+  eventual Studio array editor uses one JSON text field validated by the
+  declared type.
   See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+  - [ ] Carry a graph-dispatched typed Break result with source and target
+    activation identity into the VAW coordinator; consume it only at the
+    nearest active frame. Prove nested outer-loop continuation and rejection
+    of stale or foreign targets without changing `core.terminate` semantics.
+  - [ ] Move root/activation lifecycle and shared atomic reservations behind
+    one VAW-owned run context; the body dispatcher returns typed outcomes and
+    does not finalize the root. Prove exact-once terminal outcomes, pre-dispatch
+    budget rejection, and settlement across model, MCP, and delegated calls.
+  - [ ] Exercise the integrated seam through file and SQLite persistence,
+    including scoped playback evidence, joins, cancellation/failure races,
+    custom-broker uncertainty, and store append failures. Document the
+    persisted-prefix and recovery limits before proposing a public contract.
   - [x] Verify typed-array checkpoint exclusion: standalone schema-2.0 array
     dataflow does not match the deterministic checkpoint shape, and typed
     arrays combined with otherwise eligible loop or variable graphs fail Core
