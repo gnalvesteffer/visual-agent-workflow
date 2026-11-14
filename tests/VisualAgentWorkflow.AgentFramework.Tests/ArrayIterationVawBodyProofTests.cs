@@ -1201,6 +1201,154 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_ScopeWorkflowCallOutputsToEachActivation(bool sqlite)
+    {
+        const string input = "[\"alpha\",\"beta\",\"gamma\"]";
+        var childDefinition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-passthrough-child", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.String }),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input-output", new(new("input", "out"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("input-output", Edge("input", "then", "output", "execute"))
+        };
+        var child = WorkflowRevision.Create(childDefinition, "array-iteration-workflow-call-output-cache-proof");
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("agent-left", new(NodeTypes.Agent, "1.0.0", Agent: new("proof.echo-agent", null, "Left", [])))
+            .Add("call", new(NodeTypes.WorkflowCall, "1.0.0")
+            {
+                WorkflowCall = new(child.Definition.WorkflowId, child.RevisionId, 1, child.ContentHash, child.Definition)
+            })
+            .Add("agent-right", new(NodeTypes.Agent, "1.0.0", Agent: new("proof.echo-agent", null, "Right", [])))
+            .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.String });
+        var connections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input-left", new(new("input", "out"), new("agent-left", "in"), "data"))
+            .Add("left-call", new(new("agent-left", "out"), new("call", "in"), "data"))
+            .Add("call-right", new(new("call", "out"), new("agent-right", "in"), "data"))
+            .Add("right-output", new(new("agent-right", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input-left", Edge("input", "then", "agent-left", "execute"))
+            .Add("left-call", Edge("agent-left", "out", "call", "execute"))
+            .Add("call-right", Edge("call", "out", "agent-right", "execute"))
+            .Add("right-output", Edge("agent-right", "out", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-workflow-call-output-cache-proof", "input", nodes, connections)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition, "array-iteration-workflow-call-output-cache-proof");
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        using var hybridStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var hybridRecorder = new ProofRecorder(hybridStore);
+        var structuredAgents = new EchoAgentExecutor();
+        var subworkflowAgents = new EchoAgentExecutor();
+        var hybridAgents = new EchoAgentExecutor();
+
+        var structured = await new WorkflowRunner(agents: structuredAgents)
+            .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                evt =>
+                {
+                    structuredRecorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                });
+
+        var subworkflowIterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision,
+            subworkflowRecorder, subworkflowAgents, new EchoToolBroker());
+        var subworkflowWorkflow = new WorkflowBuilder(subworkflowIterator).WithOutputFrom(subworkflowIterator).Build();
+        string? subworkflowOutput = null;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(subworkflowWorkflow, input))
+            await foreach (var evt in run.WatchStreamAsync())
+                if (evt is WorkflowOutputEvent { Data: string output }) subworkflowOutput = output;
+        subworkflowRecorder.CompleteRoot();
+
+        var hybridOutput = await RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
+            hybridAgents, new EchoToolBroker(), "array-loop", ParseProofArrayItems(input, WorkflowDataTypes.String),
+            null, "index", [], async frame =>
+            {
+                ValueTask Record(ExecutionEvent evt)
+                {
+                    if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                        ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                        return ValueTask.CompletedTask;
+                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    return ValueTask.CompletedTask;
+                }
+
+                var result = await new WorkflowRunner(agents: hybridAgents).ExecuteWithOutcomeAsync(
+                    hybridStore.RunId, revision, frame.Item, frame.Parameters, Record);
+                if (result.Failed || result.Output is null)
+                    throw new InvalidOperationException("The hybrid workflow-call output body failed.");
+                return new ActivationLoopProofValue(result.Output);
+            });
+        hybridRecorder.CompleteRoot();
+
+        Assert.False(structured.Failed);
+        Assert.Equal(structured.Output, subworkflowOutput);
+        Assert.Equal(structured.Output, hybridOutput);
+        var expectedAgentInputs = new[]
+        {
+            "alpha", "{\"query\":\"alpha-agent-left\"}",
+            "beta", "{\"query\":\"beta-agent-left\"}",
+            "gamma", "{\"query\":\"gamma-agent-left\"}"
+        };
+        Assert.Equal(expectedAgentInputs, structuredAgents.Inputs);
+        Assert.Equal(expectedAgentInputs, subworkflowAgents.Inputs);
+        Assert.Equal(expectedAgentInputs, hybridAgents.Inputs);
+
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        var hybridEvents = hybridRecorder.Snapshot();
+        foreach (var (store, events) in new[]
+        {
+            (structuredStore, structuredEvents), (subworkflowStore, subworkflowEvents), (hybridStore, hybridEvents)
+        })
+        {
+            AssertPersistedSequence(store, events, "completed");
+            Assert.Equal(events, store.ReopenStore().Get(store.RunId)!.Events);
+        }
+        Assert.Equal(CallOutputEvidence(structuredEvents), CallOutputEvidence(subworkflowEvents));
+        Assert.Equal(CallOutputEvidence(structuredEvents), CallOutputEvidence(hybridEvents));
+
+        foreach (var (events, item, index) in new[]
+        {
+            (structuredEvents, "alpha", 0), (structuredEvents, "beta", 1), (structuredEvents, "gamma", 2),
+            (subworkflowEvents, "alpha", 0), (subworkflowEvents, "beta", 1), (subworkflowEvents, "gamma", 2),
+            (hybridEvents, "alpha", 0), (hybridEvents, "beta", 1), (hybridEvents, "gamma", 2)
+        })
+        {
+            var scope = $"array-loop/{index}";
+            var expectedOutput = $"{{\"query\":\"{item}-agent-left\"}}";
+            var completed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.SubworkflowCompleted &&
+                evt.Data == expectedOutput);
+            Assert.Contains(completed.ScopeId, new[] { "call", scope, $"{scope}/call" });
+            var evaluated = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                evt.NodeId == "call" && evt.ScopeId == scope && evt.ConnectionId == "data:call-right");
+            using var payload = JsonDocument.Parse(evaluated.Data!);
+            Assert.Equal("agent-right", payload.RootElement.GetProperty("activatedByNodeId").GetString());
+            Assert.Equal(completed.Data, payload.RootElement.GetProperty("value").GetString());
+        }
+
+        static (string? NodeId, string? ScopeId, string? ConnectionId, string? Data)[] CallOutputEvidence(
+            IEnumerable<ExecutionEvent> events) => events
+            .Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "call")
+            .Select(evt => (evt.NodeId, evt.ScopeId, evt.ConnectionId, evt.Data))
+            .OrderBy(evt => evt.ScopeId, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_EmptyTypedArrayCompletesWithoutBodyActivation(bool sqlite)
     {
         const string input = "[]";

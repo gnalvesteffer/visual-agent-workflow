@@ -243,8 +243,8 @@ will be introduced.
   - [x] Compare typed item/index `data.evaluated` payloads across candidates.
     Evaluated values, activation scopes, and data connection IDs match and
     persist in both stores (2/2 focused theory cases). Runtime-output cache
-    identity is proven for the Agent and direct MCP paths below; other
-    runtime-producing node types remain open.
+    identity is proven for the Agent, direct MCP, and pinned WorkflowCall paths
+    below; other runtime-producing node types remain open.
     - [x] Route an Agent's runtime output through `TextConcat` into a second
       Agent across three changing items. All candidates receive matching
       second-Agent inputs and scoped evaluation evidence, persisted and reopened
@@ -255,6 +255,12 @@ will be introduced.
       evaluation evidence, persisted and reopened through both stores (2/2
       focused cases). This proves the tested direct MCP output path; other
       runtime-output cache families remain open.
+    - [x] Route an exact pinned child workflow's output into a second Agent
+      across three changing items. All candidates receive matching child
+      outputs and activation-scoped evaluation evidence, persisted and reopened
+      through both stores (2/2 focused cases). This proves the tested
+      WorkflowCall output path; other runtime-output cache families remain
+      open.
   - [x] Compare a pinned graph-function result and nested evaluation evidence
     over three changing items. All candidates agree on output, function inputs,
     evaluated values, and per-item scopes; file and SQLite persistence passes

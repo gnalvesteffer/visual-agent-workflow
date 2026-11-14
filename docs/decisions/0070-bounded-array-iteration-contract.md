@@ -1386,9 +1386,9 @@ activations remain open.
      own item in both stores (2/2 focused theory cases). Parallel Agent graph-
      function tool invocations and direct pure function nodes consumed from
      concurrent Agent branches are proven in the follow-ups below. Agent output
-     reuse across sequential activations is also tested below for Agent and
-     direct MCP output paths; other runtime output families and broader cache
-     identity remain open.
+     reuse across sequential activations is also tested below for Agent,
+     direct MCP, and WorkflowCall output paths; other runtime output families
+     and broader cache identity remain open.
 4. Define and implement an explicit run-level budget context that reaches
    nested agents, delegates/teams, MCP broker scopes, and the single run event
    recorder. The product direction remains full capability composition;
@@ -1554,3 +1554,17 @@ focused store cases). The production node handler is exercised with a fake
 tool broker; this proves the direct MCP output path, not provider behavior,
 other runtime-producing node types, arbitrary cache graphs, or production
 iterator integration.
+
+## Runtime WorkflowCall output cache identity across array activations (2026-11-14)
+
+The three candidates now execute a pinned child workflow between two Agents.
+The child passes through each changing Agent result, and the second Agent
+consumes the WorkflowCall output. The structured candidate reuses its parent
+data evaluator across activations; the fresh-subworkflow and hybrid candidates
+provide comparisons. All three produce matching per-item child results and
+activation-scoped `data.evaluated` payloads; their event histories persist and
+reopen through file and SQLite stores (2/2 focused store cases). This exercises
+the production WorkflowCall runner with a real inline child definition, not a
+test broker. It proves the tested WorkflowCall output path only; other runtime
+output families, arbitrary cache graphs, and production iterator integration
+remain open.
