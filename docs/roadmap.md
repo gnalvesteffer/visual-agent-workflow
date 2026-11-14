@@ -185,6 +185,13 @@ will be introduced.
       root start and one terminal outcome, and advances its sequence only after
       the recorder accepts the event. Budget reservations remain owned by the
       proof recorder, so this is not the reviewed shared-budget owner yet.
+    - [ ] Implement the reviewed ownership split: a VAW activation coordinator
+      derives and consumes typed nearest-frame Break outcomes; one run context
+      owns lifecycle and atomic shared reservations; the dispatcher returns
+      typed body outcomes without finalizing the root. Prove real Agent/MCP
+      dispatch, stale/foreign Break rejection, cancellation/failure races, and
+      reservation settlement in file and SQLite. The three-role review
+      returned **REVISE**; see Decision 0070.
   - [x] Compare typed item/index `data.evaluated` payloads across candidates.
     Evaluated values, activation scopes, and data connection IDs match and
     persist in both stores (2/2 focused theory cases). Broader runtime-output
