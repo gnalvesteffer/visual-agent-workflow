@@ -1146,6 +1146,15 @@ shape in file and SQLite stores (2/2 focused cases). This closes only the
 empty typed-input comparison; it does not resolve production lifecycle,
 budget, or authoring contracts.
 
+`IteratorCandidates_RouteEachItemThroughUnifiedBooleanBranch` compares a
+current-schema production body containing `String Equals`, `Boolean Branch`,
+two Agent arms, and an exclusive Merge. For `yes/no/yes`, the three candidates
+produce the same output, branch decisions, selected Agent invocations, event
+shape, and activation scopes; file and SQLite histories pass (2/2 focused
+cases). This closes one real conditional-routing slice in the candidate
+matrix. The loop coordinator is still test-owned, and the proof does not
+establish iterator pins, authored `Break`, or recovery.
+
 ## Compatibility constraints
 
 - Keep iteration as a distinct node family; do not broaden or reinterpret the

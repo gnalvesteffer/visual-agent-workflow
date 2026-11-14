@@ -256,6 +256,115 @@ public sealed class ArrayIterationVawBodyProofTests
                 .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId)).ToArray();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IteratorCandidates_RouteEachItemThroughUnifiedBooleanBranch(bool sqlite)
+    {
+        const string input = "[\"yes\",\"no\",\"yes\"]";
+        var revision = WorkflowRevision.Create(ConditionalItemBodyDefinition(),
+            "array-iteration-conditional-route-proof");
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        using var hybridStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var hybridRecorder = new ProofRecorder(hybridStore);
+        var structuredAgents = new EchoAgentExecutor();
+        var subworkflowAgents = new EchoAgentExecutor();
+        var hybridAgents = new EchoAgentExecutor();
+
+        var structured = await new WorkflowRunner(agents: structuredAgents)
+            .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                evt =>
+                {
+                    structuredRecorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                });
+
+        var subworkflowIterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision,
+            subworkflowRecorder, subworkflowAgents, new EchoToolBroker());
+        var subworkflowExecutor = new WorkflowBuilder(subworkflowIterator)
+            .WithOutputFrom(subworkflowIterator).Build();
+        string? subworkflowOutput = null;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(subworkflowExecutor, input))
+            await foreach (var evt in run.WatchStreamAsync())
+                if (evt is WorkflowOutputEvent { Data: string output }) subworkflowOutput = output;
+        subworkflowRecorder.CompleteRoot();
+
+        var hybridOutput = await RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
+            hybridAgents, new EchoToolBroker(), "array-loop", ["yes", "no", "yes"], null, "index", [],
+            async frame =>
+            {
+                ValueTask Record(ExecutionEvent evt)
+                {
+                    if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                        ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                        return ValueTask.CompletedTask;
+                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    return ValueTask.CompletedTask;
+                }
+
+                var result = await new WorkflowRunner(agents: hybridAgents).ExecuteWithOutcomeAsync(
+                    hybridStore.RunId, revision, frame.Item, frame.Parameters, Record);
+                if (result.Failed || result.Output is null)
+                    throw new InvalidOperationException("The conditional hybrid body did not return a result.");
+                return new ActivationLoopProofValue(result.Output);
+            });
+        hybridRecorder.CompleteRoot();
+
+        const string expected = "yes;no;yes";
+        Assert.False(structured.Failed);
+        Assert.Equal(expected, structured.Output);
+        Assert.Equal(expected, subworkflowOutput);
+        Assert.Equal(expected, hybridOutput);
+        Assert.Equal(["yes", "no", "yes"], structuredAgents.Inputs);
+        Assert.Equal(structuredAgents.Inputs, subworkflowAgents.Inputs);
+        Assert.Equal(structuredAgents.Inputs, hybridAgents.Inputs);
+
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        var hybridEvents = hybridRecorder.Snapshot();
+        AssertPersistedSequence(structuredStore, structuredEvents, "completed");
+        AssertPersistedSequence(subworkflowStore, subworkflowEvents, "completed");
+        AssertPersistedSequence(hybridStore, hybridEvents, "completed");
+        Assert.Equal(EventShape(structuredEvents), EventShape(subworkflowEvents));
+        Assert.Equal(EventShape(structuredEvents), EventShape(hybridEvents));
+        Assert.Equal(["true", "false", "true"], BranchPorts(structuredEvents));
+        Assert.Equal(BranchPorts(structuredEvents), BranchPorts(subworkflowEvents));
+        Assert.Equal(BranchPorts(structuredEvents), BranchPorts(hybridEvents));
+        Assert.Equal(["array-loop/0", "array-loop/1", "array-loop/2"], BranchScopes(structuredEvents));
+        Assert.Equal(BranchScopes(structuredEvents), BranchScopes(subworkflowEvents));
+        Assert.Equal(BranchScopes(structuredEvents), BranchScopes(hybridEvents));
+        Assert.Equal(["agent-yes", "agent-no", "agent-yes"], StartedAgents(structuredEvents));
+        Assert.Equal(StartedAgents(structuredEvents), StartedAgents(subworkflowEvents));
+        Assert.Equal(StartedAgents(structuredEvents), StartedAgents(hybridEvents));
+
+        static (string Kind, string? NodeId, string? ScopeId)[] EventShape(IEnumerable<ExecutionEvent> events) =>
+            events.Where(evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or
+                    ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.BranchSelected or
+                    ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted)
+                .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId)).ToArray();
+
+        static string[] BranchPorts(IEnumerable<ExecutionEvent> events) => events
+            .Where(evt => evt.Kind == ExecutionEventKinds.BranchSelected && evt.NodeId == "route")
+            .Select(evt =>
+            {
+                using var payload = JsonDocument.Parse(evt.Data!);
+                return payload.RootElement.GetProperty("port").GetString()!;
+            })
+            .ToArray();
+
+        static string[] BranchScopes(IEnumerable<ExecutionEvent> events) => events
+            .Where(evt => evt.Kind == ExecutionEventKinds.BranchSelected && evt.NodeId == "route")
+            .Select(evt => evt.ScopeId ?? string.Empty).ToArray();
+
+        static string[] StartedAgents(IEnumerable<ExecutionEvent> events) => events
+            .Where(evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                evt.NodeId?.StartsWith("agent-", StringComparison.Ordinal) == true)
+            .Select(evt => evt.NodeId!).ToArray();
+    }
+
     [Fact]
     public async Task StructuredActivationSequenceProof_NestedFramesInheritParametersAndScopeProductionNodes()
     {
@@ -6084,6 +6193,45 @@ public sealed class ArrayIterationVawBodyProofTests
             var nearestLoop = activation.NearestLoop();
             return new LoopProofBreak("break", activation.Id, nearestLoop.Id, activation.ScopeId);
         }
+    }
+
+    private static WorkflowDefinition ConditionalItemBodyDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("expected", new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("yes") })
+            .Add("equals", new(NodeTypes.StringEquals, "1.0.0"))
+            .Add("route", new(NodeTypes.BooleanBranch, "1.0.0"))
+            .Add("agent-yes", new(NodeTypes.Agent, "1.0.0",
+                Agent: new("proof.echo-agent", null, "Handle the true route.", [])))
+            .Add("agent-no", new(NodeTypes.Agent, "1.0.0",
+                Agent: new("proof.echo-agent", null, "Handle the false route.", [])))
+            .Add("merge", new(NodeTypes.Merge, "1.0.0"))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-condition", new(new("input", "out"), new("equals", "left"), "data"))
+            .Add("expected-condition", new(new("expected", "out"), new("equals", "right"), "data"))
+            .Add("condition-route", new(new("equals", "out"), new("route", "condition"), "data"))
+            .Add("input-agent-yes", new(new("input", "out"), new("agent-yes", "in"), "data"))
+            .Add("input-agent-no", new(new("input", "out"), new("agent-no", "in"), "data"))
+            .Add("input-merge", new(new("input", "out"), new("merge", "in"), "data"))
+            .Add("merge-output", new(new("merge", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-route", Edge("input", "then", "route", "execute"))
+            .Add("route-yes", Edge("route", "true", "agent-yes", "execute"))
+            .Add("route-no", Edge("route", "false", "agent-no", "execute"))
+            .Add("yes-merge", Edge("agent-yes", "out", "merge", "execute"))
+            .Add("no-merge", Edge("agent-no", "out", "merge", "execute"))
+            .Add("merge-output", Edge("merge", "then", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-conditional-route", "input", nodes, data)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        return definition;
     }
 
     private static WorkflowDefinition TypedItemAndIndexBodyDefinition()

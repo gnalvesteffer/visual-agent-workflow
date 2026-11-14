@@ -371,6 +371,13 @@ will be introduced.
       typed-input proof case only; it does not establish iterator authoring or
       production scheduling. See
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Run a current-schema `Boolean Branch` and exclusive `Merge` body for
+      three items across all candidates. The `yes/no/yes` values select only
+      the corresponding Agent arm; outputs, branch decisions, node lifecycle,
+      and activation scopes match and persist in file and SQLite stores (2/2
+      focused theory cases). This proves conditional composition in the proof
+      harness, not production iterator scheduling. See
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Extend the structured proof to reuse one production graph-data
       evaluator across sequential activations while scoping runtime outputs,
       graph-function array-value evidence budgets, workflow parameters, input
