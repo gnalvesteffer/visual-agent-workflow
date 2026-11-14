@@ -1155,6 +1155,18 @@ cases). This closes one real conditional-routing slice in the candidate
 matrix. The loop coordinator is still test-owned, and the proof does not
 establish iterator pins, authored `Break`, or recovery.
 
+`IteratorCandidates_MatchUnifiedParallelJoinAcrossAllCandidates` compares a
+current-schema production fork with two Agent branches and a barrier join for
+two items. The structured dispatcher, fresh per-item Agent Framework
+subworkflow, and hybrid runner produce the same joined outputs and normalized
+branch/join event shape, including arrival connection IDs and matching Agent
+invocation start/completion identities. Both item scopes complete their joins;
+the event histories persist through file and SQLite stores (2/2 focused
+cases). This closes successful parallel composition in the candidate matrix
+only. Parallel failure/cancellation races, production lifecycle/budget
+ownership, authored iterator pins, `Break`, and process-loss recovery remain
+open.
+
 ## Compatibility constraints
 
 - Keep iteration as a distinct node family; do not broaden or reinterpret the

@@ -365,6 +365,123 @@ public sealed class ArrayIterationVawBodyProofTests
             .Select(evt => evt.NodeId!).ToArray();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IteratorCandidates_MatchUnifiedParallelJoinAcrossAllCandidates(bool sqlite)
+    {
+        const string input = "[\"north\",\"south\"]";
+        var definition = ParallelBodyDefinition() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition, "array-iteration-three-candidate-parallel-proof");
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        using var hybridStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var hybridRecorder = new ProofRecorder(hybridStore);
+        var structuredAgents = new EchoAgentExecutor();
+        var subworkflowAgents = new EchoAgentExecutor();
+        var hybridAgents = new EchoAgentExecutor();
+
+        var structured = await new WorkflowRunner(agents: structuredAgents)
+            .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                evt =>
+                {
+                    structuredRecorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                });
+
+        var subworkflowIterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision,
+            subworkflowRecorder, subworkflowAgents, new EchoToolBroker());
+        var subworkflowExecutor = new WorkflowBuilder(subworkflowIterator)
+            .WithOutputFrom(subworkflowIterator).Build();
+        string? subworkflowOutput = null;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(subworkflowExecutor, input))
+            await foreach (var evt in run.WatchStreamAsync())
+                if (evt is WorkflowOutputEvent { Data: string output }) subworkflowOutput = output;
+        subworkflowRecorder.CompleteRoot();
+
+        var hybridOutput = await RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
+            hybridAgents, new EchoToolBroker(), "array-loop", ["north", "south"], null, "index", [],
+            async frame =>
+            {
+                ValueTask Record(ExecutionEvent evt)
+                {
+                    if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                        ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                        return ValueTask.CompletedTask;
+                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    return ValueTask.CompletedTask;
+                }
+
+                var result = await new WorkflowRunner(agents: hybridAgents).ExecuteWithOutcomeAsync(
+                    hybridStore.RunId, revision, frame.Item, frame.Parameters, Record);
+                if (result.Failed || result.Output is null)
+                    throw new InvalidOperationException("The parallel hybrid body did not return a result.");
+                return new ActivationLoopProofValue(result.Output);
+            });
+        hybridRecorder.CompleteRoot();
+
+        Assert.False(structured.Failed);
+        Assert.Equal(structured.Output, subworkflowOutput);
+        Assert.Equal(structured.Output, hybridOutput);
+        Assert.Equal(4, structuredAgents.Inputs.Length);
+        Assert.Equal(structuredAgents.Inputs.Order(StringComparer.Ordinal),
+            subworkflowAgents.Inputs.Order(StringComparer.Ordinal));
+        Assert.Equal(structuredAgents.Inputs.Order(StringComparer.Ordinal),
+            hybridAgents.Inputs.Order(StringComparer.Ordinal));
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        var hybridEvents = hybridRecorder.Snapshot();
+        AssertPersistedSequence(structuredStore, structuredEvents, "completed");
+        AssertPersistedSequence(subworkflowStore, subworkflowEvents, "completed");
+        AssertPersistedSequence(hybridStore, hybridEvents, "completed");
+        Assert.Equal(ParallelEventShape(structuredEvents), ParallelEventShape(subworkflowEvents));
+        Assert.Equal(ParallelEventShape(structuredEvents), ParallelEventShape(hybridEvents));
+        AssertPerItemJoin(structuredEvents);
+        AssertPerItemJoin(subworkflowEvents);
+        AssertPerItemJoin(hybridEvents);
+
+        static (string Kind, string? NodeId, string? ScopeId, string? ConnectionId)[] ParallelEventShape(
+            IEnumerable<ExecutionEvent> events) => events
+            .Where(evt => evt.NodeId is "agent-left" or "agent-right" or "join")
+            .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId, evt.ConnectionId))
+            .OrderBy(evt => evt.ScopeId, StringComparer.Ordinal)
+            .ThenBy(evt => evt.Kind, StringComparer.Ordinal)
+            .ThenBy(evt => evt.NodeId, StringComparer.Ordinal)
+            .ThenBy(evt => evt.ConnectionId, StringComparer.Ordinal)
+            .ToArray();
+
+        static void AssertPerItemJoin(IReadOnlyList<ExecutionEvent> events)
+        {
+            Assert.Equal(["array-loop/0", "array-loop/1"], events
+                .Where(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted)
+                .Select(evt => evt.ScopeId));
+            foreach (var scopeId in new[] { "array-loop/0", "array-loop/1" })
+            {
+                var scoped = events.Where(evt => evt.ScopeId == scopeId).ToArray();
+                foreach (var agentId in new[] { "agent-left", "agent-right" })
+                {
+                    var started = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
+                        evt.NodeId == agentId);
+                    var completed = Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                        evt.NodeId == agentId);
+                    Assert.Equal(started.InvocationId, completed.InvocationId);
+                }
+
+                Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+                Assert.Equal(2, scoped.Count(evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress &&
+                    evt.NodeId == "join"));
+            }
+        }
+    }
+
     [Fact]
     public async Task StructuredActivationSequenceProof_NestedFramesInheritParametersAndScopeProductionNodes()
     {

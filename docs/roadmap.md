@@ -378,6 +378,14 @@ will be introduced.
       focused theory cases). This proves conditional composition in the proof
       harness, not production iterator scheduling. See
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Compare a current-schema parallel fork, two Agent branches, and join
+      across all three candidates for two items. Outputs, scoped branch/join
+      evidence, join-arrival connection IDs, and Agent invocation boundaries
+      match and persist through file and SQLite stores (2/2 focused theory
+      cases). This proves successful parallel composition in the proof
+      harness; failure races, production scheduler ownership, and recovery
+      remain separate gates. See
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Extend the structured proof to reuse one production graph-data
       evaluator across sequential activations while scoping runtime outputs,
       graph-function array-value evidence budgets, workflow parameters, input
