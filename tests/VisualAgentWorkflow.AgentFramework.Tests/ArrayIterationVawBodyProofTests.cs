@@ -939,6 +939,139 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_ScopeRuntimeNodeOutputsToEachActivation(bool sqlite)
+    {
+        const string input = "[\"alpha\",\"beta\",\"gamma\"]";
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("agent-left", new(NodeTypes.Agent, "1.0.0", Agent: new("proof.echo-agent", null, "Left", [])))
+            .Add("item", new(NodeTypes.WorkflowValue, "1.0.0")
+                { ParameterId = "item", OutputDataType = WorkflowDataTypes.String })
+            .Add("concat", new(NodeTypes.TextConcat, "1.0.0"))
+            .Add("agent-right", new(NodeTypes.Agent, "1.0.0", Agent: new("proof.echo-agent", null, "Right", [])))
+            .Add("output", new(NodeTypes.Output, "1.0.0") { OutputDataType = WorkflowDataTypes.String });
+        var connections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input-left", new(new("input", "out"), new("agent-left", "in"), "data"))
+            .Add("agent-left-concat", new(new("agent-left", "out"), new("concat", "left"), "data"))
+            .Add("item-concat", new(new("item", "out"), new("concat", "right"), "data"))
+            .Add("concat-right", new(new("concat", "out"), new("agent-right", "in"), "data"))
+            .Add("agent-right-output", new(new("agent-right", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("input-agent-left", Edge("input", "then", "agent-left", "execute"))
+            .Add("agent-left-right", Edge("agent-left", "out", "agent-right", "execute"))
+            .Add("agent-right-output", Edge("agent-right", "out", "output", "execute"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-runtime-output-cache-proof", "input", nodes, connections)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty.WithComparers(StringComparer.Ordinal)
+                .Add("item", new("Current item", "") { Type = WorkflowDataTypes.String })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition, "array-iteration-runtime-output-cache-proof");
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        using var hybridStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var hybridRecorder = new ProofRecorder(hybridStore);
+        var structuredAgents = new EchoAgentExecutor();
+        var subworkflowAgents = new EchoAgentExecutor();
+        var hybridAgents = new EchoAgentExecutor();
+
+        var structured = await new WorkflowRunner(agents: structuredAgents)
+            .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                evt =>
+                {
+                    structuredRecorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, itemParameterId: "item");
+
+        var subworkflowIterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision,
+            subworkflowRecorder, subworkflowAgents, new EchoToolBroker());
+        var subworkflowWorkflow = new WorkflowBuilder(subworkflowIterator).WithOutputFrom(subworkflowIterator).Build();
+        string? subworkflowOutput = null;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(subworkflowWorkflow, input))
+            await foreach (var evt in run.WatchStreamAsync())
+                if (evt is WorkflowOutputEvent { Data: string output }) subworkflowOutput = output;
+        subworkflowRecorder.CompleteRoot();
+
+        var hybridOutput = await RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
+            hybridAgents, new EchoToolBroker(), "array-loop", ParseProofArrayItems(input, WorkflowDataTypes.String),
+            null, "index", [], async frame =>
+            {
+                ValueTask Record(ExecutionEvent evt)
+                {
+                    if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                        ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                        return ValueTask.CompletedTask;
+                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    return ValueTask.CompletedTask;
+                }
+
+                var result = await new WorkflowRunner(agents: hybridAgents).ExecuteWithOutcomeAsync(
+                    hybridStore.RunId, revision, frame.Item, frame.Parameters, Record);
+                if (result.Failed || result.Output is null)
+                    throw new InvalidOperationException("The hybrid runtime-output cache body failed.");
+                return new ActivationLoopProofValue(result.Output);
+            });
+        hybridRecorder.CompleteRoot();
+
+        Assert.False(structured.Failed);
+        Assert.Equal(structured.Output, subworkflowOutput);
+        Assert.Equal(structured.Output, hybridOutput);
+        var expectedAgentInputs = new[]
+        {
+            "alpha", "{\"query\":\"alpha-agent-left\"}alpha",
+            "beta", "{\"query\":\"beta-agent-left\"}beta",
+            "gamma", "{\"query\":\"gamma-agent-left\"}gamma"
+        };
+        Assert.Equal(expectedAgentInputs, structuredAgents.Inputs);
+        Assert.Equal(expectedAgentInputs, subworkflowAgents.Inputs);
+        Assert.Equal(expectedAgentInputs, hybridAgents.Inputs);
+
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        var hybridEvents = hybridRecorder.Snapshot();
+        foreach (var (store, events) in new[]
+        {
+            (structuredStore, structuredEvents), (subworkflowStore, subworkflowEvents), (hybridStore, hybridEvents)
+        })
+        {
+            AssertPersistedSequence(store, events, "completed");
+            Assert.Equal(events, store.ReopenStore().Get(store.RunId)!.Events);
+        }
+        Assert.Equal(RuntimeOutputEvidence(structuredEvents), RuntimeOutputEvidence(subworkflowEvents));
+        Assert.Equal(RuntimeOutputEvidence(structuredEvents), RuntimeOutputEvidence(hybridEvents));
+
+        foreach (var (events, item, index) in new[]
+        {
+            (structuredEvents, "alpha", 0), (structuredEvents, "beta", 1), (structuredEvents, "gamma", 2),
+            (subworkflowEvents, "alpha", 0), (subworkflowEvents, "beta", 1), (subworkflowEvents, "gamma", 2),
+            (hybridEvents, "alpha", 0), (hybridEvents, "beta", 1), (hybridEvents, "gamma", 2)
+        })
+        {
+            var evaluated = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                evt.NodeId == "agent-left" && evt.ScopeId == $"array-loop/{index}" &&
+                evt.ConnectionId == "data:agent-left-concat");
+            using var payload = JsonDocument.Parse(evaluated.Data!);
+            Assert.Equal("agent-right", payload.RootElement.GetProperty("activatedByNodeId").GetString());
+            Assert.Equal($"{{\"query\":\"{item}-agent-left\"}}",
+                payload.RootElement.GetProperty("value").GetString());
+        }
+
+        static (string? NodeId, string? ScopeId, string? ConnectionId, string? Data)[] RuntimeOutputEvidence(
+            IEnumerable<ExecutionEvent> events) => events
+            .Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated && evt.NodeId == "agent-left")
+            .Select(evt => (evt.NodeId, evt.ScopeId, evt.ConnectionId, evt.Data))
+            .OrderBy(evt => evt.ScopeId, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_EmptyTypedArrayCompletesWithoutBodyActivation(bool sqlite)
     {
         const string input = "[]";

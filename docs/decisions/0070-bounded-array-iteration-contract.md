@@ -1385,8 +1385,9 @@ activations remain open.
      fresh-subworkflow and hybrid candidates, with each event scoped to its
      own item in both stores (2/2 focused theory cases). Parallel Agent graph-
      function tool invocations and direct pure function nodes consumed from
-     concurrent Agent branches are proven in the follow-ups below. Broader
-     runtime-output cache identity remains open.
+     concurrent Agent branches are proven in the follow-ups below. Agent output
+     reuse across sequential activations is also tested below; other runtime
+     output families and broader cache identity remain open.
 4. Define and implement an explicit run-level budget context that reaches
    nested agents, delegates/teams, MCP broker scopes, and the single run event
    recorder. The product direction remains full capability composition;
@@ -1524,3 +1525,17 @@ This covers direct function nodes used by concurrent fork branches in this
 matrix. It does not establish parallel data-node evaluation under arbitrary
 schedulers, broader cache identity, production-provider concurrency, or a
 selected iterator architecture.
+
+## Runtime Agent output cache identity across array activations (2026-11-14)
+
+The three candidates now run an Agent whose runtime output feeds a downstream
+`TextConcat`, which combines that output with the current typed item and passes
+it to a second Agent. The structured candidate retains one graph data
+evaluator across all items, so the test specifically detects a stale runtime
+output reused under the next activation. Across three changing items, the
+structured, fresh-subworkflow, and hybrid candidates produce the same second
+Agent inputs and `data.evaluated` values under the correct activation scope;
+each history persists and reopens through file and SQLite stores (2/2 focused
+store cases). This proves activation-keyed reuse for the tested Agent output
+path. Other runtime-producing node types, arbitrary cache graphs, and
+production iterator integration remain open.
