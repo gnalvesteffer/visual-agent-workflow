@@ -238,6 +238,13 @@ will be introduced.
       and SQLite stores (2/2); the Agent Framework suite passes 330/330. This
       verifies Sequence composition in the candidate harness, not Sequence
       behavior in a selected iterator runtime.
+    - [x] Compare that same two-path Sequence body across the structured
+      dispatcher, fresh Agent Framework subworkflow, and hybrid candidates.
+      All three produce matching outputs, tool queries, Sequence event shapes,
+      and per-item completion evidence through file and SQLite stores (focused
+      theory: 2/2). This remains proof-harness evidence; it does not select or
+      ship a production iterator architecture. The Agent Framework suite passes
+      382/382.
     - [x] Exercise single-phase and two-phase collaboration in repeated hybrid
       activations using the unified workflow schema. Each activation reads only
       its own branch messages, and scoped evidence persists through file and

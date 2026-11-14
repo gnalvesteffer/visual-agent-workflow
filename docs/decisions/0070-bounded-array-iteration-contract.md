@@ -1073,6 +1073,16 @@ not a production iterator architecture, authored Break node, or dedicated
 iterator pins. The broader body-capability and shared-budget matrix remains
 the architecture gate.
 
+The matched candidate matrix also now includes the same current-schema
+two-output Sequence body. The structured production-node dispatcher, fresh
+Agent Framework child workflow, and hybrid runner each execute both direct
+MCP paths for two item activations. The file and SQLite variants match output,
+tool queries, normalized Sequence event shape, and activation-scoped completion
+evidence (2/2 focused theory cases). This establishes Sequence composition
+within the proof harness only; it does not select the production iterator
+architecture or claim authored iteration/Break support. The full Agent
+Framework suite passes 382/382 for this increment.
+
 ## Compatibility constraints
 
 - Keep iteration as a distinct node family; do not broaden or reinterpret the
