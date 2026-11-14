@@ -309,9 +309,34 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
     internal sealed record StructuredActivationFrame(Guid Id, StructuredActivationFrame? Parent,
         string LoopNodeId, int Index, string Item, ImmutableSortedDictionary<string, string> Parameters)
     {
+        public string ItemDataType { get; init; } = WorkflowDataTypes.String;
+
         public string ScopeId => Parent is null
             ? $"{LoopNodeId}/{Index}"
             : $"{Parent.ScopeId}/{LoopNodeId}/{Index}";
+
+        public ImmutableSortedDictionary<string, string> BindIteratorValues(WorkflowDefinition definition,
+            string? itemParameterId, string indexParameterId)
+        {
+            ArgumentNullException.ThrowIfNull(definition);
+            ArgumentException.ThrowIfNullOrWhiteSpace(indexParameterId);
+            var parameters = Parameters.ToBuilder();
+            if (itemParameterId is not null)
+            {
+                if (definition.Parameters is not { } declaredParameters ||
+                    !declaredParameters.TryGetValue(itemParameterId, out var itemParameter) ||
+                    (itemParameter.Type ?? WorkflowDataTypes.String) != ItemDataType)
+                    throw new InvalidOperationException("The iterator item parameter must match the frame's declared element type.");
+                parameters[itemParameterId] = Item;
+            }
+            if (definition.Parameters is not { } declaredIndexParameters ||
+                !declaredIndexParameters.TryGetValue(indexParameterId, out var indexParameter) ||
+                (indexParameter.Type ?? WorkflowDataTypes.String) != WorkflowDataTypes.Integer)
+                throw new InvalidOperationException("The iterator index parameter must be a declared integer parameter.");
+            parameters[indexParameterId] = Index.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return WorkflowParameters.Resolve(definition, parameters.ToImmutable()) ??
+                ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
+        }
 
         public StructuredActivationFrame NearestLoop()
         {
@@ -321,8 +346,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         }
 
         public StructuredActivationFrame Enter(string loopNodeId, int index, string item,
-            ImmutableSortedDictionary<string, string> parameters) =>
-            new(Guid.NewGuid(), this, loopNodeId, index, item, parameters);
+            ImmutableSortedDictionary<string, string> parameters, string itemDataType = WorkflowDataTypes.String) =>
+            new(Guid.NewGuid(), this, loopNodeId, index, item, parameters) { ItemDataType = itemDataType };
     }
 
     /// <summary>Private transport identity for a future Sequence activation; never authored or persisted.</summary>

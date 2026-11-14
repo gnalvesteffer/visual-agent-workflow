@@ -173,6 +173,13 @@ will be introduced.
     remaining persisted outcome and custom-broker failure/timeout cases through
     file and SQLite and repeat the three-role readiness review. The latest
     review returned **REVISE**; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Move the structured candidate's item/index parameter binding into its
+      VAW-owned activation frame. The frame now retains the array element type,
+      verifies the declared item and integer index parameter contracts, and
+      resolves the bindings through Core's `WorkflowParameters` validation
+      before each body activation. Existing integer-boundary candidate evidence
+      exercises that seam; dedicated authored pins, real graph-dispatched
+      `Break`, and production lifecycle/shared-budget ownership remain open.
   - [x] Compare typed item/index `data.evaluated` payloads across candidates.
     Evaluated values, activation scopes, and data connection IDs match and
     persist in both stores (2/2 focused theory cases). Broader runtime-output

@@ -54,6 +54,17 @@ that concrete seam before adding a public node or Studio authoring. No
 schema-specific gate or body allowlist is justified; checkpoint recovery stays
 excluded until frame capture and restoration are demonstrated.
 
+On 2026-11-13, the structured proof candidate moved item/index binding into its
+VAW-owned activation frame. The frame carries the declared primitive element
+type, requires an item parameter of that same type when one is requested,
+requires the configured index parameter to be an integer, and resolves both
+through Core's `WorkflowParameters` contract before body dispatch. The existing
+integer minimum/zero/maximum candidate comparison now exercises this frame
+binding path. This establishes a typed parameter-binding seam only: it does not
+add graph output pins, a production iterator node, real graph-dispatched
+nearest-loop `Break`, or production-owned shared lifecycle/budget semantics.
+The architecture remains **REVISE** and the review gate remains open.
+
 The first hybrid increment extends `PerItemWorkflowExecutor` with immutable
 parent/child activation frames while each item still runs the production VAW
 workflow body, leaving static graph routing and joins inside Agent Framework.

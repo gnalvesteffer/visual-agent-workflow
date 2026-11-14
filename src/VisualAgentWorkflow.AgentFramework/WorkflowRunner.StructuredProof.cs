@@ -482,17 +482,17 @@ public sealed partial class WorkflowRunner
             for (var index = 0; index < items.Length; index++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var activationParameters = baseParameters?.ToDictionary(pair => pair.Key, pair => pair.Value,
-                    StringComparer.Ordinal) ?? new Dictionary<string, string>(StringComparer.Ordinal);
+                var inheritedParameters = baseParameters ??
+                    ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
                 if (parentFrame is not null)
-                    foreach (var (parameterId, value) in parentFrame.Parameters)
-                        activationParameters[parameterId] = value;
-                activationParameters[indexParameterId] = index.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                if (itemParameterId is not null)
-                    activationParameters[itemParameterId] = items[index];
-                var frameParameters = activationParameters.ToImmutableSortedDictionary(StringComparer.Ordinal);
-                var frame = parentFrame?.Enter(activationLoopNodeId, index, items[index], frameParameters) ??
-                    new StructuredActivationFrame(Guid.NewGuid(), null, activationLoopNodeId, index, items[index], frameParameters);
+                    inheritedParameters = inheritedParameters.SetItems(parentFrame.Parameters);
+                var unboundFrame = parentFrame?.Enter(activationLoopNodeId, index, items[index], inheritedParameters,
+                    arrayElementType) ?? new StructuredActivationFrame(Guid.NewGuid(), null, activationLoopNodeId,
+                    index, items[index], inheritedParameters) { ItemDataType = arrayElementType };
+                var frameParameters = unboundFrame.BindIteratorValues(bodyRevision.Definition, itemParameterId,
+                    indexParameterId);
+                var frame = unboundFrame with { Parameters = frameParameters };
+                var activationParameters = frameParameters;
                 var iterationId = frame.Id;
                 if (parentFrame is not null && frame.NearestLoop().Id != frame.Id)
                     throw new InvalidOperationException("A nested activation did not resolve its nearest loop frame.");
