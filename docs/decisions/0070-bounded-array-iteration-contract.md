@@ -1222,6 +1222,15 @@ stores (2/2 focused theory cases). This verifies parallel Agent result
 association at the join boundary; it does not establish parallel runtime
 cache behavior for other node families or select a production scheduler.
 
+`IteratorCandidates_ScopeParallelMcpArgumentsAndResultsToEachActivation`
+extends the same repeated-item comparison to two concurrent direct MCP nodes
+with typed argument pins sourced from the current item. Evaluated argument
+values, tool outcomes, join payloads, and activation scopes match across the
+structured, fresh-subworkflow, and hybrid candidates and persist through both
+stores (2/2 focused theory cases). This proves parallel direct-MCP argument
+and result association for this body; it does not establish every runtime
+cache lifetime or select a production scheduler.
+
 `IteratorCandidates_ScopeGraphFunctionResultsAndEvidenceToEachActivation`
 reuses one pinned pure graph function across three changing string items. The
 structured, fresh-subworkflow, and hybrid candidates produce the same outputs

@@ -736,6 +736,154 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IteratorCandidates_ScopeParallelMcpArgumentsAndResultsToEachActivation(bool sqlite)
+    {
+        const string input = "[\"north\",\"south\"]";
+        var definition = ParallelMcpDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var connections = definition.Connections;
+        var nodes = definition.Nodes;
+        foreach (var toolId in new[] { "tool-research", "tool-review" })
+        {
+            var inputConnectionId = $"input-{toolId}";
+            nodes = nodes.SetItem(toolId, nodes[toolId] with
+            {
+                McpArgumentsJson = null,
+                McpInputPorts = [new("arg.query", "query", WorkflowDataTypes.String, true)]
+            });
+            connections = connections.SetItem(inputConnectionId,
+                new(new("input", "out"), new(toolId, "arg.query"), "data"));
+        }
+
+        definition = definition with { Nodes = nodes, Connections = connections };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition, "array-iteration-parallel-mcp-activation-scope-proof");
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        using var hybridStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var hybridRecorder = new ProofRecorder(hybridStore);
+
+        var structured = await new WorkflowRunner(new EchoToolBroker(recordToolDispatchEvents: true))
+            .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                evt =>
+                {
+                    structuredRecorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                });
+
+        var subworkflowIterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision,
+            subworkflowRecorder, new EchoAgentExecutor(), new EchoToolBroker(recordToolDispatchEvents: true));
+        var subworkflow = new WorkflowBuilder(subworkflowIterator).WithOutputFrom(subworkflowIterator).Build();
+        string? subworkflowOutput = null;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(subworkflow, input))
+            await foreach (var evt in run.WatchStreamAsync())
+                if (evt is WorkflowOutputEvent { Data: string output }) subworkflowOutput = output;
+        subworkflowRecorder.CompleteRoot();
+
+        var hybridOutput = await RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
+            new EchoAgentExecutor(), new EchoToolBroker(recordToolDispatchEvents: true), "array-loop",
+            ["north", "south"], null, "index", [],
+            async frame =>
+            {
+                ValueTask Record(ExecutionEvent evt)
+                {
+                    if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                        ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                        return ValueTask.CompletedTask;
+                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    return ValueTask.CompletedTask;
+                }
+
+                var result = await new WorkflowRunner(new EchoToolBroker(recordToolDispatchEvents: true))
+                    .ExecuteWithOutcomeAsync(hybridStore.RunId, revision, frame.Item, frame.Parameters, Record);
+                if (result.Failed || result.Output is null)
+                    throw new InvalidOperationException("The parallel MCP hybrid body did not return a result.");
+                return new ActivationLoopProofValue(result.Output);
+            });
+        hybridRecorder.CompleteRoot();
+
+        Assert.False(structured.Failed);
+        Assert.Equal(structured.Output, subworkflowOutput);
+        Assert.Equal(structured.Output, hybridOutput);
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        var hybridEvents = hybridRecorder.Snapshot();
+        AssertPersistedSequence(structuredStore, structuredEvents, "completed");
+        AssertPersistedSequence(subworkflowStore, subworkflowEvents, "completed");
+        AssertPersistedSequence(hybridStore, hybridEvents, "completed");
+        Assert.Equal(ArgumentEvaluationEvidence(structuredEvents), ArgumentEvaluationEvidence(subworkflowEvents));
+        Assert.Equal(ArgumentEvaluationEvidence(structuredEvents), ArgumentEvaluationEvidence(hybridEvents));
+        Assert.Equal(ToolOutcomeEvidence(structuredEvents), ToolOutcomeEvidence(subworkflowEvents));
+        Assert.Equal(ToolOutcomeEvidence(structuredEvents), ToolOutcomeEvidence(hybridEvents));
+        AssertActivationScopedArgumentsAndResults(structuredEvents);
+        AssertActivationScopedArgumentsAndResults(subworkflowEvents);
+        AssertActivationScopedArgumentsAndResults(hybridEvents);
+
+        static (string? NodeId, string? ScopeId, string? ConnectionId, string? Data)[] ArgumentEvaluationEvidence(
+            IEnumerable<ExecutionEvent> events) => events
+            .Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                evt.NodeId == "input" &&
+                evt.ConnectionId is "data:input-tool-research" or "data:input-tool-review")
+            .Select(evt => (evt.NodeId, evt.ScopeId, evt.ConnectionId, evt.Data))
+            .OrderBy(evt => evt.ScopeId, StringComparer.Ordinal)
+            .ThenBy(evt => evt.ConnectionId, StringComparer.Ordinal)
+            .ToArray();
+
+        static (string? NodeId, string? ScopeId, string? Output)[] ToolOutcomeEvidence(
+            IEnumerable<ExecutionEvent> events) => events
+            .Where(evt => evt.Kind == ExecutionEventKinds.ToolCompleted &&
+                evt.NodeId is "tool-research" or "tool-review")
+            .Select(evt =>
+            {
+                using var payload = JsonDocument.Parse(evt.Data!);
+                return (evt.NodeId, evt.ScopeId, payload.RootElement.GetProperty("output").GetString());
+            })
+            .OrderBy(evt => evt.ScopeId, StringComparer.Ordinal)
+            .ThenBy(evt => evt.NodeId, StringComparer.Ordinal)
+            .ToArray();
+
+        static void AssertActivationScopedArgumentsAndResults(IReadOnlyList<ExecutionEvent> events)
+        {
+            var expectedItems = new[] { "north", "south" };
+            for (var index = 0; index < expectedItems.Length; index++)
+            {
+                var scopeId = $"array-loop/{index}";
+                foreach (var (toolId, connectionId) in new[]
+                {
+                    ("tool-research", "data:input-tool-research"),
+                    ("tool-review", "data:input-tool-review")
+                })
+                {
+                    var evaluated = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                        evt.NodeId == "input" && evt.ScopeId == scopeId && evt.ConnectionId == connectionId);
+                    using var argument = JsonDocument.Parse(evaluated.Data!);
+                    Assert.Equal(toolId, argument.RootElement.GetProperty("activatedByNodeId").GetString());
+                    Assert.Equal(expectedItems[index], argument.RootElement.GetProperty("value").GetString());
+
+                    var completed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted &&
+                        evt.NodeId == toolId && evt.ScopeId == scopeId);
+                    using var outcome = JsonDocument.Parse(completed.Data!);
+                    Assert.Equal("echo:" + expectedItems[index],
+                        outcome.RootElement.GetProperty("output").GetString());
+                }
+
+                var join = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                    evt.NodeId == "join" && evt.ScopeId == scopeId);
+                using var joined = JsonDocument.Parse(join.Data!);
+                Assert.Equal("echo:" + expectedItems[index], joined.RootElement.GetProperty("left").GetString());
+                Assert.Equal("echo:" + expectedItems[index], joined.RootElement.GetProperty("right").GetString());
+            }
+        }
+    }
+
     [Fact]
     public async Task StructuredActivationSequenceProof_NestedFramesInheritParametersAndScopeProductionNodes()
     {

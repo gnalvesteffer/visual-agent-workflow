@@ -161,6 +161,11 @@ will be introduced.
     right Agent outputs under its activation scope, with candidate event/result
     agreement through file and SQLite (2/2 focused theory cases). Other
     parallel runtime-cache behavior and production frame semantics remain open.
+  - [x] Compare parallel direct-MCP argument and result scoping across all
+    candidates for two changing items. Typed argument values, tool outcomes,
+    activation scopes, and join payloads agree through file and SQLite (2/2
+    focused theory cases). Other runtime-cache lifetimes and production frame
+    semantics remain open.
   - [x] Compare typed item/index `data.evaluated` payloads across candidates.
     Evaluated values, activation scopes, and data connection IDs match and
     persist in both stores (2/2 focused theory cases). Broader runtime-output
