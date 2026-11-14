@@ -7,6 +7,48 @@ namespace VisualAgentWorkflow.AgentFramework;
 
 public sealed partial class WorkflowRunner
 {
+    private sealed class StructuredActivationRunContext(Guid runId, Guid revisionId,
+        Func<ExecutionEvent, ValueTask> record) : IDisposable
+    {
+        private readonly SemaphoreSlim recordGate = new(1, 1);
+        private long sequence;
+        private bool started;
+        private bool terminal;
+
+        public async ValueTask EmitAsync(string kind, string? nodeId = null, Guid? invocationId = null,
+            string? scopeId = null, string? data = null, string? connectionId = null)
+        {
+            await recordGate.WaitAsync(CancellationToken.None);
+            try
+            {
+                var startsRun = nodeId is null && kind == ExecutionEventKinds.Started;
+                var endsRun = nodeId is null && kind is (ExecutionEventKinds.Completed or
+                    ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled);
+                if (startsRun)
+                {
+                    if (started || terminal) throw new InvalidOperationException("The activation run has already started.");
+                }
+                else if (endsRun)
+                {
+                    if (!started || terminal) throw new InvalidOperationException("The activation run already has a terminal outcome or has not started.");
+                }
+
+                var nextSequence = sequence + 1;
+                await record(new ExecutionEvent(runId, revisionId, nextSequence, DateTimeOffset.UtcNow,
+                    kind, nodeId, invocationId, connectionId, data) { ScopeId = scopeId });
+                sequence = nextSequence;
+                if (startsRun) started = true;
+                if (endsRun) terminal = true;
+            }
+            finally
+            {
+                recordGate.Release();
+            }
+        }
+
+        public void Dispose() => recordGate.Dispose();
+    }
+
     private sealed class StructuredProofSession
     {
         private Func<string, string?, Guid?, string?, string?, string?, ValueTask>? recordNodeEvent;
@@ -451,29 +493,16 @@ public sealed partial class WorkflowRunner
             WorkflowDataTypes.Number => item.GetDouble().ToString("R", System.Globalization.CultureInfo.InvariantCulture),
             _ => throw new ArgumentException("Activation proof input requires a primitive array element type.", nameof(arrayElementType))
         }).ToArray();
-        var sequence = 0L;
         var baseParameters = WorkflowParameters.Resolve(bodyRevision.Definition, parameters);
         var retainedDataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(bodyRevision.Definition)
             ? new ExplicitGraphDataEvaluator(bodyRevision.Definition, items.FirstOrDefault() ?? string.Empty, baseParameters)
             : null;
         var variableStores = new ConcurrentDictionary<Guid, WorkflowVariableStore>();
         var session = new StructuredProofSession(executorSetCreated);
-        var recordGate = new SemaphoreSlim(1, 1);
-        async ValueTask Emit(string kind, string? nodeId = null, Guid? invocationId = null,
-            string? scopeId = null, string? data = null, string? connectionId = null)
-        {
-            await recordGate.WaitAsync(CancellationToken.None);
-            try
-            {
-                await record(new ExecutionEvent(runId, bodyRevision.RevisionId,
-                    Interlocked.Increment(ref sequence), DateTimeOffset.UtcNow, kind, nodeId, invocationId,
-                    connectionId, data) { ScopeId = scopeId });
-            }
-            finally
-            {
-                recordGate.Release();
-            }
-        }
+        var runContext = new StructuredActivationRunContext(runId, bodyRevision.RevisionId, record);
+        ValueTask Emit(string kind, string? nodeId = null, Guid? invocationId = null,
+            string? scopeId = null, string? data = null, string? connectionId = null) =>
+            runContext.EmitAsync(kind, nodeId, invocationId, scopeId, data, connectionId);
 
         try
         {
@@ -538,7 +567,7 @@ public sealed partial class WorkflowRunner
         }
         finally
         {
-            recordGate.Dispose();
+            runContext.Dispose();
         }
     }
 }

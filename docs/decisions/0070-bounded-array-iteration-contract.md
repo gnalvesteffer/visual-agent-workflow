@@ -65,6 +65,16 @@ add graph output pins, a production iterator node, real graph-dispatched
 nearest-loop `Break`, or production-owned shared lifecycle/budget semantics.
 The architecture remains **REVISE** and the review gate remains open.
 
+The following proof-only increment extracted the structured candidate's root
+event ledger into a private run context. That context serializes writes, allows
+one root start and one root terminal event, and advances its sequence only
+after the recorder accepts an event. It clarifies lifecycle ownership but does
+not own atomic work/evidence reservations: the current proof recorder still
+does. Nearest-frame `Break` remains produced and consumed by the test harness.
+The adjudicated next boundary therefore remains incomplete; do not infer a
+production budget owner or select the structured candidate from this
+refactoring.
+
 The first hybrid increment extends `PerItemWorkflowExecutor` with immutable
 parent/child activation frames while each item still runs the production VAW
 workflow body, leaving static graph routing and joins inside Agent Framework.

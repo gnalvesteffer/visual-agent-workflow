@@ -180,6 +180,11 @@ will be introduced.
       before each body activation. Existing integer-boundary candidate evidence
       exercises that seam; dedicated authored pins, real graph-dispatched
       `Break`, and production lifecycle/shared-budget ownership remain open.
+    - [x] Move structured-proof root event sequencing and lifecycle ownership
+      into one private run context. It serializes event writes, enforces one
+      root start and one terminal outcome, and advances its sequence only after
+      the recorder accepts the event. Budget reservations remain owned by the
+      proof recorder, so this is not the reviewed shared-budget owner yet.
   - [x] Compare typed item/index `data.evaluated` payloads across candidates.
     Evaluated values, activation scopes, and data connection IDs match and
     persist in both stores (2/2 focused theory cases). Broader runtime-output
