@@ -1,0 +1,63 @@
+.vaw-loop-activation-playback {
+    border-block-start: 1px solid var(--vaw-border);
+    margin-block-start: var(--vaw-space-4);
+    padding-block-start: var(--vaw-space-3);
+}
+
+.vaw-loop-activation-playback > details > summary,
+.vaw-loop-activation-playback li > details > summary {
+    cursor: pointer;
+}
+
+.vaw-loop-activation-playback > details > summary {
+    font-weight: 600;
+}
+
+.vaw-loop-activation-playback > details > .vaw-help {
+    margin-block: var(--vaw-space-2);
+}
+
+.vaw-loop-activation-playback ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.vaw-loop-activation-playback ol > li {
+    border-block-start: 1px solid var(--vaw-border);
+    padding-block: var(--vaw-space-2);
+}
+
+.vaw-loop-activation-playback li > details > summary {
+    align-items: baseline;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--vaw-space-1) var(--vaw-space-3);
+    justify-content: space-between;
+}
+
+.vaw-loop-activation-playback code {
+    color: var(--vaw-muted);
+    font-family: var(--vaw-mono);
+    font-size: .75rem;
+    overflow-wrap: anywhere;
+}
+
+.vaw-loop-activation-playback ul {
+    margin-block: var(--vaw-space-1);
+    padding-inline-start: 1.25rem;
+}
+
+.vaw-loop-activation-playback p {
+    margin-block: var(--vaw-space-2) var(--vaw-space-1);
+}
+
+.vaw-loop-activation-playback .vaw-loop-activation-warning {
+    color: var(--vaw-warning);
+}
+
+@media (max-width: 42rem) {
+    .vaw-loop-activation-playback li > details > summary {
+        display: grid;
+    }
+}

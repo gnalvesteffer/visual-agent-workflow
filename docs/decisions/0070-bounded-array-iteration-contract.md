@@ -1848,3 +1848,23 @@ the failed history, no later item is admitted, and the root failure is
 reconstructed after reopen. The private proof change selects no iterator
 architecture and adds no public schema or Studio authoring. Architecture
 overview and user guide remain unaffected.
+
+## Passive activation playback increment (2026-11-14)
+
+The Run inspector now projects loop activation records from the event prefix at
+the selected playback cursor. It pairs iteration start and completion by node,
+scope, and invocation, reports Break only after the coordinator records the
+accepted iteration outcome, and exposes exact-scope body events and whether a
+declared parallel join has an event at that cursor. Missing or ambiguous
+completion evidence stays incomplete. This view consumes the reopened snapshot
+only and performs no node, model, or MCP execution.
+
+HtmlRenderer integration tests run the production nested Break and successful
+joined-body Break proofs, persist and reopen both file and SQLite histories,
+and render those snapshots. They verify outer-loop continuation, the consumed
+inner Break, the admitted sibling's completion, the absence of a join event,
+and an event prefix that ends after Break dispatch but before coordinator
+acceptance. This closes only that successful passive playback slice. Failure
+and cancellation playback, uncertain outcomes, append-failure prefixes, and
+public iterator/Break schema and Studio authoring remain open; the readiness
+gate stays **REVISE**.

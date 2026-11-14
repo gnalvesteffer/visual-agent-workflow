@@ -62,6 +62,7 @@ public sealed class BlueprintParityPlaybackProofTests
             var html = await Render(snapshot);
 
             Assert.Contains($"Iteration {index + 1} of 3", html, StringComparison.Ordinal);
+            Assert.Contains($"Loop activations ({index + 1})", html, StringComparison.Ordinal);
             Assert.Contains("entering body", html, StringComparison.Ordinal);
             Assert.DoesNotContain($"Iteration {index + 2} of 3", html, StringComparison.Ordinal);
         }

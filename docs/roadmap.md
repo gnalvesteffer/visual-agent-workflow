@@ -254,6 +254,13 @@ will be introduced.
       plus iteration-completion append failure after successful tool evidence
       (12 cases). Custom stores that violate sequence/atomicity guarantees
       and other failure/race/append points remain open.
+    - [x] Add passive Loop activations playback for recorded iteration starts
+      and completions, scoped body events, and join-event presence at the
+      selected cursor. Production-dispatched nested Break continuation and a
+      successful joined-body Break render from reopened file and SQLite
+      histories; an incomplete prefix remains in progress until coordinator
+      acceptance is recorded. This does not qualify failure/cancellation
+      playback, append-failure prefixes, or public iterator authoring.
   - [x] Verify typed-array checkpoint exclusion: standalone schema-2.0 array
     dataflow does not match the deterministic checkpoint shape, and typed
     arrays combined with otherwise eligible loop or variable graphs fail Core

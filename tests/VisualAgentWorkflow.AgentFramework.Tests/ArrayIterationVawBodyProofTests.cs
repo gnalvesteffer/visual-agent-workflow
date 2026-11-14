@@ -2,9 +2,14 @@ using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Agents.AI.Workflows;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 using VisualAgentWorkflow.AgentFramework;
+using VisualAgentWorkflow.Blazor.Components;
 using VisualAgentWorkflow.Core;
 using VisualAgentWorkflow.Hosting;
 using VisualAgentWorkflow.Mcp;
@@ -156,7 +161,8 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(["ALPHA:0", "BETA:1"], agents.Inputs);
         Assert.Equal(agents.Inputs, tools.Queries);
         AssertPersistedSequence(runStore, events, "completed");
-        Assert.Equal(events, runStore.ReopenStore().Get(runStore.RunId)!.Events);
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
         Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
         for (var index = 0; index < 2; index++)
@@ -786,7 +792,8 @@ public sealed class ArrayIterationVawBodyProofTests
                 return ValueTask.CompletedTask;
             });
 
-        Assert.False(result.Failed);
+        Assert.False(result.Failed, string.Join("\n", recorder.Snapshot().Select(evt =>
+            $"{evt.Sequence} {evt.Kind} {evt.NodeId} {evt.ScopeId} {evt.Data}")));
         Assert.False(result.Terminated);
         Assert.Equal("outer-a:continue:0;outer-b:continue:0", result.Output);
         var events = recorder.Snapshot();
@@ -857,7 +864,25 @@ public sealed class ArrayIterationVawBodyProofTests
         }
 
         AssertPersistedSequence(runStore, events, "completed");
-        Assert.Equal(events, runStore.ReopenStore().Get(runStore.RunId)!.Events);
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(events, reopened.Events);
+
+        var breakDispatch = Assert.Single(reopened.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "proof-break" && evt.ScopeId == "outer-loop/0/inner-loop/1");
+        var beforeCoordinatorConsumption = reopened with
+        {
+            Events = reopened.Events.TakeWhile(evt => evt.Sequence <= breakDispatch.Sequence).ToImmutableArray()
+        };
+        var incompleteHtml = await RenderPlayback(beforeCoordinatorConsumption);
+        Assert.Contains("Loop activations", incompleteHtml, StringComparison.Ordinal);
+        Assert.Contains("In progress", incompleteHtml, StringComparison.Ordinal);
+        Assert.DoesNotContain("· Break", incompleteHtml, StringComparison.Ordinal);
+
+        var playbackHtml = await RenderPlayback(reopened);
+        Assert.Contains("outer-loop/0/inner-loop/1", playbackHtml, StringComparison.Ordinal);
+        Assert.Contains("· Break", playbackHtml, StringComparison.Ordinal);
+        Assert.Contains("outer-loop/1", playbackHtml, StringComparison.Ordinal);
+        Assert.Equal("completed", reopened.Status);
     }
 
     [Theory]
@@ -916,7 +941,13 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.DoesNotContain(recorded, evt => evt.ScopeId == "array-loop/1");
         Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
         AssertPersistedSequence(runStore, recorded, "completed");
-        Assert.Equal(recorded, runStore.ReopenStore().Get(runStore.RunId)!.Events);
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(recorded, reopened.Events);
+        var playbackHtml = await RenderPlayback(reopened);
+        Assert.Contains("agent-right · node.completed", playbackHtml, StringComparison.Ordinal);
+        Assert.Contains("Parallel join join · no event recorded at this position", playbackHtml,
+            StringComparison.Ordinal);
+        Assert.Contains("· Break", playbackHtml, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -9583,7 +9614,6 @@ public sealed class ArrayIterationVawBodyProofTests
             .Add("prefix", new(NodeTypes.TextConcat, "1.0.0"))
             .Add("render", new(NodeTypes.TextConcat, "1.0.0"))
             .Add("condition", new(NodeTypes.Condition, "1.0.0") { Condition = new("equals", "continue") })
-            .Add("merge", new(NodeTypes.Merge, "1.0.0"))
             .Add("proof-break", new(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"))
             .Add("output", new(NodeTypes.Output, "1.0.0"));
         var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
@@ -9593,13 +9623,11 @@ public sealed class ArrayIterationVawBodyProofTests
             .Add("prefix-render", new(new("prefix", "out"), new("render", "left"), "data"))
             .Add("index-text", new(new("index", "out"), new("index-text", "in"), "data"))
             .Add("index-render", new(new("index-text", "out"), new("render", "right"), "data"))
-            .Add("render-merge", new(new("render", "out"), new("merge", "in"), "data"))
-            .Add("merge-output", new(new("merge", "out"), new("output", "in"), "data"));
+            .Add("render-output", new(new("render", "out"), new("output", "in"), "data"));
         var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
             .Add("input-condition", Edge("input", "then", "condition", "execute"))
-            .Add("condition-merge", Edge("condition", "true", "merge", "execute"))
-            .Add("condition-break", Edge("condition", "false", "proof-break", "execute"))
-            .Add("merge-output", Edge("merge", "then", "output", "execute"));
+            .Add("condition-output", Edge("condition", "true", "output", "execute"))
+            .Add("condition-break", Edge("condition", "false", "proof-break", "execute"));
         return new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
             "structured-array-break-proof", "input", nodes, data)
         {
@@ -9802,6 +9830,18 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(expected, persisted.Events);
         Assert.Equal(Enumerable.Range(1, expected.Count).Select(value => (long)value),
             persisted.Events.Select(evt => evt.Sequence));
+    }
+
+    private static async Task<string> RenderPlayback(RunSnapshot snapshot)
+    {
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        return await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<WorkflowRunViewer>(ParameterView.FromDictionary(
+                new Dictionary<string, object?> { [nameof(WorkflowRunViewer.Snapshot)] = snapshot }));
+            return component.ToHtmlString();
+        });
     }
 
     private sealed class ProofRunStore : IDisposable
