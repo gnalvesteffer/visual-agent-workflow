@@ -111,7 +111,7 @@ public sealed class ArrayIterationVawBodyProofTests
     [InlineData(true)]
     public async Task IteratorCandidates_ResolveTypedItemAndIndexThroughGraphValues(bool sqlite)
     {
-        const string input = "[7,11]";
+        const string input = "[-9223372036854775808,0,9223372036854775807]";
         var revision = WorkflowRevision.Create(TypedItemAndIndexBodyDefinition(),
             "array-iteration-typed-item-index-proof");
         using var structuredStore = new ProofRunStore(revision, input, sqlite);
@@ -165,10 +165,11 @@ public sealed class ArrayIterationVawBodyProofTests
             });
         hybridRecorder.CompleteRoot();
 
-        Assert.Equal("{\"query\":\"7:0\"};{\"query\":\"11:1\"}", structured.Output);
+        Assert.Equal("{\"query\":\"-9223372036854775808:0\"};{\"query\":\"0:1\"};{\"query\":\"9223372036854775807:2\"}",
+            structured.Output);
         Assert.Equal(structured.Output, subworkflowOutput);
         Assert.Equal(structured.Output, hybridOutput);
-        Assert.Equal(["7:0", "11:1"], structuredAgents.Inputs);
+        Assert.Equal(["-9223372036854775808:0", "0:1", "9223372036854775807:2"], structuredAgents.Inputs);
         Assert.Equal(structuredAgents.Inputs, subworkflowAgents.Inputs);
         Assert.Equal(structuredAgents.Inputs, hybridAgents.Inputs);
 

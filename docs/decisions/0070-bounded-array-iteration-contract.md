@@ -1127,8 +1127,9 @@ budget/lifecycle ownership remain open. The full Agent Framework suite passes
 
 `IteratorCandidates_ResolveTypedItemAndIndexThroughGraphValues` now compares
 the structured, fresh-subworkflow, and hybrid proof candidates using the
-validated JSON integer array `[7,11]`. The proof parses it against the existing
-`array<integer>` contract, carries each canonical integer value into the
+validated JSON integer array `[-9223372036854775808,0,9223372036854775807]`.
+The proof parses it against the existing `array<integer>` contract, including
+both signed 64-bit limits, and carries each canonical integer value into the
 integer-typed workflow parameter, and reads both item and zero-based index
 through production Workflow Value and integer-to-string graph nodes before the
 Agent node. Candidate output, Agent input, and lifecycle event shapes match;

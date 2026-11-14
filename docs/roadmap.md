@@ -357,11 +357,12 @@ will be introduced.
       child Workflow. The frame test above does not establish these graph
       contracts or dispatch behavior.
     - [x] Extend the matched structured, fresh-subworkflow, and hybrid proof
-      from string arrays to a validated JSON integer array. Integer elements
-      flow through typed integer workflow parameters and graph-value getters;
-      all candidates match output and lifecycle evidence through file and
-      SQLite stores (2/2 focused theory cases). This does not prove authored
-      iterator pins or a Break node. See
+      from string arrays to a validated JSON integer array, including signed
+      64-bit minimum, zero, and maximum values. Items flow through typed
+      integer workflow parameters and graph-value getters; all candidates
+      match output and lifecycle evidence through file and SQLite stores
+      (2/2 focused theory cases). This does not prove authored iterator pins
+      or a Break node. See
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Compare empty `array<integer>` input across all three candidates.
       Each candidate completes with an empty result, emits no iteration or
