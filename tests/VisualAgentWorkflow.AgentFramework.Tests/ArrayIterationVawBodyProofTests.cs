@@ -311,27 +311,39 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
     }
 
-    [Fact]
-    public async Task StructuredActivationSequenceProof_HostCancellationWinsBreakRace()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredActivationSequenceProof_PersistsHostCancellationWinningBreakRace(bool sqlite)
     {
-        var revision = WorkflowRevision.CreateProofOnly(StructuredBreakProofDefinition(),
+        var definition = StructuredBreakProofDefinition();
+        var nodes = definition.Nodes.SetItem("proof-break", new NodeDefinition(NodeTypes.Terminate, "1.0.0")
+        {
+            Termination = new(WorkflowTerminationOutcomes.Success)
+        });
+        var revision = WorkflowRevision.Create(definition with { Nodes = nodes },
             "array-iteration-break-host-cancellation-race-proof");
+        using var runStore = new ProofRunStore(revision, "[\"stop\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
         using var cancellation = new CancellationTokenSource();
-        var events = new ConcurrentQueue<ExecutionEvent>();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            new WorkflowRunner().ExecuteStructuredActivationSequenceProofAsync(Guid.NewGuid(), revision,
+            new WorkflowRunner().ExecuteStructuredActivationSequenceProofAsync(runStore.RunId, revision,
                 "[\"stop\"]", "index", null, evt =>
                 {
-                    events.Enqueue(evt);
+                    recorder.Append(evt);
                     return ValueTask.CompletedTask;
                 }, cancellation.Token, afterNodeStarted: (nodeId, _) =>
                 {
                     if (nodeId == "proof-break") cancellation.Cancel();
                     return ValueTask.CompletedTask;
-                }, itemParameterId: "item"));
+                }, itemParameterId: "item",
+                proofBreakNodeIds: new HashSet<string>(StringComparer.Ordinal) { "proof-break" }));
 
-        var recorded = events.ToArray();
+        var recorded = recorder.Snapshot();
+        AssertPersistedSequence(runStore, recorded, "cancelled");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(recorded, reopened.Events);
         Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.ScopeId is null);
         Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
     }

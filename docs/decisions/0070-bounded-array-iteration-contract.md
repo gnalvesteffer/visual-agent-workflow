@@ -1483,8 +1483,11 @@ The static-fork failure race also runs against both supported stores. When an
 admitted sibling fails after Break dispatch, the file and SQLite histories
 reopen with the sibling failure and failed root outcome, with no completed join
 or successful root outcome (2/2 focused store cases). This closes persisted
-failure-race coverage for this static-fork proof only. Passive playback for
-Sequence abort, persisted host-cancellation race coverage, a production-selected
-scheduler, authored iterator pins, and public Break/array contracts remain open.
-This increments the proof only and does not change the **REVISE** architecture
-outcome or authorize public schema/Studio work.
+failure-race coverage for this static-fork proof only. The host-cancellation
+race is also persisted and reopened through both stores (2/2 focused store
+cases); the root remains cancelled and has no successful terminal event. These
+store cases cover the supported root/branch histories, not passive playback
+support for Sequence abort. Production scheduler selection, authored iterator
+pins, and public Break/array contracts remain open. This increments the proof
+only and does not change the **REVISE** architecture outcome or authorize public
+schema/Studio work.

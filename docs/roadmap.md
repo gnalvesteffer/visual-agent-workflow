@@ -162,6 +162,9 @@ will be introduced.
       and failed root outcome without completing the join. Sequence Break
       remains an in-memory proof only; its abort marker is not a supported
       passive-playback event. See Decision 0070's 2026-11-14 adjudication.
+    - [x] Persist and reopen the host-cancellation-versus-Break race through
+      file and SQLite stores. Host cancellation remains the root outcome, with
+      no successful terminal event.
   - [x] Verify typed-array checkpoint exclusion: standalone schema-2.0 array
     dataflow does not match the deterministic checkpoint shape, and typed
     arrays combined with otherwise eligible loop or variable graphs fail Core
