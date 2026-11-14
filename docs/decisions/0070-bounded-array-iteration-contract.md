@@ -1023,8 +1023,18 @@ Agent/MCP-backed body, consumes a nearest-inner-frame Break result, and
 continues the outer item. File and SQLite cases pass (2/2) with scoped
 invocation evidence and no body dispatch for the item after Break. This adds
 structured dispatcher evidence but still leaves iteration sequencing in a
-test coordinator; the subworkflow's separate synthetic graph has not yet been
-matched to this production body and control graph.
+test coordinator; the complete matched candidate comparison remains open.
+
+The fresh-subworkflow body proof now also uses `NestedBodyDefinition` for the
+nested Break case. Each inner item binds a fresh Agent Framework child
+workflow whose executor runs the production VAW body, then routes its result
+through the same private typed control graph. The `WorkflowOutputEvent`
+transports the typed Break result to the owning loop, which checks the target
+activation and stops before the next inner item. Both file and SQLite cases
+pass (2/2), and four distinct child workflow instances are asserted across the
+two outer activations. This is transport and body-composition evidence for
+candidate 2; it does not prove production loop scheduling or the complete
+matched candidate comparison.
 
 ## Compatibility constraints
 

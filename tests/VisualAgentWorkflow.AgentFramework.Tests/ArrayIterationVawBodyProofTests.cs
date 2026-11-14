@@ -2735,6 +2735,87 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.All(breakDispatches, dispatch => Assert.Equal(dispatch.SourceFrameId, dispatch.TargetFrameId));
         Assert.Equal(["outer-loop/0/inner-loop/1", "outer-loop/1/inner-loop/1"],
             breakDispatches.Select(dispatch => dispatch.ScopeId));
+        Assert.Equal(
+            ["outer-loop/0/inner-loop/0", "outer-loop/0/inner-loop/1", "outer-loop/1/inner-loop/0", "outer-loop/1/inner-loop/1"],
+            proofGraphDispatches.Where(dispatch => dispatch.NodeId == "break-condition")
+                .Select(dispatch => dispatch.ScopeId));
+        Assert.Equal(breakDispatches.Select(dispatch => dispatch.ScopeId),
+            proofGraphDispatches.Where(dispatch => dispatch.NodeId == "break")
+                .Select(dispatch => dispatch.ScopeId));
+
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(runStore, events, "completed");
+        Assert.DoesNotContain(events, evt => evt.ScopeId is
+            "outer-loop/0/inner-loop/2" or "outer-loop/1/inner-loop/2");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.NodeId == "outer-loop" && evt.ScopeId == "outer-loop/1");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FreshSubworkflowBody_BreakStopsNearestNestedLoopAndOuterLoopContinues(bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(NestedBodyDefinition(),
+            "array-iteration-subworkflow-nested-break-proof");
+        const string input = "[\"outer-a\",\"outer-b\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore);
+        var agents = new EchoAgentExecutor();
+        var tools = new EchoToolBroker(query => $"echo:{query}");
+        var breakDispatches = new ConcurrentQueue<LoopProofBreakDispatch>();
+        var proofGraph = new LoopControlProofGraph();
+        var proofGraphDispatches = new ConcurrentQueue<(string NodeId, string ScopeId)>();
+        var childWorkflows = new ConcurrentBag<Workflow>();
+
+        var output = await RunFreshSubworkflowLoopProofAsync(runStore.RunId, revision, recorder,
+            "outer-loop", ["outer-a", "outer-b"], parentFrame: null, indexParameterId: "outerIndex",
+            breakDispatches, async outerFrame =>
+            {
+                var innerOutput = await RunFreshSubworkflowLoopProofAsync(runStore.RunId, revision, recorder,
+                    "inner-loop", ["continue", "break", "must-not-run"], outerFrame, "index",
+                    breakDispatches, async innerFrame =>
+                    {
+                        var (child, workflow) = BuildFreshVawBodyWorkflow();
+                        childWorkflows.Add(child);
+                        var bodyInput = new FreshVawBodyInput(async cancellationToken =>
+                        {
+                            ValueTask Record(ExecutionEvent evt)
+                            {
+                                if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                                    ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or
+                                    ExecutionEventKinds.Terminated)
+                                    return ValueTask.CompletedTask;
+                                recorder.Append(evt with { ScopeId = evt.ScopeId ?? innerFrame.ScopeId });
+                                return ValueTask.CompletedTask;
+                            }
+
+                            var body = await new WorkflowRunner(tools, agents).ExecuteWithOutcomeAsync(
+                                runStore.RunId, revision, innerFrame.Item, innerFrame.Parameters, Record,
+                                cancellationToken);
+                            if (body.Failed || body.Output is null)
+                                throw new InvalidOperationException("The subworkflow body did not return a result.");
+                            return proofGraph.Execute(body.Output, innerFrame, proofGraphDispatches);
+                        });
+                        await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow,
+                            bodyInput);
+                        LoopProofResult? result = null;
+                        await foreach (var evt in run.WatchStreamAsync())
+                            if (evt is WorkflowOutputEvent { Data: LoopProofResult proofResult }) result = proofResult;
+                        return result ?? throw new InvalidOperationException("The child subworkflow returned no result.");
+                    });
+                return new ActivationLoopProofValue($"outer-{outerFrame.Index}:{innerOutput}");
+            });
+        recorder.CompleteRoot();
+
+        Assert.Equal("outer-0:echo:CONTINUE:0/0;outer-1:echo:CONTINUE:0/1", output);
+        Assert.Equal(["CONTINUE:0/0", "BREAK:1/0", "CONTINUE:0/1", "BREAK:1/1"], agents.Inputs);
+        Assert.Equal(agents.Inputs, tools.Queries);
+        Assert.Equal(4, childWorkflows.Distinct(ReferenceEqualityComparer.Instance).Count());
+        Assert.Equal(2, breakDispatches.Count);
+        Assert.All(breakDispatches, dispatch => Assert.Equal(dispatch.SourceFrameId, dispatch.TargetFrameId));
+        Assert.Equal(["outer-loop/0/inner-loop/1", "outer-loop/1/inner-loop/1"],
+            breakDispatches.Select(dispatch => dispatch.ScopeId));
 
         var events = recorder.Snapshot();
         AssertPersistedSequence(runStore, events, "completed");
@@ -5176,12 +5257,78 @@ public sealed class ArrayIterationVawBodyProofTests
         return string.Join(';', results);
     }
 
+    private static async Task<string> RunFreshSubworkflowLoopProofAsync(Guid runId, WorkflowRevision revision,
+        ProofRecorder recorder, string loopNodeId, IReadOnlyList<string> items,
+        WorkflowRunner.StructuredActivationFrame? parentFrame, string indexParameterId,
+        ConcurrentQueue<LoopProofBreakDispatch> breakDispatches,
+        Func<WorkflowRunner.StructuredActivationFrame, Task<LoopProofResult>> executeBody)
+    {
+        var results = new List<string>(items.Count);
+        for (var index = 0; index < items.Count; index++)
+        {
+            var parameters = parentFrame?.Parameters.ToBuilder() ??
+                ImmutableSortedDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
+            if (revision.Definition.Parameters?.ContainsKey("item") == true)
+                parameters["item"] = items[index];
+            parameters[indexParameterId] = index.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var frameParameters = parameters.ToImmutable();
+            var frame = parentFrame?.Enter(loopNodeId, index, items[index], frameParameters) ??
+                new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null, loopNodeId, index,
+                    items[index], frameParameters);
+            recorder.Append(ExecutionEventKinds.LoopIterationStarted, loopNodeId, frame.Id, frame.ScopeId);
+
+            var result = await executeBody(frame);
+            if (result is LoopProofBreak signal)
+            {
+                breakDispatches.Enqueue(new(signal.SourceNodeId, signal.SourceFrameId, signal.TargetFrameId,
+                    signal.ScopeId));
+                if (signal.TargetFrameId != frame.Id)
+                    throw new InvalidOperationException("The subworkflow coordinator did not own the nearest loop target.");
+                break;
+            }
+
+            recorder.Append(ExecutionEventKinds.LoopIterationCompleted, loopNodeId, frame.Id, frame.ScopeId);
+            results.Add(((ActivationLoopProofValue)result).Value);
+        }
+
+        return string.Join(';', results);
+    }
+
+    private static (Workflow Child, Workflow Parent) BuildFreshVawBodyWorkflow()
+    {
+        var bodyExecutor = new FreshVawBodyExecutor();
+        var child = new WorkflowBuilder(bodyExecutor).WithOutputFrom(bodyExecutor).Build();
+        var binding = child.BindAsExecutor($"vaw-body-{Guid.NewGuid():N}");
+        var start = new FreshVawBodyStartExecutor();
+        var builder = new WorkflowBuilder(start);
+        builder.AddEdge<FreshVawBodyInput>((ExecutorBinding)start, binding, _ => true);
+        builder.WithOutputFrom(binding);
+        return (child, builder.Build());
+    }
+
     private abstract record LoopProofResult;
     private sealed record ActivationLoopProofValue(string Value) : LoopProofResult;
     private sealed record LoopProofBreak(string SourceNodeId, Guid SourceFrameId, Guid TargetFrameId,
         string ScopeId) : LoopProofResult;
     private sealed record LoopProofBreakDispatch(string SourceNodeId, Guid SourceFrameId,
         Guid TargetFrameId, string ScopeId);
+
+    private sealed record FreshVawBodyInput(Func<CancellationToken, Task<LoopProofResult>> Execute);
+
+    private sealed class FreshVawBodyStartExecutor()
+        : Executor<FreshVawBodyInput, FreshVawBodyInput>("vaw-body-start", declareCrossRunShareable: true)
+    {
+        public override ValueTask<FreshVawBodyInput> HandleAsync(FreshVawBodyInput input,
+            IWorkflowContext context, CancellationToken cancellationToken = default) => ValueTask.FromResult(input);
+    }
+
+    private sealed class FreshVawBodyExecutor()
+        : Executor<FreshVawBodyInput, LoopProofResult>("vaw-body", declareCrossRunShareable: true)
+    {
+        public override ValueTask<LoopProofResult> HandleAsync(FreshVawBodyInput input,
+            IWorkflowContext context, CancellationToken cancellationToken = default) =>
+            new(input.Execute(cancellationToken));
+    }
 
     private sealed class LoopControlProofGraph
     {

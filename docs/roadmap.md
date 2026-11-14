@@ -147,9 +147,14 @@ will be introduced.
   See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   - [x] Candidate subworkflow proof: fresh per-item AF 1.26.0 workflow bindings
     preserve exclusive routing and parallel barrier state across sequential
-    items. The nested test workflow now returns a typed Break control signal
-    with source and nearest target activation IDs; its owning test loop verifies
-    and consumes the signal. A separate proof runs the production VAW Input → Variable Set/Get
+    items. A nested test workflow returns a typed Break control signal with
+    source and nearest target activation IDs; its owning test loop verifies and
+    consumes it. A separate production-backed case now runs the same
+    `NestedBodyDefinition` used by the structured and hybrid cases through a
+    fresh Agent Framework child workflow per inner activation. This proves the
+    child workflow transports the signal and the outer loop consumes the
+    nearest target; it remains test-owned loop control. A separate proof runs
+    the production VAW Input → Variable Set/Get
     → Uppercase → Agent → direct MCP → Output body through a fresh
     `WorkflowRunner` per item, with fake providers and a scoped event bridge.
     Each per-item index is bound as an integer workflow parameter and read
