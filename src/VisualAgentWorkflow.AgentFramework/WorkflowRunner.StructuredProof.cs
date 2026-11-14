@@ -234,6 +234,7 @@ public sealed partial class WorkflowRunner
                 }
             }
 
+            using var outputsCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
             await Emit(ExecutionEventKinds.NodeStarted, nodeId, sequenceInvocationId, data: message.Text);
             await FlushSequenceEvents();
             try
@@ -250,14 +251,14 @@ public sealed partial class WorkflowRunner
                     {
                         var result = await DispatchNode(output.Edge.Target.NodeId,
                             new GraphMessage(message.Text, nodeId, output.PortId, DataType: message.DataType,
-                                SequenceLineage: lineage, ActivationFrame: message.ActivationFrame), token);
+                                SequenceLineage: lineage, ActivationFrame: message.ActivationFrame), outputsCancellation.Token);
                         if (result is null)
                             throw new InvalidOperationException($"Sequence output '{output.OutputId}' produced no result.");
                         coordinator.Complete(activationId, SequenceTerminalState.Completed, result.Text);
                         await FlushSequenceEvents();
                         return result;
                     }
-                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    catch (OperationCanceledException) when (outputsCancellation.IsCancellationRequested)
                     {
                         coordinator.Complete(activationId, SequenceTerminalState.Cancelled);
                         await FlushSequenceEvents();
@@ -266,6 +267,7 @@ public sealed partial class WorkflowRunner
                     catch
                     {
                         coordinator.Complete(activationId, SequenceTerminalState.Failed);
+                        outputsCancellation.Cancel();
                         await FlushSequenceEvents();
                         throw;
                     }

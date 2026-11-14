@@ -5237,6 +5237,44 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task StructuredSequenceProof_FailureCancelsSiblingOutput(bool sqlite)
+    {
+        var definition = SequenceBodyDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition,
+            "array-iteration-structured-sequence-failure-proof");
+        const string input = "[\"hello\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var tools = new FailSequenceOutputToolBroker("proof.inventory", "proof.architecture");
+
+        var execution = new WorkflowRunner(tools).ExecuteStructuredActivationSequenceProofAsync(
+            runStore.RunId, revision, input, "index", null, evt =>
+            {
+                recorder.Append(evt);
+                return ValueTask.CompletedTask;
+            });
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await execution.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        Assert.Contains("first Sequence output failed", failure.Message, StringComparison.Ordinal);
+        Assert.True(tools.FailingOutputReachedSibling);
+        Assert.True(tools.SiblingObservedCancellation);
+        var events = recorder.Snapshot();
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputFailed &&
+            evt.Data?.Contains("inventory", StringComparison.Ordinal) == true);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceOutputCancelled &&
+            evt.Data?.Contains("architecture", StringComparison.Ordinal) == true);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.SequenceFailed);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.SequenceCompleted);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task HybridFrameCoordinator_ExecutesUnifiedSequenceBodyPerActivation(bool sqlite)
     {
         var revision = WorkflowRevision.Create(SequenceBodyDefinition(),
@@ -6455,6 +6493,87 @@ public sealed class ArrayIterationVawBodyProofTests
             Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
         public INodeToolScope OpenScope(NodeInvocationContext invocation) =>
             new EchoToolScope(queries, respond, invocation, recordToolDispatchEvents);
+    }
+
+    private sealed class FailSequenceOutputToolBroker : INodeToolBroker
+    {
+        private readonly string failingBindingId;
+        private readonly string blockedBindingId;
+        private readonly TaskCompletionSource blockedStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int failingOutputReachedSibling;
+        private int siblingObservedCancellation;
+
+        public FailSequenceOutputToolBroker(string failingBindingId, string blockedBindingId)
+        {
+            this.failingBindingId = failingBindingId;
+            this.blockedBindingId = blockedBindingId;
+        }
+
+        public bool FailingOutputReachedSibling => Volatile.Read(ref failingOutputReachedSibling) != 0;
+        public bool SiblingObservedCancellation => Volatile.Read(ref siblingObservedCancellation) != 0;
+
+        public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new Scope(this, invocation);
+
+        private sealed class Scope(FailSequenceOutputToolBroker owner, NodeInvocationContext invocation)
+            : INodeToolScope
+        {
+            public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(
+                CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+            public Task<string> InvokeAsync(string requestedBindingId, string input,
+                CancellationToken cancellationToken = default) =>
+                Task.FromException<string>(new NotSupportedException("The proof expects structured tool arguments."));
+
+            public async Task<string> InvokeJsonAsync(string requestedBindingId, JsonElement arguments,
+                CancellationToken cancellationToken = default)
+            {
+                var bindingId = requestedBindingId;
+                if (bindingId != owner.failingBindingId && bindingId != owner.blockedBindingId)
+                    throw new InvalidOperationException($"Unexpected Sequence proof binding '{requestedBindingId}'.");
+
+                var toolCallId = Guid.NewGuid();
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolRequested,
+                    JsonSerializer.Serialize(new { toolCallId, bindingId }));
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolAuthorized,
+                    JsonSerializer.Serialize(new { toolCallId, bindingId, input = arguments }));
+
+                if (bindingId == owner.blockedBindingId)
+                {
+                    owner.blockedStarted.TrySetResult();
+                    try
+                    {
+                        await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                        throw new InvalidOperationException("The sibling output unexpectedly completed.");
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        Interlocked.Exchange(ref owner.siblingObservedCancellation, 1);
+                        await invocation.RecordEventAsync(ExecutionEventKinds.ToolUncertain,
+                            JsonSerializer.Serialize(new
+                            {
+                                toolCallId,
+                                bindingId,
+                                failureCode = "tool.outcome_unknown",
+                                disposition = ToolInvocationFailureDisposition.OutcomeUnknown.ToString(),
+                                reason = "The Sequence sibling failed after dispatch; its outcome is unknown."
+                            }));
+                        throw;
+                    }
+                }
+
+                await owner.blockedStarted.Task.WaitAsync(cancellationToken);
+                Interlocked.Exchange(ref owner.failingOutputReachedSibling, 1);
+                throw new InvalidOperationException("The first Sequence output failed after its sibling dispatched.");
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
     }
 
     private static IReadOnlyList<McpToolRegistration> CreateDemoMcpRegistrations()

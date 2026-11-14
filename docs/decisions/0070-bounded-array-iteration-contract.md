@@ -1083,6 +1083,16 @@ within the proof harness only; it does not select the production iterator
 architecture or claim authored iteration/Break support. The full Agent
 Framework suite passes 382/382 for this increment.
 
+`StructuredSequenceProof_FailureCancelsSiblingOutput` verifies the structured
+candidate's failure boundary: one direct-MCP path fails only after its sibling
+has dispatched, and the sibling's in-flight tool observes cancellation. The
+Sequence evidence records the failed path, cancelled path, and failed Sequence
+terminal state through file and SQLite stores (2/2 focused cases). The
+proof-only dispatcher now uses a linked cancellation token for output paths;
+the test would otherwise leave the sibling call running. This does not yet
+compare Sequence failure settlement across candidates, and it is not production
+iterator behavior. The Agent Framework suite passes 384/384 after this change.
+
 ## Compatibility constraints
 
 - Keep iteration as a distinct node family; do not broaden or reinterpret the

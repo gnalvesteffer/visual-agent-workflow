@@ -245,6 +245,11 @@ will be introduced.
       theory: 2/2). This remains proof-harness evidence; it does not select or
       ship a production iterator architecture. The Agent Framework suite passes
       382/382.
+    - [x] In the structured proof candidate, propagate one Sequence output's
+      failure cancellation to an already-dispatched sibling and verify failed
+      plus cancelled output evidence in file and SQLite stores (focused theory:
+      2/2). This does not establish cross-candidate failure parity or production
+      iterator behavior.
     - [x] Exercise single-phase and two-phase collaboration in repeated hybrid
       activations using the unified workflow schema. Each activation reads only
       its own branch messages, and scoped evidence persists through file and
