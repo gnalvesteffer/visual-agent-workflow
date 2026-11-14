@@ -605,17 +605,17 @@ branch should receive a start/cancel event. This is evidence about one
 controlled lifecycle boundary, not a scheduler selection. The architecture
 remains undecided.
 
-`ArrayIterationVawBodyProofTests.StructuredAndFreshSubworkflowCandidates_CancelSiblingBeforeNodeAdmission`
-uses the production execution gate on the right Agent. The left Agent fails
-only after the right target reaches that gate; the gate contract runs before
-node admission. Both candidates stop before the right Agent adapter,
-`node.started`, or `node.cancelled`, suppress the join, and stop before the next
-item in file and SQLite stores. This matches cancellation after target delivery
-but before node admission. It does not erase the earlier mismatch when
-structured dispatch fails before sending the sibling target, and it does not
-define evidence for queued-but-not-admitted work. The architecture remains
-undecided. Both controlled sibling-failure comparisons pass for file and
-SQLite stores; the full Agent Framework suite passed 309/309 at that point.
+`IteratorCandidates_CancelSiblingBeforeNodeAdmission` uses the production
+execution gate on the right Agent across structured, fresh-subworkflow, and
+hybrid candidates. The left Agent fails only after the right target reaches
+that gate; the gate runs before node admission. All candidates stop before the
+right Agent adapter, `node.started`, or `node.cancelled`, suppress the join,
+and stop before the next item. Their branch event shapes match in file and
+SQLite stores (6 candidate/store executions). This matches cancellation after
+target delivery but before node admission. It does not erase the earlier
+mismatch when structured dispatch fails before sending the sibling target, and
+it does not define evidence for queued-but-not-admitted work. The architecture
+remains undecided.
 
 The post-admission window is now controlled by a proof-only callback immediately
 after the persisted `node.started` event. The right Agent blocks there; the left

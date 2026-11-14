@@ -1463,7 +1463,7 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task StructuredAndFreshSubworkflowCandidates_CancelSiblingBeforeNodeAdmission(bool sqlite)
+    public async Task IteratorCandidates_CancelSiblingBeforeNodeAdmission(bool sqlite)
     {
         var definition = ParallelBodyDefinition() with
         {
@@ -1475,12 +1475,16 @@ public sealed class ArrayIterationVawBodyProofTests
         const string input = "[\"north\",\"south\"]";
         using var structuredStore = new ProofRunStore(revision, input, sqlite);
         using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        using var hybridStore = new ProofRunStore(revision, input, sqlite);
         var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
         var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var hybridRecorder = new ProofRecorder(hybridStore);
         var structuredGate = new CoordinatedPreAdmissionGate();
         var subworkflowGate = new CoordinatedPreAdmissionGate();
+        var hybridGate = new CoordinatedPreAdmissionGate();
         var structuredAgents = new CoordinatedGateFailureAgentExecutor(structuredGate);
         var subworkflowAgents = new CoordinatedGateFailureAgentExecutor(subworkflowGate);
+        var hybridAgents = new CoordinatedGateFailureAgentExecutor(hybridGate);
 
         var structuredFailure = await Record.ExceptionAsync(() =>
             new WorkflowRunner(agents: structuredAgents)
@@ -1497,18 +1501,48 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.True(workflowError);
         subworkflowRecorder.FailRoot();
 
+        var hybridFailure = await Record.ExceptionAsync(() => RunActivationLoopProofAsync(hybridStore.RunId,
+            revision, hybridRecorder, hybridAgents, new EchoToolBroker(), "array-loop",
+            ["north", "south"], null, "index", [], async frame =>
+            {
+                ValueTask RecordHybrid(ExecutionEvent evt)
+                {
+                    if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                        ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                        return ValueTask.CompletedTask;
+                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    return ValueTask.CompletedTask;
+                }
+
+                var result = await new WorkflowRunner(agents: hybridAgents)
+                    .ExecuteControlledWithParametersAndOutcomeAsync(hybridStore.RunId, revision,
+                        frame.Item, frame.Parameters, RecordHybrid, hybridGate);
+                if (result.Failed || result.Output is null)
+                    throw new InvalidOperationException("The hybrid parallel body failed.");
+                return new ActivationLoopProofValue(result.Output);
+            }));
+        Assert.NotNull(hybridFailure);
+        hybridRecorder.FailRoot();
+
         var structuredEvents = structuredRecorder.Snapshot();
         var subworkflowEvents = subworkflowRecorder.Snapshot();
+        var hybridEvents = hybridRecorder.Snapshot();
         AssertPersistedSequence(structuredStore, structuredEvents, "failed");
         AssertPersistedSequence(subworkflowStore, subworkflowEvents, "failed");
+        AssertPersistedSequence(hybridStore, hybridEvents, "failed");
         Assert.True(structuredGate.RightReached.Task.IsCompletedSuccessfully);
         Assert.True(subworkflowGate.RightReached.Task.IsCompletedSuccessfully);
+        Assert.True(hybridGate.RightReached.Task.IsCompletedSuccessfully);
         Assert.Equal(["agent-left"], structuredAgents.EnteredNodes);
         Assert.Equal(structuredAgents.EnteredNodes, subworkflowAgents.EnteredNodes);
+        Assert.Equal(structuredAgents.EnteredNodes, hybridAgents.EnteredNodes);
         AssertPreStartSiblingCancellation(structuredEvents);
         AssertPreStartSiblingCancellation(subworkflowEvents);
+        AssertPreStartSiblingCancellation(hybridEvents);
         Assert.Equal(subworkflowEvents.Where(IsBranchLifecycleEvent).Select(EventShape),
             structuredEvents.Where(IsBranchLifecycleEvent).Select(EventShape));
+        Assert.Equal(subworkflowEvents.Where(IsBranchLifecycleEvent).Select(EventShape),
+            hybridEvents.Where(IsBranchLifecycleEvent).Select(EventShape));
 
         static (string Kind, string? NodeId, string? ScopeId, string? ConnectionId) EventShape(ExecutionEvent evt) =>
             (evt.Kind, evt.NodeId, evt.ScopeId, evt.ConnectionId);

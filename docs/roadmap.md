@@ -446,10 +446,11 @@ will be introduced.
       fails; both candidates then persist matching
       failed/cancelled node lifecycles and suppress the join in file and SQLite
       stores. The lifecycle contract and architecture remain open. A pre-admission
-      gate also confirms both candidates cancel a delivered sibling before its
-      `node.started` event or Agent adapter entry, without synthesizing a
-      `node.cancelled` event. Immediate failure before structured dispatch is
-      retained as a separate, not-yet-controlled case. Dispatch/evidence
+      gate also confirms all three candidates cancel a delivered sibling before
+      its `node.started` event or Agent adapter entry, without synthesizing a
+      `node.cancelled` event; branch lifecycle shapes match in both stores.
+      Immediate failure before structured dispatch is retained as a separate,
+      not-yet-controlled case. Dispatch/evidence
       budgets and join-cancellation cases also remain open. The initial
       controlled lifecycle comparisons pass in file and
       SQLite stores; the full Agent Framework suite passed 309/309 at that
