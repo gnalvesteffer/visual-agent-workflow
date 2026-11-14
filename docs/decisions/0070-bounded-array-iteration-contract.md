@@ -1167,6 +1167,18 @@ only. Parallel failure/cancellation races, production lifecycle/budget
 ownership, authored iterator pins, `Break`, and process-loss recovery remain
 open.
 
+`IteratorCandidates_MatchTypedNestedBreakContract` now models explicit
+`Array Element` (`array<string>` → `string`) and `Array Index` (`integer`)
+output pins in the private matched proof. The element pin supplies each body
+run's input and the index pin supplies its typed workflow parameter. A
+separate proof `Break` node emits a typed signal to the nearest activation;
+the three candidates match pin values, Agent/MCP inputs, scoped lifecycle
+shape, and persisted prefixes through file and SQLite stores (2/2 focused
+theory cases). This removes the prior parameter-only binding from this proof
+path, but the pin and Break nodes are test harness constructs. Production graph
+descriptors, runtime dispatch, the architecture decision, and the remaining
+failure/cancellation, budget, evidence-bound, and recovery gates remain open.
+
 ## Compatibility constraints
 
 - Keep iteration as a distinct node family; do not broaden or reinterpret the

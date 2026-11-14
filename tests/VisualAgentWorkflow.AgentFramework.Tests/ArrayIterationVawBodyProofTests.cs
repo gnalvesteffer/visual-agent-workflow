@@ -3148,6 +3148,26 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(["outer-loop/0/inner-loop/1", "outer-loop/1/inner-loop/1"], structured.BreakScopes);
         Assert.Equal(structured.BreakScopes, subworkflow.BreakScopes);
         Assert.Equal(structured.BreakScopes, hybrid.BreakScopes);
+        Assert.Equal(structured.IteratorPinDispatches, subworkflow.IteratorPinDispatches);
+        Assert.Equal(structured.IteratorPinDispatches, hybrid.IteratorPinDispatches);
+        Assert.Equal(
+            [
+                ("outer-loop/0/inner-loop/0", "element", "continue", "workflow-input", "value", "string"),
+                ("outer-loop/0/inner-loop/0", "index", "0", "workflow-parameter", "index", "integer"),
+                ("outer-loop/0/inner-loop/1", "element", "break", "workflow-input", "value", "string"),
+                ("outer-loop/0/inner-loop/1", "index", "1", "workflow-parameter", "index", "integer"),
+                ("outer-loop/1/inner-loop/0", "element", "continue", "workflow-input", "value", "string"),
+                ("outer-loop/1/inner-loop/0", "index", "0", "workflow-parameter", "index", "integer"),
+                ("outer-loop/1/inner-loop/1", "element", "break", "workflow-input", "value", "string"),
+                ("outer-loop/1/inner-loop/1", "index", "1", "workflow-parameter", "index", "integer")
+            ],
+            structured.IteratorPinDispatches.Select(pin => (pin.ScopeId, pin.SourcePinId, pin.Value,
+                pin.TargetNodeId, pin.TargetPinId, pin.DataType)).ToArray());
+        Assert.All(structured.IteratorPinDispatches, pin =>
+        {
+            Assert.Equal("iterator", pin.SourceNodeId);
+            Assert.Equal("array<string>", pin.InputArrayDataType);
+        });
         Assert.Equal(structured.GraphDispatches, subworkflow.GraphDispatches);
         Assert.Equal(structured.GraphDispatches, hybrid.GraphDispatches);
         Assert.Equal(EventShape(structured.Events), EventShape(subworkflow.Events));
@@ -3172,16 +3192,22 @@ public sealed class ArrayIterationVawBodyProofTests
             var tools = new EchoToolBroker(query => $"echo:{query}");
             var proofGraph = new LoopControlProofGraph();
             var graphDispatches = new ConcurrentQueue<(string NodeId, string ScopeId)>();
+            var iteratorPinDispatches = new ConcurrentQueue<LoopProofIteratorPinDispatch>();
             var breakDispatches = new ConcurrentQueue<LoopProofBreakDispatch>();
             var childWorkflows = new ConcurrentBag<Workflow>();
 
             async Task<LoopProofResult> ExecuteBodyAsync(WorkflowRunner.StructuredActivationFrame frame)
             {
+                var pins = new LoopArrayIteratorProofNode().Bind(frame, WorkflowDataTypes.String);
+                iteratorPinDispatches.Enqueue(pins.Element);
+                iteratorPinDispatches.Enqueue(pins.Index);
+                var bodyParameters = frame.Parameters.SetItem("index", pins.Index.Value);
+                var bodyFrame = frame with { Item = pins.Element.Value, Parameters = bodyParameters };
                 if (useFreshSubworkflow)
                 {
                     var (child, workflow) = BuildFreshVawBodyWorkflow();
                     childWorkflows.Add(child);
-                    var bodyInput = new FreshVawBodyInput(token => ExecuteVawBodyAsync(frame,
+                    var bodyInput = new FreshVawBodyInput(token => ExecuteVawBodyAsync(bodyFrame,
                         structuredDispatcher: false, cancellationToken: token));
                     await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, bodyInput);
                     LoopProofResult? output = null;
@@ -3190,7 +3216,7 @@ public sealed class ArrayIterationVawBodyProofTests
                     return output ?? throw new InvalidOperationException("The fresh body workflow returned no control result.");
                 }
 
-                return await ExecuteVawBodyAsync(frame, useStructuredDispatcher, CancellationToken.None);
+                return await ExecuteVawBodyAsync(bodyFrame, useStructuredDispatcher, CancellationToken.None);
             }
 
             async Task<LoopProofResult> ExecuteVawBodyAsync(WorkflowRunner.StructuredActivationFrame frame,
@@ -3255,7 +3281,7 @@ public sealed class ArrayIterationVawBodyProofTests
                 "outer-loop/0/inner-loop/2" or "outer-loop/1/inner-loop/2");
             return new MatchedBreakCandidateEvidence(output, events, agents.Inputs, tools.Queries,
                 breakDispatches.Select(item => item.ScopeId).ToArray(), graphDispatches.ToArray(),
-                childWorkflows.ToArray());
+                iteratorPinDispatches.ToArray(), childWorkflows.ToArray());
         }
     }
 
@@ -6275,9 +6301,15 @@ public sealed class ArrayIterationVawBodyProofTests
         string ScopeId) : LoopProofResult;
     private sealed record LoopProofBreakDispatch(string SourceNodeId, Guid SourceFrameId,
         Guid TargetFrameId, string ScopeId);
+    private sealed record LoopProofIteratorPinDispatch(string SourceNodeId, string InputArrayDataType,
+        string SourcePinId, string DataType, string Value, string TargetNodeId, string TargetPinId,
+        string ScopeId);
+    private sealed record LoopProofIteratorPins(LoopProofIteratorPinDispatch Element,
+        LoopProofIteratorPinDispatch Index);
     private sealed record MatchedBreakCandidateEvidence(string Output, ExecutionEvent[] Events,
         string[] AgentInputs, string[] ToolQueries, string[] BreakScopes,
-        (string NodeId, string ScopeId)[] GraphDispatches, Workflow[] ChildWorkflows);
+        (string NodeId, string ScopeId)[] GraphDispatches,
+        LoopProofIteratorPinDispatch[] IteratorPinDispatches, Workflow[] ChildWorkflows);
 
     private sealed record FreshVawBodyInput(Func<CancellationToken, Task<LoopProofResult>> Execute);
 
@@ -6298,6 +6330,8 @@ public sealed class ArrayIterationVawBodyProofTests
 
     private sealed class LoopControlProofGraph
     {
+        private readonly LoopBreakProofNode breakNode = new();
+
         public LoopProofResult Execute(string bodyResult,
             WorkflowRunner.StructuredActivationFrame activation,
             ConcurrentQueue<(string NodeId, string ScopeId)> dispatches)
@@ -6307,6 +6341,34 @@ public sealed class ArrayIterationVawBodyProofTests
                 return new ActivationLoopProofValue(bodyResult);
 
             dispatches.Enqueue(("break", activation.ScopeId));
+            return breakNode.Execute(activation);
+        }
+    }
+
+    private sealed class LoopArrayIteratorProofNode
+    {
+        public LoopProofIteratorPins Bind(
+            WorkflowRunner.StructuredActivationFrame activation, string elementDataType)
+        {
+            if (!WorkflowDataTypes.IsArrayElementType(elementDataType))
+                throw new InvalidOperationException("The proof iterator requires a supported typed array element.");
+            if (activation.Index < 0)
+                throw new InvalidOperationException("The proof iterator index must be zero-based and non-negative.");
+
+            var arrayDataType = WorkflowDataTypes.ArrayOf(elementDataType);
+            var element = new LoopProofIteratorPinDispatch("iterator", arrayDataType, "element",
+                elementDataType, activation.Item, "workflow-input", "value", activation.ScopeId);
+            var index = new LoopProofIteratorPinDispatch("iterator", arrayDataType, "index",
+                WorkflowDataTypes.Integer, activation.Index.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                "workflow-parameter", "index", activation.ScopeId);
+            return new LoopProofIteratorPins(element, index);
+        }
+    }
+
+    private sealed class LoopBreakProofNode
+    {
+        public LoopProofBreak Execute(WorkflowRunner.StructuredActivationFrame activation)
+        {
             var nearestLoop = activation.NearestLoop();
             return new LoopProofBreak("break", activation.Id, nearestLoop.Id, activation.ScopeId);
         }

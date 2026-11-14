@@ -354,8 +354,11 @@ will be introduced.
       the full Agent Framework suite passes (318/318).
     - [ ] Exercise authored typed array item/index pins and actual nearest-loop
       `Break` dispatch in the production-backed proof without using a per-item
-      child Workflow. The frame test above does not establish these graph
-      contracts or dispatch behavior.
+      child Workflow. The private matched proof now binds explicit typed
+      iterator item/index pins into each candidate and dispatches a typed
+      nearest-loop signal through its own Break proof node, but does not add
+      graph-node descriptors or production runtime dispatch. The frame test
+      above still does not establish those production graph contracts.
     - [x] Extend the matched structured, fresh-subworkflow, and hybrid proof
       from string arrays to a validated JSON integer array, including signed
       64-bit minimum, zero, and maximum values. Items flow through typed
@@ -385,6 +388,15 @@ will be introduced.
       cases). This proves successful parallel composition in the proof
       harness; failure races, production scheduler ownership, and recovery
       remain separate gates. See
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Compare explicit typed iterator item/index pin bindings and a
+      distinct nearest-loop Break proof node across all three candidates. Item
+      values feed each body's run input, zero-based indices feed its typed
+      integer parameter, and the graph-dispatched Break stops only the inner
+      activation. Pin values, body/tool inputs, scoped lifecycle events, and
+      persisted prefixes match through file and SQLite stores (6
+      candidate/store executions). This remains private harness evidence; no
+      public node or production scheduler is selected. See
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Extend the structured proof to reuse one production graph-data
       evaluator across sequential activations while scoping runtime outputs,
