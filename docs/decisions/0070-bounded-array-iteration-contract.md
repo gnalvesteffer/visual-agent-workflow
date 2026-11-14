@@ -1383,8 +1383,10 @@ activations remain open.
    - [x] Compare a pinned pure graph-function call across three item
      activations. Outputs and function input/evaluated-node evidence match the
      fresh-subworkflow and hybrid candidates, with each event scoped to its
-     own item in both stores (2/2 focused theory cases). Parallel function-call
-     activations remain unproven.
+     own item in both stores (2/2 focused theory cases). Parallel direct pure
+     graph-function-node evaluations and broader runtime-output cache identity
+     remain open; parallel Agent graph-function tool invocations are proven in
+     the follow-up below.
 4. Define and implement an explicit run-level budget context that reaches
    nested agents, delegates/teams, MCP broker scopes, and the single run event
    recorder. The product direction remains full capability composition;
@@ -1493,3 +1495,18 @@ failure and dispatches no body Agent or MCP work. Production scheduler
 selection, authored iterator pins, and public Break/array contracts remain
 open. This increments the proof only and does not change the **REVISE**
 architecture outcome or authorize public schema/Studio work.
+
+## Parallel Agent graph-function calls across array activations (2026-11-14)
+
+The structured, fresh-subworkflow, and hybrid candidates now execute a
+two-Agent fork/join per item, with both Agents invoking the same pinned pure
+graph function through the production `AgentNodeExecutor`. A synchronized test
+chat client holds each pair of initial model requests until both branches have
+arrived, so the test verifies overlapping branch work instead of assuming it
+from the graph shape. For two changing items, all three candidates produce
+matching function input/output evidence scoped to the correct Agent and item;
+each candidate history persists and reopens through file and SQLite stores
+(2/2 focused store cases). This closes parallel Agent graph-function tool
+invocation for this candidate matrix only. It does not prove parallel direct
+`FunctionCall` node evaluation, production-provider concurrency, a selected
+iterator scheduler, or public typed iterator authoring.

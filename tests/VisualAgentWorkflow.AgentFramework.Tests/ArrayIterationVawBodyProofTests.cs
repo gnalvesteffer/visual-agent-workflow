@@ -676,6 +676,147 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_ExecuteParallelAgentGraphFunctionToolsPerActivation(bool sqlite)
+    {
+        const string input = "[\"north\",\"south\"]";
+        var function = GraphFunctionValueBodyDefinition().Nodes["call"].GraphFunction!;
+        var provider = new AgentProviderDescriptor("proof.parallel-graph-function", "Parallel graph function proof",
+            "scripted-graph-function-v1", true);
+        var agentConfiguration = new AgentConfiguration(provider.ProviderId, null,
+            "Call the assigned deterministic graph function with the input text, then return a confirmation.", [])
+        {
+            GraphFunctionTools = [function]
+        };
+        var bodyDefinition = ParallelBodyDefinition();
+        var definition = bodyDefinition with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
+            Nodes = bodyDefinition.Nodes
+                .SetItem("agent-left", bodyDefinition.Nodes["agent-left"] with { Agent = agentConfiguration })
+                .SetItem("agent-right", bodyDefinition.Nodes["agent-right"] with { Agent = agentConfiguration })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition, "array-iteration-parallel-agent-graph-function-proof");
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        using var hybridStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var hybridRecorder = new ProofRecorder(hybridStore);
+        var structuredSession = new ParallelGraphFunctionChatSession();
+        var subworkflowSession = new ParallelGraphFunctionChatSession();
+        var hybridSession = new ParallelGraphFunctionChatSession();
+        var structuredBroker = new EchoToolBroker();
+        var subworkflowBroker = new EchoToolBroker();
+        var hybridBroker = new EchoToolBroker();
+
+        AgentNodeExecutor CreateAgents(INodeToolBroker broker, ParallelGraphFunctionChatSession session) =>
+            new([new AgentProviderRegistration(provider, () => new ParallelGraphFunctionChatClient(session))], broker);
+
+        var structured = await new WorkflowRunner(structuredBroker, CreateAgents(structuredBroker, structuredSession))
+            .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                evt =>
+                {
+                    structuredRecorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                });
+
+        var subworkflowIterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision,
+            subworkflowRecorder, CreateAgents(subworkflowBroker, subworkflowSession), subworkflowBroker);
+        var subworkflowWorkflow = new WorkflowBuilder(subworkflowIterator).WithOutputFrom(subworkflowIterator).Build();
+        string? subworkflowOutput = null;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(subworkflowWorkflow, input))
+            await foreach (var evt in run.WatchStreamAsync())
+                if (evt is WorkflowOutputEvent { Data: string output }) subworkflowOutput = output;
+        subworkflowRecorder.CompleteRoot();
+
+        var hybridAgents = CreateAgents(hybridBroker, hybridSession);
+        var hybridOutput = await RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
+            hybridAgents, hybridBroker, "array-loop", ParseProofArrayItems(input, WorkflowDataTypes.String),
+            null, "index", [], async frame =>
+            {
+                ValueTask Record(ExecutionEvent evt)
+                {
+                    if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                        ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                        return ValueTask.CompletedTask;
+                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    return ValueTask.CompletedTask;
+                }
+
+                var result = await new WorkflowRunner(hybridBroker, hybridAgents).ExecuteWithOutcomeAsync(
+                    hybridStore.RunId, revision, frame.Item, frame.Parameters, Record);
+                if (result.Failed || result.Output is null)
+                    throw new InvalidOperationException("The hybrid parallel graph-function body failed.");
+                return new ActivationLoopProofValue(result.Output);
+            });
+        hybridRecorder.CompleteRoot();
+
+        Assert.False(structured.Failed);
+        Assert.Equal(structured.Output, subworkflowOutput);
+        Assert.Equal(structured.Output, hybridOutput);
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        var hybridEvents = hybridRecorder.Snapshot();
+        AssertPersistedSequence(structuredStore, structuredEvents, "completed");
+        AssertPersistedSequence(subworkflowStore, subworkflowEvents, "completed");
+        AssertPersistedSequence(hybridStore, hybridEvents, "completed");
+        Assert.Equal(structuredEvents, structuredStore.ReopenStore().Get(structuredStore.RunId)!.Events);
+        Assert.Equal(subworkflowEvents, subworkflowStore.ReopenStore().Get(subworkflowStore.RunId)!.Events);
+        Assert.Equal(hybridEvents, hybridStore.ReopenStore().Get(hybridStore.RunId)!.Events);
+        Assert.Equal(2, structuredSession.CompletedRequestPairs);
+        Assert.Equal(2, subworkflowSession.CompletedRequestPairs);
+        Assert.Equal(2, hybridSession.CompletedRequestPairs);
+        Assert.Equal(GraphFunctionToolEvidence(structuredEvents), GraphFunctionToolEvidence(subworkflowEvents));
+        Assert.Equal(GraphFunctionToolEvidence(structuredEvents), GraphFunctionToolEvidence(hybridEvents));
+
+        foreach (var events in new[] { structuredEvents, subworkflowEvents, hybridEvents })
+        {
+            foreach (var (scope, item) in new[] { ("array-loop/0", "north"), ("array-loop/1", "south") })
+            foreach (var nodeId in new[] { "agent-left", "agent-right" })
+            {
+                var completed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentGraphFunctionCompleted &&
+                    evt.NodeId == nodeId && evt.ScopeId == scope);
+                using var payload = JsonDocument.Parse(completed.Data!);
+                Assert.Equal(function.Definition.FunctionId, payload.RootElement.GetProperty("functionId").GetString());
+                Assert.Equal(item, payload.RootElement.GetProperty("inputs").GetProperty("text").GetString());
+                Assert.Equal(item + "!", payload.RootElement.GetProperty("outputs").GetProperty("result").GetString());
+                var functionInvocationId = payload.RootElement.GetProperty("functionInvocationId").GetGuid();
+                var started = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.AgentGraphFunctionStarted &&
+                    evt.NodeId == nodeId && evt.ScopeId == scope &&
+                    ReadFunctionInvocationId(evt.Data) == functionInvocationId);
+                using var startPayload = JsonDocument.Parse(started.Data!);
+                Assert.Equal(function.Definition.FunctionId,
+                    startPayload.RootElement.GetProperty("functionId").GetString());
+            }
+        }
+
+        static (string? NodeId, string? ScopeId, string? FunctionId, string? Input, string? Output)[]
+            GraphFunctionToolEvidence(IEnumerable<ExecutionEvent> events) => events
+            .Where(evt => evt.Kind == ExecutionEventKinds.AgentGraphFunctionCompleted)
+            .Select(evt =>
+            {
+                using var payload = JsonDocument.Parse(evt.Data!);
+                return (evt.NodeId, evt.ScopeId,
+                    payload.RootElement.GetProperty("functionId").GetString(),
+                    payload.RootElement.GetProperty("inputs").GetProperty("text").GetString(),
+                    payload.RootElement.GetProperty("outputs").GetProperty("result").GetString());
+            })
+            .OrderBy(evt => evt.ScopeId, StringComparer.Ordinal)
+            .ThenBy(evt => evt.NodeId, StringComparer.Ordinal)
+            .ToArray();
+
+        static Guid ReadFunctionInvocationId(string? data)
+        {
+            using var payload = JsonDocument.Parse(data!);
+            return payload.RootElement.GetProperty("functionInvocationId").GetGuid();
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_EmptyTypedArrayCompletesWithoutBodyActivation(bool sqlite)
     {
         const string input = "[]";
@@ -8237,6 +8378,67 @@ public sealed class ArrayIterationVawBodyProofTests
 
     private sealed class EvidenceBudgetExhaustedException()
         : InvalidOperationException("The run evidence budget or aggregate work limit was exhausted.");
+
+    private sealed class ParallelGraphFunctionChatSession
+    {
+        private readonly object gate = new();
+        private TaskCompletionSource pairReady = NewPair();
+        private int arrivals;
+        private int completedRequestPairs;
+
+        public int CompletedRequestPairs { get { lock (gate) return completedRequestPairs; } }
+
+        public async Task WaitForConcurrentPairAsync(CancellationToken cancellationToken)
+        {
+            TaskCompletionSource current;
+            var completePair = false;
+            lock (gate)
+            {
+                current = pairReady;
+                arrivals++;
+                if (arrivals == 2)
+                {
+                    arrivals = 0;
+                    completedRequestPairs++;
+                    pairReady = NewPair();
+                    completePair = true;
+                }
+            }
+
+            if (completePair) current.TrySetResult();
+            await current.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        }
+
+        private static TaskCompletionSource NewPair() => new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private sealed class ParallelGraphFunctionChatClient(ParallelGraphFunctionChatSession session) : IChatClient
+    {
+        private int requestCount;
+
+        public async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Increment(ref requestCount) > 1)
+                return new ChatResponse(new ChatMessage(ChatRole.Assistant, "Function completed."))
+                { FinishReason = ChatFinishReason.Stop };
+
+            var input = messages.Last(message => message.Role == ChatRole.User).Text!;
+            await session.WaitForConcurrentPairAsync(cancellationToken);
+            return new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                [new FunctionCallContent(Guid.NewGuid().ToString("N"), "graph_function_0",
+                    new Dictionary<string, object?> { ["text"] = input })]))
+            { FinishReason = ChatFinishReason.ToolCalls };
+        }
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose() { }
+    }
 
     private sealed class EchoAgentExecutor(string? failInput = null, string? failNodeId = null) : IAgentNodeExecutor
     {
