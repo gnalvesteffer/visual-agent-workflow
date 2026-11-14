@@ -335,9 +335,19 @@ public sealed partial class WorkflowRunner
         var items = ParseProductionActivationItems(typedItems, arrayElementType);
         var baseParameters = WorkflowParameters.Resolve(bodyRevision.Definition, parameters);
         using var runContext = new StructuredActivationRunContext(runId, bodyRevision.RevisionId, record, runBudget);
-        ValueTask Emit(string kind, string? nodeId = null, Guid? invocationId = null,
-            string? scopeId = null, string? data = null, string? connectionId = null) =>
-            runContext.EmitAsync(kind, nodeId, invocationId, scopeId, data, connectionId);
+        var rootStarted = false;
+        var rootTerminalAppendAttempted = false;
+        async ValueTask Emit(string kind, string? nodeId = null, Guid? invocationId = null,
+            string? scopeId = null, string? data = null, string? connectionId = null)
+        {
+            var isRootStart = nodeId is null && kind == ExecutionEventKinds.Started;
+            var isRootTerminal = nodeId is null && kind is (ExecutionEventKinds.Completed or
+                ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated or
+                ExecutionEventKinds.OutcomeUnknown);
+            if (isRootTerminal) rootTerminalAppendAttempted = true;
+            await runContext.EmitAsync(kind, nodeId, invocationId, scopeId, data, connectionId);
+            if (isRootStart) rootStarted = true;
+        }
 
         async Task<WorkflowExecutionResult> FailRunAsync(int? index = null, Guid? activationId = null,
             string? scopeId = null, string? reason = null)
@@ -439,6 +449,23 @@ public sealed partial class WorkflowRunner
         catch (StructuredActivationBudgetExceededException)
         {
             return await FailRunAsync();
+        }
+        catch (Exception) when (rootStarted && !rootTerminalAppendAttempted)
+        {
+            // A nonterminal append may fail before commit or after an
+            // ambiguous acknowledgement. Try one terminal marker using only
+            // the accepted sequence; never retry the rejected event, and
+            // preserve the original exception if this attempt also fails.
+            try
+            {
+                await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed.");
+            }
+            catch (Exception)
+            {
+                // The original recorder failure remains the actionable error.
+            }
+
+            throw;
         }
     }
 

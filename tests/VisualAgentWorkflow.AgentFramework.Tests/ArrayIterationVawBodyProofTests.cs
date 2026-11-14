@@ -453,6 +453,185 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_LoopStartAppendFailurePersistsRootFailure(bool sqlite)
+    {
+        const string input = "[\"first\"]";
+        var revision = WorkflowRevision.Create(
+            BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "production-body-loop-start-append-failure-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite,
+            rejectedAppendEventKinds: [ExecutionEventKinds.LoopIterationStarted]);
+        var agents = new EchoAgentExecutor();
+        var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Persist(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(tools, agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Persist, runBudget: StructuredRunBudget(maximumToolDispatches: 2)));
+
+        Assert.IsType<IOException>(failure);
+        Assert.Empty(agents.Inputs);
+        Assert.Empty(tools.Queries);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal("failed", reopened.Status);
+        Assert.Equal(events, reopened.Events);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_FailedTerminalFallbackPreservesAppendError(bool sqlite)
+    {
+        const string input = "[\"first\"]";
+        var revision = WorkflowRevision.Create(
+            BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "production-body-loop-start-and-terminal-append-failure-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite,
+            rejectedAppendEventKinds: [ExecutionEventKinds.LoopIterationStarted, ExecutionEventKinds.Failed]);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Persist(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(new EchoToolBroker(), new EchoAgentExecutor())
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Persist, runBudget: StructuredRunBudget(maximumToolDispatches: 2)));
+
+        Assert.IsType<IOException>(failure);
+        Assert.Contains(ExecutionEventKinds.LoopIterationStarted, failure!.Message, StringComparison.Ordinal);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or
+            ExecutionEventKinds.Failed);
+        AssertPersistedSequence(runStore, events, "running");
+        Assert.Equal(events, runStore.ReopenStore().Get(runStore.RunId)!.Events);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_AmbiguousAppendAcknowledgmentDoesNotExtendCommittedPrefix(bool sqlite)
+    {
+        const string input = "[\"first\"]";
+        var revision = WorkflowRevision.Create(
+            BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "production-body-ambiguous-append-acknowledgment-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var attemptedKinds = new List<string>();
+        var agents = new EchoAgentExecutor();
+        var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+
+        ValueTask AppendThenLoseAcknowledgment(ExecutionEvent evt)
+        {
+            attemptedKinds.Add(evt.Kind);
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            if (evt.Kind == ExecutionEventKinds.LoopIterationStarted)
+                throw new IOException("The store committed loop start but its acknowledgment was lost.");
+            return ValueTask.CompletedTask;
+        }
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(tools, agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                AppendThenLoseAcknowledgment, runBudget: StructuredRunBudget(maximumToolDispatches: 2)));
+
+        Assert.IsType<IOException>(failure);
+        Assert.Contains("acknowledgment was lost", failure!.Message, StringComparison.Ordinal);
+        Assert.Equal(new[] { ExecutionEventKinds.Started, ExecutionEventKinds.LoopIterationStarted,
+            ExecutionEventKinds.Failed }, attemptedKinds);
+        Assert.Empty(agents.Inputs);
+        Assert.Empty(tools.Queries);
+
+        var committed = runStore.Store.Get(runStore.RunId)!;
+        Assert.Equal("running", committed.Status);
+        Assert.Contains(committed.Events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+        Assert.DoesNotContain(committed.Events, evt => evt.Kind == ExecutionEventKinds.Failed);
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(committed.Events.ToArray(), reopened.Events.ToArray());
+        Assert.Equal("running", reopened.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_RootStartAppendFailureDoesNotWriteTerminal(bool sqlite)
+    {
+        const string input = "[\"first\"]";
+        var revision = WorkflowRevision.Create(
+            BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "production-body-root-start-append-failure-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite,
+            rejectedAppendEventKinds: [ExecutionEventKinds.Started]);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Persist(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(new EchoToolBroker(), new EchoAgentExecutor())
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Persist, runBudget: StructuredRunBudget(maximumToolDispatches: 2)));
+
+        Assert.IsType<IOException>(failure);
+        Assert.Empty(events);
+        Assert.Empty(runStore.Store.Get(runStore.RunId)!.Events);
+        Assert.Equal("queued", runStore.Store.Get(runStore.RunId)!.Status);
+        Assert.Empty(runStore.ReopenStore().Get(runStore.RunId)!.Events);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_TerminalAppendFailureIsNotRetried(bool sqlite)
+    {
+        const string input = "[\"first\"]";
+        var revision = WorkflowRevision.Create(
+            BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "production-body-terminal-append-failure-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite,
+            rejectedAppendEventKinds: [ExecutionEventKinds.Completed, ExecutionEventKinds.Failed]);
+        var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Persist(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(tools, new EchoAgentExecutor())
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Persist, runBudget: StructuredRunBudget(maximumToolDispatches: 2)));
+
+        Assert.IsType<IOException>(failure);
+        Assert.Contains(ExecutionEventKinds.Completed, failure!.Message, StringComparison.Ordinal);
+        Assert.Single(tools.Queries);
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.Completed or ExecutionEventKinds.Failed);
+        AssertPersistedSequence(runStore, events, "running");
+        Assert.Equal(events, runStore.ReopenStore().Get(runStore.RunId)!.Events);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_TerminatesRootExactlyOnce(bool sqlite)
     {
         var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,

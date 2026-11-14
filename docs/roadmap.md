@@ -238,6 +238,13 @@ will be introduced.
       and SQLite stores. The accepted request remains visible, no response,
       tool dispatch, or later activation is recorded, and the root reopens as
       failed (2 focused cases). Other failure/race/append points remain open.
+    - [x] After an accepted root start, best-effort append one root failure if
+      a nonterminal append throws; preserve the original exception, and do not
+      retry failed or terminal events. File/SQLite tests cover loop-start
+      failure with accepted and rejected fallback, root-start failure, and
+      terminal-append failure plus commit-then-lost-acknowledgment behavior
+      (10 cases). Custom stores that violate sequence/atomicity guarantees
+      and other failure/race/append points remain open.
   - [x] Verify typed-array checkpoint exclusion: standalone schema-2.0 array
     dataflow does not match the deterministic checkpoint shape, and typed
     arrays combined with otherwise eligible loop or variable graphs fail Core

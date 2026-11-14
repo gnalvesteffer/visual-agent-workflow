@@ -1814,3 +1814,34 @@ recorded, and reopening either store yields the same failed event prefix. This
 extends the production append-failure proof beyond direct MCP outcome writes;
 other failure, race, and append boundaries remain open. This test-only proof
 does not change the architecture overview or user-facing guide.
+
+## Production-body append-failure terminalization review (2026-11-14)
+
+The three-role review recommends a narrow best-effort terminal fallback for
+the private production-body coordinator. Once root `run.started` has been
+accepted, an exception before any root terminal append attempt triggers at
+most one root `run.failed` append using the run context's last accepted
+sequence. The original exception is rethrown even if the fallback append
+fails. The coordinator does not retry the event whose append failed, dispatch
+more work, or settle any outstanding external outcome from that failed append.
+Root-start append failure does not trigger a terminal write; a root terminal
+append failure is not retried. This makes the production-body failure prefix
+match the structured proof's behavior where the store accepts the fallback.
+
+File/SQLite tests cover a rejected `loop.iteration.started` with accepted
+fallback, rejection of both that event and `run.failed` while preserving the
+original error and running prefix, failed `run.started` without a terminal
+event, and failed root `run.completed` without retry. Existing tests also cover
+model-response and tool-completion append failures after dispatch. Built-in
+store atomic batches and expected-sequence checks prevent the fallback from
+extending a prefix whose prior event already committed; arbitrary custom
+callbacks may still throw after committing, so no universal unchanged-prefix
+claim is made. An additional callback test commits `loop.iteration.started`
+before throwing to simulate a lost acknowledgment: the failure fallback uses
+the stale accepted sequence, the store rejects it, the original callback
+exception is rethrown, and reopening both stores retains the committed prefix
+without a fabricated root outcome. Custom stores that violate the documented
+atomic append and expected-sequence contract remain outside this guarantee.
+This private proof change selects no iterator architecture and adds no public
+schema or Studio authoring. Architecture overview and user guide remain
+unaffected.
