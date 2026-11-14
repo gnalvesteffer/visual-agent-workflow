@@ -1588,3 +1588,19 @@ the production WorkflowCall runner with a real inline child definition, not a
 test broker. It proves the tested WorkflowCall output path only; other runtime
 output families, arbitrary cache graphs, and production iterator integration
 remain open.
+
+## Delegated outcome reservation identity in the structured run context (2026-11-14)
+
+The structured run-context ledger initially recognized `modelCallId` and
+`toolCallId` only at the top level of event data. Agent Framework delegation
+records those same model/MCP events inside the delegated event's JSON
+`eventData` envelope, so the ledger could reject valid delegated outcomes as
+unreserved even though direct calls settled correctly. Reservation identity
+extraction now descends through at most four JSON `eventData` envelopes while
+the exact outer event remains what is persisted and byte-accounted. New
+file/SQLite regressions execute two delegated model calls and two delegated
+production-MCP calls through the structured coordinator and verify successful
+request/outcome settlement and reopened terminal histories (4 focused cases).
+This closes delegated reservation-envelope coverage for this private proof;
+it does not select an iterator architecture or establish a public runtime
+budget contract.

@@ -229,8 +229,15 @@ will be introduced.
       exhaustion now rejects failure events before persistence and leaves the
       journal running without a partial terminal. File/SQLite append-failure
       cases also cover model outcome, root completion fallback, and root
-      failure append behavior through this context. Nearest-frame Break
-      consumption remains unproven and test-owned.
+      failure append behavior through this context. Nearest-frame Break is now
+      coordinator-consumed in the private structured proof; cross-candidate
+      lifecycle/budget ownership and architecture selection remain open.
+      - [x] Verify reservation identity extraction for delegated model and
+        production-MCP calls through the structured run context. Delegated
+        evidence wraps the original call ID inside its `eventData` envelope;
+        the run-context ledger now correlates the bounded nested payload and
+        settles the exact model/tool outcome. File and SQLite success histories
+        reopen with matching request/outcome counts (4 focused cases).
     - [ ] Implement the reviewed ownership split: a VAW activation coordinator
       derives and consumes typed nearest-frame Break outcomes; one run context
       owns lifecycle and atomic shared reservations; the dispatcher returns

@@ -250,10 +250,34 @@ public sealed partial class WorkflowRunner
             try
             {
                 using var document = JsonDocument.Parse(evt.Data);
-                if (!document.RootElement.TryGetProperty(propertyName, out var value) || value.ValueKind != JsonValueKind.String)
-                    return false;
+                return TryGetId(document.RootElement, propertyName, 0, out id);
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+        }
+
+        private static bool TryGetId(JsonElement payload, string propertyName, int envelopeDepth, out string id)
+        {
+            id = string.Empty;
+            if (payload.ValueKind != JsonValueKind.Object) return false;
+            if (payload.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String)
+            {
                 id = value.GetString()!;
-                return !string.IsNullOrWhiteSpace(id);
+                if (!string.IsNullOrWhiteSpace(id)) return true;
+            }
+
+            const int maximumEnvelopeDepth = 4;
+            if (envelopeDepth >= maximumEnvelopeDepth ||
+                !payload.TryGetProperty("eventData", out var nested) || nested.ValueKind != JsonValueKind.String ||
+                string.IsNullOrWhiteSpace(nested.GetString()))
+                return false;
+
+            try
+            {
+                using var nestedDocument = JsonDocument.Parse(nested.GetString()!);
+                return TryGetId(nestedDocument.RootElement, propertyName, envelopeDepth + 1, out id);
             }
             catch (JsonException)
             {

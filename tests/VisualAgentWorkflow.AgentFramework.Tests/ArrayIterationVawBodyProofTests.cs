@@ -4994,6 +4994,174 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task StructuredActivationRunContext_SettlesDelegatedModelReservations(bool sqlite)
+    {
+        const string input = "[\"proposal\"]";
+        const string providerId = "proof.structured-delegated-model";
+        const string parentInstructions = "Review the proposal with the team.";
+        const string researcherInstructions = "Find supporting evidence.";
+        const string reviewerInstructions = "Review the evidence.";
+        const string task = "Review the proposal.";
+        var profiles = new[]
+        {
+            AgentProfile.Create("researcher", "1", "Researcher", "Find relevant facts.", providerId,
+                researcherInstructions, []),
+            AgentProfile.Create("reviewer", "1", "Reviewer", "Check the answer.", providerId,
+                reviewerInstructions, [])
+        };
+        var configuredAgent = new AgentConfiguration(providerId, null, parentInstructions, [])
+        {
+            Delegates = [.. profiles.Select(profile => new AgentProfileReference(profile.Id, profile.Version,
+                profile.ContentHash!))]
+        };
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("agent", new(NodeTypes.Agent, "1.0.0", Agent: configuredAgent))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "structured-iterator-delegated-model-settlement-proof", "input", nodes,
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-agent", new(new("input", "out"), new("agent", "in"), "data"))
+                .Add("agent-output", new(new("agent", "out"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-agent", Edge("input", "then", "agent", "execute"))
+                .Add("agent-output", Edge("agent", "out", "output", "execute")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
+            AgentProfiles = profiles.ToImmutableSortedDictionary(profile => profile.Id + "@" + profile.Version,
+                profile => profile, StringComparer.Ordinal)
+        };
+        var revision = WorkflowRevision.Create(definition, "structured-iterator-delegated-model-settlement-proof");
+        using var store = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(store, startRoot: false);
+        var model = new ParallelDelegateEvidenceModel(parentInstructions, researcherInstructions,
+            reviewerInstructions, task, delegateOutputCharacters: 128);
+        var provider = new AgentProviderDescriptor(providerId, "Proof delegated model", "proof-chat-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new ParallelDelegateEvidenceChatClient(model))],
+            new EchoToolBroker());
+
+        var result = await new WorkflowRunner(agents: agents).ExecuteStructuredActivationSequenceProofAsync(
+            store.RunId, revision, input, "index", null, evt =>
+            {
+                recorder.Append(evt);
+                return ValueTask.CompletedTask;
+            }, runBudget: new WorkflowRunner.StructuredActivationRunBudget(
+                MaximumEvents: 512,
+                MaximumBytes: 4_000_000,
+                ReservedFailureEvents: 8,
+                ReservedFailureBytes: 64_000,
+                MaximumOutcomeBytes: 64_000,
+                MaximumConcurrentOutcomeReservations: 2,
+                MaximumModelDispatches: 4,
+                MaximumToolDispatches: 2));
+
+        var events = recorder.Snapshot();
+        Assert.Equal("Team review complete.", result.Output);
+        AssertPersistedSequence(store, events, "completed");
+        Assert.Equal(4, model.Prompts.Length);
+        Assert.Equal(2, model.MaximumConcurrentDelegateCalls);
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested));
+        Assert.Equal(4, events.Count(evt => evt.Kind == ExecutionEventKinds.ModelResponded));
+        Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.AgentTeamStarted));
+        Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.AgentTeamCompleted));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
+        var reopened = store.ReopenStore().Get(store.RunId)!;
+        Assert.Equal("completed", reopened.Status);
+        Assert.Equal(events, reopened.Events);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredActivationRunContext_SettlesDelegatedProductionMcpReservations(bool sqlite)
+    {
+        const string input = "[\"proposal\"]";
+        const string providerId = "proof.structured-delegated-mcp";
+        const string parentInstructions = "Ask the team to complete the proposal.";
+        const string researcherInstructions = "Research the proposal.";
+        const string reviewerInstructions = "Review the proposal.";
+        var registrations = CreateDemoMcpRegistrations();
+        var discoveryBroker = new McpToolBroker(registrations, new DemoToolPolicy());
+        var slowBinding = Assert.Single(await discoveryBroker.ListBindingsAsync(),
+            binding => binding.BindingId == "demo.slow");
+        var tool = new ToolBindingRequest(slowBinding.BindingId, slowBinding.ContractHash)
+        {
+            DescriptionHash = slowBinding.DescriptionHash
+        };
+        var profiles = new[]
+        {
+            AgentProfile.Create("researcher", "1", "Researcher", "Researches the proposal.", providerId,
+                researcherInstructions, [tool]),
+            AgentProfile.Create("reviewer", "1", "Reviewer", "Reviews the proposal.", providerId,
+                reviewerInstructions, [tool])
+        };
+        var configuredAgent = new AgentConfiguration(providerId, null, parentInstructions, [])
+        {
+            Delegates = [.. profiles.Select(profile => new AgentProfileReference(profile.Id, profile.Version,
+                profile.ContentHash!))]
+        };
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("agent", new(NodeTypes.Agent, "1.0.0", Agent: configuredAgent))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "structured-iterator-delegated-mcp-settlement-proof", "input", nodes,
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-agent", new(new("input", "out"), new("agent", "in"), "data"))
+                .Add("agent-output", new(new("agent", "out"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("input-agent", Edge("input", "then", "agent", "execute"))
+                .Add("agent-output", Edge("agent", "out", "output", "execute")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer }),
+            AgentProfiles = profiles.ToImmutableSortedDictionary(profile => profile.Id + "@" + profile.Version,
+                profile => profile, StringComparer.Ordinal)
+        };
+        var revision = WorkflowRevision.Create(definition, "structured-iterator-delegated-mcp-settlement-proof");
+        using var store = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(store, startRoot: false);
+        var model = new DelegatedMcpProofModel(parentInstructions, researcherInstructions, reviewerInstructions);
+        var tools = CreateSynchronizedDemoMcpBroker(registrations, expectedConnections: 2);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(new AgentProviderDescriptor(providerId, "Proof delegated MCP",
+                "proof-chat-v1", true), () => new DelegatedMcpProofChatClient(model))], tools);
+
+        var result = await new WorkflowRunner(tools, agents).ExecuteStructuredActivationSequenceProofAsync(
+            store.RunId, revision, input, "index", null, evt =>
+            {
+                recorder.Append(evt);
+                return ValueTask.CompletedTask;
+            }, runBudget: new WorkflowRunner.StructuredActivationRunBudget(
+                MaximumEvents: 512,
+                MaximumBytes: 4_000_000,
+                ReservedFailureEvents: 8,
+                ReservedFailureBytes: 64_000,
+                MaximumOutcomeBytes: 32_000,
+                MaximumConcurrentOutcomeReservations: 2,
+                MaximumModelDispatches: 8,
+                MaximumToolDispatches: 2));
+
+        var events = recorder.Snapshot();
+        Assert.Equal("Work completed.", result.Output);
+        AssertPersistedSequence(store, events, "completed");
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolCompleted));
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ToolFailed or
+            ExecutionEventKinds.ToolUncertain);
+        Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.AgentTeamStarted));
+        Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.AgentTeamCompleted));
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
+        var reopened = store.ReopenStore().Get(store.RunId)!;
+        Assert.Equal("completed", reopened.Status);
+        Assert.Equal(events, reopened.Events);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task StructuredActivationRunContext_AtomicallyLimitsParallelModelReservations(bool sqlite)
     {
         const string providerId = "proof.structured-parallel-budget";

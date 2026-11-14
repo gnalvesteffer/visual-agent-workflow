@@ -42,6 +42,10 @@ serializer. Keep an outcome reservation when its append fails after external
 dispatch. Test a store rejecting the terminal append separately: an in-memory
 reserve cannot make that write durable. A test-only budget proof does not
 establish production limits or worst-case bounds for unmeasured event shapes.
+Delegated Agent events can wrap model-call and MCP-call payloads inside a JSON
+`eventData` string. Reservation correlation may inspect a bounded nested
+envelope, but persist and byte-account the original outer event unchanged.
+Exercise delegated as well as direct calls through each supported store.
 
 Checkpoint JSON is stored separately from execution-event payloads with a version/runtime stamp, pinned identities, bounded native state, payload hash and exact cursor. SQLite commits the latest frame plus capture/suspension evidence atomically. Observation/playback consumes snapshots only, not native deserialization or resume. A suspended checkpoint run has no live pause continuation; recovery appends an explicit marker before execution.
 
