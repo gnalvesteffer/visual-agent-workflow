@@ -1793,6 +1793,10 @@ a rejected `tool.completed` store append. In both file and SQLite histories,
 the root fails after the authorized dispatch, the next item is not admitted,
 and no tool outcome is inferred. The custom exception text is not persisted.
 The append-failure case retains the accepted authorization prefix while
-leaving the external effect unresolved. These tests do not qualify provider
-timeout behavior, other append-failure points, or passive run playback; those
-gates remain open.
+leaving the external effect unresolved. The production-body timeout path is
+also qualified against the real stdio `demo.slow` MCP server: two parallel
+calls time out after authorization, correlated uncertainty settles their
+reservations, the join is suppressed, and file/SQLite histories reopen with
+terminal `outcome-unknown` status. Other append-failure points,
+cancellation/failure playback, and the full passive run playback matrix remain
+open.

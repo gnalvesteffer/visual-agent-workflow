@@ -7828,7 +7828,7 @@ public sealed class ArrayIterationVawBodyProofTests
         var revision = WorkflowRevision.Create(definition with { Nodes = nodes },
             "array-iteration-production-mcp-timeout-candidate-proof");
 
-        foreach (var candidate in new[] { "structured", "fresh-subworkflow", "hybrid" })
+        foreach (var candidate in new[] { "structured", "fresh-subworkflow", "hybrid", "production-body" })
         {
             var timedOut = await ExecuteCandidateAsync(candidate);
             Assert.Null(timedOut.Output);
@@ -7836,7 +7836,9 @@ public sealed class ArrayIterationVawBodyProofTests
             Assert.InRange(timedOut.Events.Count(evt => evt.Kind == ExecutionEventKinds.ToolUncertain), 1, 2);
             Assert.DoesNotContain(timedOut.Events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
             Assert.DoesNotContain(timedOut.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
-            Assert.Contains(timedOut.Events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+            Assert.Contains(timedOut.Events, evt =>
+                (evt.Kind is ExecutionEventKinds.Failed or ExecutionEventKinds.OutcomeUnknown) &&
+                evt.NodeId is null && evt.ScopeId is null);
             Assert.Equal(0, timedOut.PendingReservations);
             Assert.Equal(2, timedOut.MaximumPendingReservations);
         }
@@ -7881,6 +7883,14 @@ public sealed class ArrayIterationVawBodyProofTests
                 }
                 await RecordRootAsync(failed || output is null ? ExecutionEventKinds.Failed : ExecutionEventKinds.Completed);
             }
+            else if (candidate == "production-body")
+            {
+                var result = await new WorkflowRunner(tools)
+                    .ExecuteProductionBodyActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                        recorder.RecordResequencedAsync,
+                        runBudget: StructuredRunBudget(maximumToolDispatches: 2));
+                output = result.Output;
+            }
             else
             {
                 var result = await ExecuteHybridBudgetLoopAsync(store, revision, recorder,
@@ -7889,7 +7899,10 @@ public sealed class ArrayIterationVawBodyProofTests
             }
 
             var events = recorder.Snapshot();
-            AssertPersistedSequence(store, events, output is null ? "failed" : "completed");
+            var expectedStatus = events.Any(evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null)
+                ? "outcome-unknown"
+                : output is null ? "failed" : "completed";
+            AssertPersistedSequence(store, events, expectedStatus);
             Assert.Equal(events.Sum(EventBytes), recorder.PersistedEventBytes);
             return new(output, events, recorder.MaximumPendingOutcomeReservationsObserved,
                 recorder.PendingOutcomeReservations, recorder.ReservationRejected.IsCompleted);

@@ -226,7 +226,10 @@ will be introduced.
       authorization, with secret exception text excluded; a rejected
       `tool.completed` append preserves the authorized prefix without claiming
       the external effect was settled. File/SQLite histories reopen in both
-      cases. Broker timeout and integrated playback matrix work remain open.
+      cases. The real stdio demo MCP timeout also persists correlated
+      uncertainty and a terminal `outcome-unknown` through the production-body
+      coordinator. Passive playback and the remaining failure/race/append
+      matrix stay open.
   - [x] Verify typed-array checkpoint exclusion: standalone schema-2.0 array
     dataflow does not match the deterministic checkpoint shape, and typed
     arrays combined with otherwise eligible loop or variable graphs fail Core
