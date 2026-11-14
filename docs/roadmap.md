@@ -184,14 +184,23 @@ will be introduced.
       into one private run context. It serializes event writes, enforces one
       root start and one terminal outcome, and advances its sequence only after
       the recorder accepts the event. Budget reservations remain owned by the
-      proof recorder, so this is not the reviewed shared-budget owner yet.
+      proof recorder in the initial lifecycle-only increment; the subsequent
+      budget-ledger proof below moves bounded reservations into the run context.
+    - [x] Add a private structured-run budget ledger that atomically reserves
+      model/MCP outcome count and bytes before dispatch, settles matching
+      outcomes by call ID, and applies shared iteration/model/tool dispatch
+      caps across activations. Six focused cases pass across file and SQLite:
+      serial Agent/MCP outcome settlement, pre-provider and pre-tool rejection,
+      and parallel model reservation contention. This does not yet prove
+      denial/timeout/cancellation settlement or complete persisted failure
+      bounds; nearest-frame Break consumption remains test-owned.
     - [ ] Implement the reviewed ownership split: a VAW activation coordinator
       derives and consumes typed nearest-frame Break outcomes; one run context
       owns lifecycle and atomic shared reservations; the dispatcher returns
-      typed body outcomes without finalizing the root. Prove real Agent/MCP
-      dispatch, stale/foreign Break rejection, cancellation/failure races, and
-      reservation settlement in file and SQLite. The three-role review
-      returned **REVISE**; see Decision 0070.
+      typed body outcomes without finalizing the root. Prove stale/foreign
+      Break rejection, cancellation/failure races, and reservation settlement
+      for denial, timeout, and cancellation in file and SQLite. The three-role
+      review returned **REVISE**; see Decision 0070.
   - [x] Compare typed item/index `data.evaluated` payloads across candidates.
     Evaluated values, activation scopes, and data connection IDs match and
     persist in both stores (2/2 focused theory cases). Broader runtime-output

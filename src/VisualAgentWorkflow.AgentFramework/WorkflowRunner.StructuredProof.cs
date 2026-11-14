@@ -7,10 +7,25 @@ namespace VisualAgentWorkflow.AgentFramework;
 
 public sealed partial class WorkflowRunner
 {
+    internal sealed record StructuredActivationRunBudget(
+        int MaximumEvents,
+        long MaximumBytes,
+        int ReservedFailureEvents,
+        long ReservedFailureBytes,
+        long MaximumOutcomeBytes,
+        int MaximumConcurrentOutcomeReservations = int.MaxValue,
+        int MaximumLoopActivations = int.MaxValue,
+        int MaximumModelDispatches = int.MaxValue,
+        int MaximumToolDispatches = int.MaxValue);
+
+    internal sealed class StructuredActivationBudgetExceededException()
+        : InvalidOperationException("The activation run work or evidence budget was exhausted.");
+
     private sealed class StructuredActivationRunContext(Guid runId, Guid revisionId,
-        Func<ExecutionEvent, ValueTask> record) : IDisposable
+        Func<ExecutionEvent, ValueTask> record, StructuredActivationRunBudget? budget) : IDisposable
     {
         private readonly SemaphoreSlim recordGate = new(1, 1);
+        private readonly StructuredActivationBudgetLedger? ledger = budget is null ? null : new(budget);
         private long sequence;
         private bool started;
         private bool terminal;
@@ -34,8 +49,11 @@ public sealed partial class WorkflowRunner
                 }
 
                 var nextSequence = sequence + 1;
-                await record(new ExecutionEvent(runId, revisionId, nextSequence, DateTimeOffset.UtcNow,
-                    kind, nodeId, invocationId, connectionId, data) { ScopeId = scopeId });
+                var evt = new ExecutionEvent(runId, revisionId, nextSequence, DateTimeOffset.UtcNow,
+                    kind, nodeId, invocationId, connectionId, data) { ScopeId = scopeId };
+                var transition = ledger?.Check(evt);
+                await record(evt);
+                if (transition is { } accepted) ledger!.Commit(evt, accepted);
                 sequence = nextSequence;
                 if (startsRun) started = true;
                 if (endsRun) terminal = true;
@@ -47,6 +65,164 @@ public sealed partial class WorkflowRunner
         }
 
         public void Dispose() => recordGate.Dispose();
+    }
+
+    private sealed class StructuredActivationBudgetLedger
+    {
+        public enum EventClass { Ordinary, Failure, OutcomeRequest, OutcomeResult }
+        public sealed record Transition(EventClass Class, string? ReservationId = null);
+
+        private static readonly HashSet<string> FailureKinds =
+        [ExecutionEventKinds.AgentFailed, ExecutionEventKinds.NodeFailed, ExecutionEventKinds.NodeCancelled,
+            ExecutionEventKinds.ToolFailed, ExecutionEventKinds.ToolUncertain, ExecutionEventKinds.Failed,
+            ExecutionEventKinds.OutcomeUnknown, ExecutionEventKinds.Cancelled];
+        private readonly int ordinaryEventLimit;
+        private readonly int reservedFailureEvents;
+        private readonly long maximumBytes;
+        private readonly long reservedFailureBytes;
+        private readonly long maximumOutcomeBytes;
+        private readonly int maximumConcurrentOutcomeReservations;
+        private readonly int maximumLoopActivations;
+        private readonly int maximumModelDispatches;
+        private readonly int maximumToolDispatches;
+        private readonly Dictionary<string, long> outcomeReservations = new(StringComparer.Ordinal);
+        private int ordinaryEvents;
+        private int failureEvents;
+        private int loopActivations;
+        private int modelDispatches;
+        private int toolDispatches;
+        private long ordinaryBytes;
+        private long pendingOutcomeBytes;
+        private long failureBytes;
+
+        public StructuredActivationBudgetLedger(StructuredActivationRunBudget budget)
+        {
+            ordinaryEventLimit = budget.MaximumEvents - budget.ReservedFailureEvents;
+            maximumBytes = budget.MaximumBytes;
+            reservedFailureEvents = budget.ReservedFailureEvents;
+            reservedFailureBytes = budget.ReservedFailureBytes;
+            maximumOutcomeBytes = budget.MaximumOutcomeBytes;
+            maximumConcurrentOutcomeReservations = budget.MaximumConcurrentOutcomeReservations;
+            maximumLoopActivations = budget.MaximumLoopActivations;
+            maximumModelDispatches = budget.MaximumModelDispatches;
+            maximumToolDispatches = budget.MaximumToolDispatches;
+            if (ordinaryEventLimit < 0 || reservedFailureEvents < FailureKinds.Count ||
+                maximumBytes < reservedFailureBytes || reservedFailureBytes < 0 || maximumOutcomeBytes < 0 ||
+                maximumConcurrentOutcomeReservations < 1 || maximumLoopActivations < 1 ||
+                maximumModelDispatches < 1 || maximumToolDispatches < 1)
+                throw new ArgumentOutOfRangeException(nameof(budget));
+        }
+
+        public Transition Check(ExecutionEvent evt)
+        {
+            var bytes = EventBytes(evt);
+            if (evt.Kind == ExecutionEventKinds.LoopIterationStarted && loopActivations >= maximumLoopActivations ||
+                evt.Kind == ExecutionEventKinds.ModelRequested && modelDispatches >= maximumModelDispatches ||
+                evt.Kind == ExecutionEventKinds.ToolAuthorized && toolDispatches >= maximumToolDispatches)
+                throw new StructuredActivationBudgetExceededException();
+
+            if (TryGetReservationRequest(evt, out var requestId))
+            {
+                if (outcomeReservations.Count >= maximumConcurrentOutcomeReservations ||
+                    ordinaryEvents + outcomeReservations.Count + 2 > ordinaryEventLimit ||
+                    ordinaryBytes + pendingOutcomeBytes + bytes + maximumOutcomeBytes > maximumBytes - reservedFailureBytes)
+                    throw new StructuredActivationBudgetExceededException();
+                return new(EventClass.OutcomeRequest, requestId);
+            }
+            if (evt.Kind is ExecutionEventKinds.ModelRequested or ExecutionEventKinds.ToolAuthorized)
+                throw new InvalidOperationException("A dispatch event must include its reservation identity.");
+
+            if (TryGetReservationOutcome(evt, out var outcomeId) && outcomeReservations.TryGetValue(outcomeId, out var reservedBytes))
+            {
+                if (bytes > reservedBytes || ordinaryEvents + outcomeReservations.Count > ordinaryEventLimit ||
+                    ordinaryBytes + pendingOutcomeBytes - reservedBytes + bytes > maximumBytes - reservedFailureBytes)
+                    throw new InvalidOperationException("The activation outcome exceeded its reserved evidence budget.");
+                return new(EventClass.OutcomeResult, outcomeId);
+            }
+            if (evt.Kind is ExecutionEventKinds.ModelResponded or ExecutionEventKinds.ToolCompleted or ExecutionEventKinds.ToolUncertain)
+                throw new InvalidOperationException("An outcome event has no matching dispatch reservation.");
+
+            if (FailureKinds.Contains(evt.Kind))
+            {
+                if (failureEvents >= reservedFailureEvents || failureBytes + bytes > reservedFailureBytes)
+                    throw new InvalidOperationException("The activation failure evidence exceeded its reserved budget.");
+                return new(EventClass.Failure);
+            }
+
+            if (ordinaryEvents + outcomeReservations.Count + 1 > ordinaryEventLimit ||
+                ordinaryBytes + pendingOutcomeBytes + bytes > maximumBytes - reservedFailureBytes)
+                throw new StructuredActivationBudgetExceededException();
+            return new(EventClass.Ordinary);
+        }
+
+        public void Commit(ExecutionEvent evt, Transition transition)
+        {
+            var bytes = EventBytes(evt);
+            switch (transition.Class)
+            {
+                case EventClass.OutcomeRequest:
+                    ordinaryEvents++;
+                    ordinaryBytes += bytes;
+                    outcomeReservations.Add(transition.ReservationId!, maximumOutcomeBytes);
+                    pendingOutcomeBytes += maximumOutcomeBytes;
+                    break;
+                case EventClass.OutcomeResult:
+                    ordinaryEvents++;
+                    ordinaryBytes += bytes;
+                    pendingOutcomeBytes -= outcomeReservations[transition.ReservationId!];
+                    outcomeReservations.Remove(transition.ReservationId!);
+                    break;
+                case EventClass.Failure:
+                    failureEvents++;
+                    failureBytes += bytes;
+                    break;
+                default:
+                    ordinaryEvents++;
+                    ordinaryBytes += bytes;
+                    break;
+            }
+
+            if (evt.Kind == ExecutionEventKinds.LoopIterationStarted) loopActivations++;
+            if (evt.Kind == ExecutionEventKinds.ModelRequested) modelDispatches++;
+            if (evt.Kind == ExecutionEventKinds.ToolAuthorized) toolDispatches++;
+        }
+
+        private static long EventBytes(ExecutionEvent evt) =>
+            JsonSerializer.SerializeToUtf8Bytes(evt, JsonSerializerOptions.Web).Length;
+
+        private static bool TryGetReservationRequest(ExecutionEvent evt, out string reservationId) =>
+            TryGetId(evt, evt.Kind switch
+            {
+                ExecutionEventKinds.ModelRequested => "modelCallId",
+                ExecutionEventKinds.ToolAuthorized => "toolCallId",
+                _ => null
+            }, out reservationId);
+
+        private static bool TryGetReservationOutcome(ExecutionEvent evt, out string reservationId) =>
+            TryGetId(evt, evt.Kind switch
+            {
+                ExecutionEventKinds.ModelResponded => "modelCallId",
+                ExecutionEventKinds.ToolCompleted or ExecutionEventKinds.ToolFailed or ExecutionEventKinds.ToolUncertain => "toolCallId",
+                _ => null
+            }, out reservationId);
+
+        private static bool TryGetId(ExecutionEvent evt, string? propertyName, out string id)
+        {
+            id = string.Empty;
+            if (propertyName is null || evt.Data is null) return false;
+            try
+            {
+                using var document = JsonDocument.Parse(evt.Data);
+                if (!document.RootElement.TryGetProperty(propertyName, out var value) || value.ValueKind != JsonValueKind.String)
+                    return false;
+                id = value.GetString()!;
+                return !string.IsNullOrWhiteSpace(id);
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+        }
     }
 
     private sealed class StructuredProofSession
@@ -471,7 +647,8 @@ public sealed partial class WorkflowRunner
         StructuredActivationFrame? parentFrame = null,
         string activationLoopNodeId = "array-loop",
         string? itemParameterId = null,
-        string arrayElementType = WorkflowDataTypes.String)
+        string arrayElementType = WorkflowDataTypes.String,
+        StructuredActivationRunBudget? runBudget = null)
     {
         ArgumentNullException.ThrowIfNull(bodyRevision);
         ArgumentNullException.ThrowIfNull(jsonItems);
@@ -499,7 +676,7 @@ public sealed partial class WorkflowRunner
             : null;
         var variableStores = new ConcurrentDictionary<Guid, WorkflowVariableStore>();
         var session = new StructuredProofSession(executorSetCreated);
-        var runContext = new StructuredActivationRunContext(runId, bodyRevision.RevisionId, record);
+        var runContext = new StructuredActivationRunContext(runId, bodyRevision.RevisionId, record, runBudget);
         ValueTask Emit(string kind, string? nodeId = null, Guid? invocationId = null,
             string? scopeId = null, string? data = null, string? connectionId = null) =>
             runContext.EmitAsync(kind, nodeId, invocationId, scopeId, data, connectionId);

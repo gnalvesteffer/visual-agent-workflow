@@ -4004,6 +4004,110 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    public async Task StructuredActivationRunContext_ReservesSharedModelAndToolOutcomes(bool sqlite,
+        bool exhaustModelLimit)
+    {
+        var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "array-iteration-structured-run-context-budget-proof");
+        const string input = "[\"first\",\"second\"]";
+        using var store = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(store, startRoot: false);
+        var model = new SharedBudgetProofModel();
+        var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+        var provider = new AgentProviderDescriptor("proof.echo-agent", "Proof model", "proof-chat-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SharedBudgetProofChatClient(model))],
+            new EchoToolBroker());
+
+        await Assert.ThrowsAsync<WorkflowRunner.StructuredActivationBudgetExceededException>(async () =>
+            await new WorkflowRunner(tools, agents).ExecuteStructuredActivationSequenceProofAsync(
+                store.RunId, revision, input, "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, runBudget: new WorkflowRunner.StructuredActivationRunBudget(
+                    MaximumEvents: 512,
+                    MaximumBytes: 4_000_000,
+                    ReservedFailureEvents: 8,
+                    ReservedFailureBytes: 64_000,
+                    MaximumOutcomeBytes: 64_000,
+                    MaximumConcurrentOutcomeReservations: 1,
+                    MaximumModelDispatches: exhaustModelLimit ? 1 : 2,
+                    MaximumToolDispatches: exhaustModelLimit ? 2 : 1)));
+
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(store, events, "failed");
+        Assert.Equal(exhaustModelLimit ? 1 : 2, model.Calls);
+        Assert.Equal(["bounded"], tools.Queries);
+        Assert.Equal(exhaustModelLimit ? 1 : 2, events.Count(evt => evt.Kind == ExecutionEventKinds.ModelRequested));
+        Assert.Equal(exhaustModelLimit ? 1 : 2, events.Count(evt => evt.Kind == ExecutionEventKinds.ModelResponded));
+        Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized));
+        Assert.Equal(1, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolCompleted));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/1");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredActivationRunContext_AtomicallyLimitsParallelModelReservations(bool sqlite)
+    {
+        const string providerId = "proof.structured-parallel-budget";
+        var definition = ParallelBodyDefinition();
+        var nodes = definition.Nodes;
+        foreach (var nodeId in new[] { "agent-left", "agent-right" })
+            nodes = nodes.SetItem(nodeId, nodes[nodeId] with
+            {
+                Agent = nodes[nodeId].Agent! with { ProviderId = providerId }
+            });
+        definition = definition with
+        {
+            Nodes = nodes,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition, "array-iteration-structured-parallel-budget-proof");
+        const string input = "[\"one-item\"]";
+        using var store = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(store, startRoot: false);
+        var reservationRejected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var model = new ReservationRaceModel(reservationRejected.Task);
+        var provider = new AgentProviderDescriptor(providerId, "Proof model", "proof-chat-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new ReservationRaceChatClient(model))],
+            new EchoToolBroker());
+
+        await Assert.ThrowsAsync<WorkflowRunner.StructuredActivationBudgetExceededException>(async () =>
+            await new WorkflowRunner(agents: agents).ExecuteStructuredActivationSequenceProofAsync(
+                store.RunId, revision, input, "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    if (evt.Kind == ExecutionEventKinds.AgentFailed) reservationRejected.TrySetResult();
+                    return ValueTask.CompletedTask;
+                }, runBudget: new WorkflowRunner.StructuredActivationRunBudget(
+                    MaximumEvents: 512,
+                    MaximumBytes: 4_000_000,
+                    ReservedFailureEvents: 8,
+                    ReservedFailureBytes: 64_000,
+                    MaximumOutcomeBytes: 32_000,
+                    MaximumConcurrentOutcomeReservations: 1)));
+
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(store, events, "failed");
+        Assert.Equal(1, model.Calls);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.AgentFailed);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress &&
+            evt.Data?.Contains("All 2 branch results", StringComparison.Ordinal) == true);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task IteratorCandidates_EnforceSharedEventAndByteBudgetsAcrossActivations(bool sqlite)
@@ -6495,7 +6599,7 @@ public sealed class ArrayIterationVawBodyProofTests
             {
                 SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
                 Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
-                    .Add("index", new("Index", "0"))
+                    .Add("index", new("Index", "0") { Type = WorkflowDataTypes.Integer })
             }, "array-iteration-structured-collaboration-proof");
         using var runStore = new ProofRunStore(revision, "[\"item-a\",\"item-b\"]", sqlite);
         var events = new List<ExecutionEvent>();
@@ -6571,7 +6675,7 @@ public sealed class ArrayIterationVawBodyProofTests
         {
             SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
-                .Add("index", new("Index", "0"))
+                .Add("index", new("Index", "0") { Type = WorkflowDataTypes.Integer })
         }, "array-iteration-structured-collaboration-failure-proof");
         using var runStore = new ProofRunStore(revision, "[\"item-a\",\"item-b\"]", sqlite);
         var events = new List<ExecutionEvent>();
@@ -6613,7 +6717,7 @@ public sealed class ArrayIterationVawBodyProofTests
         {
             SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
-                .Add("index", new("Index", "0"))
+                .Add("index", new("Index", "0") { Type = WorkflowDataTypes.Integer })
         }, "array-iteration-structured-collaboration-cancellation-proof");
         using var runStore = new ProofRunStore(revision, "[\"item-a\",\"item-b\"]", sqlite);
         var events = new List<ExecutionEvent>();
@@ -6657,7 +6761,7 @@ public sealed class ArrayIterationVawBodyProofTests
         {
             SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
             Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
-                .Add("index", new("Index", "0"))
+                .Add("index", new("Index", "0") { Type = WorkflowDataTypes.Integer })
         }, "array-iteration-structured-collaboration-timeout-proof");
         using var runStore = new ProofRunStore(revision, "[\"item-a\",\"item-b\"]", sqlite);
         var events = new List<ExecutionEvent>();

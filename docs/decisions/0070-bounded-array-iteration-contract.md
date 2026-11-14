@@ -81,14 +81,19 @@ frames and consumes only a typed Break addressed to its nearest active frame;
 one run context owns root/activation lifecycle and atomic work/evidence
 reservations; the structured dispatcher routes a body and returns typed
 outcomes without finalizing the run. The current dispatcher has no Break
-outcome, and the current run context has no reservation budget, so neither
-owner claim is established yet. Acceptance must exercise the same coordinator
-with real Agent/MCP adapters and file/SQLite stores, including foreign/stale
-Break targets, lifecycle races, pre-dispatch budget rejection, and reservation
-settlement. Stop if the dispatcher and coordinator both finalize lifecycle,
-Break is still created or consumed by the test loop after body return, external
-calls bypass the budget, or reservations leak/double-settle. This review does
-not select an architecture or authorize public schema/Studio changes.
+outcome. A subsequent proof increment adds a private run-context ledger for
+atomic event/outcome-byte reservations and shared iteration/model/tool caps;
+its six file/SQLite cases prove serial Agent/MCP settlement, pre-dispatch model
+and tool rejection, and parallel model reservation contention. Denial,
+timeout, cancellation settlement, and complete persisted failure bounds remain
+open, so the run-context owner claim is still partial. Acceptance must exercise
+the same coordinator with real Agent/MCP adapters and file/SQLite stores,
+including foreign/stale Break targets, lifecycle races, pre-dispatch budget
+rejection, and reservation settlement. Stop if the dispatcher and coordinator
+both finalize lifecycle, Break is still created or consumed by the test loop
+after body return, external calls bypass the budget, or reservations
+leak/double-settle. This review does not select an architecture or authorize
+public schema/Studio changes.
 
 The first hybrid increment extends `PerItemWorkflowExecutor` with immutable
 parent/child activation frames while each item still runs the production VAW
