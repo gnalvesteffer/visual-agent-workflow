@@ -99,6 +99,12 @@ or root failure append. A rejected outcome or completion preserves the
 recorded prefix; it writes `run.failed` when the store accepts that event, while
 a rejected `run.failed` leaves the journal running. These cases do not establish
 recovery after storage failure, so the run-context owner claim is still partial.
+The structured coordinator now checks cancellation again after the final
+iteration-completed event and before emitting the root terminal outcome. A
+deterministic regression cancels from the accepted final iteration event and
+confirms the run records cancellation without also completing (focused test:
+1/1). This closes one lifecycle race in the proof candidate only; it does not
+resolve the missing typed Break dispatch or select the architecture.
 Acceptance must exercise the same coordinator with real Agent/MCP adapters and
 file/SQLite stores, including foreign/stale Break targets, lifecycle races,
 pre-dispatch budget rejection, and reservation settlement. Stop if the

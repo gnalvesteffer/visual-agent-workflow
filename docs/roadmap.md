@@ -811,6 +811,13 @@ will be introduced.
       the runtime enforce a custom broker's event contract or select
       production-wide evidence caps. See [Decision 0070](
       decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Close the structured proof coordinator's cancellation race between
+      the final iteration completion and the root terminal event. A
+      deterministic focused test cancels when the final iteration completion
+      is recorded and verifies a cancelled root with no completed event (1/1).
+      This remains proof-only and does not resolve typed graph-dispatched
+      `Break` or select a production architecture; see [Decision 0070](
+      decisions/0070-bounded-array-iteration-contract.md).
 - [ ] Implement the selected scheduler and full typed iterator contract only
   after the architecture proof and budget/evidence contract are adjudicated.
 - [ ] Revisit records, maps, and sets after stable field identity and portable

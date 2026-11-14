@@ -106,6 +106,33 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
+    [Fact]
+    public async Task StructuredActivationSequenceProof_CancellationBeforeRootCompletionWins()
+    {
+        var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "array-iteration-cancellation-before-root-completion-proof");
+        using var cancellation = new CancellationTokenSource();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            events.Enqueue(evt);
+            if (evt.Kind == ExecutionEventKinds.LoopIterationCompleted)
+                cancellation.Cancel();
+            return ValueTask.CompletedTask;
+        }
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new WorkflowRunner(new EchoToolBroker(), new EchoAgentExecutor())
+                .ExecuteStructuredActivationSequenceProofAsync(Guid.NewGuid(), revision, "[\"only-item\"]",
+                    "index", null, Record, cancellation.Token));
+
+        var recorded = events.ToArray();
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Started);
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.ScopeId is null);
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.Completed);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

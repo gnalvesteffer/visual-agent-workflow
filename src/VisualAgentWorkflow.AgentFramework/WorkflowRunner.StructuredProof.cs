@@ -728,6 +728,7 @@ public sealed partial class WorkflowRunner
                 await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId, iterationId, scopeId);
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             var output = string.Join(';', results);
             await Emit(ExecutionEventKinds.Completed, data: output);
             return new(output, false, HasOutput: true);
