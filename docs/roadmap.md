@@ -254,6 +254,14 @@ will be introduced.
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
       The Agent Framework suite passes 346/346; custom brokers are covered by
       the separate proof below.
+    - [x] Compare event-count exhaustion for parallel direct-MCP authorization
+      across all three candidates and both stores. The limit admits one
+      authorization/outcome and failure reserve, rejects the competing call
+      before broker dispatch, suppresses the join, and keeps the failed trace
+      within the configured event ceiling (focused theory: 2/2). This is
+      controlled-broker proof evidence; production budget ownership and
+      universal payload bounds remain open. See
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Exercise a custom `INodeToolBroker` whose parallel calls record
       authorization, hit a broker-owned post-dispatch deadline, persist
       `tool.outcome-unknown`, and fail. All three candidates settle reservations

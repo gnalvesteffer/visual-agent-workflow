@@ -4136,6 +4136,24 @@ public sealed class ArrayIterationVawBodyProofTests
             Assert.Equal(2, baseline.Events.Count(evt => evt.Kind == ExecutionEventKinds.ToolCompleted));
             Assert.Contains(baseline.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
 
+            var secondAuthorization = baseline.Events.Where(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized)
+                .OrderBy(evt => evt.Sequence).Last();
+            const int reservedFailureEvents = 8;
+            // Keep capacity for the first call and its outcome, but reject the
+            // second authorization before the broker can dispatch it.
+            var eventLimit = checked((int)secondAuthorization.Sequence + 1 + reservedFailureEvents);
+            var eventLimited = await ExecuteCandidateAsync(candidate, maximumConcurrentReservations: 2,
+                holdDispatchUntilReservationRejected: true, maximumEvents: eventLimit);
+            Assert.Null(eventLimited.Output);
+            Assert.True(eventLimited.ReservationRejected);
+            Assert.Equal(1, eventLimited.DispatchedCalls);
+            Assert.Single(eventLimited.Events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+            Assert.Single(eventLimited.Events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+            Assert.DoesNotContain(eventLimited.Events,
+                evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+            Assert.Contains(eventLimited.Events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+            Assert.True(eventLimited.Events.Length <= eventLimit);
+
             var limited = await ExecuteCandidateAsync(candidate, maximumConcurrentReservations: 1,
                 holdDispatchUntilReservationRejected: true);
             Assert.Null(limited.Output);
@@ -4150,10 +4168,10 @@ public sealed class ArrayIterationVawBodyProofTests
         }
 
         async Task<CandidateMcpReservationResult> ExecuteCandidateAsync(string candidate,
-            int maximumConcurrentReservations, bool holdDispatchUntilReservationRejected)
+            int maximumConcurrentReservations, bool holdDispatchUntilReservationRejected, int maximumEvents = 512)
         {
             using var store = new ProofRunStore(revision, input, sqlite);
-            var recorder = new ReservedEvidenceProofRecorder(store, maximumEvents: 512,
+            var recorder = new ReservedEvidenceProofRecorder(store, maximumEvents,
                 maximumBytes: 4_000_000, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
                 maximumOutcomeBytes: 32_000,
                 maximumConcurrentOutcomeReservations: maximumConcurrentReservations,

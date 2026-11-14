@@ -153,6 +153,20 @@ reservation under a measured byte cap, but selects no global cap or production
 budget owner. The full Agent Framework suite passes 348/348 with both
 concurrent count and byte reservation cases included.
 
+`IteratorCandidates_ReserveConcurrentMcpOutcomesBeforeDispatch` now also
+calibrates a shared event-count ceiling from the successful two-branch trace.
+Across the structured, fresh-subworkflow, and hybrid candidates, with both
+file and SQLite stores, the ceiling admits one authorization/outcome and
+failure reserve, then rejects the competing `tool.authorized` before broker
+dispatch. The admitted call settles, the join is suppressed, and the failed
+history stays within the event limit (6 candidate/store executions; focused
+theory passes 2/2; the full Agent Framework suite passes 380/380). This is
+controlled-broker event-count evidence. Production
+MCP count/byte reservation, bounded model/delegate outcomes, terminal reserve,
+and event-count exhaustion now have candidate comparisons, but these remain
+test-only accounting proofs. They do not bound every payload shape, choose
+aggregate product caps, or establish production-owned budget/lifecycle.
+
 `IteratorCandidates_ReserveConcurrentDelegatedModelOutcomesAndBytesBeforeDispatch`
 uses the production `AgentNodeExecutor` team fan-out in each iterator candidate.
 The baseline records the parent model request and both synchronized delegated
@@ -1100,9 +1114,13 @@ the architecture gate.
      `data.evaluated` event envelope measurements match between the actual
      file snapshot and SQLite event-row paths. The Hosting suite passes
      260/260. See the measured sizes above.
-   - [ ] Complete the matrix for concurrent/delegated evidence, function calls,
-     failures and terminal reserve, and event-count exhaustion; the initial
-     per-event samples are not sufficient to select aggregate limits.
+   - [x] Exercise concurrent direct/delegated model and MCP evidence,
+     maximum-shaped delegate function-call evidence, failures and terminal
+     reserve, and event-count exhaustion against file and SQLite stores. The
+     three iterator candidates now compare shared event-count admission at
+     model request and controlled MCP authorization boundaries. This closes
+     matrix coverage for the tested shapes only; it does not establish a
+     universal maximum payload or select aggregate limits.
 7. Specify lifecycle event order and bounded correlation metadata for starts,
    completions, cancellation, and failure. Preserve the failed node's
    invocation identity and active array index without duplicating raw items in
