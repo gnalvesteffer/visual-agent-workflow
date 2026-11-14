@@ -234,6 +234,10 @@ will be introduced.
       users to review recorded events before another run, since the external
       operation may already have taken effect. An HtmlRenderer regression
       verifies the warning and ensures the generic retry message is absent.
+    - [x] Reject a production-body `model.responded` append through both file
+      and SQLite stores. The accepted request remains visible, no response,
+      tool dispatch, or later activation is recorded, and the root reopens as
+      failed (2 focused cases). Other failure/race/append points remain open.
   - [x] Verify typed-array checkpoint exclusion: standalone schema-2.0 array
     dataflow does not match the deterministic checkpoint shape, and typed
     arrays combined with otherwise eligible loop or variable graphs fail Core

@@ -395,6 +395,64 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_ModelOutcomeAppendFailureStopsLaterActivations(bool sqlite)
+    {
+        const string input = "[\"first\",\"must-not-run\"]";
+        const string providerId = "proof.production-model-outcome-append";
+        var definition = BodyDefinition(includeVariableStore: true, includeIndexParameter: true);
+        var configuredAgent = definition.Nodes["agent"].Agent! with
+        {
+            ProviderId = providerId,
+            Instructions = "Prove model outcome append failure."
+        };
+        var revision = WorkflowRevision.Create(definition with
+        {
+            Nodes = definition.Nodes.SetItem("agent", definition.Nodes["agent"] with
+            {
+                Agent = configuredAgent
+            })
+        }, "production-body-model-outcome-append-failure-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite,
+            rejectedAppendEventKinds: [ExecutionEventKinds.ModelResponded]);
+        var model = new ConcurrentPromptModel(expectedConcurrentCalls: 1);
+        var provider = new AgentProviderDescriptor(providerId, "Production body proof model", "proof-chat-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SynchronizedResponseChatClient(model))],
+            new EchoToolBroker());
+        var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner(tools, agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2));
+
+        Assert.True(result.Failed);
+        Assert.Single(model.Calls);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded);
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "agent");
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.ToolAuthorized or
+            ExecutionEventKinds.ToolCompleted);
+        Assert.Empty(tools.Queries);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal("failed", reopened.Status);
+        Assert.Equal(events, reopened.Events);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_TerminatesRootExactlyOnce(bool sqlite)
     {
         var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,

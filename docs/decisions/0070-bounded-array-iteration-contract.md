@@ -1806,3 +1806,11 @@ review the recorded events before starting another run because the external
 operation may already have taken effect. An HtmlRenderer regression verifies
 that this status does not show the generic retry message. This improves
 operator guidance but does not close the passive playback matrix.
+
+A production-body file/SQLite regression now rejects the `model.responded`
+append after the model request is accepted. The provider is called once, but
+the missing response event fails the run; no MCP call or later activation is
+recorded, and reopening either store yields the same failed event prefix. This
+extends the production append-failure proof beyond direct MCP outcome writes;
+other failure, race, and append boundaries remain open. This test-only proof
+does not change the architecture overview or user-facing guide.
