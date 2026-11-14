@@ -42,8 +42,12 @@ public sealed class ArrayIterationSubworkflowProofTests
             var nestedEvents = events.Where(evt => evt.ParentActivationId == activationId).ToArray();
             Assert.Equal([0, 1], nestedEvents.Where(evt => evt.Kind == "nested.iteration.started")
                 .Select(evt => evt.Index).Order());
-            Assert.Single(nestedEvents, evt => evt.Kind == "nested.break.requested");
-            Assert.Single(nestedEvents, evt => evt.Kind == "nested.break.consumed");
+            var requestedBreak = Assert.Single(nestedEvents, evt => evt.Kind == "nested.break.requested");
+            var consumedBreak = Assert.Single(nestedEvents, evt => evt.Kind == "nested.break.consumed");
+            Assert.Equal("nested-break", requestedBreak.NodeId);
+            Assert.Equal(requestedBreak.ActivationId, requestedBreak.TargetActivationId);
+            Assert.Equal(requestedBreak.ActivationId, consumedBreak.ActivationId);
+            Assert.Equal(requestedBreak.TargetActivationId, consumedBreak.TargetActivationId);
             Assert.DoesNotContain(nestedEvents, evt => evt.Kind == "nested.iteration.started" && evt.Index == 2);
         }
 
@@ -140,18 +144,24 @@ public sealed class ArrayIterationSubworkflowProofTests
                 });
                 await using var nestedRun = await InProcessExecution.Concurrent.RunStreamingAsync(nestedWorkflow, inner,
                     cancellationToken: cancellationToken);
-                string? nestedResult = null;
+                InnerControlSignal? nestedResult = null;
                 await foreach (var evt in nestedRun.WatchStreamAsync(cancellationToken))
-                    if (evt is WorkflowOutputEvent { Data: string value }) nestedResult = value;
-                if (nestedResult == "break")
+                    if (evt is WorkflowOutputEvent { Data: InnerControlSignal signal }) nestedResult = signal;
+                if (nestedResult is null)
+                    throw new InvalidOperationException("Nested loop body did not return a control signal.");
+                if (nestedResult.IsBreak)
                 {
+                    if (nestedResult.TargetActivationId != inner.ActivationId)
+                        throw new InvalidOperationException("Break signal did not target the nearest nested activation.");
                     trace.Enqueue(new("nested.break.consumed", inner.ActivationId, inner.InnerIndex, inner.Item, null, null)
                     {
-                        ParentActivationId = message.ActivationId
+                        ParentActivationId = message.ActivationId,
+                        TargetActivationId = nestedResult.TargetActivationId
                     });
                     break;
                 }
-                if (nestedResult != "continue") throw new InvalidOperationException("Nested loop body returned an invalid result.");
+                if (nestedResult.TargetActivationId != inner.ActivationId)
+                    throw new InvalidOperationException("Nested loop signal target did not match the active frame.");
                 trace.Enqueue(new("nested.iteration.completed", inner.ActivationId, inner.InnerIndex, inner.Item, null, null)
                 {
                     ParentActivationId = message.ActivationId
@@ -187,18 +197,21 @@ public sealed class ArrayIterationSubworkflowProofTests
     }
 
     private sealed class InnerDecisionExecutor(ConcurrentQueue<ProofEvent> trace)
-        : Executor<InnerInput, string>("nested-break-decision", declareCrossRunShareable: true)
+        : Executor<InnerInput, InnerControlSignal>("nested-break", declareCrossRunShareable: true)
     {
-        public override ValueTask<string> HandleAsync(InnerInput message, IWorkflowContext context,
+        public override ValueTask<InnerControlSignal> HandleAsync(InnerInput message, IWorkflowContext context,
             CancellationToken cancellationToken = default)
         {
             var shouldBreak = message.Item > message.OuterItem;
             if (shouldBreak)
                 trace.Enqueue(new("nested.break.requested", message.ActivationId, message.InnerIndex, message.Item, null, null)
                 {
-                    ParentActivationId = message.OuterActivationId
+                    ParentActivationId = message.OuterActivationId,
+                    NodeId = "nested-break",
+                    TargetActivationId = message.ActivationId
                 });
-            return ValueTask.FromResult(shouldBreak ? "break" : "continue");
+            return ValueTask.FromResult(new InnerControlSignal(shouldBreak, "nested-break",
+                message.ActivationId, message.ActivationId));
         }
     }
 
@@ -265,8 +278,12 @@ public sealed class ArrayIterationSubworkflowProofTests
     private sealed record RouteMessage(Guid ActivationId, int Item, int Index, bool UseParallel);
     private sealed record BranchMessage(Guid ActivationId, int Item, int Index, string BranchId);
     private sealed record CompletionMessage(Guid ActivationId, int Item, int Index, string BranchId, int ExpectedCount);
+    private sealed record InnerControlSignal(bool IsBreak, string NodeId, Guid SourceActivationId,
+        Guid TargetActivationId);
     private sealed record ProofEvent(string Kind, Guid ActivationId, int Index, int Item, Workflow? ChildWorkflow, string? BranchId)
     {
         public Guid? ParentActivationId { get; init; }
+        public string? NodeId { get; init; }
+        public Guid? TargetActivationId { get; init; }
     }
 }

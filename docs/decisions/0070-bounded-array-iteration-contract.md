@@ -349,19 +349,20 @@ failure behavior before deciding.
 builds a new workflow body for each sequential array item, binds that body as an
 Agent Framework subworkflow, and executes a body with an exclusive route and a
 two-branch barrier join against package 1.26.0. It also creates nested child
-workflows and checks that a nested break result stops the inner iteration while
-the parent iteration proceeds. The test confirms distinct outer child Workflow
+workflows. The nested decision executor returns a typed Break signal carrying
+its node ID and the nested activation as both source and nearest target; the
+outer executor verifies and consumes that target, stopping the inner sequence
+while the parent iteration proceeds. The test confirms distinct outer child Workflow
 instances, sequential results, and iteration-correlated branch/join arrivals.
 The focused test passes. The current full Agent Framework suite passes
 247/247, including the second proof below.
 
 This is positive evidence for candidate 2's dynamic construction and static
 conditional/parallel body execution. The conditional routing, branches, join,
-nested loop, and break controller are synthetic Agent Framework test
-executors. The nested break is returned by a test executor and consumed by a
-test loop controller; it does not prove an authored For Each/Break node
-contract or arbitrary graph control-flow semantics. It does not compare
-candidate 1 or prove VAW production-node integration.
+nested loop, and typed break controller are synthetic Agent Framework test
+executors. This does not prove an authored For Each/Break node contract or
+arbitrary graph control-flow semantics. It does not compare candidate 1 or
+prove VAW production-node integration.
 
 `ArrayIterationVawBodyProofTests.FreshVawRunnerPerItem_ExecutesAgentAndMcpAndPersistsCorrelatedEvents`
 adds a second candidate-2 proof: a test-only per-item coordinator invokes a
