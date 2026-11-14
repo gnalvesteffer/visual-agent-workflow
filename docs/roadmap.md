@@ -196,17 +196,23 @@ will be introduced.
       Six additional file/SQLite cases exercise this run context with actual
       MCP timeouts, controlled custom-broker unknown outcomes, and host
       cancellation after dispatch; correlated uncertain outcomes and terminal
-      states persist in each case. Nearest-frame Break consumption remains
-      test-owned.
+      states persist in each case. Two more file/SQLite cases cover parallel
+      pre-dispatch denial under a one-call cap, with no authorization or join.
+      Event/byte exhaustion and activation/model/tool caps are also exercised
+      through the run-context ledger; the persisted prefix remains within its
+      configured bounds and ends with failure evidence. Oversized failure
+      reserve exhaustion, storage append failure, and nearest-frame Break
+      consumption remain unproven; Break consumption remains test-owned.
     - [ ] Implement the reviewed ownership split: a VAW activation coordinator
       derives and consumes typed nearest-frame Break outcomes; one run context
       owns lifecycle and atomic shared reservations; the dispatcher returns
       typed body outcomes without finalizing the root. Prove stale/foreign
-      Break rejection, cancellation/failure races, pre-dispatch denial
-      settlement, and complete persisted failure bounds in file and SQLite.
-      Timeout, unknown-outcome, and cancellation-after-dispatch settlement now
-      have focused structured-context coverage. The three-role review returned
-      **REVISE**; see Decision 0070.
+      stale/foreign Break rejection, coordinator cancellation/failure races,
+      oversized failure-reserve exhaustion, and store append-failure behavior
+      in file and SQLite. Denial, timeout, unknown-outcome,
+      cancellation-after-dispatch, and ordinary event/byte/work-cap exhaustion
+      now have focused structured-context coverage. The three-role review
+      returned **REVISE**; see Decision 0070.
   - [x] Compare typed item/index `data.evaluated` payloads across candidates.
     Evaluated values, activation scopes, and data connection IDs match and
     persist in both stores (2/2 focused theory cases). Broader runtime-output

@@ -4110,6 +4110,41 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task StructuredActivationRunContext_DeniedMcpCallsDoNotReserveDispatchOutcomes(bool sqlite)
+    {
+        var definition = ParallelMcpDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition, "array-iteration-structured-denied-budget-proof");
+        const string input = "[\"one-item\"]";
+        using var store = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(store, startRoot: false);
+        await Assert.ThrowsAnyAsync<ToolAccessDeniedException>(() =>
+            new WorkflowRunner(new ParallelMcpBroker(denyAll: true))
+                .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                    evt =>
+                    {
+                        recorder.Append(evt);
+                        return ValueTask.CompletedTask;
+                    }, runBudget: StructuredRunBudget(maximumToolDispatches: 1) with
+                    {
+                        MaximumConcurrentOutcomeReservations = 1
+                    }));
+
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(store, events, "failed");
+        Assert.Equal(2, events.Count(evt => evt.Kind == ExecutionEventKinds.ToolDenied));
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_EnforceSharedEventAndByteBudgetsAcrossActivations(bool sqlite)
     {
         var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
@@ -4202,6 +4237,7 @@ public sealed class ArrayIterationVawBodyProofTests
                 new EchoToolBroker());
             var tools = new EchoToolBroker();
             string? output = null;
+            var structuredBudgetRejected = false;
 
             if (candidate == "structured")
             {
@@ -4209,11 +4245,19 @@ public sealed class ArrayIterationVawBodyProofTests
                 {
                     var result = await new WorkflowRunner(tools, agents)
                         .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
-                            recorder.RecordResequencedAsync);
+                            recorder.RecordResequencedAsync, runBudget: new WorkflowRunner.StructuredActivationRunBudget(
+                                MaximumEvents: maximumEvents,
+                                MaximumBytes: maximumBytes,
+                                ReservedFailureEvents: 8,
+                                ReservedFailureBytes: 64_000,
+                                MaximumOutcomeBytes: 64_000));
                     output = result.Output;
+                    structuredBudgetRejected = result.Failed;
                 }
-                catch (EvidenceBudgetExhaustedException)
+                catch (Exception error) when (error is EvidenceBudgetExhaustedException or
+                    WorkflowRunner.StructuredActivationBudgetExceededException)
                 {
+                    structuredBudgetRejected = true;
                 }
             }
             else if (candidate == "fresh-subworkflow")
@@ -4244,7 +4288,7 @@ public sealed class ArrayIterationVawBodyProofTests
             var events = recorder.Snapshot();
             AssertPersistedSequence(store, events, output is null ? "failed" : "completed");
             return new(output, events, model.Calls, tools.Queries, recorder.PendingOutcomeReservations,
-                recorder.PersistedEventBytes, recorder.ReservationRejected.IsCompleted);
+                recorder.PersistedEventBytes, recorder.ReservationRejected.IsCompleted || structuredBudgetRejected);
         }
     }
 
@@ -4302,6 +4346,7 @@ public sealed class ArrayIterationVawBodyProofTests
                 [new AgentProviderRegistration(provider, () => new SharedBudgetProofChatClient(model))],
                 new EchoToolBroker());
             string? output = null;
+            var structuredWorkLimitRejected = false;
 
             if (candidate == "structured")
             {
@@ -4309,11 +4354,22 @@ public sealed class ArrayIterationVawBodyProofTests
                 {
                     var result = await new WorkflowRunner(tools, agents)
                         .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
-                            recorder.RecordResequencedAsync);
+                            recorder.RecordResequencedAsync, runBudget: new WorkflowRunner.StructuredActivationRunBudget(
+                                MaximumEvents: 512,
+                                MaximumBytes: 4_000_000,
+                                ReservedFailureEvents: 8,
+                                ReservedFailureBytes: 64_000,
+                                MaximumOutcomeBytes: 64_000,
+                                MaximumLoopActivations: workLimit == "activations" ? 1 : int.MaxValue,
+                                MaximumModelDispatches: workLimit == "model-dispatches" ? 1 : int.MaxValue,
+                                MaximumToolDispatches: workLimit == "tool-dispatches" ? 1 : int.MaxValue));
                     output = result.Output;
+                    structuredWorkLimitRejected = result.Failed;
                 }
-                catch (EvidenceBudgetExhaustedException)
+                catch (Exception error) when (error is EvidenceBudgetExhaustedException or
+                    WorkflowRunner.StructuredActivationBudgetExceededException)
                 {
+                    structuredWorkLimitRejected = true;
                 }
             }
             else if (candidate == "fresh-subworkflow")
@@ -4349,7 +4405,8 @@ public sealed class ArrayIterationVawBodyProofTests
             Assert.Equal(events, reopened.Events);
             Assert.Equal(Enumerable.Range(1, events.Length).Select(value => (long)value),
                 reopened.Events.Select(evt => evt.Sequence));
-            return new(output, events, model.Calls, tools.Queries, recorder.WorkLimitRejected.IsCompleted);
+            return new(output, events, model.Calls, tools.Queries,
+                recorder.WorkLimitRejected.IsCompleted || structuredWorkLimitRejected);
         }
     }
 
@@ -8377,7 +8434,8 @@ public sealed class ArrayIterationVawBodyProofTests
 
     private sealed class ParallelMcpBroker(string? denyNode = null, string? failNode = null,
         bool holdUntilCancelled = false, string? resultPayload = null,
-        Task? releaseAfterReservationRejected = null, bool waitForBothAuthorizations = false) : INodeToolBroker
+        Task? releaseAfterReservationRejected = null, bool waitForBothAuthorizations = false,
+        bool denyAll = false) : INodeToolBroker
     {
         private readonly ConcurrentQueue<ParallelToolCall> calls = new();
         private readonly TaskCompletionSource branchesStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -8396,12 +8454,12 @@ public sealed class ArrayIterationVawBodyProofTests
         public INodeToolScope OpenScope(NodeInvocationContext invocation) =>
             new Scope(this, invocation.NodeId, invocation.InvocationId, invocation.Record,
                 denyNode, failNode, holdUntilCancelled, resultPayload, releaseAfterReservationRejected,
-                waitForBothAuthorizations);
+                waitForBothAuthorizations, denyAll);
 
         private sealed class Scope(ParallelMcpBroker owner, string nodeId, Guid invocationId,
             Func<string, string?, ValueTask> record, string? denyNode, string? failNode,
             bool holdUntilCancelled, string? resultPayload, Task? releaseAfterReservationRejected,
-            bool waitForBothAuthorizations) : INodeToolScope
+            bool waitForBothAuthorizations, bool denyAll) : INodeToolScope
         {
             public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default) =>
                 Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
@@ -8418,7 +8476,7 @@ public sealed class ArrayIterationVawBodyProofTests
                 {
                     if (owner.calls.Count >= 2) owner.branchesStarted.TrySetResult();
                     await owner.branchesStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
-                    if (nodeId == denyNode)
+                    if (denyAll || nodeId == denyNode)
                     {
                         await record(ExecutionEventKinds.ToolDenied, "No effective node grant.");
                         throw new ToolAccessDeniedException();
