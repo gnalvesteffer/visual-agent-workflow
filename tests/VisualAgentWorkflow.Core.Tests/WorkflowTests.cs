@@ -488,6 +488,22 @@ public class WorkflowTests
     }
 
     [Fact]
+    public void ProofOnlyRevisionHasVerifiableEvidenceHashWithoutBecomingPublishable()
+    {
+        var definition = Workflow() with
+        {
+            SchemaVersion = WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            Nodes = Workflow().Nodes.SetItem("private-proof", new("vaw.proof.private", "proof-only"))
+        };
+
+        var proof = WorkflowRevision.CreateProofOnly(definition, "proof-test");
+
+        Assert.Matches("^[0-9a-f]{64}$", proof.ContentHash);
+        Assert.True(WorkflowJson.MatchesHash(definition, proof.ContentHash));
+        Assert.Throws<ArgumentException>(() => WorkflowRevision.Create(definition, "public-test"));
+    }
+
+    [Fact]
     public void RestoreCreatesNewRevisionWithoutChangingHistory()
     {
         var first = WorkflowRevision.Create(Workflow(), "alice");

@@ -162,11 +162,14 @@ will be introduced.
       dispatched by the fork, suppresses join/output behavior and later items,
       and lets sibling Agent failure or an unknown direct-MCP outcome win. Host
       cancellation also wins. Sequence, multi-node fork paths, multiple Break
-      nodes, delegated work, and persisted playback are not covered; this
-      remains proof-only and does not close the parent item.
+      nodes, and delegated work are not covered; this remains proof-only and
+      does not close the parent item.
+    - [x] Persist and reopen the production-path static-fork Break history
+      through both file and SQLite run stores, with contiguous sequence and
+      terminal-state checks. Proof-only revisions use a normalized evidence
+      hash; public revision creation still rejects the private node type.
     - [ ] Prove nested outer-loop continuation and stale/foreign Break
-      rejection at the production body boundary; persist the production-path
-      Break history through both file and SQLite playback.
+      rejection at the production body boundary.
   - [ ] Move root/activation lifecycle and shared atomic reservations behind
     one VAW-owned run context; the body dispatcher returns typed outcomes and
     does not finalize the root. Prove exact-once terminal outcomes, pre-dispatch

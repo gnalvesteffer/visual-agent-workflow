@@ -296,8 +296,10 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
     }
 
-    [Fact]
-    public async Task ProductionBodyActivationCoordinator_BreakSettlesForkSiblingBeforeStoppingLaterItems()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_BreakSettlesForkSiblingBeforeStoppingLaterItems(bool sqlite)
     {
         var body = ParallelBodyDefinition();
         var definition = body with
@@ -308,20 +310,21 @@ public sealed class ArrayIterationVawBodyProofTests
                 .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
         };
         var revision = WorkflowRevision.CreateProofOnly(definition, "production-body-fork-break-proof");
+        using var runStore = new ProofRunStore(revision, "[\"first\",\"must-not-run\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
         var agents = new ControlledSettlementAgentExecutor("agent-right");
-        var events = new ConcurrentQueue<ExecutionEvent>();
         var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         ValueTask Record(ExecutionEvent evt)
         {
-            events.Enqueue(evt);
+            recorder.Append(evt);
             if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-left")
                 breakCompleted.TrySetResult();
             return ValueTask.CompletedTask;
         }
 
         var execution = new WorkflowRunner(agents: agents)
-            .ExecuteProductionBodyActivationSequenceProofAsync(Guid.NewGuid(), revision,
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision,
                 "[\"first\",\"must-not-run\"]", "index", null, Record);
 
         var firstSignal = await Task.WhenAny(execution, breakCompleted.Task).WaitAsync(TimeSpan.FromSeconds(5));
@@ -337,7 +340,7 @@ public sealed class ArrayIterationVawBodyProofTests
         finally { agents.Release.TrySetResult(); }
 
         var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
-        var recorded = events.ToArray();
+        var recorded = recorder.Snapshot();
         Assert.False(result.Failed);
         Assert.Equal(1, recorded.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
         Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-right");
@@ -348,6 +351,8 @@ public sealed class ArrayIterationVawBodyProofTests
             evt.ScopeId == "array-loop/0");
         Assert.DoesNotContain(recorded, evt => evt.ScopeId == "array-loop/1");
         Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        AssertPersistedSequence(runStore, recorded, "completed");
+        Assert.Equal(recorded, runStore.ReopenStore().Get(runStore.RunId)!.Events);
     }
 
     [Fact]

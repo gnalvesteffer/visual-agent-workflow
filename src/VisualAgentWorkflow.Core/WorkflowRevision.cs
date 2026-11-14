@@ -57,7 +57,8 @@ public sealed record WorkflowRevision
 
     /// <summary>Creates an internal, non-publishable revision for runtime proof harnesses.</summary>
     internal static WorkflowRevision CreateProofOnly(WorkflowDefinition definition, string author) =>
-        new(Guid.NewGuid(), definition, author, null, DateTimeOffset.UtcNow, null, validate: false);
+        new(Guid.NewGuid(), definition, author, null, DateTimeOffset.UtcNow,
+            WorkflowJson.ComputeEvidenceHash(definition), validate: false);
 
     /// <summary>Reconstruct stored evidence without generating another revision identity.</summary>
     public static WorkflowRevision Rehydrate(Guid revisionId, WorkflowDefinition definition, string author,

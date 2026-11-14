@@ -137,6 +137,9 @@ public static class WorkflowJson
     public static string ComputeHash(WorkflowDefinition definition) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(Serialize(definition))));
 
+    /// <summary>Hashes normalized graph evidence without admitting it for publication or execution.</summary>
+    internal static string ComputeEvidenceHash(WorkflowDefinition definition) => Hash(SerializeNormalized(definition));
+
     /// <summary>Draft-state hash for editor change tracking; it is not a content identity or publishable hash.</summary>
     public static string ComputeDraftHash(WorkflowDefinition definition) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(SerializeDraft(definition))));

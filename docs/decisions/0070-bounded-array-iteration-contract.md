@@ -1698,12 +1698,18 @@ post-Break Agent failure wins, a controlled direct-MCP call that reports an
 unknown outcome after Break fails the iteration, and a cancellation triggered
 at the Break completion event remains a host cancellation. Focused tests pass.
 
-This remains an in-memory, non-publishable proof. It does not establish
-delegated work or calls through the production MCP broker on this production
-path, nested outer-loop continuation, multiple/long fork paths, or persisted
-Break playback through file and SQLite stores. The direct-MCP case uses the
-production node executor with a controlled broker; it does not exercise a real
-MCP server. Earlier structured-scheduler and candidate tests for unknown
+The production Break event trace now persists and reopens through both the
+file and SQLite run stores. Proof-only revisions carry a SHA-256 hash of the
+normalized serialized graph for historical evidence integrity; this hash does
+not make the private node publishable, and ordinary `WorkflowRevision.Create`
+continues to reject it. Regression tests verify the complete contiguous event
+sequence and terminal run status after reopening each store.
+
+This remains a private, non-publishable proof. It does not establish delegated
+work or calls through the production MCP broker on this production path, nested
+outer-loop continuation, or multiple/long fork paths. The direct-MCP case uses
+the production node executor with a controlled broker; it does not exercise a
+real MCP server. Earlier structured-scheduler and candidate tests for unknown
 external outcomes are not evidence for this production adapter path. The
 roadmap parent remains open. Since the increment changes no public runtime
 contract or user-visible workflow behavior, the architecture overview and
