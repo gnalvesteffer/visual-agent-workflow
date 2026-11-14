@@ -55,6 +55,15 @@ the Break turn an unresolved MCP side effect into successful iteration
 completion. Verify this settlement through both file and SQLite stores, and
 keep the join and later-item admission suppressed.
 
+In the production Agent Framework body path, do not implement iterator Break
+by cancelling the whole `StreamingRun`: that conflates activation-local control
+flow with host cancellation and may interrupt already-dispatched external
+work. Use an activation-local stop-admission signal, drain admitted branch work,
+and let a sibling failure or unknown MCP outcome override Break. Until the
+framework path proves settlement, restrict the proof topology explicitly;
+private scheduler or fixture evidence does not establish production adapter
+behavior.
+
 Nested approvals use the root run/revision identity plus an ordered path of call-node IDs and exact child revision/content hashes; the executing child identity, immediate approval-to-MCP edge, input/contract and reserved invocation are bound too. The request/decision events share that path's slash-separated `ScopeId`. Before accepting a decision, validate the path against the definitions embedded in the root snapshot and verify the event scope matches. This identity check does not grant MCP access: host policy still authorizes the child node at dispatch. The current controller supports one pending approval per run, so reject parallel graphs whose two branches can both suspend for nested approval. Keep direct root approval hashes/wire data backward-compatible and test old root requests alongside nested path tampering and playback.
 
 Runtime/controller storage now uses `IWorkflowRunStore`. Validate event/state batches atomically with the expected last sequence. A persistence conflict is not permission to retry external work. SQLite serializes storage writes but provides no runtime lease: startup interruption still requires one exclusive owner. See [run storage](../../../docs/run-storage.md).

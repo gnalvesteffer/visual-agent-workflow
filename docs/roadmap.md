@@ -155,11 +155,18 @@ will be introduced.
       source node/frame/scope; the VAW frame derives and consumes the target
       and stops later items. Existing coordinator termination tests keep
       `core.terminate` on its ordinary path. The typed marker bypasses visible
-      Output-node events. This proof is in-memory only; it rejects bodies with
-      Sequence or parallel forks until abort/settlement behavior is proven.
-      Nested continuation, persisted
-      playback, and stale/foreign requests at this production boundary remain
-      open, so the parent Break item remains unchecked.
+      Output-node events.
+    - [x] Extend the in-memory production proof to one static fork whose
+      branches each end directly at the matching join with one Agent, MCP tool,
+      or the proof Break. The activation-local abort scope drains work already
+      dispatched by the fork, suppresses join/output behavior and later items,
+      and lets sibling Agent failure or an unknown direct-MCP outcome win. Host
+      cancellation also wins. Sequence, multi-node fork paths, multiple Break
+      nodes, delegated work, and persisted playback are not covered; this
+      remains proof-only and does not close the parent item.
+    - [ ] Prove nested outer-loop continuation and stale/foreign Break
+      rejection at the production body boundary; persist the production-path
+      Break history through both file and SQLite playback.
   - [ ] Move root/activation lifecycle and shared atomic reservations behind
     one VAW-owned run context; the body dispatcher returns typed outcomes and
     does not finalize the root. Prove exact-once terminal outcomes, pre-dispatch

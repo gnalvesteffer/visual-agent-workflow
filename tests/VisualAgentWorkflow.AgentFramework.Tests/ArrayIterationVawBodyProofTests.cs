@@ -296,16 +296,192 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
     }
 
-    [Theory]
-    [InlineData(NodeTypes.Sequence)]
-    [InlineData(NodeTypes.ParallelFork)]
-    public async Task ProductionBodyBreakProof_RejectsUnsettledControlRegions(string unsupportedNodeType)
+    [Fact]
+    public async Task ProductionBodyActivationCoordinator_BreakSettlesForkSiblingBeforeStoppingLaterItems()
+    {
+        var body = ParallelBodyDefinition();
+        var definition = body with
+        {
+            Nodes = body.Nodes.SetItem("agent-left",
+                new NodeDefinition(WorkflowRunner.StructuredProofBreakNodeType, "proof-only")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition, "production-body-fork-break-proof");
+        var agents = new ControlledSettlementAgentExecutor("agent-right");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            events.Enqueue(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-left")
+                breakCompleted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(agents: agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(Guid.NewGuid(), revision,
+                "[\"first\",\"must-not-run\"]", "index", null, Record);
+
+        var firstSignal = await Task.WhenAny(execution, breakCompleted.Task).WaitAsync(TimeSpan.FromSeconds(5));
+        if (firstSignal == execution)
+            await execution;
+
+        try
+        {
+            await breakCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await agents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(execution.IsCompleted, "Break must wait for the already admitted parallel Agent.");
+        }
+        finally { agents.Release.TrySetResult(); }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var recorded = events.ToArray();
+        Assert.False(result.Failed);
+        Assert.Equal(1, recorded.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-right");
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "join");
+        Assert.DoesNotContain(recorded, evt => (evt.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.ExecutionActivated) &&
+            evt.NodeId == "output" &&
+            evt.ScopeId == "array-loop/0");
+        Assert.DoesNotContain(recorded, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+    }
+
+    [Fact]
+    public async Task ProductionBodyActivationCoordinator_AdmittedForkFailureOverridesBreak()
+    {
+        var body = ParallelBodyDefinition();
+        var definition = body with
+        {
+            Nodes = body.Nodes.SetItem("agent-left",
+                new NodeDefinition(WorkflowRunner.StructuredProofBreakNodeType, "proof-only")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition, "production-body-fork-break-failure-proof");
+        var agents = new ControlledSettlementAgentExecutor("agent-right", failAfterRelease: true);
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            events.Enqueue(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-left")
+                breakCompleted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(agents: agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(Guid.NewGuid(), revision,
+                "[\"first\",\"must-not-run\"]", "index", null, Record);
+        try
+        {
+            await breakCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await agents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally { agents.Release.TrySetResult(); }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var recorded = events.ToArray();
+        Assert.True(result.Failed);
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "agent-right");
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(recorded, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+    }
+
+    [Fact]
+    public async Task ProductionBodyActivationCoordinator_AdmittedMcpUnknownOutcomeOverridesBreak()
+    {
+        var body = ParallelMcpDefinition();
+        var definition = body with
+        {
+            Nodes = body.Nodes.SetItem("tool-research",
+                new NodeDefinition(WorkflowRunner.StructuredProofBreakNodeType, "proof-only")),
+            ExecutionConnections = body.ExecutionConnections!.SetItem("tool-research-join",
+                Edge("tool-research", "out", "join", "branch.left")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition, "production-body-fork-break-mcp-unknown-proof");
+        var tools = new ControlledUnknownOutcomeToolBroker("proof.parallel-tool");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var breakCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            events.Enqueue(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "tool-research")
+                breakCompleted.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        var execution = new WorkflowRunner(tools: tools)
+            .ExecuteProductionBodyActivationSequenceProofAsync(Guid.NewGuid(), revision,
+                "[\"first\",\"must-not-run\"]", "index", null, Record);
+        try
+        {
+            await breakCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await tools.DispatchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally { tools.ReleaseOutcome.TrySetResult(); }
+
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+        var recorded = events.ToArray();
+        Assert.True(result.Failed);
+        Assert.True(result.OutcomeUnknown);
+        var authorization = Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized && evt.NodeId == "tool-review");
+        var uncertain = Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.ToolUncertain && evt.NodeId == "tool-review");
+        using var authorizationData = JsonDocument.Parse(authorization.Data!);
+        using var uncertainData = JsonDocument.Parse(uncertain.Data!);
+        Assert.Equal(authorizationData.RootElement.GetProperty("toolCallId").GetGuid(),
+            uncertainData.RootElement.GetProperty("toolCallId").GetGuid());
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.ParallelJoinProgress && evt.NodeId == "join");
+        Assert.DoesNotContain(recorded, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.OutcomeUnknown && evt.NodeId is null);
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+    }
+
+    [Fact]
+    public async Task ProductionBodyActivationCoordinator_HostCancellationOverridesBreak()
+    {
+        var revision = WorkflowRevision.CreateProofOnly(StructuredBreakProofDefinition(),
+            "production-body-break-host-cancellation-proof");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        using var cancellation = new CancellationTokenSource();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            events.Enqueue(evt);
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "proof-break")
+                cancellation.Cancel();
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner().ExecuteProductionBodyActivationSequenceProofAsync(
+            Guid.NewGuid(), revision, "[\"stop\",\"must-not-run\"]", "index", null, Record,
+            cancellation.Token, itemParameterId: "item");
+        var recorded = events.ToArray();
+
+        Assert.True(result.Cancelled);
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.NodeId is null);
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        Assert.DoesNotContain(recorded, evt => evt.ScopeId == "array-loop/1");
+    }
+
+    [Fact]
+    public async Task ProductionBodyBreakProof_RejectsUnsettledControlRegions()
     {
         var bodyDefinition = StructuredBreakProofDefinition();
         var definition = bodyDefinition with
         {
             Nodes = bodyDefinition.Nodes.Add("unsupported-control",
-                new NodeDefinition(unsupportedNodeType, "1.0.0"))
+                new NodeDefinition(NodeTypes.Sequence, "1.0.0"))
         };
         var revision = WorkflowRevision.CreateProofOnly(definition, "production-body-break-limitation-proof");
 
@@ -313,7 +489,7 @@ public sealed class ArrayIterationVawBodyProofTests
             new WorkflowRunner().ExecuteBodyForActivationProofAsync(Guid.NewGuid(), revision, "stop", null,
                 _ => ValueTask.CompletedTask));
 
-        Assert.Contains("Sequence or parallel-fork settlement", exception.Message);
+        Assert.Contains("Sequence settlement", exception.Message);
     }
 
     [Fact]
@@ -9621,6 +9797,75 @@ public sealed class ArrayIterationVawBodyProofTests
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             }
             return JsonSerializer.Serialize(new { query = input });
+        }
+    }
+
+    private sealed class ControlledSettlementAgentExecutor(string blockedNodeId, bool failAfterRelease = false) : IAgentNodeExecutor
+    {
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.settlement", "Settlement proof", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            if (invocation.NodeId != blockedNodeId)
+                throw new InvalidOperationException($"Unexpected proof Agent node '{invocation.NodeId}'.");
+            Started.TrySetResult();
+            await Release.Task.WaitAsync(cancellationToken);
+            if (failAfterRelease)
+                throw new InvalidOperationException("Controlled sibling failure after Break.");
+            return JsonSerializer.Serialize(new { query = input });
+        }
+    }
+
+    private sealed class ControlledUnknownOutcomeToolBroker(string expectedBindingId) : INodeToolBroker
+    {
+        private readonly string registeredBindingId = expectedBindingId;
+        public TaskCompletionSource DispatchStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseOutcome { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+        public INodeToolScope OpenScope(NodeInvocationContext invocation) => new Scope(this, invocation);
+
+        private sealed class Scope(ControlledUnknownOutcomeToolBroker owner, NodeInvocationContext invocation) : INodeToolScope
+        {
+            public Task<IReadOnlyList<ToolBindingDescriptor>> ListToolsAsync(CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<ToolBindingDescriptor>>([]);
+
+            public Task<string> InvokeAsync(string bindingId, string input, CancellationToken cancellationToken = default) =>
+                Task.FromException<string>(new NotSupportedException("The proof expects structured MCP arguments."));
+
+            public async Task<string> InvokeJsonAsync(string bindingId, JsonElement arguments,
+                CancellationToken cancellationToken = default)
+            {
+                if (bindingId != owner.registeredBindingId)
+                    throw new InvalidOperationException("The workflow requested an unexpected MCP binding.");
+                var toolCallId = Guid.NewGuid();
+                var requested = JsonSerializer.Serialize(new { toolCallId, bindingId });
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolRequested, requested);
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolAuthorized,
+                    JsonSerializer.Serialize(new { toolCallId, bindingId, input = arguments }));
+                owner.DispatchStarted.TrySetResult();
+                await owner.ReleaseOutcome.Task.WaitAsync(cancellationToken);
+                const string reason = "The controlled MCP dispatch has an unknown outcome.";
+                await invocation.RecordEventAsync(ExecutionEventKinds.ToolUncertain, JsonSerializer.Serialize(new
+                {
+                    toolCallId,
+                    bindingId,
+                    failureCode = "tool.outcome_unknown",
+                    disposition = ToolInvocationFailureDisposition.OutcomeUnknown.ToString(),
+                    reason
+                }));
+                throw new ToolInvocationException(reason, ToolInvocationFailureDisposition.OutcomeUnknown);
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         }
     }
 

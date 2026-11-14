@@ -100,16 +100,24 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             .ToHashSet(StringComparer.Ordinal);
         foreach (var nodeId in proofBreakNodeIds)
         {
+            var executionEdges = revision.Definition.ExecutionConnections?.Values ?? [];
+            var outgoing = executionEdges.Where(edge => edge.Source.NodeId == nodeId).ToArray();
+            var dataEdges = revision.Definition.Connections.Values
+                .Where(edge => edge.Source.NodeId == nodeId || edge.Target.NodeId == nodeId).ToArray();
+            var allowedDataInputs = dataEdges.All(edge => edge.Target.NodeId == nodeId && edge.Target.PortId == "in" &&
+                edge.Source.NodeId == revision.Definition.EntryNodeId && edge.Source.PortId == "out");
+            var allowedJoinExit = outgoing.Length == 1 && outgoing[0].Source.PortId == "out" &&
+                revision.Definition.Nodes.TryGetValue(outgoing[0].Target.NodeId, out var target) &&
+                target.Type == NodeTypes.ParallelJoin && outgoing[0].Target.PortId.StartsWith("branch.", StringComparison.Ordinal);
             if (!revision.Definition.Nodes.TryGetValue(nodeId, out var node) ||
-                node.Type != StructuredProofBreakNodeType ||
-                revision.Definition.ExecutionConnections?.Values.Any(edge => edge.Source.NodeId == nodeId) == true ||
-                revision.Definition.Connections.Values.Any(edge => edge.Source.NodeId == nodeId || edge.Target.NodeId == nodeId))
-                throw new ArgumentException("Activation proof Break IDs must identify private Break nodes without outgoing or data connections.",
+                node.Type != StructuredProofBreakNodeType || outgoing.Length > 0 && !allowedJoinExit || !allowedDataInputs)
+                throw new ArgumentException("Activation proof Break IDs must identify private Break nodes with only a direct parallel-join exit and an optional entry-value input.",
                     nameof(proofBreakNodeIds));
         }
-        if (proofBreakNodeIds.Count > 0 && revision.Definition.Nodes.Values.Any(node =>
-                node.Type is NodeTypes.Sequence or NodeTypes.ParallelFork))
-            throw new NotSupportedException("The production Break proof does not yet cover Sequence or parallel-fork settlement.");
+        if (proofBreakNodeIds.Count > 0 && revision.Definition.Nodes.Values.Any(node => node.Type == NodeTypes.Sequence))
+            throw new NotSupportedException("The production Break proof does not yet cover Sequence settlement.");
+        if (proofBreakNodeIds.Count > 0 && revision.Definition.Nodes.Values.Any(node => node.Type == NodeTypes.ParallelFork))
+            ValidateDirectParallelBreakProofTopology(revision.Definition, proofBreakNodeIds);
         if (proofBreakNodeIds.Count > 0) WorkflowValidator.ThrowIfInvalid(ValidationProjection(revision.Definition));
 
         async ValueTask RecordBodyEvent(ExecutionEvent evt)
@@ -269,6 +277,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             using var cancellationRegistration = cancellationToken.Register(
                 static state => _ = CancelStreamingRunAsync((StreamingRun)state!), run);
             GraphMessage? output = null;
+            GraphMessage? activationBreakOutput = null;
             await foreach (var evt in run.WatchStreamAsync(cancellationToken))
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -277,10 +286,16 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 if (evt is ExecutorFailedEvent failed)
                     throw new InvalidOperationException($"Executor {failed.ExecutorId} failed.", failed.Data);
                 if (evt is WorkflowOutputEvent result && result.Data is GraphMessage message)
-                    output = message;
+                {
+                    if (message.ActivationBreakRequest is not null)
+                        activationBreakOutput = message;
+                    else if (activationBreakOutput is null)
+                        output = message;
+                }
             }
             // The framework may finish its event stream normally when the execution token is cancelled.
             cancellationToken.ThrowIfCancellationRequested();
+            output = activationBreakOutput ?? output;
             if (output is null) throw new InvalidOperationException("The workflow produced no output.");
             if (gate is not null) await gate.WaitForBoundaryAsync(null, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
@@ -369,6 +384,42 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         return timeout;
     }
 
+    private static void ValidateDirectParallelBreakProofTopology(WorkflowDefinition definition,
+        IReadOnlySet<string> breakNodeIds)
+    {
+        if (breakNodeIds.Count != 1)
+            throw new NotSupportedException("This production Break proof supports one Break endpoint in one direct static fork.");
+
+        var forks = definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.ParallelFork).ToArray();
+        if (forks.Length != 1 || forks[0].Value.ParallelFork is not { } fork)
+            throw new NotSupportedException("This production Break proof supports one static fork.");
+
+        var edges = definition.ExecutionConnections?.Values ?? [];
+        var joinId = (string?)null;
+        var breakEndpoints = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var branch in fork.Branches)
+        {
+            var branchNodeId = edges.SingleOrDefault(edge => edge.Source.NodeId == branch.AnchorNodeId &&
+                edge.Source.PortId == "then")?.Target.NodeId;
+            if (branchNodeId is null || !definition.Nodes.TryGetValue(branchNodeId, out var branchNode) ||
+                branchNode.Type is not (NodeTypes.Agent or NodeTypes.McpTool) && !breakNodeIds.Contains(branchNodeId))
+                throw new NotSupportedException("Each fork branch must end in one direct Agent, MCP tool, or proof Break node.");
+
+            var exit = edges.SingleOrDefault(edge => edge.Source.NodeId == branchNodeId);
+            if (exit is null || !definition.Nodes.TryGetValue(exit.Target.NodeId, out var target) ||
+                target.Type != NodeTypes.ParallelJoin || exit.Target.PortId != $"branch.{branch.Id}" ||
+                target.ParallelJoin?.ForkNodeId != forks[0].Key)
+                throw new NotSupportedException("Each direct fork branch must connect once to its matching join input.");
+            if (joinId is not null && joinId != exit.Target.NodeId)
+                throw new NotSupportedException("All direct fork branches must use the same join.");
+            joinId = exit.Target.NodeId;
+            if (breakNodeIds.Contains(branchNodeId)) breakEndpoints.Add(branchNodeId);
+        }
+
+        if (!breakEndpoints.SetEquals(breakNodeIds))
+            throw new NotSupportedException("Every proof Break must be a direct branch endpoint in the supported fork.");
+    }
+
     private Workflow BuildWorkflow(Guid runId, WorkflowRevision revision, string input,
         IReadOnlyDictionary<string, string>? parameters,
         Func<string, string?, Guid?, string?, string?, ValueTask> emit, IWorkflowExecutionGate? gate,
@@ -422,7 +473,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         {
             if (definition.Nodes[edge.Target.NodeId].Type == NodeTypes.ParallelJoin) continue;
             builder.AddEdge<GraphMessage>((ExecutorBinding)executors[edge.Source.NodeId], (ExecutorBinding)executors[edge.Target.NodeId], message =>
-                message?.SourceNode == edge.Source.NodeId && message.SourcePort == edge.Source.PortId);
+                message?.SourceNode == edge.Source.NodeId && message.SourcePort == edge.Source.PortId &&
+                (message.ActivationFrame?.BreakScope.IsRequested != true ||
+                    definition.Nodes[edge.Target.NodeId].Type == NodeTypes.ParallelBranch ||
+                    definition.Nodes[edge.Source.NodeId].Type == NodeTypes.ParallelBranch));
         }
         foreach (var join in definition.Nodes.Where(entry => entry.Value.Type == NodeTypes.ParallelJoin))
         {
@@ -439,7 +493,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 message?.SourceNode == terminator.Key && message.SourcePort == "terminated" && message.TerminationSignal);
         foreach (var breakNodeId in proofBreakNodeIds ?? ImmutableHashSet<string>.Empty)
             builder.AddEdge<GraphMessage>(executors[breakNodeId], executors[outputId], message =>
-                message?.SourceNode == breakNodeId && message.SourcePort == "break" &&
+                message?.SourceNode == breakNodeId &&
                 message.ActivationBreakRequest?.SourceNodeId == breakNodeId);
         builder.WithOutputFrom(executors[outputId]);
         return builder.Build();
@@ -455,10 +509,25 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         ParallelCollaborationRuntime? CollaborationRuntime = null,
         StructuredActivationBreakRequest? ActivationBreakRequest = null);
 
+    internal sealed class ActivationAbortScope
+    {
+        private StructuredActivationBreakRequest? request;
+
+        public bool IsRequested => Volatile.Read(ref request) is not null;
+
+        public bool TryRequest(StructuredActivationBreakRequest value) =>
+            Interlocked.CompareExchange(ref request, value, null) is null;
+
+        public bool Matches(StructuredActivationBreakRequest value) =>
+            Equals(Volatile.Read(ref request), value);
+    }
+
     internal sealed record StructuredActivationFrame(Guid Id, StructuredActivationFrame? Parent,
         string LoopNodeId, int Index, string Item, ImmutableSortedDictionary<string, string> Parameters)
     {
         public string ItemDataType { get; init; } = WorkflowDataTypes.String;
+
+        public ActivationAbortScope BreakScope { get; init; } = new();
 
         public string ScopeId => Parent is null
             ? $"{LoopNodeId}/{Index}"
@@ -1429,10 +1498,18 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 var frame = received.ActivationFrame;
                 if (proofBreakNodeIds?.Contains(breakRequest.SourceNodeId) != true ||
                     received.SourceNode != breakRequest.SourceNodeId || frame is null ||
-                    breakRequest.SourceFrameId != frame.Id || breakRequest.ScopeId != frame.ScopeId)
+                    breakRequest.SourceFrameId != frame.Id || breakRequest.ScopeId != frame.ScopeId ||
+                    !frame.BreakScope.Matches(breakRequest))
                     throw new InvalidOperationException("Invalid activation Break output handoff.");
                 return received with { SourcePort = "break" };
             }
+            if (received.ActivationFrame?.BreakScope.IsRequested == true && !IsAdmittedParallelBranchEntry(received))
+                return new(string.Empty, Id, "activation.aborted", DataType: "string", HasValue: false,
+                    ActivationFrame: received.ActivationFrame,
+                    ParallelActivationId: received.ParallelActivationId,
+                    ParallelBranchId: received.ParallelBranchId,
+                    ParallelForkNodeId: received.ParallelForkNodeId,
+                    CollaborationRuntime: received.CollaborationRuntime);
             var internalTerminationHandoff = node.Type == NodeTypes.Output && received.TerminationSignal;
             if (gate is not null && !internalTerminationHandoff) await gate.WaitForBoundaryAsync(Id, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
@@ -1562,9 +1639,11 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                     var frame = received.ActivationFrame
                         ?? throw new InvalidOperationException("The activation proof Break has no active frame.");
                     var request = new StructuredActivationBreakRequest(Id, frame.Id, frame.ScopeId);
+                    if (!frame.BreakScope.TryRequest(request))
+                        throw new InvalidOperationException("This activation already requested Break.");
                     await Emit(ExecutionEventKinds.NodeCompleted, Id, invocation,
                         data: JsonSerializer.Serialize(request, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
-                    return new(string.Empty, Id, "break", DataType: "string", HasValue: false,
+                    return new(string.Empty, Id, "out", DataType: "string", HasValue: false,
                         ActivationFrame: frame, ActivationBreakRequest: request);
                 }
                 if (WorkflowSchemaVersions.UsesExplicitGraph(revision.Definition) && node.Type == NodeTypes.Output &&
@@ -1999,6 +2078,17 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 await Emit(ExecutionEventKinds.NodeFailed, Id, invocation, null, "Node execution failed.");
                 throw;
             }
+        }
+
+        private bool IsAdmittedParallelBranchEntry(GraphMessage received)
+        {
+            if (received.SourceNode is not { } sourceNodeId || received.ParallelForkNodeId is null ||
+                !revision.Definition.Nodes.TryGetValue(sourceNodeId, out var sourceNode))
+                return false;
+
+            return node.Type == NodeTypes.ParallelBranch && sourceNode.Type == NodeTypes.ParallelFork ||
+                (node.Type is NodeTypes.Agent or NodeTypes.McpTool || activationBreakNode) &&
+                sourceNode.Type == NodeTypes.ParallelBranch;
         }
 
         private ParallelJoinActivationState GetParallelJoinActivation(GraphMessage message) =>

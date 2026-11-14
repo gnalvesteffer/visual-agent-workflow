@@ -1675,3 +1675,36 @@ history has not been persisted through file/SQLite playback. The structured
 scheduler remains behavioral evidence for those cases, not proof of this
 Agent-Framework path. Keep the parent gate open and do not introduce public
 schema or Studio authoring.
+
+## Production static-fork Break settlement proof (2026-11-14)
+
+The private production-body proof now supports one narrowly shaped static
+fork: exactly one private Break endpoint, each fork branch contains only its
+branch anchor followed directly by an Agent, a direct MCP tool, or that Break,
+and every endpoint feeds the matching join input. Sequence, multiple Break
+nodes, and longer or conditional branch paths remain rejected. This is a
+proof-topology constraint, not a proposed public workflow allowlist.
+
+The iterator frame carries a private atomic abort scope. When Break is
+requested, the dispatcher marks the scope and emits the source-only typed
+request. Branch work already dispatched by the fork is allowed to start and
+settle; the join barrier drains its arrivals, while the join executor and
+ordinary Output handoffs are suppressed. The private Break handoff is given
+priority over any ordinary output event, and the coordinator stops before
+admitting the next array item. The implementation does not cancel the overall
+Agent Framework run to express Break. A synchronized production Agent test
+proves the sibling completes before the body returns, another proves a
+post-Break Agent failure wins, a controlled direct-MCP call that reports an
+unknown outcome after Break fails the iteration, and a cancellation triggered
+at the Break completion event remains a host cancellation. Focused tests pass.
+
+This remains an in-memory, non-publishable proof. It does not establish
+delegated work or calls through the production MCP broker on this production
+path, nested outer-loop continuation, multiple/long fork paths, or persisted
+Break playback through file and SQLite stores. The direct-MCP case uses the
+production node executor with a controlled broker; it does not exercise a real
+MCP server. Earlier structured-scheduler and candidate tests for unknown
+external outcomes are not evidence for this production adapter path. The
+roadmap parent remains open. Since the increment changes no public runtime
+contract or user-visible workflow behavior, the architecture overview and
+user guide remain unchanged.
