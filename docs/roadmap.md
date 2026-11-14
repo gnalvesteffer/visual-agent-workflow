@@ -477,13 +477,14 @@ will be introduced.
     - [x] Compare cancellation at the persisted node-completion callback after
       one parallel Agent finishes and before its output resumes graph routing.
       At the paused callback, the structured candidate has not delivered the
-      left target or entered its handler; the Agent Framework candidate has
-      delivered the target and entered the handler. Both stores preserve the
-      completed branch, cancellation, suppressed join, and no next item (2/2).
-      This measures candidate scheduling at this harness boundary; it does not
+      left target or entered its handler; both Agent Framework candidates have
+      delivered the target and entered its handler, and their branch lifecycle
+      shapes match. All stores preserve the completed branch, cancellation,
+      suppressed join, and no next item (6 candidate/store executions). This
+      measures candidate scheduling at this harness boundary; it does not
       select a scheduler or establish a production cancellation contract or
-      atomic publication. The focused test passes (2/2). Broader delivery,
-      admission, cancellation, and publication races remain open.
+      atomic publication. Broader delivery, admission, cancellation, and
+      publication races remain open.
     - [x] Compare serial shared event-count and serialized-byte exhaustion
       across the structured, fresh-subworkflow, and hybrid proof candidates.
       Each cap is calibrated from its two-item baseline; the second model

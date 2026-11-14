@@ -1117,7 +1117,7 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task StructuredAndFreshSubworkflowCandidates_CancelAfterOneJoinBranchCompletes(bool sqlite)
+    public async Task IteratorCandidates_CancelAfterOneJoinBranchCompletes(bool sqlite)
     {
         var definition = ParallelBodyDefinition();
         var execution = definition.ExecutionConnections!;
@@ -1134,8 +1134,10 @@ public sealed class ArrayIterationVawBodyProofTests
         const string input = "[\"north\",\"must-not-run\"]";
         using var structuredStore = new ProofRunStore(revision, input, sqlite);
         using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        using var hybridStore = new ProofRunStore(revision, input, sqlite);
         var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
         var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var hybridRecorder = new ProofRecorder(hybridStore);
         using var structuredCancellation = new CancellationTokenSource();
         var structuredAgents = new OneBranchCompletedThenBlockedAgentExecutor();
         IReadOnlyList<ExecutionEvent>? structuredEventsAtPause = null;
@@ -1199,12 +1201,48 @@ public sealed class ArrayIterationVawBodyProofTests
         }
         subworkflowRecorder.CancelRoot();
 
+        using var hybridCancellation = new CancellationTokenSource();
+        var hybridAgents = new OneBranchCompletedThenBlockedAgentExecutor();
+        IReadOnlyList<ExecutionEvent>? hybridEventsAtPause = null;
+        var hybridTask = RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
+            hybridAgents, new EchoToolBroker(), "array-loop", ["north", "must-not-run"], null,
+            "index", [], async frame =>
+            {
+                async ValueTask RecordHybrid(ExecutionEvent evt)
+                {
+                    if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                        ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                        return;
+                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent-right")
+                    {
+                        hybridEventsAtPause = hybridRecorder.Snapshot();
+                        hybridAgents.RightCompleted.TrySetResult();
+                        await hybridAgents.ReleaseRight.Task;
+                    }
+                }
+
+                await new WorkflowRunner(agents: hybridAgents).ExecuteWithOutcomeAsync(hybridStore.RunId,
+                    revision, frame.Item, frame.Parameters, RecordHybrid, hybridCancellation.Token);
+                return new ActivationLoopProofValue("unexpected completion");
+            });
+        await hybridAgents.RightCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        AssertCandidateAdmissionAtPause(hybridEventsAtPause!, hybridAgents.LeftEntered, "hybrid");
+        hybridCancellation.Cancel();
+        hybridAgents.ReleaseRight.TrySetResult();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => hybridTask);
+        hybridRecorder.CancelRoot();
+
         var structuredEvents = structuredRecorder.Snapshot();
         var subworkflowEvents = subworkflowRecorder.Snapshot();
+        var hybridEvents = hybridRecorder.Snapshot();
         AssertPersistedSequence(structuredStore, structuredEvents, "cancelled");
         AssertPersistedSequence(subworkflowStore, subworkflowEvents, "cancelled");
+        AssertPersistedSequence(hybridStore, hybridEvents, "cancelled");
         AssertCancelledJoinPrefix(structuredEvents, "structured");
         AssertCancelledJoinPrefix(subworkflowEvents, "fresh-subworkflow");
+        AssertCancelledJoinPrefix(hybridEvents, "hybrid");
+        Assert.Equal(BranchLifecycleShape(subworkflowEvents), BranchLifecycleShape(hybridEvents));
 
         static void AssertCandidateAdmissionAtPause(IReadOnlyList<ExecutionEvent> events,
             TaskCompletionSource leftHandlerEntered, string candidate)
@@ -1213,7 +1251,7 @@ public sealed class ArrayIterationVawBodyProofTests
             var trace = string.Join(" | ", events.Where(evt => evt.ScopeId == scopeId &&
                 evt.NodeId is "anchor-left" or "agent-left" or "agent-right")
                 .Select(evt => $"{evt.Sequence}:{evt.Kind}:{evt.NodeId}"));
-            var expectedSiblingAdmission = candidate == "fresh-subworkflow";
+            var expectedSiblingAdmission = candidate != "structured";
             var leftTargetDeliveredAtPause = events.Any(evt =>
                 evt.Kind == ExecutionEventKinds.ExecutionActivated && evt.NodeId == "anchor-left" &&
                 evt.ScopeId == scopeId);
@@ -1236,7 +1274,7 @@ public sealed class ArrayIterationVawBodyProofTests
                 evt.NodeId == "join" && evt.ScopeId == scopeId);
             Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
             Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.Cancelled);
-            if (candidate == "fresh-subworkflow")
+            if (candidate is "fresh-subworkflow" or "hybrid")
             {
                 var leftStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted &&
                     evt.NodeId == "agent-left" && evt.ScopeId == scopeId);
@@ -1252,6 +1290,18 @@ public sealed class ArrayIterationVawBodyProofTests
                     evt.NodeId == "agent-left" && evt.ScopeId == scopeId);
             }
         }
+
+        static (string Kind, string? NodeId, string? ScopeId, string? ConnectionId)[] BranchLifecycleShape(
+            IReadOnlyList<ExecutionEvent> events) => events
+            .Where(evt => evt.NodeId is "agent-left" or "agent-right" or "join" &&
+                evt.Kind is ExecutionEventKinds.NodeStarted or ExecutionEventKinds.NodeCompleted or
+                    ExecutionEventKinds.NodeCancelled or ExecutionEventKinds.ParallelJoinProgress)
+            .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId, evt.ConnectionId))
+            .OrderBy(evt => evt.ScopeId, StringComparer.Ordinal)
+            .ThenBy(evt => evt.Kind, StringComparer.Ordinal)
+            .ThenBy(evt => evt.NodeId, StringComparer.Ordinal)
+            .ThenBy(evt => evt.ConnectionId, StringComparer.Ordinal)
+            .ToArray();
     }
 
     [Theory]
@@ -7195,6 +7245,8 @@ public sealed class ArrayIterationVawBodyProofTests
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReleaseRight { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource LeftEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
             Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
@@ -7206,7 +7258,10 @@ public sealed class ArrayIterationVawBodyProofTests
             if (invocation.NodeId == "agent-right")
                 return JsonSerializer.Serialize(new { query = $"{input}-agent-right" });
             if (invocation.NodeId == "agent-left")
+            {
+                LeftEntered.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
 
             throw new InvalidOperationException($"Unexpected proof Agent node '{invocation.NodeId}'.");
         }

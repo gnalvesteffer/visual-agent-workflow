@@ -632,20 +632,20 @@ progress; the Agent Framework fan-in barrier retains that branch result and
 does not invoke the join while the other source has not emitted. This is a
 measured intermediate event-timing difference; final workflow outcomes agree.
 
-`StructuredAndFreshSubworkflowCandidates_CancelAfterOneJoinBranchCompletes`
-holds each candidate at the persisted right-Agent completion callback, then
-cancels before that callback returns control to graph routing. The structured
-candidate has neither delivered the left target nor entered its handler; the
-Agent Framework candidate has delivered that target and entered its handler.
-The test snapshots both the persisted event prefix and an explicit
-post-`node.started` handler-entry signal while the completion callback is still
-paused, then cancels. In both file and SQLite stores, the right branch
-completion and root cancellation persist, the join does not complete, and the
-next item does not start (2/2). This is a measured candidate scheduling
-difference at a harness-controlled pause point. It does not establish a
-general production cancellation contract, queued-work semantics, atomic
-publication, or select the architecture. Broader dispatch, admission, and
-cancellation races remain open.
+`IteratorCandidates_CancelAfterOneJoinBranchCompletes` holds each candidate at
+the persisted right-Agent completion callback, then cancels before that
+callback returns control to graph routing. The structured candidate has
+neither delivered the left target nor entered its handler; both Agent
+Framework candidates have delivered that target and entered its handler, and
+their normalized branch lifecycle shapes match. The test snapshots the
+persisted event prefix and handler-entry signal while the callback is paused,
+then cancels. In file and SQLite stores, all three candidates persist the
+right-branch completion and root cancellation, suppress join completion, and
+stop before the next item (6 candidate/store executions). This is a measured
+scheduling difference at a harness-controlled pause point. It does not
+establish a general production cancellation contract, queued-work semantics,
+atomic publication, or select the architecture. Broader dispatch, admission,
+and cancellation races remain open.
 
 A fresh three-role review adjudicated **REVISE**: keep the architecture and
 lifecycle contract open. Queue-then-run is a reasonable proof candidate
