@@ -1210,8 +1210,17 @@ through file and SQLite stores (2/2 focused theory cases). The test reuses the
 structured candidate's graph-data evaluator across sequential activations,
 then checks each runtime output and evaluation record against the current
 item. This verifies these linear Agent/MCP and data-evaluation boundaries only;
-parallel runtime calls, broader cache identity, and production iterator frames
-remain unresolved.
+parallel runtime-output cache identity beyond the tested join result, broader
+cache identity, and production iterator frames remain unresolved.
+
+`IteratorCandidates_MatchUnifiedParallelJoinAcrossAllCandidates` also checks
+the persisted result of two parallel Agent branches for each of two changing
+items. The structured, fresh-subworkflow, and hybrid candidates preserve the
+matching left/right Agent payloads under the correct item scope, and the
+normalized branch/join events and result values match through file and SQLite
+stores (2/2 focused theory cases). This verifies parallel Agent result
+association at the join boundary; it does not establish parallel runtime
+cache behavior for other node families or select a production scheduler.
 
 `IteratorCandidates_ScopeGraphFunctionResultsAndEvidenceToEachActivation`
 reuses one pinned pure graph function across three changing string items. The

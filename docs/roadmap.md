@@ -154,8 +154,13 @@ will be introduced.
     all three candidates. Each activation observes the declared default, then
     only its own item; Agent inputs, direct MCP outputs, variable events, and
     persisted `data.evaluated` records match and persist in file and SQLite
-    (2/2 focused theory cases). Parallel runtime calls, broader cache identity,
-    and production frame semantics remain open.
+    (2/2 focused theory cases). Broader cache identity and production frame
+    semantics remain open.
+  - [x] Compare parallel Agent branch results across all candidates for two
+    changing items. Each persisted join payload retains the matching left and
+    right Agent outputs under its activation scope, with candidate event/result
+    agreement through file and SQLite (2/2 focused theory cases). Other
+    parallel runtime-cache behavior and production frame semantics remain open.
   - [x] Compare typed item/index `data.evaluated` payloads across candidates.
     Evaluated values, activation scopes, and data connection IDs match and
     persist in both stores (2/2 focused theory cases). Broader runtime-output

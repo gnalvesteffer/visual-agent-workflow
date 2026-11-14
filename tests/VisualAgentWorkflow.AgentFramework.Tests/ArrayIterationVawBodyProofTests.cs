@@ -675,6 +675,9 @@ public sealed class ArrayIterationVawBodyProofTests
         AssertPerItemJoin(structuredEvents);
         AssertPerItemJoin(subworkflowEvents);
         AssertPerItemJoin(hybridEvents);
+        AssertParallelRuntimeOutputs(structuredEvents);
+        AssertParallelRuntimeOutputs(subworkflowEvents);
+        AssertParallelRuntimeOutputs(hybridEvents);
 
         static (string Kind, string? NodeId, string? ScopeId, string? ConnectionId)[] ParallelEventShape(
             IEnumerable<ExecutionEvent> events) => events
@@ -685,6 +688,29 @@ public sealed class ArrayIterationVawBodyProofTests
             .ThenBy(evt => evt.NodeId, StringComparer.Ordinal)
             .ThenBy(evt => evt.ConnectionId, StringComparer.Ordinal)
             .ToArray();
+
+        static void AssertParallelRuntimeOutputs(IReadOnlyList<ExecutionEvent> events)
+        {
+            var expectedItems = new[] { "north", "south" };
+            for (var index = 0; index < expectedItems.Length; index++)
+            {
+                var scopeId = $"array-loop/{index}";
+                var join = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                    evt.NodeId == "join" && evt.ScopeId == scopeId);
+                using var joined = JsonDocument.Parse(join.Data!);
+                foreach (var (branchId, agentId) in new[]
+                {
+                    ("left", "agent-left"),
+                    ("right", "agent-right")
+                })
+                {
+                    var output = joined.RootElement.GetProperty(branchId).GetString();
+                    using var agentResult = JsonDocument.Parse(output!);
+                    Assert.Equal(expectedItems[index] + "-" + agentId,
+                        agentResult.RootElement.GetProperty("query").GetString());
+                }
+            }
+        }
 
         static void AssertPerItemJoin(IReadOnlyList<ExecutionEvent> events)
         {
