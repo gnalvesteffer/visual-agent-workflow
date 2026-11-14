@@ -188,6 +188,73 @@ public sealed class ArrayIterationVawBodyProofTests
                 .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId)).ToArray();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IteratorCandidates_EmptyTypedArrayCompletesWithoutBodyActivation(bool sqlite)
+    {
+        const string input = "[]";
+        var revision = WorkflowRevision.Create(TypedItemAndIndexBodyDefinition(),
+            "array-iteration-empty-typed-array-proof");
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        using var hybridStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var hybridRecorder = new ProofRecorder(hybridStore);
+
+        var structured = await new WorkflowRunner(agents: new EchoAgentExecutor())
+            .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                evt =>
+                {
+                    structuredRecorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, itemParameterId: "item", arrayElementType: WorkflowDataTypes.Integer);
+
+        var subworkflowIterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision,
+            subworkflowRecorder, new EchoAgentExecutor(), new EchoToolBroker(),
+            arrayElementType: WorkflowDataTypes.Integer);
+        var subworkflowExecutor = new WorkflowBuilder(subworkflowIterator)
+            .WithOutputFrom(subworkflowIterator).Build();
+        string? subworkflowOutput = null;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(subworkflowExecutor, input))
+            await foreach (var evt in run.WatchStreamAsync())
+                if (evt is WorkflowOutputEvent { Data: string output }) subworkflowOutput = output;
+        subworkflowRecorder.CompleteRoot();
+
+        var hybridOutput = await RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
+            new EchoAgentExecutor(), new EchoToolBroker(), "array-loop",
+            ParseProofArrayItems(input, WorkflowDataTypes.Integer), null, "index", [],
+            frame => Task.FromResult<LoopProofResult>(new ActivationLoopProofValue(frame.Item)));
+        hybridRecorder.CompleteRoot();
+
+        Assert.False(structured.Failed);
+        Assert.Equal(string.Empty, structured.Output);
+        Assert.Equal(string.Empty, subworkflowOutput);
+        Assert.Equal(string.Empty, hybridOutput);
+
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        var hybridEvents = hybridRecorder.Snapshot();
+        AssertPersistedSequence(structuredStore, structuredEvents, "completed");
+        AssertPersistedSequence(subworkflowStore, subworkflowEvents, "completed");
+        AssertPersistedSequence(hybridStore, hybridEvents, "completed");
+        Assert.Equal(EventShape(structuredEvents), EventShape(subworkflowEvents));
+        Assert.Equal(EventShape(structuredEvents), EventShape(hybridEvents));
+        Assert.DoesNotContain(structuredEvents, evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or
+            ExecutionEventKinds.NodeStarted);
+        Assert.DoesNotContain(subworkflowEvents, evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or
+            ExecutionEventKinds.NodeStarted);
+        Assert.DoesNotContain(hybridEvents, evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or
+            ExecutionEventKinds.NodeStarted);
+
+        static (string Kind, string? NodeId, string? ScopeId)[] EventShape(IEnumerable<ExecutionEvent> events) =>
+            events.Where(evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or
+                    ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.NodeStarted or
+                    ExecutionEventKinds.NodeCompleted)
+                .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId)).ToArray();
+    }
+
     [Fact]
     public async Task StructuredActivationSequenceProof_NestedFramesInheritParametersAndScopeProductionNodes()
     {

@@ -1138,6 +1138,12 @@ This strengthens scalar-value evidence only. Item and index still enter the
 body through the existing parameter contract rather than authored iterator
 pins, and nearest-loop `Break` remains a test-only graph harness. The result
 does not select an architecture or establish a public iterator contract.
+`IteratorCandidates_EmptyTypedArrayCompletesWithoutBodyActivation` also
+compares `[]` as `array<integer>` across all candidates: each returns an empty
+result without iteration/body-node starts and persists the same lifecycle
+shape in file and SQLite stores (2/2 focused cases). This closes only the
+empty typed-input comparison; it does not resolve production lifecycle,
+budget, or authoring contracts.
 
 ## Compatibility constraints
 

@@ -363,6 +363,13 @@ will be introduced.
       SQLite stores (2/2 focused theory cases). This does not prove authored
       iterator pins or a Break node. See
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Compare empty `array<integer>` input across all three candidates.
+      Each candidate completes with an empty result, emits no iteration or
+      body-node start, and persists the matching lifecycle shape through file
+      and SQLite stores (2/2 focused theory cases). This closes the empty
+      typed-input proof case only; it does not establish iterator authoring or
+      production scheduling. See
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Extend the structured proof to reuse one production graph-data
       evaluator across sequential activations while scoping runtime outputs,
       graph-function array-value evidence budgets, workflow parameters, input
