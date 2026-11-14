@@ -242,13 +242,19 @@ will be introduced.
       **REVISE**; see Decision 0070.
   - [x] Compare typed item/index `data.evaluated` payloads across candidates.
     Evaluated values, activation scopes, and data connection IDs match and
-    persist in both stores (2/2 focused theory cases). Broader runtime-output
-    cache identity remains open for other runtime-producing node types.
+    persist in both stores (2/2 focused theory cases). Runtime-output cache
+    identity is proven for the Agent and direct MCP paths below; other
+    runtime-producing node types remain open.
     - [x] Route an Agent's runtime output through `TextConcat` into a second
       Agent across three changing items. All candidates receive matching
       second-Agent inputs and scoped evaluation evidence, persisted and reopened
       through both stores (2/2 focused cases). This proves the tested Agent
       output path, not every runtime-output cache family.
+    - [x] Route a direct MCP tool result into a second Agent across three
+      changing items. All candidates receive matching tool outputs and scoped
+      evaluation evidence, persisted and reopened through both stores (2/2
+      focused cases). This proves the tested direct MCP output path; other
+      runtime-output cache families remain open.
   - [x] Compare a pinned graph-function result and nested evaluation evidence
     over three changing items. All candidates agree on output, function inputs,
     evaluated values, and per-item scopes; file and SQLite persistence passes
