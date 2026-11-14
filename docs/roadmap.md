@@ -177,7 +177,7 @@ will be introduced.
       with one root lifecycle and contiguous event sequences. `core.terminate`
       remains on its ordinary path. This closes the private proof gate only;
       public array and Break authoring remain unimplemented.
-  - [ ] Move root/activation lifecycle and shared atomic reservations behind
+  - [x] Move root/activation lifecycle and shared atomic reservations behind
     one VAW-owned run context; the body dispatcher returns typed outcomes and
     does not finalize the root. Prove exact-once terminal outcomes, pre-dispatch
     budget rejection, and settlement across model, MCP, and delegated calls.
@@ -189,11 +189,13 @@ will be introduced.
       One shared run context owns activation frames, root lifecycle, event
       sequencing, and model/MCP dispatch-evidence budgets while production
       Agent Framework body execution handles each item. Scoped evidence and
-      terminal histories persist/reopen through file and SQLite; tests cover
-      successful Agent/MCP work, pre-dispatch tool-budget rejection, and
-      workflow termination. Graph-dispatched typed Break and the remaining
-      failure/race/store matrix remain open; this does not close the parent
-      item or admit public schema/Studio authoring.
+      terminal histories persist/reopen through file and SQLite. Production
+      body proofs cover successful model/MCP work, pre-dispatch model/tool
+      budget rejection, delegated model and MCP reservation settlement, and
+      workflow termination. Root start/terminal counts and reopened histories
+      are checked. This closes the private lifecycle/reservation proof only;
+      public schema/Studio authoring and the separate integrated playback,
+      race, and store-failure matrix remain open.
   - [ ] Exercise the integrated seam through file and SQLite persistence,
     including scoped playback evidence, joins, cancellation/failure races,
     custom-broker uncertainty, and store append failures. Document the

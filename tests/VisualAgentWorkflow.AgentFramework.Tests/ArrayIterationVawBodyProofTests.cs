@@ -208,6 +208,52 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_RejectsModelBeforeDispatchAtSharedLimit(bool sqlite)
+    {
+        var definition = BodyDefinition(includeVariableStore: true, includeIndexParameter: true);
+        var revision = WorkflowRevision.Create(definition, "production-body-model-budget-proof");
+        const string input = "[\"first\",\"must-not-call\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+        var model = new SharedBudgetProofModel();
+        var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+        var provider = new AgentProviderDescriptor("proof.echo-agent", "Proof model", "proof-chat-v1", true);
+        var agents = new AgentNodeExecutor(
+            [new AgentProviderRegistration(provider, () => new SharedBudgetProofChatClient(model))],
+            new EchoToolBroker());
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var outcome = await new WorkflowRunner(tools, agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 2) with
+                {
+                    MaximumModelDispatches = 1
+                });
+
+        Assert.True(outcome.Failed);
+        Assert.Equal(1, model.Calls);
+        Assert.Equal(["bounded"], tools.Queries);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelRequested);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ModelResponded);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+        AssertPersistedSequence(runStore, events, "failed");
+        Assert.Equal(events, runStore.ReopenStore().Get(runStore.RunId)!.Events);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/1");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_TerminatesRootExactlyOnce(bool sqlite)
     {
         var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
@@ -5617,7 +5663,7 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task StructuredActivationRunContext_SettlesDelegatedModelReservations(bool sqlite)
+    public async Task ProductionBodyActivationCoordinator_SettlesDelegatedModelReservations(bool sqlite)
     {
         const string input = "[\"proposal\"]";
         const string providerId = "proof.structured-delegated-model";
@@ -5665,7 +5711,7 @@ public sealed class ArrayIterationVawBodyProofTests
             [new AgentProviderRegistration(provider, () => new ParallelDelegateEvidenceChatClient(model))],
             new EchoToolBroker());
 
-        var result = await new WorkflowRunner(agents: agents).ExecuteStructuredActivationSequenceProofAsync(
+        var result = await new WorkflowRunner(agents: agents).ExecuteProductionBodyActivationSequenceProofAsync(
             store.RunId, revision, input, "index", null, evt =>
             {
                 recorder.Append(evt);
@@ -5698,7 +5744,7 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task StructuredActivationRunContext_SettlesDelegatedProductionMcpReservations(bool sqlite)
+    public async Task ProductionBodyActivationCoordinator_SettlesDelegatedProductionMcpReservations(bool sqlite)
     {
         const string input = "[\"proposal\"]";
         const string providerId = "proof.structured-delegated-mcp";
@@ -5752,7 +5798,7 @@ public sealed class ArrayIterationVawBodyProofTests
             [new AgentProviderRegistration(new AgentProviderDescriptor(providerId, "Proof delegated MCP",
                 "proof-chat-v1", true), () => new DelegatedMcpProofChatClient(model))], tools);
 
-        var result = await new WorkflowRunner(tools, agents).ExecuteStructuredActivationSequenceProofAsync(
+        var result = await new WorkflowRunner(tools, agents).ExecuteProductionBodyActivationSequenceProofAsync(
             store.RunId, revision, input, "index", null, evt =>
             {
                 recorder.Append(evt);

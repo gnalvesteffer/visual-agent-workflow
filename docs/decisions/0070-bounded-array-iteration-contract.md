@@ -1752,3 +1752,24 @@ tests still pass for both stores. This closes the private production-body Break
 proof gate. It does not add public nested iterator/Break support or close the
 separate VAW lifecycle/reservation, broader body-capability, or checkpoint
 recovery gates in the roadmap.
+
+## Production-body shared reservation settlement (2026-11-14)
+
+The production-body coordinator now has file and SQLite proof coverage for
+pre-dispatch model-budget rejection in addition to the existing MCP-budget
+rejection. The provider is called only for the admitted model request; its
+response and the following MCP result settle their correlated evidence
+reservations. The rejected second activation does not emit a model request or
+complete its loop iteration, and the root records exactly one failed terminal
+event.
+
+Delegated model and delegated production-MCP reservation settlement tests now
+run through the same production-body coordinator. Both persist and reopen the
+scoped run history through file and SQLite stores and verify one root terminal
+event with all admitted model/tool request and outcome events. The focused
+production-body test filter passed 18/18 cases. This closes the private
+root/activation lifecycle and shared-reservation proof item in the roadmap.
+It does not close the broader persisted playback, joins, cancellation/failure
+race, custom-broker uncertainty, or store-append-failure matrix; nor does it
+admit a public iterator/Break schema or Studio authoring. Keep the main
+architecture gate open pending that matrix and readiness review.
