@@ -261,6 +261,11 @@ will be introduced.
       histories; an incomplete prefix remains in progress until coordinator
       acceptance is recorded. This does not qualify failure/cancellation
       playback, append-failure prefixes, or public iterator authoring.
+    - [x] Surface exact-scope node failure and cancellation evidence for
+      incomplete activations without inferring an iteration outcome. Root and
+      descendant events do not label the activation. Definitive failure,
+      cancellation, uncertain-outcome, and append-failure playback remain
+      open until the coordinator records an explicit iteration outcome.
   - [x] Verify typed-array checkpoint exclusion: standalone schema-2.0 array
     dataflow does not match the deterministic checkpoint shape, and typed
     arrays combined with otherwise eligible loop or variable graphs fail Core

@@ -21,6 +21,10 @@
                                 <strong>@activation.NodeId · Iteration @activation.Iteration · @activation.Status</strong>
                                 <code>@(activation.Start.ScopeId ?? "root")</code>
                             </summary>
+                            @if (activation.IncompleteOutcomeEvidence is { } outcomeEvidence)
+                            {
+                                <p class="vaw-loop-activation-evidence" role="note">@outcomeEvidence</p>
+                            }
                             @if (activation.BodyEvents.Count > 0)
                             {
                                 <p>Recorded body events:</p>
@@ -84,13 +88,30 @@
             : events.Where(evt => evt.ScopeId == start.ScopeId &&
                     evt.Kind is not (ExecutionEventKinds.LoopIterationStarted or ExecutionEventKinds.LoopIterationCompleted))
                 .ToArray();
+        var incompleteOutcomeEvidence = matchingCompletions.Length == 0
+            ? IncompleteOutcomeEvidence(bodyEvents)
+            : null;
         var joins = start.ScopeId is null || Definition is null
             ? []
             : Definition.Nodes.Where(pair => pair.Value.Type == NodeTypes.ParallelJoin)
                 .Select(pair => new JoinActivity(pair.Key, JoinStatus(pair.Key, start.ScopeId, events)))
                 .ToArray();
 
-        return new(start, start.NodeId ?? "Loop", Iteration(start), status, bodyEvents, joins);
+        return new(start, start.NodeId ?? "Loop", Iteration(start), status, bodyEvents,
+            incompleteOutcomeEvidence, joins);
+    }
+
+    private static string? IncompleteOutcomeEvidence(ExecutionEvent[] bodyEvents)
+    {
+        var hasFailure = bodyEvents.Any(evt => evt.Kind == ExecutionEventKinds.NodeFailed);
+        var hasCancellation = bodyEvents.Any(evt => evt.Kind == ExecutionEventKinds.NodeCancelled);
+        return (hasFailure, hasCancellation) switch
+        {
+            (true, true) => "Recorded node failure and cancellation events; the iteration outcome is not established.",
+            (true, false) => "Recorded node failure event; the iteration outcome is not established.",
+            (false, true) => "Recorded node cancellation event; the iteration outcome is not established.",
+            _ => null
+        };
     }
 
     private static bool IsMatchingPair(ExecutionEvent start, ExecutionEvent candidate) =>
@@ -154,7 +175,8 @@
         "failed" or "cancelled" or "interrupted" or "outcome-unknown";
 
     private sealed record Activation(ExecutionEvent Start, string NodeId, int Iteration, string Status,
-        IReadOnlyList<ExecutionEvent> BodyEvents, IReadOnlyList<JoinActivity> Joins);
+        IReadOnlyList<ExecutionEvent> BodyEvents, string? IncompleteOutcomeEvidence,
+        IReadOnlyList<JoinActivity> Joins);
 
     private sealed record JoinActivity(string NodeId, string Status);
 }

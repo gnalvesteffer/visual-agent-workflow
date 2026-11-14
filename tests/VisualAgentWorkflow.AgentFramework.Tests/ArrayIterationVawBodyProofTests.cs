@@ -951,6 +951,91 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Fact]
+    public async Task LoopPlayback_ShowsScopedFailureAndCancellationAsEvidenceWithoutInferringIterationOutcome()
+    {
+        var runId = Guid.NewGuid();
+        var revisionId = Guid.NewGuid();
+        var loopInvocation = Guid.NewGuid();
+        var events = new[]
+        {
+            new ExecutionEvent(runId, revisionId, 1, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.LoopIterationStarted, "loop", loopInvocation, null,
+                "{\"iteration\":1}") { ScopeId = "loop/0" },
+            new ExecutionEvent(runId, revisionId, 2, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.NodeFailed, "agent-left", Guid.NewGuid(), null,
+                "Node execution failed.") { ScopeId = "loop/0" },
+            new ExecutionEvent(runId, revisionId, 3, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.NodeCancelled, "agent-right", Guid.NewGuid(), null,
+                "Node execution cancelled.") { ScopeId = "loop/0" },
+            new ExecutionEvent(runId, revisionId, 4, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.NodeFailed, "nested-agent", Guid.NewGuid(), null,
+                "Node execution failed.") { ScopeId = "loop/0/nested-loop/0" }
+        };
+
+        var html = await RenderLoopActivations(events, "failed");
+
+        Assert.Contains("Incomplete &#xB7; run ended", html, StringComparison.Ordinal);
+        Assert.Contains("Recorded node failure and cancellation events; the iteration outcome is not established.",
+            html, StringComparison.Ordinal);
+        Assert.Contains("agent-left · node.failed", html, StringComparison.Ordinal);
+        Assert.Contains("agent-right · node.cancelled", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("nested-agent · node.failed", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Iteration 1 · Failed", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Iteration 1 · Cancelled", html, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(ExecutionEventKinds.NodeFailed, "Recorded node failure event; the iteration outcome is not established.")]
+    [InlineData(ExecutionEventKinds.NodeCancelled, "Recorded node cancellation event; the iteration outcome is not established.")]
+    public async Task LoopPlayback_IdentifiesSingleScopedTerminalEventWithoutChangingIterationStatus(
+        string eventKind, string expectedEvidence)
+    {
+        var runId = Guid.NewGuid();
+        var revisionId = Guid.NewGuid();
+        var events = new[]
+        {
+            new ExecutionEvent(runId, revisionId, 1, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.LoopIterationStarted, "loop", Guid.NewGuid(), null,
+                "{\"iteration\":1}") { ScopeId = "loop/0" },
+            new ExecutionEvent(runId, revisionId, 2, DateTimeOffset.UtcNow,
+                eventKind, "agent", Guid.NewGuid(), null, "Node stopped.") { ScopeId = "loop/0" }
+        };
+
+        var html = await RenderLoopActivations(events, "cancelled");
+
+        Assert.Contains("Incomplete &#xB7; run ended", html, StringComparison.Ordinal);
+        Assert.Contains(expectedEvidence, html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Iteration 1 · Failed", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Iteration 1 · Cancelled", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LoopPlayback_DoesNotAttributeRootOrDescendantFailureToIncompleteActivation()
+    {
+        var runId = Guid.NewGuid();
+        var revisionId = Guid.NewGuid();
+        var events = new[]
+        {
+            new ExecutionEvent(runId, revisionId, 1, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.LoopIterationStarted, "loop", Guid.NewGuid(), null,
+                "{\"iteration\":1}") { ScopeId = "loop/0" },
+            new ExecutionEvent(runId, revisionId, 2, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.NodeFailed, "nested-agent", Guid.NewGuid(), null,
+                "Node execution failed.") { ScopeId = "loop/0/nested-loop/0" },
+            new ExecutionEvent(runId, revisionId, 3, DateTimeOffset.UtcNow,
+                ExecutionEventKinds.NodeFailed, "root-node", Guid.NewGuid(), null,
+                "Node execution failed.")
+        };
+
+        var html = await RenderLoopActivations(events, "failed");
+
+        Assert.Contains("Incomplete &#xB7; run ended", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("outcome is not established", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("nested-agent · node.failed", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("root-node · node.failed", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ProductionBodyActivationCoordinator_AdmittedForkFailureOverridesBreak()
     {
         var body = ParallelBodyDefinition();
@@ -9840,6 +9925,22 @@ public sealed class ArrayIterationVawBodyProofTests
         {
             var component = await renderer.RenderComponentAsync<WorkflowRunViewer>(ParameterView.FromDictionary(
                 new Dictionary<string, object?> { [nameof(WorkflowRunViewer.Snapshot)] = snapshot }));
+            return component.ToHtmlString();
+        });
+    }
+
+    private static async Task<string> RenderLoopActivations(IEnumerable<ExecutionEvent> events, string runStatus)
+    {
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        return await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<LoopActivationPlayback>(ParameterView.FromDictionary(
+                new Dictionary<string, object?>
+                {
+                    [nameof(LoopActivationPlayback.Events)] = events,
+                    [nameof(LoopActivationPlayback.RunStatus)] = runStatus
+                }));
             return component.ToHtmlString();
         });
     }

@@ -1868,3 +1868,22 @@ acceptance. This closes only that successful passive playback slice. Failure
 and cancellation playback, uncertain outcomes, append-failure prefixes, and
 public iterator/Break schema and Studio authoring remain open; the readiness
 gate stays **REVISE**.
+
+## Scoped failure and cancellation evidence in playback (2026-11-14)
+
+Three-role review rejected inferring an iteration's Failed or Cancelled status
+from node terminal events, even when they share the iteration scope. A parallel
+branch can fail while a sibling is cancelled, recoverable work may emit a node
+failure, and an event prefix can end before the coordinator records the whole
+iteration outcome. Root and nested-scope events also cannot establish a
+different activation's result.
+
+For an activation without exactly one matching `loop.iteration.completed`, the
+Run inspector therefore keeps the activation In progress or Incomplete. If
+`node.failed` or `node.cancelled` exists at that exact activation scope, it
+labels those events as recorded node evidence and explicitly says the
+iteration outcome is not established. The event list remains the source of
+node identity and event kind. This adds no runtime event or serialized
+contract. Definitive failure, cancellation, and uncertain iteration outcomes,
+append-failure prefixes, and public iterator/Break schema and Studio authoring
+remain open; the architecture readiness gate stays **REVISE**.

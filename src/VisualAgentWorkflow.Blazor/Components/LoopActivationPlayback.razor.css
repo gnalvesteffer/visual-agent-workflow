@@ -17,6 +17,11 @@
     margin-block: var(--vaw-space-2);
 }
 
+.vaw-loop-activation-playback .vaw-loop-activation-evidence {
+    color: var(--vaw-warning);
+    margin-block: var(--vaw-space-2) var(--vaw-space-1);
+}
+
 .vaw-loop-activation-playback ol {
     list-style: none;
     margin: 0;
