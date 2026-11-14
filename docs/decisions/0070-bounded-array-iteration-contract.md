@@ -1189,6 +1189,15 @@ SQLite stores (2/2 focused theory cases). This closes this controlled sibling
 failure shape only. Other join/cancellation/publication races, production
 lifecycle and budget ownership, and interrupted-process recovery remain open.
 
+`IteratorCandidates_CancelAdmittedSiblingBeforeAgentHandler` adds the same
+post-start cancellation boundary to all three candidates. The right branch is
+held after its persisted `node.started` event and before Agent adapter entry;
+left-branch failure then cancels it. Structured dispatch, fresh subworkflow,
+and hybrid runner histories match across file and SQLite stores, including
+persisted cancellation evidence, no right adapter entry, no join, and no next
+iteration (2/2 focused theory cases). This remains proof-harness evidence; it
+does not select production scheduling or close recovery and lifecycle gates.
+
 ## Compatibility constraints
 
 - Keep iteration as a distinct node family; do not broaden or reinterpret the

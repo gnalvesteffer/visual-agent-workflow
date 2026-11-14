@@ -457,8 +457,9 @@ will be introduced.
       point. A post-start
       gate now holds the right branch after its persisted `node.started` event
       but before the Agent adapter. Left-branch failure produces matching
-      right-node cancellation evidence in both candidates and stores, without
-      entering the right adapter. With the right target ordered first and
+      right-node cancellation evidence across structured, fresh-subworkflow,
+      and hybrid candidates in both stores, without entering the right adapter.
+      With the right target ordered first and
       synchronized to complete before left failure, both candidates retain the
       same failed run and suppress the next item; the structured candidate
       records one partial join arrival, while the AF fan-in barrier has not yet
