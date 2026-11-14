@@ -998,6 +998,16 @@ architecture; production-owned budget/lifecycle and the rest of the matrix
 remain open. No public node, schema contract, or Studio authoring is admitted
 by this adjudication.
 
+The first matched sub-proof now passes: the same current-schema integer
+item/index data graph uses typed `WorkflowValue` nodes, converts both values
+through explicit graph pins, and sends the combined value to the Agent in the
+structured, fresh-subworkflow, and hybrid candidates. Outputs, activation
+scopes, and node lifecycle ordering match; persisted prefixes pass for file
+and SQLite stores (6 candidate/store executions). This demonstrates typed
+parameter dataflow only. Dedicated iterator element/index pins and actual
+nearest-loop `Break` dispatch remain unproven, so the matched graph-level proof
+and architecture gate stay open.
+
 ## Compatibility constraints
 
 - Keep iteration as a distinct node family; do not broaden or reinterpret the

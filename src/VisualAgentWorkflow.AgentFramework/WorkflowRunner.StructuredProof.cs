@@ -216,7 +216,8 @@ public sealed partial class WorkflowRunner
         Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
         Action? executorSetCreated = null,
         StructuredActivationFrame? parentFrame = null,
-        string activationLoopNodeId = "array-loop")
+        string activationLoopNodeId = "array-loop",
+        string? itemParameterId = null)
     {
         ArgumentNullException.ThrowIfNull(bodyRevision);
         ArgumentNullException.ThrowIfNull(jsonItems);
@@ -268,6 +269,8 @@ public sealed partial class WorkflowRunner
                     foreach (var (parameterId, value) in parentFrame.Parameters)
                         activationParameters[parameterId] = value;
                 activationParameters[indexParameterId] = index.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                if (itemParameterId is not null)
+                    activationParameters[itemParameterId] = items[index];
                 var frameParameters = activationParameters.ToImmutableSortedDictionary(StringComparer.Ordinal);
                 var frame = parentFrame?.Enter(activationLoopNodeId, index, items[index], frameParameters) ??
                     new StructuredActivationFrame(Guid.NewGuid(), null, activationLoopNodeId, index, items[index], frameParameters);

@@ -178,6 +178,13 @@ will be introduced.
     and newly added hybrid proof candidate on the same full capability and
     shared-budget matrix. The 2026-11-13 three-role review returned REVISE and
     selected no production architecture; see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Run the same current-schema integer item/index data graph through all
+      three candidates. Both values flow through typed `WorkflowValue` nodes,
+      integer-to-string conversions, and the Agent input; outputs, activation
+      scopes, and node lifecycle ordering match, and all three histories pass
+      persisted-prefix checks in file and SQLite stores (6 candidate/store
+      executions). This proves typed parameter dataflow across candidates, not
+      dedicated iterator pins or `Break` dispatch.
     - [x] Extend the hybrid candidate with nested immutable activation frames
       and parent parameter inheritance around the production Agent/MCP body;
       verify scoped events, variable state, and a production parallel join

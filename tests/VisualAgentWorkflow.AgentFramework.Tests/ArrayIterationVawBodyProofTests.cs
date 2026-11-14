@@ -106,6 +106,86 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IteratorCandidates_ResolveTypedItemAndIndexThroughGraphValues(bool sqlite)
+    {
+        const string input = "[\"7\",\"11\"]";
+        var revision = WorkflowRevision.Create(TypedItemAndIndexBodyDefinition(),
+            "array-iteration-typed-item-index-proof");
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        using var hybridStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var hybridRecorder = new ProofRecorder(hybridStore);
+        var structuredAgents = new EchoAgentExecutor();
+        var subworkflowAgents = new EchoAgentExecutor();
+        var hybridAgents = new EchoAgentExecutor();
+
+        var structured = await new WorkflowRunner(agents: structuredAgents)
+            .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                evt =>
+                {
+                    structuredRecorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, itemParameterId: "item");
+
+        string? subworkflowOutput = null;
+        var subworkflowIterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision,
+            subworkflowRecorder, subworkflowAgents, new EchoToolBroker());
+        var subworkflowExecutor = new WorkflowBuilder(subworkflowIterator)
+            .WithOutputFrom(subworkflowIterator).Build();
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(subworkflowExecutor, input))
+            await foreach (var evt in run.WatchStreamAsync())
+                if (evt is WorkflowOutputEvent { Data: string output }) subworkflowOutput = output;
+        subworkflowRecorder.CompleteRoot();
+
+        var hybridOutput = await RunHybridLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
+            hybridAgents, new EchoToolBroker(), "array-loop", ["7", "11"], null, "index", [],
+            async frame =>
+            {
+                ValueTask Record(ExecutionEvent evt)
+                {
+                    if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                        ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                        return ValueTask.CompletedTask;
+                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    return ValueTask.CompletedTask;
+                }
+
+                var outcome = await new WorkflowRunner(agents: hybridAgents).ExecuteWithOutcomeAsync(
+                    hybridStore.RunId, revision, frame.Item, frame.Parameters, Record);
+                if (outcome.Failed || outcome.Output is null)
+                    throw new InvalidOperationException("The hybrid typed-value body did not return a result.");
+                return outcome.Output;
+            });
+        hybridRecorder.CompleteRoot();
+
+        Assert.Equal("{\"query\":\"7:0\"};{\"query\":\"11:1\"}", structured.Output);
+        Assert.Equal(structured.Output, subworkflowOutput);
+        Assert.Equal(structured.Output, hybridOutput);
+        Assert.Equal(["7:0", "11:1"], structuredAgents.Inputs);
+        Assert.Equal(structuredAgents.Inputs, subworkflowAgents.Inputs);
+        Assert.Equal(structuredAgents.Inputs, hybridAgents.Inputs);
+
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        var hybridEvents = hybridRecorder.Snapshot();
+        AssertPersistedSequence(structuredStore, structuredEvents, "completed");
+        AssertPersistedSequence(subworkflowStore, subworkflowEvents, "completed");
+        AssertPersistedSequence(hybridStore, hybridEvents, "completed");
+        Assert.Equal(EventShape(structuredEvents), EventShape(subworkflowEvents));
+        Assert.Equal(EventShape(structuredEvents), EventShape(hybridEvents));
+
+        static (string Kind, string? NodeId, string? ScopeId)[] EventShape(IEnumerable<ExecutionEvent> events) =>
+            events.Where(evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or
+                ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.NodeStarted or
+                ExecutionEventKinds.NodeCompleted)
+                .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId)).ToArray();
+    }
+
     [Fact]
     public async Task StructuredActivationSequenceProof_NestedFramesInheritParametersAndScopeProductionNodes()
     {
@@ -4999,6 +5079,8 @@ public sealed class ArrayIterationVawBodyProofTests
         {
             var parameters = parentFrame?.Parameters.ToBuilder() ??
                 ImmutableSortedDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
+            if (revision.Definition.Parameters?.ContainsKey("item") == true)
+                parameters["item"] = items[index];
             parameters[indexParameterId] = index.ToString(System.Globalization.CultureInfo.InvariantCulture);
             var frameParameters = parameters.ToImmutable();
             var frame = parentFrame?.Enter(loopNodeId, index, items[index], frameParameters) ??
@@ -5029,6 +5111,44 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     private sealed record HybridLoopProofBreakDispatch(Guid SourceFrameId, Guid TargetFrameId, string ScopeId);
+
+    private static WorkflowDefinition TypedItemAndIndexBodyDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("item", new(NodeTypes.WorkflowValue, "1.0.0")
+                { ParameterId = "item", OutputDataType = WorkflowDataTypes.Integer })
+            .Add("index", new(NodeTypes.WorkflowValue, "1.0.0")
+                { ParameterId = "index", OutputDataType = WorkflowDataTypes.Integer })
+            .Add("item-text", new(NodeTypes.IntegerToString, "1.0.0"))
+            .Add("index-text", new(NodeTypes.IntegerToString, "1.0.0"))
+            .Add("separator", new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new(":") })
+            .Add("item-prefix", new(NodeTypes.TextConcat, "1.0.0"))
+            .Add("item-index", new(NodeTypes.TextConcat, "1.0.0"))
+            .Add("agent", new(NodeTypes.Agent, "1.0.0",
+                Agent: new("proof.echo-agent", null, "Echo the input exactly.", [])))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("item-value", new(new("item", "out"), new("item-text", "in"), "data"))
+            .Add("index-value", new(new("index", "out"), new("index-text", "in"), "data"))
+            .Add("prefix-item", new(new("item-text", "out"), new("item-prefix", "left"), "data"))
+            .Add("prefix-separator", new(new("separator", "out"), new("item-prefix", "right"), "data"))
+            .Add("joined-prefix", new(new("item-prefix", "out"), new("item-index", "left"), "data"))
+            .Add("joined-index", new(new("index-text", "out"), new("item-index", "right"), "data"))
+            .Add("agent-input", new(new("item-index", "out"), new("agent", "in"), "data"))
+            .Add("agent-output", new(new("agent", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-agent", Edge("input", "then", "agent", "execute"))
+            .Add("agent-output", Edge("agent", "out", "output", "execute"));
+        return new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "array-iteration-typed-values", "input", nodes, data)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Array item", "0") { Type = WorkflowDataTypes.Integer })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+    }
 
     private static WorkflowDefinition BodyDefinition(bool includeVariableStore = false, bool includeIndexParameter = false)
     {
@@ -5335,6 +5455,8 @@ public sealed class ArrayIterationVawBodyProofTests
                 cancellationToken.ThrowIfCancellationRequested();
                 var itemParameters = parentFrame?.Parameters.ToBuilder() ??
                     ImmutableSortedDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
+                if (revision.Definition.Parameters?.ContainsKey("item") == true)
+                    itemParameters["item"] = items[index];
                 if (revision.Definition.Parameters?.ContainsKey("index") == true)
                     itemParameters["index"] = index.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 var frameParameters = itemParameters.ToImmutable();
