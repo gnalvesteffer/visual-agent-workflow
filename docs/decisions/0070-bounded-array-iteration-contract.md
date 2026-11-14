@@ -1198,6 +1198,15 @@ persisted cancellation evidence, no right adapter entry, no join, and no next
 iteration (2/2 focused theory cases). This remains proof-harness evidence; it
 does not select production scheduling or close recovery and lifecycle gates.
 
+`IteratorCandidates_ScopeVariableStateToEachActivation` compares the existing
+mutable-variable path across all three candidates. Each of three string items
+starts the variable at its declared default, writes the current item, and reads
+that value within the same activation. The structured, fresh-subworkflow, and
+hybrid candidates produce matching variable events and Agent inputs, and each
+history persists through file and SQLite stores (2/2 focused theory cases).
+This verifies variable isolation for this body shape only; source evaluator
+identity, caches, and production iterator frames remain unresolved.
+
 ## Compatibility constraints
 
 - Keep iteration as a distinct node family; do not broaden or reinterpret the
@@ -1230,6 +1239,12 @@ does not select production scheduling or close recovery and lifecycle gates.
 3. Define immutable source evaluation and activation identity, including how
    typed item/index values are resolved and how evaluator caches, variables,
    and evidence are scoped to one activation.
+   - [x] Compare mutable variable-store isolation across structured,
+     fresh-subworkflow, and hybrid candidates. Each activation starts from the
+     declared default, writes and reads only its own item, and records matching
+     scoped variable evidence through file and SQLite stores (2/2 focused
+     theory cases). This proves the tested variable boundary; immutable source
+     evaluation and cache-key/lifetime semantics remain open.
 4. Define and implement an explicit run-level budget context that reaches
    nested agents, delegates/teams, MCP broker scopes, and the single run event
    recorder. The product direction remains full capability composition;

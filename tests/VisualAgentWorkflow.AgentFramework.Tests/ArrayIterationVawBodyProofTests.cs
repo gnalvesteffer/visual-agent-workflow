@@ -192,6 +192,99 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_ScopeVariableStateToEachActivation(bool sqlite)
+    {
+        const string input = "[\"alpha\",\"beta\",\"gamma\"]";
+        var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "array-iteration-variable-activation-scope-proof");
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        using var hybridStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var hybridRecorder = new ProofRecorder(hybridStore);
+        var structuredAgents = new EchoAgentExecutor();
+        var subworkflowAgents = new EchoAgentExecutor();
+        var hybridAgents = new EchoAgentExecutor();
+
+        var structured = await new WorkflowRunner(new EchoToolBroker(), structuredAgents)
+            .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                evt =>
+                {
+                    structuredRecorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                });
+
+        var subworkflowIterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision,
+            subworkflowRecorder, subworkflowAgents, new EchoToolBroker());
+        var subworkflow = new WorkflowBuilder(subworkflowIterator).WithOutputFrom(subworkflowIterator).Build();
+        string? subworkflowOutput = null;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(subworkflow, input))
+            await foreach (var evt in run.WatchStreamAsync())
+                if (evt is WorkflowOutputEvent { Data: string output }) subworkflowOutput = output;
+        subworkflowRecorder.CompleteRoot();
+
+        var hybridOutput = await RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
+            hybridAgents, new EchoToolBroker(), "array-loop",
+            ParseProofArrayItems(input, WorkflowDataTypes.String), null, "index", [], async frame =>
+            {
+                ValueTask Record(ExecutionEvent evt)
+                {
+                    if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                        ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                        return ValueTask.CompletedTask;
+                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    return ValueTask.CompletedTask;
+                }
+
+                var outcome = await new WorkflowRunner(new EchoToolBroker(), hybridAgents).ExecuteWithOutcomeAsync(
+                    hybridStore.RunId, revision, frame.Item, frame.Parameters, Record);
+                if (outcome.Failed || outcome.Output is null)
+                    throw new InvalidOperationException("The hybrid variable-scope body failed.");
+                return new ActivationLoopProofValue(outcome.Output);
+            });
+        hybridRecorder.CompleteRoot();
+
+        Assert.Equal("echo:ALPHA:0;echo:BETA:1;echo:GAMMA:2", structured.Output);
+        Assert.Equal(structured.Output, subworkflowOutput);
+        Assert.Equal(structured.Output, hybridOutput);
+        Assert.Equal(["ALPHA:0", "BETA:1", "GAMMA:2"], structuredAgents.Inputs);
+        Assert.Equal(structuredAgents.Inputs, subworkflowAgents.Inputs);
+        Assert.Equal(structuredAgents.Inputs, hybridAgents.Inputs);
+
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        var hybridEvents = hybridRecorder.Snapshot();
+        AssertPersistedSequence(structuredStore, structuredEvents, "completed");
+        AssertPersistedSequence(subworkflowStore, subworkflowEvents, "completed");
+        AssertPersistedSequence(hybridStore, hybridEvents, "completed");
+        Assert.Equal(VariableEvidence(structuredEvents), VariableEvidence(subworkflowEvents));
+        Assert.Equal(VariableEvidence(structuredEvents), VariableEvidence(hybridEvents));
+
+        var expectedItems = new[] { "alpha", "beta", "gamma" };
+        foreach (var events in new[] { structuredEvents, subworkflowEvents, hybridEvents })
+        {
+            for (var index = 0; index < expectedItems.Length; index++)
+            {
+                var activation = events.Where(evt => evt.ScopeId == $"array-loop/{index}").ToArray();
+                Assert.Equal(expectedItems[index], ReadVariableValue(activation,
+                    ExecutionEventKinds.VariableWritten, "set"));
+                Assert.Equal("default", ReadVariablePreviousValue(activation, "set"));
+                Assert.Equal(expectedItems[index], ReadVariableValue(activation,
+                    ExecutionEventKinds.VariableRead, "get"));
+                Assert.Equal(expectedItems[index], ReadEvaluatedValue(activation, "get"));
+            }
+        }
+
+        static (string Kind, string? NodeId, string? ScopeId, string? Data)[] VariableEvidence(
+            IEnumerable<ExecutionEvent> events) => events.Where(evt => evt.Kind is
+                ExecutionEventKinds.VariableWritten or ExecutionEventKinds.VariableRead)
+            .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId, evt.Data)).ToArray();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_EmptyTypedArrayCompletesWithoutBodyActivation(bool sqlite)
     {
         const string input = "[]";
