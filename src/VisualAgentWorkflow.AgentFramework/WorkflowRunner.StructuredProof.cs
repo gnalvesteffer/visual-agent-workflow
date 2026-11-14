@@ -428,7 +428,8 @@ public sealed partial class WorkflowRunner
         Action? executorSetCreated = null,
         StructuredActivationFrame? parentFrame = null,
         string activationLoopNodeId = "array-loop",
-        string? itemParameterId = null)
+        string? itemParameterId = null,
+        string arrayElementType = WorkflowDataTypes.String)
     {
         ArgumentNullException.ThrowIfNull(bodyRevision);
         ArgumentNullException.ThrowIfNull(jsonItems);
@@ -439,10 +440,17 @@ public sealed partial class WorkflowRunner
 
         if (jsonItems.Length > 16_384)
             throw new ArgumentException("Activation proof input exceeds 16,384 characters.", nameof(jsonItems));
-        var items = JsonSerializer.Deserialize<string[]>(jsonItems)
-            ?? throw new ArgumentException("Activation proof input must be a JSON string array.", nameof(jsonItems));
-        if (items.Any(item => item is null))
-            throw new ArgumentException("Activation proof items must be non-null strings.", nameof(jsonItems));
+        if (!WorkflowArrayLiteral.TryParseValue(arrayElementType, jsonItems, out var typedItems, out var arrayError))
+            throw new ArgumentException($"Activation proof input is not a valid {WorkflowDataTypes.ArrayOf(arrayElementType)}: {arrayError}",
+                nameof(jsonItems));
+        var items = typedItems.EnumerateArray().Select(item => arrayElementType switch
+        {
+            WorkflowDataTypes.String => item.GetString()!,
+            WorkflowDataTypes.Boolean => item.GetBoolean() ? "true" : "false",
+            WorkflowDataTypes.Integer => item.GetInt64().ToString(System.Globalization.CultureInfo.InvariantCulture),
+            WorkflowDataTypes.Number => item.GetDouble().ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+            _ => throw new ArgumentException("Activation proof input requires a primitive array element type.", nameof(arrayElementType))
+        }).ToArray();
         var sequence = 0L;
         var baseParameters = WorkflowParameters.Resolve(bodyRevision.Definition, parameters);
         var retainedDataEvaluator = WorkflowSchemaVersions.UsesExplicitGraph(bodyRevision.Definition)

@@ -111,7 +111,7 @@ public sealed class ArrayIterationVawBodyProofTests
     [InlineData(true)]
     public async Task IteratorCandidates_ResolveTypedItemAndIndexThroughGraphValues(bool sqlite)
     {
-        const string input = "[\"7\",\"11\"]";
+        const string input = "[7,11]";
         var revision = WorkflowRevision.Create(TypedItemAndIndexBodyDefinition(),
             "array-iteration-typed-item-index-proof");
         using var structuredStore = new ProofRunStore(revision, input, sqlite);
@@ -130,11 +130,12 @@ public sealed class ArrayIterationVawBodyProofTests
                 {
                     structuredRecorder.Append(evt);
                     return ValueTask.CompletedTask;
-                }, itemParameterId: "item");
+                }, itemParameterId: "item", arrayElementType: WorkflowDataTypes.Integer);
 
         string? subworkflowOutput = null;
         var subworkflowIterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision,
-            subworkflowRecorder, subworkflowAgents, new EchoToolBroker());
+            subworkflowRecorder, subworkflowAgents, new EchoToolBroker(),
+            arrayElementType: WorkflowDataTypes.Integer);
         var subworkflowExecutor = new WorkflowBuilder(subworkflowIterator)
             .WithOutputFrom(subworkflowIterator).Build();
         await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(subworkflowExecutor, input))
@@ -143,7 +144,8 @@ public sealed class ArrayIterationVawBodyProofTests
         subworkflowRecorder.CompleteRoot();
 
         var hybridOutput = await RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
-            hybridAgents, new EchoToolBroker(), "array-loop", ["7", "11"], null, "index", [],
+            hybridAgents, new EchoToolBroker(), "array-loop",
+            ParseProofArrayItems(input, WorkflowDataTypes.Integer), null, "index", [],
             async frame =>
             {
                 ValueTask Record(ExecutionEvent evt)
@@ -6297,6 +6299,20 @@ public sealed class ArrayIterationVawBodyProofTests
         }
     }
 
+    private static string[] ParseProofArrayItems(string json, string elementType)
+    {
+        if (!WorkflowArrayLiteral.TryParseValue(elementType, json, out var values, out var error))
+            throw new InvalidOperationException($"Proof input is not a valid {WorkflowDataTypes.ArrayOf(elementType)}: {error}");
+        return values.EnumerateArray().Select(item => elementType switch
+        {
+            WorkflowDataTypes.String => item.GetString()!,
+            WorkflowDataTypes.Boolean => item.GetBoolean() ? "true" : "false",
+            WorkflowDataTypes.Integer => item.GetInt64().ToString(System.Globalization.CultureInfo.InvariantCulture),
+            WorkflowDataTypes.Number => item.GetDouble().ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+            _ => throw new InvalidOperationException("Proof input requires a primitive array element type.")
+        }).ToArray();
+    }
+
     private sealed class PerItemWorkflowExecutor : Executor<string, string>
     {
         private readonly Guid runId;
@@ -6309,25 +6325,27 @@ public sealed class ArrayIterationVawBodyProofTests
         private readonly Func<ExecutionEvent, ValueTask>? observeEvent;
         private readonly WorkflowRunner.StructuredActivationFrame? parentFrame;
         private readonly string loopNodeId;
+        private readonly string arrayElementType;
 
         public PerItemWorkflowExecutor(Guid runId, WorkflowRevision revision, ProofRecorder recorder,
             IAgentNodeExecutor agents, INodeToolBroker tools, IWorkflowExecutionGate? gate = null,
             Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
             Func<ExecutionEvent, ValueTask>? observeEvent = null,
-            WorkflowRunner.StructuredActivationFrame? parentFrame = null, string loopNodeId = "array-loop")
+            WorkflowRunner.StructuredActivationFrame? parentFrame = null, string loopNodeId = "array-loop",
+            string arrayElementType = WorkflowDataTypes.String)
             : this(runId, revision, RecordTo(recorder), agents, tools, gate, afterNodeStarted, observeEvent,
-                parentFrame, loopNodeId) { }
+                parentFrame, loopNodeId, arrayElementType) { }
 
         public PerItemWorkflowExecutor(Guid runId, WorkflowRevision revision,
             ReservedEvidenceProofRecorder recorder, IAgentNodeExecutor agents, INodeToolBroker tools)
             : this(runId, revision, recorder.RecordResequencedAsync, agents, tools, null, null, null, null,
-                "array-loop") { }
+                "array-loop", WorkflowDataTypes.String) { }
 
         private PerItemWorkflowExecutor(Guid runId, WorkflowRevision revision,
             Func<ExecutionEvent, ValueTask> recordEvent, IAgentNodeExecutor agents, INodeToolBroker tools,
             IWorkflowExecutionGate? gate, Func<string, CancellationToken, ValueTask>? afterNodeStarted,
             Func<ExecutionEvent, ValueTask>? observeEvent,
-            WorkflowRunner.StructuredActivationFrame? parentFrame, string loopNodeId)
+            WorkflowRunner.StructuredActivationFrame? parentFrame, string loopNodeId, string arrayElementType)
             : base("array-iterator-proof", declareCrossRunShareable: true)
         {
             this.runId = runId;
@@ -6340,6 +6358,7 @@ public sealed class ArrayIterationVawBodyProofTests
             this.observeEvent = observeEvent;
             this.parentFrame = parentFrame;
             this.loopNodeId = loopNodeId;
+            this.arrayElementType = arrayElementType;
         }
 
         private static Func<ExecutionEvent, ValueTask> RecordTo(ProofRecorder recorder) => evt =>
@@ -6351,8 +6370,7 @@ public sealed class ArrayIterationVawBodyProofTests
         public override async ValueTask<string> HandleAsync(string input, IWorkflowContext context,
             CancellationToken cancellationToken = default)
         {
-            var items = JsonSerializer.Deserialize<string[]>(input)
-                ?? throw new InvalidOperationException("Array input was not a string array.");
+            var items = ParseProofArrayItems(input, arrayElementType);
             var results = new List<string>(items.Length);
             for (var index = 0; index < items.Length; index++)
             {

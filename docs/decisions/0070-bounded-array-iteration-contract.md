@@ -1123,6 +1123,22 @@ failure shapes, cancellation races, custom-broker conformance, and production
 budget/lifecycle ownership remain open. The full Agent Framework suite passes
 386/386.
 
+## Typed primitive payload comparison
+
+`IteratorCandidates_ResolveTypedItemAndIndexThroughGraphValues` now compares
+the structured, fresh-subworkflow, and hybrid proof candidates using the
+validated JSON integer array `[7,11]`. The proof parses it against the existing
+`array<integer>` contract, carries each canonical integer value into the
+integer-typed workflow parameter, and reads both item and zero-based index
+through production Workflow Value and integer-to-string graph nodes before the
+Agent node. Candidate output, Agent input, and lifecycle event shapes match;
+persisted histories pass through file and SQLite stores (2/2 focused cases).
+
+This strengthens scalar-value evidence only. Item and index still enter the
+body through the existing parameter contract rather than authored iterator
+pins, and nearest-loop `Break` remains a test-only graph harness. The result
+does not select an architecture or establish a public iterator contract.
+
 ## Compatibility constraints
 
 - Keep iteration as a distinct node family; do not broaden or reinterpret the
