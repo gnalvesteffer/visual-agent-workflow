@@ -1714,3 +1714,41 @@ external outcomes are not evidence for this production adapter path. The
 roadmap parent remains open. Since the increment changes no public runtime
 contract or user-visible workflow behavior, the architecture overview and
 user guide remain unchanged.
+
+## Nested production-body Break proof boundary (reviewed 2026-11-14)
+
+The three-role review recommends that the VAW coordinator own both the nested
+activation-frame tree and the single root lifecycle. The Agent Framework body
+remains a single-activation dispatcher that returns a typed Break request with
+source node, source frame, and scope only. At the coordinator boundary, validate
+the source against the active graph and frame, derive the nearest loop target,
+and unwind only that loop. An inner Break must return control to its caller so
+the next outer item can be admitted. Sharing an event context alone is
+insufficient: nested calls must not emit root terminal events or consume a
+Break for the wrong frame. This remains proof-only and does not select a public
+array/Break contract.
+
+The minimum proof is a production-dispatched inner Break followed by an outer
+item, rejection of stale-frame, stale-scope, and unadmitted-source requests at
+the same coordinator validator, one root start and terminal with contiguous
+scoped history, unchanged `core.terminate`, and file/SQLite reopen checks.
+
+## Nested production-body Break proof (2026-11-14)
+
+The proof-only VAW coordinator now owns a two-level outer/inner activation
+sequence and the single root `StructuredActivationRunContext`. Each inner item
+is dispatched through the production Agent Framework body path. A graph-routed
+Break returns only its source identity; the coordinator validates and consumes
+it against the active inner frame, ends that inner sequence, then continues
+with the next outer item. The same coordinator validator rejects a mismatched
+source frame, stale scope, and a source node outside the admitted Break set.
+The test uses the actual dispatched request as the basis for those tampering
+checks.
+
+File and SQLite tests verify one root start and terminal event, contiguous
+sequences, correct nested scopes, no later inner item after Break, the following
+outer item, and identical reopened history. Existing production `core.terminate`
+tests still pass for both stores. This closes the private production-body Break
+proof gate. It does not add public nested iterator/Break support or close the
+separate VAW lifecycle/reservation, broader body-capability, or checkpoint
+recovery gates in the roadmap.

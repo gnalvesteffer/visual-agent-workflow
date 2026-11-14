@@ -299,6 +299,105 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyNestedBreak_StopsInnerLoopAndContinuesOuterLoop(bool sqlite)
+    {
+        var body = StructuredBreakProofDefinition();
+        var definition = body with
+        {
+            Parameters = body.Parameters!
+                .Add("outerIndex", new("Outer array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.CreateProofOnly(definition,
+            "production-body-nested-break-continuation-proof");
+        using var runStore = new ProofRunStore(revision, "[\"outer-a\",\"outer-b\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+
+        var result = await new WorkflowRunner().ExecuteProductionNestedBodyBreakSequenceProofAsync(
+            runStore.RunId, revision, "[\"outer-a\",\"outer-b\"]",
+            "[\"continue\",\"stop\",\"must-not-run\"]", "outerIndex", "index", null,
+            evt =>
+            {
+                recorder.Append(evt);
+                return ValueTask.CompletedTask;
+            });
+
+        Assert.False(result.Failed);
+        Assert.False(result.Terminated);
+        Assert.Equal("outer-a:continue:0;outer-b:continue:0", result.Output);
+        var events = recorder.Snapshot();
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        Assert.Equal(Enumerable.Range(1, events.Length).Select(sequence => (long)sequence),
+            events.Select(evt => evt.Sequence));
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.NodeId == "outer-loop" && evt.ScopeId == "outer-loop/1");
+        Assert.DoesNotContain(events, evt => evt.ScopeId is
+            "outer-loop/0/inner-loop/2" or "outer-loop/1/inner-loop/2");
+
+        foreach (var outerIndex in new[] { 0, 1 })
+        {
+            var scope = $"outer-loop/{outerIndex}/inner-loop/1";
+            var bodyBreak = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "proof-break" && evt.ScopeId == scope);
+            using var requestData = JsonDocument.Parse(bodyBreak.Data!);
+            var sourceFrameId = requestData.RootElement.GetProperty("sourceFrameId").GetGuid();
+            Assert.Equal(scope, requestData.RootElement.GetProperty("scopeId").GetString());
+            var outerScope = $"outer-loop/{outerIndex}";
+            var outerStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.NodeId == "outer-loop" && evt.ScopeId == outerScope);
+            var innerStarted = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.NodeId == "inner-loop" && evt.ScopeId == scope);
+            var previousIteration = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+                evt.NodeId == "inner-loop" && evt.ScopeId == $"{outerScope}/inner-loop/0");
+            Assert.Equal(sourceFrameId, innerStarted.InvocationId);
+            var outerFrame = new WorkflowRunner.StructuredActivationFrame(outerStarted.InvocationId!.Value,
+                null, "outer-loop", outerIndex, outerIndex == 0 ? "outer-a" : "outer-b",
+                ImmutableSortedDictionary<string, string>.Empty);
+            var sourceFrame = new WorkflowRunner.StructuredActivationFrame(sourceFrameId, outerFrame,
+                "inner-loop", 1, "stop", ImmutableSortedDictionary<string, string>.Empty);
+            var request = new WorkflowRunner.StructuredActivationBreakRequest(
+                requestData.RootElement.GetProperty("sourceNodeId").GetString()!, sourceFrameId, scope);
+            var allowedSources = new HashSet<string>(["proof-break"], StringComparer.Ordinal);
+            var accepted = WorkflowRunner.ConsumeProductionBodyBreakRequestProof(sourceFrame, request,
+                allowedSources);
+            Assert.Equal(sourceFrameId, accepted.TargetFrameId);
+
+            Assert.Throws<InvalidOperationException>(() =>
+                WorkflowRunner.ConsumeProductionBodyBreakRequestProof(sourceFrame,
+                    request with { SourceFrameId = previousIteration.InvocationId!.Value }, allowedSources));
+            Assert.Throws<InvalidOperationException>(() =>
+                WorkflowRunner.ConsumeProductionBodyBreakRequestProof(sourceFrame,
+                    request with { ScopeId = previousIteration.ScopeId! }, allowedSources));
+            Assert.Throws<InvalidOperationException>(() =>
+                WorkflowRunner.ConsumeProductionBodyBreakRequestProof(sourceFrame,
+                    request with { SourceNodeId = "unadmitted-break" }, allowedSources));
+
+            var otherOuterIndex = outerIndex == 0 ? 1 : 0;
+            var otherOuterScope = $"outer-loop/{otherOuterIndex}";
+            var otherBreakScope = $"{otherOuterScope}/inner-loop/1";
+            var otherBreak = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+                evt.NodeId == "proof-break" && evt.ScopeId == otherBreakScope);
+            using var otherBreakData = JsonDocument.Parse(otherBreak.Data!);
+            var foreignRequest = new WorkflowRunner.StructuredActivationBreakRequest(
+                otherBreakData.RootElement.GetProperty("sourceNodeId").GetString()!,
+                otherBreakData.RootElement.GetProperty("sourceFrameId").GetGuid(), otherBreakScope);
+            Assert.Throws<InvalidOperationException>(() =>
+                WorkflowRunner.ConsumeProductionBodyBreakRequestProof(sourceFrame, foreignRequest, allowedSources));
+
+            var consumed = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+                evt.NodeId == "inner-loop" && evt.ScopeId == scope);
+            using var consumedData = JsonDocument.Parse(consumed.Data!);
+            Assert.Equal(sourceFrameId,
+                consumedData.RootElement.GetProperty("targetFrameId").GetGuid());
+        }
+
+        AssertPersistedSequence(runStore, events, "completed");
+        Assert.Equal(events, runStore.ReopenStore().Get(runStore.RunId)!.Events);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_BreakSettlesForkSiblingBeforeStoppingLaterItems(bool sqlite)
     {
         var body = ParallelBodyDefinition();

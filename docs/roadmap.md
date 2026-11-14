@@ -145,7 +145,7 @@ will be introduced.
   eventual Studio array editor uses one JSON text field validated by the
   declared type.
   See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
-  - [ ] Carry a graph-dispatched typed Break result with source and target
+  - [x] Carry a graph-dispatched typed Break result with source and target
     activation identity into the VAW coordinator; have the dispatcher report
     only source identity and derive/consume the target in the coordinator.
     Prove nested outer-loop continuation and rejection of stale or foreign
@@ -168,8 +168,15 @@ will be introduced.
       through both file and SQLite run stores, with contiguous sequence and
       terminal-state checks. Proof-only revisions use a normalized evidence
       hash; public revision creation still rejects the private node type.
-    - [ ] Prove nested outer-loop continuation and stale/foreign Break
-      rejection at the production body boundary.
+    - [x] Prove nested outer-loop continuation and stale/foreign Break
+      rejection at the production body boundary. The production Agent
+      Framework body dispatches the inner Break; the VAW coordinator consumes
+      its source frame, returns from the inner loop, and runs the next outer
+      item. The same coordinator validator rejects mismatched frame, stale
+      scope, and unadmitted source requests. File and SQLite histories reopen
+      with one root lifecycle and contiguous event sequences. `core.terminate`
+      remains on its ordinary path. This closes the private proof gate only;
+      public array and Break authoring remain unimplemented.
   - [ ] Move root/activation lifecycle and shared atomic reservations behind
     one VAW-owned run context; the body dispatcher returns typed outcomes and
     does not finalize the root. Prove exact-once terminal outcomes, pre-dispatch
