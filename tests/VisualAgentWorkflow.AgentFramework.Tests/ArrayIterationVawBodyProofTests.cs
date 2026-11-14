@@ -5819,7 +5819,8 @@ public sealed class ArrayIterationVawBodyProofTests
                 {
                     var result = await new WorkflowRunner(tools)
                         .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
-                            recorder.RecordResequencedAsync);
+                            recorder.RecordResequencedAsync,
+                            runBudget: StructuredRunBudget(maximumToolDispatches: 2));
                     output = result.Output;
                 }
                 catch (Exception) { }
@@ -5914,7 +5915,8 @@ public sealed class ArrayIterationVawBodyProofTests
                 {
                     var result = await new WorkflowRunner(tools)
                         .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
-                            recorder.RecordResequencedAsync);
+                            recorder.RecordResequencedAsync,
+                            runBudget: StructuredRunBudget(maximumToolDispatches: 2));
                     output = result.Output;
                 }
                 catch (ToolInvocationException) { }
@@ -5995,7 +5997,8 @@ public sealed class ArrayIterationVawBodyProofTests
                 using var cancellation = new CancellationTokenSource();
                 var execution = new WorkflowRunner(broker)
                     .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
-                        recorder.RecordResequencedAsync, cancellation.Token);
+                        recorder.RecordResequencedAsync, cancellation.Token,
+                        runBudget: StructuredRunBudget(maximumToolDispatches: 1));
                 await broker.DispatchStarted.WaitAsync(TimeSpan.FromSeconds(5));
                 cancellation.Cancel();
                 await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await execution);
@@ -7597,6 +7600,12 @@ public sealed class ArrayIterationVawBodyProofTests
             return string.Join(';', results);
         }
     }
+
+    private static WorkflowRunner.StructuredActivationRunBudget StructuredRunBudget(int maximumToolDispatches) =>
+        new(MaximumEvents: 512, MaximumBytes: 4_000_000, ReservedFailureEvents: 8,
+            ReservedFailureBytes: 64_000, MaximumOutcomeBytes: 32_000,
+            MaximumConcurrentOutcomeReservations: 2, MaximumModelDispatches: 2,
+            MaximumToolDispatches: maximumToolDispatches);
 
     private sealed class ProofRecorder
     {

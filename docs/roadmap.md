@@ -192,15 +192,21 @@ will be introduced.
       caps across activations. Six focused cases pass across file and SQLite:
       serial Agent/MCP outcome settlement, pre-provider and pre-tool rejection,
       and parallel model reservation contention. This does not yet prove
-      denial/timeout/cancellation settlement or complete persisted failure
-      bounds; nearest-frame Break consumption remains test-owned.
+      pre-dispatch denial settlement or complete persisted failure bounds.
+      Six additional file/SQLite cases exercise this run context with actual
+      MCP timeouts, controlled custom-broker unknown outcomes, and host
+      cancellation after dispatch; correlated uncertain outcomes and terminal
+      states persist in each case. Nearest-frame Break consumption remains
+      test-owned.
     - [ ] Implement the reviewed ownership split: a VAW activation coordinator
       derives and consumes typed nearest-frame Break outcomes; one run context
       owns lifecycle and atomic shared reservations; the dispatcher returns
       typed body outcomes without finalizing the root. Prove stale/foreign
-      Break rejection, cancellation/failure races, and reservation settlement
-      for denial, timeout, and cancellation in file and SQLite. The three-role
-      review returned **REVISE**; see Decision 0070.
+      Break rejection, cancellation/failure races, pre-dispatch denial
+      settlement, and complete persisted failure bounds in file and SQLite.
+      Timeout, unknown-outcome, and cancellation-after-dispatch settlement now
+      have focused structured-context coverage. The three-role review returned
+      **REVISE**; see Decision 0070.
   - [x] Compare typed item/index `data.evaluated` payloads across candidates.
     Evaluated values, activation scopes, and data connection IDs match and
     persist in both stores (2/2 focused theory cases). Broader runtime-output

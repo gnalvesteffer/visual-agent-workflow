@@ -84,9 +84,12 @@ outcomes without finalizing the run. The current dispatcher has no Break
 outcome. A subsequent proof increment adds a private run-context ledger for
 atomic event/outcome-byte reservations and shared iteration/model/tool caps;
 its six file/SQLite cases prove serial Agent/MCP settlement, pre-dispatch model
-and tool rejection, and parallel model reservation contention. Denial,
-timeout, cancellation settlement, and complete persisted failure bounds remain
-open, so the run-context owner claim is still partial. Acceptance must exercise
+and tool rejection, and parallel model reservation contention. Six more
+file/SQLite cases run the structured candidate with production MCP timeout,
+controlled custom-broker unknown outcomes, and host cancellation after dispatch;
+each records the correlated uncertain outcome and terminal run state.
+Pre-dispatch denial and complete persisted failure bounds remain open, so the
+run-context owner claim is still partial. Acceptance must exercise
 the same coordinator with real Agent/MCP adapters and file/SQLite stores,
 including foreign/stale Break targets, lifecycle races, pre-dispatch budget
 rejection, and reservation settlement. Stop if the dispatcher and coordinator
