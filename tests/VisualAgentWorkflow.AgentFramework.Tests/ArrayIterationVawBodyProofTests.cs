@@ -127,6 +127,135 @@ public sealed class ArrayIterationVawBodyProofTests
                 : ValueTask.CompletedTask;
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_PersistsOneScopedRunLedger(bool sqlite)
+    {
+        var definition = BodyDefinition(includeVariableStore: true, includeIndexParameter: true);
+        var revision = WorkflowRevision.Create(definition, "production-body-activation-coordinator-proof");
+        const string input = "[\"alpha\",\"beta\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+        var agents = new EchoAgentExecutor();
+        var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var outcome = await new WorkflowRunner(tools, agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 8));
+
+        Assert.Equal("echo:ALPHA:0;echo:BETA:1", outcome.Output);
+        Assert.False(outcome.Failed);
+        Assert.Equal(["ALPHA:0", "BETA:1"], agents.Inputs);
+        Assert.Equal(agents.Inputs, tools.Queries);
+        AssertPersistedSequence(runStore, events, "completed");
+        Assert.Equal(events, runStore.ReopenStore().Get(runStore.RunId)!.Events);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        for (var index = 0; index < 2; index++)
+        {
+            var scoped = events.Where(evt => evt.ScopeId == $"array-loop/{index}").ToArray();
+            Assert.Contains(scoped, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "agent");
+            Assert.Contains(scoped, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized && evt.NodeId == "tool");
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+            Assert.Single(scoped, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_RejectsToolBeforeDispatchAtSharedLimit(bool sqlite)
+    {
+        var definition = BodyDefinition(includeVariableStore: true, includeIndexParameter: true);
+        var revision = WorkflowRevision.Create(definition, "production-body-activation-budget-proof");
+        const string input = "[\"first\",\"must-not-call\"]";
+        using var runStore = new ProofRunStore(revision, input, sqlite);
+        var events = new List<ExecutionEvent>();
+        var agents = new EchoAgentExecutor();
+        var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var outcome = await new WorkflowRunner(tools, agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Record, runBudget: StructuredRunBudget(maximumToolDispatches: 1));
+
+        Assert.True(outcome.Failed);
+        Assert.Equal(["FIRST:0", "MUST-NOT-CALL:1"], agents.Inputs);
+        Assert.Equal(["FIRST:0"], tools.Queries);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+        AssertPersistedSequence(runStore, events, "failed");
+        Assert.Equal(events, runStore.ReopenStore().Get(runStore.RunId)!.Events);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/1");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_TerminatesRootExactlyOnce(bool sqlite)
+    {
+        var definition = new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "production-body-activation-termination-proof", "input",
+            ImmutableSortedDictionary<string, NodeDefinition>.Empty
+                .Add("input", new(NodeTypes.Input, "1.0.0"))
+                .Add("value", new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new("no") })
+                .Add("condition", new(NodeTypes.Condition, "1.0.0")
+                    { Condition = new("contains", "yes") })
+                .Add("terminate", new(NodeTypes.Terminate, "1.0.0")
+                    { Termination = new(WorkflowTerminationOutcomes.Success) })
+                .Add("output", new(NodeTypes.Output, "1.0.0")),
+            ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("condition-value", new(new("value", "out"), new("condition", "in"), "data"))
+                .Add("output-value", new(new("value", "out"), new("output", "in"), "data")))
+        {
+            ExecutionConnections = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+                .Add("condition", Edge("input", "then", "condition", "execute"))
+                .Add("output", Edge("condition", "true", "output", "execute"))
+                .Add("terminate", Edge("condition", "false", "terminate", "execute")),
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition, "production-body-activation-termination-proof");
+        using var runStore = new ProofRunStore(revision, "[\"first\",\"must-not-run\"]", sqlite);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var outcome = await new WorkflowRunner().ExecuteProductionBodyActivationSequenceProofAsync(
+            runStore.RunId, revision, "[\"first\",\"must-not-run\"]", "index", null, Record);
+
+        Assert.True(outcome.Terminated);
+        Assert.False(outcome.Failed);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Started && evt.NodeId is null);
+        var terminal = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Terminated && evt.NodeId is null);
+        using var terminalData = JsonDocument.Parse(terminal.Data!);
+        Assert.Equal("terminate", terminalData.RootElement.GetProperty("terminalNodeId").GetString());
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        Assert.Equal(events, runStore.ReopenStore().Get(runStore.RunId)!.Events);
+    }
+
     [Fact]
     public async Task StructuredSchedulerProof_ReusesProductionAgentAndMcpNodeAdapters()
     {

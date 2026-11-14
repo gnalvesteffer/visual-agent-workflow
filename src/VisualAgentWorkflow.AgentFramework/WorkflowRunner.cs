@@ -18,11 +18,13 @@ internal enum WorkflowBodyProofDisposition
     Failed,
     Cancelled,
     TimedOut,
+    BudgetRejected,
     OutcomeUnknown,
     EvidenceWriteFailed
 }
 
-internal sealed record WorkflowBodyProofOutcome(WorkflowBodyProofDisposition Disposition, string? Output = null);
+internal sealed record WorkflowBodyProofOutcome(WorkflowBodyProofDisposition Disposition, string? Output = null,
+    string? TerminalNodeId = null);
 
 /// <summary>Host-resolved defaults for bounded collaborative workflow regions.</summary>
 public sealed record ParallelCollaborationRuntimeOptions(TimeSpan? DefaultTimeout = null);
@@ -89,13 +91,21 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         IWorkflowExecutionGate? gate = null)
     {
         ArgumentNullException.ThrowIfNull(record);
+        string? terminalNodeId = null;
 
         async ValueTask RecordBodyEvent(ExecutionEvent evt)
         {
             if (IsRootLifecycleEvent(evt)) return;
+            if (evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId is { } nodeId &&
+                revision.Definition.Nodes.TryGetValue(nodeId, out var node) && node.Type == NodeTypes.Terminate)
+                terminalNodeId = nodeId;
             try
             {
                 await record(evt);
+            }
+            catch (StructuredActivationBudgetExceededException)
+            {
+                throw;
             }
             catch (Exception exception)
             {
@@ -109,7 +119,7 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
                 cancellationToken, allowOutcomeUnknown: true, emitRunLifecycle: false);
             if (result.OutcomeUnknown) return new(WorkflowBodyProofDisposition.OutcomeUnknown);
             if (result.Failed) return new(WorkflowBodyProofDisposition.Failed);
-            if (result.Terminated) return new(WorkflowBodyProofDisposition.Terminated);
+            if (result.Terminated) return new(WorkflowBodyProofDisposition.Terminated, TerminalNodeId: terminalNodeId);
             return result.HasOutput
                 ? new(WorkflowBodyProofDisposition.Succeeded, result.Output)
                 : new(WorkflowBodyProofDisposition.Failed);
@@ -121,6 +131,10 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         catch (TimeoutException)
         {
             return new(WorkflowBodyProofDisposition.TimedOut);
+        }
+        catch (StructuredActivationBudgetExceededException)
+        {
+            return new(WorkflowBodyProofDisposition.BudgetRejected);
         }
         catch (Exception exception) when (ContainsEvidenceWriteFailure(exception))
         {

@@ -1618,11 +1618,27 @@ Four focused regressions pass (success, termination, failure/cancellation/
 timeout/unknown outcome, and evidence-write failure); body success and
 termination produce no root terminal event at this boundary.
 
-This closes only the dispatcher result/lifecycle suppression contract. The
-private method is not yet called by an integrated activation coordinator; it
-does not own frames, root lifecycle, or shared reservations, and it does not
-prove reservation settlement for storage failures or Break. The structured
-proof and hybrid test harness still have separate ownership paths. Continue
-with a coordinator-level integration and the full persisted matrix, then run
-the required readiness review. No public schema, iterator, Break node, Studio
-authoring, or checkpoint recovery is admitted by this increment.
+This closes the dispatcher result/lifecycle suppression contract only; the
+coordinator integration below adds a first production-backed sequential proof.
+No public schema, iterator, Break node, Studio authoring, or checkpoint
+recovery is admitted by this increment.
+
+## Sequential coordinator over production body dispatch (2026-11-14)
+
+A private VAW activation coordinator now invokes the production Agent
+Framework body dispatcher for each typed primitive array item. A single
+`StructuredActivationRunContext` owns the root lifecycle, event sequence,
+activation frames, and shared model/MCP dispatch and evidence reservations.
+The dispatcher returns typed outcomes, including budget rejection, without
+publishing root lifecycle events. Scoped Agent and direct-MCP evidence is
+recorded under each frame and the resulting run history persists and reopens
+through file and SQLite stores. Focused store tests cover successful execution,
+pre-dispatch tool-budget rejection, and a body `Terminate` outcome (6 cases).
+The terminal event carries the terminating node in its payload while remaining
+a root-scoped event, so the run context enforces exactly one terminal outcome.
+
+This is a sequential proof path, not the selected production iterator
+architecture. It does not yet consume graph-dispatched typed `Break`, complete
+the persisted failure/race/custom-broker/store-fault matrix, or prove all
+reservation-settlement cases. The main gate remains **REVISE**; public typed
+iteration, Studio authoring, and checkpoint recovery remain out of scope.

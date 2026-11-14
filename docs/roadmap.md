@@ -155,10 +155,18 @@ will be introduced.
     does not finalize the root. Prove exact-once terminal outcomes, pre-dispatch
     budget rejection, and settlement across model, MCP, and delegated calls.
     - [x] Add the private production-body dispatch boundary: it returns typed
-      success, termination, failure, cancellation, timeout, unknown-outcome,
-      and evidence-write-failure dispositions without publishing root lifecycle
-      events. The focused contract tests pass; it is not yet integrated with an
-      activation coordinator and does not close the parent item.
+      success, termination, failure, cancellation, timeout, budget-rejection,
+      unknown-outcome, and evidence-write-failure dispositions without
+      publishing root lifecycle events.
+    - [x] Integrate that boundary with a proof-only sequential VAW coordinator.
+      One shared run context owns activation frames, root lifecycle, event
+      sequencing, and model/MCP dispatch-evidence budgets while production
+      Agent Framework body execution handles each item. Scoped evidence and
+      terminal histories persist/reopen through file and SQLite; tests cover
+      successful Agent/MCP work, pre-dispatch tool-budget rejection, and
+      workflow termination. Graph-dispatched typed Break and the remaining
+      failure/race/store matrix remain open; this does not close the parent
+      item or admit public schema/Studio authoring.
   - [ ] Exercise the integrated seam through file and SQLite persistence,
     including scoped playback evidence, joins, cancellation/failure races,
     custom-broker uncertainty, and store append failures. Document the

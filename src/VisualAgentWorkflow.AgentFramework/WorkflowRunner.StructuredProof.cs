@@ -75,7 +75,8 @@ public sealed partial class WorkflowRunner
             {
                 var startsRun = nodeId is null && kind == ExecutionEventKinds.Started;
                 var endsRun = nodeId is null && kind is (ExecutionEventKinds.Completed or
-                    ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled);
+                    ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated or
+                    ExecutionEventKinds.OutcomeUnknown);
                 if (startsRun)
                 {
                     if (started || terminal) throw new InvalidOperationException("The activation run has already started.");
@@ -301,6 +302,136 @@ public sealed partial class WorkflowRunner
         public ValueTask RecordNodeEventAsync(string kind, string? nodeId, Guid? invocationId,
             string? connectionId, string? data, string? scopeId) =>
             recordNodeEvent?.Invoke(kind, nodeId, invocationId, connectionId, data, scopeId) ?? ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Proof-only activation coordinator using the production Agent Framework body
+    /// dispatcher. One run context owns iteration frames, event sequencing, root
+    /// lifecycle, and shared dispatch/evidence reservations for all body runs.
+    /// </summary>
+    internal async Task<WorkflowExecutionResult> ExecuteProductionBodyActivationSequenceProofAsync(Guid runId,
+        WorkflowRevision bodyRevision, string jsonItems, string indexParameterId,
+        IReadOnlyDictionary<string, string>? parameters, Func<ExecutionEvent, ValueTask> record,
+        CancellationToken cancellationToken = default, StructuredActivationFrame? parentFrame = null,
+        string activationLoopNodeId = "array-loop", string? itemParameterId = null,
+        string arrayElementType = WorkflowDataTypes.String, StructuredActivationRunBudget? runBudget = null)
+    {
+        ArgumentNullException.ThrowIfNull(bodyRevision);
+        ArgumentNullException.ThrowIfNull(jsonItems);
+        ArgumentException.ThrowIfNullOrWhiteSpace(indexParameterId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(activationLoopNodeId);
+        ArgumentNullException.ThrowIfNull(record);
+        if (runId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(runId));
+        if (jsonItems.Length > 16_384)
+            throw new ArgumentException("Activation proof input exceeds 16,384 characters.", nameof(jsonItems));
+        if (!WorkflowArrayLiteral.TryParseValue(arrayElementType, jsonItems, out var typedItems, out var arrayError))
+            throw new ArgumentException($"Activation proof input is not a valid {WorkflowDataTypes.ArrayOf(arrayElementType)}: {arrayError}",
+                nameof(jsonItems));
+
+        var items = typedItems.EnumerateArray().Select(item => arrayElementType switch
+        {
+            WorkflowDataTypes.String => item.GetString()!,
+            WorkflowDataTypes.Boolean => item.GetBoolean() ? "true" : "false",
+            WorkflowDataTypes.Integer => item.GetInt64().ToString(System.Globalization.CultureInfo.InvariantCulture),
+            WorkflowDataTypes.Number => item.GetDouble().ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+            _ => throw new ArgumentException("Activation proof input requires a primitive array element type.", nameof(arrayElementType))
+        }).ToArray();
+        var baseParameters = WorkflowParameters.Resolve(bodyRevision.Definition, parameters);
+        using var runContext = new StructuredActivationRunContext(runId, bodyRevision.RevisionId, record, runBudget);
+        ValueTask Emit(string kind, string? nodeId = null, Guid? invocationId = null,
+            string? scopeId = null, string? data = null, string? connectionId = null) =>
+            runContext.EmitAsync(kind, nodeId, invocationId, scopeId, data, connectionId);
+
+        async Task<WorkflowExecutionResult> FailRunAsync(int? index = null, Guid? activationId = null,
+            string? scopeId = null, string? reason = null)
+        {
+            if (index is { } failedIndex)
+                await Emit(ExecutionEventKinds.NodeFailed, activationLoopNodeId, activationId, scopeId,
+                    reason ?? $"Activation failed at index {failedIndex}.");
+            await Emit(ExecutionEventKinds.Failed, data: "Workflow execution failed.");
+            return new(null, true, true, HasOutput: false);
+        }
+
+        try
+        {
+            await Emit(ExecutionEventKinds.Started);
+            var results = new List<string>(items.Length);
+            for (var index = 0; index < items.Length; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var inheritedParameters = baseParameters ??
+                    ImmutableSortedDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
+                if (parentFrame is not null)
+                    inheritedParameters = inheritedParameters.SetItems(parentFrame.Parameters);
+                var unboundFrame = parentFrame?.Enter(activationLoopNodeId, index, items[index], inheritedParameters,
+                    arrayElementType) ?? new StructuredActivationFrame(Guid.NewGuid(), null, activationLoopNodeId,
+                    index, items[index], inheritedParameters) { ItemDataType = arrayElementType };
+                var frame = unboundFrame with
+                {
+                    Parameters = unboundFrame.BindIteratorValues(bodyRevision.Definition, itemParameterId,
+                        indexParameterId)
+                };
+                if (parentFrame is not null && frame.NearestLoop().Id != frame.Id)
+                    throw new InvalidOperationException("A nested activation did not resolve its nearest loop frame.");
+
+                var scopeId = frame.ScopeId;
+                await Emit(ExecutionEventKinds.LoopIterationStarted, activationLoopNodeId, frame.Id, scopeId);
+                var bodyOutcome = await ExecuteBodyForActivationProofAsync(runId, bodyRevision, items[index],
+                    frame.Parameters, evt => Emit(evt.Kind, evt.NodeId, evt.InvocationId,
+                        evt.ScopeId ?? scopeId, evt.Data, evt.ConnectionId), cancellationToken);
+
+                switch (bodyOutcome.Disposition)
+                {
+                    case WorkflowBodyProofDisposition.Succeeded when bodyOutcome.Output is { } bodyOutput:
+                        results.Add(bodyOutput);
+                        await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId, frame.Id,
+                            scopeId);
+                        break;
+                    case WorkflowBodyProofDisposition.Terminated:
+                        await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId, frame.Id,
+                            scopeId, JsonSerializer.Serialize(new { outcome = "terminated" },
+                                new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                        await Emit(ExecutionEventKinds.Terminated, data: JsonSerializer.Serialize(
+                            new { terminalNodeId = bodyOutcome.TerminalNodeId },
+                            new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                        return new(null, true, HasOutput: false);
+                    case WorkflowBodyProofDisposition.Cancelled:
+                        await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId, frame.Id,
+                            scopeId, JsonSerializer.Serialize(new { outcome = "cancelled" },
+                                new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                        await Emit(ExecutionEventKinds.Cancelled);
+                        return new(null, false, Cancelled: true, HasOutput: false);
+                    case WorkflowBodyProofDisposition.OutcomeUnknown:
+                        await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId, frame.Id,
+                            scopeId, JsonSerializer.Serialize(new { outcome = "outcome-unknown" },
+                                new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                        await Emit(ExecutionEventKinds.OutcomeUnknown,
+                            data: "Workflow execution ended with an unresolved external outcome.");
+                        return new(null, true, Failed: true, OutcomeUnknown: true, HasOutput: false);
+                    case WorkflowBodyProofDisposition.Failed:
+                    case WorkflowBodyProofDisposition.BudgetRejected:
+                    case WorkflowBodyProofDisposition.TimedOut:
+                    case WorkflowBodyProofDisposition.EvidenceWriteFailed:
+                    default:
+                        return await FailRunAsync(index, frame.Id, scopeId,
+                            $"Activation ended with {bodyOutcome.Disposition} at index {index}.");
+                }
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            var output = string.Join(';', results);
+            await Emit(ExecutionEventKinds.Completed, data: output);
+            return new(output, false, HasOutput: true);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await Emit(ExecutionEventKinds.Cancelled);
+            return new(null, false, Cancelled: true, HasOutput: false);
+        }
+        catch (StructuredActivationBudgetExceededException)
+        {
+            return await FailRunAsync();
+        }
     }
 
     /// <summary>
