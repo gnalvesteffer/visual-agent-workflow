@@ -987,22 +987,22 @@ drives validation and the typed output pin; the same typed pin can be connected
 to an iterator or other compatible array input. JSON text is an authoring
 representation, not a loss of graph type information.
 
-## 2026-11-13 adjudication: matched graph-level proof is next
+## 2026-11-13 adjudication and matched graph-level proof
 
 A three-role review considered whether to prove typed item/index and nearest
 `Break` behavior first in the structured candidate or as one matched graph
 contract across all candidates. The adjudicator returned **REVISE**: the
 structured-only proof could anchor the architecture before comparison. The
-next proof must run the same private, production-backed graph-level contract
-through the structured, fresh-subworkflow, and hybrid candidates. It must
-resolve typed item and zero-based index through graph data paths; route an
-actual `Break` signal to the nearest nested iterator; skip remaining inner
-items while allowing the outer iteration to continue; and compare scoped event
-ordering and persisted prefixes. A coordinator-only sentinel is not sufficient
-evidence of graph dispatch. This proof remains private and selects no runtime
-architecture; production-owned budget/lifecycle and the rest of the matrix
-remain open. No public node, schema contract, or Studio authoring is admitted
-by this adjudication.
+resulting matched proof runs the same private, production-backed graph-level
+contract through the structured, fresh-subworkflow, and hybrid candidates.
+It resolves typed item and zero-based index through graph data paths; routes a
+typed `Break` signal to the nearest nested iterator; skips the remaining inner
+items while allowing the outer iteration to continue; and compares scoped
+event ordering and persisted prefixes. A coordinator-only sentinel is not
+sufficient evidence of graph dispatch. This proof remains private and selects
+no runtime architecture; production-owned budget/lifecycle and the rest of the
+matrix remain open. No public node, schema contract, or Studio authoring is
+admitted by this adjudication.
 
 The first matched sub-proof now passes: the same current-schema integer
 item/index data graph uses typed `WorkflowValue` nodes, converts both values
@@ -1010,9 +1010,9 @@ through explicit graph pins, and sends the combined value to the Agent in the
 structured, fresh-subworkflow, and hybrid candidates. Outputs, activation
 scopes, and node lifecycle ordering match; persisted prefixes pass for file
 and SQLite stores (6 candidate/store executions). This demonstrates typed
-parameter dataflow only. Dedicated iterator element/index pins and actual
-nearest-loop `Break` dispatch remain unproven, so the matched graph-level proof
-and architecture gate stay open.
+parameter dataflow only. Dedicated iterator element/index pins and production
+nearest-loop `Break` dispatch remain unproven, so the architecture gate stays
+open.
 
 The structured node-dispatch proof now runs the same production
 `NestedBodyDefinition` used by the hybrid nested-break case through
@@ -1021,9 +1021,8 @@ coordinator and the private typed control graph. For each outer item it
 resolves the nested item/index through graph data pins, dispatches the real
 Agent/MCP-backed body, consumes a nearest-inner-frame Break result, and
 continues the outer item. File and SQLite cases pass (2/2) with scoped
-invocation evidence and no body dispatch for the item after Break. This adds
-structured dispatcher evidence but still leaves iteration sequencing in a
-test coordinator; the complete matched candidate comparison remains open.
+invocation evidence and no body dispatch for the item after Break. Iteration
+sequencing remains in a test coordinator.
 
 The fresh-subworkflow body proof now also uses `NestedBodyDefinition` for the
 nested Break case. Each inner item binds a fresh Agent Framework child
@@ -1033,8 +1032,20 @@ transports the typed Break result to the owning loop, which checks the target
 activation and stops before the next inner item. Both file and SQLite cases
 pass (2/2), and four distinct child workflow instances are asserted across the
 two outer activations. This is transport and body-composition evidence for
-candidate 2; it does not prove production loop scheduling or the complete
-matched candidate comparison.
+candidate 2; it does not prove production loop scheduling.
+
+`IteratorCandidates_MatchTypedNestedBreakContract` now composes those paths in
+one comparison against the same current-schema `NestedBodyDefinition` and
+private typed control graph. Structured dispatch, the fresh child workflow per
+body activation, and the hybrid runner produce the same result, Agent inputs,
+tool queries, control-graph node/scope sequence, loop/node lifecycle shape, and
+persisted event prefix through file and SQLite stores (6 candidate/store
+executions). The inner Break targets its own activation, item index 2 never
+starts, and outer index 1 still runs. Structured and hybrid use test-owned
+activation-loop coordinators; this establishes matched proof-harness behavior,
+not a production iterator architecture, authored Break node, or dedicated
+iterator pins. The broader body-capability and shared-budget matrix remains
+the architecture gate.
 
 ## Compatibility constraints
 

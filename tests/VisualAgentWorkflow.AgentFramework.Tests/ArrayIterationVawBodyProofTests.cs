@@ -2828,6 +2828,144 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task IteratorCandidates_MatchTypedNestedBreakContract(bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(NestedBodyDefinition(),
+            "array-iteration-matched-nested-break-proof");
+        const string input = "[\"outer-a\",\"outer-b\"]";
+
+        var structured = await RunCandidateAsync(useStructuredDispatcher: true,
+            useFreshSubworkflow: false);
+        var subworkflow = await RunCandidateAsync(useStructuredDispatcher: false,
+            useFreshSubworkflow: true);
+        var hybrid = await RunCandidateAsync(useStructuredDispatcher: false,
+            useFreshSubworkflow: false);
+
+        Assert.Equal("outer-0:echo:CONTINUE:0/0;outer-1:echo:CONTINUE:0/1", structured.Output);
+        Assert.Equal(structured.Output, subworkflow.Output);
+        Assert.Equal(structured.Output, hybrid.Output);
+        Assert.Equal(["CONTINUE:0/0", "BREAK:1/0", "CONTINUE:0/1", "BREAK:1/1"], structured.AgentInputs);
+        Assert.Equal(structured.AgentInputs, subworkflow.AgentInputs);
+        Assert.Equal(structured.AgentInputs, hybrid.AgentInputs);
+        Assert.Equal(structured.ToolQueries, subworkflow.ToolQueries);
+        Assert.Equal(structured.ToolQueries, hybrid.ToolQueries);
+        Assert.Equal(["outer-loop/0/inner-loop/1", "outer-loop/1/inner-loop/1"], structured.BreakScopes);
+        Assert.Equal(structured.BreakScopes, subworkflow.BreakScopes);
+        Assert.Equal(structured.BreakScopes, hybrid.BreakScopes);
+        Assert.Equal(structured.GraphDispatches, subworkflow.GraphDispatches);
+        Assert.Equal(structured.GraphDispatches, hybrid.GraphDispatches);
+        Assert.Equal(EventShape(structured.Events), EventShape(subworkflow.Events));
+        Assert.Equal(EventShape(structured.Events), EventShape(hybrid.Events));
+        Assert.Equal(4, subworkflow.ChildWorkflows.Length);
+        Assert.Equal(4, subworkflow.ChildWorkflows.Distinct(ReferenceEqualityComparer.Instance).Count());
+        Assert.Empty(structured.ChildWorkflows);
+        Assert.Empty(hybrid.ChildWorkflows);
+
+        static (string Kind, string? NodeId, string? ScopeId)[] EventShape(IEnumerable<ExecutionEvent> events) =>
+            events.Where(evt => evt.Kind is ExecutionEventKinds.LoopIterationStarted or
+                    ExecutionEventKinds.LoopIterationCompleted or ExecutionEventKinds.NodeStarted or
+                    ExecutionEventKinds.NodeCompleted)
+                .Select(evt => (evt.Kind, evt.NodeId, evt.ScopeId)).ToArray();
+
+        async Task<MatchedBreakCandidateEvidence> RunCandidateAsync(bool useStructuredDispatcher,
+            bool useFreshSubworkflow)
+        {
+            using var runStore = new ProofRunStore(revision, input, sqlite);
+            var recorder = new ProofRecorder(runStore);
+            var agents = new EchoAgentExecutor();
+            var tools = new EchoToolBroker(query => $"echo:{query}");
+            var proofGraph = new LoopControlProofGraph();
+            var graphDispatches = new ConcurrentQueue<(string NodeId, string ScopeId)>();
+            var breakDispatches = new ConcurrentQueue<LoopProofBreakDispatch>();
+            var childWorkflows = new ConcurrentBag<Workflow>();
+
+            async Task<LoopProofResult> ExecuteBodyAsync(WorkflowRunner.StructuredActivationFrame frame)
+            {
+                if (useFreshSubworkflow)
+                {
+                    var (child, workflow) = BuildFreshVawBodyWorkflow();
+                    childWorkflows.Add(child);
+                    var bodyInput = new FreshVawBodyInput(token => ExecuteVawBodyAsync(frame,
+                        structuredDispatcher: false, cancellationToken: token));
+                    await using var run = await InProcessExecution.Concurrent.RunStreamingAsync(workflow, bodyInput);
+                    LoopProofResult? output = null;
+                    await foreach (var evt in run.WatchStreamAsync())
+                        if (evt is WorkflowOutputEvent { Data: LoopProofResult result }) output = result;
+                    return output ?? throw new InvalidOperationException("The fresh body workflow returned no control result.");
+                }
+
+                return await ExecuteVawBodyAsync(frame, useStructuredDispatcher, CancellationToken.None);
+            }
+
+            async Task<LoopProofResult> ExecuteVawBodyAsync(WorkflowRunner.StructuredActivationFrame frame,
+                bool structuredDispatcher, CancellationToken cancellationToken)
+            {
+                ValueTask Record(ExecutionEvent evt)
+                {
+                    if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                        ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                        return ValueTask.CompletedTask;
+                    recorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    return ValueTask.CompletedTask;
+                }
+
+                var runner = new WorkflowRunner(tools, agents);
+                string bodyOutput;
+                if (structuredDispatcher)
+                {
+                    var result = await runner.ExecuteStructuredSchedulerProofAsync(runStore.RunId, revision,
+                        frame.Item, frame.Parameters, Record, cancellationToken,
+                        activationScopeId: frame.ScopeId, emitRunLifecycle: false);
+                    if (result.Failed || result.Output is null)
+                        throw new InvalidOperationException("The structured body did not return an output.");
+                    bodyOutput = result.Output;
+                }
+                else
+                {
+                    var result = await runner.ExecuteWithOutcomeAsync(runStore.RunId, revision,
+                        frame.Item, frame.Parameters, Record, cancellationToken);
+                    if (result.Failed || result.Output is null)
+                        throw new InvalidOperationException("The VAW body did not return an output.");
+                    bodyOutput = result.Output;
+                }
+
+                return proofGraph.Execute(bodyOutput, frame, graphDispatches);
+            }
+
+            async Task<string> RunLoopAsync(string loopNodeId, IReadOnlyList<string> items,
+                WorkflowRunner.StructuredActivationFrame? parentFrame, string indexParameterId)
+            {
+                async Task<LoopProofResult> ExecuteActivationAsync(WorkflowRunner.StructuredActivationFrame frame)
+                {
+                    if (loopNodeId != "outer-loop") return await ExecuteBodyAsync(frame);
+                    var innerOutput = await RunLoopAsync("inner-loop",
+                        ["continue", "break", "must-not-run"], frame, "index");
+                    return new ActivationLoopProofValue($"outer-{frame.Index}:{innerOutput}");
+                }
+
+                Func<WorkflowRunner.StructuredActivationFrame, Task<LoopProofResult>> body = ExecuteActivationAsync;
+                if (useFreshSubworkflow)
+                    return await RunFreshSubworkflowLoopProofAsync(runStore.RunId, revision, recorder,
+                        loopNodeId, items, parentFrame, indexParameterId, breakDispatches, body);
+                return await RunActivationLoopProofAsync(runStore.RunId, revision, recorder, agents, tools,
+                    loopNodeId, items, parentFrame, indexParameterId, breakDispatches, body);
+            }
+
+            var output = await RunLoopAsync("outer-loop", ["outer-a", "outer-b"], null, "outerIndex");
+            recorder.CompleteRoot();
+            var events = recorder.Snapshot();
+            AssertPersistedSequence(runStore, events, "completed");
+            Assert.DoesNotContain(events, evt => evt.ScopeId is
+                "outer-loop/0/inner-loop/2" or "outer-loop/1/inner-loop/2");
+            return new MatchedBreakCandidateEvidence(output, events, agents.Inputs, tools.Queries,
+                breakDispatches.Select(item => item.ScopeId).ToArray(), graphDispatches.ToArray(),
+                childWorkflows.ToArray());
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task HybridFrameCoordinator_SharesEvidenceBudgetAcrossFreshNestedBodies(bool sqlite)
     {
         var definition = BodyDefinition(includeVariableStore: true, includeIndexParameter: true);
@@ -5312,6 +5450,9 @@ public sealed class ArrayIterationVawBodyProofTests
         string ScopeId) : LoopProofResult;
     private sealed record LoopProofBreakDispatch(string SourceNodeId, Guid SourceFrameId,
         Guid TargetFrameId, string ScopeId);
+    private sealed record MatchedBreakCandidateEvidence(string Output, ExecutionEvent[] Events,
+        string[] AgentInputs, string[] ToolQueries, string[] BreakScopes,
+        (string NodeId, string ScopeId)[] GraphDispatches, Workflow[] ChildWorkflows);
 
     private sealed record FreshVawBodyInput(Func<CancellationToken, Task<LoopProofResult>> Execute);
 

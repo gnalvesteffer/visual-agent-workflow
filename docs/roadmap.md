@@ -266,15 +266,17 @@ will be introduced.
       other join/cancellation races, and complete evidence bounds. Keep
       production architecture unselected until the shared lifecycle and budget
       owner is proven.
-    - [ ] Before treating iterator item/index or Break behavior as candidate
-      evidence, run one private graph-level contract through the structured,
-      fresh-subworkflow, and hybrid candidates. It must resolve typed item and
-      zero-based index values through graph data paths, route an actual Break
-      signal to the nearest nested iterator, skip the remaining inner items,
-      and let the outer iteration continue. Compare scoped event ordering and
-      persisted prefixes; a coordinator-only sentinel is insufficient. This
-      proof adds no public node, schema contract, or Studio control and does
-      not select an architecture. See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Run the same production nested body and private typed Break graph
+      through the structured dispatcher, a fresh Agent Framework subworkflow
+      per item, and the hybrid runner. Item and zero-based index values reach
+      the production Agent/MCP nodes through graph pins; the Break signal
+      targets the nearest nested activation, skips later inner items, and lets
+      the outer iteration continue. Outputs, graph-node dispatch scopes, and
+      lifecycle event shapes match; persisted prefixes pass in file and SQLite
+      stores (6 candidate/store executions). The structured/hybrid paths use
+      test-owned loop coordination, and this proof adds no production iterator
+      or authoring contract. It selects no architecture. See
+      [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Add a non-production candidate-1 contract fixture proving nested frame
       identity, activation-scoped runtime values and variables, nearest-loop
       lookup, one-shot concurrent fork release, and cancellation before the
