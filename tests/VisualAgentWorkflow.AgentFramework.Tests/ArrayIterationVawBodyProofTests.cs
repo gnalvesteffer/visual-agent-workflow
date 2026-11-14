@@ -163,7 +163,12 @@ public sealed class ArrayIterationVawBodyProofTests
         using var breakData = JsonDocument.Parse(breakEvent.Data!);
         Assert.Equal("proof-break", breakData.RootElement.GetProperty("sourceNodeId").GetString());
         Assert.Equal(breakFrameId, breakData.RootElement.GetProperty("sourceFrameId").GetGuid());
-        Assert.Equal(breakFrameId, breakData.RootElement.GetProperty("targetFrameId").GetGuid());
+        Assert.False(breakData.RootElement.TryGetProperty("targetFrameId", out _));
+        var consumedBreak = Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted &&
+            evt.ScopeId == "array-loop/1" && evt.Data is not null);
+        using var consumedData = JsonDocument.Parse(consumedBreak.Data!);
+        Assert.Equal("proof-break", consumedData.RootElement.GetProperty("sourceNodeId").GetString());
+        Assert.Equal(breakFrameId, consumedData.RootElement.GetProperty("targetFrameId").GetGuid());
         Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
     }
 
@@ -349,17 +354,22 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Fact]
-    public void StructuredActivationFrame_RejectsBreakSignalsFromForeignFrames()
+    public void StructuredActivationFrame_DerivesNearestBreakTargetAndRejectsForeignRequests()
     {
-        var frame = new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null, "array-loop", 0, "item",
+        var outerFrame = new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null, "outer-loop", 0, "outer",
             ImmutableSortedDictionary<string, string>.Empty);
-        var foreignTarget = new WorkflowRunner.StructuredActivationBreakSignal("proof-break", frame.Id,
-            Guid.NewGuid(), frame.ScopeId);
-        var staleSource = new WorkflowRunner.StructuredActivationBreakSignal("proof-break", Guid.NewGuid(),
-            frame.Id, frame.ScopeId);
+        var innerFrame = outerFrame.Enter("inner-loop", 2, "item",
+            ImmutableSortedDictionary<string, string>.Empty);
+        var foreignSource = new WorkflowRunner.StructuredActivationBreakRequest("proof-break", Guid.NewGuid(),
+            innerFrame.ScopeId);
+        var staleScope = new WorkflowRunner.StructuredActivationBreakRequest("proof-break", innerFrame.Id,
+            "outer-loop/0/inner-loop/1");
 
-        Assert.Throws<InvalidOperationException>(() => frame.ValidateNearestBreak(foreignTarget));
-        Assert.Throws<InvalidOperationException>(() => frame.ValidateNearestBreak(staleSource));
+        Assert.Throws<InvalidOperationException>(() => innerFrame.ConsumeNearestBreak(foreignSource));
+        Assert.Throws<InvalidOperationException>(() => innerFrame.ConsumeNearestBreak(staleScope));
+        var consumed = innerFrame.ConsumeNearestBreak(new("proof-break", innerFrame.Id, innerFrame.ScopeId));
+        Assert.Equal(innerFrame.Id, consumed.TargetFrameId);
+        Assert.NotEqual(outerFrame.Id, consumed.TargetFrameId);
     }
 
     [Theory]

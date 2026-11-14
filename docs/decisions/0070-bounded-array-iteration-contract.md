@@ -58,24 +58,28 @@ excluded until frame capture and restoration are demonstrated.
 
 A new proponent/opponent/adjudicator review returned **REVISE**. The hybrid
 remains the leading proof candidate, but the integrated seam is still absent:
-tests generate and consume Break outside the workflow dispatcher, and the
-private structured proof does not establish a single production VAW owner for
-frames, root lifecycle, and shared atomic budgets. The reviewers confirmed the
-existing typed-binding, body-dispatch, Agent/MCP, join, and file/SQLite results
-as useful candidate evidence while distinguishing them from shipped iterator
-behavior.
+the matched candidate comparisons use harness-owned Break coordination, and
+the private structured dispatcher had selected the nearest target rather than
+leaving target derivation to its activation coordinator. The private proof does
+graph-dispatch a synthetic `vaw.proof.array-break` and the coordinator consumes
+its typed result, but this does not establish a public Core node contract or
+one production VAW owner for frames, root lifecycle, and shared atomic budgets.
+The reviewers confirmed the existing typed-binding, body-dispatch, Agent/MCP,
+join, and file/SQLite results as useful candidate evidence while distinguishing
+them from shipped iterator behavior.
 
 The roadmap gate remains unchanged. Continue with a non-public integrated seam
 proof: a graph-dispatched typed Break carrying source and activation identity;
-nearest-frame consumption with stale/foreign-target rejection; one VAW-owned
-run context whose dispatcher returns typed outcomes without finalizing the
-root; and the persisted lifecycle, budget, adapter, and playback matrix through
-both stores. Preserve `core.terminate` as workflow-level successful exit. The
-review found no demonstrated compatibility defect, but compatibility and
-playback evidence remain prerequisites. Do not add public iterator/Break
-schema or Studio authoring until the integrated proof passes and the design is
-reviewed again. Checkpoint recovery remains excluded until activation frames
-are captured and restored.
+source-only dispatcher requests with target derivation/nearest-frame
+consumption in the coordinator; one VAW-owned run context whose dispatcher
+returns typed outcomes without finalizing the root; and the persisted
+lifecycle, budget, adapter, and playback matrix through both stores. Preserve
+`core.terminate` as workflow-level successful exit. The review found no
+demonstrated compatibility defect, but compatibility and playback evidence
+remain prerequisites. Do not add public iterator/Break schema or Studio
+authoring until the integrated proof passes and the design is reviewed again.
+Checkpoint recovery remains excluded until activation frames are captured and
+restored.
 
 On 2026-11-13, the structured proof candidate moved item/index binding into its
 VAW-owned activation frame. The frame carries the declared primitive element
@@ -1497,6 +1501,22 @@ failure and dispatches no body Agent or MCP work. Production scheduler
 selection, authored iterator pins, and public Break/array contracts remain
 open. This increments the proof only and does not change the **REVISE**
 architecture outcome or authorize public schema/Studio work.
+
+## Break target ownership in the structured proof (2026-11-14)
+
+The private structured dispatcher now returns a typed Break request containing
+only its source node, source activation frame, and scope. It no longer selects
+the nearest target. `ExecuteStructuredActivationSequenceProofAsync` passes the
+request to the active VAW frame, which validates source identity/scope, derives
+the nearest loop target, consumes the request, and records the resolved target
+in the activation completion evidence. Focused tests cover nested nearest-frame
+selection, stale/foreign request rejection, graph-dispatched Break behavior,
+and file/SQLite persistence (8 focused cases pass). The dispatcher/coordinator
+split is clearer in this proof candidate, but the implementation remains
+private and the three-candidate harness still owns its own loop coordinators.
+This does not establish a production-owned shared lifecycle/budget context,
+public node contract, or selected scheduler; the architecture remains
+**REVISE**.
 
 ## Parallel Agent graph-function calls across array activations (2026-11-14)
 

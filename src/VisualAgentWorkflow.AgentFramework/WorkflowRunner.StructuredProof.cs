@@ -9,11 +9,14 @@ public sealed partial class WorkflowRunner
 {
     internal const string StructuredProofBreakNodeType = "vaw.proof.array-break";
 
+    internal sealed record StructuredActivationBreakRequest(string SourceNodeId, Guid SourceFrameId,
+        string ScopeId);
+
     internal sealed record StructuredActivationBreakSignal(string SourceNodeId, Guid SourceFrameId,
         Guid TargetFrameId, string ScopeId);
 
     private sealed record StructuredSchedulerProofResult(WorkflowExecutionResult Execution,
-        StructuredActivationBreakSignal? BreakSignal = null);
+        StructuredActivationBreakRequest? BreakRequest = null);
 
     private static WorkflowDefinition ValidationProjection(WorkflowDefinition definition)
     {
@@ -387,8 +390,8 @@ public sealed partial class WorkflowRunner
                 new GraphMessage(input, null, null, DataType: inputType,
                     ActivationFrame: activationFrame, CollaborationRuntime: collaborationRuntime), schedulerCancellation.Token);
             if (output is null) throw new InvalidOperationException("The structured proof produced no workflow output.");
-            if (output.ActivationBreakSignal is { } breakSignal)
-                return new(new(null, false, HasOutput: false), breakSignal);
+            if (output.ActivationBreakRequest is { } breakRequest)
+                return new(new(null, false, HasOutput: false), breakRequest);
             if (output.FailureSignal)
             {
                 if (emitRunLifecycle)
@@ -438,19 +441,18 @@ public sealed partial class WorkflowRunner
                 {
                     var frame = message.ActivationFrame ?? activationFrame
                         ?? throw new InvalidOperationException("The structured proof Break has no active iterator frame.");
-                    var nearestFrame = frame.NearestLoop();
-                    var signal = new StructuredActivationBreakSignal(nodeId, frame.Id, nearestFrame.Id, frame.ScopeId);
+                    var request = new StructuredActivationBreakRequest(nodeId, frame.Id, frame.ScopeId);
                     var invocationId = Guid.NewGuid();
                     await Emit(ExecutionEventKinds.NodeStarted, nodeId, invocationId, eventScope: frame.ScopeId);
                     if (afterNodeStarted is not null) await afterNodeStarted(nodeId, token);
                     await Emit(ExecutionEventKinds.NodeCompleted, nodeId, invocationId,
-                        data: JsonSerializer.Serialize(signal, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+                        data: JsonSerializer.Serialize(request, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
                         eventScope: frame.ScopeId);
                     return message with
                     {
                         SourceNode = nodeId,
                         SourcePort = "break",
-                        ActivationBreakSignal = signal
+                        ActivationBreakRequest = request
                     };
                 }
                 if (definition.Nodes[nodeId].Type == NodeTypes.Sequence)
@@ -482,7 +484,7 @@ public sealed partial class WorkflowRunner
                     return ValueTask.CompletedTask;
                 }, token);
 
-                if (result.ActivationBreakSignal is not null) return result;
+                if (result.ActivationBreakRequest is not null) return result;
 
                 if (node.Type == NodeTypes.ParallelFork)
                 {
@@ -494,7 +496,7 @@ public sealed partial class WorkflowRunner
                         .FirstOrDefault(error => error is not null and not OperationCanceledException);
                     if (failure is not null) throw failure;
                     var breakResult = outcomes.Select(outcome => outcome.Message)
-                        .FirstOrDefault(branch => branch?.ActivationBreakSignal is not null);
+                        .FirstOrDefault(branch => branch?.ActivationBreakRequest is not null);
                     if (breakResult is not null) return breakResult;
                     var outputs = outcomes.Select(outcome => outcome.Message).Where(branch => branch is not null).ToArray();
                     return outputs.Length switch
@@ -527,7 +529,7 @@ public sealed partial class WorkflowRunner
                     {
                         var branch = await DispatchNode(target, outgoing,
                             linkedCancellation?.Token ?? branchToken);
-                        if (branch?.ActivationBreakSignal is not null) sharedCancellation?.Cancel();
+                        if (branch?.ActivationBreakRequest is not null) sharedCancellation?.Cancel();
                         return (branch, null);
                     }
                     catch (Exception error)
@@ -686,7 +688,7 @@ public sealed partial class WorkflowRunner
                                 ParallelForkNodeId: message.ParallelForkNodeId,
                                 SequenceLineage: lineage, ActivationFrame: message.ActivationFrame,
                                 CollaborationRuntime: message.CollaborationRuntime), outputsCancellation.Token);
-                        if (result?.ActivationBreakSignal is not null) outputsCancellation.Cancel();
+                        if (result?.ActivationBreakRequest is not null) outputsCancellation.Cancel();
                         if (result is null)
                             return (ActivationId: activationId, OutputId: output.OutputId, Result: (GraphMessage?)null,
                                 Error: (Exception?)new InvalidOperationException($"Sequence output '{output.OutputId}' produced no result."));
@@ -715,11 +717,11 @@ public sealed partial class WorkflowRunner
                 }
 
                 var breakResult = outcomes.Select(outcome => outcome.Result)
-                    .FirstOrDefault(result => result?.ActivationBreakSignal is not null);
+                    .FirstOrDefault(result => result?.ActivationBreakRequest is not null);
                 if (breakResult is not null)
                 {
                     await Emit("sequence.aborted", nodeId, sequenceInvocationId,
-                        data: JsonSerializer.Serialize(breakResult.ActivationBreakSignal,
+                        data: JsonSerializer.Serialize(breakResult.ActivationBreakRequest,
                             new JsonSerializerOptions(JsonSerializerDefaults.Web)));
                     return breakResult;
                 }
@@ -838,12 +840,12 @@ public sealed partial class WorkflowRunner
                     activationFrame: frame, activationVariableStore: id =>
                         id is { } frameId && variableStores.TryGetValue(frameId, out var currentStore) ? currentStore : null,
                     retainedSession: session, proofBreakNodeIds: proofBreakNodeIds);
-                if (dispatchResult.BreakSignal is { } breakSignal)
+                if (dispatchResult.BreakRequest is { } breakRequest)
                 {
-                    frame.ValidateNearestBreak(breakSignal);
+                    var breakSignal = frame.ConsumeNearestBreak(breakRequest);
                     await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId, iterationId,
                         scopeId, JsonSerializer.Serialize(new { outcome = "break", breakSignal.SourceNodeId,
-                            breakSignal.TargetFrameId }));
+                            breakSignal.TargetFrameId }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
                     break;
                 }
 

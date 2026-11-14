@@ -146,9 +146,10 @@ will be introduced.
   declared type.
   See [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
   - [ ] Carry a graph-dispatched typed Break result with source and target
-    activation identity into the VAW coordinator; consume it only at the
-    nearest active frame. Prove nested outer-loop continuation and rejection
-    of stale or foreign targets without changing `core.terminate` semantics.
+    activation identity into the VAW coordinator; have the dispatcher report
+    only source identity and derive/consume the target in the coordinator.
+    Prove nested outer-loop continuation and rejection of stale or foreign
+    requests without changing `core.terminate` semantics.
   - [ ] Move root/activation lifecycle and shared atomic reservations behind
     one VAW-owned run context; the body dispatcher returns typed outcomes and
     does not finalize the root. Prove exact-once terminal outcomes, pre-dispatch
@@ -240,6 +241,13 @@ will be introduced.
       undersized failure reserves, and file/SQLite append failures now have
       focused structured-context coverage. The latest review returned
       **REVISE**; see Decision 0070.
+      - [x] Move nearest-target selection out of the private structured graph
+        dispatcher. It now returns a source-only typed Break request; the VAW
+        activation coordinator derives the nearest target and records the
+        consumed result. Focused tests reject stale/foreign source identity
+        and verify nested nearest-frame selection (8 cases pass, including
+        file/SQLite persistence). This is proof-only and does not select or
+        ship the iterator architecture.
   - [x] Compare typed item/index `data.evaluated` payloads across candidates.
     Evaluated values, activation scopes, and data connection IDs match and
     persist in both stores (2/2 focused theory cases). Runtime-output cache
