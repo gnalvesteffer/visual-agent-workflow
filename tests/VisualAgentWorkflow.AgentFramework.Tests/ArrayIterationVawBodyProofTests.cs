@@ -237,6 +237,64 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     [Fact]
+    public async Task StructuredActivationSequenceProof_AdmittedForkFailureWinsBreakRace()
+    {
+        var definition = ParallelBodyDefinition();
+        var nodes = definition.Nodes.SetItem("agent-left",
+            new NodeDefinition(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"));
+        var revision = WorkflowRevision.CreateProofOnly(definition with
+        {
+            Nodes = nodes,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        }, "array-iteration-fork-break-failure-race-proof");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var agents = new FailingForkSiblingAgentExecutor();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new WorkflowRunner(agents: agents)
+                .ExecuteStructuredActivationSequenceProofAsync(Guid.NewGuid(), revision, "[\"north\"]",
+                    "index", null, evt =>
+                    {
+                        events.Enqueue(evt);
+                        return ValueTask.CompletedTask;
+                    }, afterNodeStarted: (nodeId, token) => nodeId == "agent-left"
+                        ? new(agents.FailureReached.Task.WaitAsync(TimeSpan.FromSeconds(5), token))
+                        : ValueTask.CompletedTask));
+
+        var recorded = events.ToArray();
+        Assert.Contains(recorded, evt => evt.Kind == ExecutionEventKinds.NodeFailed && evt.NodeId == "agent-right");
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
+    }
+
+    [Fact]
+    public async Task StructuredActivationSequenceProof_HostCancellationWinsBreakRace()
+    {
+        var revision = WorkflowRevision.CreateProofOnly(StructuredBreakProofDefinition(),
+            "array-iteration-break-host-cancellation-race-proof");
+        using var cancellation = new CancellationTokenSource();
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new WorkflowRunner().ExecuteStructuredActivationSequenceProofAsync(Guid.NewGuid(), revision,
+                "[\"stop\"]", "index", null, evt =>
+                {
+                    events.Enqueue(evt);
+                    return ValueTask.CompletedTask;
+                }, cancellation.Token, afterNodeStarted: (nodeId, _) =>
+                {
+                    if (nodeId == "proof-break") cancellation.Cancel();
+                    return ValueTask.CompletedTask;
+                }, itemParameterId: "item"));
+
+        var recorded = events.ToArray();
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Cancelled && evt.ScopeId is null);
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
+    }
+
+    [Fact]
     public void StructuredActivationFrame_RejectsBreakSignalsFromForeignFrames()
     {
         var frame = new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null, "array-loop", 0, "item",
@@ -8109,6 +8167,25 @@ public sealed class ArrayIterationVawBodyProofTests
                 throw new InvalidOperationException("Deterministic proof failure.");
             var query = invocation.NodeId == "agent" ? input : $"{input}-{invocation.NodeId}";
             return Task.FromResult(JsonSerializer.Serialize(new { query }));
+        }
+    }
+
+    private sealed class FailingForkSiblingAgentExecutor : IAgentNodeExecutor
+    {
+        public TaskCompletionSource FailureReached { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.break-race", "Break race proof", "proof", true)]);
+
+        public Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            if (invocation.NodeId != "agent-right")
+                throw new InvalidOperationException($"Unexpected proof Agent node '{invocation.NodeId}'.");
+            FailureReached.TrySetResult();
+            throw new InvalidOperationException("The admitted sibling failed while Break was settling.");
         }
     }
 

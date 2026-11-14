@@ -450,8 +450,9 @@ will be introduced.
       proof-only node returns a typed source/frame/scope signal, and the nearest
       frame consumes it. Sequence and static fork settle admitted descendants,
       suppress normal completion evidence, and propagate Break to that frame.
-      Focused tests cover sibling cancellation, stale/foreign frame rejection,
-      and no later item admission (6/6). This remains a private proof: authored
+      Focused tests cover sibling cancellation, admitted descendant failure and
+      host-cancellation races, stale/foreign frame rejection, and no later
+      item admission (8/8). This remains a private proof: authored
       iterator item/index pins, a public Break node, persisted playback, and a
       production-selected scheduler are not implemented.
     - [ ] Exercise authored typed array item/index pins and integrated
