@@ -704,14 +704,14 @@ public sealed class ArrayIterationVawBodyProofTests
         var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
         var subworkflowRecorder = new ProofRecorder(subworkflowStore);
         var hybridRecorder = new ProofRecorder(hybridStore);
-        var structuredSession = new ParallelGraphFunctionChatSession();
-        var subworkflowSession = new ParallelGraphFunctionChatSession();
-        var hybridSession = new ParallelGraphFunctionChatSession();
+        var structuredSession = new ParallelActivationBarrier();
+        var subworkflowSession = new ParallelActivationBarrier();
+        var hybridSession = new ParallelActivationBarrier();
         var structuredBroker = new EchoToolBroker();
         var subworkflowBroker = new EchoToolBroker();
         var hybridBroker = new EchoToolBroker();
 
-        AgentNodeExecutor CreateAgents(INodeToolBroker broker, ParallelGraphFunctionChatSession session) =>
+        AgentNodeExecutor CreateAgents(INodeToolBroker broker, ParallelActivationBarrier session) =>
             new([new AgentProviderRegistration(provider, () => new ParallelGraphFunctionChatClient(session))], broker);
 
         var structured = await new WorkflowRunner(structuredBroker, CreateAgents(structuredBroker, structuredSession))
@@ -765,9 +765,9 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Equal(structuredEvents, structuredStore.ReopenStore().Get(structuredStore.RunId)!.Events);
         Assert.Equal(subworkflowEvents, subworkflowStore.ReopenStore().Get(subworkflowStore.RunId)!.Events);
         Assert.Equal(hybridEvents, hybridStore.ReopenStore().Get(hybridStore.RunId)!.Events);
-        Assert.Equal(2, structuredSession.CompletedRequestPairs);
-        Assert.Equal(2, subworkflowSession.CompletedRequestPairs);
-        Assert.Equal(2, hybridSession.CompletedRequestPairs);
+        Assert.Equal(2, structuredSession.CompletedPairs);
+        Assert.Equal(2, subworkflowSession.CompletedPairs);
+        Assert.Equal(2, hybridSession.CompletedPairs);
         Assert.Equal(GraphFunctionToolEvidence(structuredEvents), GraphFunctionToolEvidence(subworkflowEvents));
         Assert.Equal(GraphFunctionToolEvidence(structuredEvents), GraphFunctionToolEvidence(hybridEvents));
 
@@ -812,6 +812,128 @@ public sealed class ArrayIterationVawBodyProofTests
             using var payload = JsonDocument.Parse(data!);
             return payload.RootElement.GetProperty("functionInvocationId").GetGuid();
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IteratorCandidates_EvaluateDirectGraphFunctionNodesInParallelPerActivation(bool sqlite)
+    {
+        const string input = "[\"north\",\"south\"]";
+        var function = GraphFunctionValueBodyDefinition().Nodes["call"].GraphFunction!;
+        var body = ParallelBodyDefinition();
+        var nodes = body.Nodes
+            .Add("function-left", new NodeDefinition(NodeTypes.FunctionCall, "1.0.0") { GraphFunction = function })
+            .Add("function-right", new NodeDefinition(NodeTypes.FunctionCall, "1.0.0") { GraphFunction = function });
+        var connections = body.Connections.Remove("input-left").Remove("input-right")
+            .Add("input-function-left", new(new("input", "out"), new("function-left", "text"), "data"))
+            .Add("input-function-right", new(new("input", "out"), new("function-right", "text"), "data"))
+            .Add("function-left-agent", new(new("function-left", "result"), new("agent-left", "in"), "data"))
+            .Add("function-right-agent", new(new("function-right", "result"), new("agent-right", "in"), "data"));
+        var definition = body with
+        {
+            Nodes = nodes,
+            Connections = connections,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        WorkflowValidator.ThrowIfInvalid(definition);
+        var revision = WorkflowRevision.Create(definition, "array-iteration-parallel-direct-function-proof");
+        using var structuredStore = new ProofRunStore(revision, input, sqlite);
+        using var subworkflowStore = new ProofRunStore(revision, input, sqlite);
+        using var hybridStore = new ProofRunStore(revision, input, sqlite);
+        var structuredRecorder = new ProofRecorder(structuredStore, startRoot: false);
+        var subworkflowRecorder = new ProofRecorder(subworkflowStore);
+        var hybridRecorder = new ProofRecorder(hybridStore);
+        var structuredAgents = new ParallelFunctionInputAgentExecutor(new ParallelActivationBarrier());
+        var subworkflowAgents = new ParallelFunctionInputAgentExecutor(new ParallelActivationBarrier());
+        var hybridAgents = new ParallelFunctionInputAgentExecutor(new ParallelActivationBarrier());
+
+        var structured = await new WorkflowRunner(agents: structuredAgents)
+            .ExecuteStructuredActivationSequenceProofAsync(structuredStore.RunId, revision, input, "index", null,
+                evt =>
+                {
+                    structuredRecorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                });
+
+        var subworkflowIterator = new PerItemWorkflowExecutor(subworkflowStore.RunId, revision,
+            subworkflowRecorder, subworkflowAgents, new EchoToolBroker());
+        var subworkflowWorkflow = new WorkflowBuilder(subworkflowIterator).WithOutputFrom(subworkflowIterator).Build();
+        string? subworkflowOutput = null;
+        await using (var run = await InProcessExecution.Concurrent.RunStreamingAsync(subworkflowWorkflow, input))
+            await foreach (var evt in run.WatchStreamAsync())
+                if (evt is WorkflowOutputEvent { Data: string output }) subworkflowOutput = output;
+        subworkflowRecorder.CompleteRoot();
+
+        var hybridOutput = await RunActivationLoopProofAsync(hybridStore.RunId, revision, hybridRecorder,
+            hybridAgents, new EchoToolBroker(), "array-loop", ParseProofArrayItems(input, WorkflowDataTypes.String),
+            null, "index", [], async frame =>
+            {
+                ValueTask Record(ExecutionEvent evt)
+                {
+                    if (evt.Kind is ExecutionEventKinds.Started or ExecutionEventKinds.Completed or
+                        ExecutionEventKinds.Failed or ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated)
+                        return ValueTask.CompletedTask;
+                    hybridRecorder.Append(evt with { ScopeId = evt.ScopeId ?? frame.ScopeId });
+                    return ValueTask.CompletedTask;
+                }
+
+                var result = await new WorkflowRunner(agents: hybridAgents).ExecuteWithOutcomeAsync(
+                    hybridStore.RunId, revision, frame.Item, frame.Parameters, Record);
+                if (result.Failed || result.Output is null)
+                    throw new InvalidOperationException("The hybrid direct graph-function body failed.");
+                return new ActivationLoopProofValue(result.Output);
+            });
+        hybridRecorder.CompleteRoot();
+
+        Assert.False(structured.Failed);
+        Assert.Equal(structured.Output, subworkflowOutput);
+        Assert.Equal(structured.Output, hybridOutput);
+        Assert.Equal(2, structuredAgents.Barrier.CompletedPairs);
+        Assert.Equal(2, subworkflowAgents.Barrier.CompletedPairs);
+        Assert.Equal(2, hybridAgents.Barrier.CompletedPairs);
+        var structuredEvents = structuredRecorder.Snapshot();
+        var subworkflowEvents = subworkflowRecorder.Snapshot();
+        var hybridEvents = hybridRecorder.Snapshot();
+        AssertPersistedSequence(structuredStore, structuredEvents, "completed");
+        AssertPersistedSequence(subworkflowStore, subworkflowEvents, "completed");
+        AssertPersistedSequence(hybridStore, hybridEvents, "completed");
+        Assert.Equal(structuredEvents, structuredStore.ReopenStore().Get(structuredStore.RunId)!.Events);
+        Assert.Equal(subworkflowEvents, subworkflowStore.ReopenStore().Get(subworkflowStore.RunId)!.Events);
+        Assert.Equal(hybridEvents, hybridStore.ReopenStore().Get(hybridStore.RunId)!.Events);
+        Assert.Equal(DirectFunctionNodeEvidence(structuredEvents), DirectFunctionNodeEvidence(subworkflowEvents));
+        Assert.Equal(DirectFunctionNodeEvidence(structuredEvents), DirectFunctionNodeEvidence(hybridEvents));
+
+        foreach (var events in new[] { structuredEvents, subworkflowEvents, hybridEvents })
+        foreach (var (scope, item) in new[] { ("array-loop/0", "north"), ("array-loop/1", "south") })
+        foreach (var (nodeId, connectionId) in new[]
+        {
+            ("function-left", "data:function-left-agent"),
+            ("function-right", "data:function-right-agent")
+        })
+        {
+            var evaluated = Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                evt.NodeId == nodeId && evt.ScopeId == scope && evt.ConnectionId == connectionId);
+            using var payload = JsonDocument.Parse(evaluated.Data!);
+            Assert.Equal("string", payload.RootElement.GetProperty("dataType").GetString());
+            Assert.Equal(item + "!", payload.RootElement.GetProperty("value").GetString());
+            var functionEvidence = payload.RootElement.GetProperty("function");
+            Assert.Equal(function.Definition.FunctionId, functionEvidence.GetProperty("functionId").GetString());
+            Assert.Equal(item, functionEvidence.GetProperty("inputs").GetProperty("text").GetString());
+            Assert.Contains(functionEvidence.GetProperty("evaluatedValues").EnumerateArray(), value =>
+                value.GetProperty("nodeId").GetString() == "concat" &&
+                value.GetProperty("value").GetString() == item + "!");
+        }
+
+        static (string? NodeId, string? ScopeId, string? ConnectionId, string? Data)[] DirectFunctionNodeEvidence(
+            IEnumerable<ExecutionEvent> events) => events
+            .Where(evt => evt.Kind == ExecutionEventKinds.DataEvaluated &&
+                evt.NodeId is "function-left" or "function-right")
+            .Select(evt => (evt.NodeId, evt.ScopeId, evt.ConnectionId, evt.Data))
+            .OrderBy(evt => evt.ScopeId, StringComparer.Ordinal)
+            .ThenBy(evt => evt.NodeId, StringComparer.Ordinal)
+            .ToArray();
     }
 
     [Theory]
@@ -8379,14 +8501,14 @@ public sealed class ArrayIterationVawBodyProofTests
     private sealed class EvidenceBudgetExhaustedException()
         : InvalidOperationException("The run evidence budget or aggregate work limit was exhausted.");
 
-    private sealed class ParallelGraphFunctionChatSession
+    private sealed class ParallelActivationBarrier
     {
         private readonly object gate = new();
         private TaskCompletionSource pairReady = NewPair();
         private int arrivals;
         private int completedRequestPairs;
 
-        public int CompletedRequestPairs { get { lock (gate) return completedRequestPairs; } }
+        public int CompletedPairs { get { lock (gate) return completedRequestPairs; } }
 
         public async Task WaitForConcurrentPairAsync(CancellationToken cancellationToken)
         {
@@ -8412,7 +8534,7 @@ public sealed class ArrayIterationVawBodyProofTests
         private static TaskCompletionSource NewPair() => new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
-    private sealed class ParallelGraphFunctionChatClient(ParallelGraphFunctionChatSession session) : IChatClient
+    private sealed class ParallelGraphFunctionChatClient(ParallelActivationBarrier session) : IChatClient
     {
         private int requestCount;
 
@@ -8438,6 +8560,26 @@ public sealed class ArrayIterationVawBodyProofTests
         public object? GetService(Type serviceType, object? serviceKey = null) => null;
 
         public void Dispose() { }
+    }
+
+    private sealed class ParallelFunctionInputAgentExecutor(ParallelActivationBarrier barrier) : IAgentNodeExecutor
+    {
+        private readonly ConcurrentQueue<(string NodeId, string Input)> invocations = new();
+
+        public ParallelActivationBarrier Barrier => barrier;
+        public (string NodeId, string Input)[] Invocations => [.. invocations];
+
+        public Task<IReadOnlyList<AgentProviderDescriptor>> ListProvidersAsync() =>
+            Task.FromResult<IReadOnlyList<AgentProviderDescriptor>>(
+                [new("proof.parallel-function-input", "Parallel function input proof", "proof", true)]);
+
+        public async Task<string> ExecuteAsync(NodeInvocationContext invocation, string input,
+            CancellationToken cancellationToken = default)
+        {
+            invocations.Enqueue((invocation.NodeId, input));
+            await barrier.WaitForConcurrentPairAsync(cancellationToken);
+            return JsonSerializer.Serialize(new { query = $"{input}-{invocation.NodeId}" });
+        }
     }
 
     private sealed class EchoAgentExecutor(string? failInput = null, string? failNodeId = null) : IAgentNodeExecutor

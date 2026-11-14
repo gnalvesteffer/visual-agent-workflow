@@ -1383,10 +1383,10 @@ activations remain open.
    - [x] Compare a pinned pure graph-function call across three item
      activations. Outputs and function input/evaluated-node evidence match the
      fresh-subworkflow and hybrid candidates, with each event scoped to its
-     own item in both stores (2/2 focused theory cases). Parallel direct pure
-     graph-function-node evaluations and broader runtime-output cache identity
-     remain open; parallel Agent graph-function tool invocations are proven in
-     the follow-up below.
+     own item in both stores (2/2 focused theory cases). Parallel Agent graph-
+     function tool invocations and direct pure function nodes consumed from
+     concurrent Agent branches are proven in the follow-ups below. Broader
+     runtime-output cache identity remains open.
 4. Define and implement an explicit run-level budget context that reaches
    nested agents, delegates/teams, MCP broker scopes, and the single run event
    recorder. The product direction remains full capability composition;
@@ -1507,6 +1507,20 @@ from the graph shape. For two changing items, all three candidates produce
 matching function input/output evidence scoped to the correct Agent and item;
 each candidate history persists and reopens through file and SQLite stores
 (2/2 focused store cases). This closes parallel Agent graph-function tool
-invocation for this candidate matrix only. It does not prove parallel direct
-`FunctionCall` node evaluation, production-provider concurrency, a selected
-iterator scheduler, or public typed iterator authoring.
+invocation for this candidate matrix only. Parallel direct `FunctionCall` nodes
+are exercised separately below. Neither test proves production-provider
+concurrency, a selected iterator scheduler, or public typed iterator authoring.
+
+## Parallel direct graph-function nodes across array activations (2026-11-14)
+
+The same three candidates now run two direct pure `FunctionCall` nodes as the
+data inputs of a parallel Agent fork for each item. Each Agent waits at an
+explicit pair barrier after its data input has been evaluated, proving both
+branch computations reach the concurrent boundary in each activation. For two
+changing items, function results and their pinned function/input/evaluated-node
+evidence match by branch and scope across candidates; every event stream
+persists and reopens through file and SQLite stores (2/2 focused store cases).
+This covers direct function nodes used by concurrent fork branches in this
+matrix. It does not establish parallel data-node evaluation under arbitrary
+schedulers, broader cache identity, production-provider concurrency, or a
+selected iterator architecture.

@@ -247,14 +247,19 @@ will be introduced.
   - [x] Compare a pinned graph-function result and nested evaluation evidence
     over three changing items. All candidates agree on output, function inputs,
     evaluated values, and per-item scopes; file and SQLite persistence passes
-    (2/2 focused theory cases). Parallel direct pure graph-function-node
-    evaluations and broader runtime-output cache identity remain open.
+    (2/2 focused theory cases). Broader runtime-output cache identity remains
+    open.
     - [x] Exercise parallel Agent graph-function tool calls in a two-branch
       fork for two changing array items across all three candidates. A test
       barrier proves overlapping Agent requests, and matching function input/
       output evidence persists through file and SQLite stores (2/2 focused
-      cases). Direct pure function-node evaluation and production-provider
-      concurrency remain open.
+      cases). Production-provider concurrency remains open.
+    - [x] Exercise direct pure `FunctionCall` nodes as data inputs to both
+      parallel Agent branches for two changing items across all candidates.
+      The branch barrier confirms concurrent dispatch after graph evaluation;
+      function evidence agrees and survives file/SQLite reopen (2/2 focused
+      cases). Broader cache identity and arbitrary-scheduler concurrency remain
+      open.
   - [x] Candidate subworkflow proof: fresh per-item AF 1.26.0 workflow bindings
     preserve exclusive routing and parallel barrier state across sequential
     items. A nested test workflow returns a typed Break control signal with
