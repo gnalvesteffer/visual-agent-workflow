@@ -452,8 +452,10 @@ will be introduced.
       suppress normal completion evidence, and propagate Break to that frame.
       Focused tests cover sibling cancellation, admitted descendant failure and
       host-cancellation races, stale/foreign frame rejection, and no later
-      item admission (8/8). This remains a private proof: authored
-      iterator item/index pins, a public Break node, persisted playback, and a
+      item admission. A test-only dispatch override also persists and reopens
+      the root/branch event prefix through file and SQLite stores (10 focused
+      cases). This remains a private proof: authored iterator item/index pins,
+      a public Break node, passive playback compatibility, and a
       production-selected scheduler are not implemented.
     - [ ] Exercise authored typed array item/index pins and integrated
       production runtime dispatch, then qualify the complete lifecycle,

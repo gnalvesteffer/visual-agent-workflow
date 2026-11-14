@@ -1460,13 +1460,15 @@ proof event `sequence.aborted` records Sequence abort without claiming an
 ordinary Sequence terminal outcome. `core.terminate` retains its separate
 workflow-exit behavior.
 
-Focused structured tests pass (8/8), including Break through Sequence and a
-static fork with a cooperatively cancelled Agent sibling, nearest-frame
+Focused structured tests pass (10 cases), including Break through Sequence and
+a static fork with a cooperatively cancelled Agent sibling, nearest-frame
 consumption, foreign/stale target rejection, an admitted sibling failure
 racing with Break, host cancellation racing with Break, and the existing
-failed-fork cancellation regression. These tests execute the private
-structured scheduler and deterministic adapters; they do not persist the
-proof-only graph. File/SQLite passive evidence, playback compatibility,
+failed-fork cancellation regression. A test-only node-dispatch override runs
+the fork proof against an otherwise validated revision; its root/branch
+event prefix persists and reopens through both file and SQLite stores (2/2).
+The Break behavior itself is not serialized in that revision, and the
+proof-only Sequence graph remains in-memory. Passive playback compatibility,
 persisted failure-race coverage, a production-selected scheduler, authored
 iterator pins, and public Break/array contracts remain open. This increments
 the proof only and does not change the **REVISE** architecture outcome or

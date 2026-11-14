@@ -236,6 +236,45 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredActivationSequenceProof_PersistsGraphDispatchedBreakThroughStores(bool sqlite)
+    {
+        var definition = ParallelBodyDefinition() with
+        {
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+        var revision = WorkflowRevision.Create(definition, "array-iteration-persisted-break-proof");
+        using var runStore = new ProofRunStore(revision, "[\"north\",\"later\"]", sqlite);
+        var recorder = new ProofRecorder(runStore, startRoot: false);
+        var agents = new BlockingAgentExecutor("north");
+
+        var result = await new WorkflowRunner(agents: agents)
+            .ExecuteStructuredActivationSequenceProofAsync(runStore.RunId, revision, "[\"north\",\"later\"]",
+                "index", null, evt =>
+                {
+                    recorder.Append(evt);
+                    return ValueTask.CompletedTask;
+                }, afterNodeStarted: (nodeId, token) => nodeId == "agent-left"
+                    ? new(agents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), token))
+                    : ValueTask.CompletedTask,
+                proofBreakNodeIds: new HashSet<string>(StringComparer.Ordinal) { "agent-left" });
+
+        var persistedEvents = recorder.Snapshot();
+        Assert.False(result.Failed);
+        Assert.Equal(string.Empty, result.Output);
+        AssertPersistedSequence(runStore, persistedEvents, "completed");
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal(persistedEvents, reopened.Events);
+        Assert.Contains(reopened.Events, evt => evt.Kind == ExecutionEventKinds.NodeCancelled &&
+            evt.NodeId == "agent-right");
+        Assert.DoesNotContain(reopened.Events, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "join");
+        Assert.Single(reopened.Events, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
+    }
+
     [Fact]
     public async Task StructuredActivationSequenceProof_AdmittedForkFailureWinsBreakRace()
     {

@@ -290,7 +290,7 @@ public sealed partial class WorkflowRunner
     {
         var result = await ExecuteStructuredSchedulerProofCoreAsync(runId, revision, input, parameters, record,
             cancellationToken, activationScopeId, emitRunLifecycle, gate, afterNodeStarted,
-            stageForkTargetsBeforeDispatch, afterForkTargetStaged, null, null, null, null);
+            stageForkTargetsBeforeDispatch, afterForkTargetStaged, null, null, null, null, null);
         return result.Execution;
     }
 
@@ -304,7 +304,8 @@ public sealed partial class WorkflowRunner
         ExplicitGraphDataEvaluator? retainedDataEvaluator,
         StructuredActivationFrame? activationFrame,
         Func<Guid?, WorkflowVariableStore?>? activationVariableStore,
-        StructuredProofSession? retainedSession)
+        StructuredProofSession? retainedSession,
+        IReadOnlySet<string>? proofBreakNodeIds)
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(input);
@@ -432,7 +433,8 @@ public sealed partial class WorkflowRunner
             try
             {
                 token.ThrowIfCancellationRequested();
-                if (definition.Nodes[nodeId].Type == StructuredProofBreakNodeType)
+                if (definition.Nodes[nodeId].Type == StructuredProofBreakNodeType ||
+                    proofBreakNodeIds?.Contains(nodeId) == true)
                 {
                     var frame = message.ActivationFrame ?? activationFrame
                         ?? throw new InvalidOperationException("The structured proof Break has no active iterator frame.");
@@ -766,7 +768,8 @@ public sealed partial class WorkflowRunner
         string activationLoopNodeId = "array-loop",
         string? itemParameterId = null,
         string arrayElementType = WorkflowDataTypes.String,
-        StructuredActivationRunBudget? runBudget = null)
+        StructuredActivationRunBudget? runBudget = null,
+        IReadOnlySet<string>? proofBreakNodeIds = null)
     {
         ArgumentNullException.ThrowIfNull(bodyRevision);
         ArgumentNullException.ThrowIfNull(jsonItems);
@@ -834,7 +837,7 @@ public sealed partial class WorkflowRunner
                     afterForkTargetStaged: null, retainedDataEvaluator: retainedDataEvaluator,
                     activationFrame: frame, activationVariableStore: id =>
                         id is { } frameId && variableStores.TryGetValue(frameId, out var currentStore) ? currentStore : null,
-                    retainedSession: session);
+                    retainedSession: session, proofBreakNodeIds: proofBreakNodeIds);
                 if (dispatchResult.BreakSignal is { } breakSignal)
                 {
                     frame.ValidateNearestBreak(breakSignal);
