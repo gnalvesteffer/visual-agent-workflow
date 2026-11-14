@@ -4267,6 +4267,19 @@ public sealed class ArrayIterationVawBodyProofTests
             var authorizations = baseline.Events.Where(evt => evt.Kind == ExecutionEventKinds.ToolAuthorized)
                 .OrderBy(evt => evt.Sequence).ToArray();
             var secondAuthorization = authorizations[1];
+            const int reservedFailureEvents = 8;
+            var eventLimit = checked((int)secondAuthorization.Sequence + 1 + reservedFailureEvents);
+            var eventLimited = await ExecuteCandidateAsync(candidate, maximumConcurrentReservations: 2,
+                maximumEvents: eventLimit, releaseConnectionOnReservationRejected: true);
+            Assert.Null(eventLimited.Output);
+            Assert.True(eventLimited.ReservationRejected);
+            Assert.Single(eventLimited.Events, evt => evt.Kind == ExecutionEventKinds.ToolAuthorized);
+            Assert.DoesNotContain(eventLimited.Events,
+                evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+            Assert.Contains(eventLimited.Events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.ScopeId is null);
+            Assert.Equal(0, eventLimited.PendingReservations);
+            Assert.True(eventLimited.Events.Length <= eventLimit);
+
             var bytesBeforeSecondAuthorization = baseline.Events
                 .Where(evt => evt.Sequence < secondAuthorization.Sequence).Sum(EventBytes);
             var concurrentOutcomeByteLimit = bytesBeforeSecondAuthorization + EventBytes(secondAuthorization) +
@@ -4299,17 +4312,19 @@ public sealed class ArrayIterationVawBodyProofTests
         }
 
         async Task<CandidateProductionMcpReservationResult> ExecuteCandidateAsync(string candidate,
-            int maximumConcurrentReservations, long maximumBytes = 4_000_000)
+            int maximumConcurrentReservations, long maximumBytes = 4_000_000, int maximumEvents = 512,
+            bool releaseConnectionOnReservationRejected = false)
         {
             using var store = new ProofRunStore(revision, input, sqlite);
-            var recorder = new ReservedEvidenceProofRecorder(store, maximumEvents: 512,
+            var recorder = new ReservedEvidenceProofRecorder(store, maximumEvents,
                 maximumBytes, reservedFailureEvents: 8, reservedFailureBytes: 64_000,
                 maximumOutcomeBytes: 32_000,
                 maximumConcurrentOutcomeReservations: maximumConcurrentReservations,
                 reservationRequestKind: ExecutionEventKinds.ToolAuthorized,
                 reservationOutcomeKind: ExecutionEventKinds.ToolCompleted,
                 additionalReservationOutcomeKind: ExecutionEventKinds.ToolUncertain);
-            var tools = CreateSynchronizedDemoMcpBroker(registrations, expectedConnections: 2);
+            var tools = CreateSynchronizedDemoMcpBroker(registrations, expectedConnections: 2,
+                releaseConnectionBarrier: releaseConnectionOnReservationRejected ? recorder.ReservationRejected : null);
             string? output = null;
 
             if (candidate == "structured")
@@ -6344,7 +6359,8 @@ public sealed class ArrayIterationVawBodyProofTests
     }
 
     private static McpToolBroker CreateSynchronizedDemoMcpBroker(
-        IReadOnlyList<McpToolRegistration> registrations, int expectedConnections, TimeSpan? timeout = null)
+        IReadOnlyList<McpToolRegistration> registrations, int expectedConnections, TimeSpan? timeout = null,
+        Task? releaseConnectionBarrier = null)
     {
         var allConnectionsReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var connectionCount = 0;
@@ -6360,7 +6376,10 @@ public sealed class ArrayIterationVawBodyProofTests
                         allConnectionsReady.TrySetResult();
                     try
                     {
-                        await allConnectionsReady.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+                        var barrier = releaseConnectionBarrier is null
+                            ? allConnectionsReady.Task
+                            : Task.WhenAny(allConnectionsReady.Task, releaseConnectionBarrier);
+                        await barrier.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
                         return client;
                     }
                     catch

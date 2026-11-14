@@ -262,6 +262,13 @@ will be introduced.
       controlled-broker proof evidence; production budget ownership and
       universal payload bounds remain open. See
       [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
+    - [x] Repeat MCP event-count exhaustion through the production broker and
+      real stdio `demo.slow` registration across all candidates and stores.
+      Reject the second authorization before MCP dispatch, release the admitted
+      sibling deterministically, suppress the join, and persist root failure
+      evidence (focused theory: 2/2; Agent Framework suite: 380/380). Budget
+      accounting is still test-owned;
+      see [Decision 0070](decisions/0070-bounded-array-iteration-contract.md).
     - [x] Exercise a custom `INodeToolBroker` whose parallel calls record
       authorization, hit a broker-owned post-dispatch deadline, persist
       `tool.outcome-unknown`, and fail. All three candidates settle reservations

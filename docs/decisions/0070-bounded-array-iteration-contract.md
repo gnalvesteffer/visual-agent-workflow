@@ -167,6 +167,18 @@ and event-count exhaustion now have candidate comparisons, but these remain
 test-only accounting proofs. They do not bound every payload shape, choose
 aggregate product caps, or establish production-owned budget/lifecycle.
 
+The production-broker candidate comparison also now calibrates event-count
+exhaustion from its successful parallel trace. With the real stdio `demo.slow`
+MCP registration, the file and SQLite stores, and each of the three candidates,
+the budget rejects the second `tool.authorized` event before that call can
+reach MCP dispatch. The admitted sibling settles, the join is suppressed, and
+the root fails with reserved terminal evidence (6 candidate/store executions;
+focused theory passes 2/2; the full Agent Framework suite passes 380/380). The
+test releases the first connection barrier when the reservation is rejected,
+so this boundary is synchronized instead of depending on a timeout. This is
+production-broker integration evidence, while the recorder and budget remain
+test-owned; it selects no scheduler or product limit.
+
 `IteratorCandidates_ReserveConcurrentDelegatedModelOutcomesAndBytesBeforeDispatch`
 uses the production `AgentNodeExecutor` team fan-out in each iterator candidate.
 The baseline records the parent model request and both synchronized delegated
