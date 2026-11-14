@@ -4145,6 +4145,36 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task StructuredActivationRunContext_FailureReserveExhaustionDoesNotPersistPartialTerminal(bool sqlite)
+    {
+        var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "array-iteration-structured-failure-reserve-exhaustion-proof");
+        const string input = "[\"one-item\"]";
+        using var store = new ProofRunStore(revision, input, sqlite);
+        var recorder = new ProofRecorder(store, startRoot: false);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new WorkflowRunner(agents: new EchoAgentExecutor(failNodeId: "agent"))
+                .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
+                    evt =>
+                    {
+                        recorder.Append(evt);
+                        return ValueTask.CompletedTask;
+                    }, runBudget: StructuredRunBudget(maximumToolDispatches: 1) with
+                    {
+                        ReservedFailureBytes = 1
+                    }));
+
+        var events = recorder.Snapshot();
+        AssertPersistedSequence(store, events, "running");
+        Assert.Contains(events, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "agent");
+        Assert.DoesNotContain(events, evt => evt.Kind is ExecutionEventKinds.AgentFailed or
+            ExecutionEventKinds.NodeFailed or ExecutionEventKinds.Failed or ExecutionEventKinds.Completed);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task IteratorCandidates_EnforceSharedEventAndByteBudgetsAcrossActivations(bool sqlite)
     {
         var revision = WorkflowRevision.Create(BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
@@ -4441,7 +4471,8 @@ public sealed class ArrayIterationVawBodyProofTests
                 {
                     var result = await new WorkflowRunner(tools, agents)
                         .ExecuteStructuredActivationSequenceProofAsync(store.RunId, revision, input, "index", null,
-                            recorder.RecordResequencedAsync);
+                            recorder.RecordResequencedAsync,
+                            runBudget: StructuredRunBudget(maximumToolDispatches: 2));
                     output = result.Output;
                 }
                 catch (IOException)
@@ -4974,7 +5005,8 @@ public sealed class ArrayIterationVawBodyProofTests
                 if (candidate == "structured")
                 {
                     await new WorkflowRunner(tools, agents).ExecuteStructuredActivationSequenceProofAsync(
-                        store.RunId, revision, input, "index", null, recorder.RecordResequencedAsync);
+                        store.RunId, revision, input, "index", null, recorder.RecordResequencedAsync,
+                        runBudget: StructuredRunBudget(maximumToolDispatches: 2));
                 }
                 else if (candidate == "fresh-subworkflow")
                 {
@@ -5055,7 +5087,8 @@ public sealed class ArrayIterationVawBodyProofTests
                 if (candidate == "structured")
                 {
                     await new WorkflowRunner(tools, agents).ExecuteStructuredActivationSequenceProofAsync(
-                        store.RunId, revision, input, "index", null, recorder.RecordResequencedAsync);
+                        store.RunId, revision, input, "index", null, recorder.RecordResequencedAsync,
+                        runBudget: StructuredRunBudget(maximumToolDispatches: 2));
                 }
                 else if (candidate == "fresh-subworkflow")
                 {

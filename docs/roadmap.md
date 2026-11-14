@@ -191,8 +191,9 @@ will be introduced.
       outcomes by call ID, and applies shared iteration/model/tool dispatch
       caps across activations. Six focused cases pass across file and SQLite:
       serial Agent/MCP outcome settlement, pre-provider and pre-tool rejection,
-      and parallel model reservation contention. This does not yet prove
-      pre-dispatch denial settlement or complete persisted failure bounds.
+      and parallel model reservation contention. The original six cases were
+      followed by targeted denial, timeout, cancellation, evidence-cap, and
+      storage-fault cases below.
       Six additional file/SQLite cases exercise this run context with actual
       MCP timeouts, controlled custom-broker unknown outcomes, and host
       cancellation after dispatch; correlated uncertain outcomes and terminal
@@ -200,19 +201,22 @@ will be introduced.
       pre-dispatch denial under a one-call cap, with no authorization or join.
       Event/byte exhaustion and activation/model/tool caps are also exercised
       through the run-context ledger; the persisted prefix remains within its
-      configured bounds and ends with failure evidence. Oversized failure
-      reserve exhaustion, storage append failure, and nearest-frame Break
-      consumption remain unproven; Break consumption remains test-owned.
+      configured bounds and ends with failure evidence. Failure-reserve
+      exhaustion now rejects failure events before persistence and leaves the
+      journal running without a partial terminal. File/SQLite append-failure
+      cases also cover model outcome, root completion fallback, and root
+      failure append behavior through this context. Nearest-frame Break
+      consumption remains unproven and test-owned.
     - [ ] Implement the reviewed ownership split: a VAW activation coordinator
       derives and consumes typed nearest-frame Break outcomes; one run context
       owns lifecycle and atomic shared reservations; the dispatcher returns
       typed body outcomes without finalizing the root. Prove stale/foreign
-      stale/foreign Break rejection, coordinator cancellation/failure races,
-      oversized failure-reserve exhaustion, and store append-failure behavior
-      in file and SQLite. Denial, timeout, unknown-outcome,
-      cancellation-after-dispatch, and ordinary event/byte/work-cap exhaustion
-      now have focused structured-context coverage. The three-role review
-      returned **REVISE**; see Decision 0070.
+      Break rejection and coordinator-level cancellation/failure races, then
+      repeat the three-role readiness review. Denial, timeout, unknown-outcome,
+      cancellation-after-dispatch, ordinary event/byte/work-cap exhaustion,
+      undersized failure reserves, and file/SQLite append failures now have
+      focused structured-context coverage. The latest review returned
+      **REVISE**; see Decision 0070.
   - [x] Compare typed item/index `data.evaluated` payloads across candidates.
     Evaluated values, activation scopes, and data connection IDs match and
     persist in both stores (2/2 focused theory cases). Broader runtime-output

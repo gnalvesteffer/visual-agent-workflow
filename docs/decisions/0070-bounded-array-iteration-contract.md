@@ -92,15 +92,20 @@ more cases verify parallel pre-dispatch denial persists without consuming the
 one-call dispatch cap or publishing a join. Event/byte exhaustion and shared
 activation/model/tool caps are also exercised through the run-context ledger;
 the persisted prefix stays under its configured bounds and ends in failure.
-Oversized failure-reserve exhaustion and store append-failure interaction
-remain open, so the run-context owner claim is still partial. Acceptance must exercise
-the same coordinator with real Agent/MCP adapters and file/SQLite stores,
-including foreign/stale Break targets, lifecycle races, pre-dispatch budget
-rejection, and reservation settlement. Stop if the dispatcher and coordinator
-both finalize lifecycle, Break is still created or consumed by the test loop
-after body return, external calls bypass the budget, or reservations
-leak/double-settle. This review does not select an architecture or authorize
-public schema/Studio changes.
+Two file/SQLite cases confirm an intentionally undersized failure-byte reserve
+rejects failure evidence before persistence and leaves no partial terminal.
+Additional file/SQLite fault injection rejects a model outcome, root completion,
+or root failure append. A rejected outcome or completion preserves the
+recorded prefix; it writes `run.failed` when the store accepts that event, while
+a rejected `run.failed` leaves the journal running. These cases do not establish
+recovery after storage failure, so the run-context owner claim is still partial.
+Acceptance must exercise the same coordinator with real Agent/MCP adapters and
+file/SQLite stores, including foreign/stale Break targets, lifecycle races,
+pre-dispatch budget rejection, and reservation settlement. Stop if the
+dispatcher and coordinator both finalize lifecycle, Break is still created or
+consumed by the test loop after body return, external calls bypass the budget,
+or reservations leak/double-settle. This review does not select an architecture
+or authorize public schema/Studio changes.
 
 The first hybrid increment extends `PerItemWorkflowExecutor` with immutable
 parent/child activation frames while each item still runs the production VAW
