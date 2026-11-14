@@ -133,6 +133,123 @@ public sealed class ArrayIterationVawBodyProofTests
         Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.Completed);
     }
 
+    [Fact]
+    public async Task StructuredActivationCoordinator_ConsumesGraphDispatchedBreakAtNearestFrame()
+    {
+        const string input = "[\"continue\",\"stop\",\"must-not-run\"]";
+        var revision = WorkflowRevision.CreateProofOnly(StructuredBreakProofDefinition(),
+            "array-iteration-structured-graph-break-proof");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+
+        ValueTask Record(ExecutionEvent evt)
+        {
+            events.Enqueue(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var result = await new WorkflowRunner().ExecuteStructuredActivationSequenceProofAsync(Guid.NewGuid(),
+            revision, input, "index", null, Record, itemParameterId: "item");
+
+        var recorded = events.ToArray();
+        Assert.Equal("continue:0", result.Output);
+        Assert.False(result.Failed);
+        Assert.Equal(2, recorded.Count(evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted));
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.NodeStarted && evt.NodeId == "proof-break");
+        Assert.DoesNotContain(recorded, evt => evt.ScopeId == "array-loop/2");
+        var breakFrameId = Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted &&
+            evt.ScopeId == "array-loop/1").InvocationId;
+        var breakEvent = Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted &&
+            evt.NodeId == "proof-break");
+        using var breakData = JsonDocument.Parse(breakEvent.Data!);
+        Assert.Equal("proof-break", breakData.RootElement.GetProperty("sourceNodeId").GetString());
+        Assert.Equal(breakFrameId, breakData.RootElement.GetProperty("sourceFrameId").GetGuid());
+        Assert.Equal(breakFrameId, breakData.RootElement.GetProperty("targetFrameId").GetGuid());
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
+    }
+
+    [Fact]
+    public async Task StructuredActivationSequenceProof_BreakAbortsSequenceWithoutPublishingOutputCompletion()
+    {
+        var definition = SequenceBodyDefinition();
+        var nodes = definition.Nodes.SetItem("inventory-tool",
+            new NodeDefinition(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"));
+        var revision = WorkflowRevision.CreateProofOnly(definition with
+        {
+            Nodes = nodes,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        },
+            "array-iteration-sequence-break-proof");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var tools = new EchoToolBroker();
+
+        var result = await new WorkflowRunner(tools)
+            .ExecuteStructuredActivationSequenceProofAsync(Guid.NewGuid(), revision, "[\"stop\",\"must-not-run\"]",
+                "index", null, evt =>
+                {
+                    events.Enqueue(evt);
+                    return ValueTask.CompletedTask;
+                });
+
+        var recorded = events.ToArray();
+        Assert.False(result.Failed);
+        Assert.Equal(string.Empty, result.Output);
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+        Assert.Single(recorded, evt => evt.Kind == "sequence.aborted" && evt.NodeId == "sequence");
+        Assert.DoesNotContain(recorded, evt => evt.Kind is ExecutionEventKinds.SequenceOutputCompleted or
+            ExecutionEventKinds.SequenceCompleted);
+        Assert.DoesNotContain(recorded, evt => evt.ScopeId == "array-loop/1");
+    }
+
+    [Fact]
+    public async Task StructuredActivationSequenceProof_BreakAbortsForkAndSettlesAdmittedSibling()
+    {
+        var definition = ParallelBodyDefinition();
+        var nodes = definition.Nodes.SetItem("agent-left",
+            new NodeDefinition(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"));
+        var revision = WorkflowRevision.CreateProofOnly(definition with
+        {
+            Nodes = nodes,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        }, "array-iteration-fork-break-proof");
+        var events = new ConcurrentQueue<ExecutionEvent>();
+        var agents = new BlockingAgentExecutor("north");
+
+        var result = await new WorkflowRunner(agents: agents)
+            .ExecuteStructuredActivationSequenceProofAsync(Guid.NewGuid(), revision, "[\"north\",\"later\"]",
+                "index", null, evt =>
+                {
+                    events.Enqueue(evt);
+                    return ValueTask.CompletedTask;
+                }, afterNodeStarted: (nodeId, token) => nodeId == "agent-left"
+                    ? new(agents.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), token))
+                    : ValueTask.CompletedTask);
+
+        var recorded = events.ToArray();
+        Assert.False(result.Failed);
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+        Assert.True(recorded.Any(evt => evt.Kind == ExecutionEventKinds.NodeCancelled && evt.NodeId == "agent-right"),
+            string.Join(" | ", recorded.Select(evt => $"{evt.Kind}:{evt.NodeId}:{evt.Data}")));
+        Assert.DoesNotContain(recorded, evt => evt.Kind == ExecutionEventKinds.NodeCompleted && evt.NodeId == "join");
+        Assert.DoesNotContain(recorded, evt => evt.ScopeId == "array-loop/1");
+        Assert.Single(recorded, evt => evt.Kind == ExecutionEventKinds.Completed && evt.ScopeId is null);
+    }
+
+    [Fact]
+    public void StructuredActivationFrame_RejectsBreakSignalsFromForeignFrames()
+    {
+        var frame = new WorkflowRunner.StructuredActivationFrame(Guid.NewGuid(), null, "array-loop", 0, "item",
+            ImmutableSortedDictionary<string, string>.Empty);
+        var foreignTarget = new WorkflowRunner.StructuredActivationBreakSignal("proof-break", frame.Id,
+            Guid.NewGuid(), frame.ScopeId);
+        var staleSource = new WorkflowRunner.StructuredActivationBreakSignal("proof-break", Guid.NewGuid(),
+            frame.Id, frame.ScopeId);
+
+        Assert.Throws<InvalidOperationException>(() => frame.ValidateNearestBreak(foreignTarget));
+        Assert.Throws<InvalidOperationException>(() => frame.ValidateNearestBreak(staleSource));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -7355,6 +7472,46 @@ public sealed class ArrayIterationVawBodyProofTests
         };
     }
 
+    private static WorkflowDefinition StructuredBreakProofDefinition()
+    {
+        var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
+            .Add("input", new(NodeTypes.Input, "1.0.0"))
+            .Add("item", new(NodeTypes.WorkflowValue, "1.0.0")
+                { ParameterId = "item", OutputDataType = WorkflowDataTypes.String })
+            .Add("index", new(NodeTypes.WorkflowValue, "1.0.0")
+                { ParameterId = "index", OutputDataType = WorkflowDataTypes.Integer })
+            .Add("index-text", new(NodeTypes.IntegerToString, "1.0.0"))
+            .Add("separator", new(NodeTypes.StringConstant, "1.0.0") { StringConstant = new(":") })
+            .Add("prefix", new(NodeTypes.TextConcat, "1.0.0"))
+            .Add("render", new(NodeTypes.TextConcat, "1.0.0"))
+            .Add("condition", new(NodeTypes.Condition, "1.0.0") { Condition = new("equals", "continue") })
+            .Add("merge", new(NodeTypes.Merge, "1.0.0"))
+            .Add("proof-break", new(WorkflowRunner.StructuredProofBreakNodeType, "proof-only"))
+            .Add("output", new(NodeTypes.Output, "1.0.0"));
+        var data = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("item-condition", new(new("item", "out"), new("condition", "in"), "data"))
+            .Add("condition-prefix", new(new("condition", "true"), new("prefix", "left"), "data"))
+            .Add("separator-prefix", new(new("separator", "out"), new("prefix", "right"), "data"))
+            .Add("prefix-render", new(new("prefix", "out"), new("render", "left"), "data"))
+            .Add("index-text", new(new("index", "out"), new("index-text", "in"), "data"))
+            .Add("index-render", new(new("index-text", "out"), new("render", "right"), "data"))
+            .Add("render-merge", new(new("render", "out"), new("merge", "in"), "data"))
+            .Add("merge-output", new(new("merge", "out"), new("output", "in"), "data"));
+        var execution = ImmutableSortedDictionary<string, ConnectionDefinition>.Empty
+            .Add("input-condition", Edge("input", "then", "condition", "execute"))
+            .Add("condition-merge", Edge("condition", "true", "merge", "execute"))
+            .Add("condition-break", Edge("condition", "false", "proof-break", "execute"))
+            .Add("merge-output", Edge("merge", "then", "output", "execute"));
+        return new WorkflowDefinition(WorkflowSchemaVersions.UnifiedWorkflowGraph,
+            "structured-array-break-proof", "input", nodes, data)
+        {
+            ExecutionConnections = execution,
+            Parameters = ImmutableSortedDictionary<string, WorkflowParameterDefinition>.Empty
+                .Add("item", new("Current item", "") { Type = WorkflowDataTypes.String })
+                .Add("index", new("Array index", "0") { Type = WorkflowDataTypes.Integer })
+        };
+    }
+
     private static WorkflowDefinition BodyDefinition(bool includeVariableStore = false, bool includeIndexParameter = false)
     {
         var nodes = ImmutableSortedDictionary<string, NodeDefinition>.Empty
@@ -8182,6 +8339,7 @@ public sealed class ArrayIterationVawBodyProofTests
 
         public bool FailingOutputReachedSibling => Volatile.Read(ref failingOutputReachedSibling) != 0;
         public bool SiblingObservedCancellation => Volatile.Read(ref siblingObservedCancellation) != 0;
+        public Task BlockedStarted => blockedStarted.Task;
 
         public Task<IReadOnlyList<ToolBindingDescriptor>> ListBindingsAsync(
             CancellationToken cancellationToken = default) =>

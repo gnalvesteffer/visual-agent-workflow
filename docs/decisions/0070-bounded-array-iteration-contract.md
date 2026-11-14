@@ -1446,3 +1446,27 @@ child construction, conditional/static-parallel body execution, and a
 production VAW Agent/MCP body with test-scoped event callbacks. Numeric budgets
 remain unselected until measured. No public iterator behavior is claimed by
 this decision.
+
+## Private structured Break dispatch increment (2026-11-14)
+
+The proof-only structured dispatcher now reaches a private Break node through
+ordinary graph routing and returns its typed source node, source frame, target
+frame, and scope identity to the activation coordinator. Sequence output paths
+and static fork branches use local cancellation scopes: Break stops new work,
+settles admitted siblings, suppresses normal Sequence/join completion, and
+propagates to the nearest frame. Host cancellation still wins, while a settled
+non-cancellation descendant failure is selected before Break. The private
+proof event `sequence.aborted` records Sequence abort without claiming an
+ordinary Sequence terminal outcome. `core.terminate` retains its separate
+workflow-exit behavior.
+
+Focused structured tests pass (6/6), including Break through Sequence and a
+static fork with a cooperatively cancelled Agent sibling, nearest-frame
+consumption, foreign/stale target rejection, final-event host cancellation,
+and the existing failed-fork cancellation regression. These tests execute the
+private structured scheduler and deterministic adapters; they do not persist
+the proof-only graph. File/SQLite passive evidence, playback compatibility,
+failure-race coverage, a production-selected scheduler, authored iterator
+pins, and public Break/array contracts remain open. This increments the proof
+only and does not change the **REVISE** architecture outcome or authorize
+public schema/Studio work.

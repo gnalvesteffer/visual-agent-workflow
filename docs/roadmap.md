@@ -445,13 +445,20 @@ will be introduced.
       nearest loop frame, and runs the Agent/MCP body with activation-scoped
       evaluator and variable state. The focused regression passes (1/1), and
       the full Agent Framework suite passes (318/318).
-    - [ ] Exercise authored typed array item/index pins and actual nearest-loop
-      `Break` dispatch in the production-backed proof without using a per-item
-      child Workflow. The private matched proof now binds explicit typed
-      iterator item/index pins into each candidate and dispatches a typed
-      nearest-loop signal through its own Break proof node, but does not add
-      graph-node descriptors or production runtime dispatch. The frame test
-      above still does not establish those production graph contracts.
+    - [x] Exercise graph-dispatched nearest-loop `Break` in the private
+      structured VAW dispatcher without a per-item child Workflow. The
+      proof-only node returns a typed source/frame/scope signal, and the nearest
+      frame consumes it. Sequence and static fork settle admitted descendants,
+      suppress normal completion evidence, and propagate Break to that frame.
+      Focused tests cover sibling cancellation, stale/foreign frame rejection,
+      and no later item admission (6/6). This remains a private proof: authored
+      iterator item/index pins, a public Break node, persisted playback, and a
+      production-selected scheduler are not implemented.
+    - [ ] Exercise authored typed array item/index pins and integrated
+      production runtime dispatch, then qualify the complete lifecycle,
+      budget, adapter, file/SQLite, and playback matrix. The private frame
+      binds typed parameter values, but does not establish authored pin
+      contracts or production-owned lifecycle/budget semantics.
     - [x] Extend the matched structured, fresh-subworkflow, and hybrid proof
       from string arrays to a validated JSON integer array, including signed
       64-bit minimum, zero, and maximum values. Items flow through typed

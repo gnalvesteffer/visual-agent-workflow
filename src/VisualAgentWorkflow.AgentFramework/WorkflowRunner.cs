@@ -304,7 +304,8 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
         string? CollaborationTargetBranchId = null, bool CollaborationTransition = false,
         SequenceMessageLineage? SequenceLineage = null, bool HasValue = true,
         StructuredActivationFrame? ActivationFrame = null,
-        ParallelCollaborationRuntime? CollaborationRuntime = null);
+        ParallelCollaborationRuntime? CollaborationRuntime = null,
+        StructuredActivationBreakSignal? ActivationBreakSignal = null);
 
     internal sealed record StructuredActivationFrame(Guid Id, StructuredActivationFrame? Parent,
         string LoopNodeId, int Index, string Item, ImmutableSortedDictionary<string, string> Parameters)
@@ -343,6 +344,15 @@ public sealed partial class WorkflowRunner(INodeToolBroker? tools = null, IAgent
             for (StructuredActivationFrame? current = this; current is not null; current = current.Parent)
                 if (!string.IsNullOrWhiteSpace(current.LoopNodeId)) return current;
             throw new InvalidOperationException("The activation is not inside an iterator.");
+        }
+
+        public void ValidateNearestBreak(StructuredActivationBreakSignal signal)
+        {
+            ArgumentNullException.ThrowIfNull(signal);
+            if (signal.SourceFrameId != Id || signal.ScopeId != ScopeId)
+                throw new InvalidOperationException("The Break signal source does not match the active iterator frame.");
+            if (signal.TargetFrameId != NearestLoop().Id)
+                throw new InvalidOperationException("The Break signal target is stale or does not identify the nearest active iterator.");
         }
 
         public StructuredActivationFrame Enter(string loopNodeId, int index, string item,

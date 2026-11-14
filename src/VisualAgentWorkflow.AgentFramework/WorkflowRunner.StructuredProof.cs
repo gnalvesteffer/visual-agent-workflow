@@ -7,6 +7,40 @@ namespace VisualAgentWorkflow.AgentFramework;
 
 public sealed partial class WorkflowRunner
 {
+    internal const string StructuredProofBreakNodeType = "vaw.proof.array-break";
+
+    internal sealed record StructuredActivationBreakSignal(string SourceNodeId, Guid SourceFrameId,
+        Guid TargetFrameId, string ScopeId);
+
+    private sealed record StructuredSchedulerProofResult(WorkflowExecutionResult Execution,
+        StructuredActivationBreakSignal? BreakSignal = null);
+
+    private static WorkflowDefinition ValidationProjection(WorkflowDefinition definition)
+    {
+        var proofBreakNodes = definition.Nodes.Where(entry => entry.Value.Type == StructuredProofBreakNodeType)
+            .Select(entry => entry.Key).ToArray();
+        if (proofBreakNodes.Length == 0) return definition;
+
+        var nodes = definition.Nodes.ToBuilder();
+        foreach (var nodeId in proofBreakNodes)
+        {
+            // The private proof node has no public pin contract. Project its existing
+            // outgoing shape to a validator-known node only; dispatch below still
+            // intercepts the original type and returns the typed activation signal.
+            var outgoingPorts = definition.ExecutionConnections?.Values
+                .Where(edge => edge.Source.NodeId == nodeId).Select(edge => edge.Source.PortId).ToArray() ?? [];
+            nodes[nodeId] = outgoingPorts.Contains("out", StringComparer.Ordinal)
+                ? new(NodeTypes.Agent, "1.0.0",
+                    Agent: new("vaw.proof.break", null, "Private proof projection", []))
+                : outgoingPorts.Length > 0
+                    ? new(NodeTypes.McpTool, "1.0.0",
+                        new ToolBindingRequest("vaw.proof.break", new string('0', 64))) { McpArgumentsJson = "{}" }
+                    : new(NodeTypes.Terminate, "1.0.0")
+                        { Termination = new(WorkflowTerminationOutcomes.Success) };
+        }
+        return definition with { Nodes = nodes.ToImmutable() };
+    }
+
     internal sealed record StructuredActivationRunBudget(
         int MaximumEvents,
         long MaximumBytes,
@@ -246,18 +280,21 @@ public sealed partial class WorkflowRunner
     /// Proof-only structured scheduler that reuses the production node executors
     /// while owning edge dispatch. It is not reachable through public execution.
     /// </summary>
-    internal Task<WorkflowExecutionResult> ExecuteStructuredSchedulerProofAsync(Guid runId,
+    internal async Task<WorkflowExecutionResult> ExecuteStructuredSchedulerProofAsync(Guid runId,
         WorkflowRevision revision, string input, IReadOnlyDictionary<string, string>? parameters,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken = default,
         string? activationScopeId = null, bool emitRunLifecycle = true, IWorkflowExecutionGate? gate = null,
         Func<string, CancellationToken, ValueTask>? afterNodeStarted = null,
         bool stageForkTargetsBeforeDispatch = false,
         Func<int, string, ValueTask>? afterForkTargetStaged = null)
-        => ExecuteStructuredSchedulerProofCoreAsync(runId, revision, input, parameters, record,
+    {
+        var result = await ExecuteStructuredSchedulerProofCoreAsync(runId, revision, input, parameters, record,
             cancellationToken, activationScopeId, emitRunLifecycle, gate, afterNodeStarted,
             stageForkTargetsBeforeDispatch, afterForkTargetStaged, null, null, null, null);
+        return result.Execution;
+    }
 
-    private async Task<WorkflowExecutionResult> ExecuteStructuredSchedulerProofCoreAsync(Guid runId,
+    private async Task<StructuredSchedulerProofResult> ExecuteStructuredSchedulerProofCoreAsync(Guid runId,
         WorkflowRevision revision, string input, IReadOnlyDictionary<string, string>? parameters,
         Func<ExecutionEvent, ValueTask> record, CancellationToken cancellationToken,
         string? activationScopeId, bool emitRunLifecycle, IWorkflowExecutionGate? gate,
@@ -274,7 +311,7 @@ public sealed partial class WorkflowRunner
         ArgumentNullException.ThrowIfNull(record);
         if (runId == Guid.Empty) throw new ArgumentException("A run ID is required.", nameof(runId));
         if (input.Length > 16_384) throw new ArgumentException("Input exceeds 16,384 characters.", nameof(input));
-        WorkflowValidator.ThrowIfInvalid(revision.Definition);
+        WorkflowValidator.ThrowIfInvalid(ValidationProjection(revision.Definition));
         var collaborationRegion = revision.Definition.ParallelCollaborationRegions?.Values.SingleOrDefault();
         if (revision.Definition.ParallelCollaborationRegions is { Count: > 1 })
             throw new NotSupportedException("The structured scheduler proof covers one collaboration region per activation.");
@@ -292,7 +329,8 @@ public sealed partial class WorkflowRunner
         var recordGate = new SemaphoreSlim(1, 1);
         long sequence = 0;
         var createsExecutorSet = retainedSession?.Executors is null;
-        var executors = retainedSession?.Executors ?? definition.Nodes.ToDictionary(entry => entry.Key,
+        var executors = retainedSession?.Executors ?? definition.Nodes
+            .Where(entry => entry.Value.Type != StructuredProofBreakNodeType).ToDictionary(entry => entry.Key,
             entry => (StringExecutor)new StringExecutor(entry.Key, entry.Value, runId, revision, resolvedParameters,
                 tools, agents, dataEvaluator, variableStore,
                 retainedSession is null ? EmitNodeEvent : retainedSession.RecordNodeEventAsync,
@@ -348,19 +386,21 @@ public sealed partial class WorkflowRunner
                 new GraphMessage(input, null, null, DataType: inputType,
                     ActivationFrame: activationFrame, CollaborationRuntime: collaborationRuntime), schedulerCancellation.Token);
             if (output is null) throw new InvalidOperationException("The structured proof produced no workflow output.");
+            if (output.ActivationBreakSignal is { } breakSignal)
+                return new(new(null, false, HasOutput: false), breakSignal);
             if (output.FailureSignal)
             {
                 if (emitRunLifecycle)
                     await Emit(ExecutionEventKinds.Failed, output.SourceNode, data: "Workflow ended at a failure termination.");
-                return new(null, true, true, HasOutput: false);
+                return new(new(null, true, true, HasOutput: false));
             }
             if (output.TerminationSignal)
             {
                 if (emitRunLifecycle) await Emit(ExecutionEventKinds.Terminated, output.SourceNode);
-                return new(null, true, HasOutput: false);
+                return new(new(null, true, HasOutput: false));
             }
             if (emitRunLifecycle) await Emit(ExecutionEventKinds.Completed, data: output.Text);
-            return new(output.Text, false, HasOutput: true);
+            return new(new(output.Text, false, HasOutput: true));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -392,6 +432,25 @@ public sealed partial class WorkflowRunner
             try
             {
                 token.ThrowIfCancellationRequested();
+                if (definition.Nodes[nodeId].Type == StructuredProofBreakNodeType)
+                {
+                    var frame = message.ActivationFrame ?? activationFrame
+                        ?? throw new InvalidOperationException("The structured proof Break has no active iterator frame.");
+                    var nearestFrame = frame.NearestLoop();
+                    var signal = new StructuredActivationBreakSignal(nodeId, frame.Id, nearestFrame.Id, frame.ScopeId);
+                    var invocationId = Guid.NewGuid();
+                    await Emit(ExecutionEventKinds.NodeStarted, nodeId, invocationId, eventScope: frame.ScopeId);
+                    if (afterNodeStarted is not null) await afterNodeStarted(nodeId, token);
+                    await Emit(ExecutionEventKinds.NodeCompleted, nodeId, invocationId,
+                        data: JsonSerializer.Serialize(signal, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+                        eventScope: frame.ScopeId);
+                    return message with
+                    {
+                        SourceNode = nodeId,
+                        SourcePort = "break",
+                        ActivationBreakSignal = signal
+                    };
+                }
                 if (definition.Nodes[nodeId].Type == NodeTypes.Sequence)
                     return await DispatchSequence(nodeId, message, token);
                 if (definition.Nodes[nodeId].Type == NodeTypes.ParallelRendezvous)
@@ -399,8 +458,11 @@ public sealed partial class WorkflowRunner
 
                 var executor = executors[nodeId];
                 var node = definition.Nodes[nodeId];
-                var forkTasks = new List<Task<GraphMessage?>>();
+                var forkTasks = new List<Task<(GraphMessage? Message, Exception? Error)>>();
                 var stagedForkTargets = new List<(GraphMessage Message, string Target, CancellationToken Token)>();
+                using var forkCancellation = node.Type == NodeTypes.ParallelFork
+                    ? CancellationTokenSource.CreateLinkedTokenSource(token)
+                    : null;
                 var result = await executor.HandleForStructuredSchedulerAsync(message, (outgoing, target, ct) =>
                 {
                     if (node.Type == NodeTypes.ParallelFork && stageForkTargetsBeforeDispatch)
@@ -411,16 +473,28 @@ public sealed partial class WorkflowRunner
                             : afterForkTargetStaged(stagedForkTargets.Count, target);
                     }
 
-                    forkTasks.Add(DispatchNode(target, outgoing, ct));
+                    if (forkCancellation is null)
+                        forkTasks.Add(DispatchBranch(target, outgoing, ct, null));
+                    else
+                        forkTasks.Add(DispatchBranch(target, outgoing, ct, forkCancellation));
                     return ValueTask.CompletedTask;
                 }, token);
+
+                if (result.ActivationBreakSignal is not null) return result;
 
                 if (node.Type == NodeTypes.ParallelFork)
                 {
                     foreach (var staged in stagedForkTargets)
-                        forkTasks.Add(DispatchNode(staged.Target, staged.Message, staged.Token));
-                    var branchResults = await Task.WhenAll(forkTasks);
-                    var outputs = branchResults.Where(branch => branch is not null).ToArray();
+                        forkTasks.Add(DispatchBranch(staged.Target, staged.Message, staged.Token, forkCancellation));
+                    var outcomes = await Task.WhenAll(forkTasks);
+                    token.ThrowIfCancellationRequested();
+                    var failure = outcomes.Select(outcome => outcome.Error)
+                        .FirstOrDefault(error => error is not null and not OperationCanceledException);
+                    if (failure is not null) throw failure;
+                    var breakResult = outcomes.Select(outcome => outcome.Message)
+                        .FirstOrDefault(branch => branch?.ActivationBreakSignal is not null);
+                    if (breakResult is not null) return breakResult;
+                    var outputs = outcomes.Select(outcome => outcome.Message).Where(branch => branch is not null).ToArray();
                     return outputs.Length switch
                     {
                         0 => null,
@@ -440,10 +514,35 @@ public sealed partial class WorkflowRunner
                 var next = executionEdges.SingleOrDefault(edge => edge.Source.NodeId == nodeId &&
                     edge.Source.PortId == result.SourcePort);
                 return next is null ? null : await DispatchNode(next.Target.NodeId, result, token);
+
+                async Task<(GraphMessage? Message, Exception? Error)> DispatchBranch(string target,
+                    GraphMessage outgoing, CancellationToken branchToken, CancellationTokenSource? sharedCancellation)
+                {
+                    using var linkedCancellation = sharedCancellation is null
+                        ? null
+                        : CancellationTokenSource.CreateLinkedTokenSource(sharedCancellation.Token, branchToken);
+                    try
+                    {
+                        var branch = await DispatchNode(target, outgoing,
+                            linkedCancellation?.Token ?? branchToken);
+                        if (branch?.ActivationBreakSignal is not null) sharedCancellation?.Cancel();
+                        return (branch, null);
+                    }
+                    catch (Exception error)
+                    {
+                        if (sharedCancellation is null) throw;
+                        if (error is not OperationCanceledException) sharedCancellation?.Cancel();
+                        return (null, error);
+                    }
+                }
             }
-            catch
+            catch (Exception error)
             {
-                if (!schedulerCancellation.IsCancellationRequested) schedulerCancellation.Cancel();
+                if ((error is not OperationCanceledException || cancellationToken.IsCancellationRequested) &&
+                    token == schedulerCancellation.Token)
+                {
+                    if (!schedulerCancellation.IsCancellationRequested) schedulerCancellation.Cancel();
+                }
                 throw;
             }
         }
@@ -585,33 +684,52 @@ public sealed partial class WorkflowRunner
                                 ParallelForkNodeId: message.ParallelForkNodeId,
                                 SequenceLineage: lineage, ActivationFrame: message.ActivationFrame,
                                 CollaborationRuntime: message.CollaborationRuntime), outputsCancellation.Token);
+                        if (result?.ActivationBreakSignal is not null) outputsCancellation.Cancel();
                         if (result is null)
-                            throw new InvalidOperationException($"Sequence output '{output.OutputId}' produced no result.");
-                        coordinator.Complete(activationId, SequenceTerminalState.Completed, result.Text);
-                        await FlushSequenceEvents();
-                        return result;
+                            return (ActivationId: activationId, OutputId: output.OutputId, Result: (GraphMessage?)null,
+                                Error: (Exception?)new InvalidOperationException($"Sequence output '{output.OutputId}' produced no result."));
+                        return (ActivationId: activationId, OutputId: output.OutputId, Result: result, Error: (Exception?)null);
                     }
-                    catch (OperationCanceledException) when (outputsCancellation.IsCancellationRequested)
+                    catch (Exception error)
                     {
-                        coordinator.Complete(activationId, SequenceTerminalState.Cancelled);
-                        await FlushSequenceEvents();
-                        throw;
-                    }
-                    catch
-                    {
-                        coordinator.Complete(activationId, SequenceTerminalState.Failed);
-                        outputsCancellation.Cancel();
-                        await FlushSequenceEvents();
-                        throw;
+                        if (error is not OperationCanceledException) outputsCancellation.Cancel();
+                        return (ActivationId: activationId, OutputId: output.OutputId, Result: (GraphMessage?)null,
+                            Error: error);
                     }
                 }).ToArray();
 
-                var results = await Task.WhenAll(outputTasks);
+                var outcomes = await Task.WhenAll(outputTasks);
+                token.ThrowIfCancellationRequested();
+                var failure = outcomes.Select(outcome => outcome.Error)
+                    .FirstOrDefault(error => error is not null and not OperationCanceledException);
+                if (failure is not null)
+                {
+                    foreach (var completed in outcomes.Where(outcome => outcome.Result is not null))
+                        coordinator.Complete(completed.ActivationId, SequenceTerminalState.Completed, completed.Result!.Text);
+                    var failed = outcomes.First(outcome => outcome.Error is not null and not OperationCanceledException);
+                    coordinator.Complete(failed.ActivationId, SequenceTerminalState.Failed);
+                    await FlushSequenceEvents();
+                    throw failure;
+                }
+
+                var breakResult = outcomes.Select(outcome => outcome.Result)
+                    .FirstOrDefault(result => result?.ActivationBreakSignal is not null);
+                if (breakResult is not null)
+                {
+                    await Emit("sequence.aborted", nodeId, sequenceInvocationId,
+                        data: JsonSerializer.Serialize(breakResult.ActivationBreakSignal,
+                            new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                    return breakResult;
+                }
+
+                foreach (var completed in outcomes)
+                    coordinator.Complete(completed.ActivationId, SequenceTerminalState.Completed, completed.Result!.Text);
+                await FlushSequenceEvents();
                 var deterministicResult = coordinator.DeterministicResult
                     ?? throw new InvalidOperationException("The Sequence produced no completed output value.");
                 await Emit(ExecutionEventKinds.NodeCompleted, nodeId, sequenceInvocationId,
                     data: "All Sequence outputs completed.");
-                var firstOutputResult = results[0];
+                var firstOutputResult = outcomes[0].Result!;
                 return firstOutputResult with { Text = deterministicResult };
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -705,7 +823,7 @@ public sealed partial class WorkflowRunner
                 var scopeId = frame.ScopeId;
                 await Emit(ExecutionEventKinds.LoopIterationStarted, activationLoopNodeId, iterationId, scopeId);
                 var variableStore = variableStores.GetOrAdd(iterationId, _ => new WorkflowVariableStore(bodyRevision.Definition));
-                var result = await ExecuteStructuredSchedulerProofCoreAsync(runId, bodyRevision, items[index],
+                var dispatchResult = await ExecuteStructuredSchedulerProofCoreAsync(runId, bodyRevision, items[index],
                     activationParameters, evt => evt.Kind is ExecutionEventKinds.Started or
                         ExecutionEventKinds.Completed or ExecutionEventKinds.Failed or
                         ExecutionEventKinds.Cancelled or ExecutionEventKinds.Terminated
@@ -717,6 +835,16 @@ public sealed partial class WorkflowRunner
                     activationFrame: frame, activationVariableStore: id =>
                         id is { } frameId && variableStores.TryGetValue(frameId, out var currentStore) ? currentStore : null,
                     retainedSession: session);
+                if (dispatchResult.BreakSignal is { } breakSignal)
+                {
+                    frame.ValidateNearestBreak(breakSignal);
+                    await Emit(ExecutionEventKinds.LoopIterationCompleted, activationLoopNodeId, iterationId,
+                        scopeId, JsonSerializer.Serialize(new { outcome = "break", breakSignal.SourceNodeId,
+                            breakSignal.TargetFrameId }));
+                    break;
+                }
+
+                var result = dispatchResult.Execution;
                 if (result.Failed || result.Output is null)
                 {
                     await Emit(ExecutionEventKinds.Failed, activationLoopNodeId, iterationId, scopeId,
