@@ -1842,6 +1842,9 @@ the stale accepted sequence, the store rejects it, the original callback
 exception is rethrown, and reopening both stores retains the committed prefix
 without a fabricated root outcome. Custom stores that violate the documented
 atomic append and expected-sequence contract remain outside this guarantee.
-This private proof change selects no iterator architecture and adds no public
-schema or Studio authoring. Architecture overview and user guide remain
-unaffected.
+A further file/SQLite case rejects `loop.iteration.completed` after the
+Agent/MCP body completes. Its accepted `tool.completed` evidence remains in
+the failed history, no later item is admitted, and the root failure is
+reconstructed after reopen. The private proof change selects no iterator
+architecture and adds no public schema or Studio authoring. Architecture
+overview and user guide remain unaffected.

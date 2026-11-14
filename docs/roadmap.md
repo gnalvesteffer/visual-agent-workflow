@@ -243,7 +243,8 @@ will be introduced.
       retry failed or terminal events. File/SQLite tests cover loop-start
       failure with accepted and rejected fallback, root-start failure, and
       terminal-append failure plus commit-then-lost-acknowledgment behavior
-      (10 cases). Custom stores that violate sequence/atomicity guarantees
+      plus iteration-completion append failure after successful tool evidence
+      (12 cases). Custom stores that violate sequence/atomicity guarantees
       and other failure/race/append points remain open.
   - [x] Verify typed-array checkpoint exclusion: standalone schema-2.0 array
     dataflow does not match the deterministic checkpoint shape, and typed

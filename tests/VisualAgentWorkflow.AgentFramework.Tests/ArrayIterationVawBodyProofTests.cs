@@ -568,6 +568,47 @@ public sealed class ArrayIterationVawBodyProofTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ProductionBodyActivationCoordinator_IterationCompleteAppendFailureStopsNextActivation(bool sqlite)
+    {
+        const string input = "[\"first\",\"must-not-run\"]";
+        var revision = WorkflowRevision.Create(
+            BodyDefinition(includeVariableStore: true, includeIndexParameter: true),
+            "production-body-iteration-complete-append-failure-proof");
+        using var runStore = new ProofRunStore(revision, input, sqlite,
+            rejectedAppendEventKinds: [ExecutionEventKinds.LoopIterationCompleted]);
+        var agents = new EchoAgentExecutor();
+        var tools = new EchoToolBroker(recordToolDispatchEvents: true);
+        var events = new List<ExecutionEvent>();
+
+        ValueTask Persist(ExecutionEvent evt)
+        {
+            runStore.Store.Append(runStore.RunId, evt.Sequence - 1, [evt]);
+            events.Add(evt);
+            return ValueTask.CompletedTask;
+        }
+
+        var failure = await Record.ExceptionAsync(() => new WorkflowRunner(tools, agents)
+            .ExecuteProductionBodyActivationSequenceProofAsync(runStore.RunId, revision, input, "index", null,
+                Persist, runBudget: StructuredRunBudget(maximumToolDispatches: 2)));
+
+        Assert.IsType<IOException>(failure);
+        Assert.Equal(["FIRST:0"], agents.Inputs);
+        Assert.Equal(agents.Inputs, tools.Queries);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.ToolCompleted);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationStarted);
+        Assert.DoesNotContain(events, evt => evt.Kind == ExecutionEventKinds.LoopIterationCompleted);
+        Assert.Single(events, evt => evt.Kind == ExecutionEventKinds.Failed && evt.NodeId is null);
+        Assert.DoesNotContain(events, evt => evt.ScopeId == "array-loop/1");
+        AssertPersistedSequence(runStore, events, "failed");
+
+        var reopened = runStore.ReopenStore().Get(runStore.RunId)!;
+        Assert.Equal("failed", reopened.Status);
+        Assert.Equal(events.ToArray(), reopened.Events.ToArray());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ProductionBodyActivationCoordinator_RootStartAppendFailureDoesNotWriteTerminal(bool sqlite)
     {
         const string input = "[\"first\"]";
